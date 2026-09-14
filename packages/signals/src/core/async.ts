@@ -28,6 +28,7 @@ import {
   clock,
   currentTransition,
   dirtyQueue,
+  enterWaiting,
   flush,
   GlobalQueue,
   globalQueue,
@@ -400,7 +401,12 @@ export function handleAsync<T>(
     // waiting on this flight into it at the landing — a reveal that
     // discovered the flight (#3305) would then wait on the owner's action
     // instead of on the flight (#3334). Enter the waiter: the transaction
-    // whose blocker this landing clears.
+    // whose blocker this landing clears. Then every transaction waiting on
+    // the flight folds in (enterWaiting): a reveal that discovered it
+    // completes at its landing (A15) — a stampless node's fresh batch
+    // included (its flight started under a batch that committed beneath it,
+    // #3305). The fold used to happen as each stamped reader recomputed,
+    // which effects no longer do (#3407).
     if (el._x?._optimisticLane) transition = waitingTransition(el) ?? transition;
     if (
       transition &&
@@ -413,6 +419,7 @@ export function handleAsync<T>(
       return;
     }
     globalQueue.initTransition(transition);
+    enterWaiting(el);
   };
 
   const handleError = (error: any) => {

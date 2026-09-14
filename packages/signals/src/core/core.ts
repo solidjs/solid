@@ -229,7 +229,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let devChanged = false;
   if (__OBSERVE__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   if (!create) {
-    if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
+    // A stamped memo re-enters its hold: its value is that transaction's work.
+    // An effect's pass belongs to whatever dirtied it (A15 corollary: effects
+    // don't entangle parallel transactions); it joins its stamp only when the
+    // pass observes the held flight — queue notification (#3407).
+    if (el._transition && !isEffect && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
     deleteFromHeap(el, queueFor(el));
     if (el._x !== null) {

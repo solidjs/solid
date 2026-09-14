@@ -137,6 +137,7 @@ export function action<Args extends any[], Y, R>(
       globalQueue.initTransition();
       let ctx = activeTransition!;
       ctx._actions.push(it);
+      ctx._acted = true;
 
       const done = (v?: R, e?: any, failed = false) => {
         ctx = currentTransition(ctx);
