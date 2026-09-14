@@ -297,7 +297,10 @@ const STATES: State[] = [
         true,
         "pre-flush verdict flips on the unflushed write; A28 (#3337) territory"
       ),
-      authoritative: observed(1, "until() predicate pre-flush; no rule names this cell")
+      authoritative: observed(
+        1,
+        "until() predicate pre-flush sees the unflushed write; A28 (#3337) territory"
+      )
     }
   },
   {
@@ -332,15 +335,15 @@ const STATES: State[] = [
         0,
         "A15 reveal corollary / A26: a stale reader of a parallel transaction shows committed, no entanglement"
       ),
-      childrenForbidden: observed(
+      childrenForbidden: rule(
         0,
-        "#3006 committed visibility for children-forbidden readers — INTERNALS only, no A-rule"
+        "A32: children-forbidden readers see the frame; a held write is never visible to them"
       ),
       latest: rule(1, "A8/A11: the held value exists from the write; latest serves it"),
       isPending: rule(true, "A19 (i)"),
-      authoritative: observed(
+      authoritative: rule(
         1,
-        "until() reads staged as authoritative (code comment at read()); A17 names only the override carve-out"
+        "A17 carve-out (2026-09-14): until() reads the landed world — the staged value"
       )
     }
   },
@@ -374,10 +377,7 @@ const STATES: State[] = [
         "A17: the override is the displayed value; no downstream async, so the lane has nothing to wait for"
       ),
       staleForeign: rule(5, "A17: the applied frame shows the override"),
-      childrenForbidden: observed(
-        5,
-        "override arm precedes children-forbidden in read(); no rule names this cell"
-      ),
+      childrenForbidden: rule(5, "A32: the override is the frame; it shows through"),
       latest: rule(5, "A17 / OL-R11: the override is the value on every channel"),
       isPending: rule(false, "A24 (3): optimistic writes are verdict-inert"),
       authoritative: rule(0, "A17: until()'s predicate never sees the caller's own optimism")
@@ -408,9 +408,9 @@ const STATES: State[] = [
       childrenForbidden: rule(0, "OL-R5"),
       latest: rule(5, "OL-R11 pre-flush"),
       isPending: rule(false, "A24 (3)"),
-      authoritative: observed(
+      authoritative: rule(
         0,
-        "until() predicate: carve-out (A17) or revert-at-flush — both give 0; which one is not stated"
+        "A17 carve-out: never the caller's optimism (and the ambient override reverts at the flush the reader forces)"
       )
     }
   },
@@ -439,10 +439,7 @@ const STATES: State[] = [
         3,
         "A18 (c) / A17 amended: a stale reader of another transaction displays the override"
       ),
-      childrenForbidden: observed(
-        3,
-        "children-forbidden readers get display visibility (the override); no rule names this cell"
-      ),
+      childrenForbidden: rule(3, "A32: the displayed override shows through, superseded or not"),
       latest: rule(2, "A18 (d): latest returns the arrived value"),
       isPending: rule(true, "A18 (d): pending iff the arrival differs from the override"),
       authoritative: rule(2, "A17 carve-out: the authoritative reader sees the staged truth")
@@ -466,7 +463,7 @@ const STATES: State[] = [
         "this reader (created after the node initialized) holds. A render effect on the node created BEFORE its first landing published the truth (2) at the supersession in a side probe — while untracked reads still served 3 — so the hold here is shape-dependent; follow-up"
       ),
       staleForeign: observed(3, "displays the override, as in the initialized case"),
-      childrenForbidden: observed(3, "as above"),
+      childrenForbidden: rule(3, "A32"),
       latest: rule(2, "A18 (d)"),
       isPending: violation(
         true,
@@ -504,9 +501,9 @@ const STATES: State[] = [
         0,
         "A19 (ii): the observable value is the committed one while the node's own async is in flight"
       ),
-      derivesFrom: observed(
+      derivesFrom: rule(
         NOT_READY,
-        "a fresh derivation suspends on the observed flight (A15 reveal). Observer-dependent: with NO reader holding on the flight (no transaction opened for it) the same fresh memo read the committed 0 instead — the #3305 'no observer' shape; not stated as a rule"
+        "A15: a fresh derivation suspends on the observed flight. (With no reader holding on the flight the pass reads the committed value instead and the reveal holds — the frame is identical; observation-driven transactions make the difference inherent, ruled 2026-09-14.)"
       ),
       published: rule(HELD, "A15"),
       preexisting: rule(HELD, "A15: the reader that observed the flight holds"),
@@ -514,18 +511,15 @@ const STATES: State[] = [
         0,
         "A15 reveal corollary says a stale reader holds when the flight's inputs are published (#3305); here the new question was a mainline write and the reader shows the pre-flight committed value — does INPUTS_PUBLISHED cover a flight opened by the same batch?"
       ),
-      childrenForbidden: observed(
-        0,
-        "#3006: committed visibility for children-forbidden readers; no A-rule"
-      ),
+      childrenForbidden: rule(0, "A32: a pending node's committed value is the frame"),
       latest: rule(
         0,
         "A8: latest shows the stale value while the own fetch for a new question is in flight"
       ),
       isPending: rule(true, "A19 (ii) / A24 (2): a new question pends"),
-      authoritative: observed(
+      authoritative: rule(
         NOT_READY,
-        "until() predicate over a pending node; no rule names this cell"
+        "A17 carve-out: nothing has landed for the new question; the predicate suspends like any reader"
       )
     }
   },
@@ -558,22 +552,16 @@ const STATES: State[] = [
         HELD,
         "A15 reveal corollary: an uninitialized node has no committed value to show"
       ),
-      childrenForbidden: observed(
+      childrenForbidden: rule(NOT_READY, "A32: no frame to read yet"),
+      latest: rule(
         NOT_READY,
-        "no A-rule for children-forbidden readers of an uninitialized node"
-      ),
-      latest: observed(
-        undefined,
-        "latestRead swallows NotReady for an untracked caller and serves the (undefined) visible value; A7 covers only the resolved case"
+        "A7 (amended 2026-09-14): latest() of an uninitialized node throws in every scope, never undefined"
       ),
       isPending: rule(
         false,
-        "A16: isPending never throws untracked; A19 exception (1): loading is not pending"
+        "A16: an unowned isPending never throws; A19 exception (1): loading is not pending"
       ),
-      authoritative: observed(
-        NOT_READY,
-        "until() predicate over an uninitialized node; no rule names this cell"
-      )
+      authoritative: rule(NOT_READY, "A17 carve-out: nothing landed")
     }
   },
   {
@@ -599,7 +587,10 @@ const STATES: State[] = [
       childrenForbidden: rule(-1, "A27: loading-class, no suspension"),
       latest: rule(-1, "A27"),
       isPending: rule(false, "A27: verdict-quiet"),
-      authoritative: observed(-1, "no rule names until() over a loading-window node")
+      authoritative: rule(
+        -1,
+        "A17 carve-out / A27: the loading value is commit #0 — landed by declaration"
+      )
     }
   }
 ];
@@ -620,7 +611,7 @@ afterAll(() => {
     );
 });
 
-describe("visibility oracle (A15, A17, A18, A19, A24, A26, A27, A29)", () => {
+describe("visibility oracle (A7, A15, A16, A17, A18, A19, A24, A26, A27, A29, A32)", () => {
   for (const state of STATES) {
     describe(state.name, () => {
       for (const reader of READERS) {

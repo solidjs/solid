@@ -425,10 +425,12 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
     }
     value = read(pendingComputed);
   } catch (e) {
-    if (
-      e instanceof NotReadyError &&
-      (!context || !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED))
-    )
+    // A NotReady from the shadow of an INITIALIZED source means the shadow
+    // is mid-flight: serve the visible (committed / override) value. An
+    // uninitialized source has no visible value — latest() throws in every
+    // scope rather than fabricate `undefined` for a `T` that excludes it
+    // (A7; the unowned scope used to return undefined here).
+    if (e instanceof NotReadyError && !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED))
       return visibleValue;
     throw e;
   } finally {
