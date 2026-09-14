@@ -554,12 +554,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // A window landing that gets held re-opens the window until the hold
         // commits — the verdict's held-value branch is window-gated (#2990).
         if (wasLoading) el._loading = true;
-        // Transition-held sync recompute is a write path like setSignal/asyncWrite,
+        // A staged sync recompute is a write path like setSignal/asyncWrite,
         // so sync derivations of held sources stay visible to isPending()/latest()
         // (#2831). Both companion writes are transition-scoped (optimistic) and
-        // auto-revert/re-derive at commit. Skipped for plain flushes where the
-        // pending value commits before effects run.
-        if ((activeTransition || el._transition) && GlobalQueue._syncCompanions !== null)
+        // auto-revert/re-derive at commit. Not gated on an active transition:
+        // a plain flush can still become a hold after this recompute — an
+        // async memo downstream pends and the batch is adopted into a
+        // transaction (scheduler.enterTransition) — and nothing re-derives
+        // the companion at adoption, so a memo held that way read
+        // isPending() false while its held source read true (#3413).
+        if (el._config & CONFIG_HAS_COMPANIONS && GlobalQueue._syncCompanions !== null)
           GlobalQueue._syncCompanions(el, value);
       }
 
