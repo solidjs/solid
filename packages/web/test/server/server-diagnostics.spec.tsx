@@ -18,10 +18,10 @@
 //
 // Component labels (`ownerPath: ["<App>", "<Page>"]`) come from the server
 // `createComponent`, which the observe/dev tiers run under a labelled
-// transparent owner. The SSR compiler inlines `<Page />` to `Page({})` (no
-// `createComponent` call), so the label sites here call `createComponent`
-// directly — the shape compiled output takes once the compiler emits it for
-// SSR under `componentNames`.
+// transparent owner. This suite compiles with `componentNames` (see
+// vite.config.server.mjs — the vite plugin's dev/observe postures), so a
+// compiled `<Page />` is `createComponent(Page, {}, "Page")` rather than the
+// prod inline `Page({})`; the labels here come from ordinary JSX.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -37,7 +37,6 @@ import {
 } from "@solidjs/web";
 import {
   OBSERVE,
-  createComponent,
   createMemo,
   lazy,
   NotReadyError,
@@ -49,12 +48,6 @@ import type { JSX } from "@solidjs/web";
 function delay(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
-
-/** `<Comp />` through the runtime's `createComponent` (labelled in observe/dev). */
-const mount =
-  <P extends Record<string, any>>(Comp: (props: P) => JSX.Element, props = {} as P) =>
-  () =>
-    createComponent(Comp, props);
 
 function renderComplete(code: () => any, options: any = {}): Promise<string> {
   return new Promise(resolve => {
@@ -91,7 +84,7 @@ describe("SSR_RENDER_ERROR_CONTAINED (wiring)", () => {
         </Errored>
       );
     }
-    const html = await renderComplete(mount(App));
+    const html = await renderComplete(() => <App />);
     expect(html).toContain("caught");
 
     const [event, ...rest] = byCode("SSR_RENDER_ERROR_CONTAINED");
@@ -101,9 +94,12 @@ describe("SSR_RENDER_ERROR_CONTAINED (wiring)", () => {
     expect(event.message).toContain("Render error caught by <Errored>: Error: bad render");
     expect(event.data!.handling).toBe("fallback");
     expect((event.data!.error as Error).message).toBe("bad render");
-    // The server component wrapper labels its owner (`<Name>`), the same
-    // field and walk as the client — the boundary sits inside <App>.
-    expect(event.ownerPath).toEqual(["<App>"]);
+    // The server `createComponent` labels its owner (`<Name>`), the same
+    // field and walk as the client — and, as on the client, the compiled
+    // `<Errored>` is a component call too, so the boundary that caught the
+    // error is the innermost label (the finding is the boundary's, raised
+    // from its owner; the failed `<Bad>` owner is already gone).
+    expect(event.ownerPath).toEqual(["<App>", "<Errored>"]);
     // Wiring in the dev tier: the channel got it AND the console face
     // reported it once, with the location — a developer sees the contained
     // error `renderToStream`'s `onError` never hears. (The observe tier
@@ -129,14 +125,14 @@ describe("SSR_RENDER_ERROR_CONTAINED (wiring)", () => {
         </Loading>
       );
     }
-    await renderComplete(mount(App));
+    await renderComplete(() => <App />);
 
     const events = byCode("SSR_RENDER_ERROR_CONTAINED");
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events.every(e => e.data!.handling === "client")).toBe(true);
     expect(events[0].message).toContain("the fragment rejected and the client re-renders it");
     expect(events[0].message).toContain("late-boom");
-    expect(events[0].ownerPath).toEqual(["<App>"]);
+    expect(events[0].ownerPath).toEqual(["<App>", "<Loading>"]);
     expect(typeof events[0].data!.boundary).toBe("string");
   });
 
@@ -323,9 +319,9 @@ describe("dev checks: emitted and reported once", () => {
       return <p>page</p>;
     }
     function App() {
-      return createComponent(Page, {});
+      return <Page />;
     }
-    renderToString(mount(App));
+    renderToString(() => <App />);
 
     const [event, ...rest] = byCode("HEAD_TAG_INVALID");
     expect(rest).toHaveLength(0);
@@ -381,7 +377,7 @@ describe("dev checks: emitted and reported once", () => {
     function App() {
       return <div>{{ not: "a template" } as any}</div>;
     }
-    const html = renderToString(mount(App));
+    const html = renderToString(() => <App />);
     expect(html).toContain("<div");
     const [event, ...rest] = byCode("UNRECOGNIZED_INSERT_VALUE");
     expect(rest).toHaveLength(0);

@@ -10,7 +10,7 @@ const oxcFixtures = path.resolve(__dirname, "fixtures/dom-component-names");
 
 const fixtureParity = {
   components: "subset",
-  ssrInert: "subset"
+  ssr: "subset"
 };
 
 const suiteOptions = {
@@ -82,5 +82,18 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
       componentNames: false
     });
     expect(code).not.toContain('"Child"');
+  });
+
+  // SSR keeps the `createComponent` wrapper only for the label; without the
+  // option it inlines `Comp(props)` and imports no `createComponent`.
+  it("SSR inlines the component call without the option", () => {
+    const { code } = transform(readFixture("ssr"), {
+      filename: "ssr.jsx",
+      ...fixtureOptions("ssr"),
+      componentNames: false
+    });
+    expect(code).not.toContain("createComponent");
+    expect(code).not.toContain('"Child"');
+    expect(code).toContain("Child({");
   });
 });

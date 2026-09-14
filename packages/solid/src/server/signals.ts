@@ -473,11 +473,21 @@ export function createRoot<T>(
  * swapped around the evaluation. Content created during the evaluation
  * attaches to the parent owner, which matches the pre-scope disposal
  * semantics (boundary retries dispose it via the boundary owner).
+ *
+ * The swapped owner is the nearest ID-BEARING one, not necessarily the
+ * current one: content created inside the hole reads its ids through
+ * `nextChildIdFor`, which walks up past transparent owners, so a swap on a
+ * transparent owner (the server-component scope owner; in observe/dev, the
+ * labelled `<Name>` owner every component body runs under) would be
+ * invisible to it and the hole's content would take fresh ids from the
+ * enclosing counter — a different id than the client, which scopes the
+ * hole by its own insert effect regardless of what sits between.
  */
 export function ssrScope<T>(fn: () => T): () => unknown {
-  const parent = currentOwner;
+  let parent = currentOwner;
   // No id plumbing to protect (non-hydrating SSR / owner-less evaluation).
   if (!parent || parent.id == null) return fn;
+  while (parent._transparent && parent._parent) parent = parent._parent;
   const scopeId = nextChildIdFor(parent, true);
   return () => {
     const prevId = parent.id;

@@ -309,6 +309,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 options.hydratable,
                 options.server_components,
                 options.wrap_conditionals,
+                options.component_names,
                 wrapper_name(&options.memo_wrapper, "memo"),
                 options.static_marker.clone(),
                 options.built_ins.clone(),

@@ -31,10 +31,11 @@ pub(crate) trait ComponentLower<'a>:
 {
     /// Marks the `createComponent` helper as used.
     fn mark_create_component(&mut self);
-    /// Babel's `componentNames && generate === "dom"`: append the source tag
-    /// text as `createComponent`'s third argument. Only the DOM lowering
-    /// opts in; SSR inlines the call and universal renderers own their
-    /// two-argument `createComponent`.
+    /// Babel's `componentNames` on DOM output: append the source tag text as
+    /// `createComponent`'s third argument. The DOM lowering opts in here; the
+    /// SSR lowering has its own component path (ssr/transform.rs) and applies
+    /// the same option there; universal renderers own their two-argument
+    /// `createComponent` and never label.
     fn component_names_enabled(&self) -> bool {
         false
     }
@@ -182,7 +183,10 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
     let props = component_props_expression(ctx, element.span, prop_objects, force_merge_props);
     let mut args = vec![component, props];
     if ctx.component_names_enabled() {
-        let name = jsx_tag_name(ctx, &element.opening_element.name);
+        let name = jsx_tag_name(
+            &|span| ctx.tag_identifier_is_this(span),
+            &element.opening_element.name,
+        );
         args.push(ast.expression_string_literal(element.span, ast.str(&name), None));
     }
     Ok((
@@ -192,10 +196,16 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
 }
 
 /// The tag as written in source (`Home`, `Ui.Button`, `this.Row`) — the
-/// label `componentNames` emits, matching Babel's `jsxTagName`.
-fn jsx_tag_name<'a, C: ComponentLower<'a>>(ctx: &C, name: &JSXElementName<'a>) -> String {
+/// label `componentNames` emits, matching Babel's `jsxTagName`. `is_this`
+/// answers whether the identifier at a span was written as `this` in source
+/// (the shared `this` pre-pass has already rewritten it to the `_self$`
+/// capture, keeping the span). Shared by the DOM and SSR lowerings.
+pub(crate) fn jsx_tag_name<'a>(
+    is_this: &dyn Fn(Span) -> bool,
+    name: &JSXElementName<'a>,
+) -> String {
     let identifier_name = |name: &str, span: Span| {
-        if ctx.tag_identifier_is_this(span) {
+        if is_this(span) {
             "this".to_string()
         } else {
             name.to_string()
@@ -208,7 +218,7 @@ fn jsx_tag_name<'a, C: ComponentLower<'a>>(ctx: &C, name: &JSXElementName<'a>) -
         JSXElementName::IdentifierReference(identifier) => {
             identifier_name(&identifier.name, identifier.span)
         }
-        JSXElementName::MemberExpression(member) => jsx_member_tag_name(ctx, member),
+        JSXElementName::MemberExpression(member) => jsx_member_tag_name(is_this, member),
         JSXElementName::ThisExpression(_) => "this".to_string(),
         JSXElementName::NamespacedName(namespaced) => {
             format!("{}:{}", namespaced.namespace.name, namespaced.name.name)
@@ -216,19 +226,19 @@ fn jsx_tag_name<'a, C: ComponentLower<'a>>(ctx: &C, name: &JSXElementName<'a>) -
     }
 }
 
-fn jsx_member_tag_name<'a, C: ComponentLower<'a>>(
-    ctx: &C,
+fn jsx_member_tag_name<'a>(
+    is_this: &dyn Fn(Span) -> bool,
     member: &JSXMemberExpression<'a>,
 ) -> String {
     let object = match &member.object {
         JSXMemberExpressionObject::IdentifierReference(identifier) => {
-            if ctx.tag_identifier_is_this(identifier.span) {
+            if is_this(identifier.span) {
                 "this".to_string()
             } else {
                 identifier.name.to_string()
             }
         }
-        JSXMemberExpressionObject::MemberExpression(member) => jsx_member_tag_name(ctx, member),
+        JSXMemberExpressionObject::MemberExpression(member) => jsx_member_tag_name(is_this, member),
         JSXMemberExpressionObject::ThisExpression(_) => "this".to_string(),
     };
     format!("{}.{}", object, member.property.name)

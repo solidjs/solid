@@ -26,8 +26,10 @@ pub struct TransformOptions {
     pub dev: Option<bool>,
     /// Babel's `componentNames`: emit the source tag name as a third
     /// `createComponent` argument (`createComponent(Home, props, "Home")`) so
-    /// dev/observe runtimes can label owners after minification. DOM output
-    /// only; the production runtime ignores the argument.
+    /// dev/observe runtimes can label owners after minification. DOM and SSR
+    /// output (SSR keeps the `createComponent` call it would otherwise inline
+    /// to `Comp(props)`); not universal or dynamic. The production runtimes
+    /// ignore the argument.
     pub component_names: Option<bool>,
     pub source_map: Option<bool>,
     pub context_to_custom_elements: Option<bool>,

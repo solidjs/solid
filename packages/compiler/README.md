@@ -113,7 +113,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 - `generate`: `"dom"`, `"ssr"`, `"universal"`, or `"dynamic"` (default `"dom"`)
 - `hydratable`
 - `dev`
-- `componentNames`: DOM output only — emit the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) so dev/observe runtimes label owners after minification; the production runtime ignores it
+- `componentNames`: emit the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) so dev/observe runtimes label owners after minification; the production runtimes ignore it. DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic
 - `sourceMap`
 - `contextToCustomElements` (default `true`)
 - `delegateEvents`

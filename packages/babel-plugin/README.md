@@ -132,7 +132,7 @@ Development output. With `hydratable`, emits the hydration walk validation helpe
 - Type: `boolean`
 - Default: `false`
 
-DOM output only. Emit the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"` — so the dev and observe runtimes label each component's owner (`<Home>` in diagnostic `ownerPath`s and attribution chains) even after a minifier renames the function or a `lazy()`/HMR wrapper hides it. The production runtime ignores the argument; SSR and universal output are unaffected. `@solidjs/vite-plugin` turns this on for its dev and `observe` postures.
+Emit the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"` — so the dev and observe runtimes label each component's owner (`<Home>` in diagnostic `ownerPath`s and attribution chains) even after a minifier renames the function or a `lazy()`/HMR wrapper hides it. Applies to DOM and SSR output; for SSR the compiler keeps the `createComponent` call it otherwise inlines to `Comp(props)`, so the server runtime labels the owner the same way (prod SSR output, without the option, is unchanged). Universal and dynamic output are unaffected. The production runtimes ignore the argument. `@solidjs/vite-plugin` turns this on for its dev and `observe` postures.
 
 ### delegateEvents
 

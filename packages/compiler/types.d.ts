@@ -15,8 +15,10 @@ export interface TransformOptions {
   /**
    * Emit the source tag name as a third `createComponent` argument
    * (`createComponent(Home, props, "Home")`) so dev/observe runtimes can
-   * label owners after minification renames the function. DOM output only;
-   * the production runtime ignores the argument.
+   * label owners after minification renames the function. DOM and SSR
+   * output (SSR keeps the `createComponent` call it would otherwise inline
+   * to `Comp(props)`); not universal or dynamic. The production runtimes
+   * ignore the argument.
    */
   componentNames?: boolean;
   sourceMap?: boolean;
