@@ -4565,11 +4565,6 @@ function flattenClassList(list, result) {
 //                 read stateful getters such as JSX `props.children`
 //                 whose backing component rebuilds an owner subtree on
 //                 each access, producing a divergent hydration tree.
-function tryResolveString(node) {
-  ssrTextTail = false;
-  return tryResolveStr(node);
-}
-
 // Text-hole separators. The client claims a multi-insert's nodes positionally
 // after FLATTENING its value (memos resolved, nested arrays spliced, nullish
 // dropped), so two consecutive items that both land as TEXT must arrive in
@@ -4584,11 +4579,15 @@ function tryResolveString(node) {
 // being walked was text. Leaves maintain it; arrays and functions pass it
 // through (flattening semantics); an unresolved async hole counts as text on
 // both sides since its content is unknown. Each independent region — a root
-// resolve, a template hole, an element's children — starts fresh through the
-// exported wrappers; only the internal walkers recurse.
+// resolve, a template hole, an element's children — starts fresh at an entry
+// call; the walkers' own recursion passes `nested` and keeps the state. (A
+// parameter rather than a separate entry wrapper: these bodies are too big for
+// V8 to inline, and the extra call per hole cost 2–5% of SSR throughput on
+// element-heavy pages.)
 let ssrTextTail = false;
 
-function tryResolveStr(node) {
+function tryResolveString(node, nested?: boolean) {
+  if (!nested) ssrTextTail = false;
   const t = typeof node;
   if (t === "string" || t === "number") {
     const s = ssrTextTail ? "<!--!$-->" + node : "" + node;
@@ -4605,7 +4604,7 @@ function tryResolveStr(node) {
       }
       let s = "";
       for (let i = 0, len = node.length; i < len; i++) {
-        const r = tryResolveStr(node[i]);
+        const r = tryResolveString(node[i], true);
         if (typeof r !== "string") return { bail: node };
         s += r;
       }
@@ -4633,11 +4632,13 @@ function tryResolveStr(node) {
     // Recurse on the evaluated value. If recursion bails, propagate the
     // bail object unchanged — its `bail` field already carries the
     // deepest evaluated form, so the caller never re-invokes `node`.
-    return tryResolveStr(v);
+    return tryResolveString(v, true);
   }
   return "";
 }
-export function resolveSSRNode(node: any, result?: any, top?: boolean): any;
+// `nested` is the walker's own recursion flag (see `ssrTextTail` above);
+// callers never pass it.
+export function resolveSSRNode(node: any, result?: any, top?: boolean, nested?: boolean): any;
 
 export function resolveSSRNode(
   node,
@@ -4646,13 +4647,10 @@ export function resolveSSRNode(
     h: [],
     p: []
   },
-  top
+  top,
+  nested
 ) {
-  ssrTextTail = false;
-  return walkSSRNode(node, result, top);
-}
-
-function walkSSRNode(node, result, top) {
+  if (!nested) ssrTextTail = false;
   const t = typeof node;
   if (t === "string" || t === "number") {
     result.t[result.t.length - 1] += ssrTextTail ? "<!--!$-->" + node : node;
@@ -4671,7 +4669,7 @@ function walkSSRNode(node, result, top) {
         // An element's direct children (`top`) are never separated from each
         // other; separators still apply inside any nested array.
         if (top) ssrTextTail = false;
-        walkSSRNode(node[i], result, false);
+        resolveSSRNode(node[i], result, false, true);
       }
     } finally {
       if (slotLive) slotLive.suppressed--;
@@ -4704,10 +4702,10 @@ function walkSSRNode(node, result, top) {
         // an unresolved hole.
         result.t[result.t.length - 1] += ssrTextTail ? "<!--!$-->" + liveNode : liveNode;
         ssrTextTail = true;
-      } else walkSSRNode(liveNode, result, false);
+      } else resolveSSRNode(liveNode, result, false, true);
     } else {
       try {
-        walkSSRNode(node(), result, false);
+        resolveSSRNode(node(), result, false, true);
       } catch (err) {
         const wrap = buildAsyncWrap(err, node);
         if (wrap) {
