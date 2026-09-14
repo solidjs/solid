@@ -171,8 +171,8 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * <Field value={value()} />
  * ```
  *
- * Kept through the 2.0 release candidates for migration; removed before the
- * stable release.
+ * Remains available in 2.0 (deprecated, no runtime warning); prefer `dynamic()`
+ * in new code.
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const Comp = dynamic<T>(() => props.component as T | null | undefined | false);

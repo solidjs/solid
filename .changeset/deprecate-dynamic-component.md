@@ -15,4 +15,4 @@ const Field = dynamic(() => (multiline() ? RichTextEditor : "input"));
 <Field value={value()} />;
 ```
 
-`Dynamic` and `DynamicProps` are marked `@deprecated` (editors strike them through; no runtime warning) and stay through the release candidates for migration. They are removed before the stable release. The migration guide and control-flow RFC are updated accordingly.
+`Dynamic` and `DynamicProps` are marked `@deprecated` (editors strike them through; no runtime warning). They remain available in 2.0 — the RCs are past public API removals — but new code should use `dynamic()`. The migration guide and control-flow RFC are updated accordingly.

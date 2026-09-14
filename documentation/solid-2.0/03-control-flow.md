@@ -159,7 +159,7 @@ const Tag = dynamic(() => (multiline() ? "textarea" : "input"));
 return <Tag value={value()} />;
 ```
 
-The `<Dynamic component={...}>` JSX wrapper from 1.x is **deprecated** in favor of the factory and is removed before the stable release. It is the same primitive, but its shape puts the tag in the same props bag as the element's own props: every instance merges `component` in at the call site (`merge({ component }, rest)`), `omit`s it back out inside, and builds a fresh `dynamic()` factory — with its memo — because a JSX wrapper has nowhere to hoist one. Libraries most sensitive to props plumbing (polymorphic `as` components) end up omitting `as`, handing the tag to `<Dynamic>`, which merges it back in under `component` so it can omit it again. `dynamic()` has none of that for one extra line:
+The `<Dynamic component={...}>` JSX wrapper from 1.x is **deprecated** in favor of the factory. It remains available in 2.0 (no runtime warning), but new code should not use it. It is the same primitive, but its shape puts the tag in the same props bag as the element's own props: every instance merges `component` in at the call site (`merge({ component }, rest)`), `omit`s it back out inside, and builds a fresh `dynamic()` factory — with its memo — because a JSX wrapper has nowhere to hoist one. Libraries most sensitive to props plumbing (polymorphic `as` components) end up omitting `as`, handing the tag to `<Dynamic>`, which merges it back in under `component` so it can omit it again. `dynamic()` has none of that for one extra line:
 
 ```jsx
 // before
@@ -387,14 +387,19 @@ The `<Dynamic component={...}>` JSX wrapper is deprecated (see above); replace i
 
 ## Removals
 
-| Removed                                                              | Replacement               |
-| -------------------------------------------------------------------- | ------------------------- |
-| `Index`                                                              | `For keyed={false}`       |
-| `Suspense`                                                           | `Loading`                 |
-| `SuspenseList`                                                       | `Reveal`                  |
-| `ErrorBoundary`                                                      | `Errored`                 |
-| `createDynamic(source, props)`                                       | `dynamic(source)` factory |
-| `<Dynamic component>` (deprecated in the RCs, removed before stable) | `dynamic(source)` factory |
+| Removed                        | Replacement               |
+| ------------------------------ | ------------------------- |
+| `Index`                        | `For keyed={false}`       |
+| `Suspense`                     | `Loading`                 |
+| `SuspenseList`                 | `Reveal`                  |
+| `ErrorBoundary`                | `Errored`                 |
+| `createDynamic(source, props)` | `dynamic(source)` factory |
+
+## Deprecated (kept in 2.0)
+
+| Deprecated            | Replacement               |
+| --------------------- | ------------------------- |
+| `<Dynamic component>` | `dynamic(source)` factory |
 
 ## Alternatives considered
 

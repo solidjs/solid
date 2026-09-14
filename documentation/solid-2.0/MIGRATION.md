@@ -504,7 +504,7 @@ return <Active value={value()} />;
 
 Async sources compose with `Loading`/Suspense through the normal `NotReadyError` flow — no wrapper primitive or `await` in user code.
 
-`<Dynamic component={...}>` still exists through the release candidates but is **deprecated** and is removed before the stable release. It is the same primitive with a worse shape: the tag travels in the props bag, so every instance pays a `merge` at the call site, an `omit` inside, and a fresh factory memo that a JSX wrapper has nowhere to hoist. Replace it with a `dynamic()` factory hoisted to the component body (or the module, for a constant tag); inside a `<For>` callback the callback body is the place. Direct callers of the old `createDynamic(source, props)` compose manually as `createComponent(dynamic(source), props)`.
+`<Dynamic component={...}>` still exists in 2.0 but is **deprecated** (no runtime warning); existing code keeps working, new code should use the factory. It is the same primitive with a worse shape: the tag travels in the props bag, so every instance pays a `merge` at the call site, an `omit` inside, and a fresh factory memo that a JSX wrapper has nowhere to hoist. Replace it with a `dynamic()` factory hoisted to the component body (or the module, for a constant tag); inside a `<For>` callback the callback body is the place. Direct callers of the old `createDynamic(source, props)` compose manually as `createComponent(dynamic(source), props)`.
 
 ### Coordinating loading boundaries: `SuspenseList` → `Reveal`
 
@@ -732,7 +732,7 @@ These APIs are new additions (not renames of 1.x APIs):
 - **Effect `EffectBundle`** — `createEffect` accepts `{ effect, error }` for structured error handling.
 - **`createMemo` `lazy` option** — defers initial computation until first read; also opts the memo into autodisposal when its subscriber count drops to zero. Non-lazy owned memos live for their owner's lifetime.
 - **`unobserved` callback** — fires when a signal/memo loses all subscribers (resource cleanup).
-- **`dynamic(source)` factory** — `lazy`-style factory that returns a stable component whose identity is driven by a reactive (and optionally async) source. Replaces both `createDynamic` and the `<Dynamic>` JSX wrapper (deprecated in the RCs).
+- **`dynamic(source)` factory** — `lazy`-style factory that returns a stable component whose identity is driven by a reactive (and optionally async) source. Replaces `createDynamic`; the `<Dynamic>` JSX wrapper is kept but deprecated in its favor.
 - **`clientOnly(() => import(...), { lazy? })`** (`@solidjs/web`, hoisted from SolidStart) — wraps a dynamically imported component so it renders only in the browser: the server renders `props.fallback` and never starts the import. Unlike `lazy()`, it avoids Suspense entirely and never server-renders, so it participates in no hydration asset manifest; a mount gate keeps hydration mismatch-free. `{ lazy: true }` defers the import to first render.
 - **`httpStatus(code, text?)` / `httpHeader(name, value, { append? })`** (`@solidjs/web`, hoisted from SolidStart) — declare response status/headers during SSR against the request event's `response` head for the lifetime of the calling reactive scope. Scope-tied declarations, not mutations: call them bare in component/reactive-scope bodies (including behind an `if`), and they un-declare on scope disposal. Writes snapshot the prior value and retract it on disposal (a boundary that errors/recovers un-writes rather than stomping to defaults), and both writes and retractions become no-ops once the integration marks the response head `committed` (head derived/sent). No-ops on the client. The primitives are the whole core API — core ships functions only; SolidStart may provide component wrappers for compatibility.
 - **`ssrSource` option** (`"server"` | `"hybrid"` | `"client"`) — per-primitive hydration policy on memos, function-form signals/stores, projections, and effects: whether the client seeds from the serialized server value (`"server"`, default), seeds then re-runs the compute (`"hybrid"`), or skips the server value and computes only after hydration (`"client"` — the compute never runs on the server). Pairs with **`deferStream: true`**, which holds the SSR stream flush until the primitive's first value resolves (server-only). See [RFC 05](05-async-data.md).
@@ -1003,7 +1003,7 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`mergeProps` → `merge`**
 - **`splitProps` → `omit`**
 - **`createSelector` → `createProjection` / `createStore(fn)`**
-- **`createDynamic(source, props)` / `<Dynamic component>` → `dynamic(source)` factory** (`<Dynamic>` deprecated in the RCs, removed before stable)
+- **`createDynamic(source, props)` / `<Dynamic component>` → `dynamic(source)` factory** (`<Dynamic>` deprecated but kept in 2.0)
 - **`unwrap` → `snapshot`**
 - **`onMount` → `onSettled`**
 - **`equalFn` → `isEqual`**
