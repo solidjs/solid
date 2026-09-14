@@ -1,5 +1,7 @@
 # Store Storage Model Rewrite — Semantic Rules & Working Notes
 
+> **Index:** every rule ID cited from `src/` or `tests/` — this file's §-sections and RUL-ids, the rules-mining R-ids (namespaced per file: CS/OL/OS/PJ/RS), the spec's A-ids — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
+
 Companion to `INTERNALS-ASYNC-STATE.md`, same method: pin the semantic contract
 as rules first, wire the checkable ones as `__TEST__` assertions, then let the
 implementation land against them. Nothing below is final until it survives the

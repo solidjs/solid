@@ -1,5 +1,7 @@
 # Async/Pending/Transition Semantics — Spec Propositions
 
+> **Index:** every rule ID cited from `src/` or `tests/` — this file's A/B/C/V ids, the INV/RUL/R/§ vocabularies of the internals and rules-mining docs — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
+
 Companion to `INTERNALS-ASYNC-STATE.md`. Each proposition is a testable,
 user-observable behavior statement about `isPending` / `latest` / transitions /
 optimistic lanes.

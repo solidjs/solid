@@ -1,5 +1,7 @@
 # Async/Transition/Lane State Model — Working Notes
 
+> **Index:** every rule ID cited from `src/` or `tests/` — this file's A/B/C/V ids, the INV/RUL/R/§ vocabularies of the internals and rules-mining docs — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
+
 Living document for the pending/transition/optimistic-lane machinery in
 `src/core/`. Captures the state model, the invariants we believe hold (with
 confidence levels), and the assumptions/decisions made while reviewing. The
@@ -164,6 +166,17 @@ Confidence: **high** = implementation self-consistency, assert now.
 - **INV-7 (medium)** `_pendingValue !== NOT_PENDING` on a non-optimistic node
   implies the node is queued (`_pendingNode`/`_pendingNodes`) or held by a
   transition — a pending value with no committer is a leak (the #2827 class).
+- **INV-8 (RETIRED 2026-07-07b, §5e)** Hold-provenance: a `_pendingValue` on an
+  optimistic node was tracked as either a *revert target* (the pre-override
+  value stashed for the revert) or a *held authoritative value*, and the
+  invariant asserted a resting node never carried a revert target. That
+  provenance proved a held value on a resting node is always a refetch /
+  transition hold — pending like a plain memo (V1, §5d) — and then the A18
+  re-rule eliminated revert targets altogether (§5e), leaving `_pendingValue`
+  one meaning and nothing to distinguish. The tracker was deleted with them.
+  The ID stays: `invariants.ts` and §5d/§5e/§7 cite it for the proof it gave.
+  Its lane-scoped successor ("live lane members are only released by their own
+  lane's resolution", C2) is queued, not asserted.
 - **INV-9 (high)** An `isPending` companion of a DISPOSED owner reads `false`
   at quiescence — a stale `true` outliving its source would hold a spinner
   forever (the #2845 disposal edge). Enforced by the disposal guard in
