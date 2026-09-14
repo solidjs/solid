@@ -2588,10 +2588,45 @@ export function createErrorBoundary<T, U>(
   // children — re-running would recreate the async work from scratch, which
   // is pending again on every pass and can never settle (#2809 SSR loop).
   let pending: { t: string[]; h: Function[]; p: Promise<any>[] } | undefined;
+  // The client boundary is two computeds under `owner`: one runs `fn`, the
+  // next flattens its result. A zero-arg function `fn` hands back — a nested
+  // boundary's accessor, the `fallback={() => ...}` thunk it returns
+  // unresolved, a function child — is unwrapped inside that second computed,
+  // so what it renders takes ids under `owner`'s second child. Resolving
+  // inline under `owner` gave that content `owner`'s next child id instead,
+  // one level up from the client's, and a server-rendered fallback hydrated
+  // dead (#3414). Mirror the second computed as a virtual scope (ssrScope's
+  // technique): `owner` keeps its identity — retry wraps capture the owner
+  // and read this pull's error handler off it — and only its id counter is
+  // rewritten for the duration of the resolve. A retry pull resumes the
+  // surviving holes in the same scope, the counter continuing where the
+  // discovery pass left it.
+  const idOwner = owner as unknown as SSROwner;
+  let resolveId: string | undefined;
+  let resolveCount = 0;
+  const resolveIn = <R>(run: () => R): R => {
+    if (resolveId === undefined) return run();
+    const prevId = idOwner.id;
+    const prevCount = idOwner._childCount;
+    idOwner.id = resolveId;
+    idOwner._childCount = resolveCount;
+    try {
+      return run();
+    } finally {
+      resolveCount = idOwner._childCount;
+      idOwner.id = prevId;
+      idOwner._childCount = prevCount;
+    }
+  };
   const resolve = () => {
-    const resolved: any = pending
-      ? ctx!.ssr(pending.t, ...pending.h)
-      : ctx!.resolve(runWithOwner(createOwner(), fn));
+    let resolved: any;
+    if (pending) resolved = resolveIn(() => ctx!.ssr(pending!.t, ...pending!.h));
+    else {
+      const value = runWithOwner(createOwner(), fn);
+      resolveId = idOwner.id != null ? nextChildIdFor(idOwner, true) : undefined;
+      resolveCount = 0;
+      resolved = resolveIn(() => ctx!.resolve(value));
+    }
     pending = resolved?.p?.length ? resolved : undefined;
     if (pending) {
       // Propagate the FINAL classification through the aggregate: with a
@@ -2618,9 +2653,13 @@ export function createErrorBoundary<T, U>(
           () => err,
           () => {}
         );
+  // The boundary's own id, read once: an error lands mid-resolve, while
+  // `owner.id` is rewritten to the resolve scope's (see `resolveIn`), and the
+  // client looks the record up at the boundary id.
+  const boundaryId = owner.id;
   const serializeError = (err: any) => {
-    if (ctx && owner.id && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
-      ctx.serialize(owner.id, err);
+    if (ctx && boundaryId && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
+      ctx.serialize(boundaryId, err);
     }
   };
   const handleError = (err: any) => {
