@@ -196,7 +196,21 @@ if (process.argv.includes("--check")) {
     console.error("rules-index: citations in src/ that resolve to no definition:", bad.join(" "));
     process.exit(1);
   }
-  console.log("rules-index: every src/ citation resolves (" + cited.src.size + " ids)");
+  // Every live A-rule must be pinned: cited by ID from at least one test. The
+  // spec's "Pinned by" column is prose until a test actually carries the ID; a
+  // renamed or deleted pin is only caught here.
+  const unpinned = [...rules.values()]
+    .filter(r => r.vocab === "A" && !/^\[superseded/.test(r.text) && !cited.tests.has(r.key))
+    .map(r => r.key);
+  if (unpinned.length) {
+    console.error("rules-index: live A-rules with no test citing them:", unpinned.join(" "));
+    process.exit(1);
+  }
+  console.log(
+    "rules-index: every src/ citation resolves (" +
+      cited.src.size +
+      " ids); every live A-rule is cited by a test"
+  );
   process.exit(0);
 }
 const order = { A: 0, V: 1, B: 2, C: 3, INV: 4, RUL: 5, R: 6, "§": 7 };

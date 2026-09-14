@@ -47,7 +47,7 @@ const settle = async () => {
   flush();
 };
 
-describe("A13 (was B1): resting optimistic node ≡ plain async memo", () => {
+describe("A13 (was B1) / A12: resting optimistic node ≡ plain async memo", () => {
   // A createOptimistic node with no active override must be observationally
   // identical to a plain async memo: same values, same isPending/latest
   // verdicts, at every checkpoint of a refetch cycle — both before any

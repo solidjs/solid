@@ -18,4 +18,13 @@ describe("rules index", () => {
     const out = execFileSync(process.execPath, [script, "--check"], { encoding: "utf8" });
     expect(out).toContain("every src/ citation resolves");
   });
+
+  it("every live A-rule is cited by ID from at least one test", () => {
+    const script = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../scripts/rules-index.mjs"
+    );
+    const out = execFileSync(process.execPath, [script, "--check"], { encoding: "utf8" });
+    expect(out).toContain("every live A-rule is cited by a test");
+  });
 });

@@ -1921,7 +1921,7 @@ describe("async compute", () => {
   });
 });
 
-describe("isPending and latest with async upstream and downstream", () => {
+describe("isPending and latest with async upstream and downstream (A8: verdicts are per-channel)", () => {
   afterEach(() => flush());
 
   // Diagnostic: latest(x) alone in a render effect - same setup as Test 1
@@ -2169,7 +2169,7 @@ describe("isPending and latest with async upstream and downstream", () => {
   });
 
   // Test 3: Single async - [isPending(x), x()] pairs update atomically
-  it("single async - [isPending(x), x()] pairs update atomically", async () => {
+  it("A10: single async - [isPending(x), x()] pairs update atomically", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     let resolveAsync: (() => void) | null = null;
