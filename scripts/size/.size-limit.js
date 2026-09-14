@@ -443,6 +443,9 @@ module.exports = [
     // 15636 B against `next`'s 15580 (+56 brotli on +35 B minified — the
     // `_modified` gate on recompute's trim and runEffect's trim); see the
     // core floor note.
+    // Memo lane posture (#3442, 2026-09-14): no bump, measured at 15624 B on
+    // the rebase over #3438 (+12 B minified — one assignment in recompute's
+    // head; brotli noise absorbs it; see the core floor note).
     limit: "15.65 KB",
     modifyEsbuildConfig
   },
@@ -749,6 +752,8 @@ module.exports = [
     // Effect arm of A30 (#3438, 2026-09-14): 18.85 -> 18.90 KB, measured at
     // 18880 B against `next`'s 18816 (+64 brotli on +35 B minified); see the
     // core floor note.
+    // Memo lane posture (#3442, 2026-09-14): no bump, measured at 18854 B on
+    // the rebase over #3438 (+12 B minified; brotli noise absorbs it).
     limit: "18.90 KB",
     modifyEsbuildConfig
   },
