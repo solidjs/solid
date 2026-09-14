@@ -14,11 +14,6 @@ import {
   ssrScope as scope
 } from "solid-js";
 import { effect, memo } from "./render.js";
-// Populates `OBSERVE.server` on load (observe/dev builds; folds out of prod).
-// Called from the runtime module rather than the entry so every server
-// bundle that carries this module — main, server-functions, frames — fills
-// the slot, whichever loads first.
-import { installServerObserve } from "./server-observe.js";
 // Trace context (W3C `traceparent`): derived per request, exposed through
 // `getTraceContext()`, emitted on the response head at commit and in the
 // shell head — see trace.ts for the tiering and the carriers.
@@ -69,13 +64,14 @@ import {
   resolveHead,
   STYLESHEET_FETCH_META
 } from "./head.js";
+// Findings on `OBSERVE.diagnostics` — wiring (`emitFinding`, `recordFinding`)
+// in every observing tier, dev checks (`devCheck`) in dev only; see
+// diagnostics.ts for the two gates.
+import { devCheck, emitFinding, errorText, recordFinding } from "./diagnostics.js";
 
 import { JSX } from "../jsx/jsx.js";
 
 import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
-
-// The server observe surface, filled in at load (see the import above).
-installServerObserve();
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 
@@ -432,11 +428,12 @@ function resolveAssets(moduleUrl, manifest) {
           // reach `ResolvedAssets.preloads`, whose href is typed as a string.
           const { href: bad, ...rest } = link;
           if ("_SOLID_DEV_" && bad !== undefined)
-            console.warn("Preload href must be a non-empty string; dropping it.", bad);
+            preloadInvalid("href", "Preload href must be a non-empty string; dropping it.", bad);
           preloads.push(rest);
         }
         if ("_SOLID_DEV_" && srcset && hasRelativeCandidate(srcset))
-          console.warn(
+          preloadInvalid(
+            "imagesrcset",
             "imagesrcset candidates are not joined with the manifest base — they resolve " +
               "against the document URL, so a relative candidate points somewhere else " +
               "than the joined href; the integration should emit resolved URLs.",
@@ -669,13 +666,55 @@ const PRELOAD_LINK_ATTRIBUTES = [
 // the "has a source" check. Doing it the other way round accepted an
 // `imagesrcset` on a non-image destination as the source, then filtered that
 // same attribute off, and emitted a sourceless `<link rel="preload" as="script">`.
+//
+// Dev CHECK: an unusable preload descriptor — `PRELOAD_DESCRIPTOR_INVALID`,
+// `data.field` naming the attribute at fault and `data.value` what it held.
+// Whether the link was dropped or shipped without the attribute is the
+// message's business; the site keeps doing what it did after the check.
+function preloadInvalid(field, message, value) {
+  devCheck({
+    code: "PRELOAD_DESCRIPTOR_INVALID",
+    kind: "head",
+    severity: "warn",
+    message: `[PRELOAD_DESCRIPTOR_INVALID] ${message}`,
+    data: value === undefined ? { field } : { field, value }
+  });
+}
+// Dev CHECK: a value at an insert position the server renderer has no
+// rendering for — `UNRECOGNIZED_INSERT_VALUE`, one code and one `render` kind
+// with the client's skip (client.ts). `data.type` is the one thing safe to
+// record about an arbitrary value; the value itself rides `data.value` for
+// the console consumer.
+function unrecognizedInsert(node) {
+  devCheck({
+    code: "UNRECOGNIZED_INSERT_VALUE",
+    kind: "render",
+    severity: "warn",
+    message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof node}).`,
+    data: { type: typeof node, value: node }
+  });
+}
+// Dev CHECK: a `useHead` registration the render could not honor —
+// `HEAD_TAG_INVALID`, `data.reason` the rule it broke (`non-head-tag`,
+// `invalid-attribute`, `props-error`, `group-error`, `after-shell-flush`,
+// `outside-render`) and `data.detail` the descriptor, name or error at fault.
+function headTagInvalid(reason, message, detail) {
+  devCheck({
+    code: "HEAD_TAG_INVALID",
+    kind: "head",
+    severity: "warn",
+    message: `[HEAD_TAG_INVALID] ${message}`,
+    data: detail === undefined ? { reason } : { reason, detail }
+  });
+}
 function registerPreloadLink(tracking, headRegistry, link, nonce) {
   if (!link || typeof link !== "object") {
-    if ("_SOLID_DEV_") console.warn('registerAsset("preload") requires a descriptor object.', link);
+    if ("_SOLID_DEV_")
+      preloadInvalid("descriptor", 'registerAsset("preload") requires a descriptor object.', link);
     return null;
   }
   if (typeof link.as !== "string") {
-    if ("_SOLID_DEV_") console.warn('registerAsset("preload") requires an as destination.');
+    if ("_SOLID_DEV_") preloadInvalid("as", 'registerAsset("preload") requires an as destination.');
     return null;
   }
   const as = asciiLowerCase(link.as);
@@ -696,8 +735,10 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
       break;
     default:
       if ("_SOLID_DEV_")
-        console.warn(
-          `registerAsset("preload") received an unsupported as destination "${link.as}".`
+        preloadInvalid(
+          "as",
+          `registerAsset("preload") received an unsupported as destination "${link.as}".`,
+          link.as
         );
       return null;
   }
@@ -710,7 +751,8 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
   // no browser can parse, and forge a resource identity out of garbage.
   const responsive = as === "image";
   if ("_SOLID_DEV_" && !responsive && (isSetAttr(link.imagesrcset) || isSetAttr(link.imagesizes)))
-    console.warn(
+    preloadInvalid(
+      isSetAttr(link.imagesrcset) ? "imagesrcset" : "imagesizes",
       'registerAsset("preload") only supports imagesrcset and imagesizes with as="image".'
     );
   let srcset = null;
@@ -720,7 +762,8 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
       const value = link[name];
       if (!isSetAttr(value)) continue;
       if (typeof value !== "string") {
-        if ("_SOLID_DEV_") console.warn(`registerAsset("preload") expects a string ${name}.`);
+        if ("_SOLID_DEV_")
+          preloadInvalid(name, `registerAsset("preload") expects a string ${name}.`, value);
         continue;
       }
       if (name === "imagesrcset") srcset = value;
@@ -729,12 +772,15 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
   }
   const href = typeof link.href === "string" && link.href ? link.href : null;
   if ("_SOLID_DEV_" && !href && link.href != null && link.href !== false)
-    console.warn("Preload href must be a non-empty string; dropping it.", link.href);
+    preloadInvalid("href", "Preload href must be a non-empty string; dropping it.", link.href);
   // Spec: "One or both of the href or imagesrcset attributes must be present."
   // A source set only counts once it survived the image-only filter above.
   if (!href && !srcset) {
     if ("_SOLID_DEV_")
-      console.warn('registerAsset("preload") requires a non-empty string href or imagesrcset.');
+      preloadInvalid(
+        "href",
+        'registerAsset("preload") requires a non-empty string href or imagesrcset.'
+      );
     return null;
   }
   // Spec: "If the imagesrcset attribute is present and has any image candidate
@@ -743,7 +789,8 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
   // for a narrower slot silently fetches the wrong candidate and the <img>
   // downloads a second one.
   if ("_SOLID_DEV_" && srcset && !sizes && hasWidthDescriptor(srcset))
-    console.warn(
+    preloadInvalid(
+      "imagesizes",
       "imagesrcset uses a width descriptor, so imagesizes is required; without it the " +
         "source size defaults to 100vw and the preload may not match the image.",
       srcset
@@ -768,7 +815,8 @@ function registerPreloadLink(tracking, headRegistry, link, nonce) {
   if (headRegistry.resources.has(identity)) return null;
   // A different CORS or credentials mode has a different preload key.
   if ("_SOLID_DEV_" && props.crossorigin == null && (as === "font" || as === "fetch"))
-    console.warn(
+    preloadInvalid(
+      "crossorigin",
       `registerAsset("preload") with as="${as}" has no crossorigin and may not match the eventual request.`
     );
 
@@ -848,7 +896,12 @@ function registerHeadTags(registry, context, tracking, emitResource, nonce, tags
   for (let i = 0; i < tags.length; i++) {
     const desc = tags[i];
     if (!desc || !HEAD_ELIGIBLE_TAGS.has(desc.tag)) {
-      if ("_SOLID_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
+      if ("_SOLID_DEV_")
+        headTagInvalid(
+          "non-head-tag",
+          `useHead: ignoring non-head tag <${desc && desc.tag}>`,
+          desc
+        );
       continue;
     }
     const cls = classifyHeadTag(desc);
@@ -907,7 +960,12 @@ function headShellReady(registry, block) {
       evalHeadProps(desc.props || {}, rel !== undefined ? { rel } : undefined);
     } catch (err) {
       if (pends(err)) continue;
-      if ("_SOLID_DEV_") console.warn(`useHead: error evaluating resource tag props`, err);
+      if ("_SOLID_DEV_")
+        headTagInvalid(
+          "props-error",
+          `useHead: error evaluating resource tag props: ${errorText(err)}`,
+          err
+        );
       parked.splice(i, 1);
       continue;
     }
@@ -973,7 +1031,12 @@ function emitHeadResource(registry, context, tracking, emitResource, nonce, desc
       });
       return;
     }
-    if ("_SOLID_DEV_") console.warn(`useHead: error evaluating resource tag props`, err);
+    if ("_SOLID_DEV_")
+      headTagInvalid(
+        "props-error",
+        `useHead: error evaluating resource tag props: ${errorText(err)}`,
+        err
+      );
     return;
   }
   const identity = resourceIdentity(desc.tag, props);
@@ -1052,7 +1115,12 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
       try {
         resolved = reg.list();
       } catch (err) {
-        if ("_SOLID_DEV_") console.warn(`useHead: error evaluating head group membership`, err);
+        if ("_SOLID_DEV_")
+          headTagInvalid(
+            "group-error",
+            `useHead: error evaluating head group membership: ${errorText(err)}`,
+            err
+          );
         continue;
       }
       if (!Array.isArray(resolved)) resolved = [resolved];
@@ -1060,7 +1128,12 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
       for (let j = 0; j < resolved.length; j++) {
         const desc = resolved[j];
         if (!desc || !HEAD_ELIGIBLE_TAGS.has(desc.tag)) {
-          if ("_SOLID_DEV_") console.warn(`useHead: ignoring non-head tag`, desc);
+          if ("_SOLID_DEV_")
+            headTagInvalid(
+              "non-head-tag",
+              `useHead: ignoring non-head tag <${desc && desc.tag}>`,
+              desc
+            );
           continue;
         }
         const cls = classifyHeadTag(desc);
@@ -1086,7 +1159,12 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
         );
         key = evalHeadValue(desc.key);
       } catch (err) {
-        if ("_SOLID_DEV_") console.warn(`useHead: error evaluating tag props`, err);
+        if ("_SOLID_DEV_")
+          headTagInvalid(
+            "props-error",
+            `useHead: error evaluating tag props: ${errorText(err)}`,
+            err
+          );
         continue;
       }
       const identity = replaceableIdentity(desc.tag, props, key, "u:" + registry.uniq++);
@@ -1094,8 +1172,10 @@ function commitHeadBoundary(registry, boundary, isPendingFragment) {
         // Shell-only: a charset that changes mid-stream or a base that
         // changes after relative URLs resolved is incoherent by definition.
         if ("_SOLID_DEV_")
-          console.warn(
-            `useHead: <${desc.tag}> (${identity}) registered after shell flush is ignored`
+          headTagInvalid(
+            "after-shell-flush",
+            `useHead: <${desc.tag}> (${identity}) registered after shell flush is ignored`,
+            identity
           );
         continue;
       }
@@ -1223,7 +1303,12 @@ function flushHeadFragment(registry, boundary, nonce) {
       for (const name in t.props) {
         if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
         if (!HEAD_ATTR_NAME.test(name)) {
-          if ("_SOLID_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
+          if ("_SOLID_DEV_")
+            headTagInvalid(
+              "invalid-attribute",
+              `useHead: ignoring invalid attribute name "${name}"`,
+              name
+            );
           continue;
         }
         const v = t.props[name];
@@ -1333,7 +1418,12 @@ function renderHeadAttrHtml(props) {
   for (const name in props) {
     if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
     if (!HEAD_ATTR_NAME.test(name)) {
-      if ("_SOLID_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
+      if ("_SOLID_DEV_")
+        headTagInvalid(
+          "invalid-attribute",
+          `useHead: ignoring invalid attribute name "${name}"`,
+          name
+        );
       continue;
     }
     const v = props[name];
@@ -1395,7 +1485,10 @@ export function useHead(tags) {
   const ctx = sharedConfig.context;
   if (!ctx || !ctx.registerHeadTags) {
     if ("_SOLID_DEV_")
-      console.warn("useHead() called outside of a server render; registration ignored.");
+      headTagInvalid(
+        "outside-render",
+        "useHead() called outside of a server render; registration ignored."
+      );
     return;
   }
   ctx.registerHeadTags(tags);
@@ -1695,8 +1788,27 @@ export function renderToStream(code, options = {}) {
   // because deferred writes (`writeTasks`, late fragment flushes) run from
   // the microtask queue — an uncontained sink throw there escapes as an
   // unhandled error and can take the host process down.
-  const abandon = () => {
+  //
+  // `disconnect` names the abandonment a finding (`SSR_STREAM_ABANDONED`):
+  // the client left — the sink threw or the consumer cancelled — with work
+  // still in flight. A render failure winds down through here too
+  // (`failRender`), silently: that one is already the render error's
+  // finding.
+  const abandon = disconnect => {
     if (dead) return;
+    if ("_SOLID_OBSERVE_" && disconnect)
+      emitFinding(
+        {
+          code: "SSR_STREAM_ABANDONED",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[SSR_STREAM_ABANDONED] The response stream was abandoned mid-render (${disconnect}) ` +
+            `with ${registry.size} fragment(s) still pending; the render was torn down.`,
+          data: { reason: disconnect, shellFlushed: firstFlushed, pendingFragments: registry.size }
+        },
+        null
+      );
     dead = true;
     completed = true;
     buffer = { write() {} };
@@ -1722,6 +1834,26 @@ export function renderToStream(code, options = {}) {
       options.onError ? options.onError(err) : console.error(err);
     } catch (_) {}
     abandon();
+  };
+  // The same containment reached from the renderer's OWN retry passes (root
+  // holes, shell assembly) rather than a boundary's resume loop: no boundary
+  // owns the failure, so this is where its finding is recorded (a boundary
+  // records its own before calling `failRender`, with its owner path).
+  const failRootRender = err => {
+    if ("_SOLID_OBSERVE_")
+      emitFinding(
+        {
+          code: "SSR_RENDER_ERROR_CONTAINED",
+          kind: "ssr",
+          severity: "error",
+          message:
+            `[SSR_RENDER_ERROR_CONTAINED] Render error outside any boundary — the request failed: ` +
+            errorText(err),
+          data: { handling: "failed", error: err }
+        },
+        null
+      );
+    failRender(err);
   };
   // Chunk coalescing (stage-4 §13b): a settled boundary emits its template,
   // activation script, data script, and reveal as SEPARATE writes across one
@@ -1765,7 +1897,7 @@ export function renderToStream(code, options = {}) {
       try {
         w.write(payload);
       } catch (_) {
-        abandon();
+        abandon("sink");
       }
     },
     end() {
@@ -1773,7 +1905,7 @@ export function renderToStream(code, options = {}) {
       try {
         w.end();
       } catch (_) {
-        abandon();
+        abandon("sink");
       }
     }
   });
@@ -2023,19 +2155,43 @@ export function renderToStream(code, options = {}) {
   // rejected) and abandoned data ids resolve undefined: the client re-renders
   // the errored region fresh off the OUTER fragment's rejection, so nothing
   // consumes these — a rejection would only raise unhandled-rejection noise.
-  const abandonSubtree = key => {
+  //
+  // A finding (`SSR_SUBTREE_ABANDONED`) when the discard took work with it —
+  // nested fragments still rendering, serialized values still pending: the
+  // client re-renders that subtree from scratch, and a consumer watching
+  // request cost wants to know how much was thrown away. A leaf fragment's
+  // failure alone is the render error's own finding, not this one.
+  const abandonSubtree = (key, error) => {
+    let fragments = 0;
+    let serialized = 0;
     for (const [k, entry] of registry) {
       if (k.length > key.length && k.startsWith(key)) {
         registry.delete(k);
         entry.resolve();
+        fragments++;
       }
     }
     for (const [id, settle] of pendingSerialized) {
       if (id.startsWith(key)) {
         pendingSerialized.delete(id);
         settle();
+        serialized++;
       }
     }
+    if ("_SOLID_OBSERVE_" && (fragments || serialized))
+      emitFinding(
+        {
+          code: "SSR_SUBTREE_ABANDONED",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[SSR_SUBTREE_ABANDONED] Fragment '${key}' failed with ${fragments} nested fragment(s) and ` +
+            `${serialized} serialized value(s) still pending; the subtree was discarded and the client ` +
+            `renders it from scratch.`,
+          data: { fragment: key, fragments, serialized, error }
+        },
+        null
+      );
   };
   const writeTasks = () => {
     if (tasks.length && !completed && firstFlushed) {
@@ -2253,7 +2409,7 @@ export function renderToStream(code, options = {}) {
           registry.delete(key);
           // Terminal error: the subtree is discarded — release everything in
           // it that would otherwise gate response completion (#3165).
-          if (error) abandonSubtree(key);
+          if (error) abandonSubtree(key, error);
 
           if (item.children) {
             for (const k in item.children) {
@@ -2527,7 +2683,7 @@ export function renderToStream(code, options = {}) {
           try {
             doShell();
           } catch (err) {
-            failRender(err);
+            failRootRender(err);
             return resolve();
           }
           if (!shellCompleted) return flush();
@@ -2551,7 +2707,7 @@ export function renderToStream(code, options = {}) {
           // rejects `closed`; `ended` keeps that from reading as failure.)
           const failed = () => {
             if (!ended) {
-              abandon();
+              abandon("consumer");
               resolve();
             }
           };
@@ -2649,7 +2805,7 @@ export function renderToStream(code, options = {}) {
                 // its teardown retracts the declarations as it always did,
                 // and the consumer keeps a writable head for whatever error
                 // response it builds around the partial HTML.
-                failRender(err);
+                failRootRender(err);
                 return resolve(tmp);
               }
               queue(flushEnd);
@@ -2672,7 +2828,7 @@ export function renderToStream(code, options = {}) {
               // Contain retry-pass errors (see failRender) and end the sink:
               // it is still alive — the RENDER died — and leaving it open
               // would hang the response.
-              failRender(err);
+              failRootRender(err);
               try {
                 w.end();
               } catch (_) {}
@@ -3744,11 +3900,16 @@ export function ssrElement(tag, props, children, needsId, skip) {
           value[CLAIM_PROP] !== undefined &&
           (prop === "ref" || prop.slice(0, 2) === "on")
         ) {
-          console.warn(
-            `A spread on a server-rendered <${tag}> carries \`${prop}\` from client props — ` +
+          devCheck({
+            code: "BEHAVIOR_CLAIM_DROPPED",
+            kind: "ssr",
+            severity: "warn",
+            message:
+              `[BEHAVIOR_CLAIM_DROPPED] A spread on a server-rendered <${tag}> carries \`${prop}\` from client props — ` +
               `spreads don't participate in behavior claims, so this drops. ` +
-              `Write the position out: \`${prop}={props.${String(value[CLAIM_PROP])}}\`.`
-          );
+              `Write the position out: \`${prop}={props.${String(value[CLAIM_PROP])}}\`.`,
+            data: { reason: "spread", tag, position: prop, prop: String(value[CLAIM_PROP]) }
+          });
         }
         continue;
       } else if (prop === "style") {
@@ -3844,12 +4005,17 @@ export function ssrClaim(map) {
       const prop = (typeof fn === "function" && fn[CLAIM_PROP]) || undefined;
       if (prop === undefined) {
         if ("_SOLID_DEV_") {
-          console.warn(
-            `A \`${pos}\` position on a server-rendered element received a server-local ` +
+          devCheck({
+            code: "BEHAVIOR_CLAIM_DROPPED",
+            kind: "ssr",
+            severity: "warn",
+            message:
+              `[BEHAVIOR_CLAIM_DROPPED] A \`${pos}\` position on a server-rendered element received a server-local ` +
               `${typeof fn} — this handler can never run. Pass the function through the ` +
               `server component's props from the client (compose on the client before ` +
-              `passing), or bind a mutation to \`action=\`.`
-          );
+              `passing), or bind a mutation to \`action=\`.`,
+            data: { reason: "server-local", position: pos, received: typeof fn }
+          });
         }
         continue;
       }
@@ -4614,7 +4780,7 @@ function tryResolveString(node, nested?: boolean) {
     if (node.t === undefined) {
       // Not a template object — mirror the client's dev warn-and-skip
       // instead of crashing downstream on a malformed template shape.
-      if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
+      if ("_SOLID_DEV_") unrecognizedInsert(node);
       return "";
     }
     ssrTextTail = false;
@@ -4686,7 +4852,7 @@ export function resolveSSRNode(
     } else if (node.t !== undefined) {
       result.t[result.t.length - 1] += node.t;
       ssrTextTail = false;
-    } else if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
+    } else if ("_SOLID_DEV_") unrecognizedInsert(node);
   } else if (t === "function") {
     // Function nodes reaching the tree resolver are content by construction
     // (in-tag holes route here only under `ssr()`'s suppression window), so
@@ -4853,13 +5019,26 @@ export function createRequestEvent(request, init) {
 // to check `committed` first): the moment a stub commits, its `headers`'
 // mutating methods fail loudly — throw in the dev build, report through
 // console.error and no-op otherwise (a late write must not crash a
-// production request that is already on the wire).
+// production request that is already on the wire). Every tier that observes
+// also records it as a finding (`LATE_HEADER_WRITE`): the one server fault
+// a production consumer most wants counted, since the response looked fine.
 
 function reportLostHeaderWrite(method, name) {
   const message =
-    `Response header write dropped: headers.${method}(${JSON.stringify(String(name))}) ` +
+    `[LATE_HEADER_WRITE] Response header write dropped: headers.${method}(${JSON.stringify(String(name))}) ` +
     "ran after the response head was sent. Write headers before the shell flushes " +
     "(or before the handler returns).";
+  // Located by the current owner when there is one (a write from inside a
+  // late-rendering component names that component); none for a handler
+  // writing after the render.
+  if ("_SOLID_OBSERVE_")
+    recordFinding({
+      code: "LATE_HEADER_WRITE",
+      kind: "head",
+      severity: "error",
+      message,
+      data: { method, name: String(name) }
+    });
   if ("_SOLID_DEV_") throw new Error(message);
   console.error(message);
 } /**

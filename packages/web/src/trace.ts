@@ -102,23 +102,14 @@ export interface TraceRecord {
 // Replaced per build; a module const so the gates below read as booleans.
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
-const PROVIDER = Symbol.for("@solidjs/web/observe/trace-provider");
+// The slot object is `solid-js`'s (`serverSlots` in its server entry —
+// created per process under a registered symbol, so a provider installed
+// before this module loaded, or from another copy of it, is the one read
+// here). Its state key is re-created by name; the registered string is the
+// contract.
+const PROVIDER = Symbol.for("solid-js/observe/server/provider");
 
-type SlotState = TraceSlot & { [PROVIDER]: TraceProvider | undefined };
-
-/** Creates the slot `installServerObserve` parks on `OBSERVE.server.trace`. Observe/dev only. */
-export function createTraceSlot(): TraceSlot {
-  const slot: SlotState = {
-    [PROVIDER]: undefined,
-    provide(provider) {
-      slot[PROVIDER] = provider;
-      return () => {
-        if (slot[PROVIDER] === provider) slot[PROVIDER] = undefined;
-      };
-    }
-  };
-  return slot;
-}
+type SlotState = TraceSlot & { [PROVIDER]?: TraceProvider };
 
 function currentProvider(): TraceProvider | undefined {
   if (!IS_OBSERVE || OBSERVE === undefined) return undefined;

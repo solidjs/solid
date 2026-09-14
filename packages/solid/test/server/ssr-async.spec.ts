@@ -4361,9 +4361,11 @@ describe("Asset Manifest + lazy()", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('asset resolution failed for "./Broken.tsx"'),
-      expect.any(Error)
+    // A `LAZY_ASSET_UNMAPPED` finding: the console face is the message (the
+    // error's text folded in), the Error itself rides the structured record.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain(
+      '[LAZY_ASSET_UNMAPPED] lazy() asset resolution failed for "./Broken.tsx": Error: graph walk failed'
     );
     expect(thunk()).toBe("survives");
     warn.mockRestore();

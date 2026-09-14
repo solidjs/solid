@@ -445,6 +445,117 @@ same fold over holds and re-runs that `costs()` is over scopes and writes:
 Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
 `LONG_HOLD` are the thresholded verdicts over the hold records.
 
+## Server rendering
+
+The server runtime reports on the same channel, with the same `in <App> ›
+<Page>` line. Two groups. **Findings** (`SSR_*`, `LATE_HEADER_WRITE`,
+`SERVER_FN_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a
+render that exist in observe builds too — an APM sees them in production; in
+dev they print. **Checks** (the rest) are dev-only guidance. A captured
+artifact from a server render carries both.
+
+### SSR_RENDER_ERROR_CONTAINED
+
+A component threw during a server render and a boundary routed the error;
+`data.handling` says how. `fallback` — an `<Errored>` rendered its fallback
+(the response was a 200 showing the fallback; if this fires on every request
+the fallback is the page). `client` — the enclosing `<Loading>` fragment
+rejected and the client re-rendered the subtree after hydration (the user
+paid a client render and a flash). `failed` — nothing contained it and the
+request failed. In every case the repair is the error in `data.error`, in the
+component `ownerPath` names; then consider whether an `<Errored>` closer to
+the throw would contain it more narrowly.
+
+### SSR_SUBTREE_ABANDONED
+
+A fragment failed with descendants still pending, and their work (fetches,
+serialized values — the counts are in `data`) was thrown away; the client
+rebuilds the subtree. Find the failure (`data.error`), and give the failing
+read its own `<Loading>` so its siblings ship independently.
+
+### SSR_STREAM_ABANDONED
+
+The client went away (`data.reason: "consumer"`) or the sink failed
+(`"sink"`) while `data.pendingFragments` were still rendering; the render was
+torn down. Not an app bug. At volume it is the cost of renders nobody waited
+for: make the pending data faster or move it behind navigation.
+
+### LATE_HEADER_WRITE
+
+A response header was written after the head was sent; the write was
+dropped (dev throws instead). `data.method`/`data.name` say which. Move the
+write before the first flush — before any `<Loading>` fallback can ship — or
+before the handler returns; a cookie set from inside a late-streaming
+component never reaches the browser.
+
+### SERVER_FN_ERROR_SANITIZED
+
+A server function threw and the production wire replaced the error with the
+generic message; `data.error` is the original. Fix the failure it names. If
+the client is meant to see this error, brand it with `markSafeError` or map
+it in `wrapInvocation`; do not turn sanitization off.
+
+### FRAME_MARKER_CORRUPTED
+
+(Client.) A frame's slot start marker has no end marker among its siblings:
+invalid HTML nesting split the range when the browser parsed it (a block
+element inside `<p>`, a `<tr>` outside a table), or a CDN/minifier stripped
+the comment. Fix the nesting in the server component's markup; serve frame
+documents with `Cache-Control: no-transform`.
+
+### SERVER_WRITE
+
+A signal, store or optimistic setter ran during a server render. Server
+render is pure — state enters through async sources, never setters — so the
+write landed as inert data and will throw in a later release. Derive the
+state (`createStore(fn, seed)`, a memo over the promise); if the write bridges
+a subscription, make the subscription the async source itself.
+
+### REVEAL_IN_RENDER_TO_STRING
+
+Nested `<Reveal>` with `collapsed`/`together` needs a stream to coordinate
+on; `renderToString` has none. Use `renderToStream`, or drop the ordering.
+
+### LAZY_ASSET_UNMAPPED
+
+A `lazy()` component's client chunk could not be resolved for the page
+(`data.reason`: the resolver threw, or the module has no `$$moduleUrl`), so it
+is not preloaded and loads late during hydration. This is bundler-plugin
+configuration — the plugin injects `$$moduleUrl` and provides the resolver;
+check the module is under its scope.
+
+### PRELOAD_DESCRIPTOR_INVALID
+
+A `registerAsset("preload")` descriptor broke a field rule (`data.field`
+names it — a missing `as`, a non-string `href`, a malformed `imagesrcset`)
+and the link was dropped or the field ignored. Fix the descriptor at its
+source; the values are usually the bundler manifest's.
+
+### HEAD_TAG_INVALID
+
+A `useHead` registration the render could not honor; `data.reason` names the
+rule. `non-head-tag`/`invalid-attribute`: only head elements and their
+attributes; `props-error`/`group-error`: the props function threw — fix the
+throw; `after-shell-flush`: register the tag before the first flush (above
+the `<Loading>` whose fallback shipped); `outside-render`: call `useHead` from
+a component body; `duplicate-title`: one `<title>` per group, the last wins.
+
+### UNRECOGNIZED_INSERT_VALUE
+
+A value the renderer cannot render (a plain object, a symbol —
+`data.type`) sat at an insert position and was skipped, on either platform.
+Usually a component function inserted where its call was meant, or an object
+where one of its properties was.
+
+### BEHAVIOR_CLAIM_DROPPED
+
+A behavior position (an event handler) on a server-rendered element got
+something the wire cannot carry: a client prop through a spread
+(`data.reason: "spread"` — write the position out, `onClick={props.x}`) or a
+function that exists only on the server (`"server-local"` — pass it from the
+client through the server component's props, or bind a mutation to
+`action=`).
+
 ## Verifying a fix
 
 If you are working with `@solidjs/diagnostics`, re-run the capture after the

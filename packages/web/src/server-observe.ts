@@ -1,27 +1,24 @@
 // The server runtime's observe surface: `OBSERVE.server` (see `ServerObserve`
-// in @solidjs/signals). The core declares the slot empty; this module fills
-// it — the object at load, the type by augmentation — so a server-side
-// observability consumer installs on the one `OBSERVE` it already knows
-// from the client, and neither signals nor solid-js learn the server
-// runtime's shapes.
+// in @solidjs/signals). `solid-js`'s server entry owns the OBJECTS — generic
+// containers created once per process under a registered `globalThis`
+// symbol, so a consumer can subscribe before this runtime has loaded and
+// from a second bundled copy of it — and this module owns the FACTS and the
+// TYPES: it emits invocations into the listener set and augments the
+// interface with the channel's shape, so neither signals nor solid-js learn
+// the server runtime's records.
 //
 // Everything here folds out of the prod server artifacts behind the
-// `"_SOLID_OBSERVE_"` literal (replaced per build, like the 26 `_SOLID_DEV_`
+// `"_SOLID_OBSERVE_"` literal (replaced per build, like the `_SOLID_DEV_`
 // gates in server.ts): prod never reads `OBSERVE`, which is `undefined`
 // there anyway.
 //
-// State lives ON the shared object, not in this module. The server runtime
-// is bundled once per entry — dist/server.*, server-functions/dist/server.*,
-// frames/dist/server.* each carry their own copy of src/server.ts and of this
-// file — while `solid-js` (and so signals' `OBSERVE`) stays external and
-// single. A subscriber registered through one copy must be reached by an
-// invocation observed in another, so the listener set hangs off the channel
-// object under a registered symbol, the way `RequestContext` rides
-// `globalThis`. Population is idempotent for the same reason: whichever copy
-// loads first creates the channel, later copies find it.
+// State is read off the shared object under solid-js's registered symbol,
+// never kept in this module: the server runtime is bundled once per entry —
+// dist/server.*, server-functions/dist/server.*, frames/dist/server.* each
+// carry their own copy of src/server.ts and of this file — and a subscriber
+// must be reached by an invocation observed in any of them.
 import { OBSERVE } from "solid-js";
 import type { RequestEvent } from "./server.js";
-import { createTraceSlot } from "./trace.js";
 
 /**
  * One server function execution, delivered on `OBSERVE.server.invocations`
@@ -108,42 +105,19 @@ export interface InvocationContext {
 // gates below read as booleans (cookies.ts uses the same shape).
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
-const LISTENERS = Symbol.for("@solidjs/web/observe/invocations");
+// The state key on the channel object: a Map from record type to its listener
+// set. The channel is `solid-js`'s (`serverSlots` in its server entry —
+// created per process under a registered symbol, so a subscription made
+// before this module loaded, or from another copy of it, is found here).
+// Re-created by name — the contract is the registered string, not an import.
+const LISTENERS = Symbol.for("solid-js/observe/server/listeners");
 
-type ChannelState = InvocationChannel & { [LISTENERS]: Set<InvocationListener> };
-
-function createInvocationChannel(): ChannelState {
-  const listeners = new Set<InvocationListener>();
-  return {
-    [LISTENERS]: listeners,
-    subscribe(_type, listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    }
-  };
-}
-
-/**
- * Populates `OBSERVE.server` — idempotent, once per process (see the header
- * note on bundle copies). Called by the runtime module (server.ts) at load;
- * a call, not a bare side-effect import, because the package declares
- * `sideEffects: false` and node-resolve drops an import nothing reads.
- * Empty — and dropped — in prod builds.
- */
-export function installServerObserve(): void {
-  if (!IS_OBSERVE || OBSERVE === undefined) return;
-  // The `server` member is signals' — present on every observe-tier `OBSERVE`.
-  const server = OBSERVE.server as Partial<typeof OBSERVE.server>;
-  if (server.invocations === undefined) server.invocations = createInvocationChannel();
-  if (server.trace === undefined) server.trace = createTraceSlot();
-}
+type ChannelState = InvocationChannel & { [LISTENERS]: Map<string, Set<InvocationListener>> };
 
 function invocationListeners(): Set<InvocationListener> | undefined {
   if (!IS_OBSERVE || OBSERVE === undefined) return undefined;
   const channel = OBSERVE.server.invocations as ChannelState | undefined;
-  return channel && channel[LISTENERS];
+  return channel && channel[LISTENERS].get("invocation");
 }
 
 // `instanceof` is realm-local; the intrinsic brand accepts a genuine Promise

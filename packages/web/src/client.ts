@@ -156,6 +156,7 @@ import {
   qualifierValue,
   STYLESHEET_FETCH_META
 } from "./head.js";
+import { devCheck } from "./diagnostics.js";
 export {
   DOMWithState,
   ChildProperties,
@@ -2506,7 +2507,16 @@ function insertExpression(parent, value, current, marker) {
       current && cleanChildren(parent, current);
       appendNodes(parent, value);
     }
-  } else if ("_SOLID_DEV_") console.warn(`Unrecognized value. Skipped inserting`, value);
+  } else if ("_SOLID_DEV_")
+    // The server renderer's code for the same rule (`UNRECOGNIZED_INSERT_VALUE`
+    // in server.ts); the finding locates to the owner whose binding inserted.
+    devCheck({
+      code: "UNRECOGNIZED_INSERT_VALUE",
+      kind: "render",
+      severity: "warn",
+      message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof value}).`,
+      data: { type: typeof value, value }
+    });
   return value;
 }
 

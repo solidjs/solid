@@ -64,7 +64,22 @@ export type DiagnosticCode =
   | "EFFECT_WRITES_OWN_SOURCE"
   | "EFFECT_RELAY_TEAR"
   | "IMMUTABLE_UPDATE_IN_STORE"
-  | "UNSTABLE_LIST_IDENTITY";
+  | "UNSTABLE_LIST_IDENTITY"
+  // Server / SSR — emitted by the server runtimes (`solid-js`'s server
+  // facade, `@solidjs/web`'s server entries) through `OBSERVE.diagnostics.emit`.
+  | "SSR_RENDER_ERROR_CONTAINED"
+  | "SSR_SUBTREE_ABANDONED"
+  | "SSR_STREAM_ABANDONED"
+  | "LATE_HEADER_WRITE"
+  | "SERVER_FN_ERROR_SANITIZED"
+  | "SERVER_WRITE"
+  | "REVEAL_IN_RENDER_TO_STRING"
+  | "LAZY_ASSET_UNMAPPED"
+  | "PRELOAD_DESCRIPTOR_INVALID"
+  | "HEAD_TAG_INVALID"
+  | "UNRECOGNIZED_INSERT_VALUE"
+  | "BEHAVIOR_CLAIM_DROPPED"
+  | "FRAME_MARKER_CORRUPTED";
 
 export type DiagnosticKind =
   | "strict-read"
@@ -76,7 +91,13 @@ export type DiagnosticKind =
   | "perf"
   | "graph"
   /** Perceived responsiveness: the runtime behaved correctly but the user saw no feedback. */
-  | "responsiveness";
+  | "responsiveness"
+  /** Server rendering: boundaries, fragments, the stream, the server-function wire. */
+  | "ssr"
+  /** The response head: `<head>` tags, preload descriptors, HTTP headers. */
+  | "head"
+  /** The renderer's insert positions, on either platform: a value it has no rendering for. */
+  | "render";
 
 /** First warning when a change reaches (or a pass tracks) this many edges. */
 export const GRAPH_SIZE_WARN_AT = 2000;
@@ -165,12 +186,20 @@ export interface AttributionSlot {
 /**
  * The server runtime's observe surface — the one place a server-side
  * consumer (an APM adapter's `init()`) installs on, beside `diagnostics`.
- * Declared EMPTY here and filled in by the runtime that owns the facts:
- * `@solidjs/web`'s server entry populates the object at module init and
- * augments this interface with its members (the server-function
- * invocation channel, …), so the core never learns those shapes and the
- * consumer still finds everything on the one `OBSERVE`. Empty on the
- * client, and in a server process until a server runtime has loaded.
+ * Declared EMPTY here and typed by the runtime that owns the facts:
+ * `@solidjs/web`'s server entries augment this interface with their
+ * members (the server-function invocation channel, the trace-provider
+ * slot), so the core never learns those shapes and the consumer still finds
+ * everything on the one `OBSERVE`.
+ *
+ * The OBJECTS behind those members are not the core's either: the core has
+ * one artifact per tier for both platforms, and the client would carry
+ * them for nothing. `solid-js`'s server entry replaces this empty literal
+ * with the process-wide slots the moment it evaluates (see `serverSlots`
+ * in solid-js/src/server/observe.ts), so a consumer that imports only
+ * `solid-js` can subscribe or provide before the web runtime that emits
+ * into them has loaded, and from a second copy when a host bundles one.
+ * On the client this stays `{}`.
  */
 export interface ServerObserve {}
 

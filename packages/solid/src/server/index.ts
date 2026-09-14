@@ -1,4 +1,6 @@
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "@solidjs/signals";
+import { serverSlots } from "./observe.js";
+import { installConsoleFooter } from "../console-footer.js";
 
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
@@ -91,6 +93,21 @@ export type {
   PathSetter,
   PatchOp
 } from "./signals.js";
+// The observe/dev surface's types, as the client entry exports them — the
+// same names resolve whichever entry a server-side consumer's types come from.
+export type {
+  Dev,
+  Observe,
+  ServerObserve,
+  Diagnostics,
+  DiagnosticCapture,
+  DiagnosticCode,
+  DiagnosticEvent,
+  DiagnosticKind,
+  DiagnosticListener,
+  DiagnosticSeverity,
+  DiagnosticSubject
+} from "@solidjs/signals";
 
 // Wrappers — context, children, dev symbols
 export { $DEVCOMP, children, createContext, useContext } from "./core.js";
@@ -136,7 +153,17 @@ export function materializeContainerTrace(marker: unknown): unknown {
 // channel is the bus server-side findings report through — and prod exports
 // `undefined`. The server reimplements reactivity, so attribution and the
 // graph helpers have nothing to introspect here; the channel is what's shared.
+//
+// `OBSERVE.server` is the one member this entry fills in: the core ships it
+// empty and the process-wide slots (see observe.ts) replace it here, so they
+// exist for anything that imports `solid-js` on the server — before, and
+// regardless of, the web runtime that emits into them.
 const IS_DEV = "_SOLID_DEV_" as string | boolean;
 const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
+if (IS_OBSERVE) _OBSERVE!.server = serverSlots();
 export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
 export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
+// The console face is the core's; the repair-guide footer under each first
+// report is this package's (console-footer.ts), installed here as on the client
+// so a server render's `[SERVER_WRITE]` points at the same skill section.
+if (IS_DEV) installConsoleFooter(_DEV!);

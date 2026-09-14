@@ -1,0 +1,11 @@
+---
+"@solidjs/signals": patch
+"solid-js": patch
+"@solidjs/web": patch
+---
+
+Server diagnostics on `OBSERVE.diagnostics`; `OBSERVE.server` owned by `solid-js`'s server entry
+
+The server runtime now reports on the same structured channel as the client. **Findings** — facts about a render, present in observe and dev builds — `SSR_RENDER_ERROR_CONTAINED` (a render error a boundary routed; `data.handling` is `fallback`, `client`, or `failed` — the structured face of what `renderToStream`'s `onError` receives, on the process-wide channel), `SSR_SUBTREE_ABANDONED` (a failed fragment's pending descendants discarded), `SSR_STREAM_ABANDONED` (consumer cancelled or sink failed mid-render), `LATE_HEADER_WRITE` (recorded beside the existing dev throw / prod log), `SERVER_FN_ERROR_SANITIZED` (the original error the production wire replaced), and `FRAME_MARKER_CORRUPTED` from the frames client. **Checks** — dev-only guidance — convert every server `console.warn` to a code: `SERVER_WRITE`, `REVEAL_IN_RENDER_TO_STRING`, `LAZY_ASSET_UNMAPPED`, `PRELOAD_DESCRIPTOR_INVALID`, `HEAD_TAG_INVALID`, `BEHAVIOR_CLAIM_DROPPED`, and `UNRECOGNIZED_INSERT_VALUE` (now one code and a `render` kind on both platforms); `ASYNC_OUTSIDE_LOADING_BOUNDARY` on the server records with `data.side: "server"` before it throws. Server components are labelled for `ownerPath` (`createComponent` runs the body under a transparent `<Name>` owner in observe/dev — no hydration id consumed), so `in <App> › <Page>` reads the same on both sides, and the server entry installs the same repair-guide console footer as the client. Prod artifacts carry none of it; `DiagnosticKind` gains `ssr`, `head`, `render`.
+
+`OBSERVE.server`'s objects (the invocation listener set, the trace-provider slot) are now created by `solid-js`'s server entry, once per process under `Symbol.for("solid-js/observe/server")` on `globalThis`, rather than by `@solidjs/web`'s module init: an observer's `init()` that imports only `solid-js` can subscribe and `provide` before the web runtime has loaded, and a host that bundles the runtime into its server build and instruments through a `--import`ed module finds one listener set and one provider across both copies. The core keeps `server: {}`; the client pays nothing.

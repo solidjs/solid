@@ -447,6 +447,109 @@ The hold _was_ acknowledged and still outlasted what a stale screen should carry
 
 The design point: a hold is the stale-while-revalidate tool, right when the old screen stays useful for the wait. Past that, the honest UI is a fallback — which a `Loading` boundary provides only when it has not revealed yet or its `on` prop changed; a revealed boundary with no `on` keeps the old content, which _is_ the hold. So the repair is `on`, a fresh boundary, or making the data fast (preload, cache), never removing the acknowledgement. Silent long holds are not double-reported: they stay one `SILENT_HOLD` with the same repair appended. `feedback().sources[].long`/`longMs` counts long tails at the table level, acknowledged or not.
 
+### Server rendering (`ssr`, `head`)
+
+The server runtime reports on the same channel. Two groups, two tiers. **Findings** are facts about a render whichever tier is running — an error a boundary contained, work the stream threw away, an error the server-function wire replaced. They ride `OBSERVE.diagnostics` in observe and dev builds (a production observability consumer subscribes to them; in dev they also print) and fold out of prod entirely. **Checks** are guidance for a developer at a console — a write on the server, an invalid preload descriptor — and exist only in the dev build, where they print like any client warning. Every entry carries `ownerPath` when it fired inside a component: on the server the component wrapper labels its owner `<Name>` exactly as the client's does, so `in <App> › <Page>` reads the same on both sides. Codes that already exist on the client (`ASYNC_OUTSIDE_LOADING_BOUNDARY`, `UNRECOGNIZED_INSERT_VALUE`) are shared, not duplicated; `data.side` or the message tells the platforms apart where it matters.
+
+#### `SSR_RENDER_ERROR_CONTAINED`
+
+**Messages:**
+
+- "[SSR_RENDER_ERROR_CONTAINED] Render error caught by <Errored>: Error: …"
+- "[SSR_RENDER_ERROR_CONTAINED] Render error in a <Loading> boundary — the fragment rejected and the client re-renders it: Error: …"
+- "[SSR_RENDER_ERROR_CONTAINED] Render error in a <Loading> boundary — no boundary could contain it, the request failed: Error: …"
+- "[SSR_RENDER_ERROR_CONTAINED] Render error outside any boundary — the request failed: Error: …"
+
+Finding (`error`, observe + dev). A component threw during a server render and the runtime routed the error; `data.handling` says where it went: `"fallback"` — an `<Errored>` rendered its fallback and the response completed normally; `"client"` — the enclosing `<Loading>` fragment rejected and the client re-renders that subtree from scratch after hydration (the response completed, the user paid a client render); `"failed"` — nothing could contain it and the request failed through `onError`. `data.error` is the thrown value as thrown, `data.boundary` the boundary's hydration id, and `ownerPath` locates the boundary. This is the structured face of what `renderToStream`'s per-call `onError` receives: the same errors, on the process-wide channel an observer already subscribes to, with the containment named — so a fallback that renders on every request is visible without anyone watching a 200.
+
+#### `SSR_SUBTREE_ABANDONED`
+
+**Message:** "[SSR_SUBTREE_ABANDONED] Fragment 'p0-2' failed with 3 nested fragment(s) and 2 serialized value(s) still pending; the subtree was discarded and the client renders it from scratch."
+
+Finding (`warn`, observe + dev). A fragment failed while descendants of it were still pending, and the renderer discarded them — work already begun (fetches, serialized values) that will never reach the wire, and a subtree the client rebuilds. `data.fragment`, `data.fragments`, `data.serialized`, `data.error`. A leaf fragment's failure alone is `SSR_RENDER_ERROR_CONTAINED`'s finding, not this one; this measures the collateral. Repeated abandonment under one boundary is the cue to move the failing read into its own `<Loading>` so its siblings ship.
+
+#### `SSR_STREAM_ABANDONED`
+
+**Message:** "[SSR_STREAM_ABANDONED] The response stream was abandoned mid-render (consumer) with 4 fragment(s) still pending; the render was torn down."
+
+Finding (`warn`, observe + dev; no `ownerPath` — a stream event). The consumer cancelled (`data.reason: "consumer"`, a `pipeTo` cancellation — usually the browser navigating away) or the sink failed on write (`"sink"`) while fragments were pending, and the render was torn down. `data.shellFlushed` says whether the shell had gone out; `data.pendingFragments` counts what never shipped. Not an error in the app; at volume it is the request cost of renders nobody waited for.
+
+#### `LATE_HEADER_WRITE`
+
+**Message:** "[LATE_HEADER_WRITE] Response header write dropped: headers.set("Set-Cookie") ran after the response head was sent. Write headers before the shell flushes (or before the handler returns)."
+
+Finding (`error`, observe + dev) plus the existing behavior: the dev build **throws** the same message (the throw is the console face; the record is not printed twice), other tiers log it and drop the write. Application code wrote a response header after the head had been flushed — the value was lost, and the response looked fine, which is why a production consumer wants this one counted. `data.method`, `data.name`; `ownerPath` names the component when the write came from inside a late-rendering one. Move the write before the first flush, or before the handler returns.
+
+#### `SERVER_FN_ERROR_SANITIZED`
+
+**Message:** "[SERVER_FN_ERROR_SANITIZED] Server function error replaced with a generic Error before serialization: TypeError: …"
+
+Finding (`error`, observe + dev). A server function threw and the non-dev wire replaced the error with the generic message (RFC 10's sanitization). The client sees the replacement; this record carries the original in `data.error`. Beside the invocation channel's `outcome: "error"` it is the one place the real failure surfaces in production. A value branded with `markSafeError` passes through and is not reported.
+
+#### `FRAME_MARKER_CORRUPTED`
+
+**Message:** "[FRAME_MARKER_CORRUPTED] Frame slot range "comment#0" is missing its end marker (<!--slot:comment#0:end-->) among its start marker's siblings. …"
+
+Finding (`error`, observe + dev) on the **client**, from the frames consumer — same channel as the server's findings so a consumer sees the client-detected corruption beside them. The frame HTML the browser parsed has a slot start marker whose end marker is not among its siblings: invalid nesting split the range during parsing (a block element inside `<p>`), or an HTML-rewriting layer (CDN, minifier, translator) removed or moved the comment. `data.slot`, `data.end`. Fix the nesting, and serve frame documents with `Cache-Control: no-transform`.
+
+#### `SERVER_WRITE`
+
+**Messages:**
+
+- "[SERVER_WRITE] Writing a signal on the server is deprecated and will become an error. Server render is pure: state changes flow from async sources (promises, async iterables), never setters — this write landed as inert data (nothing re-renders). …"
+- "[SERVER_WRITE] Writing a store on the server is deprecated and will become an error. …"
+- "[SERVER_WRITE] Optimistic writes are inert on the server and will become an error. …"
+
+Check (`warn`, dev only; once per process per `data.category`). A setter ran during a server render. The write landed as inert data — nothing re-renders on the server — and the pattern will throw in a later release. Derive the state from its async source (`createStore(fn, seed)`, `createMemo(() => fetch…)`), or, for a subscription, make the subscription the source instead of pushing writes from its callback.
+
+#### `ASYNC_OUTSIDE_LOADING_BOUNDARY` (server)
+
+**Message:** "[ASYNC_OUTSIDE_LOADING_BOUNDARY] ssrSource: "client" read during SSR outside a <Loading> boundary — the server cannot run this source, so a boundary must own the position's fallback. Wrap the read in <Loading>, or declare a loadingValue/seedLoadingValue to render a provisional value instead."
+
+The client's code, `data.side: "server"`, and a hard **error** on the server in every tier (the read throws; the record is wiring, so an observer sees it beside the `SSR_RENDER_ERROR_CONTAINED` it usually becomes). A `ssrSource: "client"` async was read where no `<Loading>` could own the position's fallback.
+
+#### `REVEAL_IN_RENDER_TO_STRING`
+
+**Message:** "[REVEAL_IN_RENDER_TO_STRING] Nested <Reveal> with collapsed/together won't coordinate correctly with renderToString. Use renderToStream for full support."
+
+Check (`warn`, dev only). `renderToString` has no stream to coordinate reveal order on. `data.order`, `data.collapsed`.
+
+#### `LAZY_ASSET_UNMAPPED`
+
+**Messages:**
+
+- "[LAZY_ASSET_UNMAPPED] lazy() asset resolution failed for "src/Page.tsx": Error: …"
+- "[LAZY_ASSET_UNMAPPED] lazy() used in SSR without a moduleUrl and the loaded module has no $$moduleUrl export, so its client assets cannot be resolved — the component will load late during hydration. This is typically injected by the bundler plugin."
+
+Check (`warn`, dev only). A `lazy()` component's client assets could not be resolved for the page — the asset resolver threw (`data.reason: "resolution-failed"`, `data.id`, `data.error`) or the module carries no `$$moduleUrl` (`"no-module-url"`). The page still renders; the component's chunk is not preloaded and loads late during hydration. Usually a bundler-plugin configuration gap.
+
+#### `PRELOAD_DESCRIPTOR_INVALID`
+
+**Message:** "[PRELOAD_DESCRIPTOR_INVALID] registerAsset("preload") requires an as destination." (and the other field rules)
+
+Check (`warn`, dev only). A `registerAsset("preload", …)` descriptor broke a rule — not an object, missing `as`, a non-string or empty `href`, a malformed `imagesrcset`/`imagesizes`/`crossorigin` — and the link was dropped or the field ignored. `data.field` names the field, `data.value` what it held.
+
+#### `HEAD_TAG_INVALID`
+
+**Messages:** "[HEAD_TAG_INVALID] useHead: … is not a head element", "[HEAD_TAG_INVALID] useHead: error evaluating tag props: …", "[HEAD_TAG_INVALID] Multiple <title> tags in one head group; the last one wins." (and the other rules)
+
+Check (`warn`, dev only). A `useHead` registration the render could not honor. `data.reason` names the rule — `non-head-tag`, `invalid-attribute`, `props-error`, `group-error`, `after-shell-flush` (registered once the head had gone out), `outside-render`, `duplicate-title` — and `data.detail` the specifics. The last rule fires on the client too: head resolution is shared code.
+
+#### `UNRECOGNIZED_INSERT_VALUE`
+
+**Message:** "[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (object)."
+
+Check (`warn`, dev only; kind `render`; server and client). A value at an insert position the renderer has no rendering for — a plain object, a symbol — was skipped. `data.type`, `data.value`. Usually a component returned where its result was meant, or an object where its property was.
+
+#### `BEHAVIOR_CLAIM_DROPPED`
+
+**Messages:**
+
+- "[BEHAVIOR_CLAIM_DROPPED] A spread on a server-rendered <button> carries `onClick` from client props — spreads don't participate in behavior claims, so this drops. Write the position out: `onClick={props.onSelect}`."
+- "[BEHAVIOR_CLAIM_DROPPED] A `onClick` position on a server-rendered element received a server-local function — this handler can never run. …"
+
+Check (`warn`, dev only; server components). A behavior position (an event handler prop) on a server-rendered element received something the wire cannot carry: a client prop through a spread (`data.reason: "spread"` — write the position out) or a function that only exists on the server (`"server-local"` — pass it through the server component's props from the client, or bind a mutation to `action=`).
+
 ## Programmatic diagnostics API
 
 In dev and observe builds, `OBSERVE.diagnostics` provides two methods for tooling (and `OBSERVE.exclude`/`isExcluded`, described under attribution, mark an observer's own subtree so neither channel reports it):
@@ -494,7 +597,7 @@ Each `DiagnosticEvent` has:
 
 ### `OBSERVE.server` — the server runtime's observe surface
 
-`OBSERVE` is one object per process, shared by every package that reads it, so it is also where the **server** runtime publishes what it has to observe. `OBSERVE.server` is an empty slot on the object `@solidjs/signals` ships; `@solidjs/web`'s server entries populate it when they load (idempotently — the `.`, `server-functions`, and `frames` server bundles each carry a copy of the populating module, and whichever loads first wins). Same tiers as the rest of `OBSERVE`: present in dev and observe builds, absent in prod — the prod server artifacts fold the surface and every emit site out, so an observer that finds `OBSERVE === undefined` (or `OBSERVE.server` empty, before the web runtime has loaded) has nothing to subscribe to.
+`OBSERVE` is one object per process, shared by every package that reads it, so it is also where the **server** runtime publishes what it has to observe. `OBSERVE.server` is an empty slot on the object `@solidjs/signals` ships; `solid-js`'s **server entry** fills it the moment it evaluates, with containers it registers once per process on `globalThis` (under `Symbol.for("solid-js/observe/server")`). Two consequences an observer can rely on: the slots exist as soon as `import { OBSERVE } from "solid-js"` resolves on the server — an APM's `init()` can subscribe or install a provider before `@solidjs/web` (which emits into them) has loaded, and without importing it — and a host that bundles the runtime into its server build and instruments through a `--import`ed module still finds one listener set and one provider across both copies. Same tiers as the rest of `OBSERVE`: present in dev and observe builds, absent in prod — the prod server artifacts fold the surface and every emit site out, so an observer that finds `OBSERVE === undefined` has nothing to subscribe to. On the client `OBSERVE.server` stays empty.
 
 The type is an augmentable interface — `ServerObserve`, declared empty in `solid-js` and filled in by `@solidjs/web` through `declare module "solid-js"` — so `OBSERVE.server.invocations` types without `@solidjs/web` having to be the place `OBSERVE` is imported from. Observers import `OBSERVE` from `solid-js`, as on the client.
 
@@ -574,6 +677,19 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `UNSTABLE_LIST_IDENTITY`           | warn      | perf           | `mapArray`/`For` recreated rows for equivalent items (attribution enabled)                                                 |
 | `SILENT_HOLD`                      | info/warn | responsiveness | Write held 100ms+/200ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
 | `LONG_HOLD`                        | info/warn | responsiveness | Acknowledged hold whose tail (last input → commit) ran 500ms+/1000ms+ (attribution enabled)                                |
+| `SSR_RENDER_ERROR_CONTAINED`       | error     | ssr            | Server render error routed by a boundary: `data.handling` fallback / client / failed (observe + dev)                       |
+| `SSR_SUBTREE_ABANDONED`            | warn      | ssr            | A failed fragment's pending descendants were discarded (observe + dev)                                                     |
+| `SSR_STREAM_ABANDONED`             | warn      | ssr            | Response stream cancelled or sink failed with fragments pending (observe + dev)                                            |
+| `LATE_HEADER_WRITE`                | error     | head           | Response header written after the head was sent; dropped (observe + dev; dev throws)                                       |
+| `SERVER_FN_ERROR_SANITIZED`        | error     | ssr            | Server-function error replaced with the generic Error on the wire; `data.error` is the original (observe + dev)            |
+| `FRAME_MARKER_CORRUPTED`           | error     | ssr            | Frame slot range missing its end marker on the client — nesting or an HTML rewriter (observe + dev)                        |
+| `SERVER_WRITE`                     | warn      | write          | Signal/store/optimistic setter ran during a server render; inert, will throw (dev; once per category)                      |
+| `REVEAL_IN_RENDER_TO_STRING`       | warn      | ssr            | Nested `<Reveal>` with collapsed/together under `renderToString` (dev)                                                     |
+| `LAZY_ASSET_UNMAPPED`              | warn      | ssr            | `lazy()` component's client assets could not be resolved for the page (dev)                                                |
+| `PRELOAD_DESCRIPTOR_INVALID`       | warn      | head           | `registerAsset("preload")` descriptor broke a field rule; link dropped or field ignored (dev)                              |
+| `HEAD_TAG_INVALID`                 | warn      | head           | `useHead` registration the render could not honor; `data.reason` names the rule (dev)                                      |
+| `UNRECOGNIZED_INSERT_VALUE`        | warn      | render         | Value at an insert position the renderer cannot render; skipped (dev; server and client)                                   |
+| `BEHAVIOR_CLAIM_DROPPED`           | warn      | ssr            | Behavior position on a server-rendered element got a spread prop or a server-local function (dev)                          |
 
 ## Run attribution — "why did this run"
 

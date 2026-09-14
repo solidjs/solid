@@ -22,6 +22,7 @@ import {
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
 import { observeInvocation } from "../../src/server-observe.js";
+import { emitFinding, errorText } from "../../src/diagnostics.js";
 import { encodeFlashCookie, setFlashSecret } from "./flash.js";
 import {
   BODY_FORMAT_HEADER,
@@ -3045,6 +3046,22 @@ export function sanitizeServerError(value: unknown): unknown;
 export function sanitizeServerError(value) {
   if (DEV) return value;
   if (isSafeError(value)) return value;
+  // The observe tier's one record of what the wire did not carry: the
+  // original is gone for the client, so it is a finding here (`data.error`
+  // holds it) for the production consumer that wants the real failure. The
+  // invocation channel reports that the call errored; this reports what
+  // replaced the error.
+  if ("_SOLID_OBSERVE_")
+    emitFinding(
+      {
+        code: "SERVER_FN_ERROR_SANITIZED",
+        kind: "ssr",
+        severity: "error",
+        message: `[SERVER_FN_ERROR_SANITIZED] Server function error replaced with a generic Error before serialization: ${errorText(value)}`,
+        data: { error: value }
+      },
+      null
+    );
   return new Error(GENERIC_SERVER_ERROR_MESSAGE);
 } /**
  * Client-only inspection seam. A no-op on this entry so isomorphic

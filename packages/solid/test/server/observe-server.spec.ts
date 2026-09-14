@@ -1,0 +1,72 @@
+/** @vitest-environment node */
+/**
+ * `OBSERVE.server` — the server runtime's observe surface, as solid-js's
+ * server entry owns it.
+ *
+ * Claims under test (Sentry spike SHAPE-NOTES J.23/J.24): the slots exist the
+ * moment `solid-js` loads on the server — an observer's `init()` that imports
+ * only `solid-js` can subscribe and install a provider before any web entry
+ * evaluates — and they are one per PROCESS, under a registered symbol on
+ * `globalThis`, so a second copy of the runtime (a bundled server build
+ * instrumented through a `--import`ed module) finds the same listener set and
+ * provider. The containers are generic: solid-js knows neither the record
+ * types nor the provider's shape; those are the emitting runtime's
+ * (`@solidjs/web`), which reads them by the same registered names.
+ */
+import { describe, expect, it } from "vitest";
+import { OBSERVE as CORE } from "@solidjs/signals";
+import { OBSERVE } from "../../src/server/index.js";
+
+const SLOTS = Symbol.for("solid-js/observe/server");
+const LISTENERS = Symbol.for("solid-js/observe/server/listeners");
+const PROVIDER = Symbol.for("solid-js/observe/server/provider");
+
+type Slots = {
+  invocations: {
+    [LISTENERS]: Map<string, Set<Function>>;
+    subscribe(type: string, listener: Function): () => void;
+  };
+  trace: { [PROVIDER]?: Function; provide(provider: Function): () => void };
+};
+
+describe("OBSERVE.server", () => {
+  const server = OBSERVE!.server as unknown as Slots;
+
+  it("is populated by solid-js's server entry, before any web runtime loads", () => {
+    expect(typeof server.invocations.subscribe).toBe("function");
+    expect(typeof server.trace.provide).toBe("function");
+    // Installed onto the core's own OBSERVE object, which is what solid-js
+    // re-exports: one object, whichever import a consumer reads it through.
+    expect(CORE!.server).toBe(server);
+  });
+
+  it("is one object per process, registered on globalThis for every runtime copy", () => {
+    expect((globalThis as any)[SLOTS]).toBe(server);
+  });
+
+  it("subscribe: a listener set per record type, reachable by the emitter's registered symbol", () => {
+    const seen: unknown[] = [];
+    const off = server.invocations.subscribe("probe", (e: unknown) => seen.push(e));
+    const set = server.invocations[LISTENERS].get("probe")!;
+    expect(set.size).toBe(1);
+    // What `@solidjs/web`'s emitter does: read the set by symbol and call.
+    for (const listener of set) listener({ id: "x" });
+    expect(seen).toEqual([{ id: "x" }]);
+    off();
+    expect(set.size).toBe(0);
+  });
+
+  it("provide: a single replaceable provider; the disposer only clears its own", () => {
+    const a = () => "a";
+    const b = () => "b";
+    const offA = server.trace.provide(a);
+    expect(server.trace[PROVIDER]).toBe(a);
+    const offB = server.trace.provide(b);
+    expect(server.trace[PROVIDER]).toBe(b);
+    // A stale disposer does not evict its successor.
+    offA();
+    expect(server.trace[PROVIDER]).toBe(b);
+    offB();
+    expect(server.trace[PROVIDER]).toBeUndefined();
+  });
+});

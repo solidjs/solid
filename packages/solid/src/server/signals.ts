@@ -105,6 +105,14 @@ import type {
 } from "@solidjs/signals";
 
 import { sharedConfig, NoHydrateContext } from "./shared.js";
+import {
+  IS_DEV,
+  IS_OBSERVE,
+  devCheck,
+  emitFinding,
+  errorText,
+  recordFinding
+} from "./diagnostics.js";
 
 // === Lean SSR Owner Runtime ===
 //
@@ -135,6 +143,15 @@ interface SSROwner {
   _firstChild: SSROwner | null;
   _nextSibling: SSROwner | null;
   _disposed: boolean;
+  /**
+   * Observe/dev tiers only: the label the core's `ownerPath` walk reads
+   * (`<Name>` on a component's owner — see `createComponentOwner`), the
+   * same field and the same walk as client owners, so a server finding
+   * locates itself as `<App> › <Page>` without the core learning this
+   * shape. Prod owners never carry the slot (a second literal, like the
+   * signals node shapes), so the 9-field layout above is untouched there.
+   */
+  _name?: string;
 }
 
 const defaultSSRContext: Record<symbol | string, unknown> = {};
@@ -190,10 +207,31 @@ export function creationStamp(): number {
 
 export function createOwner(options?: { id?: string; transparent?: boolean }): Owner {
   ownerCreations++;
-  const parent = currentOwner;
   const transparent = options?.transparent ?? false;
+  return allocateOwner(options?.id, transparent) as unknown as Owner;
+}
+
+/**
+ * Observe/dev tiers: the transparent, labelled owner a component body runs
+ * under, so the owner tree reads as the component tree — the server twin of
+ * the client's `observedComponent` root. Transparent, so it consumes no
+ * hydration id (ids keep walking up to the enclosing id-bearing owner).
+ * NOT counted in `creationStamp()`: the live-hole engine reads that stamp
+ * to tell render-once work from re-runnable holes, and a label must not
+ * change that verdict between tiers — a component that latches in the
+ * observe tier and binds live in prod would be a tier-dependent render.
+ * Never called from the prod build.
+ */
+export function createComponentOwner(name: string): Owner {
+  const owner = allocateOwner(undefined, true);
+  owner._name = name;
+  return owner as unknown as Owner;
+}
+
+function allocateOwner(explicitId: string | undefined, transparent: boolean): SSROwner {
+  const parent = currentOwner;
   const id =
-    options?.id ??
+    explicitId ??
     (transparent ? parent?.id : parent?.id != null ? nextChildIdFor(parent, true) : undefined);
   const ctx = parent?._context ?? defaultSSRContext;
   let owner: SSROwner;
@@ -211,18 +249,36 @@ export function createOwner(options?: { id?: string; transparent?: boolean }): O
     owner._firstChild = null;
     owner._nextSibling = null;
     owner._disposed = false;
+    if (IS_OBSERVE) owner._name = undefined;
   } else {
-    owner = {
-      id,
-      _transparent: transparent,
-      _disposal: null,
-      _parent: parent,
-      _context: ctx,
-      _childCount: 0,
-      _firstChild: null,
-      _nextSibling: null,
-      _disposed: false
-    };
+    // Two literals, one per tier: the observe/dev shape carries the label
+    // slot so every owner of the tier shares a hidden class (a pooled
+    // component owner reused as a plain one included); prod's 9-field
+    // literal is byte-identical to before.
+    owner = IS_OBSERVE
+      ? {
+          id,
+          _transparent: transparent,
+          _disposal: null,
+          _parent: parent,
+          _context: ctx,
+          _childCount: 0,
+          _firstChild: null,
+          _nextSibling: null,
+          _disposed: false,
+          _name: undefined
+        }
+      : {
+          id,
+          _transparent: transparent,
+          _disposal: null,
+          _parent: parent,
+          _context: ctx,
+          _childCount: 0,
+          _firstChild: null,
+          _nextSibling: null,
+          _disposed: false
+        };
   }
   if (parent) {
     // Forward-only linked list. We push at head; iteration during disposal
@@ -232,7 +288,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }): O
     if (lastChild) owner._nextSibling = lastChild;
     parent._firstChild = owner;
   }
-  return owner as unknown as Owner;
+  return owner;
 }
 
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
@@ -516,12 +572,25 @@ const CLIENT_HOLE: Promise<never> = /* @__PURE__ */ Object.assign(new Promise<ne
  * unresolvable top-level hole — throw a real error instead, loudly.
  */
 function clientHoleRead(): never {
-  if (!(sharedConfig.context as any)?._loadingPhase)
-    throw new Error(
-      `ssrSource: "client" read during SSR outside a <Loading> boundary — the server cannot run ` +
-        `this source, so a boundary must own the position's fallback. Wrap the read in <Loading>, ` +
-        `or declare a loadingValue/seedLoadingValue to render a provisional value instead.`
-    );
+  if (!(sharedConfig.context as any)?._loadingPhase) {
+    const message =
+      `[ASYNC_OUTSIDE_LOADING_BOUNDARY] ssrSource: "client" read during SSR outside a <Loading> ` +
+      `boundary — the server cannot run this source, so a boundary must own the position's ` +
+      `fallback. Wrap the read in <Loading>, or declare a loadingValue/seedLoadingValue to ` +
+      `render a provisional value instead.`;
+    // The client's code for the same rule; `side` tells the two apart. The
+    // site throws (this is a hard error in every tier), so the record is
+    // wiring, not a console report — the throw is the console face.
+    if (IS_OBSERVE)
+      recordFinding({
+        code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+        kind: "async",
+        severity: "error",
+        message,
+        data: { side: "server" }
+      });
+    throw new Error(message);
+  }
   throw new NotReadyError(CLIENT_HOLE);
 }
 
@@ -674,9 +743,14 @@ function settleServerAsync<T, U>(
 // Setter calls are tolerated this release (signal/store writes land as inert
 // data, optimistic writes are no-ops) but deprecated on the way to throwing —
 // see RFC 11's server mutation policy. Warned once per process per category
-// so subscription-driven writes can't flood server logs.
+// so subscription-driven writes can't flood server logs. A dev check
+// (`SERVER_WRITE`, server-dev-build-plan D1): the deprecation notice is a
+// developer's concern, so the observe and prod artifacts carry neither the
+// check nor the text — before the server dev build existed this fired in
+// production by accident of having no gate.
 const warnedServerWrites = new Set<string>();
 function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
+  if (!IS_DEV) return;
   if (warnedServerWrites.has(category)) return;
   warnedServerWrites.add(category);
   const message =
@@ -695,7 +769,13 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
           "async iterables), never setters — this write landed as inert data (nothing " +
           "re-renders). If you are bridging a subscription, make it the async source " +
           "itself instead of pushing writes from its callback.";
-  console.warn(message);
+  devCheck({
+    code: "SERVER_WRITE",
+    kind: "write",
+    severity: "warn",
+    message,
+    data: { category }
+  });
 }
 
 export function createSignal<T>(): Signal<T | undefined>;
@@ -2662,7 +2742,31 @@ export function createErrorBoundary<T, U>(
       ctx.serialize(boundaryId, err);
     }
   };
+  // The finding (observe/dev): a render error this boundary contained by
+  // rendering its fallback — the response completes, the failure is real,
+  // and nothing else records it (renderToStream never rejects for it and
+  // `onError` never hears it). Once per boundary per failure text: the
+  // enclosing Loading re-pulls this accessor on every discovery pass and the
+  // same throw recurs each time.
+  let reportedFailure: string | undefined;
+  const reportContained = (err: any) => {
+    if (!IS_OBSERVE) return;
+    const text = errorText(err);
+    if (reportedFailure === text) return;
+    reportedFailure = text;
+    emitFinding(
+      {
+        code: "SSR_RENDER_ERROR_CONTAINED",
+        kind: "ssr",
+        severity: "error",
+        message: `[SSR_RENDER_ERROR_CONTAINED] Render error caught by <Errored>: ${text}`,
+        data: { handling: "fallback", boundary: owner.id, error: err }
+      },
+      owner
+    );
+  };
   const handleError = (err: any) => {
+    reportContained(err);
     serializeError(err);
     return renderFallback(err);
   };

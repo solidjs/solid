@@ -14,6 +14,14 @@
  * Every export in this module is `@experimental`.
  */
 
+// The module's one import, and only for the dev-tier integrity check
+// (`devCheckRange`): the diagnostics channel and its console face. `solid-js`
+// is external to every frames client bundle, so this reaches the same
+// `OBSERVE` the rest of the page runs on — no cross-bundle seam to keep in
+// agreement, unlike the registered-symbol brands this module otherwise
+// duplicates by design. The prod build folds the call out with the gate.
+import { DEV, OBSERVE } from "solid-js";
+
 /**
  * One transport chunk of a frame stream, addressed by frame `id`.
  * @experimental
@@ -2474,13 +2482,27 @@ function devCheckRange(start, id) {
     if (n.nodeType === COMMENT_NODE && n.data === end) return;
     n = n.nextSibling;
   }
-  console.error(
-    `Frame slot range "${id}" is missing its end marker (<!--${end}-->) among its start ` +
-      `marker's siblings. Slots after it in this content cannot be discovered. Likely causes: ` +
-      `invalid HTML nesting split the range during parsing (e.g. a block element inside <p>), ` +
-      `or an HTML-rewriting layer (CDN/minifier/translator) removed or moved the comment — ` +
-      `serve frame documents with Cache-Control: no-transform.`,
-    start
+  // A finding on the one channel (`FRAME_MARKER_CORRUPTED`) and its console
+  // face — the same code the server table reserves for the frames pair, so a
+  // consumer sees the client-detected corruption beside the server's
+  // findings. No owner locates it (a DOM walk, not a reactive scope); the
+  // slot id in the message and `data` is the address.
+  DEV.report(
+    OBSERVE.diagnostics.emit(
+      {
+        code: "FRAME_MARKER_CORRUPTED",
+        kind: "ssr",
+        severity: "error",
+        message:
+          `[FRAME_MARKER_CORRUPTED] Frame slot range "${id}" is missing its end marker (<!--${end}-->) among its start ` +
+          `marker's siblings. Slots after it in this content cannot be discovered. Likely causes: ` +
+          `invalid HTML nesting split the range during parsing (e.g. a block element inside <p>), ` +
+          `or an HTML-rewriting layer (CDN/minifier/translator) removed or moved the comment — ` +
+          `serve frame documents with Cache-Control: no-transform.`,
+        data: { slot: id, end }
+      },
+      null
+    )
   );
 }
 
