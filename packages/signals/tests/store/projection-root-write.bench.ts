@@ -6,10 +6,23 @@
 // #3044 prototype overlay. Guard the parity: the projection derive and the
 // store setter should sit at the same per-commit floor, and the nested
 // write (a small target — always cheap) is the reference.
+//
+// Each body runs COMMITS commits, not one. Three benchmarks share this
+// process and one set of 20k-key fixtures, and V8 emits a one-off ~100k
+// instruction tier-up chunk that attaches to whichever frame is running when
+// it fires — landing in exactly one of the three windows. At one commit per
+// body (~540k Ir for the root write) that is ~16-20% of a window, and it
+// moves between windows on unrelated changes: #3431 (a ~300-instruction
+// change on its own path) read as -8.9% here and x2.4 on the untouched
+// nested write, and a provably no-op extra call on `next` read as -5.5% here
+// and +22% on the untouched store setter (CodSpeed bisection, 2026-09-14).
+// Amortized over COMMITS the chunk is noise below the 5% gate; the numbers
+// stay per-commit-comparable across the three (all scale together).
 import { bench, describe } from "vitest";
 import { createProjection, createRoot, createSignal, createStore, flush } from "../../src/index.js";
 
 const KEYS = 20_000;
+const COMMITS = 20;
 const seed = () => Object.fromEntries(Array.from({ length: KEYS }, (_, i) => [`k${i}`, { n: i }]));
 
 describe(`one root key per commit, ${KEYS}-key record`, () => {
@@ -58,21 +71,27 @@ describe(`one root key per commit, ${KEYS}-key record`, () => {
   });
 
   bench("projection derive: delete + set one ROOT key (#3352)", () => {
-    bump(++tick);
-    flush();
+    for (let c = 0; c < COMMITS; c++) {
+      bump(++tick);
+      flush();
+    }
   });
 
   bench("projection derive: write one NESTED field (reference)", () => {
-    bumpNested(++tick);
-    flush();
+    for (let c = 0; c < COMMITS; c++) {
+      bumpNested(++tick);
+      flush();
+    }
   });
 
   bench("createStore setter: delete + set one root key (#3044 overlay)", () => {
-    const i = ++tick % KEYS;
-    setStore(d => {
-      delete d[`k${i}`];
-      d[`k${i}`] = { n: -i };
-    });
-    flush();
+    for (let c = 0; c < COMMITS; c++) {
+      const i = ++tick % KEYS;
+      setStore(d => {
+        delete d[`k${i}`];
+        d[`k${i}`] = { n: -i };
+      });
+      flush();
+    }
   });
 });
