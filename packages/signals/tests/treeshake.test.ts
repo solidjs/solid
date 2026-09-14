@@ -271,7 +271,15 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (the pass belongs to whoever dirtied it), so a landing folds in every
     // transaction waiting on the flight itself (`enterWaiting`) — a
     // stampless node's fresh batch included. +59 B (23,136 → 23,195).
-    expect(minifiedBytes).toBeLessThan(23_300);
+    // CONSCIOUS BUMP (2026-09-14): +123 B for the two held-input rules of
+    // #3408/#3410 — a tracked reader served a live transaction's staged value
+    // enters the transaction (`enterStagedRead`, the read twin of setSignal's
+    // and recompute's stamped entry), and a staged pass leaves the previous
+    // pass's dependency tail for `commitPendingNode` to trim (deps are the
+    // committed frame's, like its children). Core-retained by necessity:
+    // both sit on read()'s value selection and recompute's tail. Measured at
+    // 23,318 on top of #3434 (23,195 → 23,318).
+    expect(minifiedBytes).toBeLessThan(23_400);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

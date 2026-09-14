@@ -430,17 +430,20 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
 
   if (!el._x?._error) {
-    trimStaleDeps(el);
-    // Observe-tier fan-in (HUGE_FAN_IN): with the stale tail trimmed, the dep
-    // list IS this pass's distinct sources — count it here rather than per
-    // link. A begin/end bracket around the pass plus a per-link increment
-    // measured -5.8% on createRenderEffects:create1to1 (CodSpeed, dev tier)
-    // and cost several points of the shape wins elsewhere; this walk is a
-    // fraction of the reads that built the list and keeps no module state,
-    // so nested pulls need no save/restore.
+    // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
+    // IS this pass's distinct sources — count it here rather than per link. A
+    // begin/end bracket around the pass plus a per-link increment measured
+    // -5.8% on createRenderEffects:create1to1 (CodSpeed, dev tier) and cost
+    // several points of the shape wins elsewhere; this walk is a fraction of
+    // the reads that built the list and keeps no module state, so nested
+    // pulls need no save/restore. (The stale tail is trimmed at the end of
+    // this pass, or at its commit — see recompute's tail.)
     if (__OBSERVE__) {
       let fanIn = 0;
-      for (let d = el._deps; d !== null; d = d._nextDep) fanIn++;
+      for (let d = el._deps; d !== null; d = d._nextDep) {
+        fanIn++;
+        if (d === el._depsTail) break;
+      }
       if (fanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, fanIn);
     }
     // INV-11 (#3330): the equality gate compares against the slot this run
@@ -640,6 +643,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
       settlePendingSource(el);
   }
+  // Dependencies are the committed frame's until it is replaced (A30, #3410; the
+  // deps twin of the held children above): a pass that staged its value
+  // leaves the previous pass's tail linked for `commitPendingNode` to trim,
+  // so a write to a dependency the committed value still derives from
+  // reaches this node — and joins its hold if the stage is transaction-held
+  // by then (a plain flush decides nothing here: the transaction that holds
+  // the pass may open later in the same flush). A pass that published, or
+  // changed nothing, trims now. An errored pass (a throw, NotReady included,
+  // or a comparator throw above) keeps its full list as before — `_depsTail`
+  // marks where it stopped — and the commit skips it by the same `_error`.
+  if (!el._x?._error && el._pendingValue === NOT_PENDING) trimStaleDeps(el);
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
   // still reflects THIS run's posture. The facts distinguish an overlay
   // recompute (optimistic lane, transition replay, transition-held commit)
@@ -1426,6 +1440,22 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
   return true;
 }
 
+/**
+ * A tracked computation about to be served a live transaction's staged value
+ * derives from that transaction's world, so it enters the transaction and
+ * this pass's result is held with it (A29, #3408). The write side (`setSignal`)
+ * and a stamped node's recompute already enter; a reader that only now
+ * starts reading the held node — a conditional memo whose branch flipped —
+ * was the gap: it published a value derived from the staged world into the
+ * mainline frame. Not for a probe (`isPending(() => x())` observes, it does
+ * not derive) and a no-op for the ambient batch (`_transition` null) or the
+ * transaction already active.
+ */
+function enterStagedRead(el: Signal<any> | Computed<any>): void {
+  const t = el._transition;
+  if (t !== null && t !== activeTransition && !pendingCheckActive) globalQueue.initTransition(t);
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1459,7 +1489,7 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
     (stale && heldFromStale(el, c as Computed<any>))
       ? el._value
-      : el._pendingValue
+      : (enterStagedRead(el), el._pendingValue)
   ) as T;
 }
 
@@ -1504,7 +1534,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
       (stale && heldFromStale(el, c as Computed<any>))
         ? el._value
-        : el._pendingValue
+        : (enterStagedRead(el), el._pendingValue)
     ) as T;
   }
 
@@ -1700,7 +1730,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !latestReadActive &&
       !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
       ? el._value
-      : (el._pendingValue as T);
+      : (enterStagedRead(el), el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
   // the probe doesn't pair "pending" with the new value (#2831).
   if (pendingCheckActive) GlobalQueue._recordFresh!(el, value);

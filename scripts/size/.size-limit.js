@@ -217,7 +217,10 @@ module.exports = [
     // effect's recompute no longer re-enters its stamp: a landing folds in
     // every transaction waiting on the flight (`enterWaiting`) instead.
     // +137 B minified in the in-package floor (23,058 -> 23,195).
-    limit: "8.65 KB",
+    // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 8.65 ->
+    // 8.70 KB, measured at 8685 B against `next`'s 8628 (+57) — `enterStagedRead` on read()'s value
+    // selections and the deferred dependency trim; see the core floor note.
+    limit: "8.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -631,7 +634,10 @@ module.exports = [
     // (+52); see the core floor note.
     // #3426/#3427/#3407 (2026-09-14): 11.35 -> 11.40 KB, measured at 11368 B
     // against `next`'s 11322 (+46); see the core floor note.
-    limit: "11.40 KB",
+    // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 11.40 ->
+    // 11.45 KB, measured at 11417 B against `next`'s 11368 (+49) — `enterStagedRead` on read()'s value
+    // selections and the deferred dependency trim; see the core floor note.
+    limit: "11.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -886,7 +892,10 @@ module.exports = [
     // #3426/#3427/#3407 (2026-09-14): 28.45 -> 28.65 KB, measured at 28602 B
     // against `next`'s 28430 (+172 — the core seams plus `endOptimism` in
     // the optimistic module); see the core floor note.
-    limit: "28.65 KB",
+    // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 28.65 ->
+    // 28.70 KB, measured at 28680 B against `next`'s 28602 (+78) — `enterStagedRead` on read()'s value
+    // selections and the deferred dependency trim; see the core floor note.
+    limit: "28.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -959,7 +968,10 @@ module.exports = [
     // measured at 14098 B against 14029 (+69); see the core floor note.
     // #3372/#3377 (2026-09-12): 14.15 -> 14.20 KB, measured at 14169 B against 14098
     // (+71); see the core floor note.
-    limit: "14.20 KB",
+    // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 14.20 ->
+    // 14.25 KB, measured at 14245 B against `next`'s 14169 (+76) — `enterStagedRead` on read()'s value
+    // selections and the deferred dependency trim; see the core floor note.
+    limit: "14.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -1036,7 +1048,10 @@ module.exports = [
     // on the same `next` (+16), within the 15.55 KB cap. Observe-only.
     // Held children (#3404, 2026-09-13): 15.55 -> 15.60 KB, measured at
     // 15562 B on the merge with `next`; see the createStore note.
-    limit: "15.60 KB",
+    // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 15.60 ->
+    // 15.65 KB, measured at 15630 B against `next` (#3434 head) — `enterStagedRead` on read()'s value
+    // selections and the deferred dependency trim; see the core floor note.
+    limit: "15.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
