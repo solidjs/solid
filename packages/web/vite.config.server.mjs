@@ -11,12 +11,20 @@ import { resolve } from "path";
 const rootDir = resolve(import.meta.dirname);
 
 export default defineConfig({
-  plugins: [solidPlugin({ compiler, solid: { generate: "ssr", hydratable: true } })],
+  // `componentNames`: what the vite plugin's dev/observe postures pass, so
+  // compiled `<Comp />` reaches the server `createComponent` with its label
+  // and diagnostics carry `ownerPath` (server-diagnostics.spec.tsx pins it).
+  plugins: [
+    solidPlugin({
+      compiler,
+      solid: { generate: "ssr", hydratable: true, componentNames: true }
+    })
+  ],
   test: {
     environment: "node",
     include: ["test/server/**/*.spec.tsx"],
     globals: true,
-    pool: "threads",
+    pool: "threads"
   },
   resolve: {
     conditions: ["node"],
@@ -29,7 +37,7 @@ export default defineConfig({
       "@solidjs/web/serialization/decode": resolve(rootDir, "serialization/dist/decode.js"),
       "@solidjs/web/serialization": resolve(rootDir, "serialization/dist/serialization.js"),
       "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
-      "solid-js": resolve(rootDir, "../solid/src/server/index.ts"),
+      "solid-js": resolve(rootDir, "../solid/src/server/index.ts")
     }
   }
 });

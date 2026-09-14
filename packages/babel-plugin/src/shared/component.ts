@@ -347,18 +347,27 @@ export default function transformComponent(
   const componentArgs = [tagId, props[0]];
   // `componentNames` carries the source tag name into the call so the
   // dev/observe runtimes can label the owner after minification renames the
-  // function. DOM output only: SSR inlines the call below and the universal
-  // renderer's `createComponent` is user code with a two-argument contract.
-  if (config.componentNames && config.generate === "dom") {
+  // function — on the client (`createComponent` in solid-js's client entry)
+  // and on the server (its server entry's, which runs the body under a
+  // transparent `<Name>` owner in observe/dev so a server finding's
+  // `ownerPath` reads like the client's). Not for the universal renderer,
+  // whose `createComponent` is user code with a two-argument contract, nor
+  // the dynamic renderer's subtrees.
+  const labelled =
+    config.componentNames && (config.generate === "dom" || config.generate === "ssr");
+  if (labelled) {
     componentArgs.push(t.stringLiteral(tagName));
   }
-  // SSR's `createComponent` is literally `Comp(props || {})`. Since the
+  // SSR's prod `createComponent` is literally `Comp(props || {})`. Since the
   // compiler always emits a real `props[0]` object expression above (see the
   // `props.push(t.objectExpression(runningObject))` line), the `|| {}` fallback
   // never fires in compiled output. Inline to a direct `Comp(props)` call to
   // drop one function-call frame per component invocation. (DOM/dev modes
   // keep the wrapper since it does real work — `untrack`, dev metadata.)
-  if (config.generate === "ssr") {
+  // With `componentNames` the wrapper IS the work — the label has nowhere
+  // else to go — so SSR output keeps the call; the vite-plugin turns the
+  // option on for dev and observe builds only, so prod output stays inlined.
+  if (config.generate === "ssr" && !labelled) {
     exprs.push(t.callExpression(tagId, [props[0]]));
   } else {
     exprs.push(t.callExpression(registerImportMethod(path, "createComponent"), componentArgs));

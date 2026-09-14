@@ -48,10 +48,15 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     hydratable: bool,
     server_components: bool,
     wrap_conditionals: bool,
+    /// Babel's `componentNames` on SSR output: keep the `createComponent`
+    /// call (instead of inlining `Comp(props)`) and pass the source tag text
+    /// as its third argument, so the server runtime labels the owner.
+    component_names: bool,
     /// The memo wrapper import name; `None` disables memo wrapping.
     memo_wrapper: Option<String>,
     static_marker: String,
     uses_ssr: bool,
+    uses_create_component: bool,
     uses_ssr_hydration_key: bool,
     uses_ssr_select_values: bool,
     uses_escape: bool,
@@ -189,6 +194,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         hydratable: bool,
         server_components: bool,
         wrap_conditionals: bool,
+        component_names: bool,
         memo_wrapper: Option<String>,
         static_marker: String,
         built_ins: std::vec::Vec<String>,
@@ -202,9 +208,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             hydratable,
             server_components,
             wrap_conditionals,
+            component_names,
             memo_wrapper,
             static_marker,
             uses_ssr: false,
+            uses_create_component: false,
             uses_ssr_hydration_key: false,
             uses_ssr_select_values: false,
             uses_escape: false,
@@ -451,6 +459,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             && !self.uses_escape
             && !self.uses_ssr_element
             && !self.uses_merge_props
+            && !self.uses_create_component
             && !self.uses_scope
             && !self.uses_memo
             && !self.uses_apply_ref
@@ -500,6 +509,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         if self.uses_merge_props {
             statements.push(self.import_named("mergeProps", "_$mergeProps"));
+        }
+        if self.uses_create_component {
+            statements.push(self.import_named("createComponent", "_$createComponent"));
         }
         if self.uses_apply_ref {
             statements.push(self.import_named("applyRef", "_$applyRef"));
@@ -1037,7 +1049,27 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
 
         flush_component_props(self, &mut running_props, &mut prop_objects, element.span);
         let props = component_props_expression(self, element.span, prop_objects, force_merge_props);
-        let call = self.call_expression(element.span, component, vec![props]);
+        // Babel: SSR inlines `createComponent(Comp, props)` to `Comp(props)`
+        // (the prod server wrapper is that call), except under
+        // `componentNames`, where the wrapper carries the label:
+        // `_$createComponent(Comp, props, "Comp")`.
+        let call = if self.component_names {
+            self.uses_create_component = true;
+            let name = crate::shared::component::jsx_tag_name(
+                &|span| self.source.get(span.start as usize..span.end as usize) == Some("this"),
+                &element.opening_element.name,
+            );
+            let label =
+                self.ast()
+                    .expression_string_literal(element.span, self.ast().str(&name), None);
+            self.call_identifier(
+                element.span,
+                "_$createComponent",
+                vec![component, props, label],
+            )
+        } else {
+            self.call_expression(element.span, component, vec![props])
+        };
         if component_setup.is_empty() {
             return Ok(call);
         }

@@ -196,13 +196,31 @@ Decision: **reuse `@solidjs/signals`'s channel, do not fork it.**
 > `packages/web/test/frames-marker-corruption.spec.tsx`. Docs: RFC 08
 > "Server rendering" + quick reference; the reactivity-diagnostics skill.
 >
-> Known gap, deliberately out of this PR: the SSR compiler inlines component
-> calls (`Comp({})`) instead of `createComponent`, so compiled JSX does not
-> get the label — `ownerPath` is populated for `createComponent` callers
-> (the runtime's own flow components, `Dynamic`, tests) and empty for a
-> plain compiled `<Comp/>` tree. The fix is the compiler emitting
-> `createComponent` under the `componentNames` option for SSR output as it
-> does for the client; tracked separately.
+> Known gap at the time, closed in the follow-up (2026-09-14): the SSR
+> compiler inlined component calls (`Comp({})`) instead of `createComponent`,
+> so compiled JSX did not get the label — `ownerPath` was populated for
+> `createComponent` callers (the runtime's own flow components, `Dynamic`,
+> tests) and empty for a plain compiled `<Comp/>` tree. Both compilers now
+> honour `componentNames` for the `ssr` generate the way they do for `dom`:
+> the output keeps `createComponent(Comp, props, "Comp")` (the label has
+> nowhere else to go; the prod server `createComponent` is that same
+> `Comp(props)` call plus one frame), and without the option SSR still
+> inlines. The vite plugin already passes `componentNames` for its dev and
+> observe postures, so an app's server build labels every compiled component
+> in exactly the builds whose runtime reads the argument; prod output is
+> byte-identical to before. Boundaries are compiled components too, so a
+> server finding raised by a boundary reads `<App> › <Errored>` — as on the
+> client. Landing this surfaced a latent `ssrScope` bug: the virtual hole
+> scope swapped the CURRENT owner's `id`/`_childCount`, but content inside
+> the hole resolves ids by walking up past transparent owners — so with a
+> transparent owner in between (the server-component scope owner in every
+> tier; now the labelled `<Name>` owner under every component body) the
+> reserved slot was invisible and the hole's content took fresh ids from the
+> enclosing counter (`_hk=3` where the client expects `_hk=10`). The scope
+> now swaps the nearest id-bearing owner
+> (`packages/solid/test/server/ssr-scope.spec.ts`). The web server suite
+> compiles with `componentNames` (`vite.config.server.mjs`), so its
+> hydration-id and diagnostics specs run against the labelled shape.
 
 - The server facade imports `DEV` (and the `emitDiagnostic` /
   `DiagnosticEvent` types) from `@solidjs/signals`, every use behind
