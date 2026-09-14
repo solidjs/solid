@@ -1,0 +1,5 @@
+{
+  "name": "ssr-element-sources",
+  "shell": "<div _hk=1><!--$--><span _hk=0 class=\"src\" data-a=\"1\" title=\"new\" id=\"srcs\">srcs</span><!--/--><b>tail</b></div>",
+  "rest": ""
+}

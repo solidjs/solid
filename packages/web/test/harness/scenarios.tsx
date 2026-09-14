@@ -41,6 +41,7 @@ import {
   httpHeader,
   clientOnly,
   isServer,
+  ssrElement,
   type JSX
 } from "@solidjs/web";
 
@@ -1661,6 +1662,33 @@ function MixedMemoResults() {
   return <div>{items.map(f => createMemo(f))}</div>;
 }
 
+// ---------------------------------------------------------------------------
+// ssrElement's multi-source form: the server serializes `<span>` straight from
+// two prop sources (no merged intermediate object) while the client compiles
+// the equivalent double spread. The array form must allocate exactly the ids
+// the compiled spread does — the span's own key and nothing for the sources —
+// so the span AND the sibling after it hydrate against the server nodes.
+let setSourcesLabel!: (v: string) => void;
+function SpreadSources() {
+  const [label, set] = createSignal("tail");
+  setSourcesLabel = set;
+  const a = { class: "src", title: "old", "data-a": "1" };
+  const b = { title: "new", id: "srcs" };
+  const el = isServer ? (
+    (ssrElement("span", [a, b], "srcs", true) as unknown as JSX.Element)
+  ) : (
+    <span {...a} {...b}>
+      srcs
+    </span>
+  );
+  return (
+    <div>
+      {el}
+      <b>{label()}</b>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -2249,5 +2277,14 @@ export const scenarios: Scenario[] = [
     update: () => setSepMixed("C"),
     expectedTextAfterUpdate: "a1Cd25",
     stableSelector: "div, b, i"
+  },
+  {
+    name: "ssr-element-sources",
+    App: SpreadSources,
+    expectedText: "srcstail",
+    adoptAll: true,
+    update: () => setSourcesLabel("TAIL"),
+    expectedTextAfterUpdate: "srcsTAIL",
+    stableSelector: "div, span, b"
   }
 ];
