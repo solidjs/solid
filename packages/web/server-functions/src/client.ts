@@ -12,7 +12,6 @@ import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
-  INSTANCE_HEADER,
   LIVE_SOURCE,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
@@ -49,7 +48,6 @@ export {
   ChunkReader,
   ERROR_HEADER,
   FLASH_COOKIE,
-  INSTANCE_HEADER,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
@@ -464,13 +462,12 @@ async function createRequest(base, id, instance, options, meta) {
   const headers = { ...options.headers };
   // A GET-encoded call's identity is its url, and nothing else: caches key
   // on it, and a `<link rel="preload" as="fetch">` is reused only by a
-  // fetch matching it exactly, headers included. A per-call header makes
-  // every read unique to the preload matcher, so the browser fetches twice
-  // (#3406). The instance id therefore rides only the POST transport; a
-  // read stays as plain as the url it is addressed by. (Its role as the
-  // scripted-caller signal ended with #3094 — the data address is that.)
+  // fetch matching it exactly, headers included, so a read carries no
+  // header of the transport's own (#3406). The per-call `instance` id is
+  // client-side bookkeeping for the call observers below; it never goes on
+  // the wire (the scripted-caller signal is the data address, #3094, and
+  // cross-wire correlation is the trace context's job).
   const read = options.method && options.method.toUpperCase() === "GET";
-  if (!read) headers[INSTANCE_HEADER] = instance;
   // Subscribing to flight data IS the single-flight opt-in: with consumers
   // registered the transport asks the server for collection on every
   // mutation call; a consumer-less app never asks the server to do
@@ -501,13 +498,12 @@ async function createRequest(base, id, instance, options, meta) {
     // spreading — used to silently drop the argument payload, the abort
     // signal and every protocol header, and the call still dispatched (as
     // a bare GET the handler answers 405, with nothing naming the cause).
-    // The transport's own init is the sentinel: the instance header rides
-    // every POST-shaped call, so a returned init that lost it did not carry
-    // the original forward; a GET-encoded call is header-free by design
-    // (see above), so there the method the transport set stands in — a
-    // fresh `{ headers }` carries none. Everything else stays the hook's to
-    // change — a deliberate body/signal replacement is in contract
-    // (streaming uploads), dropping the protocol is not.
+    // The method the transport set is the sentinel: it is the one field
+    // every call carries (a read has no body and no header of its own), and
+    // a fresh `{ headers }` has none — `fetch` would default it to GET and
+    // a POST call would dispatch without its payload. Everything else stays
+    // the hook's to change — a deliberate body/signal replacement is in
+    // contract (streaming uploads), dropping the protocol is not.
     if (prepared && prepared !== init) {
       if (typeof prepared !== "object") {
         throw new Error(
@@ -516,15 +512,14 @@ async function createRequest(base, id, instance, options, meta) {
             "init => ({ ...init, headers: { ...init.headers, ... } })"
         );
       }
-      const kept = read
-        ? typeof prepared.method === "string" && prepared.method.toUpperCase() === "GET"
-        : new Headers(prepared.headers).has(INSTANCE_HEADER);
-      if (!kept) {
+      if (
+        typeof prepared.method !== "string" ||
+        prepared.method.toUpperCase() !== init.method.toUpperCase()
+      ) {
         throw new Error(
-          "prepareRequest returned an init without the transport's own settings " +
-            `(${read ? "the GET method" : `the ${INSTANCE_HEADER} header`}), which would ` +
-            "send the call without its payload or protocol. Spread the init it received: " +
-            "init => ({ ...init, headers: { ...init.headers, ... } })"
+          `prepareRequest returned an init without the transport's ${init.method} method, ` +
+            "which would send the call without its payload or protocol. Spread the init it " +
+            "received: init => ({ ...init, headers: { ...init.headers, ... } })"
         );
       }
     }

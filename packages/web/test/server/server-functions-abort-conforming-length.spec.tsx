@@ -108,7 +108,6 @@ async function abortMidUpload(declaration: string | null) {
   });
   const headers: Record<string, string> = {
     "Sec-Fetch-Site": "same-origin",
-    "X-Server-Function-Instance": "server-function:test",
     [BODY_FORMAT_HEADER]: JSON_FORMAT
   };
   // A conforming declaration is the ONLY difference between the two rows.

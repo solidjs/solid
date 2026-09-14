@@ -70,7 +70,6 @@ async function post(body: string, declaration: string | null) {
   received = null;
   const headers: Record<string, string> = {
     "Sec-Fetch-Site": "same-origin",
-    "X-Server-Function-Instance": "server-function:test",
     [BODY_FORMAT_HEADER]: JSON_FORMAT
   };
   // undici only computes Content-Length at fetch time, so a Request built

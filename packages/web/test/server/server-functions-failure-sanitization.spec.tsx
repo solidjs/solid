@@ -72,8 +72,7 @@ async function wireBody(id: string) {
       body: "[]",
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Format": "8",
-        "X-Server-Function-Instance": "server-function:test"
+        "X-Server-Function-Format": "8"
       }
     })
   );
@@ -246,8 +245,7 @@ describe("what the guard must not disturb", () => {
         body: "[]",
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Format": "8",
-          "X-Server-Function-Instance": "server-function:test"
+          "X-Server-Function-Format": "8"
         }
       })
     );
@@ -336,8 +334,7 @@ describe("server-function error-stack defaults (#3221)", () => {
     artifact.register(id, fn);
     const headers: Record<string, string> = {
       "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Format": "8",
-      "X-Server-Function-Instance": "server-function:test"
+      "X-Server-Function-Format": "8"
     };
     if (flight) headers["X-Single-Flight"] = "true";
     return artifact
@@ -457,7 +454,6 @@ describe("the frames flight sink", () => {
         headers: {
           "Sec-Fetch-Site": "same-origin",
           "X-Server-Function-Format": "8",
-          "X-Server-Function-Instance": "server-function:test",
           "X-Single-Flight": "true"
         }
       }),

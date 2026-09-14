@@ -314,15 +314,11 @@ describe("createSSRResponse carries multiple Set-Cookie values", () => {
 });
 
 describe("handleServerFunctionRequest folds the event response stub", () => {
-  const INSTANCE_HEADERS = {
-    "X-Server-Function-Instance": "server-function:test"
-  };
-
   function dispatch(id, event, extraHeaders = {}, options = {}) {
     return handleServerFunctionRequest(
       new Request(`http://localhost/_server/${encodeURIComponent(id)}`, {
         method: "POST",
-        headers: { ...INSTANCE_HEADERS, ...extraHeaders }
+        headers: extraHeaders
       }),
       { createEvent: () => event, csrf: false, ...options }
     );

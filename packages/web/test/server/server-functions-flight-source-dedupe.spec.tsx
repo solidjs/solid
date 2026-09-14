@@ -45,7 +45,6 @@ function flightRequest(id: string, sources: string) {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Instance": "server-function:test",
       [SINGLE_FLIGHT_HEADER]: sources
     }
   });

@@ -42,7 +42,6 @@ function post(body: BodyInit, headers: Record<string, string> = {}) {
     body,
     headers: {
       "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Instance": "server-function:test",
       ...headers
     }
   });
@@ -57,8 +56,7 @@ function urlArgs(args: string) {
     {
       method: "POST",
       headers: {
-        "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Instance": "server-function:test"
+        "Sec-Fetch-Site": "same-origin"
       }
     }
   );
@@ -108,7 +106,6 @@ describe("the body size bound", () => {
           body: oversized,
           headers: {
             "Sec-Fetch-Site": "same-origin",
-            "X-Server-Function-Instance": "server-function:test",
             "content-length": raw,
             [BODY_FORMAT_HEADER]: JSON_FORMAT
           }
@@ -127,7 +124,6 @@ describe("the body size bound", () => {
         body,
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           "content-length": String(body.length),
           [BODY_FORMAT_HEADER]: JSON_FORMAT
         }
@@ -189,7 +185,6 @@ describe("the request body lifecycle", () => {
       duplex: "half",
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Instance": "server-function:test",
         [BODY_FORMAT_HEADER]: JSON_FORMAT
       }
     } as RequestInit);
@@ -224,7 +219,6 @@ describe("the request body lifecycle", () => {
       signal: abort.signal,
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Instance": "server-function:test",
         [BODY_FORMAT_HEADER]: JSON_FORMAT
       }
     } as RequestInit);
@@ -270,7 +264,6 @@ describe("the request body lifecycle", () => {
       duplex: "half",
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Instance": "server-function:test",
         [BODY_FORMAT_HEADER]: JSON_FORMAT
       }
     } as RequestInit);
@@ -364,7 +357,6 @@ describe("an unusable body format (#3130)", () => {
         body: "[1]",
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           [BODY_FORMAT_HEADER]: "9999"
         }
       })
@@ -383,8 +375,7 @@ describe("an unusable body format (#3130)", () => {
       method: "POST",
       body: "[1,2]",
       headers: {
-        "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Instance": "server-function:test"
+        "Sec-Fetch-Site": "same-origin"
       }
     });
     request.headers.append(BODY_FORMAT_HEADER, JSON_FORMAT);
@@ -407,8 +398,7 @@ describe("an unusable body format (#3130)", () => {
         method: "POST",
         body: "just some text",
         headers: {
-          "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test"
+          "Sec-Fetch-Site": "same-origin"
         }
       })
     );
@@ -435,7 +425,6 @@ describe("an adapter-provided empty POST body (#3214)", () => {
         body: emptyStream(),
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           "content-length": "0"
         },
         duplex: "half"
@@ -454,7 +443,6 @@ describe("an adapter-provided empty POST body (#3214)", () => {
         body: "not empty",
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           "content-length": "0"
         }
       })
@@ -472,7 +460,6 @@ describe("an adapter-provided empty POST body (#3214)", () => {
         body: emptyStream(),
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           "content-length": "0",
           [BODY_FORMAT_HEADER]: "9999"
         },

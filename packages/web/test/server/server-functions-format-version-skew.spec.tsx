@@ -56,7 +56,6 @@ function post(id: string, body: BodyInit, headers: Record<string, string> = {}) 
     body,
     headers: {
       "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Instance": "server-function:test",
       ...headers
     }
   });

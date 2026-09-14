@@ -27,7 +27,6 @@ import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
-  INSTANCE_HEADER,
   LIVE_SOURCE,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
@@ -56,7 +55,6 @@ import {
 export {
   ERROR_HEADER,
   FLASH_COOKIE,
-  INSTANCE_HEADER,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
@@ -294,7 +292,6 @@ export interface ServerFunctionsServerConfig {
     context: {
       id: string;
       args: unknown[];
-      instance: string | null;
       request: Request;
       thrown?: boolean;
     }
@@ -311,7 +308,7 @@ export interface ServerFunctionsServerConfig {
   transformFlightResult?(
     event: ServerFunctionEvent,
     outcome: { value: unknown; data: unknown },
-    context: { id: string; args: unknown[]; instance: string | null; request: Request }
+    context: { id: string; args: unknown[]; request: Request }
   ): Response | undefined | Promise<Response | undefined>;
   /**
    * The in-process mirror of `transformResult` for direct (same-server)
@@ -495,13 +492,12 @@ export interface HandleServerFunctionOptions {
    * Observes or replaces the function's result before encoding — the
    * extension point for response metadata policies (headers, statuses,
    * substituted results). Runs for returned and thrown results alike
-   * (`context.thrown` distinguishes); `context.instance` is null for calls
-   * that carry no instance header — no-JS form posts, direct HTTP, and the
-   * transport's own GET-encoded reads, which stay header-free so caches
-   * and preloads can match them (#3406). The context carries the call's identity — the function `id` and
-   * the parsed `args` the implementation was invoked with — matching the
-   * direct-call mirror (`transformDirectResult`), so a policy keying state
-   * by the call works over either dispatch path. Return the result
+   * (`context.thrown` distinguishes). The context carries the call's
+   * identity — the function `id` and the parsed `args` the implementation
+   * was invoked with — matching the direct-call mirror
+   * (`transformDirectResult`), so a policy keying state by the call works
+   * over either dispatch path; `context.request` tells a scripted call (the
+   * `/data/` address) from a bare-address one. Return the result
    * unchanged to pass through, or a `ResponseEnvelope` (exposed through
    * the core entry) to send HTTP metadata plus a structured payload. Runs
    * before `collectFlightData`, so the flight hook sees the transformed
@@ -514,7 +510,6 @@ export interface HandleServerFunctionOptions {
     context: {
       id: string;
       args: unknown[];
-      instance: string | null;
       request: Request;
       thrown?: boolean;
     }
@@ -532,7 +527,7 @@ export interface HandleServerFunctionOptions {
   transformFlightResult?(
     event: ServerFunctionEvent,
     outcome: { value: unknown; data: unknown },
-    context: { id: string; args: unknown[]; instance: string | null; request: Request }
+    context: { id: string; args: unknown[]; request: Request }
   ): Response | undefined | Promise<Response | undefined>;
   /**
    * Builds the response for calls made without the client runtime (at
@@ -3306,10 +3301,10 @@ export function handleServerFunctionRequest(
  *   (call headers and cookies copied on), returning undefined keeps the
  *   plain serialized envelope.
  * - `handleNoJS(result, request, args)`: response for calls made without
- *   the client runtime (no instance header) — the override for the no-JS
+ *   the client runtime (at the bare address) — the override for the no-JS
  *   form convention. Falls back to the configured hook, then to
  *   `createNoJSHandler()` for browser form posts (redirect back with the
- *   outcome in a flash cookie); other no-instance callers, such as direct
+ *   outcome in a flash cookie); other bare-address callers, such as direct
  *   HTTP requests, get the normal serialized response.
  * - `csrf`: configures same-origin request validation, or disables it with
  *   `false`. Enabled by default.
@@ -3383,8 +3378,6 @@ export async function handleServerFunctionRequest(request, options = {}) {
   if (protectsRequest && !(await allowsServerFunctionRequest(request, csrf === true ? {} : csrf))) {
     return finalizeTransportResponse(forbiddenResponse(), method);
   }
-  const instance = request.headers.get(INSTANCE_HEADER);
-
   if (!functionId) {
     const response = new Response(DEV ? "Server function not found" : null, { status: 404 });
     return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
@@ -3395,10 +3388,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // ADDRESS: the data address IS the scripted protocol, the bare address is
   // plain HTTP. On the url, not a header, because shared caches key on the
   // url and store one answer per key — a header-driven shape means one
-  // caller kind's cached answer can be replayed to the other (#3094). The
-  // instance header does not shape the answer; it only identifies a POST
-  // transport call to the hooks (`context.instance`) — reads carry none,
-  // so caches and preloads can match them (#3406).
+  // caller kind's cached answer can be replayed to the other (#3094). No
+  // header identifies the caller either: a GET-encoded read carries none
+  // of the transport's own, so to caches and preloads it is exactly its
+  // url (#3406).
   const scripted = address.data;
 
   // Method allowlist: POST always dispatches (the default transport);
@@ -3650,7 +3643,6 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const flightContext = {
     id: functionId,
     args: parsed,
-    instance,
     request,
     collectsFlight,
     codec,

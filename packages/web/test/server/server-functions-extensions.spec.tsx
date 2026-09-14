@@ -93,8 +93,7 @@ describe("server-function extension surface (built bundles)", () => {
       new Request("http://localhost/_server/ext-get-0", {
         method: "POST",
         headers: {
-          "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test"
+          "Sec-Fetch-Site": "same-origin"
         }
       })
     );

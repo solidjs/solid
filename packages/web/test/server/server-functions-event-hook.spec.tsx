@@ -41,8 +41,7 @@ afterAll(() => {
 
 const H = {
   "Sec-Fetch-Site": "same-origin",
-  "X-Server-Function-Format": "8",
-  "X-Server-Function-Instance": "server-function:test"
+  "X-Server-Function-Format": "8"
 };
 
 function scriptedPost(id: string) {

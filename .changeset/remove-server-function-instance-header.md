@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Remove the `X-Server-Function-Instance` header from the server-function wire protocol. Since #3094 it decided nothing: the answer shape is the address (`/data/` for the scripted transport, bare for plain HTTP), no-JS gating is the address plus a form post, and #3416 had already dropped it from GET reads so preloads could match. What remained was a per-call id the handler copied into `context.instance` for `transformResult` / `transformFlightResult`, which nothing consumed; cross-wire correlation is the trace context's job (`traceparent`, #3402). Breaking, nominally: `context.instance` is gone from the hook contexts, and `INSTANCE_HEADER` is no longer exported from `@solidjs/web/server-functions/{client,server}`. A legacy header on an incoming request is ignored, as it already was. The `prepareRequest` validation (#3174) now uses the transport's method as its sentinel on every call shape, so a hook returning a fresh `{ headers }` instead of spreading is still refused before dispatch. Client-side `observeServerFunctionCalls` events keep their local `instance` id for pairing a request with its response.
