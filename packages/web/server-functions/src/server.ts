@@ -220,7 +220,9 @@ export interface NoJSHandlerOptions {
 }
 
 export type ServerFunctionOriginMatcher =
-  string | readonly string[] | ((origin: string, request: Request) => boolean | Promise<boolean>);
+  | string
+  | readonly string[]
+  | ((origin: string, request: Request) => boolean | Promise<boolean>);
 
 /** Same-origin validation options for server function requests. */
 export interface ServerFunctionCSRFOptions {
