@@ -98,28 +98,7 @@ export type ComponentProps<T extends ValidComponent> =
       ? JSX.IntrinsicElements[T]
       : Record<string, unknown>;
 
-/**
- * Creation-time attributes `dynamic()` honors when its source resolves to a
- * tag name. Both are real attributes of the element (serialized on the server,
- * present after hydration) that also decide how the node is created, so they
- * are read once, untracked, at creation — the DOM can't change either later.
- */
-export interface DynamicElementProps {
-  /**
-   * Namespace URI for the created element. Without it the namespace comes
-   * from the tag name alone, so a tag that exists in both HTML and SVG
-   * (`a`, `script`, `style`, `title`) is created as HTML. Same attribute
-   * compiled JSX uses to disambiguate: `<a xmlns="http://www.w3.org/2000/svg">`.
-   */
-  xmlns?: string;
-}
-
-/** Props of the component `dynamic()` returns: the target's props, plus `xmlns` for tag targets. */
-export type DynamicComponentProps<T extends ValidComponent> = T extends string
-  ? ComponentProps<T> & DynamicElementProps
-  : ComponentProps<T>;
-
-export type DynamicProps<T extends ValidComponent, P = DynamicComponentProps<T>> = {
+export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
 } & {
   component: T | null | undefined | false;
@@ -314,7 +293,7 @@ export interface DynamicOptions {
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false,
   _options?: DynamicOptions
-): Component<DynamicComponentProps<T>> {
+): Component<ComponentProps<T>> {
   // `prev` threads into the resolution so a source switching server-component
   // calls of the same function DELIVERS instead of swapping: the memo keeps
   // its previous value (the mount below never re-renders) and the new call's
@@ -443,7 +422,7 @@ export function dynamic<T extends ValidComponent>(
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const Comp = dynamic<T>(() => props.component as T | null | undefined | false);
-  return createComponent(Comp, omit(props, "component") as DynamicComponentProps<T>);
+  return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
 }
 
 // Namespace comes from an explicit `xmlns` first, then from the tag name. The

@@ -910,20 +910,26 @@ export namespace JSX {
     slot?: FunctionMaybe<string | RemoveAttribute>;
     style?: FunctionMaybe<CSSProperties | string | RemoveAttribute>;
     tabindex?: FunctionMaybe<number | string | RemoveAttribute>;
+    /**
+     * Namespace URI of the element. Accepted on every tag because the compiler
+     * reads it to disambiguate tags that exist in both HTML and SVG (`a`,
+     * `script`, `style`, `title`) — `<a xmlns="http://www.w3.org/2000/svg">`
+     * is created in the SVG namespace — and `dynamic()` honors it the same way
+     * when creating a tag-name element at runtime.
+     */
+    xmlns?: FunctionMaybe<string | RemoveAttribute>;
   }
   /** Global `SVGElement` interface keys only. */
   interface SVGAttributes<T> extends ElementAttributes<T> {
     id?: FunctionMaybe<string | RemoveAttribute>;
     lang?: FunctionMaybe<string | RemoveAttribute>;
     tabindex?: FunctionMaybe<number | string | RemoveAttribute>;
-    xmlns?: FunctionMaybe<string | RemoveAttribute>;
   }
   /** Global `MathMLElement` interface keys only. */
   interface MathMLAttributes<T> extends ElementAttributes<T> {
     dir?: FunctionMaybe<HTMLDir | RemoveAttribute>;
     displaystyle?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     scriptlevel?: FunctionMaybe<string | RemoveAttribute>;
-    xmlns?: FunctionMaybe<string | RemoveAttribute>;
 
     /** @deprecated */
     href?: FunctionMaybe<string | RemoveAttribute>;
