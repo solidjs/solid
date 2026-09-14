@@ -209,7 +209,15 @@ module.exports = [
     // #3377; 2026-09-12): 8.55 -> 8.60 KB, measured at 8556 B against 8507
     // (+49) — the disposal wake site and the lane hold drop. +58 B minified
     // in the in-package floor (22,915 -> 22,973).
-    limit: "8.60 KB",
+    // Lane release + shared hole (#3426, #3427, #3407; 2026-09-14): 8.60 ->
+    // 8.65 KB, measured at 8628 B against `next`'s 8572 (+56) — the hold
+    // check prunes dead reporters itself (`sourceObserved`, shared with the
+    // settle verdict and the landing), the action body's end starts the
+    // correction (`_acted`, the `_endOptimism` hook from flush), and an
+    // effect's recompute no longer re-enters its stamp: a landing folds in
+    // every transaction waiting on the flight (`enterWaiting`) instead.
+    // +137 B minified in the in-package floor (23,058 -> 23,195).
+    limit: "8.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -537,7 +545,10 @@ module.exports = [
     // measured at 10820 B against 10784 (+36); see the core floor note.
     // #3372/#3377 (2026-09-12): 10.85 -> 10.90 KB, measured at 10857 B against 10820
     // (+37); see the core floor note.
-    limit: "10.90 KB",
+    // #3426/#3427/#3407 (2026-09-14): 10.90 -> 11.05 KB, measured at 11018 B
+    // against `next`'s 10897 (+121 — the core seams plus `endOptimism` in the
+    // optimistic module this scenario loads); see the core floor note.
+    limit: "11.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -618,7 +629,9 @@ module.exports = [
     // measured at 11243 B against 11212 (+31); see the core floor note.
     // #3372/#3377 (2026-09-12): 11.30 -> 11.35 KB, measured at 11295 B against 11243
     // (+52); see the core floor note.
-    limit: "11.35 KB",
+    // #3426/#3427/#3407 (2026-09-14): 11.35 -> 11.40 KB, measured at 11368 B
+    // against `next`'s 11322 (+46); see the core floor note.
+    limit: "11.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -721,7 +734,9 @@ module.exports = [
     // measured at 18721 B against 18678 (+43); see the core floor note.
     // #3372/#3377 (2026-09-12): 18.75 -> 18.80 KB, measured at 18749 B against 18721
     // (+28); see the core floor note.
-    limit: "18.80 KB",
+    // #3426/#3427/#3407 (2026-09-14): 18.80 -> 18.85 KB, measured at 18811 B
+    // against `next`'s 18780 (+31); see the core floor note.
+    limit: "18.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -868,7 +883,10 @@ module.exports = [
     // recompute, on top of #3413's companion-gate change.
     // Held children (#3404, 2026-09-13): cap held at 28.45 KB; see the
     // createStore note.
-    limit: "28.45 KB",
+    // #3426/#3427/#3407 (2026-09-14): 28.45 -> 28.65 KB, measured at 28602 B
+    // against `next`'s 28430 (+172 — the core seams plus `endOptimism` in
+    // the optimistic module); see the core floor note.
+    limit: "28.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -1117,7 +1135,10 @@ module.exports = [
     // are excluded subjects like signals — that part lives in store.ts and
     // no observe scenario bundles stores; the observe CSR scenario above did
     // not move.
-    limit: "27.16 KB",
+    // #3426/#3427/#3407 (2026-09-14): 27.16 -> 27.25 KB, measured at 27203 B
+    // against `next`'s 27109 (+94 — the core seams on the observe artifacts);
+    // see the core floor note.
+    limit: "27.25 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

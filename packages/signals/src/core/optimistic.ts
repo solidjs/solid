@@ -53,6 +53,7 @@ import {
   origin,
   queuePendingNode,
   schedule,
+  sourceObserved,
   type QueueCallback,
   type Transition
 } from "./scheduler.js";
@@ -256,6 +257,77 @@ function supersedeOverride(el: OptimisticNode, value: unknown): void {
   if (__OBSERVE__ && attrHooks !== null)
     attrHooks.asyncEnd(el as Computed<any>, undefined, value, true);
   insertSubs(el);
+}
+
+/**
+ * The flush's pre-verdict step once the action bodies have ended (#3427).
+ * The bodies were the optimism's justification; with them over, the
+ * overrides still in force revert at the settle — unless the transaction is
+ * still waiting on AUTHORITATIVE work: an override node's own source in
+ * flight (`transitionBlocked` — that answer supersedes or confirms on
+ * arrival), or a held flight that does not derive from an override (a plain
+ * write's load the action asked for). Through that window the optimistic
+ * world stands: a co-written "saving" flag stays rendered until the page it
+ * covers lands (A17 — the optimistic world is one).
+ *
+ * The flights that DO derive from an override — routed through a live lane —
+ * are obsolete: their input is the guess that is about to revert, and nobody
+ * will read their answer. With nothing authoritative left, each override's
+ * truth is already here (the staged value an A17-silent landing left, else
+ * the committed value) and supersedes it now, exactly as an arriving
+ * differing truth does (A18, #3331): the graph re-derives from it as this
+ * transaction's held work — a lane-derived memo re-asks with the truth, its
+ * other changed inputs included — and the transaction settles when THAT
+ * lands. Before this the settle first waited for the obsolete flight,
+ * revealed the obsolete optimistic frame when it landed, and only then
+ * started the correction — a waterfall with a flash in the middle. Returns
+ * whether it superseded anything (the caller re-runs the heap).
+ *
+ * The optimistic world is one, so it ends early only when all of it can. An
+ * optimistic STORE edit cannot yet: its truth is the base layer under an
+ * overlay that `_clearOptimisticStores` folds off at settlement, with no
+ * tracked/displayed split — superseding its tracking signals alone would
+ * re-derive readers against a still-displayed overlay (and a memo reading
+ * both a signal and the store would ask a mixed question). A transaction
+ * holding one keeps the settle-then-revert order throughout. Companions
+ * (`_parentSource` set) are optimistic nodes too — a verdict written through
+ * the optimistic path so it flushes ahead of the hold — but they answer for
+ * their owner and snap at settlement (`_snapCompanions`), not here.
+ */
+function endOptimism(transition: Transition): boolean {
+  if (
+    !transition._acted ||
+    transition._actions.length ||
+    !transition._optimisticNodes.length ||
+    transition._optimisticStores.size ||
+    transitionBlocked(transition)
+  )
+    return false;
+  for (const source of transition._asyncReporters.keys())
+    if (
+      sourceObserved(transition, source) &&
+      source._x?._pendingSources?.has(source) &&
+      !resolveLane(source)
+    )
+      return false;
+  let superseded = false;
+  for (const node of transition._optimisticNodes) {
+    if (
+      !hasActiveOverride(node) ||
+      node._x!._parentSource ||
+      node._config & CONFIG_OVERRIDE_SUPERSEDED ||
+      (node as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
+    )
+      continue;
+    const truth = node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value;
+    if (!node._equals || !node._equals(truth, unwrapOverride(node._x!._overrideValue))) {
+      supersedeOverride(node, truth);
+      // Judged by the mark, not the call: a provenance refusal (an older
+      // action's window is still open) leaves the node for a later pass.
+      if (node._config & CONFIG_OVERRIDE_SUPERSEDED) superseded = true;
+    }
+  }
+  return superseded;
 }
 
 /** read()'s value for a tracked reader of a superseded node: the truth —
@@ -519,6 +591,7 @@ export function installOptimisticEngine(): void {
   GlobalQueue._cleanupLanes = cleanupCompletedLanes;
   GlobalQueue._runLaneEffects = runLaneEffects;
   GlobalQueue._supersedeOverride = supersedeOverride;
+  GlobalQueue._endOptimism = endOptimism;
   GlobalQueue._supersededRead = supersededRead;
   GlobalQueue._landOnOverride = landOnOverride;
   GlobalQueue._gatedRead = gatedRead;

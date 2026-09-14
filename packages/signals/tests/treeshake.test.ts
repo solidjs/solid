@@ -262,7 +262,16 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // lane to its root like any other (the stale-lane shortcut that skipped
     // the parent/child check is gone), -33 B (23,091 → 23,058); the
     // unowned `onSettled` fire's heap-drain wait shakes out with onSettled.
-    expect(minifiedBytes).toBeLessThan(23_150);
+    // Lane release (#3426, #3427): the hold check prunes dead reporters
+    // itself (`sourceObserved`, shared with completion), and the action
+    // body's end starts the correction (`_acted`, the `_endOptimism` hook
+    // from flush — the engine's own gating rides the optimistic module).
+    // +78 B (23,058 → 23,136).
+    // Shared hole (#3407): an effect's recompute never re-enters its stamp
+    // (the pass belongs to whoever dirtied it), so a landing folds in every
+    // transaction waiting on the flight itself (`enterWaiting`) — a
+    // stampless node's fresh batch included. +59 B (23,136 → 23,195).
+    expect(minifiedBytes).toBeLessThan(23_300);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

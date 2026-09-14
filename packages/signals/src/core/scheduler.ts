@@ -198,6 +198,10 @@ export interface Transition {
   _affectsNodes: OptimisticNode[];
   _optimisticStores: Set<any>;
   _actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
+  /** An action ran in this transaction (#3427, set by action()): once
+   * `_actions` drains, its bodies are OVER — as opposed to a transaction that
+   * never had one, whose bare optimistic writes live until it settles. */
+  _acted?: boolean;
   _queueStash: QueueStub;
   _done: boolean | Transition;
   // Subscribers that, while recomputing under an optimistic lane, read a plain
@@ -240,6 +244,7 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionMerged(target, outgoing);
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
+  target._acted ||= outgoing._acted;
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
   if (outgoing._optimisticNodes.length) {
     // Move (don't copy): the global queue's batch may still be the outgoing
@@ -662,6 +667,15 @@ export class GlobalQueue extends Queue {
    * optimistic engine; only reachable on a node that has an override. */
   static _supersedeOverride: ((el: Signal<any> | Computed<any>, value: unknown) => void) | null =
     null;
+  /** The flush's pre-verdict step (#3427): once the transaction's action
+   * bodies have all ended and nothing authoritative is left in flight, the
+   * engine supersedes every override still in force with the truth it
+   * reverts to, so the graph re-derives from it now, as the transaction's
+   * held work, instead of after the flights the overrides fed have landed.
+   * True when it superseded something: the caller re-runs the heap ahead of
+   * the verdict. The engine owns every gate (acted, actions drained, has
+   * overrides, no store edits, no authoritative flight); null without it. */
+  static _endOptimism: ((transition: Transition) => boolean) | null = null;
   /** read()'s value for a TRACKED reader of a superseded node (#3331): the
    * staged truth, unless the reader is a stale (render) reader of another
    * transaction — then the displayed override, as it keeps a foreign
@@ -720,6 +734,13 @@ export class GlobalQueue extends Queue {
       sweepDormant();
       runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
+        // The action bodies are over: the overrides they leave in force
+        // revert at this settle, and the correction is this transaction's
+        // held work — re-derived here, under it, ahead of the verdict — not a
+        // waterfall after the flights the overrides fed (#3427). After the
+        // heap, not before: a synchronous body's own writes (a refresh that
+        // puts an override node's source in flight) are judged applied.
+        if (GlobalQueue._endOptimism?.(activeTransition)) runHeap(dirtyQueue, GlobalQueue._update);
         const isComplete = transitionComplete(activeTransition);
         if (!isComplete) {
           const stashedTransition = activeTransition!;
@@ -1448,6 +1469,25 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
   );
 }
 
+/**
+ * Does a live reporter of `transition` still observe `source` pending? Dead
+ * reporters (disposed, behind a fallback, no longer reading the source) are
+ * pruned as they are found, and the source's entry with them. Shared by the
+ * settle verdict and the lane's hold check (`waitingTransition`): a live
+ * action parks its transaction without a verdict, so this prune is the only
+ * one an optimistic lane whose last async reader unmounted mid-action ever
+ * gets — without it the lane held on the dead reporter's registration until
+ * the flight it no longer observed landed (#3426).
+ */
+export function sourceObserved(transition: Transition, source: Computed<any>): boolean {
+  const reporters = transition._asyncReporters.get(source);
+  for (const reporter of reporters ?? []) {
+    if (reporterBlocksSource(reporter, source)) return true;
+    reporters!.delete(reporter);
+  }
+  return transition._asyncReporters.delete(source) && false;
+}
+
 function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
   if (transition._actions.length) {
@@ -1456,16 +1496,7 @@ function transitionComplete(transition: Transition): boolean {
     return false;
   }
   let done = true;
-  for (const [source, reporters] of transition._asyncReporters) {
-    let hasLive = false;
-    for (const reporter of reporters) {
-      if (reporterBlocksSource(reporter, source)) {
-        hasLive = true;
-        break;
-      }
-      reporters.delete(reporter);
-    }
-    if (!hasLive) transition._asyncReporters.delete(source);
+  for (const source of transition._asyncReporters.keys()) {
     // The source blocks while its OWN flight is up — the self entry in its
     // pending sources (added by notifyStatus's source path, with status;
     // retired by the landing and the supersede sweep, so it implies
@@ -1474,7 +1505,7 @@ function transitionComplete(transition: Transition): boolean {
     // boundary-consumed load re-asked under a held derivation), and the
     // still-flying source read as settled, committing the writes it was
     // asked with ahead of its answer.
-    else if (source._x?._pendingSources?.has(source)) {
+    if (sourceObserved(transition, source) && source._x?._pendingSources?.has(source)) {
       done = false;
       break;
     }
@@ -1513,11 +1544,24 @@ export function currentTransition(transition: Transition) {
  * the node, so a hold check must not assume it was recorded in the transaction
  * it happens to hold — lanes merge across transactions (#2912), and a merged
  * root's transaction knows nothing of the async its members' transactions
- * observed (#3335). Null when nobody is waiting.
+ * observed (#3335). Null when nobody is waiting — a registration whose every
+ * reporter has since died is nobody (#3426).
  */
 export function waitingTransition(source: Computed<any>): Transition | null {
-  for (const t of transitions) if (t._asyncReporters.has(source)) return t;
+  for (const t of transitions) if (sourceObserved(t, source)) return t;
   return null;
+}
+
+/** A landing enters EVERY parked transaction still waiting on `source`, folding
+ * them into the active one (A15: each reveal that discovered the flight
+ * completes at its landing). The fold used to happen as the waiters' stamped
+ * readers recomputed under the landing — recompute re-entering an effect's
+ * stamp — which also folded in writes those readers merely shared a hole
+ * with (#3407); effects no longer re-enter, so the landing folds explicitly.
+ * Live iteration is safe: a merge deletes the outgoing (active) entry and
+ * re-adds the visited one. */
+export function enterWaiting(source: Computed<any>): void {
+  for (const t of transitions) if (sourceObserved(t, source)) globalQueue.initTransition(t);
 }
 
 export function setActiveTransition(transition: Transition | null) {
