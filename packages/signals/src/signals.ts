@@ -32,6 +32,7 @@ import { emitDiagnostic, registerGraph, reportDiagnostic } from "./core/dev.js";
 import { installOptimisticEngine } from "./core/optimistic.js";
 import {
   activeTransition,
+  dirtyQueue,
   entangleConfirmingTransitions,
   globalQueue,
   Queue
@@ -1179,7 +1180,15 @@ export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
   owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)
     ? trackedEffect(() => untrack(callback), __OBSERVE__ ? { name: "onSettled" } : undefined)
-    : globalQueue.enqueue(EFFECT_USER, () => {
+    : globalQueue.enqueue(EFFECT_USER, function fire() {
+        // Settled means derived. A settle that reverts optimism (or replays
+        // gated reads) only enqueues the affected subscribers; the pass after
+        // the commit re-derives them. Fired in the commit pass, the callback
+        // read the optimistic source already reverted beside a sync memo of it
+        // still holding the optimistic value — reads do not pull (#3411). Fall
+        // to the next pass while the heap has work; `run` swapped the queue,
+        // so this lands there, and `enqueue` keeps the drain alive.
+        if (dirtyQueue._max >= dirtyQueue._min) return globalQueue.enqueue(EFFECT_USER, fire);
         // Unowned, out-of-band fire (no owner, or a children-forbidden one this
         // one-shot must not bind to): a returned cleanup has no lifecycle to
         // attach to. Reject it in dev; in production the return is simply
