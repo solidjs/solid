@@ -1562,41 +1562,59 @@ export function renderToString(code, options = {}) {
   registerEntryAssets(manifest);
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise — cleared with the
-  // render's deferred dispose so a later read outside any render does not
-  // find a stale one on the lingering context.
+  // render's dispose so a later read outside any render does not find a
+  // stale one on the lingering context.
   const context = sharedConfig.context;
   const requestEvent = peekRequestEvent();
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
-  let html = root(
-    d => {
-      setTimeout(() => {
-        context.trace = undefined;
-        d();
-      });
-      return resolveSSRSync(escape(code()));
-    },
-    { id: renderId }
-  );
-  serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
-  sharedConfig.context.noHydrate = true;
-  serializer.close();
-  const head = renderShellHead(
-    headRegistry,
-    nonce,
-    null,
-    noScripts,
-    traceMetaMarkup(context.trace)
-  );
-  return assembleDocument(
-    resolveSSRSelectValues(html),
-    tracking.emittedAssets,
-    tracking.preloadLinks,
-    tracking.inlineStyles,
-    scripts.length ? scripts : "",
-    nonce,
-    head,
-    onHead
-  );
+  let dispose;
+  try {
+    const html = root(
+      d => {
+        dispose = d;
+        return resolveSSRSync(escape(code()));
+      },
+      { id: renderId }
+    );
+    serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
+    sharedConfig.context.noHydrate = true;
+    serializer.close();
+    const head = renderShellHead(
+      headRegistry,
+      nonce,
+      null,
+      noScripts,
+      traceMetaMarkup(context.trace)
+    );
+    const document = assembleDocument(
+      resolveSSRSelectValues(html),
+      tracking.emittedAssets,
+      tracking.preloadLinks,
+      tracking.inlineStyles,
+      scripts.length ? scripts : "",
+      nonce,
+      head,
+      onHead
+    );
+    // Head-freeze point: the request's response head commits right before
+    // the render's final dispose — the same order as an awaited
+    // `renderToStream`'s completion — so the `httpStatus`/`httpHeader`
+    // declarations still live at completion survive into
+    // `createSSRResponse(html, event)`, which passes the committed stub
+    // through. A render that threw leaves the head open: its declarations
+    // retract with the dispose below, and the handler's error path may
+    // still write.
+    if (requestEvent && requestEvent.response) {
+      commitResponseStub(requestEvent.response, { event: requestEvent });
+    }
+    return document;
+  } finally {
+    // Release the graph before returning (#3385): a deferred dispose held
+    // every root — and every memo under it — until the next macrotask, so
+    // nothing was freed across a synchronous loop of renders.
+    context.trace = undefined;
+    if (dispose) dispose();
+  }
 }
 export function renderToStream<T>(
   fn: () => T,
@@ -5121,11 +5139,12 @@ export function createSSRResponse(
  *
  * - String results commit the stub and return a `Response` synchronously;
  *   a `Location` on the stub becomes a real redirect
- *   (`getExpectedRedirectStatus`) instead of an HTML response. An awaited
- *   `renderToStream(...)` result arrives with its stub ALREADY committed —
- *   the render froze the head at completion, before its final dispose, so
- *   `httpStatus`/`httpHeader` declarations survive into the derived head —
- *   and the commit here is an idempotent pass-through for it.
+ *   (`getExpectedRedirectStatus`) instead of an HTML response. A
+ *   `renderToString(...)` or awaited `renderToStream(...)` result rendered
+ *   under this event's request scope arrives with its stub ALREADY
+ *   committed — the render froze the head at completion, before its final
+ *   dispose, so `httpStatus`/`httpHeader` declarations survive into the
+ *   derived head — and the commit here is an idempotent pass-through for it.
  * - Stream results (`renderToStream(...)`) resolve at shell flush — the
  *   moment the head freezes: the stub is committed there (post-commit
  *   header writes fail loudly — see `commitResponseStub`), its

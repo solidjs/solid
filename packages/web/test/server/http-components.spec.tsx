@@ -77,8 +77,8 @@ describe("httpStatus (server primitive)", () => {
     storage.run(event, () => {
       renderToString(() => <Page />);
     });
-    // Read synchronously after render — renderToString defers its dispose to
-    // a macrotask, so the write is still in place for the integration.
+    // Read synchronously after render — renderToString commits the head right
+    // before its dispose, so the declaration survives for the integration.
     expect(event.response!.status).toBe(404);
     expect(event.response!.statusText).toBe("Not Found");
   });
