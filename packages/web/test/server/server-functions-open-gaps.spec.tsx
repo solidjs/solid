@@ -14,8 +14,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference,
+  GET as serverGET
 } from "@solidjs/web/server-functions/server";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 import { createRequestEvent } from "@solidjs/web";
@@ -942,6 +945,43 @@ describe("prepareRequest's return is validated (#3174)", () => {
     }
     // refused on the client, before dispatch: the mangled request never ran
     expect(ran).toBe(0);
+  });
+
+  test("a fresh object is refused on a GET call too, where no transport header stands sentinel (#3406)", async () => {
+    // GET-encoded calls carry no headers of their own (the url is the whole
+    // call, so a preload can match it), which leaves the method the
+    // transport set as the tell: a fresh `{ headers }` has none.
+    let ran = 0;
+    serverGET(
+      createServerSideReference(
+        registerServerReference("prepare-fresh-get", async (word: string) => {
+          ran++;
+          return word;
+        })
+      )
+    );
+    const { GET, configureServerFunctionsClient } = await clientModule();
+    configureServerFunctionsClient({
+      prepareRequest: () => ({ headers: { Authorization: "Bearer token" } }) as RequestInit
+    });
+    const restore = connectBufferedTransport();
+    try {
+      await expect(GET(createServerReference("prepare-fresh-get"))("payload")).rejects.toThrow(
+        /prepareRequest/
+      );
+      // spreading keeps the method — and the hook's header reaches the server
+      configureServerFunctionsClient({
+        prepareRequest: init => ({
+          ...init,
+          headers: { ...(init.headers as Record<string, string>), Authorization: "Bearer g" }
+        })
+      });
+      expect(await GET(createServerReference("prepare-fresh-get"))("payload")).toBe("payload");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+    expect(ran).toBe(1);
   });
 
   test("a hook returning a non-object is refused naming the hook, not an opaque fetch error", async () => {

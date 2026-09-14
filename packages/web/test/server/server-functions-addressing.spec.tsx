@@ -95,6 +95,41 @@ describe("server-function addressing (#3070, built bundles)", () => {
     ]);
   });
 
+  it("sends a GET call with no headers of its own, so a preload can match it (#3406)", async () => {
+    // A `<link rel="preload" as="fetch">` is reused only by a fetch that
+    // matches it exactly, headers included, so a per-call header on the
+    // cacheable transport made the browser fetch every preloaded read
+    // twice. The url is the whole identity of a read; the instance id stays
+    // on the POST transport, where it still names the call to the hooks.
+    serverGET(
+      createServerSideReference(
+        registerServerReference("addr-preload-0", async (n?: number) =>
+          n === undefined ? "none" : n + 1
+        )
+      )
+    );
+    registerServerFunction("addr-preload-1", async (n: number) => n + 1);
+    const seen: Request[] = [];
+    const restore = connectTransport(seen);
+    try {
+      expect(await GET(createServerReference("addr-preload-0"))(1)).toBe(2);
+      expect(await GET(createServerReference("addr-preload-0"))()).toBe("none");
+      expect(await createServerReference("addr-preload-1")(1)).toBe(2);
+    } finally {
+      restore();
+    }
+    const [read, argless, write] = seen;
+    expect(read.method).toBe("GET");
+    expect(read.headers.get("X-Server-Function-Instance")).toBeNull();
+    expect([...read.headers.keys()].filter(name => name.startsWith("x-server-function"))).toEqual(
+      []
+    );
+    expect(argless.headers.get("X-Server-Function-Instance")).toBeNull();
+    // the POST transport keeps its per-call id
+    expect(write.method).toBe("POST");
+    expect(write.headers.get("X-Server-Function-Instance")).toMatch(/^server-function:/);
+  });
+
   it("addresses a POST call by path, with nothing in the query", async () => {
     registerServerFunction("addr-post-0", async (word: string) => word.toUpperCase());
     const seen: Request[] = [];

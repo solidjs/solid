@@ -461,10 +461,16 @@ function parseRetryAfter(header) {
 }
 
 async function createRequest(base, id, instance, options, meta) {
-  const headers = {
-    ...options.headers,
-    [INSTANCE_HEADER]: instance
-  };
+  const headers = { ...options.headers };
+  // A GET-encoded call's identity is its url, and nothing else: caches key
+  // on it, and a `<link rel="preload" as="fetch">` is reused only by a
+  // fetch matching it exactly, headers included. A per-call header makes
+  // every read unique to the preload matcher, so the browser fetches twice
+  // (#3406). The instance id therefore rides only the POST transport; a
+  // read stays as plain as the url it is addressed by. (Its role as the
+  // scripted-caller signal ended with #3094 — the data address is that.)
+  const read = options.method && options.method.toUpperCase() === "GET";
+  if (!read) headers[INSTANCE_HEADER] = instance;
   // Subscribing to flight data IS the single-flight opt-in: with consumers
   // registered the transport asks the server for collection on every
   // mutation call; a consumer-less app never asks the server to do
@@ -477,11 +483,7 @@ async function createRequest(base, id, instance, options, meta) {
   // marks a POST-shaped call as a read the same way (e.g. live sources:
   // streams have no envelope story and flight hooks are mutation policy).
   const flightSources = getFlightDataSourceIds();
-  if (
-    flightSources.length > 0 &&
-    !options.read &&
-    (!options.method || options.method.toUpperCase() !== "GET")
-  ) {
+  if (flightSources.length > 0 && !options.read && !read) {
     headers[SINGLE_FLIGHT_HEADER] = flightSources.join(",");
   }
   let init = {
@@ -499,11 +501,13 @@ async function createRequest(base, id, instance, options, meta) {
     // spreading — used to silently drop the argument payload, the abort
     // signal and every protocol header, and the call still dispatched (as
     // a bare GET the handler answers 405, with nothing naming the cause).
-    // The transport headers are the sentinel: the instance header rides
-    // every call, so a returned init that lost it did not carry the
-    // original forward. Everything else stays the hook's to change — a
-    // deliberate body/signal replacement is in contract (streaming
-    // uploads), dropping the protocol is not.
+    // The transport's own init is the sentinel: the instance header rides
+    // every POST-shaped call, so a returned init that lost it did not carry
+    // the original forward; a GET-encoded call is header-free by design
+    // (see above), so there the method the transport set stands in — a
+    // fresh `{ headers }` carries none. Everything else stays the hook's to
+    // change — a deliberate body/signal replacement is in contract
+    // (streaming uploads), dropping the protocol is not.
     if (prepared && prepared !== init) {
       if (typeof prepared !== "object") {
         throw new Error(
@@ -512,11 +516,14 @@ async function createRequest(base, id, instance, options, meta) {
             "init => ({ ...init, headers: { ...init.headers, ... } })"
         );
       }
-      if (!new Headers(prepared.headers).has(INSTANCE_HEADER)) {
+      const kept = read
+        ? typeof prepared.method === "string" && prepared.method.toUpperCase() === "GET"
+        : new Headers(prepared.headers).has(INSTANCE_HEADER);
+      if (!kept) {
         throw new Error(
-          "prepareRequest returned an init without the transport headers " +
-            `(${INSTANCE_HEADER}), which would send the call without its payload or ` +
-            "protocol. Spread the init it received: " +
+          "prepareRequest returned an init without the transport's own settings " +
+            `(${read ? "the GET method" : `the ${INSTANCE_HEADER} header`}), which would ` +
+            "send the call without its payload or protocol. Spread the init it received: " +
             "init => ({ ...init, headers: { ...init.headers, ... } })"
         );
       }
