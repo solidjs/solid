@@ -134,6 +134,19 @@ export const CONFIG_SLOT_NODE = 1 << 18;
  * write (a new override re-masks) and by the revert. */
 export const CONFIG_OVERRIDE_SUPERSEDED = 1 << 19;
 
+/** HELD children (#3404): this node's `_firstChild` chain (and `_disposal`
+ * list) was built by a recompute whose result has not committed — a staged
+ * value, a pending window, or a run under a held transaction. A later
+ * recompute may tear those children down immediately: nothing observable
+ * was ever built on them. Unset, the children belong to the committed frame
+ * and a recompute defers them as zombies (`_pendingFirstChild`) until this
+ * node commits — regardless of whether the recompute runs under a
+ * transaction. A parked node (status propagation stamps `_transition`
+ * without recomputing) recomputed when its source lands otherwise disposed
+ * its committed children mid-hold, running their cleanups before the
+ * transaction's atomic reveal. Cleared by `commitPendingNode`. */
+export const CONFIG_HELD_CHILDREN = 1 << 20;
+
 /** In-flight async node whose inputs were PUBLISHED while it was pending: a
  * batch or transaction committed with the node still `STATUS_PENDING` (an
  * unobserved flight, #3305), so the inputs are on screen and the node's

@@ -252,7 +252,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (22,915 → 22,973).
     // Companion lane parented (#3379): `notifyStatus` assigns the node's lane
     // before poking its companions — a reorder, -4 B (22,973 → 22,969).
-    expect(minifiedBytes).toBeLessThan(23_050);
+    // Held children (#3404): recompute defers a node's children as zombies
+    // unless the pass that built them never committed (CONFIG_HELD_CHILDREN,
+    // set at recompute's tail, cleared by commitPendingNode) — a
+    // transaction-owned node's committed children previously died on the
+    // spot — and a contested effect's mainline pass releases its zombies
+    // itself. +102 B (22,969 → 23,071).
+    expect(minifiedBytes).toBeLessThan(23_150);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

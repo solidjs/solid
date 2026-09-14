@@ -425,7 +425,10 @@ module.exports = [
     // Companion lane parented (#3379, 2026-09-12): 15.50 -> 15.55 KB, measured
     // at 15522 B against 15485 (+37 brotli on a -4 B minified reorder — the
     // statement moved across a block boundary; noise, not weight).
-    limit: "15.55 KB",
+    // Held children (#3404, 2026-09-13): 15.55 -> 15.60 KB, measured at
+    // 15552 B on the merge with `next` — CONFIG_HELD_CHILDREN set/cleared
+    // around recompute and commitPendingNode.
+    limit: "15.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -863,6 +866,8 @@ module.exports = [
     // (#3412, 2026-09-13): 28.40 -> 28.45 KB, measured at 28408 B on the
     // merge with `next` — the save/restore of `_valueTransition` in
     // recompute, on top of #3413's companion-gate change.
+    // Held children (#3404, 2026-09-13): cap held at 28.45 KB; see the
+    // createStore note.
     limit: "28.45 KB",
     modifyEsbuildConfig
   },
@@ -1011,7 +1016,9 @@ module.exports = [
     // provider). One literal property on the observe object, inert on the
     // client by design. Measured at 15501 B against 15485 without the slot
     // on the same `next` (+16), within the 15.55 KB cap. Observe-only.
-    limit: "15.55 KB",
+    // Held children (#3404, 2026-09-13): 15.55 -> 15.60 KB, measured at
+    // 15562 B on the merge with `next`; see the createStore note.
+    limit: "15.60 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
