@@ -653,10 +653,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     (!create || el._statusFlags & STATUS_PENDING) &&
     (!el._transition || hasOverride) &&
     queuePendingNode(el);
-  el._transition &&
-    isEffect &&
-    activeTransition !== el._transition &&
+  if (el._transition && isEffect && activeTransition !== el._transition) {
+    // The re-run refreshes the transaction's STAGED view (_pendingValue); the
+    // value this pass published in _value belongs to the run that just
+    // finished. Keep that ownership, or the effect phase parks a
+    // mainline-computed value with the transaction (#3412).
+    const owner = (el as any)._valueTransition;
     runInTransition(el._transition, () => recompute(el));
+    (el as any)._valueTransition = owner;
+  }
   // Missed-wake reschedule (see the finally above): values this pass read
   // before the nested commit are stale, so run again now that the heap will
   // accept the node. Equality gates stop same-value landings from cascading,
