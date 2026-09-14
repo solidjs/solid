@@ -384,7 +384,7 @@ export function ssrHydrationKey(): string {}
  * Not meant for hand-written code.
  * @internal
  */
-export function resolveSSRNode(node: any, result?: any, top?: boolean): any {}
+export function resolveSSRNode(node: any, result?: any, top?: boolean, nested?: boolean): any {}
 /**
  * Escapes a string for safe inclusion in HTML output. Used by the SSR
  * runtime; not generally part of user code.
