@@ -31,7 +31,7 @@ import { attrHooks } from "./attribution-hooks.js";
 import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
-import { sweepDormant } from "./graph.js";
+import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
@@ -1106,7 +1106,13 @@ function commitPendingNode(n: Signal<any>): void {
   // store to an always-present computed slot.
   c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
-  // The children this commit publishes are the frame's now (#3404).
+  // The children this commit publishes are the frame's now (#3404) — and so
+  // are the dependencies of the pass that produced the value: the previous
+  // frame's tail goes (A30, #3410; `recompute` left it for a staged pass). Only
+  // after a clean pass: `_error` is cleared by a clean pass or by the node's
+  // own landing (whose pass was clean), so a set `_error` means the last pass
+  // threw, kept its full list, and `_depsTail` marks where it stopped.
+  if (c._x?._error == null) trimStaleDeps(c as Computed<unknown>);
   c._config! &= ~CONFIG_HELD_CHILDREN;
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   // A flight this commit leaves in the air (unobserved, or observed only by
