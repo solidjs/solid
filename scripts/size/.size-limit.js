@@ -439,7 +439,11 @@ module.exports = [
     // Held children (#3404, 2026-09-13): 15.55 -> 15.60 KB, measured at
     // 15552 B on the merge with `next` — CONFIG_HELD_CHILDREN set/cleared
     // around recompute and commitPendingNode.
-    limit: "15.60 KB",
+    // Effect arm of A30 (#3438, 2026-09-14): 15.60 -> 15.65 KB, measured at
+    // 15636 B against `next`'s 15580 (+56 brotli on +35 B minified — the
+    // `_modified` gate on recompute's trim and runEffect's trim); see the
+    // core floor note.
+    limit: "15.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -742,7 +746,10 @@ module.exports = [
     // (+28); see the core floor note.
     // #3426/#3427/#3407 (2026-09-14): 18.80 -> 18.85 KB, measured at 18811 B
     // against `next`'s 18780 (+31); see the core floor note.
-    limit: "18.85 KB",
+    // Effect arm of A30 (#3438, 2026-09-14): 18.85 -> 18.90 KB, measured at
+    // 18880 B against `next`'s 18816 (+64 brotli on +35 B minified); see the
+    // core floor note.
+    limit: "18.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -971,7 +978,9 @@ module.exports = [
     // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 14.20 ->
     // 14.25 KB, measured at 14245 B against `next`'s 14169 (+76) — `enterStagedRead` on read()'s value
     // selections and the deferred dependency trim; see the core floor note.
-    limit: "14.25 KB",
+    // Effect arm of A30 (#3438, 2026-09-14): 14.25 -> 14.30 KB, measured at
+    // 14251 B against `next`'s 14245 (+6); see the core floor note.
+    limit: "14.30 KB",
     modifyEsbuildConfig
   },
   {
