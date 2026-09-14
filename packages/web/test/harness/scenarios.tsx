@@ -1540,14 +1540,16 @@ function ErroredThunkFallbackInElement() {
   );
 }
 // Same consumer shape with a different producer: Show hands back its
-// fallback thunk unresolved too.
+// fallback thunk unresolved too. (`fallback` is typed as an element; the
+// thunk is a runtime-accepted shape, hence the cast.)
 let setShowThunkOn!: (v: boolean) => void;
 function ShowThunkFallbackUnderErrored() {
   const [on, set] = createSignal(false);
   setShowThunkOn = set;
+  const fallback = (() => <ThunkFallback />) as unknown as JSX.Element;
   return (
     <Errored fallback={<p>outer</p>}>
-      <Show when={on()} fallback={() => <ThunkFallback />}>
+      <Show when={on()} fallback={fallback}>
         <i>shown</i>
       </Show>
     </Errored>
