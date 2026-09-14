@@ -825,67 +825,143 @@ export function setStyleProperty(node, name, value) {
   if (isHydrating(node)) return;
   value != null ? node.style.setProperty(name, value) : node.style.removeProperty(name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
-export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): void;
+export function spread(
+  node: Element,
+  sources: unknown[],
+  skipChildren?: Boolean,
+  skip?: (key: string) => boolean
+): void;
+export function spread<T>(
+  node: Element,
+  accessor: T,
+  skipChildren?: Boolean,
+  skip?: (key: string) => boolean
+): void;
 
-// TODO: make this better
-export function spread(node, props, skipChildren) {
+// At most TWO reactive nodes per element (#3388) — one when nothing flows
+// through `children`:
+//
+// - The children `insert` effect stays separate. It OWNS the child subtree:
+//   components, memos and effects created while the children getter runs are
+//   disposed when it reruns, so folding it into the attribute effect would
+//   tear the children down and rebuild them on every attribute change. When
+//   the source is a plain object (no accessor, no proxy) whose `children` is
+//   a data property, the value is inserted directly — `insert` with a
+//   non-function creates no effect at all. Compiled JSX children are getters
+//   and keep the effect path.
+// - `ref` FOLDS into the attribute effect. It is collected with the other
+//   props in the compute half and applied in the commit half only when its
+//   identity differs from the last applied one (`prevProps.ref`, recorded by
+//   assign()). `ref()` runs the callback untracked with NO owner — refs
+//   deliberately own nothing — so anything a ref callback creates survives
+//   the effect rerunning; that is what makes the fold safe.
+//
+// Sources. A single source is an object, a merge() result or a bare
+// accessor. A lone reactive spread compiles to its accessor directly: merging
+// one source is pure overhead, and the mergeProps memo would consume a
+// hydration id the server-side fast path never allocates (#3105). The
+// accessor resolves inside each tracking scope instead. A nullish source
+// (`{...props()}` where the optional props are absent, or no source at all)
+// is an empty spread: attributes applied by the previous value are removed,
+// nothing throws (#3297).
+//
+// An ARRAY of sources is the union of their own string keys, later sources
+// winning per key (Object.assign / merge()'s contract); only the winning
+// source's value is read, so a shadowed getter never runs. A function source
+// is called inline in the compute half, tracked, once per run — NO memo and
+// so NO hydration id, matching the server's `ssrElement` array form. Nullish
+// sources are skipped. `skip(key)` → the key is never read nor applied.
+export function spread(node, props, skipChildren, skip) {
   const prevProps = {};
-  // A lone reactive spread compiles to its accessor directly: merging one
-  // source is pure overhead, and the mergeProps memo would consume a
-  // hydration id the server-side fast path never allocates (#3105). The
-  // accessor resolves inside each tracking scope instead. A nullish source
-  // (`{...props()}` where the optional props are absent, or no source at all)
-  // is an empty spread: attributes applied by the previous value are removed,
-  // nothing throws (#3297).
-  const get = () => (typeof props === "function" ? props() : props) ?? {};
-  if (!skipChildren)
-    insert(node, () => {
-      const source = get();
-      return hasOwn.call(source, "children") ? source.children : undefined;
-    });
-  effect(
-    () => {
-      const source = get();
-      const r = hasOwn.call(source, "ref") && source.ref;
-      (typeof r === "function" || Array.isArray(r)) && ref(() => r, node);
-    },
-    () => {}
-  );
-  effect(
-    () => {
-      const source = get();
-      const newProps = {};
-      // A merge() proxy is read through its SOURCES, not through the proxy: a
-      // spread mixed with other attributes compiles to
-      // `spread(el, merge(statics, () => rest))`, and going through the proxy
-      // costs merge's `keys()` (a Set plus an own-enumerable scan of every
-      // source) and then, per key, a right-to-left `in` walk of the sources.
-      // The union of own string keys with later sources overriding earlier
-      // — Object.assign order, merge's own contract — is all a spread needs.
-      // omit() is not a merge: it stays a proxy and is enumerated through its
-      // own filtering trap.
-      const sources = mergeSources(source);
-      if (sources !== undefined) {
-        for (let i = 0; i < sources.length; i++) {
-          let s = sources[i];
-          if (typeof s === "function") s = s();
-          if (s != null) collectProps(newProps, s);
+  const apply = newProps => {
+    const r = newProps.ref;
+    if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
+    assign(node, newProps, true, prevProps, true);
+  };
+  if (Array.isArray(props)) {
+    if (!skipChildren && !(skip !== undefined && skip("children")))
+      insert(node, () => {
+        for (let i = props.length - 1; i >= 0; i--) {
+          const s = resolveSource(props[i]);
+          if (s != null && "children" in s) return s.children;
         }
-      } else collectProps(newProps, source);
-      return newProps;
-    },
-    props => assign(node, props, true, prevProps, true)
-  );
+      });
+    effect(() => collectSources({}, props, skip), apply);
+    return prevProps;
+  }
+  if (!skipChildren && !(skip !== undefined && skip("children"))) {
+    if (typeof props !== "function" && props != null && props[$PROXY] !== props) {
+      // A plain object's key set can't change reactively: no `children` key
+      // means nothing to insert, a data property inserts its value with no
+      // effect, only a getter needs the tracking scope.
+      const desc = Object.getOwnPropertyDescriptor(props, "children");
+      if (desc !== undefined) {
+        if (desc.get === undefined) insert(node, desc.value);
+        else insert(node, () => props.children);
+      }
+    } else
+      insert(node, () => {
+        const source = resolveSource(props);
+        return source != null && hasOwn.call(source, "children") ? source.children : undefined;
+      });
+  }
+  effect(() => {
+    const source = resolveSource(props);
+    const newProps = {};
+    // A merge() proxy is read through its SOURCES, not through the proxy: a
+    // spread mixed with other attributes compiles to
+    // `spread(el, merge(statics, () => rest))`, and going through the proxy
+    // costs merge's `keys()` (a Set plus an own-enumerable scan of every
+    // source) and then, per key, a right-to-left `in` walk of the sources.
+    // The union of own string keys with later sources overriding earlier
+    // — Object.assign order, merge's own contract — is all a spread needs.
+    // omit() is not a merge: it stays a proxy and is enumerated through its
+    // own filtering trap.
+    const sources = mergeSources(source);
+    if (sources !== undefined) return collectSources(newProps, sources, skip);
+    if (source != null) collectProps(newProps, source, skip);
+    return newProps;
+  }, apply);
   return prevProps;
 }
 
-// One layer of a spread source into `out`: own string keys, children/ref
-// excluded, object-valued style/class read HERE, tracked (see readShallow()).
-function collectProps(out, s) {
+function resolveSource(s) {
+  return typeof s === "function" ? s() : s;
+}
+
+// Layered sources into `out`. Every function source is resolved once, up
+// front; keys are then collected left-to-right (Object.assign order — the
+// order assign() applies them in, which `type`/`value`/`min`/`max` style
+// pairs care about), and a key any LATER source has is skipped unread. `in`
+// is merge()'s own resolution test, so a proxy source (store, omit) answers
+// through its `has` trap rather than a per-key descriptor trap.
+function collectSources(out, sources, skip) {
+  const n = sources.length;
+  const resolved = new Array(n);
+  for (let i = 0; i < n; i++) resolved[i] = resolveSource(sources[i]);
+  for (let i = 0; i < n; i++) {
+    const s = resolved[i];
+    if (s != null) collectProps(out, s, skip, resolved, i + 1);
+  }
+  return out;
+}
+
+// One layer of a spread source into `out`: own string keys, `children`
+// excluded (it has its own insert), `ref` carried through for the commit
+// half, object-valued style/class read HERE, tracked (see readShallow()).
+// With `later` (the sources after this one, from index `from`), a key one of
+// them defines is shadowed and never read here.
+function collectProps(out, s, skip, later?, from?) {
   const keys = ownKeys(s);
-  for (let i = 0; i < keys.length; i++) {
+  outer: for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
-    if (typeof prop !== "string" || prop === "children" || prop === "ref") continue;
+    if (typeof prop !== "string" || prop === "children") continue;
+    if (skip !== undefined && skip(prop)) continue;
+    if (later !== undefined)
+      for (let j = from; j < later.length; j++) {
+        const t = later[j];
+        if (t != null && prop in t) continue outer;
+      }
     const v = s[prop];
     out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
   }
