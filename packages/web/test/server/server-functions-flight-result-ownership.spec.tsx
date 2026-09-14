@@ -74,7 +74,6 @@ async function callAs(id: string, tenant: string, transformFlightResult: any) {
       method: "POST",
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Instance": "server-function:test",
         [BODY_FORMAT_HEADER]: JSON_BODY_FORMAT,
         referer: `http://localhost/tenant/${tenant}/cart`,
         [SINGLE_FLIGHT_HEADER]: "router"

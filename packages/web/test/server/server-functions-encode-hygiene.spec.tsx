@@ -60,8 +60,7 @@ function scriptedPost(id: string) {
   return new Request(`https://app.example/_server/data/${id}`, {
     method: "POST",
     headers: {
-      "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Instance": "server-function:test"
+      "Sec-Fetch-Site": "same-origin"
     }
   });
 }

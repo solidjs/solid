@@ -603,18 +603,6 @@ export function decodeErrorHeaderValue(value) {
   }
 }
 
-/**
- * Header carrying a per-call instance id, on the POST transport only. It
- * reaches the handler's hooks as `context.instance` (null without it) and
- * matches what the client's call observers report, so a call can be
- * followed across the wire. GET-encoded reads never carry it: their
- * identity is the url, which caches and `<link rel="preload">` key on, and
- * a per-call header would make each read unmatchable (#3406). It no longer
- * decides anything about the answer — the data address is the scripted
- * signal (#3094).
- */
-export const INSTANCE_HEADER = "X-Server-Function-Instance";
-
 /** Header carrying the body format tag (a `BodyFormat` value). */
 export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 

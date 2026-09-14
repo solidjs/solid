@@ -20,7 +20,6 @@ globalThis.document = new JSDOM("<body></body>").window.document;
 import { frameTransformResult } from "../../frames/src/frame-sink.js";
 import { applyFrameResponse, isFrameStreamResponse } from "../../frames/src/frame-transport.js";
 import {
-  INSTANCE_HEADER,
   handleServerFunctionRequest,
   registerServerFunction
 } from "../../server-functions/src/server.js";
@@ -86,7 +85,6 @@ function fetchStory(storyId: string) {
       method: "POST",
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        [INSTANCE_HEADER]: "1",
         "Content-Type": "text/plain",
         "X-Server-Function-Format": "1"
       },

@@ -64,7 +64,7 @@ function connectTransport(seen: Request[]) {
   };
 }
 
-/** A call made without the client runtime: no instance header. */
+/** A call made without the client runtime: at the bare address, no transport headers. */
 function unscripted(url: string, init: RequestInit = {}) {
   return handleServerFunctionRequest(
     new Request(`http://localhost${url}`, {
@@ -99,8 +99,9 @@ describe("server-function addressing (#3070, built bundles)", () => {
     // A `<link rel="preload" as="fetch">` is reused only by a fetch that
     // matches it exactly, headers included, so a per-call header on the
     // cacheable transport made the browser fetch every preloaded read
-    // twice. The url is the whole identity of a read; the instance id stays
-    // on the POST transport, where it still names the call to the hooks.
+    // twice. The url is the whole identity of a read. No call carries a
+    // per-call id any more: the scripted-caller signal is the address
+    // (#3094) and the id was client-side bookkeeping for call observers.
     serverGET(
       createServerSideReference(
         registerServerReference("addr-preload-0", async (n?: number) =>
@@ -119,15 +120,15 @@ describe("server-function addressing (#3070, built bundles)", () => {
       restore();
     }
     const [read, argless, write] = seen;
+    // (the harness stamps Sec-Fetch-Site on the way in; the browser's is not a header the transport sets)
+    const sent = (request: Request) =>
+      [...request.headers.keys()].filter(name => name !== "sec-fetch-site").sort();
     expect(read.method).toBe("GET");
-    expect(read.headers.get("X-Server-Function-Instance")).toBeNull();
-    expect([...read.headers.keys()].filter(name => name.startsWith("x-server-function"))).toEqual(
-      []
-    );
-    expect(argless.headers.get("X-Server-Function-Instance")).toBeNull();
-    // the POST transport keeps its per-call id
+    expect(sent(read)).toEqual([]);
+    expect(sent(argless)).toEqual([]);
+    // the POST transport's headers describe the body, never the call
     expect(write.method).toBe("POST");
-    expect(write.headers.get("X-Server-Function-Instance")).toMatch(/^server-function:/);
+    expect(sent(write)).toEqual(["content-type", "x-server-function-format"]);
   });
 
   it("addresses a POST call by path, with nothing in the query", async () => {
@@ -272,30 +273,12 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect(await response.text()).toBe("ok");
   });
 
-  it("answers the same url the same way, scripted or not", async () => {
-    // The reading is decided by the url alone: a cache keys on the url, so a
-    // request header must never change what a call means.
-    serverGET(
-      createServerSideReference(
-        registerServerReference("addr-invariant-0", async (value: unknown) =>
-          value instanceof URLSearchParams ? `params:${value.get("q")}` : `other:${typeof value}`
-        )
-      )
-    );
-    const scripted = await unscripted("/_server/addr-invariant-0?q=solid", {
-      headers: { "X-Server-Function-Instance": "server-function:test" }
-    });
-    const plain = await unscripted("/_server/addr-invariant-0?q=solid");
-    expect(await scripted.text()).toBe("params:solid");
-    expect(await plain.text()).toBe("params:solid");
-  });
-
   it("shapes the answer by the url alone (#3094)", async () => {
     // The two caller kinds get differently shaped answers — the codec's at
     // the data address, plain HTTP at the bare one — and a shared cache
-    // stores one answer per url. So the shape must be a function of the url,
-    // never of a request header: at either address, the same url answers
-    // with the same shape whether or not the instance header rides along.
+    // stores one answer per url. So the shape must be a function of the url
+    // and nothing else: a direct caller at the data address gets the codec
+    // shape, and the same function at the bare address answers verbatim.
     serverGET(
       createServerSideReference(
         registerServerReference(
@@ -308,13 +291,9 @@ describe("server-function addressing (#3070, built bundles)", () => {
       )
     );
 
-    // data address: the codec shape, header or no header
-    const dataTagged = await unscripted("/_server/data/addr-shape-0", {
-      headers: { "X-Server-Function-Instance": "server-function:test" }
-    });
-    const dataPlain = await unscripted("/_server/data/addr-shape-0");
-    expect(dataTagged.headers.has("X-Server-Function-Format")).toBe(true);
-    expect(dataPlain.headers.has("X-Server-Function-Format")).toBe(true);
+    // data address: the codec shape
+    const data = await unscripted("/_server/data/addr-shape-0");
+    expect(data.headers.has("X-Server-Function-Format")).toBe(true);
 
     // bare address: the raw Response verbatim
     const bare = await unscripted("/_server/addr-shape-0");
@@ -333,10 +312,6 @@ describe("server-function addressing (#3070, built bundles)", () => {
       const response = await unscripted(`/_server/addr-broken-0?${query}`);
       expect([query, response.status]).toEqual([query, 400]);
     }
-    const scripted = await unscripted("/_server/addr-broken-0?args=hello", {
-      headers: { "X-Server-Function-Instance": "server-function:test" }
-    });
-    expect(scripted.status).toBe(400);
   });
 
   it("ignores the id header and the query parameter that used to address a call", async () => {
@@ -390,10 +365,7 @@ describe("server-function addressing (#3070, built bundles)", () => {
     registerServerFunction("data", async () => "the id named data");
     const bare = await unscripted("/_server/data", { method: "POST" });
     expect(await bare.text()).toBe("the id named data");
-    const scripted = await unscripted("/_server/data/data", {
-      method: "POST",
-      headers: { "X-Server-Function-Instance": "server-function:test" }
-    });
+    const scripted = await unscripted("/_server/data/data", { method: "POST" });
     expect(scripted.status).toBe(200);
   });
 

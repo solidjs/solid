@@ -48,13 +48,12 @@ function scripted(id: string) {
   return new Request(`https://app.example/_server/data/${id}`, {
     method: "POST",
     headers: {
-      "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Instance": "server-function:test"
+      "Sec-Fetch-Site": "same-origin"
     }
   });
 }
 
-// no instance header, not a form post: a direct HTTP caller (curl, a script)
+// at the bare address, not a form post: a direct HTTP caller (curl, a script)
 function unscripted(id: string) {
   return new Request(`https://app.example/_server/${id}`, {
     method: "POST",
