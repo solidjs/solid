@@ -1473,6 +1473,88 @@ function PreflushRejection() {
 }
 
 // ---------------------------------------------------------------------------
+// #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
+// (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
+// returns the thunk unresolved and the enclosing boundary is the consumer
+// that unwraps it — the client inside the boundary's flatten computed, the
+// server (pre-fix) inline under the boundary owner, so the fallback's element
+// keys disagreed and the hydrated fallback went dead (its button never
+// claimed the server node). The server now resolves in a scope mirroring
+// that computed.
+let setErroredFallbackCount!: (v: number) => void;
+function ThunkFallback() {
+  const [count, set] = createSignal(0);
+  setErroredFallbackCount = set;
+  return (
+    <main>
+      <b>fell</b>
+      <button onClick={() => set(count() + 1)}>Count: {count()}</button>
+    </main>
+  );
+}
+function ThrowsSync(): never {
+  throw new Error("sync render failure");
+}
+function InnerErroredThunk() {
+  return (
+    <Errored fallback={() => <ThunkFallback />}>
+      <ThrowsSync />
+    </Errored>
+  );
+}
+// The enclosing boundary is the direct consumer of the thunk (no element
+// hole in between — the plugin's DefaultErrorBoundary > App shape).
+function ErroredThunkFallbackUnderErrored() {
+  return (
+    <Errored fallback={<p>outer</p>}>
+      <InnerErroredThunk />
+    </Errored>
+  );
+}
+function ErroredThunkFallbackUnderLoading() {
+  return (
+    <Loading fallback={<p>wait</p>}>
+      <InnerErroredThunk />
+    </Loading>
+  );
+}
+// Fragment child: the boundary consumes an array with the thunk in it.
+function ErroredThunkFallbackInFragment() {
+  return (
+    <Errored fallback={<p>outer</p>}>
+      <InnerErroredThunk />
+      <span>tail</span>
+    </Errored>
+  );
+}
+// An element hole as the consumer (compiled insert / scope) — the aligned
+// control case.
+function ErroredThunkFallbackInElement() {
+  return (
+    <Errored fallback={<p>outer</p>}>
+      <section>
+        <InnerErroredThunk />
+        <span>tail</span>
+      </section>
+    </Errored>
+  );
+}
+// Same consumer shape with a different producer: Show hands back its
+// fallback thunk unresolved too.
+let setShowThunkOn!: (v: boolean) => void;
+function ShowThunkFallbackUnderErrored() {
+  const [on, set] = createSignal(false);
+  setShowThunkOn = set;
+  return (
+    <Errored fallback={<p>outer</p>}>
+      <Show when={on()} fallback={() => <ThunkFallback />}>
+        <i>shown</i>
+      </Show>
+    </Errored>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // #3013: SSR resolves <select value> into `selected` on the matching option
 // and strips the invalid attribute at flush. Hydration must claim the select
 // cleanly (the stripped attribute and injected `selected` are invisible to
@@ -2168,6 +2250,45 @@ export const scenarios: Scenario[] = [
     // Pre-flush the rejected boundary inlines to an empty region: neither
     // fallback reaches the server HTML — only the static sibling.
     serverText: "tail"
+  },
+  {
+    name: "errored-thunk-fallback-under-errored",
+    App: ErroredThunkFallbackUnderErrored,
+    expectedText: "fellCount: 0",
+    update: () => setErroredFallbackCount(1),
+    expectedTextAfterUpdate: "fellCount: 1",
+    stableSelector: "main, b, button"
+  },
+  {
+    name: "errored-thunk-fallback-under-loading",
+    App: ErroredThunkFallbackUnderLoading,
+    expectedText: "fellCount: 0",
+    update: () => setErroredFallbackCount(1),
+    expectedTextAfterUpdate: "fellCount: 1",
+    stableSelector: "main, b, button"
+  },
+  {
+    name: "errored-thunk-fallback-in-fragment",
+    App: ErroredThunkFallbackInFragment,
+    expectedText: "fellCount: 0tail",
+    update: () => setErroredFallbackCount(1),
+    expectedTextAfterUpdate: "fellCount: 1tail",
+    stableSelector: "main, b, button, span"
+  },
+  {
+    name: "errored-thunk-fallback-in-element",
+    App: ErroredThunkFallbackInElement,
+    expectedText: "fellCount: 0tail",
+    update: () => setErroredFallbackCount(1),
+    expectedTextAfterUpdate: "fellCount: 1tail",
+    stableSelector: "section, main, b, button, span"
+  },
+  {
+    name: "show-thunk-fallback-under-errored",
+    App: ShowThunkFallbackUnderErrored,
+    expectedText: "fellCount: 0",
+    update: () => setShowThunkOn(true),
+    expectedTextAfterUpdate: "shown"
   },
   {
     name: "client-only-before-suspending-fragment",

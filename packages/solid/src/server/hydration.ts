@@ -192,15 +192,41 @@ function ssrLoadingBoundary(
     }
   }
 
+  // The client boundary flattens `fn`'s result in a second computed, the
+  // sibling after the one that ran `fn` (`o`'s "00" above mirrors that first
+  // one). A zero-arg function `fn` hands back — a nested boundary's accessor,
+  // a fallback thunk it returns unresolved, a function child — is unwrapped
+  // there, so what it renders takes ids under `<id>01`. Resolve in a virtual
+  // scope with that id (ssrScope's technique: `o` keeps its identity, only
+  // its id counter is rewritten); inline under `o` the content took the
+  // "00" scope's next child id instead and a server-rendered fallback
+  // hydrated dead (#3414). Retry passes resume the surviving holes in the
+  // same scope, the counter continuing where the last pass left it.
+  let resolveCount = 0;
+  function resolveIn<T>(run: () => T): T {
+    const prevCount = (o as any)._childCount;
+    (o as any).id = id + "01";
+    (o as any)._childCount = resolveCount;
+    try {
+      return run();
+    } finally {
+      resolveCount = (o as any)._childCount;
+      (o as any).id = id + "00";
+      (o as any)._childCount = prevCount;
+    }
+  }
+
   function runDiscovery(): SSRTemplateObject | undefined {
     disposeOwner(o, false);
     serializeBuffer = [];
     retryPromise = undefined;
+    resolveCount = 0;
     return runLoadingPhase(() => {
       try {
         // The boundary is an insertion root: its content never passes a
         // compiled `escape` hole, so escape here — same as the fallback path.
-        return ctx.resolve(ctx.escape(fn()));
+        const value = fn();
+        return resolveIn(() => ctx.resolve(ctx.escape(value)));
       } catch (err) {
         if (err instanceof NotReadyError) {
           retryPromise = (err as any).source as Promise<any>;
@@ -311,7 +337,7 @@ function ssrLoadingBoundary(
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
           await Promise.all(pending.p).catch(() => {});
-          ret = runLoadingPhase(() => ctx.ssr(pending.t, ...pending.h)) as any;
+          ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }
         flushSerializeBuffer();
         done!(ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any));
