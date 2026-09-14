@@ -1,5 +1,7 @@
 # Mined rules: core store suites
 
+> **Namespace `CS`.** Every rules-mining file numbers its rules from R1, so an R-id is only meaningful with its file: this one is `CS-R<n>` in [`../RULES-INDEX.md`](../RULES-INDEX.md), the base store vocabulary — a bare `R<n>` in any store module comment resolves here when the module's own file has no such rule. IDs are never renumbered.
+
 Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePath.test.ts`, **SIS** = `tests/store/store-in-store-tracking.test.ts`, **SH** = `tests/store/shallow.test.ts`, **SPC** = `tests/shallow-store-proxy-children.test.ts`, **RE** = `tests/store/recursive-effects.test.ts`, **NC** = `tests/store/native-collections.test.ts`, **MA** = `tests/maparray-store-nonkeyed.test.ts`.
 
 ## A. Value residency & identity
