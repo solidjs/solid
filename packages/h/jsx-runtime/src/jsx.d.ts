@@ -1095,7 +1095,17 @@ export namespace JSX {
   type HTMLPreloadAs = "fetch" | "font" | "image" | "script" | "style" | "track";
   type HTMLLinkAs = HTMLPreloadAs | "audio" | "document" | "embed" | "object" | "video" | "worker";
 
-  interface AnchorHTMLAttributes<T> extends HTMLAttributes<T> {
+  /**
+   * `xmlns` on the tags that exist in both HTML and SVG (`a`, `script`, `style`,
+   * `title`). The compiler reads it to pick the namespace when the tag is not
+   * nested under `<svg>` at compile time (e.g. an XML partial), and `dynamic()`
+   * honors it the same way when creating a tag-name element at runtime.
+   */
+  interface AmbiguousNamespaceAttributes {
+    xmlns?: FunctionMaybe<string | RemoveAttribute>;
+  }
+
+  interface AnchorHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {
     download?: FunctionMaybe<string | EnumeratedAcceptsEmpty | RemoveAttribute>;
     href?: FunctionMaybe<string | SerializableAttributeValue | RemoveAttribute>;
     hreflang?: FunctionMaybe<string | RemoveAttribute>;
@@ -1700,7 +1710,7 @@ export namespace JSX {
     max?: FunctionMaybe<number | string | RemoveAttribute>;
     value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
   }
-  interface ScriptHTMLAttributes<T> extends HTMLAttributes<T> {
+  interface ScriptHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {
     async?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     blocking?: FunctionMaybe<"render" | RemoveAttribute>;
     crossorigin?: FunctionMaybe<HTMLCrossorigin | RemoveAttribute>;
@@ -1764,7 +1774,7 @@ export namespace JSX {
     type?: FunctionMaybe<string | RemoveAttribute>;
     width?: FunctionMaybe<number | string | RemoveAttribute>;
   }
-  interface StyleHTMLAttributes<T> extends HTMLAttributes<T> {
+  interface StyleHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {
     blocking?: FunctionMaybe<"render" | RemoveAttribute>;
     media?: FunctionMaybe<string | RemoveAttribute>;
 
@@ -1865,6 +1875,7 @@ export namespace JSX {
   interface TimeHTMLAttributes<T> extends HTMLAttributes<T> {
     datetime?: FunctionMaybe<string | RemoveAttribute>;
   }
+  interface TitleHTMLAttributes<T> extends HTMLAttributes<T>, AmbiguousNamespaceAttributes {}
   interface TrackHTMLAttributes<T> extends HTMLAttributes<T> {
     default?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     kind?: FunctionMaybe<
@@ -3600,7 +3611,7 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTitleElement
      */
-    title: HTMLAttributes<HTMLTitleElement> & Properties<HTMLTitleElement>;
+    title: TitleHTMLAttributes<HTMLTitleElement> & Properties<HTMLTitleElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/tr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableRowElement

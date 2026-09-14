@@ -37,6 +37,7 @@ import {
 import {
   Portal,
   Dynamic,
+  dynamic,
   httpStatus,
   httpHeader,
   clientOnly,
@@ -1773,6 +1774,25 @@ function SpreadSources() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// dynamic() tag with an explicit xmlns inside an SVG tree (#3386 part 2).
+// Server serializes the attribute; the parser namespaces the <a>; hydration
+// claims it. The update pass proves the claimed node (not a client-created
+// HTML <a>) is the one bound.
+let setNsLabel!: (v: string) => void;
+const NsLink = dynamic(() => "a");
+function DynamicNamespaceLink() {
+  const [label, set] = createSignal("go");
+  setNsLabel = set;
+  return (
+    <svg>
+      <NsLink xmlns="http://www.w3.org/2000/svg" href="/x">
+        <text>{label()}</text>
+      </NsLink>
+    </svg>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -2409,5 +2429,14 @@ export const scenarios: Scenario[] = [
     update: () => setSourcesLabel("TAIL"),
     expectedTextAfterUpdate: "srcsTAIL",
     stableSelector: "div, span, b"
+  },
+  {
+    name: "dynamic-xmlns-svg-link",
+    App: DynamicNamespaceLink,
+    expectedText: "go",
+    adoptAll: true,
+    update: () => setNsLabel("went"),
+    expectedTextAfterUpdate: "went",
+    stableSelector: "svg, a, text"
   }
 ];

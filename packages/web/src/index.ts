@@ -243,6 +243,12 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  * `{ deferStream: true }` to hold the document's first flush until it settles
  * (the same option `createMemo` takes); the client ignores it.
  *
+ * For a tag-name source the element's namespace is inferred from the tag. A
+ * tag that exists in both HTML and SVG (`a`, `script`, `style`, `title`) is
+ * created as HTML unless the instance passes `xmlns` — the same attribute
+ * compiled JSX uses for the same purpose. `is` (customized built-ins) and
+ * `xmlns` are read once at creation and then applied as ordinary attributes.
+ *
  * @example
  * ```tsx
  * // `source` can return either a custom Component or a native tag
@@ -250,6 +256,10 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  * // stable Component you can use anywhere a normal one would go.
  * const Field = dynamic(() => multiline() ? RichTextEditor : "input");
  * return <Field value={value()} onInput={onInput} />;
+ *
+ * // An ambiguous tag inside an SVG tree: say which namespace you mean.
+ * const Link = dynamic(() => "a");
+ * <svg><Link xmlns="http://www.w3.org/2000/svg" href="/x">…</Link></svg>
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/dynamic
@@ -366,11 +376,17 @@ export function dynamic<T extends ValidComponent>(
 
         case "string": {
           const hydrating = sharedConfig.hydrating;
+          // `is` and `xmlns` are attributes of the element that also decide
+          // how it is CREATED (customized built-in / namespace), so they are
+          // read once here, untracked — the DOM can't change either after
+          // creation — and then flow through spread() like any attribute.
+          // Hydration claims the parser-namespaced node, so neither applies.
           const el = hydrating
             ? getNextElement()
             : createElement(
                 component as string,
-                untrack(() => (props as any).is)
+                untrack(() => (props as any).is),
+                untrack(() => (props as any).xmlns)
               );
           spread(el, props);
           // Compiled JSX emits runHydrationEvents() after an element that
@@ -409,13 +425,24 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.E
   return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
 }
 
-function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {
+// Namespace comes from an explicit `xmlns` first, then from the tag name. The
+// compiler resolves a tag's namespace from its PARENT at build time; this
+// runtime path has no parent yet, so a tag that exists in both HTML and SVG
+// (`a`, `script`, `style`, `title`) is HTML unless `xmlns` says otherwise —
+// the same attribute compiled JSX uses for the same purpose (`<a xmlns=…>`).
+function createElement(
+  tagName: string,
+  is: string | undefined = undefined,
+  xmlns: string | undefined = undefined
+): HTMLElement | SVGElement | MathMLElement {
   return (
-    SVGElements.has(tagName)
-      ? document.createElementNS(Namespaces.svg, tagName)
-      : MathMLElements.has(tagName)
-        ? document.createElementNS(Namespaces.mathml, tagName)
-        : document.createElement(tagName, { is })
+    xmlns
+      ? document.createElementNS(xmlns, tagName, { is })
+      : SVGElements.has(tagName)
+        ? document.createElementNS(Namespaces.svg, tagName)
+        : MathMLElements.has(tagName)
+          ? document.createElementNS(Namespaces.mathml, tagName)
+          : document.createElement(tagName, { is })
   ) as HTMLElement | SVGElement | MathMLElement;
 }
 
