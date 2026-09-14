@@ -8,6 +8,7 @@ use oxc_ast_visit::VisitMut;
 use oxc_span::{GetSpan, Span};
 
 use crate::dom::element::{AstDomTransform, DomTransformConfig, jsx_expression_to_expression};
+use crate::shared::array::expression_to_array_element;
 use crate::shared::ast::{arrow_return_expression, expression_to_argument, object_method_property};
 use crate::shared::ast_builder::AstBuilder;
 use crate::shared::bindings::BindingTable;
@@ -687,7 +688,6 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         let span = element.span;
         let mut spread_args: std::vec::Vec<Expression<'a>> = std::vec::Vec::new();
         let mut running: std::vec::Vec<ObjectPropertyKind<'a>> = std::vec::Vec::new();
-        let mut dynamic_spread = false;
         let mut first_spread = false;
         let mut init_props = std::vec::Vec::new();
 
@@ -706,7 +706,6 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                     // raw for the deferred pass (Babel's outer traversal).
                     let argument = spread.argument.clone_in(self.allocator);
                     let arg = if self.classify().is_dynamic(None, &argument, false) {
-                        dynamic_spread = true;
                         match zero_arg_call_thunk(&argument, self.allocator) {
                             Some(callee) => callee,
                             None => arrow_return_expression(self.allocator, spread.span, argument),
@@ -810,15 +809,19 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             );
         }
 
-        let props = if spread_args.len() == 1 && !dynamic_spread {
+        // A lone spread — reactive included — passes straight through: the
+        // renderer's spread() resolves a function source inside its own
+        // tracking scopes. Several sources go as an ARRAY, not a mergeProps()
+        // call: spread() reads the sources directly (later wins per key,
+        // only the winner read) with no merge proxy to build and walk, and a
+        // reactive source is called inline with no memo. Same contract as
+        // the dom generate.
+        let props = if spread_args.len() == 1 {
             spread_args.pop().expect("single spread argument exists")
         } else {
-            self.uses_merge_props = true;
-            let args = spread_args
-                .into_iter()
-                .map(expression_to_argument)
-                .collect();
-            self.call_identifier(span, &self.helper_local("_$mergeProps"), args)
+            let elements = spread_args.into_iter().map(expression_to_array_element);
+            self.ast()
+                .expression_array(span, self.ast().vec_from_iter(elements))
         };
 
         self.uses_spread = true;

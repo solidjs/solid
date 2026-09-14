@@ -5,7 +5,6 @@ import { ref as _$ref } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
 import { setProp as _$setProp } from "r-custom";
 import { spread as _$spread } from "r-custom";
-import { mergeProps as _$mergeProps } from "r-custom";
 import { binding } from "somewhere";
 function refFn() {}
 const refConst = null;
@@ -21,39 +20,45 @@ _$insertNode(_el$, _el$2);
 _$setProp(_el$, "id", "main");
 _$spread(
   _el$,
-  _$mergeProps(results, {
-    style: {
-      color
+  [
+    results,
+    {
+      style: {
+        color
+      }
     }
-  }),
+  ],
   true
 );
 _$insertNode(_el$2, _el$3);
 _$setProp(_el$2, "class", "base");
 _$spread(
   _el$2,
-  _$mergeProps(results, {
-    disabled: true,
-    readonly: "",
-    get title() {
-      return welcoming();
-    },
-    get style() {
-      return {
-        "background-color": color(),
-        "margin-right": "40px"
-      };
-    },
-    get ["class"]() {
-      return [
-        "base",
-        {
-          dynamic: dynamic(),
-          selected
-        }
-      ];
+  [
+    results,
+    {
+      disabled: true,
+      readonly: "",
+      get title() {
+        return welcoming();
+      },
+      get style() {
+        return {
+          "background-color": color(),
+          "margin-right": "40px"
+        };
+      },
+      get ["class"]() {
+        return [
+          "base",
+          {
+            dynamic: dynamic(),
+            selected
+          }
+        ];
+      }
     }
-  }),
+  ],
   true
 );
 _$insertNode(_el$3, _$createTextNode(`Welcome`));
@@ -71,11 +76,7 @@ var _el$5 = _$createElement("div"),
 _$insertNode(_el$5, _el$6);
 _$insertNode(_el$5, _el$7);
 _$insertNode(_el$5, _el$8);
-_$spread(
-  _el$5,
-  _$mergeProps(() => getProps("test")),
-  true
-);
+_$spread(_el$5, () => getProps("test"), true);
 _$effect(
   () => row.label,
   (_v$, _$p) => {
@@ -195,11 +196,11 @@ const template17 = _el$22;
 var _el$24 = _$createElement("div");
 _$spread(
   _el$24,
-  _$mergeProps(() => ({
+  () => ({
     get [key()]() {
       return props.value;
     }
-  })),
+  }),
   false
 );
 const template18 = _el$24;

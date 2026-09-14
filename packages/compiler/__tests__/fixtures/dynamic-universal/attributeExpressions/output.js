@@ -1,6 +1,5 @@
 import { createTextNode as _$createTextNode } from "r-custom";
 import { effect as _$effect } from "r-custom";
-import { mergeProps as _$mergeProps } from "r-custom";
 import { spread as _$spread } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
 import { setProp as _$setProp } from "r-custom";
@@ -19,10 +18,10 @@ var _el$3 = _$createElement("a", {
 });
 _$insertNode(_el$, _el$2);
 _$setProp(_el$, "id", "main");
-_$spread(_el$, _$mergeProps(results, { style: { color } }), true);
+_$spread(_el$, [results, { style: { color } }], true);
 _$insertNode(_el$2, _el$3);
 _$setProp(_el$2, "class", "base");
-_$spread(_el$2, _$mergeProps(results, {
+_$spread(_el$2, [results, {
 	disabled: true,
 	readonly: "",
 	get title() {
@@ -40,7 +39,7 @@ _$spread(_el$2, _$mergeProps(results, {
 			selected
 		}];
 	}
-}), true);
+}], true);
 _$insertNode(_el$3, _$createTextNode("Welcome"));
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
@@ -54,9 +53,9 @@ var _el$7 = _$createElement("div", { innerHTML: "<div/>" });
 _$insertNode(_el$4, _el$5);
 _$insertNode(_el$4, _el$6);
 _$insertNode(_el$4, _el$7);
-_$spread(_el$4, _$mergeProps(() => {
+_$spread(_el$4, () => {
 	return getProps("test");
-}), true);
+}, true);
 _$effect(() => row.label, (_v$, _$p) => {
 	_$setProp(_el$6, "textContent", _v$, _$p);
 });
@@ -141,11 +140,11 @@ var _el$21 = _$createElement("button", {
 _$insertNode(_el$21, _$createTextNode("Hi"));
 const template17 = _el$21;
 var _el$22 = _$createElement("div");
-_$spread(_el$22, _$mergeProps(() => {
+_$spread(_el$22, () => {
 	return { get [key()]() {
 		return props.value;
 	} };
-}), false);
+}, false);
 const template18 = _el$22;
 var _el$23 = _$createElement("div");
 _$effect(() => ({

@@ -108,12 +108,12 @@ var _el$21 = _$createElement("module");
 _$insertNode(_el$21, _$createTextNode("hello"));
 const foldedChildren = _el$21;
 var _el$22 = _$createElement("module");
-_$spread(_el$22, _$mergeProps({ get children() {
+_$spread(_el$22, [{ get children() {
 	return fallback();
-} }, props), false);
+} }, props], false);
 const childrenBeforeSpread = _el$22;
 var _el$23 = _$createElement("module");
-_$spread(_el$23, _$mergeProps(props, { get children() {
+_$spread(_el$23, [props, { get children() {
 	return later();
-} }), false);
+} }], false);
 const childrenAfterSpread = _el$23;

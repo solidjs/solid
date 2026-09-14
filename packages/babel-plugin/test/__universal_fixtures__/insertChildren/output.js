@@ -119,25 +119,28 @@ const foldedChildren = _el$23;
 var _el$25 = _$createElement("module");
 _$spread(
   _el$25,
-  _$mergeProps(
+  [
     {
       get children() {
         return fallback();
       }
     },
     props
-  ),
+  ],
   false
 );
 const childrenBeforeSpread = _el$25;
 var _el$26 = _$createElement("module");
 _$spread(
   _el$26,
-  _$mergeProps(props, {
-    get children() {
-      return later();
+  [
+    props,
+    {
+      get children() {
+        return later();
+      }
     }
-  }),
+  ],
   false
 );
 const childrenAfterSpread = _el$26;
