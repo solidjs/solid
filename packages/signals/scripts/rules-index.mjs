@@ -40,6 +40,12 @@ const walk = (dir, out = []) => {
 const rules = new Map(); // key -> { key, id, vocab, ns, def, status, text }
 function status(text) {
   const head = text.slice(0, 160);
+  const tag = /^\[([^\]]+)\]/.exec(text);
+  if (tag)
+    return tag[1]
+      .replace("ruled, amended in place", "amended")
+      .replace(/ \d{4}-\d{2}-\d{2}.*$/, "")
+      .replace(/ \(promoted.*$/, "");
   if (/SUPERSEDED/.test(text)) return "superseded";
   if (/RETIRED/.test(head)) return "retired";
   if (/RULED OUT/.test(head)) return "ruled out";
@@ -75,12 +81,37 @@ function scan(file, re, mk) {
     });
 }
 const SPEC = path.join(DOCS, "SPEC-ASYNC-SEMANTICS.md");
-scan(SPEC, /^\| (A\d{1,2}) +\|(.*)$/, (m, n) => add(m[1], m[1], "A", "", SPEC, n, m[2]));
+{
+  // A-rules: "### A<n>. <title>" sections. Status comes from the **Status:**
+  // line (its first clause), the statement is the section body. Tier B/C ids
+  // promoted into an A-rule ("(was B1)" in the statement) resolve to that rule.
+  const L = read(SPEC).split("\n");
+  for (let i = 0; i < L.length; i++) {
+    const m = /^### (A\d{1,2})\. (.*)$/.exec(L[i]);
+    if (!m) continue;
+    let j = i + 1;
+    const body = [];
+    while (j < L.length && !/^#{2,3} /.test(L[j])) body.push(L[j++]);
+    const st = (body.find(l => l.startsWith("**Status:**")) || "")
+      .replace(/\*\*Status:\*\*\s*/, "")
+      .replace(/\*\*/g, "")
+      .split(" — ")[0];
+    const prop = body.filter(l => l && !/^\*\*(Status|Pinned by|Mechanism)/.test(l)).join(" ");
+    add(m[1], m[1], "A", "", SPEC, i + 1, `[${st}] ${m[2]} — ${prop}`);
+    const was = /\(was ([BC]\d)\b/.exec(prop);
+    if (was)
+      add(
+        was[1],
+        was[1],
+        was[1][0],
+        "",
+        SPEC,
+        i + 1,
+        `PROMOTED → ${m[1]} (${m[1]}'s section carries the ruling).`
+      );
+  }
+}
 scan(SPEC, /^- \*\*(V\d)\b(.*)$/, (m, n, l) => add(m[1], m[1], "V", "", SPEC, n, l));
-// Tier B/C ids promoted into A-rules ("(was B1)") keep resolving to the row they became.
-scan(SPEC, /^\| (A\d{1,2}) +\|.*\(was ([BC]\d)\b/, (m, n) =>
-  add(m[2], m[2], m[2][0], "", SPEC, n, `PROMOTED → ${m[1]} (${m[1]}'s row carries the ruling).`)
-);
 scan(SPEC, /^- \[[ x]\] \*\*([BC]\d)\b(.*)$/, (m, n, l) =>
   add(m[1], m[1], m[1][0], "", SPEC, n, l)
 );
