@@ -218,7 +218,11 @@ describe("getTraceContext: derivation", () => {
 });
 
 describe("tiers, in the built artifacts", () => {
-  const PROVIDER_MARK = "@solidjs/web/observe/trace-provider";
+  // The provider slot lives on `OBSERVE.server` under a registered symbol
+  // solid-js's server entry owns (one slot across every bundle copy); the web
+  // runtime reaches it by the same name, which is the string that marks the
+  // module.
+  const PROVIDER_MARK = "solid-js/observe/server/provider";
   test.each(["dist", "server-functions/dist", "frames/dist"])(
     "%s: the W3C half ships in prod; the provider slot only in observe/dev",
     dir => {

@@ -6,6 +6,8 @@
 // `client.js`. Everything with an environment (markup rendering, patch
 // emission, DOM apply, ownership) lives in the respective entry.
 
+import { devCheck } from "./diagnostics.js";
+
 export const HEAD_ELIGIBLE_TAGS = new Set(["title", "meta", "link", "style", "script", "base"]);
 
 // Attribute names ride markup, patch payloads, and setAttribute calls
@@ -203,7 +205,14 @@ export function resolveHead(groups) {
     for (const [identity, tags] of byIdentity) {
       if (identity === "title") {
         if ("_SOLID_DEV_" && tags.length > 1)
-          console.warn("Multiple <title> tags in one head group; the last one wins.");
+          devCheck({
+            code: "HEAD_TAG_INVALID",
+            kind: "head",
+            severity: "warn",
+            message:
+              "[HEAD_TAG_INVALID] Multiple <title> tags in one head group; the last one wins.",
+            data: { reason: "duplicate-title", detail: tags.length }
+          });
         winners.set(identity, { seq: group.seq, tags: [tags[tags.length - 1]] });
       } else {
         winners.set(identity, { seq: group.seq, tags });

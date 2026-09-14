@@ -4,7 +4,16 @@
  */
 
 import { describe, expect, test, vi, afterEach } from "vitest";
-import { createMemo, createOptimisticStore, createStore, Errored, Loading, flush } from "solid-js";
+import {
+  OBSERVE,
+  createComponent,
+  createMemo,
+  createOptimisticStore,
+  createStore,
+  Errored,
+  Loading,
+  flush
+} from "solid-js";
 import { render } from "../src/index.js";
 
 describe("Dev-mode async warning", () => {
@@ -431,5 +440,35 @@ describe("Deferred root mount — async stores", () => {
     expect(el.innerHTML).toContain("outer");
     expect(warned(warnSpy)).toBe(false);
     warnSpy.mockRestore();
+  });
+});
+
+describe("UNRECOGNIZED_INSERT_VALUE (client)", () => {
+  // The client renderer's skip of a value it has no rendering for is the
+  // same finding as the server's (server.ts `unrecognizedInsert`): one code,
+  // one `render` kind, on `OBSERVE.diagnostics` with the owner whose binding
+  // inserted, and one console.warn through the core's face in dev.
+  test("a plain object at an insert position is a finding located to its component", () => {
+    const div = document.createElement("div");
+    document.body.appendChild(div);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const capture = OBSERVE!.diagnostics.capture();
+    function App() {
+      return <div>{{ not: "a node" } as any}</div>;
+    }
+    const dispose = render(() => createComponent(App, {}), div);
+    flush();
+    const events = capture.events.filter(e => e.code === "UNRECOGNIZED_INSERT_VALUE");
+    capture.stop();
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe("render");
+    expect(events[0].severity).toBe("warn");
+    expect(events[0].data).toEqual({ type: "object", value: { not: "a node" } });
+    expect(events[0].ownerPath).toEqual(["<App>"]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain("[UNRECOGNIZED_INSERT_VALUE]");
+    warnSpy.mockRestore();
+    dispose();
+    div.remove();
   });
 });

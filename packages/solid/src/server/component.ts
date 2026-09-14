@@ -5,8 +5,12 @@ import {
   peekNextChildId,
   getOwner,
   getContext,
-  NoHydrateContext
+  NoHydrateContext,
+  runWithOwner,
+  createComponentOwner,
+  type Owner
 } from "./signals.js";
+import { IS_DEV, IS_OBSERVE, devCheck, errorText } from "./diagnostics.js";
 import { sharedConfig, type ResolvedAssets } from "./shared.js";
 import type { Element as SolidElement } from "../types.js";
 
@@ -60,17 +64,84 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
 export type Ref<T> = T | ((val: T) => void);
 
 /**
- * Creates a component. On server, just calls the function directly (no untrack needed).
+ * Creates a component. On the server this is a plain call (no untrack
+ * needed); the observe and dev tiers run it under a labelled owner so the
+ * owner tree reads as the component tree — see `observedComponent`.
  */
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T,
   _name?: string
 ): SolidElement {
+  if (IS_OBSERVE) return observedComponent(Comp, props, _name);
   return Comp(props || ({} as T));
 }
 
+/**
+ * Observe/dev component wrapper — the server twin of the client's
+ * (`client/core.ts`): the body runs under a transparent owner carrying the
+ * component's label, so a finding raised inside locates as
+ * `<App> › <Page>` through the core's `ownerPath` walk, the same field and
+ * shape on both sides. Transparent, so hydration ids are unchanged; not a
+ * creation for `creationStamp()`, so the live-hole verdicts are unchanged
+ * (see `createComponentOwner`). Outside any owner there is nothing to hang
+ * the label on and the call stays plain. The prod build never reaches this.
+ *
+ * `name` is the source tag the compiler emitted under `componentNames`; it
+ * wins over `Comp.name`, which a minifier rewrites and a `lazy()` wrapper
+ * hides. The dev tier adds the client's non-function check, so a JSX tag
+ * that resolved to `undefined` names the mistake instead of failing inside
+ * the runtime.
+ */
+function observedComponent<T extends Record<string, any>>(
+  Comp: Component<T>,
+  props: T,
+  name?: string
+): SolidElement {
+  if (IS_DEV && typeof Comp !== "function") {
+    throw new Error(
+      `createComponent: expected a component function but got ${
+        Comp === null ? "null" : typeof Comp
+      }. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`
+    );
+  }
+  if (!getOwner()) return Comp(props || ({} as T));
+  name ||= Comp.name;
+  return runWithOwner(createComponentOwner(`<${name || "Anonymous"}>`), () =>
+    Comp(props || ({} as T))
+  );
+}
+
 type AssetContext = NonNullable<typeof sharedConfig.context>;
+
+// Dev CHECK: a `lazy()` component whose client assets the render could not
+// map — `LAZY_ASSET_UNMAPPED`. One condition, two shapes: the resolver threw
+// (`data.reason: "resolution-failed"`, `data.id`, `data.error`), or the module
+// exposes no `$$moduleUrl` to resolve from (`"no-module-url"`). Either way the
+// component loads late during hydration instead of preloading with the page.
+// `subject` locates it: the current owner by default, or the one a body
+// captured for the async paths (a rejected resolver, a deferred import).
+function lazyAssetUnmapped(id: string | undefined, error?: unknown, subject?: Owner | null): void {
+  // The gate sits before the message is built, so the prod artifact carries
+  // an empty function and none of the text.
+  if (!IS_DEV) return;
+  devCheck(
+    {
+      code: "LAZY_ASSET_UNMAPPED",
+      kind: "ssr",
+      severity: "warn",
+      message:
+        id !== undefined
+          ? `[LAZY_ASSET_UNMAPPED] lazy() asset resolution failed for "${id}": ${errorText(error)}`
+          : "[LAZY_ASSET_UNMAPPED] lazy() used in SSR without a moduleUrl and the loaded module has no " +
+            "$$moduleUrl export, so its client assets cannot be resolved — the component will load " +
+            "late during hydration. This is typically injected by the bundler plugin.",
+      data:
+        id !== undefined ? { reason: "resolution-failed", id, error } : { reason: "no-module-url" }
+    },
+    subject as any
+  );
+}
 
 /**
  * Resolves a module's client assets once per request and hands them to
@@ -98,8 +169,10 @@ function resolveLazyAssets(
   }
   if (assets && typeof (assets as Promise<ResolvedAssets | null>).then === "function") {
     // Restore the boundary that owned this call — by the time the resolver
-    // settles, other boundaries may be rendering.
+    // settles, other boundaries may be rendering. The owner likewise, for
+    // the finding a rejection raises.
     const boundary = ctx._currentBoundaryId;
+    const owner = getOwner();
     return (assets as Promise<ResolvedAssets | null>).then(
       resolved => {
         // Upgrade the memoized entry to the settled VALUE. Leaving the promise
@@ -121,7 +194,7 @@ function resolveLazyAssets(
       },
       err => {
         cache.set(id, null);
-        console.warn(`lazy() asset resolution failed for "${id}":`, err);
+        lazyAssetUnmapped(id, err, owner);
       }
     );
   }
@@ -282,24 +355,16 @@ export function lazy<T extends Component<any>>(
           if (typeof id === "string") {
             assetsPending = registerLazyAssets(id);
           } else {
-            console.warn(
-              "lazy() used in SSR without a moduleUrl and the loaded module has no " +
-                "$$moduleUrl export, so its client assets cannot be resolved — the " +
-                "component will load late during hydration. This is typically " +
-                "injected by the bundler plugin."
-            );
+            lazyAssetUnmapped(undefined);
           }
         } else {
           const boundary = ctx._currentBoundaryId;
           assetsPending = cur.then(mod => {
             const id = (mod as any)?.$$moduleUrl;
             if (typeof id !== "string") {
-              console.warn(
-                "lazy() used in SSR without a moduleUrl and the loaded module has no " +
-                  "$$moduleUrl export, so its client assets cannot be resolved — the " +
-                  "component will load late during hydration. This is typically " +
-                  "injected by the bundler plugin."
-              );
+              // Async: `getOwner()` is whatever runs this microtask, so the
+              // finding is located by the owner the body captured.
+              lazyAssetUnmapped(undefined, undefined, o);
               return;
             }
             const current = ctx._currentBoundaryId;
@@ -390,7 +455,7 @@ export function lazy<T extends Component<any>>(
       try {
         resolveLazyAssets(ctx, id, hint);
       } catch (err) {
-        console.warn(`lazy() asset resolution failed for "${id}":`, err);
+        lazyAssetUnmapped(id, err);
       }
     };
     if (moduleUrl) hintFor(moduleUrl);

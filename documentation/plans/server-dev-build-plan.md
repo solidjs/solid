@@ -170,6 +170,40 @@ Decision: **reuse `@solidjs/signals`'s channel, do not fork it.**
 > `dist/server.observe.*` already exists (exporting a live `OBSERVE`); P1
 > gives it content. Read `DEV.diagnostics` below as `OBSERVE.diagnostics`.
 
+> **Landed 2026-09-13 (P1 + P2, one PR).** Two helper modules hold the
+> gates — `packages/solid/src/server/diagnostics.ts` and
+> `packages/web/src/diagnostics.ts` — with three verbs: `emitFinding`
+> (observe + dev: emit, and in dev report through `DEV.report`),
+> `recordFinding` (emit only, for a site that throws its message — the throw
+> is the console face), `devCheck` (`emitFinding` behind the dev gate, so the
+> observe artifact carries neither the call nor the text). Every call site is
+> additionally wrapped in a literal `if ("_SOLID_OBSERVE_")` / `if
+("_SOLID_DEV_")` so Rollup drops the message strings from the tiers below.
+> `ownerPath`: `createComponent` on the server wraps the call in a
+> transparent owner labelled `_name` (`createComponentOwner` — no hydration
+> id consumed, no `ownerCreations` tick) in observe/dev, and the core's
+> `ownerPath` walk reads `SSROwner._parent`/`_name` unchanged. The wiring
+> findings: `SSR_RENDER_ERROR_CONTAINED` (`data.handling`:
+> `fallback` from `createErrorBoundary`, `client`/`failed` from the Loading
+> boundary's routing, `failed` from the root), `SSR_SUBTREE_ABANDONED`
+> (`abandonSubtree` with pending work discarded), `SSR_STREAM_ABANDONED`
+> (`abandon("consumer" | "sink")`), `LATE_HEADER_WRITE` (recorded, then the
+> existing dev throw / prod log), `SERVER_FN_ERROR_SANITIZED`
+> (`sanitizeServerError`, `data.error` the original). The server entry also
+> installs the client's repair-guide console footer (`src/console-footer.ts`,
+> shared). Specs: `packages/solid/test/server/server-diagnostics.spec.ts`,
+> `packages/web/test/server/server-diagnostics.spec.tsx`,
+> `packages/web/test/frames-marker-corruption.spec.tsx`. Docs: RFC 08
+> "Server rendering" + quick reference; the reactivity-diagnostics skill.
+>
+> Known gap, deliberately out of this PR: the SSR compiler inlines component
+> calls (`Comp({})`) instead of `createComponent`, so compiled JSX does not
+> get the label — `ownerPath` is populated for `createComponent` callers
+> (the runtime's own flow components, `Dynamic`, tests) and empty for a
+> plain compiled `<Comp/>` tree. The fix is the compiler emitting
+> `createComponent` under the `componentNames` option for SSR output as it
+> does for the client; tracked separately.
+
 - The server facade imports `DEV` (and the `emitDiagnostic` /
   `DiagnosticEvent` types) from `@solidjs/signals`, every use behind
   `"_SOLID_DEV_"` so the prod server build folds it out and never touches
@@ -243,9 +277,9 @@ type/tooling reuse, with unused members no-op.
 > failed, a boundary flushed. That surface is `OBSERVE.server` — an empty
 > `ServerObserve` interface declared in `@solidjs/signals`, re-exported by
 > `solid-js`, and populated (object at load, type by `declare module
-> "solid-js"` augmentation) by `@solidjs/web`'s server entries. First channel:
+"solid-js"` augmentation) by `@solidjs/web`'s server entries. First channel:
 > `OBSERVE.server.invocations` (`subscribe("invocation", (event, live) =>
-> …)`), emitted from both server-function legs. Observe-tier only: web now
+…)`), emitted from both server-function legs. Observe-tier only: web now
 > ships `dist/server.observe.js`, `server-functions/dist/server.observe.js`
 > and `frames/dist/server.observe.js` under the `observe` condition (the P0
 > plumbing, third flavour), and every emit site folds out of prod behind

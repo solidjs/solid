@@ -321,15 +321,20 @@ describe("tiers", () => {
     expect(records).toHaveLength(0);
   });
 
-  it("the channel folds out of every prod server artifact and rides every observe/dev one", () => {
-    // The listener set hangs off a registered symbol; its name is the one
-    // string that survives minification and marks the module's presence.
-    const marker = "@solidjs/web/observe/invocations";
+  it("the emitter folds out of every prod server artifact and rides the observe/dev ones that invoke", () => {
+    // The channel itself (subscribe, the listener set) is solid-js's server
+    // entry's — one slot on `OBSERVE.server` across every bundle copy,
+    // present before any web entry loads. What the web artifacts carry is the
+    // EMITTER: the server-function handler reaching for the listener set by
+    // its registered-symbol name, the one string that survives minification.
+    // So the mark rides the server-functions observe/dev artifacts (the only
+    // entry that runs invocations) and no prod artifact anywhere.
+    const marker = "solid-js/observe/server/listeners";
     const has = (file: string) => readFileSync(file, "utf8").includes(marker);
     for (const entry of ["dist", "server-functions/dist", "frames/dist"]) {
       expect(has(`${entry}/server.js`), `${entry}/server.js`).toBe(false);
-      expect(has(`${entry}/server.observe.js`), `${entry}/server.observe.js`).toBe(true);
-      expect(has(`${entry}/server.dev.js`), `${entry}/server.dev.js`).toBe(true);
     }
+    expect(has("server-functions/dist/server.observe.js")).toBe(true);
+    expect(has("server-functions/dist/server.dev.js")).toBe(true);
   });
 });

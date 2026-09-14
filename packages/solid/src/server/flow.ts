@@ -13,6 +13,7 @@ import {
   RevealGroupContext
 } from "./signals.js";
 import { createLoadingBoundary } from "./hydration.js";
+import { IS_DEV, devCheck } from "./diagnostics.js";
 import { sharedConfig } from "./shared.js";
 import type { Accessor, RevealOrder } from "./signals.js";
 import type { Element as SolidElement } from "../types.js";
@@ -353,10 +354,16 @@ export function Reveal(props: RevealProps): SolidElement {
       const reg = parentGroup.register(id);
       collapsedByParent = reg.collapseFallback;
       // Natural has no coordination requirement — it degrades cleanly to sync rendering.
-      if (order === "together" || collapsed)
-        console.warn(
-          "Nested <Reveal> with collapsed/together won't coordinate correctly with renderToString. Use renderToStream for full support."
-        );
+      if (IS_DEV && (order === "together" || collapsed))
+        devCheck({
+          code: "REVEAL_IN_RENDER_TO_STRING",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            "[REVEAL_IN_RENDER_TO_STRING] Nested <Reveal> with collapsed/together won't coordinate " +
+            "correctly with renderToString. Use renderToStream for full support.",
+          data: { order, collapsed }
+        });
     }
     let count = 0;
     return runWithOwner(o, () => {

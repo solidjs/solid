@@ -12,6 +12,7 @@ import {
   RevealGroupContext
 } from "./signals.js";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
+import { IS_OBSERVE, emitFinding, errorText } from "./diagnostics.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
 import type { Accessor } from "./signals.js";
 import type { Element as SolidElement } from "../types.js";
@@ -88,6 +89,30 @@ function ssrLoadingBoundary(
   let done: ((value?: string, error?: any) => boolean) | undefined;
   let handledRenderError: any;
   let retryPromise: Promise<any> | undefined;
+  // The finding (observe/dev) for a render error this boundary routed rather
+  // than an <Errored> catching it: `client` — the fragment rejected and the
+  // client re-renders the subtree fresh (the response completes, the user
+  // pays a client render); `failed` — nothing could contain it, the request
+  // failed through the renderer's `failRender`/`onError` and the process
+  // survived. The Errored fallback case reports itself (createErrorBoundary).
+  const reportRouted = (err: any, handling: "client" | "failed") => {
+    if (!IS_OBSERVE) return;
+    emitFinding(
+      {
+        code: "SSR_RENDER_ERROR_CONTAINED",
+        kind: "ssr",
+        severity: "error",
+        message:
+          `[SSR_RENDER_ERROR_CONTAINED] Render error in a <Loading> boundary ` +
+          (handling === "client"
+            ? `— the fragment rejected and the client re-renders it: `
+            : `— no boundary could contain it, the request failed: `) +
+          errorText(err),
+        data: { handling, boundary: id, error: err }
+      },
+      o
+    );
+  };
   let serializeBuffer: [string, any, boolean?][] = [];
   // Once this boundary has flushed, it never buffers again (resets only happen
   // during retry discovery, before the first flush). A chained async source can
@@ -145,6 +170,7 @@ function ssrLoadingBoundary(
           // Errored id, which makes the hydrating client render the error
           // fallback expecting server DOM that was never emitted, derailing
           // hydration before the fragment channel can engage.
+          reportRouted(err, "client");
           done(undefined, err);
           throw err;
         }
@@ -178,8 +204,14 @@ function ssrLoadingBoundary(
       handledRenderError = undefined;
       return;
     }
-    if (done?.(undefined, err)) return;
+    if (done) {
+      if (done(undefined, err)) {
+        reportRouted(err, "client");
+        return;
+      }
+    }
     if (!parentHandler) {
+      reportRouted(err, "failed");
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
     }
@@ -187,6 +219,7 @@ function ssrLoadingBoundary(
       runWithOwner(parent!, () => parentHandler(err));
     } catch (caught) {
       if (caught !== err) {
+        reportRouted(caught, "failed");
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
     }
