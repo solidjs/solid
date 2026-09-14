@@ -859,7 +859,11 @@ module.exports = [
     // 28268 (+32 — the core seams and the collecting boundary).
     // Boundary reset ends the hold (#3375 ruling, 2026-09-12): 28.35 -> 28.40 KB,
     // measured at 28380 B against 28300 (+80); see the core floor note.
-    limit: "28.40 KB",
+    // Mainline effect ownership across the forced in-transaction re-run
+    // (#3412, 2026-09-13): 28.40 -> 28.45 KB, measured at 28408 B on the
+    // merge with `next` — the save/restore of `_valueTransition` in
+    // recompute, on top of #3413's companion-gate change.
+    limit: "28.45 KB",
     modifyEsbuildConfig
   },
   {
