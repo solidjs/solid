@@ -603,12 +603,6 @@ export function decodeErrorHeaderValue(value) {
   }
 }
 
-/**
- * Header carrying a per-call instance id. Its presence tells the server a
- * scripted client is on the other end (vs. a no-JS form post).
- */
-export const INSTANCE_HEADER = "X-Server-Function-Instance";
-
 /** Header carrying the body format tag (a `BodyFormat` value). */
 export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 

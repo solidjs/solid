@@ -40,8 +40,7 @@ function postRequest(id: string, headers: Record<string, string> = {}) {
     method: "POST",
     headers: {
       "Sec-Fetch-Site": "same-origin",
-      ...headers,
-      "X-Server-Function-Instance": "server-function:test"
+      ...headers
     }
   });
 }
@@ -473,28 +472,6 @@ describe("server-function cache hygiene (#3071)", () => {
     );
     expect(plain.status).toBe(200);
     expect(plain.headers.get("Cache-Control")).toBe("public, max-age=60");
-  });
-
-  it("keeps the instance header inert at the bare address (#3094)", async () => {
-    declareGET(
-      "hygiene-inert-header",
-      async () => new Response(null, { headers: { "Cache-Control": "public, max-age=60" } })
-    );
-
-    // The bare address is plain HTTP no matter what headers ride along: the
-    // shape and the cache policy are functions of the url alone, so the
-    // author's policy survives and no codec shape can be summoned into a
-    // shared cache by a header the cache does not key on.
-    const tagged = await handleServerFunctionRequest(
-      new Request("https://app.example/_server/hygiene-inert-header", {
-        method: "GET",
-        headers: { "X-Server-Function-Instance": "server-function:test" }
-      }),
-      { provideEvent }
-    );
-    expect(tagged.status).toBe(200);
-    expect(tagged.headers.get("Cache-Control")).toBe("public, max-age=60");
-    expect(tagged.headers.has("X-Server-Function-Format")).toBe(false);
   });
 
   it("keeps no-store on the refusals built before dispatch, not only the ones above", async () => {

@@ -58,7 +58,6 @@ function post(id: string, headers: Record<string, string> = {}) {
       "Sec-Fetch-Site": "same-origin",
       "content-type": "application/json",
       "X-Server-Function-Format": "8",
-      "X-Server-Function-Instance": "server-function:test",
       [SINGLE_FLIGHT_HEADER]: "true",
       ...headers
     }

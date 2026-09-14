@@ -1,0 +1,315 @@
+/**
+ * @jsxImportSource @solidjs/web
+ */
+import { describe, expect, test } from "vitest";
+import { renderToString, ssrElement } from "@solidjs/web";
+import { merge } from "solid-js";
+
+// `ssrElement(tag, [a, b, c], ...)` serializes straight from several prop
+// sources. Its contract is the merged one — byte-for-byte what
+// `ssrElement(tag, merge(a, b, c), ...)` produces, attribute order included —
+// without an intermediate object, and without ever reading a getter whose
+// key a later source owns.
+
+const stripKeys = (html: string) => html.replace(/ _hk=[^\s>]+/g, "");
+const hydrationKeys = (html: string) => [...html.matchAll(/_hk=([^\s>]+)/g)].map(m => m[1]);
+
+/** A source whose every getter counts its reads. */
+function counting<T extends Record<string, unknown>>(
+  values: T
+): { source: T; reads: Record<string, number> } {
+  const reads: Record<string, number> = {};
+  const source = {} as T;
+  for (const key of Object.keys(values)) {
+    reads[key] = 0;
+    Object.defineProperty(source, key, {
+      enumerable: true,
+      get() {
+        reads[key]++;
+        return values[key];
+      }
+    });
+  }
+  return { source, reads };
+}
+
+function render(
+  tag: string,
+  props: any,
+  children?: any,
+  needsId = false,
+  skip?: (k: string) => boolean
+) {
+  return renderToString(() => ssrElement(tag, props, children, needsId, skip));
+}
+
+describe("ssrElement with multiple sources", () => {
+  test("is equivalent to merge(...sources), attribute order included", () => {
+    const shapes: Array<[string, any[]]> = [
+      ["one source", [{ id: "a", class: "c", title: "t" }]],
+      [
+        "disjoint",
+        [
+          { id: "a", "data-x": "1" },
+          { class: "c", title: "t" },
+          { style: { color: "red" }, hidden: true }
+        ]
+      ],
+      [
+        "overlapping",
+        [
+          { id: "a", class: "c1", title: "t1", "data-x": "1" },
+          { title: "t2", class: "c2", "data-y": "2" },
+          { id: "b", "data-x": "3" }
+        ]
+      ],
+      [
+        "class and style objects",
+        [
+          { class: { a: true, b: false }, style: "color:red" },
+          { style: { color: "blue", margin: "1px" }, class: ["x", "y"] }
+        ]
+      ],
+      [
+        "booleans, empty strings and nullish",
+        [
+          { disabled: false, title: "", "data-a": null },
+          { disabled: true, "data-a": undefined, "data-b": "" }
+        ]
+      ],
+      [
+        "getters",
+        [counting({ id: "a", title: "old" }).source, counting({ title: "new", class: "c" }).source]
+      ],
+      ["two sources, second empty", [{ id: "a" }, {}]],
+      ["two sources, first empty", [{}, { id: "a" }]],
+      ["escaping", [{ title: `a"b<c&d` }, { "data-x": `<&"` }]],
+      [
+        "client-only props",
+        [
+          { ref: () => {}, onClick: () => {} },
+          { "prop:value": 1, id: "x" }
+        ]
+      ]
+    ];
+    for (const [name, sources] of shapes) {
+      for (const tag of ["div", "input"]) {
+        const fromSources = stripKeys(render(tag, sources, undefined, true));
+        const fromMerge = stripKeys(render(tag, merge(...(sources as any[])), undefined, true));
+        expect(fromSources, `${name} <${tag}>`).toBe(fromMerge);
+      }
+    }
+  });
+
+  test("later sources win and the shadowed getters are never read", () => {
+    const a = counting({ id: "a", title: "old", "data-a": "1" });
+    const b = counting({ title: "new", class: "c" });
+    const c = counting({ id: "c" });
+    const html = render("div", [a.source, b.source, c.source]);
+    expect(html).toBe('<div data-a="1" title="new" class="c" id="c"></div>');
+    expect(a.reads).toEqual({ id: 0, title: 0, "data-a": 1 });
+    expect(b.reads).toEqual({ title: 1, class: 1 });
+    expect(c.reads).toEqual({ id: 1 });
+  });
+
+  test("the winning getter is read exactly once", () => {
+    const a = counting({
+      class: "c",
+      style: { color: "red" },
+      "data-x": "x",
+      hidden: true,
+      onClick: () => {},
+      title: "shadowed"
+    });
+    const b = counting({ title: "t" });
+    render("div", [a.source, b.source]);
+    expect(a.reads).toEqual({
+      class: 1,
+      style: 1,
+      "data-x": 1,
+      hidden: 1,
+      onClick: 1,
+      title: 0
+    });
+    expect(b.reads).toEqual({ title: 1 });
+  });
+
+  test("a later source answers the shadow check through `in`, not own keys", () => {
+    // A merge()/omit() proxy owns its keys through its `has` trap; a plain
+    // proxy with the same shape stands in for it here.
+    const a = counting({ title: "a", id: "a" });
+    const later = new Proxy({} as Record<string, string>, {
+      has: (_, key) => key === "title",
+      get: (_, key) => (key === "title" ? "proxied" : undefined),
+      ownKeys: () => ["title"],
+      getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true, value: "proxied" })
+    });
+    expect(render("div", [a.source, later])).toBe('<div id="a" title="proxied"></div>');
+    expect(a.reads).toEqual({ title: 0, id: 1 });
+  });
+
+  test("skip drops a key from every source without reading it", () => {
+    const a = counting({ id: "a", "data-x": "1", theme: "t" });
+    const b = counting({ class: "c", "data-x": "2", $internal: 1 });
+    const skip = (key: string) => key === "data-x" || key === "theme" || key[0] === "$";
+    expect(render("div", [a.source, b.source], undefined, false, skip)).toBe(
+      '<div id="a" class="c"></div>'
+    );
+    expect(a.reads).toEqual({ id: 1, "data-x": 0, theme: 0 });
+    expect(b.reads).toEqual({ class: 1, "data-x": 0, $internal: 0 });
+    // The single-object form takes the predicate too.
+    expect(render("div", a.source, undefined, false, skip)).toBe('<div id="a"></div>');
+  });
+
+  test("children come from the sources when the argument is undefined", () => {
+    expect(render("div", [{ children: "a" }, { id: "x" }])).toBe('<div id="x">a</div>');
+    expect(render("div", [{ id: "x" }, { children: "<b>" }])).toBe('<div id="x">&lt;b></div>');
+    expect(render("div", [{ innerHTML: "<b>raw</b>" }, { id: "x" }])).toBe(
+      '<div id="x"><b>raw</b></div>'
+    );
+    expect(render("script", [{ children: "if (a < b) {}" }])).toBe(
+      "<script>if (a < b) {}</script>"
+    );
+
+    // Later `children` wins; the earlier getter is never read.
+    const a = counting({ children: "a" });
+    const b = counting({ children: "b" });
+    expect(render("div", [a.source, b.source])).toBe("<div>b</div>");
+    expect(a.reads).toEqual({ children: 0 });
+    expect(b.reads).toEqual({ children: 1 });
+  });
+
+  test("children getters stay unread on void tags and under a children argument", () => {
+    const a = counting({ children: "a", value: "v" });
+    expect(render("input", [a.source, { id: "x" }], undefined, true)).toMatch(
+      /^<input _hk=\w+ value="v" id="x" \/>$/
+    );
+    expect(a.reads).toEqual({ children: 0, value: 1 });
+
+    const b = counting({ children: "from-source", id: "x" });
+    expect(render("div", [b.source, { title: "t" }], "from-arg")).toBe(
+      '<div id="x" title="t">from-arg</div>'
+    );
+    expect(b.reads).toEqual({ children: 0, id: 1 });
+
+    // textarea value is content, not an attribute, from any source (#3286).
+    expect(render("textarea", [{ "data-x": "x" }, { value: "typed" }])).toBe(
+      '<textarea data-x="x">typed</textarea>'
+    );
+    expect(
+      render("textarea", [
+        { value: "shadowed", id: "t" },
+        { defaultValue: "d", value: "v" }
+      ])
+    ).toBe('<textarea id="t">v</textarea>');
+  });
+
+  test("nullish sources are empty and function sources resolve once, without ids", () => {
+    let calls = 0;
+    const thunk = () => {
+      calls++;
+      return { id: "x", title: "t" };
+    };
+    const html = renderToString(() => [
+      ssrElement("span", [null, thunk, undefined], undefined, true),
+      ssrElement("b", {}, "after", true)
+    ]);
+    const single = renderToString(() => [
+      ssrElement("span", { id: "x", title: "t" }, undefined, true),
+      ssrElement("b", {}, "after", true)
+    ]);
+    expect(calls).toBe(1);
+    expect(html).toBe(single);
+    expect(stripKeys(html)).toBe('<span id="x" title="t"></span><b>after</b>');
+    // The element takes one key and the sibling the next: the thunk took none.
+    const keys = hydrationKeys(html);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+
+    // The caller's array is left as passed.
+    const sources = [null, thunk];
+    render("div", sources);
+    expect(sources[1]).toBe(thunk);
+    expect(render("div", [null, undefined])).toBe("<div></div>");
+    expect(render("div", [])).toBe("<div></div>");
+    expect(render("div", [() => null, () => undefined, { id: "x" }])).toBe('<div id="x"></div>');
+  });
+
+  test("the hydration key is allocated before any source getter runs", () => {
+    const make = () => ({
+      get children() {
+        return ssrElement("i", {}, "c", true);
+      }
+    });
+    const html = renderToString(() => [
+      ssrElement("div", [{ id: "x" }, make()], undefined, true),
+      ssrElement("b", {}, "after", true)
+    ]);
+    const single = renderToString(() => [
+      ssrElement("div", merge({ id: "x" }, make()), undefined, true),
+      ssrElement("b", {}, "after", true)
+    ]);
+    expect(html).toBe(single);
+    expect(stripKeys(html)).toBe('<div id="x"><i>c</i></div><b>after</b>');
+    // div, i, b — one id each, in document order.
+    const keys = hydrationKeys(html).map(k => parseInt(k.split("-").pop()!));
+    expect(keys).toEqual([keys[0], keys[0] + 1, keys[0] + 2]);
+  });
+
+  test("a thunk may yield the sources array, after the key is taken", () => {
+    // The caller decides the sources only once the element owns its key —
+    // e.g. computing them reads a getter that renders a child element.
+    let calls = 0;
+    const a = { id: "x" };
+    const html = renderToString(() => [
+      ssrElement(
+        "div",
+        () => {
+          calls++;
+          return [a, { class: "c", children: ssrElement("i", {}, "c", true) }];
+        },
+        undefined,
+        true
+      ),
+      ssrElement("b", {}, "after", true)
+    ]);
+    expect(calls).toBe(1);
+    expect(stripKeys(html)).toBe('<div id="x" class="c"><i>c</i></div><b>after</b>');
+    const keys = hydrationKeys(html).map(k => parseInt(k.split("-").pop()!));
+    expect(keys).toEqual([keys[0], keys[0] + 1, keys[0] + 2]);
+    // ...and the predicate applies to it as well.
+    expect(
+      render(
+        "div",
+        () => [a, { class: "c" }],
+        undefined,
+        false,
+        k => k === "id"
+      )
+    ).toBe('<div class="c"></div>');
+  });
+
+  test("nullish style and class from the winning source are omitted (#3382)", () => {
+    const sources = [
+      { class: "shadowed", style: "color:red", id: "x" },
+      { class: undefined, style: null }
+    ];
+    expect(render("button", sources)).toBe('<button id="x"></button>');
+    expect(render("button", sources)).toBe(render("button", merge(...(sources as any[]))));
+    // ...and present ones from a later source replace the earlier value.
+    expect(
+      render("button", [
+        { class: "a", style: { color: "red" } },
+        { class: { b: true }, style: "margin:0" }
+      ])
+    ).toBe('<button class="b" style="margin:0"></button>');
+  });
+
+  test("the single-object and thunk forms are unchanged", () => {
+    expect(render("div", { id: "x", class: "c" }, "kid")).toBe('<div id="x" class="c">kid</div>');
+    expect(render("div", () => ({ id: "x" }))).toBe('<div id="x"></div>');
+    expect(render("div", () => null)).toBe("<div></div>");
+    expect(render("div", null)).toBe("<div></div>");
+    expect(render("br", {}, undefined, true)).toMatch(/^<br _hk=\w+ \/>$/);
+  });
+});

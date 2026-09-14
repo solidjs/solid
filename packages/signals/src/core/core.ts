@@ -561,12 +561,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // A window landing that gets held re-opens the window until the hold
         // commits — the verdict's held-value branch is window-gated (#2990).
         if (wasLoading) el._loading = true;
-        // Transition-held sync recompute is a write path like setSignal/asyncWrite,
+        // A staged sync recompute is a write path like setSignal/asyncWrite,
         // so sync derivations of held sources stay visible to isPending()/latest()
         // (#2831). Both companion writes are transition-scoped (optimistic) and
-        // auto-revert/re-derive at commit. Skipped for plain flushes where the
-        // pending value commits before effects run.
-        if ((activeTransition || el._transition) && GlobalQueue._syncCompanions !== null)
+        // auto-revert/re-derive at commit. Not gated on an active transition:
+        // a plain flush can still become a hold after this recompute — an
+        // async memo downstream pends and the batch is adopted into a
+        // transaction (scheduler.enterTransition) — and nothing re-derives
+        // the companion at adoption, so a memo held that way read
+        // isPending() false while its held source read true (#3413).
+        if (el._config & CONFIG_HAS_COMPANIONS && GlobalQueue._syncCompanions !== null)
           GlobalQueue._syncCompanions(el, value);
       }
 
@@ -678,10 +682,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   if (held) el._config |= CONFIG_HELD_CHILDREN;
   else el._config &= ~CONFIG_HELD_CHILDREN;
-  el._transition &&
-    isEffect &&
-    activeTransition !== el._transition &&
+  if (el._transition && isEffect && activeTransition !== el._transition) {
+    // The re-run refreshes the transaction's STAGED view (_pendingValue); the
+    // value this pass published in _value belongs to the run that just
+    // finished. Keep that ownership, or the effect phase parks a
+    // mainline-computed value with the transaction (#3412).
+    const owner = (el as any)._valueTransition;
     runInTransition(el._transition, () => recompute(el));
+    (el as any)._valueTransition = owner;
+  }
   // Missed-wake reschedule (see the finally above): values this pass read
   // before the nested commit are stale, so run again now that the heap will
   // accept the node. Equality gates stop same-value landings from cascading,

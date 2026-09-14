@@ -92,7 +92,6 @@ describe("error sanitization passes thrown Responses through (production bundle)
         method: "POST",
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           "content-type": "application/json",
           "X-Server-Function-Format": "1"
         },

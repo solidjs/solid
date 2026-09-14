@@ -56,8 +56,7 @@ function post(id: string) {
     headers: {
       "Sec-Fetch-Site": "same-origin",
       "content-type": "application/json",
-      "X-Server-Function-Format": "8",
-      "X-Server-Function-Instance": "server-function:test"
+      "X-Server-Function-Format": "8"
     }
   });
 }

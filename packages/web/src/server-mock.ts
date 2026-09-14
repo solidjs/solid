@@ -338,9 +338,10 @@ export function ssr(template: string[] | string, ...nodes: any[]): { t: string }
  */
 export function ssrElement(
   name: string,
-  props: any,
+  props: any | any[] | (() => any | any[]),
   children: any,
-  needsId: boolean
+  needsId: boolean,
+  skip?: (key: string) => boolean
 ): { t: string } {}
 /**
  * Compiler primitive — serializes a class value (string, object map, or

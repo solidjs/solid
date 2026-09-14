@@ -14,8 +14,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference,
+  GET as serverGET
 } from "@solidjs/web/server-functions/server";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 import { createRequestEvent } from "@solidjs/web";
@@ -37,8 +40,7 @@ function scriptedPost(id: string) {
     body: "[]",
     headers: {
       "Sec-Fetch-Site": "same-origin",
-      "X-Server-Function-Format": "8",
-      "X-Server-Function-Instance": "server-function:test"
+      "X-Server-Function-Format": "8"
     }
   });
 }
@@ -153,7 +155,6 @@ describe("a result the codec cannot encode", () => {
         body: chunk,
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           [BODY_FORMAT_HEADER]: "0"
         }
       })
@@ -362,8 +363,7 @@ describe("a streamed result nobody is reading", () => {
       signal: controller.signal,
       headers: {
         "Sec-Fetch-Site": "same-origin",
-        "X-Server-Function-Format": "8",
-        "X-Server-Function-Instance": "server-function:test"
+        "X-Server-Function-Format": "8"
       }
     });
     const response = await handleServerFunctionRequest(request);
@@ -517,8 +517,7 @@ describe("refusals after createEvent carry the response stub (#3159)", () => {
   };
   const H = {
     "Sec-Fetch-Site": "same-origin",
-    "X-Server-Function-Format": "8",
-    "X-Server-Function-Instance": "server-function:test"
+    "X-Server-Function-Format": "8"
   };
 
   test("the 200 control carries the cookie", async () => {
@@ -670,7 +669,6 @@ describe("the decode depth cap", () => {
         body: JSON.stringify([root]),
         headers: {
           "Sec-Fetch-Site": "same-origin",
-          "X-Server-Function-Instance": "server-function:test",
           [BODY_FORMAT_HEADER]: "8"
         }
       })
@@ -824,8 +822,7 @@ describe("channels behind a getter or as a Map key (#3176)", () => {
 
 describe("decoded arguments carry no own __proto__ key (#3168)", () => {
   const H = {
-    "Sec-Fetch-Site": "same-origin",
-    "X-Server-Function-Instance": "server-function:test"
+    "Sec-Fetch-Site": "same-origin"
   };
   // JSON.parse is the only honest way to build the hostile shape: a literal
   // `{ __proto__: ... }` in source SETS the prototype instead of creating
@@ -919,7 +916,7 @@ describe("decoded arguments carry no own __proto__ key (#3168)", () => {
 describe("prepareRequest's return is validated (#3174)", () => {
   const clientModule = () => import("@solidjs/web/server-functions/client");
 
-  test("a hook returning a fresh object drops the protocol headers and is refused at the call site", async () => {
+  test("a hook returning a fresh object drops the payload and method and is refused at the call site", async () => {
     let ran = 0;
     registerServerFunction("prepare-fresh", async (word: string) => {
       ran++;
@@ -927,7 +924,7 @@ describe("prepareRequest's return is validated (#3174)", () => {
     });
     const { configureServerFunctionsClient } = await clientModule();
     // the natural way to write "add an auth header" — and the shape that
-    // silently discarded the payload, the signal and the protocol headers
+    // silently discarded the payload, the signal and the method
     configureServerFunctionsClient({
       prepareRequest: () => ({ headers: { Authorization: "Bearer token" } }) as RequestInit
     });
@@ -942,6 +939,44 @@ describe("prepareRequest's return is validated (#3174)", () => {
     }
     // refused on the client, before dispatch: the mangled request never ran
     expect(ran).toBe(0);
+  });
+
+  test("a fresh object is refused on a GET call too (#3406)", async () => {
+    // The method the transport set is the tell on every call shape — a
+    // GET-encoded read has no body and no header of its own (the url is the
+    // whole call, so a preload can match it), and a fresh `{ headers }` has
+    // no method either.
+    let ran = 0;
+    serverGET(
+      createServerSideReference(
+        registerServerReference("prepare-fresh-get", async (word: string) => {
+          ran++;
+          return word;
+        })
+      )
+    );
+    const { GET, configureServerFunctionsClient } = await clientModule();
+    configureServerFunctionsClient({
+      prepareRequest: () => ({ headers: { Authorization: "Bearer token" } }) as RequestInit
+    });
+    const restore = connectBufferedTransport();
+    try {
+      await expect(GET(createServerReference("prepare-fresh-get"))("payload")).rejects.toThrow(
+        /prepareRequest/
+      );
+      // spreading keeps the method — and the hook's header reaches the server
+      configureServerFunctionsClient({
+        prepareRequest: init => ({
+          ...init,
+          headers: { ...(init.headers as Record<string, string>), Authorization: "Bearer g" }
+        })
+      });
+      expect(await GET(createServerReference("prepare-fresh-get"))("payload")).toBe("payload");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+    expect(ran).toBe(1);
   });
 
   test("a hook returning a non-object is refused naming the hook, not an opaque fetch error", async () => {
@@ -1072,8 +1107,7 @@ describe("provideEvent's invocation contract is enforced (#3172)", () => {
 
 describe("the rc.5 guard batch (#3169, #3170, #3171)", () => {
   const H = {
-    "X-Server-Function-Format": "8",
-    "X-Server-Function-Instance": "server-function:test"
+    "X-Server-Function-Format": "8"
   };
 
   // #3169: the CSRF origin matcher's verdict is a security gate, so only a
