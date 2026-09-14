@@ -156,6 +156,12 @@ treatment of `&` bindings. Report upstream to `@tsrx/solid`.
 …>`), not `@tsrx/solid`'s hoisted `dynamic()` factory — semantically
   equivalent (web's `Dynamic` wraps `dynamic()`), uniform with the other
   builtIn lowerings, and simpler to mirror byte-for-byte in Rust.
+  **Follow-up:** `<Dynamic>` is deprecated in 2.0 (kept, no removal planned;
+  its props-bag shape costs a `merge` + `omit` + unhoisted factory memo per
+  instance). This lowering should retarget to
+  `createComponent(dynamic(() => expr), props)` in both compilers, with
+  fixtures regenerated, so compiled output does not depend on a deprecated
+  API; a `<{expr}>` tag is the one place a compiler emits the wrapper.
 
 ### Stage 3 architecture and direct-AST migration
 

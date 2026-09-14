@@ -60,7 +60,7 @@ This is primarily intended for use with **stores**, where the data at each index
 ```jsx
 // Store-backed list: index is stable, store handles granular updates
 <Repeat count={store.items.length}>
-  {(i) => <Row name={store.items[i].name} status={store.items[i].status} />}
+  {i => <Row name={store.items[i].name} status={store.items[i].status} />}
 </Repeat>
 ```
 
@@ -143,7 +143,7 @@ The reset function is an action: pass it to event handlers or other imperative c
 </Errored>
 ```
 
-### Dynamic components: `dynamic` factory and `<Dynamic>`
+### Dynamic components: the `dynamic` factory
 
 Solid 2.0 reshapes `createDynamic` into a `lazy`-style factory named `dynamic`. Given a source that produces a component (or native tag name), `dynamic` returns a **stable `Component<P>`** whose identity is driven reactively. The returned value is usable anywhere a component is — children, refs, and reactive props flow through the normal JSX path.
 
@@ -151,19 +151,26 @@ Solid 2.0 reshapes `createDynamic` into a `lazy`-style factory named `dynamic`. 
 import { dynamic } from "@solidjs/web";
 
 // Reactive swap between two components
-const Active = dynamic(() => isEditing() ? Editor : Viewer);
+const Active = dynamic(() => (isEditing() ? Editor : Viewer));
 return <Active value={value()} />;
 
 // Native tag swap
-const Tag = dynamic(() => multiline() ? "textarea" : "input");
+const Tag = dynamic(() => (multiline() ? "textarea" : "input"));
 return <Tag value={value()} />;
 ```
 
-The `<Dynamic component={...}>` JSX wrapper from 1.x still exists and is unchanged at the call site; it is now a thin delegate over `dynamic`:
+The `<Dynamic component={...}>` JSX wrapper from 1.x is **deprecated** in favor of the factory. It remains available in 2.0 (no runtime warning), but new code should not use it. It is the same primitive, but its shape puts the tag in the same props bag as the element's own props: every instance merges `component` in at the call site (`merge({ component }, rest)`), `omit`s it back out inside, and builds a fresh `dynamic()` factory — with its memo — because a JSX wrapper has nowhere to hoist one. Libraries most sensitive to props plumbing (polymorphic `as` components) end up omitting `as`, handing the tag to `<Dynamic>`, which merges it back in under `component` so it can omit it again. `dynamic()` has none of that for one extra line:
 
 ```jsx
-<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
+// before
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />;
+
+// after — hoist per component instance, or per module for a constant tag
+const Active = dynamic(() => (isEditing() ? Editor : Viewer));
+return <Active value={value()} />;
 ```
+
+Inside a `<For>` callback or other render function, the callback body is the place to hoist. The factory form also makes the lifetime explicit — where the memo lives, and that `source` is a function — which is what `<Dynamic component={comp}>` with an uncalled signal accessor silently gets wrong.
 
 #### Async sources and `Loading`
 
@@ -237,7 +244,7 @@ A nested `<Reveal>` acts as a single composite slot to its parent: the parent's 
 
 This rule is absolute. There is no opt-out: wrapping children in an extra `<Loading>` does not let them escape an outer hold, because the `<Loading>` is itself just another slot that the parent holds. If you need a subtree to reveal independently of an outer group, do not nest it under that group.
 
-Group *membership* is direct-children-only: every boundary (`<Loading>` or `<Errored>`) severs reveal coordination for its subtree. A `<Loading>` nested inside another slot's content — or wrapped in an `<Errored>` — does not join the group and never delays its release; it is covered by its own fallback inside the (possibly held) slot and settles on its own schedule. While the enclosing slot is still held, any content the severed boundary streams is queued and applied the moment the slot goes live.
+Group _membership_ is direct-children-only: every boundary (`<Loading>` or `<Errored>`) severs reveal coordination for its subtree. A `<Loading>` nested inside another slot's content — or wrapped in an `<Errored>` — does not join the group and never delays its release; it is covered by its own fallback inside the (possibly held) slot and settles on its own schedule. While the enclosing slot is still held, any content the severed boundary streams is queued and applied the moment the slot goes live.
 
 ##### Minimally ready
 
@@ -253,29 +260,39 @@ For a leaf `<Loading>`, "minimally ready" and "fully ready" are the same thing: 
 
 ##### Nesting matrix
 
-| Outer `order` | Inner `order` | Outer release condition | After outer releases, inner siblings behave as |
-|---|---|---|---|
-| `sequential` | `sequential` | Outer frontier reaches the inner slot. | Inner reveals in registration order; outer frontier waits for the inner group to finish before advancing past it. |
-| `sequential` | `together` | Outer frontier reaches the inner slot. | Inner reveals atomically once every inner child is ready. |
-| `sequential` | `natural` | Outer frontier reaches the inner slot. | Inner reveals per-slot: each leaf on resolve, while each grandchild composite runs its own order locally. |
-| `together` | `sequential` | Every direct child of the outer `together` is minimally ready; that means the inner's frontier-0 has resolved. | Inner reveals its frontier-0 immediately with the group release, then continues its own sequential order for the tail. |
-| `together` | `together` | Every direct child of the outer is minimally ready; that means the inner `together` has all its own children ready. | Inner reveals atomically as part of the same group release. |
-| `together` | `natural` | Every direct child of the outer is minimally ready; that means at least one inner child is ready. | Already-resolved inner children flush with the group release; later inner resolutions stream independently under natural. |
-| `natural` | `sequential` | Immediately; outer `natural` does not hold the inner composite. | Inner reveals in registration order. |
-| `natural` | `together` | Immediately; outer `natural` does not hold the inner composite. | Inner reveals atomically once every direct child is minimally ready. |
-| `natural` | `natural` | Immediately; outer `natural` does not hold the inner composite. | Inner children reveal independently. |
+| Outer `order` | Inner `order` | Outer release condition                                                                                             | After outer releases, inner siblings behave as                                                                            |
+| ------------- | ------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `sequential`  | `sequential`  | Outer frontier reaches the inner slot.                                                                              | Inner reveals in registration order; outer frontier waits for the inner group to finish before advancing past it.         |
+| `sequential`  | `together`    | Outer frontier reaches the inner slot.                                                                              | Inner reveals atomically once every inner child is ready.                                                                 |
+| `sequential`  | `natural`     | Outer frontier reaches the inner slot.                                                                              | Inner reveals per-slot: each leaf on resolve, while each grandchild composite runs its own order locally.                 |
+| `together`    | `sequential`  | Every direct child of the outer `together` is minimally ready; that means the inner's frontier-0 has resolved.      | Inner reveals its frontier-0 immediately with the group release, then continues its own sequential order for the tail.    |
+| `together`    | `together`    | Every direct child of the outer is minimally ready; that means the inner `together` has all its own children ready. | Inner reveals atomically as part of the same group release.                                                               |
+| `together`    | `natural`     | Every direct child of the outer is minimally ready; that means at least one inner child is ready.                   | Already-resolved inner children flush with the group release; later inner resolutions stream independently under natural. |
+| `natural`     | `sequential`  | Immediately; outer `natural` does not hold the inner composite.                                                     | Inner reveals in registration order.                                                                                      |
+| `natural`     | `together`    | Immediately; outer `natural` does not hold the inner composite.                                                     | Inner reveals atomically once every direct child is minimally ready.                                                      |
+| `natural`     | `natural`     | Immediately; outer `natural` does not hold the inner composite.                                                     | Inner children reveal independently.                                                                                      |
 
 `order="natural"` is primarily useful when you have a group whose children don't need to coordinate with each other. Nesting a natural group under an outer ordering lets the natural group participate as one unit in the outer order while each child reveals on its own data once the outer releases the slot.
 
 ```jsx
 <Reveal>
-  <Loading fallback={<Skeleton />}><Header /></Loading>
+  <Loading fallback={<Skeleton />}>
+    <Header />
+  </Loading>
   <Reveal order="natural">
-    <Loading fallback={<CardSkel />}><Card id={1} /></Loading>
-    <Loading fallback={<CardSkel />}><Card id={2} /></Loading>
-    <Loading fallback={<CardSkel />}><Card id={3} /></Loading>
+    <Loading fallback={<CardSkel />}>
+      <Card id={1} />
+    </Loading>
+    <Loading fallback={<CardSkel />}>
+      <Card id={2} />
+    </Loading>
+    <Loading fallback={<CardSkel />}>
+      <Card id={3} />
+    </Loading>
   </Reveal>
-  <Loading fallback={<Skeleton />}><Footer /></Loading>
+  <Loading fallback={<Skeleton />}>
+    <Footer />
+  </Loading>
 </Reveal>
 ```
 
@@ -360,23 +377,31 @@ const Active = dynamic(() => current());
 return <Active value={value()} />;
 
 // 2.0 — manual composition, if you really want a one-shot call
-createComponent(dynamic(() => current()), { value: value() });
+createComponent(
+  dynamic(() => current()),
+  { value: value() }
+);
 ```
 
-The `<Dynamic component={...}>` JSX wrapper is unchanged at the call site; most users don't need to touch anything.
+The `<Dynamic component={...}>` JSX wrapper is deprecated (see above); replace it with a hoisted `dynamic()` factory.
 
 ## Removals
 
-| Removed | Replacement |
-|--------|-------------|
-| `Index` | `For keyed={false}` |
-| `Suspense` | `Loading` |
-| `SuspenseList` | `Reveal` |
-| `ErrorBoundary` | `Errored` |
-| `createDynamic(source, props)` | `dynamic(source)` factory (`<Dynamic>` unchanged) |
+| Removed                        | Replacement               |
+| ------------------------------ | ------------------------- |
+| `Index`                        | `For keyed={false}`       |
+| `Suspense`                     | `Loading`                 |
+| `SuspenseList`                 | `Reveal`                  |
+| `ErrorBoundary`                | `Errored`                 |
+| `createDynamic(source, props)` | `dynamic(source)` factory |
+
+## Deprecated (kept in 2.0)
+
+| Deprecated            | Replacement               |
+| --------------------- | ------------------------- |
+| `<Dynamic component>` | `dynamic(source)` factory |
 
 ## Alternatives considered
 
 - Keeping both `For` and `Index`: rejected in favor of one API with explicit keying.
 - Adding a separate “range” mode to `For`: rejected in favor of a dedicated `Repeat` that makes “no diffing” obvious.
-

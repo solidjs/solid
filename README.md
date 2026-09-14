@@ -120,17 +120,17 @@ The cheatsheet ships inside the `solid-js` npm package, so it's also reachable a
 
 This is a PNPM workspaces monorepo. The packages here are versioned together as `2.0.0-rc.x`:
 
-| Package              | Path                          | Purpose                                                               |
-| -------------------- | ----------------------------- | --------------------------------------------------------------------- |
-| `solid-js`           | `packages/solid`              | Core runtime — components, flow controls, context, hydration.         |
-| `@solidjs/signals`   | `packages/signals`      | Reactive primitives — signals, memos, effects, stores.                |
-| `@solidjs/web`       | `packages/web`          | Web platform runtime — `render`, `hydrate`, SSR, `Portal`, `Dynamic`. |
-| `@solidjs/h`         | `packages/h`            | Hyperscript / JSX factory.                                            |
-| `@solidjs/html`      | `packages/html`         | Build-less tagged template literals.                                  |
-| `@solidjs/universal` | `packages/universal`    | Universal runtime for custom renderers.                               |
-| `@solidjs/element`   | `packages/element`      | Web Components wrapper.                                               |
-| `@solidjs/compiler`  | `packages/compiler`     | Native Oxc JSX compiler.                                              |
-| `@solidjs/babel-plugin` | `packages/babel-plugin` | Babel plugin for JSX compilation.                                |
+| Package                 | Path                    | Purpose                                                               |
+| ----------------------- | ----------------------- | --------------------------------------------------------------------- |
+| `solid-js`              | `packages/solid`        | Core runtime — components, flow controls, context, hydration.         |
+| `@solidjs/signals`      | `packages/signals`      | Reactive primitives — signals, memos, effects, stores.                |
+| `@solidjs/web`          | `packages/web`          | Web platform runtime — `render`, `hydrate`, SSR, `Portal`, `dynamic`. |
+| `@solidjs/h`            | `packages/h`            | Hyperscript / JSX factory.                                            |
+| `@solidjs/html`         | `packages/html`         | Build-less tagged template literals.                                  |
+| `@solidjs/universal`    | `packages/universal`    | Universal runtime for custom renderers.                               |
+| `@solidjs/element`      | `packages/element`      | Web Components wrapper.                                               |
+| `@solidjs/compiler`     | `packages/compiler`     | Native Oxc JSX compiler.                                              |
+| `@solidjs/babel-plugin` | `packages/babel-plugin` | Babel plugin for JSX compilation.                                     |
 
 Runtime DOM operations live in `@solidjs/web` (and `@solidjs/universal` / `@solidjs/h` / `@solidjs/html`).
 
