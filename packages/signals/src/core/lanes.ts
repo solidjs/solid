@@ -178,14 +178,12 @@ export function assignOrMergeLane(
   const sourceRoot = findLane(sourceLane);
   const existing = el._x?._optimisticLane;
   if (existing) {
-    // If the subscriber's lane was merged into another lane, it's stale —
-    // replace it with the new source lane instead of following the merge chain
-    // (which would incorrectly merge the new lane into the old group)
-    if (existing._mergedInto) {
-      ext(el)._optimisticLane = sourceLane;
-      (el as any)._config |= CONFIG_HAS_LANE;
-      return;
-    }
+    // A merged lane is followed to its root like any other: the root is where
+    // the subscriber's affinity lives now. Replacing it with the source lane
+    // outright (as this once did) skipped the parent/child check below — an
+    // isPending reader of two async siblings had their two companion lanes
+    // merge, and the next parent-lane notification then moved it onto the
+    // held parent, where its verdict waited on the async it reports (#3409).
     const existingRoot = findLane(existing);
     if (activeLanes.has(existingRoot)) {
       if (existingRoot !== sourceRoot && !hasActiveOverride(el)) {

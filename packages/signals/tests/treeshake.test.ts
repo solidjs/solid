@@ -258,6 +258,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // transaction-owned node's committed children previously died on the
     // spot — and a contested effect's mainline pass releases its zombies
     // itself. +102 B (22,969 → 23,071).
+    // Settle verdicts (#3409, #3411): `assignOrMergeLane` follows a merged
+    // lane to its root like any other (the stale-lane shortcut that skipped
+    // the parent/child check is gone), -33 B (23,091 → 23,058); the
+    // unowned `onSettled` fire's heap-drain wait shakes out with onSettled.
     expect(minifiedBytes).toBeLessThan(23_150);
   });
 
