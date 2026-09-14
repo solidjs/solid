@@ -1,7 +1,6 @@
 import { createTextNode as _$createTextNode } from "r-custom";
 import { effect as _$effect } from "r-custom";
 import { createComponent as _$createComponent } from "r-custom";
-import { mergeProps as _$mergeProps } from "r-custom";
 import { spread as _$spread } from "r-custom";
 import { insert as _$insert } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
@@ -72,13 +71,13 @@ _$ref(() => {
 }, _el$8);
 const refValue = _el$8;
 var _el$10 = _$createElement("div");
-_$spread(_el$10, _$mergeProps(props, { get data() {
+_$spread(_el$10, [props, { get data() {
 	var _el$15 = _$createElement("span");
 	_$insert(_el$15, () => {
 		return state.value;
 	});
 	return _el$15;
-} }), false);
+} }], false);
 const spreadValue = _el$10;
 var _el$11 = _$createElement("div");
 _$insert(_el$11, _$createComponent(Comp, { get fallback() {

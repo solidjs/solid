@@ -1,7 +1,6 @@
 import { insert as _$insert } from "r-custom";
 import { createComponent as _$createComponent } from "r-custom";
 import { spread as _$spread } from "r-custom";
-import { mergeProps as _$mergeProps } from "r-custom";
 import { ref as _$ref } from "r-custom";
 import { setProp as _$setProp } from "r-custom";
 import { effect as _$effect } from "r-custom";
@@ -87,13 +86,16 @@ const refValue = _el$9;
 var _el$0 = _$createElement("div");
 _$spread(
   _el$0,
-  _$mergeProps(props, {
-    get data() {
-      var _el$19 = _$createElement("span");
-      _$insert(_el$19, () => state.value);
-      return _el$19;
+  [
+    props,
+    {
+      get data() {
+        var _el$19 = _$createElement("span");
+        _$insert(_el$19, () => state.value);
+        return _el$19;
+      }
     }
-  }),
+  ],
   false
 );
 const spreadValue = _el$0;

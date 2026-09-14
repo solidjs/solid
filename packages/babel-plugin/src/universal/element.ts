@@ -399,7 +399,6 @@ function processSpreads(
   const filteredAttributes: JSXAttributePath[] = [];
   const spreadArgs: t.Expression[] = [];
   let runningObject: Array<t.ObjectProperty | t.ObjectMethod> = [];
-  let dynamicSpread = false;
   let firstSpread = false;
   attributes.forEach(attribute => {
     const node = attribute.node;
@@ -417,7 +416,7 @@ function processSpreads(
       spreadArgs.push(
         isDynamic(attribute.get("argument"), {
           checkMember: true
-        }) && (dynamicSpread = true)
+        })
           ? t.isCallExpression(node.argument) &&
             !node.argument.arguments.length &&
             !t.isCallExpression(node.argument.callee) &&
@@ -475,10 +474,13 @@ function processSpreads(
     spreadArgs.push(t.objectExpression(runningObject));
   }
 
-  const props =
-    spreadArgs.length === 1 && !dynamicSpread
-      ? spreadArgs[0]
-      : t.callExpression(registerImportMethod(path, "mergeProps"), spreadArgs);
+  // A lone spread — reactive included — passes straight through: the
+  // renderer's spread() resolves a function source inside its own tracking
+  // scopes. Several sources go as an ARRAY, not a mergeProps() call: spread()
+  // reads the sources directly (later wins per key, only the winner read)
+  // with no merge proxy to build and walk, and a reactive source is called
+  // inline with no memo. Same contract as the dom generate.
+  const props = spreadArgs.length === 1 ? spreadArgs[0] : t.arrayExpression(spreadArgs);
 
   return [
     filteredAttributes,
