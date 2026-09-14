@@ -14,7 +14,7 @@ import {
 // An error that escapes every boundary permanently halts the reactive system
 // (#2761/#2762): app state is undefined after an uncaught error, so instead of
 // limping along with half-applied updates the scheduler stops accepting work.
-describe("uncaught effect errors halt the reactive system", () => {
+describe("uncaught effect errors halt the reactive system (A5)", () => {
   afterEach(() => {
     resetErrorHalt();
     vi.restoreAllMocks();

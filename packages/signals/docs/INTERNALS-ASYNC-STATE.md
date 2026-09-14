@@ -1,5 +1,7 @@
 # Async/Transition/Lane State Model — Working Notes
 
+> **Index:** every rule ID cited from `src/` or `tests/` — this file's A/B/C/V ids, the INV/RUL/R/§ vocabularies of the internals and rules-mining docs — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
+
 Living document for the pending/transition/optimistic-lane machinery in
 `src/core/`. Captures the state model, the invariants we believe hold (with
 confidence levels), and the assumptions/decisions made while reviewing. The
@@ -164,6 +166,17 @@ Confidence: **high** = implementation self-consistency, assert now.
 - **INV-7 (medium)** `_pendingValue !== NOT_PENDING` on a non-optimistic node
   implies the node is queued (`_pendingNode`/`_pendingNodes`) or held by a
   transition — a pending value with no committer is a leak (the #2827 class).
+- **INV-8 (RETIRED 2026-07-07b, §5e)** Hold-provenance: a `_pendingValue` on an
+  optimistic node was tracked as either a *revert target* (the pre-override
+  value stashed for the revert) or a *held authoritative value*, and the
+  invariant asserted a resting node never carried a revert target. That
+  provenance proved a held value on a resting node is always a refetch /
+  transition hold — pending like a plain memo (V1, §5d) — and then the A18
+  re-rule eliminated revert targets altogether (§5e), leaving `_pendingValue`
+  one meaning and nothing to distinguish. The tracker was deleted with them.
+  The ID stays: `invariants.ts` and §5d/§5e/§7 cite it for the proof it gave.
+  Its lane-scoped successor ("live lane members are only released by their own
+  lane's resolution", C2) is queued, not asserted.
 - **INV-9 (high)** An `isPending` companion of a DISPOSED owner reads `false`
   at quiescence — a stale `true` outliving its source would hold a spinner
   forever (the #2845 disposal edge). Enforced by the disposal guard in
@@ -195,438 +208,16 @@ Rejected for assertion (state space too dynamic, would need semantic rulings):
 whether `_optimisticLane` must always resolve to a live lane (stale lanes are
 legal and lazily cleared by `resolveLane`).
 
-## 5a. Findings from the first assertion run (2026-07-06)
+### Dated findings — where they went
 
-Enabling the assertions against the existing green suite immediately produced
-two findings — one real defect, one wrong assumption of mine:
+The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) are kept verbatim under **History — dated findings** at the end of this file, with their numbers (other docs cite them). What still governs the current model:
 
-- **INV-5 fired 20× — real defect (fixed).** `mergeLanes` _copied_ the merged
-  lane's `_pendingAsync` and effect queues into the root but never cleared the
-  originals. All routing goes through `findLane()` after a merge, so the stale
-  copies were dead weight (retained node references — a leak) and made
-  "merged lane is empty" unverifiable. Fixed: merge now moves instead of
-  copies. This is the only production behavior change from the assertion work.
-- **INV-4 as first formulated fired 83× — my assumption was wrong.** I asserted
-  that at quiescence a companion `_pendingSignal` must equal a fresh
-  `computePendingState(owner)`. False positive: in pure-signals graphs (no
-  render effects) transitions complete immediately, so async can still be in
-  flight _after_ the transition is gone; `computePendingState` then reports
-  `true` while the companion (correctly, per lane semantics) still reads
-  `false`. The invariant is now scoped to _fully settled_ owners (no pending
-  status, no held value, no override). What the companion should read in that
-  in-between window is a **semantic** question, not a consistency one — see §6.
-
-## 5b. Findings from the second assertion pass (2026-07-06, INV-2 + window probes)
-
-- **INV-2 implemented and green.** Active override ⇒ `_pendingValue` revert
-  target + registration in a `_optimisticNodes` list, checked at the end of
-  every flush. Verified the assertion actually fires via a mutation test
-  (deregistering a live override throws INV-2).
-- **Blocked-merged window probes** (optimistic node entangled with a second
-  async source through a shared reader; own fetch resolved, transition still
-  blocked) surfaced two ruled-spec violations (V1: A13 — resting optimistic
-  `isPending` false where the plain control is true; V2: A7/A13 — `latest()`
-  read-order dependence / `[false, undefined]`) and one new open question
-  (C4: ambient reads of an active override see the committed value when
-  entangled, the override when not). See SPEC-ASYNC-SEMANTICS.md "Known
-  violations" (all fixed 2026-07-07; pinned in
-  `tests/spec-async-semantics.test.ts`, "V1–V5" describe).
-- **C4 root cause (ruled + fixed same day).** The entangled divergence was a
-  premature revert, not a read-path issue: on the first flush after the write,
-  `transitionComplete`'s reporter loop found no live blockers (the shared
-  reader's dep is the _joined_ memo, whose dep walk doesn't reach the sources,
-  and it never re-notified because the lane served it the override), and the
-  optimistic-node backstop loop excluded nodes pending on **their own** fetch
-  (`_error.source !== node`, from 128f5e59). The transition completed and
-  `resolveOptimisticNodes` dropped the override one tick after the tracked
-  reader saw it. Fix: remove the self-source exclusion — a transition holding
-  an optimistic node with an active override and _any_ in-flight async
-  (its own fetch included) is not complete. Ruled as A17.
-
-## 5c. Companion-vs-oracle census (2026-07-07, #2838 pre-work)
-
-A non-asserting diff logger (`devCensusCompanions`, enabled via the
-`COMPANION_CENSUS` env var) compared every live companion against a fresh
-oracle at the end of every flush across the whole suite. Nine distinct
-divergence fingerprints; the taxonomy:
-
-**Pending companions (6 fingerprints, ~most-hit first):**
-
-| owner state at flush end                       | companion | oracle |
-| ---------------------------------------------- | --------- | ------ |
-| plain node, own async in flight (`sp=1`)       | false     | true   |
-| ACTIVE override, revert target held            | false     | true   |
-| plain node, transition-held `_pendingValue`    | false     | true   |
-| store leaf (uninit) behind refetching firewall | false     | true   |
-| resting optimistic, refetch in flight          | false     | true   |
-| active override + own fetch in flight          | false     | true   |
-
-**Latest shadows (3 fingerprints, all on settled-or-override owners):**
-
-- shadow holds a stale previous value while the owner is fully settled;
-- shadow reads `undefined` while the owner has a committed value (the V2
-  `[false, undefined]` family);
-- shadow reads `undefined` while an override is ACTIVE (A17 violation via
-  `latest()`: the shadow never mirrored the override).
-
-**The headline finding: every pending divergence is one-directional.**
-Companions only ever _under-report_ (`false` when the oracle says `true`) —
-no fingerprint showed a companion stuck `true` against a `false` oracle at a
-flush boundary (the V4 stuck-true case exists but arises past settle, caught
-by INV-4). The probe-driven design misses _activations_: nothing refreshes a
-companion when (1) status flags change (async starts), (2) an override is
-written, (3) a `_pendingValue` hold is written. Shadows additionally
-initialize to `undefined` and never mirror overrides.
-
-**Redesign requirement derived from the census:** the write-driven companion
-must be updated at exactly four transition points — status-flag transitions
-(notifyStatus/clearStatus), override set/clear, pendingValue hold/commit,
-and (for shadows) initialization from the committed value + override
-mirroring. Those four cover all nine fingerprints plus V1–V4.
-
-## 5d. The redesign as landed (2026-07-07, closes #2838's core)
-
-Companions stayed lazy and probe-created; what changed is that every oracle
-input now flows through to them, and settlement re-derives them:
-
-1. **Oracle simplification (V1).** The #2799 resting-optimistic carve-out in
-   `computePendingState` was removed. INV-8 provenance proved a resting node
-   can never hold a revert target (revert targets only coexist with an ACTIVE
-   override; the revert commits the value), so a held value on a resting node
-   is always a refetch/transition hold — pending, like a plain memo.
-2. **Missing write path (V1/V2).** `asyncWrite`'s resting-hold branch now
-   calls `syncCompanions` like every other write: the arriving value updates
-   the verdict and is pushed into the `latest()` shadow (no more read-order
-   freeze).
-3. **Settlement checkpoint (V3).** `snapCompanionsToState(owner)`: called
-   from `commitPendingNode` and `resolveOptimisticNodes` (second pass over
-   the settled batch — the batch is spliced, not cleared, because snaps can
-   push fresh optimistic nodes). It re-derives the companion from
-   `computePendingState` and writes the verdict COMMITTED (not via
-   `setSignal` — an override window opened at settlement would itself need a
-   settlement, re-scheduling forever while async is in flight). A companion
-   with an active override is skipped: its own revert re-enters the snap.
-   Shadows whose cached value diverged from committed state are invalidated
-   (dirty + heap + notify) so the next pull re-derives; coherent shadows are
-   left alone (dirtying them re-ran effects with half-settled state).
-   `_pendingSignal._parentSource` is now always the owner (was: only for
-   store-leaf chains) so the checkpoint can find the owner from a reverted
-   companion.
-4. **Status pokes flow to the whole companion tree (V3/V4).**
-   `updatePendingSignal(el)` recurses into `el._latestValueComputed` (the
-   shadow's verdict derives from the owner), and `notifyStatus`/`clearStatus`
-   on a firewall call `updateChildCompanions` — probed leaves re-derive when
-   the firewall's async starts/settles (no more stuck-true leaf companions).
-5. **A20 latest-form filter (V4).** ~~`computePendingState`'s `_parentSource`
-   branch strips broad firewall inheritance for optimistic-capable leaves
-   with no unconfirmed edit.~~ **Superseded by the mask model (§5f)** — the
-   filter belonged to the one-day "overrides are unsettled" A20 and was
-   replaced by the per-channel verdict + mask checks. The companion-poke
-   plumbing from this item (point 4 above) is what survives.
-
-Post-redesign census: **zero divergence fingerprints** across the suite
-(the census itself was refined to compare the companion's _visible_ value —
-override first, A17 — and to ignore one-flush holds already queued for
-commit, where the A10 pair rule makes the disagreement unobservable).
-Cost: +253 B gzip on `dist/prod.js` (+1.0%); core reactivity benchmarks
-unchanged within noise. C2's `insertSubs` blanket lane-clear on reversion
-remains queued (still unobservable; needs dead-lane plumbing).
-
-## 5e. Revert-target elimination (2026-07-07b — A18 re-rule)
-
-The `_pendingValue` slot used to mean three things: a plain write awaiting
-flush commit, a transition-held value awaiting transition commit, and the
-_revert target_ for an active override (refreshed from four write sites,
-committed by `resolveOptimisticNodes` at revert). The third meaning is gone.
-The invariant set is now:
-
-- **`_pendingValue` has one meaning: a pending commit.** Every held value
-  elevates to `_value` at its own transition's commit (or the plain flush
-  commit), through `queuePendingNode`/`commitPendingNode` — no exceptions.
-- **`_value` changes only at commit points.** Under an active override the
-  hold and its eventual commit are unobservable (A17: every reader gets the
-  override; the one raw-`_value` reader — the stashed-read exception — only
-  admits plain optimistic signals, which have no authoritative writer).
-- **Revert is a pure drop.** `resolveOptimisticNodes` clears the override,
-  compares it against `_value`, notifies on divergence — commits nothing.
-  Holds under an active override queue into their transition (`recompute`'s
-  queue gate allows override-active nodes through; `asyncWrite`'s override
-  branch collapsed into the resting branch), so nothing leaks (INV-7) and
-  nothing reveals before its transition completes.
-- Holds under an active override do **not** notify subscribers (`asyncWrite`
-  skips `insertSubs` under an active override): the visible value is
-  unchanged; the revert is the notification point.
-
-This fixed a real clobber bug (**V5**, pinned in the spec suite): the old
-first-override stash (`_pendingValue = _value`) overwrote a refetch value
-held on a resting node in the blocked-merged window, so the revert
-resurrected stale data. INV-2 no longer asserts a revert target; the INV-8
-hold-provenance tracker was deleted (one meaning — nothing to distinguish).
-
-An intermediate design ("silent commit": arrivals under an override write
-`_value` directly, elevation immediate) was implemented and discarded — it
-kept the old reveal-at-revert timing but gave `_value` a context-dependent
-meaning. The commit-point discipline (maintainer re-rule of A18) reveals
-corrections atomically with their own (possibly merged) transition;
-corrections still _propagate_ internally on arrival, so downstream refetches
-start immediately — the schedule only gates the reveal. (Verdict during the
-window: under the 2026-07-13 model a held _correction_ — differing from the
-displayed override — reads pending; a matching confirm stays quiet. The
-2026-07-07c mask read `false` throughout; §5g.)
-
-## 5f. The mask model (2026-07-07c — A20/A21 re-rule, #2844/#2728) — SUPERSEDED
-
-> **SUPERSEDED 2026-07-13 by the question-scoped pending model (§5g).** The
-> mask (`_optimisticMask`/`STORE_MASKED`/`maskStoreTarget`) is deleted;
-> optimistic writes no longer decree certainty. Kept for the reasoning
-> record — the _value_ lifecycle described here (A17/A18, holds, reveals)
-> survives unchanged; only the verdicts moved.
-
-The verdict oracle was rewritten around one rule: **an active override is
-certainty by decree, and `isPending` follows the channel the read observes.**
-`computePendingState` is now a short decision ladder:
-
-1. **Disposal guard** — `REACTIVE_DISPOSED` → `false` (INV-9; a dead source
-   can never settle).
-2. **Store-wide mask** — `(firewall || node)._optimisticMask` → `false`
-   (A21; the store is the primitive the decree covers).
-3. **Latest-shadow branch** (`_parentSource` set): the fresh channel.
-   Owner has an active override → `false` (the decree); owner's firewall
-   masked → `false`; otherwise pending iff the owner (or its firewall) has
-   `STATUS_PENDING` without `STATUS_UNINITIALIZED` — in-flight async only,
-   **no held-value checks**: the shadow already shows held values, so a hold
-   cannot supersede what it shows (A8: "false as soon as that async is done,
-   even if the same update has other async still running").
-4. **Own active override** → `false` (A20 node-scoped mask).
-5. **Held store leaf defers to its firewall** — while the firewall's own
-   work is in flight the firewall carries the verdict (probes collect both);
-   the leaf reports only holds the firewall does not explain (manual
-   projection writes; holds outliving a settled firewall). Prevents
-   duplicate leaf/firewall effect churn during projection loads.
-6. **Held value** (`_pendingValue`, initialized) → `true` (plain channel:
-   a pending commit supersedes the committed value — A19 causes i/iii).
-7. **Own async in flight** (initialized) → `true` (A19 cause ii).
-
-Supporting machinery:
-
-- **`maskStoreTarget(target, on)`** (store.ts): flips `STORE_MASKED` on the
-  store target and maintains the firewall's `_optimisticMask` counter;
-  on 0↔1 transitions pokes the firewall's companion and every probed leaf's
-  (`updatePendingSignal` + `updateChildCompanions`). Raised from
-  `prepareStoreWrite`/`deleteProperty` on the first optimistic write to a
-  target; lowered from `clearOptimisticStore`/`clearOptimisticOverride`
-  when the target's optimistic state fully clears. Plain stores without a
-  firewall never set the flag.
-- **Disposal snap** (owner.ts): `disposeChildren` calls
-  `snapCompanionsToState` on disposed owners that have companions, so a
-  latched `true` verdict reverts and notifies instead of outliving its
-  source (INV-9).
-- **INV-10** (invariants.ts): end-of-flush assertion of the mask, both arms
-  (active-override owners and store-wide-masked firewalls/leaves), using the
-  companion's _observable_ verdict (override first, A17).
-
-Dead machinery removed with the model (verified by suite + census):
-
-- `updatePendingSignal`'s late lane-merge block (merging a companion's
-  sub-lane into the source's lane when an override cleared) — with masked
-  verdicts there is no `true`→`false` edge at override-clear to coordinate;
-  `mergeLanes`/`signalLanes` imports left with it.
-- `read()`'s probe special-case that forced `pendingProbe.found = true` for
-  firewall/override hits — verdicts now come uniformly from
-  `computePendingState` over collected sources.
-
-Cost: net −27 B raw / +8 B gzip on minified `dist/prod.js`; core reactivity
-and store benchmarks flat within noise (best-of-3 isolated runs).
-
-## 5g. Question-scoped pending (2026-07-13 — supersedes the mask, #2844/#2728)
-
-The verdict was re-derived from one definition: **a read is pending iff a
-value change is in flight for it that has not yet revealed, or it carries a
-live `affects()` mark.** "In flight" is question-scoped: async whose tracked
-inputs are value-stable (refresh/poll/confirm — a _re-ask_ of the same
-question) is not a value change in flight — the shown answer still answers
-the question being asked. Three consequences replace the mask's one rule:
-
-1. **Same-question motion is silent.** A bare `refresh()` (or any re-ask with
-   no input value change) never pends. The fresh value reveals silently. This
-   absorbs the honest half of the rejected `background()` proposal without
-   erasing ground truth: a _new_ question (any tracked input changed value)
-   pends everything under the source until its answer reveals, and **nothing
-   can silence it** — pendingness is monotone, additive-only.
-2. **Optimistic writes are verdict-inert.** An active override neither reads
-   pending on its own slot (it IS the displayed value; only a held
-   authoritative _correction_ that differs from the override re-opens the
-   verdict — a matching confirm reveals nothing) nor masks anything else. The
-   store-wide mask (A21) and the node mask (A20-as-decree) are deleted: an
-   override displaying over an in-flight new question is an honest mixed
-   state — `{ value: guess, pending: true }`. To downstream async, an
-   optimistic write is a real input change (it launches real fetches that
-   pend their own slots).
-3. **`affects(target, key?)` is the sole declaration verb.** A mark is
-   additive pending on exactly the marked data (store record → every record
-   reachable from it at declaration time, by identity — captured child
-   proxies included, #2882; leaf key → that slot; accessor → that source)
-   **and on everything derived from it**: marks ride the same status rails
-   as real in-flight async (§ affects-on-rails below), so memos/effects over
-   marked data read pending like they would over a real pending source,
-   while the marked values themselves stay readable. Live from declaration
-   to its transaction's settle/revert (ambient marks release at flush end).
-   The declared reload idiom — `affects(x); refresh(x)` — is how process
-   intent ("this work will change x") enters the verdict when the graph
-   can't see it yet; the mark's own channel is never a re-ask, so the
-   refresh's quiet classification cannot silence the declared window.
-
-Verdict ladder (`computePendingState`): disposal guard → live
-`_affectsCount` → latest-shadow branch (owner's `_affectsCount`, then owner
-async in flight and non-quiet) → held-leaf firewall deferral (quiet firewall
-flight doesn't explain a held change) → held value (correction check under
-an override) → own async in flight and non-quiet. "Quiet" = every blocking
-pending source is a re-ask of its own unchanged question (`quietPending`,
-reading `_reask`).
-
-Supporting machinery:
-
-- **Re-ask classification.** `refresh()` sets `REACTIVE_REASK` unless the
-  node already carries value-change dirt (DIRTY/CHECK **or heap membership —
-  `insertSubs` schedules by heap insertion alone**); `insertSubs` clears the
-  flag on every value-change notification (a new question supersedes the
-  re-ask); `recompute` consumes it into `_reask` with a monotone guard (a
-  node already pending on an unanswered new question stays non-quiet);
-  `clearStatus` resets it on landing. When a reask classification changes
-  while pending, `repollDownstreamVerdicts` re-derives companions downstream.
-- **Affects on rails** (async.ts/scheduler.ts): a mark is a synthetic
-  in-flight change on the normal status rails, under its own **sentinel**
-  pending-source (`getAffectsSentinel`, one per marked node, branded with
-  `_affectsFor`). `registerAffectsMark` bumps `_affectsCount`, stages the
-  registration with the current transaction (ambient registrations are
-  adopted by `initTransition`, merged by `mergeTransitionState`, mirroring
-  `_optimisticNodes`), pokes the node's companions, and **propagates
-  `STATUS_PENDING` downstream** from the marked node via `notifyStatus` with
-  a `NotReadyError(sentinel)` — so downstream verdicts derive from the
-  ordinary `newQuestionInFlight` clause. The separate identity is what keeps
-  the channels from clearing each other: a landing on the marked node
-  settles only the node's OWN source entry (`settlePendingSource` is
-  source-parameterized); `quietPending` never reports quiet while a sentinel
-  is among the sources (its `_reask` is permanently false), so a declared
-  reload survives its refresh's quiet classification; and neither
-  `transitionComplete` check counts a sentinel-sourced pending as a blocker
-  (`_affectsFor` brand) — a mark releases AT settle, so self-blocking would
-  deadlock. The marked node itself never carries `STATUS_PENDING` (marks
-  are value-transparent at the source; its own verdict is the
-  `_affectsCount` clause), and **mark-only pending is value-transparent
-  through derivation too** (#2886): `read()` skips the suspension branch
-  when the owner's pending sources are all sentinels (`onlyMarkPending`,
-  gated by `activeAffectsMarks`), so a live tracked reader over mark-pended
-  derived nodes — a `mapArray` over a marked store — keeps rendering fresh
-  optimistic values instead of throwing. Computeds that recompute mid-window shed the
-  sentinel via `clearStatus` and re-acquire it through the read path:
-  `read()` records marked sources into the recompute's `affectsReads`
-  accumulator (gated by the global `activeAffectsMarks` counter; probe
-  reads excluded so an `isPending` wrapper memo doesn't mark itself), and
-  `recompute` applies them after its commit (`applyAffectsReads` — earlier
-  would route the fresh value into the error-skip branch). Re-acquisition
-  is **transitive** (#2893 bug 3): value-transparency removed real async's
-  re-throw-on-read (the mechanism that re-establishes a source at every
-  derivation level), so a tracked read of a mark-pended _owner_ also feeds
-  the reader's `affectsReads` — `collectMarkSources` maps the owner's
-  sentinel sources back to their still-live `_affectsFor` nodes. Without
-  this, pendingness died on the first mid-window recompute past depth one,
-  and the `isPending()` probe itself (whose prepare step recomputes
-  retryable NotReady holders) stripped the status it was reporting on.
-  Propagation is **transaction-inert** (#2893 bug 2): pended subscribers
-  are NOT queued as pending nodes — they hold no value needing a
-  transition-scheduled commit, and queueing stamped the marking action's
-  transaction onto them at stash, from which point ANY write dirtying one
-  (a plain write to the marked signal, or to an unmarked signal merely
-  sharing a downstream memo) was captured and frozen until the action
-  settled. Same rule at recompute: mark-only `STATUS_PENDING` doesn't
-  count toward `needsPendingCommit`. A **real error outranks a mark**
-  (#2893 bug 4): `notifyStatus` drops mark-sourced propagation onto nodes
-  holding `STATUS_ERROR`, and `recompute` skips `applyAffectsReads` when
-  the compute ended errored — landing the sentinel would clobber `_error`
-  with a `NotReadyError` that value-transparency promises can never
-  surface, with no arriving value to ever restore the user's error.
-  `releaseAffectsMark` decrements at the transaction's settle (or plain
-  flush end for ambient marks), settles the sentinel out of every
-  downstream `_pendingSources` (waking `_blocked` nodes), and snaps
-  companions through the settlement checkpoint (committed, not
-  transition-scoped — the settle walk snaps too, for the same reason).
-  (The settle walk is also why `addPendingSource`'s container migration
-  must check BOTH slots — #2893 bug 1: a third source landing in the
-  emptied singular slot next to the Set put `removePendingSource` into a
-  refusal state that stranded the Set's sentinels forever, `isPending`
-  stuck `true` — deterministically hit by a keyless store mark over
-  `mapArray`, whose internal computed subscribes to exactly three covered
-  nodes.)
-- **Store addressing** (store.ts): `affects(record)` upserts a per-record
-  `$AFFECTS` node (the mark's carrier — registry key and liveness anchor),
-  walks the record's subtree — reading through write overlays — registering
-  the mark on **every live node** in it (property leaves, `$TRACK`,
-  has-nodes: the edges existing readers subscribed through), and snapshots
-  the reachable raw identities into the mark's scope (`affectsScopes`,
-  released with the carrier's last registration). Nodes created during the
-  window inherit the mark at birth (`getNode` → `inheritAffectsMarks`, keyed
-  by the owning record's raw identity; inherited marks are released with the
-  carrier's entry), which is how captured child proxies (`<For>` rows,
-  #2882) and late tracked reads observe a mark their read path never
-  traverses. `affects(record, key)` marks the named leaf node (single key —
-  keys are not a path). Witnessing (`witnessAffectsMark`, pendingCheckActive
-  traps + the `snapshot`/`deep` walk in utils.ts) now only covers untracked
-  probes over records whose nodes never materialized: it adds the record's
-  own `$AFFECTS` carrier and any scope carrier containing the record's raw
-  to the probe. Tracked probes need none of this — they read real nodes,
-  which carry marks directly. The per-node companion channel (not a shared
-  version signal) is load-bearing for wake-ups: companions carry their own
-  optimistic lane, which is what lets a late registration's wake escape an
-  incomplete transition's effect stash.
-- **Probe rethrow scope** (core.ts `isPending`): only a truly UNINITIALIZED
-  source's NotReady rethrows out of the probe (loading participates in
-  readiness); an initialized source throwing NotReady during a quiet re-ask
-  window yields an honest `false` instead of poisoning the surrounding memo.
-- **INV-10** (invariants.ts): affects-count balance at quiescence (§5).
-
-The trade taken knowingly (the "silent unknowns" objection): a re-ask that
-_will_ return different data (server-side change, poll catching motion) is
-silent until the new value reveals — the system cannot know, and the model
-prefers honest silence over blanket alarm. The escape hatch is declarative:
-whoever knows the work matters declares `affects`. What the mask model
-answered with entangled decrees ("the store is the boundary") this model
-answers with slot-scoped facts and slot-scoped declarations; the foos bug
-and list over-lighting both fall out (an optimistic increment can't silence
-an unrelated in-flight navigation; an optimistic list add doesn't pend
-sibling rows because the confirm refresh is a quiet re-ask).
-
-## 5h. Seed invisibility on derived stores (2026-07-16 — A25, #2897)
-
-A derived store's seed is a draft for the derive function, never a value an
-outside reader may observe. Memos already enforced this (untracked reads of
-an UNINITIALIZED node throw NotReady out of `read()`; strictRead scopes get
-the `PENDING_ASYNC_UNTRACKED_READ` dev error first), but the store proxy's
-untracked fall-throughs bypassed `read()` entirely — `get` returned the raw
-seed value, `has`/`ownKeys` leaked its structure.
-
-The guard is `throwIfUninitialized(target)` (store.ts): if the target's
-`STORE_FIREWALL` carries `STATUS_UNINITIALIZED`, throw `firewall._error ??
-new NotReadyError(firewall)`. Placement in the three read traps:
-
-- **get** — untracked fall-through only, after the dev strictRead checks
-  (the `PENDING_ASYNC_UNTRACKED_READ` error wins in component bodies for
-  the more descriptive message / infinite-loop prevention). Tracked reads
-  already throw through their node in `read()`. `selfRead` (observer IS the
-  firewall — the derive function working its own draft) is exempt: that is
-  what the seed is for. `writeOnly` paths return before the guard.
-- **has** — untracked fall-through; `writeOnly`/`selfRead` early-return
-  above the guard.
-- **ownKeys** — untracked and not `writeOnly` (reconcile's enumeration
-  during the first landing IS the initialization and must see the draft).
-
-The window closes when `STATUS_UNINITIALIZED` clears: first resolution for
-promise derives, **first yield landing** for async-iterator derives — later
-yields are revealed snapshots, readable between yields while the generator
-keeps running. Supersession keeps the window open (a discarded stale yield
-lands nothing). Rejected alternatives: returning the seed (leaks a value the
-reader can never observe updating), returning `undefined` (breaks
-non-nullable types).
+- **§5d — the #2838 redesign as landed** (2026-07-07): the companion/oracle structure in §1–§4 IS this redesign. Live.
+- **§5e — revert-target elimination** (A18 re-rule): `_pendingValue` has one meaning; INV-8 retired. Live.
+- **§5g — question-scoped pending** (A24, supersedes the mask): `_reask`, `_affectsCount`, the sentinel rails. Live.
+- **§5h — seed invisibility on derived stores** (A25). Live.
+- **§5a–§5c** — the first assertion runs and the companion-vs-oracle census: how the redesign was arrived at. Historical.
+- **§5f — the mask model** (A20/A21): SUPERSEDED by §5g six days later; kept for the reasoning record only.
 
 ## 6. Assumptions / open questions (feed into tier B/C propositions)
 
@@ -835,3 +426,441 @@ non-nullable types).
   recovery belongs to error boundaries.
 - #2838 (tracked) — `latest()` shadow should become write-driven post-release;
   the probe-based design is acknowledged overcomplication.
+
+
+## History — dated findings (§5a–§5h)
+
+Verbatim, in original order. See "Dated findings — where they went" under §5 for which still govern.
+
+### 5a. Findings from the first assertion run (2026-07-06)
+
+Enabling the assertions against the existing green suite immediately produced
+two findings — one real defect, one wrong assumption of mine:
+
+- **INV-5 fired 20× — real defect (fixed).** `mergeLanes` _copied_ the merged
+  lane's `_pendingAsync` and effect queues into the root but never cleared the
+  originals. All routing goes through `findLane()` after a merge, so the stale
+  copies were dead weight (retained node references — a leak) and made
+  "merged lane is empty" unverifiable. Fixed: merge now moves instead of
+  copies. This is the only production behavior change from the assertion work.
+- **INV-4 as first formulated fired 83× — my assumption was wrong.** I asserted
+  that at quiescence a companion `_pendingSignal` must equal a fresh
+  `computePendingState(owner)`. False positive: in pure-signals graphs (no
+  render effects) transitions complete immediately, so async can still be in
+  flight _after_ the transition is gone; `computePendingState` then reports
+  `true` while the companion (correctly, per lane semantics) still reads
+  `false`. The invariant is now scoped to _fully settled_ owners (no pending
+  status, no held value, no override). What the companion should read in that
+  in-between window is a **semantic** question, not a consistency one — see §6.
+
+### 5b. Findings from the second assertion pass (2026-07-06, INV-2 + window probes)
+
+- **INV-2 implemented and green.** Active override ⇒ `_pendingValue` revert
+  target + registration in a `_optimisticNodes` list, checked at the end of
+  every flush. Verified the assertion actually fires via a mutation test
+  (deregistering a live override throws INV-2).
+- **Blocked-merged window probes** (optimistic node entangled with a second
+  async source through a shared reader; own fetch resolved, transition still
+  blocked) surfaced two ruled-spec violations (V1: A13 — resting optimistic
+  `isPending` false where the plain control is true; V2: A7/A13 — `latest()`
+  read-order dependence / `[false, undefined]`) and one new open question
+  (C4: ambient reads of an active override see the committed value when
+  entangled, the override when not). See SPEC-ASYNC-SEMANTICS.md "Known
+  violations" (all fixed 2026-07-07; pinned in
+  `tests/spec-async-semantics.test.ts`, "V1–V5" describe).
+- **C4 root cause (ruled + fixed same day).** The entangled divergence was a
+  premature revert, not a read-path issue: on the first flush after the write,
+  `transitionComplete`'s reporter loop found no live blockers (the shared
+  reader's dep is the _joined_ memo, whose dep walk doesn't reach the sources,
+  and it never re-notified because the lane served it the override), and the
+  optimistic-node backstop loop excluded nodes pending on **their own** fetch
+  (`_error.source !== node`, from 128f5e59). The transition completed and
+  `resolveOptimisticNodes` dropped the override one tick after the tracked
+  reader saw it. Fix: remove the self-source exclusion — a transition holding
+  an optimistic node with an active override and _any_ in-flight async
+  (its own fetch included) is not complete. Ruled as A17.
+
+### 5c. Companion-vs-oracle census (2026-07-07, #2838 pre-work)
+
+A non-asserting diff logger (`devCensusCompanions`, enabled via the
+`COMPANION_CENSUS` env var) compared every live companion against a fresh
+oracle at the end of every flush across the whole suite. Nine distinct
+divergence fingerprints; the taxonomy:
+
+**Pending companions (6 fingerprints, ~most-hit first):**
+
+| owner state at flush end                       | companion | oracle |
+| ---------------------------------------------- | --------- | ------ |
+| plain node, own async in flight (`sp=1`)       | false     | true   |
+| ACTIVE override, revert target held            | false     | true   |
+| plain node, transition-held `_pendingValue`    | false     | true   |
+| store leaf (uninit) behind refetching firewall | false     | true   |
+| resting optimistic, refetch in flight          | false     | true   |
+| active override + own fetch in flight          | false     | true   |
+
+**Latest shadows (3 fingerprints, all on settled-or-override owners):**
+
+- shadow holds a stale previous value while the owner is fully settled;
+- shadow reads `undefined` while the owner has a committed value (the V2
+  `[false, undefined]` family);
+- shadow reads `undefined` while an override is ACTIVE (A17 violation via
+  `latest()`: the shadow never mirrored the override).
+
+**The headline finding: every pending divergence is one-directional.**
+Companions only ever _under-report_ (`false` when the oracle says `true`) —
+no fingerprint showed a companion stuck `true` against a `false` oracle at a
+flush boundary (the V4 stuck-true case exists but arises past settle, caught
+by INV-4). The probe-driven design misses _activations_: nothing refreshes a
+companion when (1) status flags change (async starts), (2) an override is
+written, (3) a `_pendingValue` hold is written. Shadows additionally
+initialize to `undefined` and never mirror overrides.
+
+**Redesign requirement derived from the census:** the write-driven companion
+must be updated at exactly four transition points — status-flag transitions
+(notifyStatus/clearStatus), override set/clear, pendingValue hold/commit,
+and (for shadows) initialization from the committed value + override
+mirroring. Those four cover all nine fingerprints plus V1–V4.
+
+### 5d. The redesign as landed (2026-07-07, closes #2838's core)
+
+Companions stayed lazy and probe-created; what changed is that every oracle
+input now flows through to them, and settlement re-derives them:
+
+1. **Oracle simplification (V1).** The #2799 resting-optimistic carve-out in
+   `computePendingState` was removed. INV-8 provenance proved a resting node
+   can never hold a revert target (revert targets only coexist with an ACTIVE
+   override; the revert commits the value), so a held value on a resting node
+   is always a refetch/transition hold — pending, like a plain memo.
+2. **Missing write path (V1/V2).** `asyncWrite`'s resting-hold branch now
+   calls `syncCompanions` like every other write: the arriving value updates
+   the verdict and is pushed into the `latest()` shadow (no more read-order
+   freeze).
+3. **Settlement checkpoint (V3).** `snapCompanionsToState(owner)`: called
+   from `commitPendingNode` and `resolveOptimisticNodes` (second pass over
+   the settled batch — the batch is spliced, not cleared, because snaps can
+   push fresh optimistic nodes). It re-derives the companion from
+   `computePendingState` and writes the verdict COMMITTED (not via
+   `setSignal` — an override window opened at settlement would itself need a
+   settlement, re-scheduling forever while async is in flight). A companion
+   with an active override is skipped: its own revert re-enters the snap.
+   Shadows whose cached value diverged from committed state are invalidated
+   (dirty + heap + notify) so the next pull re-derives; coherent shadows are
+   left alone (dirtying them re-ran effects with half-settled state).
+   `_pendingSignal._parentSource` is now always the owner (was: only for
+   store-leaf chains) so the checkpoint can find the owner from a reverted
+   companion.
+4. **Status pokes flow to the whole companion tree (V3/V4).**
+   `updatePendingSignal(el)` recurses into `el._latestValueComputed` (the
+   shadow's verdict derives from the owner), and `notifyStatus`/`clearStatus`
+   on a firewall call `updateChildCompanions` — probed leaves re-derive when
+   the firewall's async starts/settles (no more stuck-true leaf companions).
+5. **A20 latest-form filter (V4).** ~~`computePendingState`'s `_parentSource`
+   branch strips broad firewall inheritance for optimistic-capable leaves
+   with no unconfirmed edit.~~ **Superseded by the mask model (§5f)** — the
+   filter belonged to the one-day "overrides are unsettled" A20 and was
+   replaced by the per-channel verdict + mask checks. The companion-poke
+   plumbing from this item (point 4 above) is what survives.
+
+Post-redesign census: **zero divergence fingerprints** across the suite
+(the census itself was refined to compare the companion's _visible_ value —
+override first, A17 — and to ignore one-flush holds already queued for
+commit, where the A10 pair rule makes the disagreement unobservable).
+Cost: +253 B gzip on `dist/prod.js` (+1.0%); core reactivity benchmarks
+unchanged within noise. C2's `insertSubs` blanket lane-clear on reversion
+remains queued (still unobservable; needs dead-lane plumbing).
+
+### 5e. Revert-target elimination (2026-07-07b — A18 re-rule)
+
+The `_pendingValue` slot used to mean three things: a plain write awaiting
+flush commit, a transition-held value awaiting transition commit, and the
+_revert target_ for an active override (refreshed from four write sites,
+committed by `resolveOptimisticNodes` at revert). The third meaning is gone.
+The invariant set is now:
+
+- **`_pendingValue` has one meaning: a pending commit.** Every held value
+  elevates to `_value` at its own transition's commit (or the plain flush
+  commit), through `queuePendingNode`/`commitPendingNode` — no exceptions.
+- **`_value` changes only at commit points.** Under an active override the
+  hold and its eventual commit are unobservable (A17: every reader gets the
+  override; the one raw-`_value` reader — the stashed-read exception — only
+  admits plain optimistic signals, which have no authoritative writer).
+- **Revert is a pure drop.** `resolveOptimisticNodes` clears the override,
+  compares it against `_value`, notifies on divergence — commits nothing.
+  Holds under an active override queue into their transition (`recompute`'s
+  queue gate allows override-active nodes through; `asyncWrite`'s override
+  branch collapsed into the resting branch), so nothing leaks (INV-7) and
+  nothing reveals before its transition completes.
+- Holds under an active override do **not** notify subscribers (`asyncWrite`
+  skips `insertSubs` under an active override): the visible value is
+  unchanged; the revert is the notification point.
+
+This fixed a real clobber bug (**V5**, pinned in the spec suite): the old
+first-override stash (`_pendingValue = _value`) overwrote a refetch value
+held on a resting node in the blocked-merged window, so the revert
+resurrected stale data. INV-2 no longer asserts a revert target; the INV-8
+hold-provenance tracker was deleted (one meaning — nothing to distinguish).
+
+An intermediate design ("silent commit": arrivals under an override write
+`_value` directly, elevation immediate) was implemented and discarded — it
+kept the old reveal-at-revert timing but gave `_value` a context-dependent
+meaning. The commit-point discipline (maintainer re-rule of A18) reveals
+corrections atomically with their own (possibly merged) transition;
+corrections still _propagate_ internally on arrival, so downstream refetches
+start immediately — the schedule only gates the reveal. (Verdict during the
+window: under the 2026-07-13 model a held _correction_ — differing from the
+displayed override — reads pending; a matching confirm stays quiet. The
+2026-07-07c mask read `false` throughout; §5g.)
+
+### 5f. The mask model (2026-07-07c — A20/A21 re-rule, #2844/#2728) — SUPERSEDED
+
+> **SUPERSEDED 2026-07-13 by the question-scoped pending model (§5g).** The
+> mask (`_optimisticMask`/`STORE_MASKED`/`maskStoreTarget`) is deleted;
+> optimistic writes no longer decree certainty. Kept for the reasoning
+> record — the _value_ lifecycle described here (A17/A18, holds, reveals)
+> survives unchanged; only the verdicts moved.
+
+The verdict oracle was rewritten around one rule: **an active override is
+certainty by decree, and `isPending` follows the channel the read observes.**
+`computePendingState` is now a short decision ladder:
+
+1. **Disposal guard** — `REACTIVE_DISPOSED` → `false` (INV-9; a dead source
+   can never settle).
+2. **Store-wide mask** — `(firewall || node)._optimisticMask` → `false`
+   (A21; the store is the primitive the decree covers).
+3. **Latest-shadow branch** (`_parentSource` set): the fresh channel.
+   Owner has an active override → `false` (the decree); owner's firewall
+   masked → `false`; otherwise pending iff the owner (or its firewall) has
+   `STATUS_PENDING` without `STATUS_UNINITIALIZED` — in-flight async only,
+   **no held-value checks**: the shadow already shows held values, so a hold
+   cannot supersede what it shows (A8: "false as soon as that async is done,
+   even if the same update has other async still running").
+4. **Own active override** → `false` (A20 node-scoped mask).
+5. **Held store leaf defers to its firewall** — while the firewall's own
+   work is in flight the firewall carries the verdict (probes collect both);
+   the leaf reports only holds the firewall does not explain (manual
+   projection writes; holds outliving a settled firewall). Prevents
+   duplicate leaf/firewall effect churn during projection loads.
+6. **Held value** (`_pendingValue`, initialized) → `true` (plain channel:
+   a pending commit supersedes the committed value — A19 causes i/iii).
+7. **Own async in flight** (initialized) → `true` (A19 cause ii).
+
+Supporting machinery:
+
+- **`maskStoreTarget(target, on)`** (store.ts): flips `STORE_MASKED` on the
+  store target and maintains the firewall's `_optimisticMask` counter;
+  on 0↔1 transitions pokes the firewall's companion and every probed leaf's
+  (`updatePendingSignal` + `updateChildCompanions`). Raised from
+  `prepareStoreWrite`/`deleteProperty` on the first optimistic write to a
+  target; lowered from `clearOptimisticStore`/`clearOptimisticOverride`
+  when the target's optimistic state fully clears. Plain stores without a
+  firewall never set the flag.
+- **Disposal snap** (owner.ts): `disposeChildren` calls
+  `snapCompanionsToState` on disposed owners that have companions, so a
+  latched `true` verdict reverts and notifies instead of outliving its
+  source (INV-9).
+- **INV-10** (invariants.ts): end-of-flush assertion of the mask, both arms
+  (active-override owners and store-wide-masked firewalls/leaves), using the
+  companion's _observable_ verdict (override first, A17).
+
+Dead machinery removed with the model (verified by suite + census):
+
+- `updatePendingSignal`'s late lane-merge block (merging a companion's
+  sub-lane into the source's lane when an override cleared) — with masked
+  verdicts there is no `true`→`false` edge at override-clear to coordinate;
+  `mergeLanes`/`signalLanes` imports left with it.
+- `read()`'s probe special-case that forced `pendingProbe.found = true` for
+  firewall/override hits — verdicts now come uniformly from
+  `computePendingState` over collected sources.
+
+Cost: net −27 B raw / +8 B gzip on minified `dist/prod.js`; core reactivity
+and store benchmarks flat within noise (best-of-3 isolated runs).
+
+### 5g. Question-scoped pending (2026-07-13 — supersedes the mask, #2844/#2728)
+
+The verdict was re-derived from one definition: **a read is pending iff a
+value change is in flight for it that has not yet revealed, or it carries a
+live `affects()` mark.** "In flight" is question-scoped: async whose tracked
+inputs are value-stable (refresh/poll/confirm — a _re-ask_ of the same
+question) is not a value change in flight — the shown answer still answers
+the question being asked. Three consequences replace the mask's one rule:
+
+1. **Same-question motion is silent.** A bare `refresh()` (or any re-ask with
+   no input value change) never pends. The fresh value reveals silently. This
+   absorbs the honest half of the rejected `background()` proposal without
+   erasing ground truth: a _new_ question (any tracked input changed value)
+   pends everything under the source until its answer reveals, and **nothing
+   can silence it** — pendingness is monotone, additive-only.
+2. **Optimistic writes are verdict-inert.** An active override neither reads
+   pending on its own slot (it IS the displayed value; only a held
+   authoritative _correction_ that differs from the override re-opens the
+   verdict — a matching confirm reveals nothing) nor masks anything else. The
+   store-wide mask (A21) and the node mask (A20-as-decree) are deleted: an
+   override displaying over an in-flight new question is an honest mixed
+   state — `{ value: guess, pending: true }`. To downstream async, an
+   optimistic write is a real input change (it launches real fetches that
+   pend their own slots).
+3. **`affects(target, key?)` is the sole declaration verb.** A mark is
+   additive pending on exactly the marked data (store record → every record
+   reachable from it at declaration time, by identity — captured child
+   proxies included, #2882; leaf key → that slot; accessor → that source)
+   **and on everything derived from it**: marks ride the same status rails
+   as real in-flight async (§ affects-on-rails below), so memos/effects over
+   marked data read pending like they would over a real pending source,
+   while the marked values themselves stay readable. Live from declaration
+   to its transaction's settle/revert (ambient marks release at flush end).
+   The declared reload idiom — `affects(x); refresh(x)` — is how process
+   intent ("this work will change x") enters the verdict when the graph
+   can't see it yet; the mark's own channel is never a re-ask, so the
+   refresh's quiet classification cannot silence the declared window.
+
+Verdict ladder (`computePendingState`): disposal guard → live
+`_affectsCount` → latest-shadow branch (owner's `_affectsCount`, then owner
+async in flight and non-quiet) → held-leaf firewall deferral (quiet firewall
+flight doesn't explain a held change) → held value (correction check under
+an override) → own async in flight and non-quiet. "Quiet" = every blocking
+pending source is a re-ask of its own unchanged question (`quietPending`,
+reading `_reask`).
+
+Supporting machinery:
+
+- **Re-ask classification.** `refresh()` sets `REACTIVE_REASK` unless the
+  node already carries value-change dirt (DIRTY/CHECK **or heap membership —
+  `insertSubs` schedules by heap insertion alone**); `insertSubs` clears the
+  flag on every value-change notification (a new question supersedes the
+  re-ask); `recompute` consumes it into `_reask` with a monotone guard (a
+  node already pending on an unanswered new question stays non-quiet);
+  `clearStatus` resets it on landing. When a reask classification changes
+  while pending, `repollDownstreamVerdicts` re-derives companions downstream.
+- **Affects on rails** (async.ts/scheduler.ts): a mark is a synthetic
+  in-flight change on the normal status rails, under its own **sentinel**
+  pending-source (`getAffectsSentinel`, one per marked node, branded with
+  `_affectsFor`). `registerAffectsMark` bumps `_affectsCount`, stages the
+  registration with the current transaction (ambient registrations are
+  adopted by `initTransition`, merged by `mergeTransitionState`, mirroring
+  `_optimisticNodes`), pokes the node's companions, and **propagates
+  `STATUS_PENDING` downstream** from the marked node via `notifyStatus` with
+  a `NotReadyError(sentinel)` — so downstream verdicts derive from the
+  ordinary `newQuestionInFlight` clause. The separate identity is what keeps
+  the channels from clearing each other: a landing on the marked node
+  settles only the node's OWN source entry (`settlePendingSource` is
+  source-parameterized); `quietPending` never reports quiet while a sentinel
+  is among the sources (its `_reask` is permanently false), so a declared
+  reload survives its refresh's quiet classification; and neither
+  `transitionComplete` check counts a sentinel-sourced pending as a blocker
+  (`_affectsFor` brand) — a mark releases AT settle, so self-blocking would
+  deadlock. The marked node itself never carries `STATUS_PENDING` (marks
+  are value-transparent at the source; its own verdict is the
+  `_affectsCount` clause), and **mark-only pending is value-transparent
+  through derivation too** (#2886): `read()` skips the suspension branch
+  when the owner's pending sources are all sentinels (`onlyMarkPending`,
+  gated by `activeAffectsMarks`), so a live tracked reader over mark-pended
+  derived nodes — a `mapArray` over a marked store — keeps rendering fresh
+  optimistic values instead of throwing. Computeds that recompute mid-window shed the
+  sentinel via `clearStatus` and re-acquire it through the read path:
+  `read()` records marked sources into the recompute's `affectsReads`
+  accumulator (gated by the global `activeAffectsMarks` counter; probe
+  reads excluded so an `isPending` wrapper memo doesn't mark itself), and
+  `recompute` applies them after its commit (`applyAffectsReads` — earlier
+  would route the fresh value into the error-skip branch). Re-acquisition
+  is **transitive** (#2893 bug 3): value-transparency removed real async's
+  re-throw-on-read (the mechanism that re-establishes a source at every
+  derivation level), so a tracked read of a mark-pended _owner_ also feeds
+  the reader's `affectsReads` — `collectMarkSources` maps the owner's
+  sentinel sources back to their still-live `_affectsFor` nodes. Without
+  this, pendingness died on the first mid-window recompute past depth one,
+  and the `isPending()` probe itself (whose prepare step recomputes
+  retryable NotReady holders) stripped the status it was reporting on.
+  Propagation is **transaction-inert** (#2893 bug 2): pended subscribers
+  are NOT queued as pending nodes — they hold no value needing a
+  transition-scheduled commit, and queueing stamped the marking action's
+  transaction onto them at stash, from which point ANY write dirtying one
+  (a plain write to the marked signal, or to an unmarked signal merely
+  sharing a downstream memo) was captured and frozen until the action
+  settled. Same rule at recompute: mark-only `STATUS_PENDING` doesn't
+  count toward `needsPendingCommit`. A **real error outranks a mark**
+  (#2893 bug 4): `notifyStatus` drops mark-sourced propagation onto nodes
+  holding `STATUS_ERROR`, and `recompute` skips `applyAffectsReads` when
+  the compute ended errored — landing the sentinel would clobber `_error`
+  with a `NotReadyError` that value-transparency promises can never
+  surface, with no arriving value to ever restore the user's error.
+  `releaseAffectsMark` decrements at the transaction's settle (or plain
+  flush end for ambient marks), settles the sentinel out of every
+  downstream `_pendingSources` (waking `_blocked` nodes), and snaps
+  companions through the settlement checkpoint (committed, not
+  transition-scoped — the settle walk snaps too, for the same reason).
+  (The settle walk is also why `addPendingSource`'s container migration
+  must check BOTH slots — #2893 bug 1: a third source landing in the
+  emptied singular slot next to the Set put `removePendingSource` into a
+  refusal state that stranded the Set's sentinels forever, `isPending`
+  stuck `true` — deterministically hit by a keyless store mark over
+  `mapArray`, whose internal computed subscribes to exactly three covered
+  nodes.)
+- **Store addressing** (store.ts): `affects(record)` upserts a per-record
+  `$AFFECTS` node (the mark's carrier — registry key and liveness anchor),
+  walks the record's subtree — reading through write overlays — registering
+  the mark on **every live node** in it (property leaves, `$TRACK`,
+  has-nodes: the edges existing readers subscribed through), and snapshots
+  the reachable raw identities into the mark's scope (`affectsScopes`,
+  released with the carrier's last registration). Nodes created during the
+  window inherit the mark at birth (`getNode` → `inheritAffectsMarks`, keyed
+  by the owning record's raw identity; inherited marks are released with the
+  carrier's entry), which is how captured child proxies (`<For>` rows,
+  #2882) and late tracked reads observe a mark their read path never
+  traverses. `affects(record, key)` marks the named leaf node (single key —
+  keys are not a path). Witnessing (`witnessAffectsMark`, pendingCheckActive
+  traps + the `snapshot`/`deep` walk in utils.ts) now only covers untracked
+  probes over records whose nodes never materialized: it adds the record's
+  own `$AFFECTS` carrier and any scope carrier containing the record's raw
+  to the probe. Tracked probes need none of this — they read real nodes,
+  which carry marks directly. The per-node companion channel (not a shared
+  version signal) is load-bearing for wake-ups: companions carry their own
+  optimistic lane, which is what lets a late registration's wake escape an
+  incomplete transition's effect stash.
+- **Probe rethrow scope** (core.ts `isPending`): only a truly UNINITIALIZED
+  source's NotReady rethrows out of the probe (loading participates in
+  readiness); an initialized source throwing NotReady during a quiet re-ask
+  window yields an honest `false` instead of poisoning the surrounding memo.
+- **INV-10** (invariants.ts): affects-count balance at quiescence (§5).
+
+The trade taken knowingly (the "silent unknowns" objection): a re-ask that
+_will_ return different data (server-side change, poll catching motion) is
+silent until the new value reveals — the system cannot know, and the model
+prefers honest silence over blanket alarm. The escape hatch is declarative:
+whoever knows the work matters declares `affects`. What the mask model
+answered with entangled decrees ("the store is the boundary") this model
+answers with slot-scoped facts and slot-scoped declarations; the foos bug
+and list over-lighting both fall out (an optimistic increment can't silence
+an unrelated in-flight navigation; an optimistic list add doesn't pend
+sibling rows because the confirm refresh is a quiet re-ask).
+
+### 5h. Seed invisibility on derived stores (2026-07-16 — A25, #2897)
+
+A derived store's seed is a draft for the derive function, never a value an
+outside reader may observe. Memos already enforced this (untracked reads of
+an UNINITIALIZED node throw NotReady out of `read()`; strictRead scopes get
+the `PENDING_ASYNC_UNTRACKED_READ` dev error first), but the store proxy's
+untracked fall-throughs bypassed `read()` entirely — `get` returned the raw
+seed value, `has`/`ownKeys` leaked its structure.
+
+The guard is `throwIfUninitialized(target)` (store.ts): if the target's
+`STORE_FIREWALL` carries `STATUS_UNINITIALIZED`, throw `firewall._error ??
+new NotReadyError(firewall)`. Placement in the three read traps:
+
+- **get** — untracked fall-through only, after the dev strictRead checks
+  (the `PENDING_ASYNC_UNTRACKED_READ` error wins in component bodies for
+  the more descriptive message / infinite-loop prevention). Tracked reads
+  already throw through their node in `read()`. `selfRead` (observer IS the
+  firewall — the derive function working its own draft) is exempt: that is
+  what the seed is for. `writeOnly` paths return before the guard.
+- **has** — untracked fall-through; `writeOnly`/`selfRead` early-return
+  above the guard.
+- **ownKeys** — untracked and not `writeOnly` (reconcile's enumeration
+  during the first landing IS the initialization and must see the draft).
+
+The window closes when `STATUS_UNINITIALIZED` clears: first resolution for
+promise derives, **first yield landing** for async-iterator derives — later
+yields are revealed snapshots, readable between yields while the generator
+keeps running. Supersession keeps the window open (a discarded stale yield
+lands nothing). Rejected alternatives: returning the seed (leaks a value the
+reader can never observe updating), returning `undefined` (breaks
+non-nullable types).

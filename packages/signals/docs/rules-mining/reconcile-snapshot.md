@@ -1,5 +1,7 @@
 # Mined rules: reconcile, snapshot, utilities
 
+> **Namespace `RS`.** Every rules-mining file numbers its rules from R1, so an R-id is only meaningful with its file: this one is `RS-R<n>` in [`../RULES-INDEX.md`](../RULES-INDEX.md), cited as `snap R<n>`; a bare `R<n>` in `store/next/reconcile.ts` resolves here. IDs are never renumbered.
+
 Source suites: `tests/store/reconcile.test.ts`, `tests/store/reconcile-captured-proxies.test.ts`, `tests/snapshot.test.ts`, `tests/snapshot-derived-store-rows.test.ts`, `tests/store/utilities.test.ts`.
 
 ## A. Reconcile contract

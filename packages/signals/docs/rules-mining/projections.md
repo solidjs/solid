@@ -1,5 +1,7 @@
 # Mined rules: projections
 
+> **Namespace `PJ`.** Every rules-mining file numbers its rules from R1, so an R-id is only meaningful with its file: this one is `PJ-R<n>` in [`../RULES-INDEX.md`](../RULES-INDEX.md), cited as `proj R<n>`; a bare `R<n>` in `store/next/projection.ts` resolves here. IDs are never renumbered.
+
 Source suites: `sync` = `tests/store/createProjection.test.ts`, `async` = `tests/store/createProjection.async.test.ts`, `jsdom` = `tests/store/createProjection.jsdom.test.ts`.
 
 ## Recompute semantics

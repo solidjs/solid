@@ -20,7 +20,7 @@ import {
 
 type User = { id: number };
 
-describe("equals comparator errors (#2837)", () => {
+describe("equals comparator errors (#2837, A3: comparator throws are compute-phase errors)", () => {
   let errorSpy!: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -69,6 +69,30 @@ describe("equals comparator errors (#2837)", () => {
     setBeat(1);
     flush();
     expect(log).toEqual(["beat=1"]);
+  });
+
+  it("A4: the first commit never invokes a custom equals with an undefined previous value", () => {
+    const calls: [unknown, unknown][] = [];
+    const [users, setUsers] = createSignal<User[]>([{ id: 1 }]);
+    let value: User | undefined;
+    createRoot(() => {
+      const selected = createMemo(() => users().find(u => u.id === 1), {
+        equals: (prev, next) => {
+          calls.push([prev, next]);
+          return prev!.id === next!.id; // would throw on an undefined prev
+        }
+      });
+      createRenderEffect(selected, v => {
+        value = v;
+      });
+    });
+    flush();
+    expect(value).toEqual({ id: 1 });
+    expect(calls).toEqual([]);
+
+    setUsers([{ id: 1 }]);
+    flush();
+    expect(calls).toEqual([[{ id: 1 }, { id: 1 }]]);
   });
 
   it("user effect on the errored memo does not fire with a bogus value", () => {

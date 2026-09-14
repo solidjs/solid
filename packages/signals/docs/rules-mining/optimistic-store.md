@@ -1,5 +1,7 @@
 # Mined rules: optimistic store suites
 
+> **Namespace `OS`.** Every rules-mining file numbers its rules from R1, so an R-id is only meaningful with its file: this one is `OS-R<n>` in [`../RULES-INDEX.md`](../RULES-INDEX.md), cited as `opt R<n>`; a bare `R<n>` in `store/next/optimistic.ts` resolves here. IDs are never renumbered.
+
 Source suites: `tests/store/createOptimisticStore.test.ts`, `tests/optimistic-store-refetch-hold.test.ts`, `tests/optimistic-store-layer-scope.test.ts`, `tests/strict-read-pending-store.test.ts`.
 
 ## A. Visibility

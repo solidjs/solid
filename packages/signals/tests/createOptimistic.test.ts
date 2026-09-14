@@ -912,7 +912,7 @@ describe("createOptimistic", () => {
       expect(isPending($data!)).toBe(false);
     });
 
-    it("refresh() of an async optimistic accessor is a quiet re-ask — not pending (#2799, re-ruled 2026-07-13)", async () => {
+    it("refresh() of an async optimistic accessor is a quiet re-ask — not pending (#2799, A12, re-ruled 2026-07-13)", async () => {
       let resolveFetch: ((v: number[]) => void) | null = null;
       const makeFetch = () => new Promise<number[]>(r => (resolveFetch = r));
 
@@ -947,7 +947,7 @@ describe("createOptimistic", () => {
       expect(isPending(() => $data())).toBe(false);
     });
 
-    it("a declared reload (affects + refresh) fires isPending when it is the only consumer (#2806, re-ruled 2026-07-13)", async () => {
+    it("a declared reload (affects + refresh) fires isPending when it is the only consumer (#2806, A12, re-ruled 2026-07-13)", async () => {
       // The #2799 test above keeps the node alive with a value-observer
       // (`createRenderEffect(data, () => {})`). When the only consumer is a
       // reactive `isPending(() => data())` (the real JSX

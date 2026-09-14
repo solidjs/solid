@@ -8,7 +8,7 @@ import {
   flush
 } from "../src/index.js";
 
-describe("enforceLoadingBoundary", () => {
+describe("enforceLoadingBoundary (A6: ASYNC_OUTSIDE_LOADING_BOUNDARY is warn-only)", () => {
   let warnSpy!: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {

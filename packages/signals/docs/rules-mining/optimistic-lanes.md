@@ -1,5 +1,7 @@
 # Mined rules: optimistic lanes (createOptimistic, undefined-override, lane-transaction-ownership)
 
+> **Namespace `OL`.** Every rules-mining file numbers its rules from R1, so an R-id is only meaningful with its file: this one is `OL-R<n>` in [`../RULES-INDEX.md`](../RULES-INDEX.md), cited as `lanes R<n>`; a bare `R<n>` in `core/*` comments resolves here. IDs are never renumbered.
+
 Source suites: `tests/createOptimistic.test.ts` (CO), `tests/optimistic-undefined-override.test.ts` (UO), `tests/optimistic-lane-transaction-ownership.test.ts` (LTO).
 
 Scope note: CO contains **no store-form tests** — it is entirely the signal/computed form. Store-form coverage in this set exists only in UO (tests 3–5) and LTO (repro 1). Nested paths, deep writes, and per-property-vs-whole-store optimism beyond those have **no coverage in this set** — a gap the rewrite's rule-derived tests must fill.

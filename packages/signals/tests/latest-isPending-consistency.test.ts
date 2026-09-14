@@ -83,7 +83,7 @@ describe("latest/isPending consistency (#2831)", () => {
     expect(log[log.length - 1]).toBe("pRead=false pLatest=false latest=v2");
   });
 
-  it("[isPending(x), x()] never pairs pending with the fresh value when async resolves inside an open action", async () => {
+  it("A10: [isPending(x), x()] never pairs pending with the fresh value when async resolves inside an open action", async () => {
     const renderLog: string[] = [];
     const userLog: string[] = [];
     let setX!: (v: number) => void;
@@ -156,7 +156,7 @@ describe("latest/isPending consistency (#2831)", () => {
     expect(userLog).toEqual(["[false, data-2]"]);
   });
 
-  it("sync memo over a transition-held signal is visible to latest() and isPending()", async () => {
+  it("A11: sync memo over a transition-held signal is visible to latest() and isPending()", async () => {
     const log: string[] = [];
     let setX!: (v: number) => void;
     const gate = deferred<void>();

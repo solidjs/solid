@@ -99,7 +99,7 @@ describe("createMemo with loadingValue", () => {
     expect(result).toBe(42);
   });
 
-  it("keeps the loading window verdict-quiet: isPending stays false through the first flight", async () => {
+  it("A27: keeps the loading window verdict-quiet: isPending stays false through the first flight", async () => {
     const d = deferred<string>();
     let user!: () => string;
     createRoot(() => {
@@ -718,7 +718,7 @@ describe("projections with seedLoadingValue", () => {
   });
 });
 
-describe("loading window and transitions", () => {
+describe("loading window and transitions (A27)", () => {
   it("is loading-class: writes concurrent with the window commit ambiently; after close the same writes are held", async () => {
     const defs: Record<number, ReturnType<typeof deferred<string>>> = {
       1: deferred<string>(),
