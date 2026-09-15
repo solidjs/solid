@@ -535,6 +535,43 @@ function currentOrigin(): ChangeOrigin {
   return currentInteraction ?? EXTERNAL_ORIGIN;
 }
 
+/** The root origin a cause list traces back to — the stamp of the nearest root write, derived links walked. */
+function originIn(causes: ChangeRecord[]): ChangeOrigin | undefined {
+  for (const c of causes) {
+    const found =
+      c.kind === "derived" ? (c.causes !== undefined ? originIn(c.causes) : undefined) : c.origin;
+    if (found !== undefined && found.kind !== "external") return found;
+  }
+  return undefined;
+}
+
+/**
+ * The `currentOrigin` hook: what a runtime recording its own fact right now
+ * (a server-function call) should stamp it with. Inside a recompute the
+ * fact belongs to the change that caused the run — a `createAsync` calling
+ * the server on a navigation's write is the navigation's, and through it the
+ * click's — walked down past create runs the way `trackFlightStart` does,
+ * since a node born inside a parent's run inherits the parent's causality.
+ * Outside one — or when the causes were themselves external (a memo a
+ * handler pulls, stale from a timer's write) — it is the write's answer
+ * (`currentOrigin`), minus the external sentinel: "none known" is
+ * `undefined` on a record, as `HoldEvent.origin` has it. The objects
+ * returned are the engine's own frames, so the caller's record joins
+ * `InteractionEvent.origin` / `NavigationEvent.origin` by identity.
+ */
+function ambientOrigin(): ChangeOrigin | undefined {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const causes = frames[i].causes;
+    if (causes !== null) {
+      const cause = originIn(causes);
+      if (cause !== undefined) return cause;
+      break;
+    }
+  }
+  const origin = currentOrigin();
+  return origin === EXTERNAL_ORIGIN ? undefined : origin;
+}
+
 /**
  * What the engine knows about an effect frame beyond its serializable face:
  * the node, and the causes of the run whose effect phase this is (undefined
@@ -3426,6 +3463,9 @@ const engineHooks: AttributionHooks = {
   },
   boundaryFallback(boundary, tree, shown) {
     trackFallback(boundary, tree, shown);
+  },
+  currentOrigin() {
+    return ambientOrigin();
   }
 };
 

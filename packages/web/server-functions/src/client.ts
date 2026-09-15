@@ -4,6 +4,7 @@
 // the function body never reaches this bundle. Hoisted from SolidStart's
 // fns/client.ts with neutral header names and a configurable endpoint.
 import { REVALIDATE_HEADER } from "../../src/response.js";
+import { observeCall } from "../../src/observe.js";
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
 // emit would leave them dangling (implicit any for every consumer).
@@ -203,26 +204,6 @@ export interface ServerFunctionsClientConfig {
   serializeArgs?(args: unknown[]): string | Promise<string>;
 }
 
-export interface ServerFunctionRequestCall {
-  type: "request";
-  id: string;
-  instance: string;
-  request: Request;
-  meta: ServerFunctionMetadata | undefined;
-  time: number;
-}
-
-export interface ServerFunctionResponseCall {
-  type: "response";
-  id: string;
-  instance: string;
-  response: Response;
-  meta: ServerFunctionMetadata | undefined;
-  time: number;
-}
-
-export type ServerFunctionCall = ServerFunctionRequestCall | ServerFunctionResponseCall;
-
 /** Wire-state transitions a live call's iterable can report. */
 export type LiveSourceStatus = "connected" | "reconnecting" | "closed";
 
@@ -255,33 +236,7 @@ const config = {
   serializeArgs: undefined
 };
 
-const CALL_OBSERVERS = new Set();
-
-function notifyCallObservers(type, id, instance, value, meta) {
-  if (CALL_OBSERVERS.size === 0) return;
-  const field = type === "request" ? "request" : "response";
-  const time = performance.now();
-  for (const observer of new Set(CALL_OBSERVERS)) {
-    try {
-      observer({ type, id, instance, [field]: value.clone(), meta, time });
-    } catch (error) {
-      console.error(error);
-    }
-  }
-} /**
- * Observes cloned requests and responses without handling them. Subscribe
- * from devtools; do not use this to replace `prepareRequest` /
- * `responseHandler`. The server entry exports a no-op of the same name so
- * isomorphic `@solidjs/web/server-functions` imports resolve.
- */
-export function observeServerFunctionCalls(
-  observer: (call: ServerFunctionCall) => void
-): () => void;
-
-export function observeServerFunctionCalls(observer) {
-  CALL_OBSERVERS.add(observer);
-  return () => CALL_OBSERVERS.delete(observer);
-} /**
+/**
  * Builds the url a reference is called at, for integrations composing action
  * urls the runtime did not render — a router turning a bound action into a
  * `<form action>` for the no-JS path. `boundArgs` must be JSON-safe: the
@@ -375,8 +330,6 @@ export function configureServerFunctionsClient({
   if (serializeArgs !== undefined) config.serializeArgs = serializeArgs;
 }
 
-let INSTANCE = 0;
-
 // Longest url the GET transport will build before falling back to POST.
 // Every proxy, CDN and server in a request's path draws its own line — the
 // lowest in common use is around 2 KB — so the transport stays under the
@@ -458,15 +411,14 @@ function parseRetryAfter(header) {
   return undefined;
 }
 
-async function createRequest(base, id, instance, options, meta) {
+async function createRequest(base, id, options, meta) {
   const headers = { ...options.headers };
   // A GET-encoded call's identity is its url, and nothing else: caches key
   // on it, and a `<link rel="preload" as="fetch">` is reused only by a
   // fetch matching it exactly, headers included, so a read carries no
-  // header of the transport's own (#3406). The per-call `instance` id is
-  // client-side bookkeeping for the call observers below; it never goes on
-  // the wire (the scripted-caller signal is the data address, #3094, and
-  // cross-wire correlation is the trace context's job).
+  // header of the transport's own (#3406) — the scripted-caller signal is
+  // the data address (#3094), and cross-wire correlation is the trace
+  // context's job.
   const read = options.method && options.method.toUpperCase() === "GET";
   // Subscribing to flight data IS the single-flight opt-in: with consumers
   // registered the transport asks the server for collection on every
@@ -526,28 +478,13 @@ async function createRequest(base, id, instance, options, meta) {
     init = prepared || init;
   }
   const send = config.fetch || fetch;
-  if (CALL_OBSERVERS.size === 0) return send(base, init);
-
-  // The send keeps the `(address, init)` shape it has on the path without
-  // observers — whether devtools are attached is not something a configured
-  // `fetch` should have to branch on — so what observers receive is a
-  // reconstruction of the dispatched request, not the object itself — built
-  // without a streaming body, which reconstructing would consume before the
-  // send could use it.
-  const request = new Request(new URL(base, globalThis.location?.href || "http://localhost"), {
-    ...init,
-    body: init.body instanceof ReadableStream ? undefined : init.body
-  });
-  notifyCallObservers("request", id, instance, request, meta);
-  const response = await send(base, init);
-  notifyCallObservers("response", id, instance, response, meta);
-  return response;
+  return send(base, init);
 }
 
-async function initializeResponse(base, id, instance, options, args, meta) {
+async function initializeResponse(base, id, options, args, meta) {
   // No args, skip serialization
   if (args.length === 0) {
-    return createRequest(base, id, instance, options, meta);
+    return createRequest(base, id, options, meta);
   }
   // A single argument with a natural HTTP encoding goes as-is
   if (args.length === 1) {
@@ -556,7 +493,6 @@ async function initializeResponse(base, id, instance, options, args, meta) {
       return createRequest(
         base,
         id,
-        instance,
         {
           ...options,
           body: result.body,
@@ -581,7 +517,6 @@ async function initializeResponse(base, id, instance, options, args, meta) {
       return createRequest(
         base,
         id,
-        instance,
         {
           ...options,
           body: JSON.stringify(args),
@@ -617,7 +552,6 @@ async function initializeResponse(base, id, instance, options, args, meta) {
         return createRequest(
           target,
           id,
-          instance,
           {
             ...options,
             body: trailing.body,
@@ -637,7 +571,6 @@ async function initializeResponse(base, id, instance, options, args, meta) {
   return createRequest(
     base,
     id,
-    instance,
     {
       ...options,
       body: await serializeArguments(args),
@@ -655,8 +588,28 @@ async function initializeResponse(base, id, instance, options, args, meta) {
 // arguments for the handler's context. They differ for GET calls, whose
 // arguments ride pre-encoded in the url (wire args empty) — a handler keying
 // state by the call (function + arguments) must still see the real ones.
+// Observe tier: the `"call"` record (`OBSERVE.records`, see `CallEvent`) —
+// the call as the caller awaited it, request through decode; with no
+// listener the dispatch runs bare, not even reading the clock.
 async function fetchServerFunction(base, id, options, args, meta, callArgs = args) {
-  const instance = `server-function:${INSTANCE++}`;
+  const observation = observeCall(
+    id,
+    options.method && options.method.toUpperCase() === "GET" ? "GET" : "POST",
+    callArgs
+  );
+  if (!observation) return dispatchServerFunction(base, id, options, args, meta, callArgs);
+  let result;
+  try {
+    result = await dispatchServerFunction(base, id, options, args, meta, callArgs, observation);
+  } catch (error) {
+    observation.settle("error", error);
+    throw error;
+  }
+  observation.settle("ok", result);
+  return result;
+}
+
+async function dispatchServerFunction(base, id, options, args, meta, callArgs, observation) {
   // Captured synchronously at the call site (an async function body runs
   // sync up to its first await), so ambient call context is still live.
   const handler = config.responseHandler;
@@ -672,7 +625,8 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   const controller = options.signal ? undefined : new AbortController();
   if (controller) options = { ...options, signal: controller.signal };
 
-  const response = await initializeResponse(base, id, instance, options, args, meta);
+  const response = await initializeResponse(base, id, options, args, meta);
+  if (observation) observation.response(response);
 
   // The integration seam sees the response first: a handler that claims it
   // (returns non-undefined) owns the call's result.

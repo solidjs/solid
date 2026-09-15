@@ -1,35 +1,39 @@
-// `OBSERVE.server` — the objects behind the server runtime's observe surface.
+// `OBSERVE.server` — the object behind the server runtime's observe surface
+// — and the `"boundary"` record this runtime delivers on `OBSERVE.records`.
 //
-// The core declares `ServerObserve` (with the `records` channel, typed empty)
-// and ships `server: {}`; the runtimes that emit type the members —
-// `solid-js` (this entry) the `"boundary"` record below, `@solidjs/web`'s
-// server entries the `"invocation"` record and the trace-provider slot — and
-// emit into them. The OBJECTS are created HERE, once per PROCESS, under
-// registered symbols on `globalThis` — not by the core (one artifact per tier
-// for both platforms; the client would pay for them) and not by web (see
+// The records channel itself is the core's (`OBSERVE.records`, one for both
+// platforms, process-wide): this entry EMITS into it — the `"boundary"`
+// record below, from `ssrLoadingBoundary` — and DECLARES the record onto
+// the core's `RecordTypes` by augmentation, so a consumer's `subscribe(
+// "boundary", …)` is typed. `@solidjs/web` declares its records the same
+// way, onto `HostRecordTypes` through `"solid-js"` (one augmenter per
+// interface: see `RecordTypes` in the core for why).
+//
+// What only the server has — the trace-context provider slot — lives on
+// `OBSERVE.server`, whose OBJECT is created HERE, once per PROCESS, under a
+// registered symbol on `globalThis` — not by the core (one artifact per tier
+// for both platforms; the client would pay for it) and not by web (see
 // below). Two things fixed the placement (Sentry spike, SHAPE-NOTES
 // J.23/J.24):
 //
-// - Order. Web's server entry is what emits invocations and asks the trace
-//   provider, but an observer's `init()` runs before any request and imports
-//   only `solid-js`; while web's module init created the slots,
+// - Order. Web's server entry is what asks the trace provider, but an
+//   observer's `init()` runs before any request and imports only
+//   `solid-js`; while web's module init created the slot,
 //   `OBSERVE.server.trace` was `undefined` until something happened to import
 //   web first (J.23). This module is part of `solid-js`'s server entry, so the
-//   slots exist the moment `solid-js` is importable on the server.
+//   slot exists the moment `solid-js` is importable on the server.
 // - Copies. A host that bundles the runtime into its server build (`link:`ed
 //   packages, `noExternal`, workers) and instruments through a `--import`ed
 //   module holds two `solid-js` instances; a per-instance `OBSERVE.server`
 //   made the provider installed on one invisible to the render running on the
-//   other (J.24). The registered key makes every copy find the same listener
-//   set and provider, the way the web runtime's own bundles already share
-//   state.
+//   other (J.24). The registered key makes every copy find the same provider,
+//   the way the web runtime's own bundles already share state.
 //
-// The containers are deliberately generic — a listener set keyed by record
-// type and a single replaceable provider — and carry no knowledge of the
-// records or the provider; web reads them through the same registered
-// symbols (the two key strings below are that contract — it re-creates them
-// with `Symbol.for`, it does not import from here) and types what it emits
-// by augmenting the interfaces declared at the end of this module.
+// The container is deliberately generic — a single replaceable provider —
+// and carries no knowledge of what a provider is; web reads it through the
+// same registered symbol (the key string below is that contract — it
+// re-creates it with `Symbol.for`, it does not import from here) and types
+// it by augmenting `ServerTrace`, declared at the end of this module.
 //
 // The types here are re-exported by the CLIENT entry too (`solid-js`'s
 // published types resolve to it under every condition), so an observer that
@@ -38,16 +42,12 @@
 import type { ServerObserve } from "@solidjs/signals";
 
 const SERVER_SLOTS = Symbol.for("solid-js/observe/server");
-const SERVER_LISTENERS = Symbol.for("solid-js/observe/server/listeners");
 const SERVER_PROVIDER = Symbol.for("solid-js/observe/server/provider");
-
-type ListenerSets = Map<string, Set<Function>>;
 
 /** The process-wide slots, created on first call from any copy of `solid-js`. */
 export function serverSlots(): ServerObserve {
   const g = globalThis as { [SERVER_SLOTS]?: ServerObserve };
   if (g[SERVER_SLOTS]) return g[SERVER_SLOTS];
-  const listeners: ListenerSets = new Map();
   const trace: { [SERVER_PROVIDER]?: Function; provide(p: Function): () => void } = {
     provide(provider) {
       trace[SERVER_PROVIDER] = provider;
@@ -56,56 +56,16 @@ export function serverSlots(): ServerObserve {
       };
     }
   };
-  return (g[SERVER_SLOTS] = {
-    records: {
-      [SERVER_LISTENERS]: listeners,
-      subscribe(type: string, listener: Function) {
-        let set = listeners.get(type);
-        if (!set) listeners.set(type, (set = new Set()));
-        set.add(listener);
-        return () => {
-          set!.delete(listener);
-        };
-      }
-    },
-    trace
-  } as unknown as ServerObserve);
-}
-
-/**
- * The listeners for one record type, or `undefined` when there are none —
- * an emitter's cheap pre-check before it builds a record. Reads the shared
- * slot (any copy's), never module state.
- */
-export function recordListeners(type: string): Set<Function> | undefined {
-  const slots = serverSlots() as unknown as { records: { [SERVER_LISTENERS]: ListenerSets } };
-  const set = slots.records[SERVER_LISTENERS].get(type);
-  return set !== undefined && set.size > 0 ? set : undefined;
-}
-
-/**
- * Delivers a completed record to its listeners, synchronously. Snapshot
- * iteration: a listener unsubscribing (itself or another) mid-delivery
- * neither skips nor double-calls anyone this round. A throwing listener is
- * reported and the rest run — an observer can't break the render.
- */
-export function deliverRecord(listeners: Set<Function>, record: unknown, live: unknown): void {
-  for (const listener of [...listeners]) {
-    try {
-      listener(record, live);
-    } catch (error) {
-      console.error(error);
-    }
-  }
+  return (g[SERVER_SLOTS] = { trace } as unknown as ServerObserve);
 }
 
 /**
  * One `<Loading>` boundary that WAITED during a server render — discovered
  * with pending async, then settled — delivered on
- * `OBSERVE.server.records.subscribe("boundary", …)` once it settled and,
- * when a `<Reveal>` group held its swap, once it was revealed. A boundary
- * whose content rendered on its first pass emits nothing: there was no wait
- * to attribute, the same rule as the client's `hold` records.
+ * `OBSERVE.records.subscribe("boundary", …)` once it settled and, when a
+ * `<Reveal>` group held its swap, once it was revealed. A boundary whose
+ * content rendered on its first pass emits nothing: there was no wait to
+ * attribute, the same rule as the client's `hold` records.
  */
 export interface BoundaryEvent {
   /**
@@ -166,27 +126,6 @@ export interface BoundaryLive {
 export type BoundaryListener = (event: BoundaryEvent, live: BoundaryLive) => void;
 
 /**
- * The server records channel — `OBSERVE.server.records.subscribe(type,
- * listener)`, the server twin of `OBSERVE.attribution.subscribe(type, …)`.
- * A record is a completed, serializable summary of one thing the server
- * did — a `<Loading>` boundary, a server-function execution — delivered
- * synchronously the moment it is complete, with the live handles an
- * in-process consumer may want (the thrown error, the request event)
- * passed BESIDE it rather than on it. Any number of listeners; none can
- * alter what it observes; one that throws is reported and the rest run.
- *
- * Declared here with the record this runtime emits; the runtimes above add
- * theirs by augmentation through `"solid-js"` — `@solidjs/web`'s server
- * entries the `"invocation"` record — so the union of record types is
- * whatever the loaded runtimes declared. (One augmenter per interface, one
- * module name: see `ServerObserve` in the core for why.)
- */
-export interface ServerRecords {
-  /** `<Loading>` boundaries that waited during a server render — see `BoundaryEvent`. */
-  subscribe(type: "boundary", listener: BoundaryListener): () => void;
-}
-
-/**
  * The trace-provider slot — `OBSERVE.server.trace`. The CONTAINER is this
  * runtime's (a single replaceable provider, see `serverSlots`); what a
  * provider is — its argument, its answer — is the web runtime's, which
@@ -195,13 +134,16 @@ export interface ServerRecords {
  */
 export interface ServerTrace {}
 
-// The server surface's members, onto the core's empty `ServerObserve`. This
-// is the ONE augmentation of that interface; web augments the two members'
-// interfaces above, through `"solid-js"`.
+// This runtime's record, onto the core's catalogue; and the server surface's
+// member, onto the core's empty `ServerObserve`. These are the ONE
+// augmentation of each; web augments `HostRecordTypes` and `ServerTrace`,
+// through `"solid-js"`.
 declare module "@solidjs/signals" {
+  interface RecordTypes {
+    /** `<Loading>` boundaries that waited during a server render — see `BoundaryEvent`. */
+    boundary: { event: BoundaryEvent; live: BoundaryLive };
+  }
   interface ServerObserve {
-    /** Completed server records by type — see `ServerRecords`. */
-    records: ServerRecords;
     /** The trace-context provider slot — see `ServerTrace`. */
     trace: ServerTrace;
   }

@@ -528,8 +528,8 @@ in the same order: derive both reads from the same inputs so they start
 together (read ALL async sources before using any), or, if the dependency is
 intrinsic, preload the dependent data or join the requests. Two flights are
 `info` — a lead; three or more `warn`. The boundary is `data.boundary`; a
-captured artifact has its record in `artifact.server.boundaries` (same
-`id`) and the server-function calls under it in `artifact.server.invocations`
+captured artifact has its record in `artifact.records.boundary` (same
+`id`) and the server-function calls under it in `artifact.records.invocation`
 (`boundary` field).
 
 ### SSR_CLIENT_CONTENT_MASKED

@@ -83,9 +83,9 @@ describe("export conditions: dev/prod artifact pairing", () => {
       "@solidjs/web/frames": "web/frames/dist/client.dev.js",
       // `./frames/server` is server-only by name; it has no client half.
       "@solidjs/web/frames/server": "web/frames/dist/server.dev.js",
-      // The server-functions client has no `_SOLID_DEV_` gates, hence no dev
-      // artifact — the one intentional gap in the grid.
-      "@solidjs/web/server-functions": "web/server-functions/dist/client.js"
+      // The server-functions client's dev artifact: the cookies dev check
+      // and the `"call"` record's emitter (an observe feature dev keeps).
+      "@solidjs/web/server-functions": "web/server-functions/dist/client.dev.js"
     });
   });
 
@@ -163,19 +163,20 @@ describe("export conditions: dev/prod artifact pairing", () => {
 
   test("`observe` selects the observe artifacts where wiring exists and falls through to prod elsewhere", () => {
     // The observe tier is a build flavor only for entries that contain
-    // wiring (labels, attribution hook sites, the server observe surface):
-    // solid-js (client and server), @solidjs/web's client and every
-    // @solidjs/web SERVER entry, @solidjs/universal, and @solidjs/signals.
-    // The frames and server-functions CLIENT halves have none, so under
-    // `observe` they must resolve to their PROD artifacts — never dev (dev
-    // would re-enable the checks).
+    // wiring (labels, attribution hook sites, record emitters): solid-js
+    // (client and server), @solidjs/web's client and every @solidjs/web
+    // SERVER entry, the frames and server-functions CLIENT halves (the
+    // `"frame"` and `"call"` records on `OBSERVE.records`),
+    // @solidjs/universal, and @solidjs/signals. An entry with no wiring
+    // (storage) falls through to prod — never dev (dev would re-enable the
+    // checks).
     expect(resolveAll(["browser", "observe"])).toEqual({
       "solid-js": "solid/dist/solid.observe.js",
       "@solidjs/web": "web/dist/web.observe.js",
-      "@solidjs/web/frames": "web/frames/dist/client.js",
+      "@solidjs/web/frames": "web/frames/dist/client.observe.js",
       // `./frames/server` is server-only by name; the server tier applies.
       "@solidjs/web/frames/server": "web/frames/dist/server.observe.js",
-      "@solidjs/web/server-functions": "web/server-functions/dist/client.js"
+      "@solidjs/web/server-functions": "web/server-functions/dist/client.observe.js"
     });
     expect(resolveAll(["observe"])).toEqual({
       // Every server entry flips together: each server bundle carries its

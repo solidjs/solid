@@ -1,8 +1,7 @@
 /**
- * The `"invocation"` record on `OBSERVE.server.records` — the server
- * runtime's observe surface and its first record: every server-function
- * execution, on both dispatch legs, delivered to any number of listeners
- * once it settles.
+ * The `"invocation"` record on `OBSERVE.records` — the server-function
+ * runtime's record: every execution, on both dispatch legs, delivered to
+ * any number of listeners once it settles.
  *
  * This is an OBSERVER's seam, next to `wrapInvocation` (the app's single
  * policy hook). The properties that make it one, each pinned here:
@@ -56,7 +55,7 @@ afterAll(() => {
   delete (globalThis as any)[RequestContext];
 });
 
-const channel = () => OBSERVE!.server.records;
+const channel = () => OBSERVE!.records;
 
 function record() {
   const records: Array<{ event: InvocationEvent; live: InvocationLive }> = [];
@@ -90,14 +89,17 @@ function underRender<T>(fn: () => T): T {
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe("the install point", () => {
-  it("is populated on OBSERVE.server by the server runtime, once, and shared across bundles", () => {
+  it("is the core's records channel, one object shared across bundles", () => {
     expect(OBSERVE).toBeDefined();
     // Source (`@solidjs/web` alias), the prod artifact and the observe
-    // artifact have all loaded by now; the channel is one object.
+    // artifact have all loaded by now; the channel is one object, the one
+    // registered on globalThis — which is how the observe artifact's
+    // emitter reaches it without importing the framework.
     expect(typeof channel().subscribe).toBe("function");
-    // The surface as shipped: the records channel and the trace-provider
-    // slot (see trace.ts / server-trace.spec.tsx). A new member joins here.
-    expect(Object.keys(OBSERVE!.server).sort()).toEqual(["records", "trace"]);
+    expect((globalThis as any)[Symbol.for("@solidjs/signals/observe/records")]).toBe(channel());
+    // The server surface as shipped: the trace-provider slot only (see
+    // trace.ts / server-trace.spec.tsx). A new member joins here.
+    expect(Object.keys(OBSERVE!.server)).toEqual(["trace"]);
   });
 });
 
@@ -323,19 +325,22 @@ describe("tiers", () => {
   });
 
   it("the emitter folds out of every prod server artifact and rides the observe/dev ones that invoke", () => {
-    // The channel itself (subscribe, the listener set) is solid-js's server
-    // entry's — one slot on `OBSERVE.server` across every bundle copy,
-    // present before any web entry loads. What the web artifacts carry is the
-    // EMITTER: the server-function handler reaching for the listener set by
-    // its registered-symbol name, the one string that survives minification.
-    // So the mark rides the server-functions observe/dev artifacts (the only
-    // entry that runs invocations) and no prod artifact anywhere.
-    const marker = "solid-js/observe/server/listeners";
+    // The channel itself (subscribe, the listener sets) is the core's — one
+    // object on `OBSERVE.records` across every bundle copy, present before
+    // any web entry loads. What the web artifacts carry is the EMITTER: the
+    // server-function handler reaching for the channel by its
+    // registered-symbol name, the one string that survives minification.
+    // So the mark rides the observe/dev artifacts of the entries that emit —
+    // server-functions (invocations) and frames (frame streams; see
+    // server-frame-records.spec.tsx) — and no prod artifact anywhere.
+    const marker = "@solidjs/signals/observe/records";
     const has = (file: string) => readFileSync(file, "utf8").includes(marker);
     for (const entry of ["dist", "server-functions/dist", "frames/dist"]) {
       expect(has(`${entry}/server.js`), `${entry}/server.js`).toBe(false);
     }
-    expect(has("server-functions/dist/server.observe.js")).toBe(true);
-    expect(has("server-functions/dist/server.dev.js")).toBe(true);
+    for (const entry of ["server-functions/dist", "frames/dist"]) {
+      expect(has(`${entry}/server.observe.js`), `${entry}/server.observe.js`).toBe(true);
+      expect(has(`${entry}/server.dev.js`), `${entry}/server.dev.js`).toBe(true);
+    }
   });
 });

@@ -156,6 +156,13 @@ export type {
   Dev,
   Observe,
   ServerObserve,
+  Records,
+  RecordTypes,
+  HostRecordTypes,
+  RecordType,
+  RecordEvent,
+  RecordLive,
+  RecordListener,
   AttributionHooks,
   AttributionSlot,
   InteractionRef,
@@ -170,18 +177,18 @@ export type {
   DiagnosticSeverity,
   DiagnosticSubject
 } from "@solidjs/signals";
-// The server observe surface's types — the members solid-js declares onto
-// `OBSERVE.server` (`records`, `trace`) and the record it emits — and with
-// them the `ServerObserve` augmentation that module declares: the published
-// types resolve to THIS entry under every condition, so this re-export is
-// what puts the surface in an observer's program (and what `@solidjs/web`
-// augments further, through `"solid-js"`). Type-only — the module's runtime
+// The server runtime's observe types — the `"boundary"` record it emits on
+// `OBSERVE.records` and the member it declares onto `OBSERVE.server`
+// (`trace`) — and with them the `RecordTypes`/`ServerObserve` augmentations
+// that module declares: the published types resolve to THIS entry under
+// every condition, so this re-export is what puts them in an observer's
+// program (and what `@solidjs/web` builds on, augmenting `HostRecordTypes`
+// and `ServerTrace` through `"solid-js"`). Type-only — the module's runtime
 // never enters the client build.
 export type {
   BoundaryEvent,
   BoundaryLive,
   BoundaryListener,
-  ServerRecords,
   ServerTrace
 } from "./server/observe.js";
 export type {

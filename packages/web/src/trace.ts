@@ -84,7 +84,7 @@ export type TraceProvider = (request: Request | undefined) => Partial<TraceConte
 // empty there); what a provider IS is this runtime's, so `provide` is typed
 // here, by augmentation through `solid-js` — the peer every consumer of this
 // package resolves, and the one module name solid-js's interfaces are
-// augmented through (see the core's `ServerObserve` note on why one).
+// augmented through (see the core's `RecordTypes` note on why one).
 declare module "solid-js" {
   interface ServerTrace {
     /** Installs `provider`, replacing any current one. Returns the uninstall. */

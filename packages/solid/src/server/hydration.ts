@@ -11,15 +11,10 @@ import {
   runWithBoundaryErrorContext,
   RevealGroupContext
 } from "./signals.js";
-import { ownerPath } from "@solidjs/signals";
+import { OBSERVE, ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
-import {
-  deliverRecord,
-  recordListeners,
-  type BoundaryEvent,
-  type BoundaryLive
-} from "./observe.js";
+import type { BoundaryEvent, BoundaryLive } from "./observe.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
 import type { Accessor } from "./signals.js";
 import type { Element as SolidElement } from "../types.js";
@@ -101,17 +96,17 @@ function ssrLoadingBoundary(
   // the convergence budget's counter below.
   let passes = 0;
 
-  // Observe tier: the boundary RECORD (`OBSERVE.server.records`, type
-  // `"boundary"` — see `BoundaryEvent`), for a boundary that waited. Cost
-  // is paid only with a listener (or in dev, where the checks below read
-  // the same facts): one `performance.now()` at discovery, one at settle.
-  // Delivered at settle; when a `<Reveal>` group coordinates the fragment
-  // swap the record waits for the group's `onReveal` so it can carry
-  // `heldMs` — the time finished content sat behind its siblings. (A group
-  // that never reveals — the stream abandoned — loses the record;
+  // Observe tier: the boundary RECORD (`OBSERVE.records`, type `"boundary"`
+  // — see `BoundaryEvent`), for a boundary that waited. Cost is paid only
+  // with a listener (or in dev, where the checks below read the same
+  // facts): one `performance.now()` at discovery, one at settle. Delivered
+  // at settle; when a `<Reveal>` group coordinates the fragment swap the
+  // record waits for the group's `onReveal` so it can carry `heldMs` — the
+  // time finished content sat behind its siblings. (A group that never
+  // reveals — the stream abandoned — loses the record;
   // `SSR_STREAM_ABANDONED` is that request's account.)
-  const recordListenersSet = IS_OBSERVE ? recordListeners("boundary") : undefined;
-  const timed = IS_DEV || recordListenersSet !== undefined;
+  const observed = IS_OBSERVE ? OBSERVE!.records.observed("boundary") : false;
+  const timed = IS_DEV || observed;
   const discoveredAt = timed ? performance.now() : 0;
   let recorded = false;
   let streamedOnError = false;
@@ -120,7 +115,7 @@ function ssrLoadingBoundary(
     if (recorded) return;
     recorded = true;
     if (IS_DEV) checkWaited(outcome, timed ? performance.now() - discoveredAt : 0);
-    if (!recordListenersSet) return;
+    if (!observed) return;
     const settledAt = performance.now();
     const event: BoundaryEvent = {
       id,
@@ -145,11 +140,11 @@ function ssrLoadingBoundary(
     if (revealGroup && done !== undefined) {
       pendingRecord = () => {
         event.heldMs = performance.now() - settledAt;
-        deliverRecord(recordListenersSet, event, live);
+        OBSERVE!.records.emit("boundary", event, live);
       };
       return;
     }
-    deliverRecord(recordListenersSet, event, live);
+    OBSERVE!.records.emit("boundary", event, live);
   };
   const onReveal = () => {
     const deliver = pendingRecord;
@@ -419,7 +414,7 @@ function ssrLoadingBoundary(
   }
 
   const regResult = revealGroup
-    ? revealGroup.register(id, recordListenersSet ? { onReveal } : undefined)
+    ? revealGroup.register(id, observed ? { onReveal } : undefined)
     : null;
   const collapseFallback = regResult?.collapseFallback ?? false;
 

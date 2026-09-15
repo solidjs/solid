@@ -21,6 +21,7 @@ import {
   getServerFunctionsCodec
 } from "../../server-functions/src/shared.js";
 import { REVALIDATE_HEADER } from "../../src/response.js";
+import { observeFrameApply } from "../../src/observe.js";
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API
@@ -181,30 +182,43 @@ export async function applyFrameResponse(response, host, options = {}) {
   const as = options.as;
   const version = options.version;
   const perFrame = typeof version === "function" ? new Map() : null;
+  // Observe tier: the client half of the `"frame"` record (`OBSERVE.records`,
+  // see `FrameAppliedEvent`) — one per stream in the response, start →
+  // complete as read here, with the chunk census. Nothing is read, not even
+  // the clock, without a listener.
+  const observation = observeFrameApply(response);
   const reader = new ChunkReader(response.body);
-  let result = await reader.next();
-  while (!result.done) {
-    const chunk = JSON.parse(result.value);
-    if (chunk.type === "outcome") {
-      if (options.onOutcome) options.onOutcome(chunk.payload);
-    } else {
-      if (as !== undefined && chunk.id === rootId) chunk.id = as;
-      if (perFrame) {
-        let v = perFrame.get(chunk.id);
-        if (v === undefined) perFrame.set(chunk.id, (v = version(chunk.id)));
-        chunk.version = v;
-      } else if (version !== undefined) chunk.version = version;
-      // Codec-free until a `data` chunk actually arrives: a host whose
-      // deserializer loads lazily (`prepareData`) gets awaited here, and
-      // because the loop is sequential every later chunk — the records
-      // referencing this data included — queues behind the load. Chunk
-      // ORDER is the only contract downstream (network jitter already
-      // stretches time between chunks), so nothing else observes the wait.
-      if (chunk.type === "data" && host.prepareData) await host.prepareData();
-      host.apply(chunk);
+  try {
+    let result = await reader.next();
+    while (!result.done) {
+      const chunk = JSON.parse(result.value);
+      if (chunk.type === "outcome") {
+        if (options.onOutcome) options.onOutcome(chunk.payload);
+      } else {
+        const wireId = chunk.id;
+        if (as !== undefined && chunk.id === rootId) chunk.id = as;
+        if (perFrame) {
+          let v = perFrame.get(chunk.id);
+          if (v === undefined) perFrame.set(chunk.id, (v = version(chunk.id)));
+          chunk.version = v;
+        } else if (version !== undefined) chunk.version = version;
+        if (observation) observation.chunk(chunk, wireId);
+        // Codec-free until a `data` chunk actually arrives: a host whose
+        // deserializer loads lazily (`prepareData`) gets awaited here, and
+        // because the loop is sequential every later chunk — the records
+        // referencing this data included — queues behind the load. Chunk
+        // ORDER is the only contract downstream (network jitter already
+        // stretches time between chunks), so nothing else observes the wait.
+        if (chunk.type === "data" && host.prepareData) await host.prepareData();
+        host.apply(chunk);
+      }
+      result = await reader.next();
     }
-    result = await reader.next();
+  } catch (error) {
+    if (observation) observation.end(error);
+    throw error;
   }
+  if (observation) observation.end();
   return as !== undefined ? as : rootId;
 }
 

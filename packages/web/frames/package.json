@@ -8,6 +8,14 @@
   "exports": {
     ".": {
       "browser": {
+        "development": {
+          "types": "../types/frames/client.d.ts",
+          "default": "./dist/client.dev.js"
+        },
+        "observe": {
+          "types": "../types/frames/client.d.ts",
+          "default": "./dist/client.observe.js"
+        },
         "types": "../types/frames/client.d.ts",
         "default": "./dist/client.js"
       },

@@ -607,20 +607,25 @@ Each `DiagnosticEvent` has:
 | `nodeName`  | `string?`                     | Debug name of the signal/node involved                                                                                        |
 | `data`      | `object?`                     | Additional context                                                                                                            |
 
-### `OBSERVE.server` — the server runtime's observe surface
+### `OBSERVE.records` — the runtimes' records channel
 
-`OBSERVE` is one object per process, shared by every package that reads it, so it is also where the **server** runtime publishes what it has to observe. `OBSERVE.server` is an empty slot on the object `@solidjs/signals` ships; `solid-js`'s **server entry** fills it the moment it evaluates, with containers it registers once per process on `globalThis` (under `Symbol.for("solid-js/observe/server")`). Two consequences an observer can rely on: the slots exist as soon as `import { OBSERVE } from "solid-js"` resolves on the server — an APM's `init()` can subscribe or install a provider before `@solidjs/web` (which emits into them) has loaded, and without importing it — and a host that bundles the runtime into its server build and instruments through a `--import`ed module still finds one listener set and one provider across both copies. Same tiers as the rest of `OBSERVE`: present in dev and observe builds, absent in prod — the prod server artifacts fold the surface and every emit site out, so an observer that finds `OBSERVE === undefined` has nothing to subscribe to. On the client `OBSERVE.server` stays empty.
-
-The types layer the way the packages do, each layer augmenting only the one beneath it: `ServerObserve` is declared empty in `@solidjs/signals`; `solid-js` augments it with its two members, `records: ServerRecords` and `trace: ServerTrace`, declaring both interfaces itself; `@solidjs/web` augments those two through `declare module "solid-js"` with what it emits (the `"invocation"` record) and what it defines (the trace provider). So `OBSERVE.server.records.subscribe(…)` types with both packages' records without `@solidjs/web` having to be the place `OBSERVE` is imported from. Observers import `OBSERVE` from `solid-js`, as on the client.
-
-Two members. The first is the **records channel**, `OBSERVE.server.records` — the server twin of `OBSERVE.attribution.subscribe(type, …)`: a record is a completed, serializable summary of one thing the server did, delivered synchronously the moment it is complete, with the live handles an in-process observer may want passed beside it rather than on it. Subscribe by record type; the types available are whatever the loaded runtimes declared. Two so far.
-
-The **`"boundary"` record** (from `solid-js`) is one `<Loading>` boundary that **waited** during a server render:
+Beside diagnostics (findings) and attribution (re-runs and holds), `OBSERVE` carries **records**: a record is a completed, serializable summary of one thing a runtime did — a boundary that waited, a server-function call, a frame stream — delivered synchronously the moment it is complete, with the live handles an in-process observer may want (the request, the response, the value as thrown) passed **beside** it rather than on it. One channel, `OBSERVE.records`, on both platforms; subscribe by record type, and the types available are whatever the loaded runtimes declared:
 
 ```js
 import { OBSERVE } from "solid-js";
 
-const off = OBSERVE.server.records.subscribe("boundary", (event, live) => {
+const off = OBSERVE.records.subscribe("invocation", (event, live) => { … });
+OBSERVE.records.observed("invocation"); // true while a listener is subscribed — the emitters' pre-check
+```
+
+The channel is `@solidjs/signals`'s, created once per **process** and registered on `globalThis` under `Symbol.for("@solidjs/signals/observe/records")`. Two consequences an observer can rely on: it exists as soon as `import { OBSERVE } from "solid-js"` (or from the core) resolves — an APM's `init()` can subscribe before the runtimes that emit have loaded, and without importing them — and a host that bundles the runtime into its server build and instruments through a `--import`ed module still finds one listener set across both copies. The same registration is how the wire layers emit: `@solidjs/web`'s server-function client is bundled without a framework import (a router or a non-Solid caller can use it), so it reaches the channel by the registered name rather than importing `solid-js`. Same tiers as the rest of `OBSERVE`: present in dev and observe builds, absent in prod — the prod artifacts fold the channel and every emit site out, and an emitter with no listener reads no clock. Listeners are observers: a throwing listener is reported through `console.error` and the call, the render, the stream and the other listeners are unaffected; nothing a listener does reaches the result. This is the seam for tooling that watches the app — APM adapters, devtools — and deliberately not a policy hook: `configureServerFunctionsServer({ wrapInvocation })` remains the single, last-writer-wins wrap around execution for code that must **change** a call, and an observer that installed itself there would either displace the host's policy or be displaced by it. Subscribe here, wrap there.
+
+The types layer the way the packages do, each augmenting only the one beneath it: `@solidjs/signals` declares the catalogue empty — `RecordTypes`, extending `HostRecordTypes`; `solid-js` augments `RecordTypes` with its record (`"boundary"`); `@solidjs/web` augments `HostRecordTypes`, through `declare module "solid-js"`, with what it emits (`"invocation"`, `"call"`, `"frame"`). So `OBSERVE.records.subscribe(…)` types with every loaded runtime's records from a single `solid-js` import, and each interface has exactly one augmenter (TypeScript merges an augmentation onto the declaration its alias resolves to; two packages augmenting one interface through different aliases would not both land). Four records so far.
+
+The **`"boundary"` record** (from `solid-js`, server) is one `<Loading>` boundary that **waited** during a server render:
+
+```js
+const off = OBSERVE.records.subscribe("boundary", (event, live) => {
   // event: { id, at, durationMs, heldMs, passes,
   //          outcome: "settled" | "fallback" | "client" | "error",
   //          streamed, revealGroup?, ownerPath? }
@@ -632,10 +637,10 @@ A boundary whose content rendered on its first pass emits nothing — there was 
 
 Two dev checks are derived from these facts, so the console and a test's `expectNoDiagnostics` see what an agent would otherwise have to read off the record: `ASYNC_WATERFALL` (server) when `passes - 1` sequential flights reach two, and `SSR_CLIENT_CONTENT_MASKED` when a client-only outcome surfaced only after a wait. Both key by `data.boundary` — the record's `id`.
 
-The **`"invocation"` record** (from `@solidjs/web`) is one server-function execution:
+The **`"invocation"` record** (from `@solidjs/web`, server) is one server-function execution:
 
 ```js
-const off = OBSERVE.server.records.subscribe("invocation", (event, live) => {
+const off = OBSERVE.records.subscribe("invocation", (event, live) => {
   // event: { id, direct, at, durationMs, outcome: "ok" | "error", deferred?, boundary? }
   // live:  { event: RequestEvent, request?, args, result? | error? }
 });
@@ -643,11 +648,42 @@ const off = OBSERVE.server.records.subscribe("invocation", (event, live) => {
 
 One record per call, delivered when the call **settles** — synchronously for a synchronous direct call, at resolution for a promise. `id` is the function's registered id; `direct` says whether this was an in-process SSR call (`true`, no `request`) or HTTP dispatch (`false`, `request` is the `Request` the handler dispatched). `outcome: "error"` carries the value **as thrown** in `live.error` — the sanitized `Error` the wire gets in production is the client's view, not the observer's. `deferred: true` marks a result the caller drives after the record (a stream or async generator): `durationMs` then measures to the handoff, not to the last chunk. For a direct call made during a `<Loading>` boundary's render pass, `boundary` is that boundary's hydration id — the `"boundary"` record's `id` — so a boundary's wait reads as the server-function calls it consisted of; absent for a call outside any boundary's pass (the shell) and for HTTP dispatch.
 
-`@solidjs/diagnostics` folds both record types into the artifact it captures (`artifact.server.{boundaries, invocations}`, format v5) when the scenario runs under the server runtime — `captureArtifact(() => renderToStream(…))` — so a server render's waits and calls are evidence a test or an agent can hold beside the findings; see the package README.
+The **`"call"` record** (from `@solidjs/web`, client) is one server-function call made from the browser — the invocation's twin, seen from the caller's end:
 
-Listeners on the channel are observers: a throwing listener is reported through `console.error` and the render or call and the other listeners are unaffected; nothing a listener does reaches the result. This is the seam for tooling that watches the server — APM adapters, devtools — and deliberately not a policy hook: `configureServerFunctionsServer({ wrapInvocation })` remains the single, last-writer-wins wrap around execution for code that must **change** a call (guards, error mapping), and an observer that installed itself there would either displace the host's policy or be displaced by it. Subscribe here, wrap there.
+```js
+const off = OBSERVE.records.subscribe("call", (event, live) => {
+  // event: { id, at, durationMs, method: "GET" | "POST", outcome: "ok" | "error", status?, origin?, deferred? }
+  // live:  { args, response?, result? | error? }
+});
+```
 
-The second member is the **trace-provider slot**, `OBSERVE.server.trace`:
+One record per call, delivered when the caller's await settles: `durationMs` is the request built and sent, the response received and decoded (or claimed by the configured `responseHandler`) — the whole wait the caller saw — so against the server's `"invocation"` of the same `id` the difference is the wire. `method` is `"GET"` for a GET-encoded read (`GET(fn)`), `"POST"` otherwise; `status` is the response's HTTP status once one arrived and absent when the fetch itself rejected (`live.response` likewise). `outcome: "error"` carries the value as thrown to the caller — a decoded server error, or the transport's own failure — in `live.error`. `deferred: true` marks a streaming result (a `live()` source, a generator), timed to handoff. A call an integration answered locally (a handler's `intercept`) made no request and emits nothing. Emitted by the observe and dev artifacts of the server-function client (`@solidjs/web/server-functions/client`, the `observe`/`development` export conditions).
+
+`origin` is what the call ran for, when the attribution engine is enabled and knows: the interaction whose handler made it (`{ kind: "interaction", name: "click", target, at }`), the navigation whose data needed it (`{ kind: "navigation", name: "/users/:id", …, interaction }` — a `createAsync` calling the server inside the recompute the location write caused), an effect or action frame, an async landing's recompute calling again. It is read at dispatch through `OBSERVE.attribution.currentOrigin()` and is the engine's **own** origin object — the same one `InteractionEvent.origin`, `NavigationEvent.origin` and `HoldEvent.origin`/`.interaction` carry — so an observer puts the call under the interaction's record by identity, not by a time window. A call after an `await` in a handler carries none (the escape a write there has); without an engine the field is absent.
+
+The **`"frame"` record** (from `@solidjs/web`, both sides) is one frame stream — a server component rendered to the frame transport ([RFC 11](11-server-components.md)) — from its `start` chunk to its `complete`, as **produced** on the server or as **applied** on the client, `side` saying which:
+
+```js
+const off = OBSERVE.records.subscribe("frame", (event, live) => {
+  // event: { side: "server", id, version, at, durationMs, shellMs?,
+  //          outcome: "complete" | "error", chunks, fragments, slots, regions, errors }
+  //     or { side: "client", id, version, at, durationMs, shellMs?, address?,
+  //          outcome: "complete" | "truncated" | "error", chunks, fragments, slots, regions, errors }
+  // live:  { error?, response? }
+});
+```
+
+One record per stream, delivered at `complete`. `id` is the frame's on the wire: for a server-function response that is a frame stream (`frameTransformResult`), the function's id — the same `id` the call's `"invocation"` and `"call"` records carry, so all three join by it (the invocation is the execution, the call is the caller's wait, the frame is the response that streamed); for a bare `renderToFrameStream`, what the producer named it or `""`. `at` is `performance.now()` at `start`; `durationMs` runs start → `complete`, the whole stream; `shellMs` runs start → the shell (`html`) chunk — time to first content — and is absent when no shell was produced. The census — `chunks` (everything between `start` and `complete`), `fragments` (`<Loading>` content that settled after the shell), `slots` (render-prop invocations the client fills), `regions` (nested server-content regions: `html` chunks addressed to a child frame id), `errors` (`error` chunks) — is the wire, so a span can carry what the stream was made of, and the two halves share it: a consumer joins them by `id` and `version` and reads the wire as the difference.
+
+The **server half** (`renderServerComponent`, `renderToFrameStream`, the handler path): `version` is what the producer stamped; `outcome` is `"complete"` when the render ran to the end, fragment failures included (those are counted in `errors`, each having revealed its fallback and ridden a keyed `error` chunk), and `"error"` when the render threw synchronously — the stream then carried the failure as its only content and completed anyway, and `live.error` is the value as thrown. `<Loading>` boundaries inside the frame emit their own `"boundary"` records. The **client half** (`applyFrameResponse`): `version` is the consumer's restamp — the number the frame's stale-guard saw — and `address` is the local id the chunks were applied under when the consumer remapped the wire id onto its own boundary (the call's address, for the server-component transport), absent when applied under the wire id; `outcome` is `"complete"` when the `complete` chunk arrived, `"truncated"` when the body ended before it (the connection dropped, the producer abandoned the stream), `"error"` when the read failed (a malformed chunk, a body error) with the failure in `live.error`; `live.response` is the response the stream was read from. A single-flight response carries one stream per frame it refreshed; each is its own record, on both sides. Emitted by the observe and dev artifacts of the frames entry on either platform (`frames/dist/server.observe.js`, `client.observe.js`, and the dev pair).
+
+`@solidjs/diagnostics` folds every record type into the artifact it captures — `artifact.records.{boundary, invocation, frame, call}`, format v6, one table per type — on either platform: `captureArtifact(() => renderToStream(…))` on the server, the browser bridge in the page; so a render's waits and calls and a page's requests are evidence a test or an agent can hold beside the findings. See the package README.
+
+### `OBSERVE.server` — the trace-provider slot
+
+`OBSERVE.server` is an empty slot on the object `@solidjs/signals` ships; `solid-js`'s **server entry** fills it the moment it evaluates, with a container it registers once per process on `globalThis` (under `Symbol.for("solid-js/observe/server")`), so an APM's `init()` that imports only `solid-js` can install a provider before `@solidjs/web` has loaded, and a bundled server build instrumented through a `--import`ed module finds the same provider. The types layer as the records' do: `ServerObserve` is declared empty in `@solidjs/signals`; `solid-js` augments it with `trace: ServerTrace`, declaring the interface; `@solidjs/web` augments `ServerTrace` through `declare module "solid-js"` with the provider it defines. On the client `OBSERVE.server` stays empty.
+
+The one member is the **trace-provider slot**, `OBSERVE.server.trace`:
 
 ```js
 import { OBSERVE } from "solid-js";
@@ -666,7 +702,7 @@ const uninstall = OBSERVE.server.trace.provide(request => {
 });
 ```
 
-The runtime derives a request's trace itself in every tier — the W3C `traceparent` half is core HTTP behavior, see `getTraceContext()` in [RFC 12](12-ssr-http.md#the-trace-the-request-belongs-to-gettracecontext) — and this slot is how an observer overrides or extends that derivation **once, globally**, without a per-request entry point into the host: the provider is asked once per request (or per render), at the first read or at shell flush, and its answer merges over the derivation — fields it returns replace the derived ones, its `entries` merge by name over the runtime's `traceparent`. Everything the runtime emits for the browser (the `Server-Timing` metrics, the shell `<meta>` tags) then reflects the merged context, vendor entries included. One provider at a time — a later `provide` replaces the current one, the single-plugin shape rather than a chain — and a throwing provider is reported through `console.error` with the derivation left standing. A provider that answered is also what tells the runtime the trace is being recorded, so it is advertised to the browser even when nothing came in upstream.
+The runtime derives a request's trace itself in every tier — the W3C `traceparent` half is core HTTP behavior, see `getTraceContext()` in [RFC 12](12-ssr-http.md#the-trace-the-request-belongs-to-gettracecontext) — and this slot is how an observer overrides or extends that derivation **once, globally**, without a per-request entry point into the host: the provider is asked once per request (or per render), at the first read or at shell flush, and its answer merges over the derivation — fields it returns replace the derived ones, its `entries` merge by name over the runtime's `traceparent`. Everything the runtime emits for the browser (the `Server-Timing` metrics, the shell `<meta>` tags) then reflects the merged context, vendor entries included. One provider at a time — a later `provide` replaces the current one, the single-plugin shape rather than a chain — and a throwing provider is reported through `console.error` with the derivation left standing. A provider should answer **every field its vendor decides, `parentId` included**: the runtime derives `parentId` from the incoming `traceparent`, and a vendor whose browser SDK carries its own span ids on a second header (Sentry's `sentry-trace`) continues from _that_ — a provider answering only `traceId`/`spanId` ships a `parentId` that disagrees with the transaction the vendor records. A provider that answered is also what tells the runtime the trace is being recorded, so it is advertised to the browser even when nothing came in upstream.
 
 ## Diagnostic codes (quick reference)
 
@@ -787,8 +823,16 @@ OBSERVE
       () => setLocation(to)
     )
   : setLocation(to);
+// A runtime recording a fact of its own asks what a write here would be
+// stamped with — the engine's own interaction/navigation object, or
+// undefined — and puts it on its record (the web runtime's "call" record
+// does this at dispatch); an observer then joins the two by identity.
+const origin = OBSERVE.attribution.currentOrigin();
 // An external engine (devtools) installs into the same slot the built-in
-// one uses: OBSERVE.attribution.install(hooks) / .installed.
+// one uses: OBSERVE.attribution.install(hooks) / .installed. The installed
+// hooks are also registered on globalThis under
+// Symbol.for("@solidjs/signals/observe/attribution"), the records channel's
+// reach for a layer bundled without a framework import.
 // An observer that renders inside the app it watches (an APM adapter's
 // panel, devtools) marks its own root so neither channel reports it.
 createRoot(() => {

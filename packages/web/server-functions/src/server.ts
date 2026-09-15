@@ -84,7 +84,7 @@ import { RequestEvent } from "../../src/server.js";
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
 // emit would leave them dangling (implicit any for every consumer).
-import type { ServerFunction, ServerFunctionMetadata } from "./shared.js";
+import type { ServerFunction } from "./shared.js";
 
 export type {
   FlightDataConsumer,
@@ -564,26 +564,6 @@ export interface HandleServerFunctionOptions {
    */
   maxArguments?: number;
 }
-
-export interface ServerFunctionRequestCall {
-  type: "request";
-  id: string;
-  instance: string;
-  request: Request;
-  meta: ServerFunctionMetadata | undefined;
-  time: number;
-}
-
-export interface ServerFunctionResponseCall {
-  type: "response";
-  id: string;
-  instance: string;
-  response: Response;
-  meta: ServerFunctionMetadata | undefined;
-  time: number;
-}
-
-export type ServerFunctionCall = ServerFunctionRequestCall | ServerFunctionResponseCall;
 
 const config = {
   provideEvent: undefined,
@@ -1251,8 +1231,8 @@ export function createServerReference({ id, fn, name }) {
         const run = () => fn.apply(thisArg, args);
         // The wrapper must return run()'s value (this path stays
         // synchronous for synchronous functions). Observed as a whole —
-        // policy included — on `OBSERVE.server.records` ("invocation"); a no-op with
-        // no listener and outside observe builds.
+        // policy included — as the `"invocation"` record on `OBSERVE.records`;
+        // a no-op with no listener and outside observe builds.
         return observeInvocation({ id, direct: true, event: evt, args }, () =>
           wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()
         );
@@ -3063,18 +3043,6 @@ export function sanitizeServerError(value) {
       null
     );
   return new Error(GENERIC_SERVER_ERROR_MESSAGE);
-} /**
- * Client-only inspection seam. A no-op on this entry so isomorphic
- * `@solidjs/web/server-functions` imports resolve.
- */
-export function observeServerFunctionCalls(
-  observer: (call: ServerFunctionCall) => void
-): () => void;
-
-// Client-only inspection seam. Present as a no-op so isomorphic
-// `@solidjs/web/server-functions` imports resolve on the server entry.
-export function observeServerFunctionCalls() {
-  return () => {};
 } /**
  * Builds the url a reference is called at, for integrations composing action
  * urls the runtime did not render — a router turning a bound action into a

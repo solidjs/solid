@@ -1,3 +1,4 @@
+import type { ChangeOrigin } from "./attribution.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -167,6 +168,18 @@ export interface AttributionHooks {
    * registers / last one clears), not per flush.
    */
   boundaryFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void;
+  /**
+   * The one query on the surface: the provenance a root write performed at
+   * this moment would be stamped with — the innermost open frame (an effect
+   * callback, an action step, a navigation), the interaction the handler
+   * runs under, or, inside a recompute, the origin of the change that caused
+   * it — or `undefined` when none applies (external). For a runtime that
+   * records a fact of its own beside the engine's records — `@solidjs/web`'s
+   * `"call"` record stamps the server-function call it is about to make —
+   * so the fact joins the engine's interaction and navigation records by the
+   * identity of the object returned, not by time.
+   */
+  currentOrigin(): ChangeOrigin | undefined;
 }
 
 /** A user interaction, as a rendering runtime describes it to `withInteraction`. */
@@ -230,8 +243,19 @@ export type OriginRef = NavigationRef;
 
 export let attrHooks: AttributionHooks | null = null;
 
+/**
+ * The installed engine, registered on `globalThis` as well (the records
+ * channel's reason, see `Records`): a wire layer bundled without a framework
+ * import — `@solidjs/web`'s server-function client — stamps the records it
+ * emits through the engine's `currentOrigin`, and this is its reach. The
+ * module binding stays the core's own read (one null check per hook site);
+ * the registration mirrors it.
+ */
+const INSTALLED = Symbol.for("@solidjs/signals/observe/attribution");
+
 export function setAttributionHooks(hooks: AttributionHooks | null): void {
   attrHooks = hooks;
+  (globalThis as { [INSTALLED]?: AttributionHooks })[INSTALLED] = hooks ?? undefined;
 }
 
 /**
@@ -287,4 +311,17 @@ export function withOrigin<T>(ref: OriginRef, fn: () => T): T {
   } finally {
     hooks.originEnd();
   }
+}
+
+/**
+ * The provenance a root write performed now would carry, as the installed
+ * engine sees it (`AttributionHooks.currentOrigin`); `undefined` with no
+ * engine, or when nothing is in effect. Reachable as
+ * `OBSERVE.attribution.currentOrigin` — how a runtime stamps a fact of its
+ * own (a server-function call) with the interaction or navigation it ran
+ * for, so an observer joins the two by identity.
+ */
+export function currentOrigin(): ChangeOrigin | undefined {
+  const hooks = attrHooks;
+  return hooks === null ? undefined : hooks.currentOrigin();
 }

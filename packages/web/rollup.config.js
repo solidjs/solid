@@ -134,8 +134,9 @@ export default [
     // Observe client build (`observe` condition under `browser`): the three
     // interaction-provenance wraps in src/client.ts survive so attribution can
     // stamp root writes with the event that caused them; every dev-only check
-    // folds out. The only client entry with wiring — frames, server-functions
-    // and storage have none and fall through to prod under `observe`.
+    // folds out. The frames and server-functions clients have observe builds
+    // of their own (their `"frame"`/`"call"` records); storage has no wiring
+    // and falls through to prod under `observe`.
     input: "src/index.ts",
     output: { file: "dist/web.observe.js", format: "es" },
     external: ["solid-js", "solid-js/internal"],
@@ -209,11 +210,28 @@ export default [
     external: ["seroval", "seroval-plugins/web"],
     plugins
   },
+  // @solidjs/web/server-functions client — the wire layer, three tiers like
+  // the main entry: the `"call"` record's emitter (src/observe.ts) survives
+  // in the observe and dev artifacts and folds out of prod. The literal
+  // must be replaced in every build — unreplaced it is a truthy string and
+  // prod would take the observe branch (#2982).
   {
     input: "server-functions/src/client.ts",
     output: { file: "server-functions/dist/client.js", format: "es" },
     external: ["seroval", "seroval-plugins/web"],
-    plugins
+    plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    input: "server-functions/src/client.ts",
+    output: { file: "server-functions/dist/client.observe.js", format: "es" },
+    external: ["seroval", "seroval-plugins/web"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
+  },
+  {
+    input: "server-functions/src/client.ts",
+    output: { file: "server-functions/dist/client.dev.js", format: "es" },
+    external: ["seroval", "seroval-plugins/web"],
+    plugins: [replaceDev(true)].concat(plugins)
   },
   {
     // Client opt-in for codec-encoded arguments. Tiny by construction: its
@@ -288,6 +306,24 @@ export default [
     // not ship. The dev build below keeps them, selected via the `frames`
     // export's `development` condition — mirroring `web.js`/`dev.js`.
     plugins: [replaceDev(false), externalizeSharedTransport]
+      .concat(plugins)
+      .concat(assertFramesClientTransport)
+  },
+  {
+    // Observe build (`observe` export condition): the client half of the
+    // `"frame"` record (applyFrameResponse → src/observe.ts) survives at
+    // production speed; every dev check folds out.
+    input: "frames/src/client.ts",
+    output: { file: "frames/dist/client.observe.js", format: "es" },
+    external: [
+      "solid-js",
+      "@solidjs/web",
+      "seroval",
+      "seroval-plugins/web",
+      "@solidjs/web/server-functions/client",
+      "@solidjs/web/serialization/decode"
+    ],
+    plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
       .concat(assertFramesClientTransport)
   },
