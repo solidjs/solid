@@ -130,21 +130,63 @@ describe("TSRX diagnostics", () => {
     );
   });
 
-  test("compiler-generated deferred patterns remain available to control flow", async () => {
+  // #3474: the bindings pass through as the accessors Solid hands out, so a
+  // destructuring pattern there has nothing to destructure. The message is
+  // shared byte-for-byte with the Oxc frontend.
+  test.each([
+    {
+      name: "a destructured @for item with index",
+      source: `export function C({ rows }) @{
+  <ul>
+    @for (const { id } of rows; index i) { <li>{id}</li> }
+  </ul>
+}`,
+      message:
+        "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`) (3:16)"
+    },
+    {
+      name: "a destructured @for item with a custom key",
+      source: `export function C({ rows }) @{
+  <ul>
+    @for (const [first] of rows; key first) { <li>{first}</li> }
+  </ul>
+}`,
+      message:
+        "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`) (3:16)"
+    },
+    {
+      name: "a destructured @catch error binding",
+      source: `export function C() @{
+  @try { <Broken /> } @catch ({ message }, reset) { <p onClick={reset}>{message}</p> }
+}`,
+      message:
+        "A destructured `@catch` error binding is not supported: Solid passes the error as an accessor. Bind a name and read it as a call (`err().message`) (2:30)"
+    }
+  ])("rejects $name", async ({ source, message }) => {
+    await expect(compile(source)).rejects.toThrow(message);
+  });
+
+  test("default keyed @for still destructures the raw item", async () => {
     const code = await compile(`export function C({ rows }) @{
-  <>
-    @for (const { id, label = id } of rows; key id) {
-      <p>{label}</p>
-    }
-    @try {
-      <Broken />
-    } @catch ({ message }) {
-      <p>{message}</p>
-    }
-  </>
+  <ul>
+    @for (const { id, label = id } of rows) { <li>{label}</li> }
+  </ul>
 }`);
     expect(code).toContain("For");
-    expect(code).toContain("Errored");
+    expect(code).toMatch(/\(\{\s*id,\s*label = id\s*\}\) =>/);
+  });
+
+  test("accessor bindings pass through to For and Errored untouched", async () => {
+    const code = await compile(`export function C({ rows }) @{
+  <>
+    @for (const row of rows; index i; key row.id) { <p>{row().label}:{i()}</p> }
+    @try { <Broken /> } @catch (err, reset) { <p onClick={reset}>{err().message}</p> }
+  </>
+}`);
+    expect(code).toContain("row().label");
+    expect(code).toContain("err().message");
+    expect(code).not.toContain("__lazy");
+    expect(code).not.toContain("row()()");
   });
 
   test("syntax: 'jsx' disables TSRX routing even for .tsrx filenames", async () => {

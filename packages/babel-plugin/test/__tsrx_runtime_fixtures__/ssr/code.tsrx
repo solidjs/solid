@@ -5,7 +5,7 @@ export function Page({ items, show }) @{
     @if (show) {
       <ul>
         @for (const item of items; key item.id) {
-          <li>{item.label}</li>
+          <li>{item().label}</li>
         } @empty {
           <li>empty</li>
         }

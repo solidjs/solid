@@ -195,6 +195,12 @@ pub struct IfChain<'t> {
 }
 
 /// Runtime callback contract selected by the authored `index`/`key` clauses.
+///
+/// The bindings pass through to `For` exactly as authored (#3474): where
+/// Solid hands the callback an accessor, the author reads it as one
+/// (`item()`, `i()`), the same as in JSX. The mode only decides what the
+/// lowering emits for `keyed=` and which item positions cannot be
+/// destructured — destructuring an accessor is rejected with a diagnostic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ForCallbackMode {
     /// No index and no custom key: raw item.
@@ -217,18 +223,24 @@ impl ForCallbackMode {
         }
     }
 
+    /// Solid passes the item as an accessor in every non-default mode, so a
+    /// destructuring pattern in the item position has nothing to destructure.
     pub fn item_is_accessor(self) -> bool {
         self != Self::Default
-    }
-
-    pub fn index_is_accessor(self) -> bool {
-        self == Self::KeyedIndexed
     }
 
     pub fn emits_non_keyed_intent(self) -> bool {
         self == Self::Indexed
     }
 }
+
+/// Diagnostic for a destructured `@for` item where Solid passes an accessor.
+/// Shared text with the Babel frontend (`desugar.ts`).
+pub const FOR_ACCESSOR_DESTRUCTURING_MESSAGE: &str = "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`)";
+
+/// Diagnostic for a destructured `@catch` error binding. Shared text with the
+/// Babel frontend (`desugar.ts`).
+pub const CATCH_ACCESSOR_DESTRUCTURING_MESSAGE: &str = "A destructured `@catch` error binding is not supported: Solid passes the error as an accessor. Bind a name and read it as a call (`err().message`)";
 
 #[derive(Clone)]
 pub struct ForLoop<'t> {
@@ -285,15 +297,12 @@ impl<'t> Switch<'t> {
 }
 
 #[derive(Clone)]
-pub enum CatchBinding<'t> {
-    Identifier { name: &'t str },
-    Pattern(Node<'t>),
-}
-
-#[derive(Clone)]
 pub struct TryCatch<'t> {
     pub origin: Origin<'t>,
-    pub binding: Option<CatchBinding<'t>>,
+    /// The authored error binding name. Solid passes an `ErrorAccessor`; the
+    /// author reads it as `err()`. A destructuring pattern is rejected at
+    /// lowering (`CATCH_ACCESSOR_DESTRUCTURING_MESSAGE`).
+    pub binding: Option<&'t str>,
     pub reset: Option<Node<'t>>,
     pub body: TemplateBlock<'t>,
 }
@@ -626,7 +635,7 @@ fn lower_with_options<'t>(
         .map(|pattern| pattern.object())
         .collect();
     let (lazy_patterns, lazy_pattern_index) =
-        lower_lazy_patterns(authored_lazy_patterns, &control_flow)?;
+        lower_lazy_patterns(authored_lazy_patterns)?;
     let lazy_assignments = lazy_assignment_nodes
         .into_iter()
         .map(|node| {
@@ -747,6 +756,13 @@ fn lower_for<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
         .node_field("empty")
         .map(|empty| TemplateBlock::new(empty, "@empty"))
         .transpose()?;
+    let callback_mode = ForCallbackMode::from_clauses(index.is_some(), key.is_some());
+    if callback_mode.item_is_accessor() && pattern.ty() != "Identifier" {
+        return Err(SemanticError::new(
+            FOR_ACCESSOR_DESTRUCTURING_MESSAGE,
+            pattern,
+        ));
+    }
     Ok(ControlFlow::For(ForLoop {
         origin: Origin::new(node, true)?,
         pattern,
@@ -755,7 +771,7 @@ fn lower_for<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
         key,
         body,
         empty,
-        callback_mode: ForCallbackMode::from_clauses(index.is_some(), key.is_some()),
+        callback_mode,
     }))
 }
 
@@ -809,12 +825,13 @@ fn lower_try<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
             let binding = handler
                 .node_field("param")
                 .map(|param| match param.ty() {
-                    "Identifier" => Ok(CatchBinding::Identifier {
-                        name: param.str_field("name").unwrap_or(""),
-                    }),
-                    "ObjectPattern" | "ArrayPattern" => Ok(CatchBinding::Pattern(param)),
+                    "Identifier" => Ok(param.str_field("name").unwrap_or("")),
+                    "ObjectPattern" | "ArrayPattern" => Err(SemanticError::new(
+                        CATCH_ACCESSOR_DESTRUCTURING_MESSAGE,
+                        param,
+                    )),
                     _ => Err(SemanticError::new(
-                        "The @catch error binding must be an identifier, object pattern, or array pattern",
+                        "The @catch error binding must be an identifier",
                         param,
                     )),
                 })
@@ -842,7 +859,6 @@ fn lower_try<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
 
 fn lower_lazy_patterns<'t>(
     mut authored: Vec<Node<'t>>,
-    controls: &[ControlFlow<'t>],
 ) -> Result<(Vec<LazyPattern<'t>>, HashMap<RecordIndex, usize>), SemanticError> {
     authored.sort_by_key(|node| {
         let (start, end) = node.span().unwrap_or((u32::MAX, 0));
@@ -863,34 +879,6 @@ fn lower_lazy_patterns<'t>(
                 source_accessor: false,
             },
         );
-    }
-    for control in controls {
-        let pattern = match control {
-            ControlFlow::For(loop_)
-                if loop_.callback_mode.item_is_accessor() && loop_.pattern.ty() != "Identifier" =>
-            {
-                Some(loop_.pattern)
-            }
-            ControlFlow::Try(try_) => try_.catch.as_ref().and_then(|catch| match catch.binding {
-                Some(CatchBinding::Pattern(pattern)) => Some(pattern),
-                _ => None,
-            }),
-            _ => None,
-        };
-        if let Some(pattern) = pattern {
-            match patterns.get_mut(&pattern.object()) {
-                Some(site) => site.source_accessor = true,
-                None => {
-                    patterns.insert(
-                        pattern.object(),
-                        LazyPattern {
-                            origin: Origin::new(pattern, false)?,
-                            source_accessor: true,
-                        },
-                    );
-                }
-            }
-        }
     }
     let mut patterns = patterns.into_values().collect::<Vec<_>>();
     patterns.sort_by_key(|pattern| pattern.origin.span);
@@ -1279,8 +1267,8 @@ mod tests {
             <>\n\
               <style>.item { color: red; }</style>\n\
               <{Tag} /><div {title} />\n\
-              @for (const { name } of rows; index index) { <p>{name}:{index}</p> }\n\
-              @try { <Broken /> } @catch ({ message }) { <p>{message}</p> }\n\
+              @for (const row of rows; index index) { <p>{row().name}:{index}</p> }\n\
+              @try { <Broken /> } @catch (err) { <p>{err().message}</p> }\n\
             </>\n\
         }";
         let tape = parse(source);
@@ -1313,15 +1301,8 @@ mod tests {
             1
         );
         assert_eq!(module.lazy_assignments.len(), 1);
-        assert_eq!(module.lazy_patterns.len(), 4);
-        assert_eq!(
-            module
-                .lazy_patterns
-                .iter()
-                .filter(|pattern| pattern.source_accessor)
-                .count(),
-            2
-        );
+        assert_eq!(module.lazy_patterns.len(), 2);
+        assert!(module.lazy_patterns.iter().all(|pattern| !pattern.source_accessor));
         for pattern in &module.lazy_patterns {
             assert_eq!(
                 module
@@ -1388,8 +1369,10 @@ mod tests {
         );
         assert!(!modes[0].item_is_accessor());
         assert!(modes[1].emits_non_keyed_intent());
-        assert!(!modes[1].index_is_accessor());
-        assert!(modes[3].index_is_accessor());
+        assert!(modes[1].item_is_accessor());
+        assert!(modes[2].item_is_accessor());
+        assert!(modes[3].item_is_accessor());
+        assert!(!modes[3].emits_non_keyed_intent());
     }
 
     #[test]
@@ -1412,10 +1395,7 @@ mod tests {
         };
         assert!(try_.pending.is_some());
         let catch = try_.catch.as_ref().expect("catch");
-        assert!(matches!(
-            catch.binding,
-            Some(CatchBinding::Identifier { name: "error", .. })
-        ));
+        assert_eq!(catch.binding, Some("error"));
         assert_eq!(
             catch.reset.and_then(|node| node.str_field("name")),
             Some("reset")

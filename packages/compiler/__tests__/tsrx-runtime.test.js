@@ -391,7 +391,9 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     dispose();
   });
 
-  test("keeps keyed destructuring and catch patterns deferred", async () => {
+  test("passes For and Errored accessor bindings through as authored", async () => {
+    // #3474: the bindings are the accessors Solid hands out. `row()` and `i()`
+    // read live under a custom key, `err()` is the ErrorAccessor.
     const source = `
       import { createSignal, flush } from "solid-js";
       import { render } from "@solidjs/web";
@@ -410,14 +412,15 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
       export function App() @{
         <section>
           <ul>
-            @for (const { id, label = id, ...rest } of rows(); key id) {
-              <li data-id={id}>{label}:{rest.extra}</li>
+            @for (const row of rows(); index i; key row.id) {
+              const snapshot = row;
+              <li data-id={snapshot().id}>{i()}:{row().label ?? row().id}:{row().extra}</li>
             }
           </ul>
           @try {
             <Broken />
-          } @catch ({ message = "fallback", ...details }) {
-            <p class="error">{message}:{details.code}</p>
+          } @catch (err) {
+            <p class="error">{err().message}:{err().code}</p>
           }
         </section>
       }
@@ -437,8 +440,8 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
 
     const retained = root.querySelector('[data-id="2"]');
     expect([...root.querySelectorAll("li")].map(node => node.textContent)).toEqual([
-      "one:first",
-      "2:second"
+      "0:one:first",
+      "1:2:second"
     ]);
     expect(root.querySelector(".error").textContent).toBe("boom:E_BROKEN");
 
@@ -448,10 +451,39 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     ]);
     expect(root.querySelector('[data-id="2"]')).toBe(retained);
     expect([...root.querySelectorAll("li")].map(node => node.textContent)).toEqual([
-      "TWO:updated",
-      "3:third"
+      "0:TWO:updated",
+      "1:3:third"
     ]);
     dispose();
+  });
+
+  test("rejects destructuring where Solid passes an accessor", () => {
+    const cases = [
+      [
+        `export function App({ rows }) @{ <ul>@for (const { id } of rows; index i) { <li>{id}</li> }</ul> }`,
+        "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`)"
+      ],
+      [
+        `export function App({ rows }) @{ <ul>@for (const [first] of rows; key first) { <li>{first}</li> }</ul> }`,
+        "A destructured `@for` item binding is not supported together with `index` or `key`"
+      ],
+      [
+        `export function App() @{ @try { <p /> } @catch ({ message }) { <p>{message}</p> } }`,
+        "A destructured `@catch` error binding is not supported: Solid passes the error as an accessor. Bind a name and read it as a call (`err().message`)"
+      ]
+    ];
+    for (const [source, message] of cases) {
+      expect(() => compileRuntime(source, compiler, "dom")).toThrow(message);
+    }
+    // Default keyed `@for` hands the callback the raw item; destructuring
+    // there is an ordinary one-time destructure and stays allowed.
+    expect(() =>
+      compileRuntime(
+        `export function App({ rows }) @{ <ul>@for (const { id } of rows) { <li>{id}</li> }</ul> }`,
+        compiler,
+        "dom"
+      )
+    ).not.toThrow();
   });
 
   test("updates keyed DOM rows, events, control flow, and lazy write targets", async () => {

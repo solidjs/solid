@@ -23,7 +23,7 @@
 
 use super::{
     semantic::{
-        self, CatchBinding, CodeBlock, ControlFlow, ForLoop, IfChain, RenderShape as Shape,
+        self, CodeBlock, ControlFlow, ForLoop, IfChain, RenderShape as Shape,
         Switch as SemanticSwitch, SwitchArm, TemplateSite, Try as SemanticTry,
     },
     source_map::ProjectionMap,
@@ -573,34 +573,13 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         }
         self.push(">{");
 
-        // RC `For` callback shape:
-        // - default keyed mode: raw item, accessor index (there is no TSRX index)
-        // - keyed={false}: accessor item, raw index
-        // - custom key: accessor item, accessor index
-        // The post-reparse pass rewrites accessor reads at this arrow.
-        let mut accessor_names = Vec::new();
-        if mode.item_is_accessor()
-            && let Some(name) = ident_name(pattern)
-        {
-            accessor_names.push(name.to_string());
-        }
-        if mode.index_is_accessor()
-            && let Some(index) = index
-            && let Some(name) = ident_name(index)
-        {
-            accessor_names.push(name.to_string());
-        }
-        if !accessor_names.is_empty() {
-            self.accessor_arrows
-                .push((self.out.len() as u32, accessor_names));
-        }
-
+        // The callback bindings pass through as authored (#3474): where `For`
+        // hands the callback an accessor (the item in every non-default mode,
+        // the index under a custom key), the author reads it as one — `item()`,
+        // `i()` — exactly as in JSX. A destructured accessor was rejected at
+        // semantic lowering.
         self.push("(");
-        if mode.item_is_accessor() && pattern.ty() != "Identifier" {
-            self.render_lazy_pattern(pattern)?;
-        } else {
-            self.emit_node(pattern, Position::Expression)?;
-        }
+        self.emit_node(pattern, Position::Expression)?;
         if let Some(index) = index {
             self.push(", ");
             self.emit_node(index, Position::Expression)?;
@@ -703,17 +682,9 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         let handler = try_.catch.as_ref();
         let mut error_name = String::from("_e");
         let mut reset_name: Option<String> = None;
-        let mut has_error_param = false;
-        let mut error_pattern = None;
         if let Some(handler) = handler {
-            if let Some(binding) = &handler.binding {
-                match binding {
-                    CatchBinding::Identifier { name, .. } => {
-                        error_name = (*name).to_string();
-                        has_error_param = true;
-                    }
-                    CatchBinding::Pattern(pattern) => error_pattern = Some(*pattern),
-                }
+            if let Some(name) = handler.binding {
+                error_name = name.to_string();
             }
             if let Some(reset) = handler.reset.and_then(ident_name) {
                 reset_name = Some(reset.to_string());
@@ -751,18 +722,10 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
 
         if let Some(handler) = handler {
             self.push("<Errored fallback={");
-            // RC `Errored` passes an `ErrorAccessor`: reads of the binding
-            // become calls (only when the author bound one).
-            if has_error_param {
-                self.accessor_arrows
-                    .push((self.out.len() as u32, vec![error_name.clone()]));
-            }
+            // `Errored` passes an `ErrorAccessor`; the binding passes through
+            // as authored and the author reads it as `err()` (#3474).
             self.push("(");
-            if let Some(pattern) = error_pattern {
-                self.render_lazy_pattern(pattern)?;
-            } else {
-                self.push(&error_name);
-            }
+            self.push(&error_name);
             if let Some(reset) = &reset_name {
                 self.push(", ");
                 self.push(reset);

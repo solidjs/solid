@@ -16,7 +16,7 @@ use tsrx_syntax::ControlContext;
 use super::{
     leaf::LeafProgram,
     semantic::{
-        AuthoredSpan, CatchBinding, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule,
+        AuthoredSpan, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule,
         TemplateBlock, TemplateSite, Try as SemanticTry,
     },
     style::ClassMapEntry,
@@ -375,18 +375,13 @@ impl<'a> Lowerer<'a, '_, '_> {
         }
         if let Some(catch) = try_.catch.as_ref() {
             let mut patterns = Vec::new();
-            let mut accessor_names = Vec::new();
             match &catch.binding {
-                Some(CatchBinding::Identifier { name }) => {
+                Some(_) => {
                     let parameter =
                         catch.origin.tape.node_field("param").ok_or_else(|| {
                             CompileError::transform("TSRX @catch binding is missing")
                         })?;
                     patterns.push(self.binding_pattern(parameter)?);
-                    accessor_names.push((*name).to_string());
-                }
-                Some(CatchBinding::Pattern(pattern)) => {
-                    patterns.push(self.binding_pattern(*pattern)?);
                 }
                 None => patterns.push(
                     self.ast
@@ -398,11 +393,6 @@ impl<'a> Lowerer<'a, '_, '_> {
             }
             let callback_span = ast_span(catch.origin.span);
             let callback = self.arrow_with_block(callback_span, patterns, &catch.body)?;
-            if !accessor_names.is_empty() {
-                self.artifacts
-                    .accessor_arrows
-                    .push((callback_span.start, accessor_names));
-            }
             let attributes = self.ast.vec1(
                 self.ast
                     .jsx_attribute_item_expression(span, "fallback", callback),
@@ -465,23 +455,6 @@ impl<'a> Lowerer<'a, '_, '_> {
             .map(|pattern| self.binding_pattern(*pattern))
             .collect::<Result<Vec<_>, _>>()?;
         let callback = self.arrow_with_block(span, callback_patterns, &loop_.body)?;
-        let mut accessor_names = Vec::new();
-        if loop_.callback_mode.item_is_accessor()
-            && let Some(name) = identifier_name(loop_.pattern)
-        {
-            accessor_names.push(name.to_string());
-        }
-        if loop_.callback_mode.index_is_accessor()
-            && let Some(index) = loop_.index
-            && let Some(name) = identifier_name(index)
-        {
-            accessor_names.push(name.to_string());
-        }
-        if !accessor_names.is_empty() {
-            self.artifacts
-                .accessor_arrows
-                .push((span.start, accessor_names));
-        }
         let children = self.ast.vec1(self.ast.jsx_child_expression(span, callback));
         Ok(self
             .ast

@@ -6,7 +6,7 @@ export const App = () => @try {
   <p>Loading...</p>
 } @catch (e, reset) {
   <div>
-    <p>Error: {e.message}</p>
+    <p>Error: {e().message}</p>
     <button onClick={() => reset()}>Try again</button>
   </div>
 };
