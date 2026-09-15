@@ -1524,7 +1524,13 @@ function transitionComplete(transition: Transition): boolean {
     // boundary-consumed load re-asked under a held derivation), and the
     // still-flying source read as settled, committing the writes it was
     // asked with ahead of its answer.
-    if (sourceObserved(transition, source) && source._x?._pendingSources?.has(source)) {
+    // Not the self entry alone: a source whose own flight an upstream re-ask
+    // superseded is still pending — on that re-ask (#3462). Its reader cannot
+    // render until the chain lands, and the landing folds this transaction in
+    // (enterWaiting). Judged complete instead, a re-entry between the two (a
+    // repeated write to a held signal) committed the held writes beside the
+    // reader's stale frame.
+    if (sourceObserved(transition, source) && source._x?._pendingSources?.size) {
       done = false;
       break;
     }
