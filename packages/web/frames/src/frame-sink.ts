@@ -148,6 +148,7 @@ import {
   guardFailures
 } from "../../server-functions/src/server.js";
 import { isResponseEnvelope } from "../../src/response.js";
+import { observeFrame } from "../../src/server-observe.js";
 import {
   FRAME_STREAM_HEADER,
   SERVER_COMPONENT,
@@ -620,9 +621,19 @@ function frameStream(makeCode, options) {
   const { id = "", version = 1 } = options.frame || {};
   const frame = { id, version };
   function stream(w) {
-    const emit = chunk => w.write(chunk);
+    // Observe tier: the server half of the `"frame"` record
+    // (`OBSERVE.records`, see `FrameProducedEvent`) — start → complete, with
+    // the chunk census. Nothing is read, not even the clock, without a
+    // listener.
+    const observation = observeFrame(frame);
+    const emit = observation
+      ? chunk => {
+          observation.chunk(chunk);
+          w.write(chunk);
+        }
+      : chunk => w.write(chunk);
     const sink = createFrameSink(emit, frame);
-    emit({ type: "start", id, version });
+    w.write({ type: "start", id, version });
     const code = makeCode(sink, frame);
     try {
       // Frames default to the keyed JSON codec for data records (eval-free
@@ -642,6 +653,7 @@ function frameStream(makeCode, options) {
         write() {},
         end() {
           sink.end();
+          observation && observation.settle("complete");
           w.end && w.end();
         }
       });
@@ -652,6 +664,7 @@ function frameStream(makeCode, options) {
       // promise through the data codec.)
       sink.error("", err instanceof Error ? err.message : String(err));
       sink.end();
+      observation && observation.settle("error", err);
       w.end && w.end();
     }
   }

@@ -1,7 +1,7 @@
 /**
  * @jsxImportSource @solidjs/web
  */
-// The `"boundary"` record on `OBSERVE.server.records` (sentry-integration-plan
+// The `"boundary"` record on `OBSERVE.records` (sentry-integration-plan
 // C3): one record per `<Loading>` boundary that WAITED during a server
 // render — discovered with pending async, then settled — carrying the
 // boundary's timing (discover → settle, settle → reveal), its pass count and
@@ -71,7 +71,7 @@ afterEach(() => {
 function records(): Record[] {
   const seen: Record[] = [];
   unsubscribes.push(
-    OBSERVE!.server.records.subscribe("boundary", (event, live) => {
+    OBSERVE!.records.subscribe("boundary", (event, live) => {
       seen.push({ event, live });
     })
   );
@@ -540,12 +540,12 @@ describe("the channel", () => {
     try {
       const seen: string[] = [];
       unsubscribes.push(
-        OBSERVE!.server.records.subscribe("boundary", () => {
+        OBSERVE!.records.subscribe("boundary", () => {
           throw new Error("listener bug");
         })
       );
       unsubscribes.push(
-        OBSERVE!.server.records.subscribe("boundary", event => {
+        OBSERVE!.records.subscribe("boundary", event => {
           seen.push(event.outcome);
         })
       );
@@ -585,9 +585,9 @@ describe("tiers, in the built artifacts", () => {
   test("the emitter (and the slots) fold out of prod; observe and dev carry them", () => {
     const read = (name: string) =>
       readFileSync(resolve(import.meta.dirname, "../../../solid/dist", name), "utf8");
-    // The one string that survives minification: the registered name the
-    // slots are created and read under.
-    const marker = "solid-js/observe/server/listeners";
+    // The emitter's pre-check, gated on the tier: prod has no boundary that
+    // asks whether it is observed.
+    const marker = '.observed("boundary")';
     expect(read("server.js")).not.toContain(marker);
     expect(read("server.observe.js")).toContain(marker);
     expect(read("server.dev.js")).toContain(marker);

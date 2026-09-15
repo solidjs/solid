@@ -36,6 +36,12 @@ function expectObserveLive(mod: Tier) {
   expect(typeof observe.diagnostics.subscribe).toBe("function");
   expect(typeof observe.diagnostics.capture).toBe("function");
   expect(typeof observe.diagnostics.emit).toBe("function");
+  // The records channel: process-wide, so the artifact's object IS the
+  // registered one (a second copy of the core would find the same set).
+  expect(typeof observe.records.subscribe).toBe("function");
+  expect(typeof observe.records.observed).toBe("function");
+  expect(typeof observe.records.emit).toBe("function");
+  expect((globalThis as any)[Symbol.for("@solidjs/signals/observe/records")]).toBe(observe.records);
   // The core's side of attribution is the slot and the two declared frames only.
   expect(typeof observe.attribution.install).toBe("function");
   expect(typeof observe.attribution.withInteraction).toBe("function");

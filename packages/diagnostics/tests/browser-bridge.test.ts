@@ -1,4 +1,4 @@
-import { flush } from "@solidjs/signals";
+import { OBSERVE, flush } from "@solidjs/signals";
 import { assertBudget, expectNoDiagnostics } from "../src/index.js";
 import { installDiagnosticsBridge, BRIDGE_GLOBAL } from "../src/browser.js";
 import { captureBrowserArtifact } from "../src/playwright.js";
@@ -37,6 +37,28 @@ describe("browser bridge + playwright adapter", () => {
     // The "app" lives in the page realm; the driver only sees the handle.
     const app = mountTodoApp();
     flush();
+    const call = {
+      id: "todos/list",
+      at: 1,
+      durationMs: 20,
+      method: "GET",
+      outcome: "ok",
+      status: 200
+    };
+    const frame = {
+      side: "client",
+      id: "todos/list",
+      version: 2,
+      at: 3,
+      durationMs: 15,
+      shellMs: 4,
+      outcome: "complete",
+      chunks: 2,
+      fragments: 0,
+      slots: 1,
+      regions: 0,
+      errors: 0
+    };
 
     const { artifact } = await captureBrowserArtifact(
       page,
@@ -47,12 +69,20 @@ describe("browser bridge + playwright adapter", () => {
         flush();
         app.setFilter("active");
         flush();
+        // What the web client runtime would emit in the page: a
+        // server-function call and the frame stream it answered with. The
+        // live handles (a Response) ride beside the record and stay behind.
+        const channel = OBSERVE!.records as unknown as {
+          emit(type: string, event: unknown, live: unknown): void;
+        };
+        channel.emit("call", call, { args: [1], response: new Response("") });
+        channel.emit("frame", frame, { response: new Response("") });
       },
       { scenario: "browser-toggle", attribution: deterministicAttribution }
     );
     app.dispose();
 
-    expect(artifact.formatVersion).toBe(5);
+    expect(artifact.formatVersion).toBe(6);
     expect(artifact.scenario).toBe("browser-toggle");
     expectNoDiagnostics(artifact);
     // Same assertions work on browser-captured artifacts: mount happened
@@ -64,6 +94,13 @@ describe("browser bridge + playwright adapter", () => {
     // The payload crossed a JSON boundary — spot-check attribution survived.
     expect(artifact.attribution!.reruns.length).toBeGreaterThan(0);
     expect(artifact.attribution!.costs.scopes.length).toBeGreaterThan(0);
+    // The records crossed too, tables intact, the handles left in the page.
+    expect(artifact.records).toEqual({
+      boundary: [],
+      invocation: [],
+      frame: [frame],
+      call: [call]
+    });
   });
 
   it("fails clearly when the bridge is not installed", async () => {

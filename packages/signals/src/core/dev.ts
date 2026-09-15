@@ -1,5 +1,6 @@
 import {
   attrHooks,
+  currentOrigin,
   setAttributionHooks,
   withInteraction,
   withOrigin,
@@ -7,6 +8,7 @@ import {
   type InteractionRef,
   type OriginRef
 } from "./attribution-hooks.js";
+import type { ChangeOrigin } from "./attribution.js";
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
@@ -182,34 +184,105 @@ export interface AttributionSlot {
    * router-specific. `fn()` when no engine is installed.
    */
   withOrigin<T>(ref: OriginRef, fn: () => T): T;
+  /**
+   * The provenance a root write performed now would be stamped with — the
+   * interaction whose handler is running, the navigation or effect or action
+   * frame open, or inside a recompute the origin of the change that caused
+   * it — as the installed engine sees it; `undefined` with no engine, or when
+   * nothing is in effect (external). For a runtime recording a fact of its
+   * own beside the engine's records: `@solidjs/web` stamps its `"call"`
+   * record with this, so a server-function call joins the interaction or
+   * navigation it ran for by the identity of the object, not by time.
+   */
+  currentOrigin(): ChangeOrigin | undefined;
 }
 
 /**
- * The server runtime's observe surface — the one place a server-side
- * consumer (an APM adapter's `init()`) installs on, beside `diagnostics`.
- * Declared EMPTY here and typed by the runtime that owns the surface:
- * `solid-js`'s server entry augments this interface with its members — the
- * records channel (`ServerRecords`) and the trace-provider slot
- * (`ServerTrace`), each an interface of its own that `@solidjs/web`'s
- * server entries fill in further — so the core never learns those shapes
- * and the consumer still finds everything on the one `OBSERVE`.
+ * The records the runtimes deliver on `OBSERVE.records`, by type — each
+ * entry `{ event, live }`: the serializable record and the live handles
+ * (a thrown error, a request) an in-process consumer may want beside it.
+ * The core emits none and declares none; the runtimes that emit declare
+ * theirs by augmentation, and the union of record types is whatever the
+ * loaded runtimes declared. `solid-js` augments THIS interface (its
+ * `"boundary"` record); the runtimes above it — `@solidjs/web`'s
+ * `"invocation"`, `"frame"` and `"call"`, a router's — augment
+ * `HostRecordTypes`, reached through the `solid-js` re-export, which this
+ * interface extends so the channel sees one catalogue.
  *
- * One augmenter per interface, by design: TypeScript merges an
+ * Two interfaces, one augmenter each, by design: TypeScript merges an
  * augmentation into a re-exported interface by following the alias, and
  * two augmentations reaching the same interface through DIFFERENT aliases
  * (`"@solidjs/signals"` from solid-js, `"solid-js"` from web) merge
- * order-dependently — one set is lost. So each layer augments only the
- * layer beneath it, through one module name, and declares the interfaces
- * the layer above fills in.
+ * order-dependently — one set is lost. So each layer augments an interface
+ * of its own, through one module name.
+ */
+export interface RecordTypes extends HostRecordTypes {}
+
+/** The record types host runtimes declare — see `RecordTypes`. */
+export interface HostRecordTypes {}
+
+export type RecordType = keyof RecordTypes & string;
+export type RecordEvent<K extends RecordType> = RecordTypes[K] extends { event: infer E }
+  ? E
+  : never;
+export type RecordLive<K extends RecordType> = RecordTypes[K] extends { live: infer L } ? L : never;
+export type RecordListener<K extends RecordType> = (
+  event: RecordEvent<K>,
+  live: RecordLive<K>
+) => void;
+
+/**
+ * The records channel — `OBSERVE.records`, on either platform: one place a
+ * consumer (an APM adapter's `init()`, devtools, the diagnostics harness)
+ * subscribes to the completed, serializable summaries of the things the
+ * runtimes did — a `<Loading>` boundary that waited on the server, a
+ * server-function execution or call, a frame stream produced or applied —
+ * each delivered synchronously the moment it is complete, with its live
+ * handles passed BESIDE it. Any number of listeners; none can alter what it
+ * observes; one that throws is reported and the rest run. (Reactive
+ * attribution — re-runs, holds, interactions — is the attribution engine's
+ * `subscribe`, a separate entry the observe build pays for only when
+ * imported.)
  *
- * The OBJECTS behind those members are not the core's either: the core has
- * one artifact per tier for both platforms, and the client would carry
- * them for nothing. `solid-js`'s server entry replaces this empty literal
- * with the process-wide slots the moment it evaluates (see `serverSlots`
- * in solid-js/src/server/observe.ts), so a consumer that imports only
- * `solid-js` can subscribe or provide before the web runtime that emits
- * into them has loaded, and from a second copy when a host bundles one.
- * On the client this stays `{}`.
+ * The object is created once per PROCESS under a registered symbol, so a
+ * subscription made before the emitting runtime has loaded, or from a
+ * second bundled copy of the core, reaches the same listener set. Absent in
+ * prod with the rest of `OBSERVE`.
+ */
+export interface Records {
+  /** Deliver `type` records as they complete; returns the unsubscribe. */
+  subscribe<K extends RecordType>(type: K, listener: RecordListener<K>): () => void;
+  /**
+   * Whether anything is subscribed to `type` — an emitter's pre-check, so
+   * a record nobody will hear costs nothing to not build (no clock read).
+   */
+  observed(type: RecordType): boolean;
+  /**
+   * Delivers a completed record to `type`'s listeners, synchronously: how a
+   * runtime publishes. Snapshot iteration — a listener unsubscribing
+   * mid-delivery neither skips nor double-calls anyone this round.
+   */
+  emit<K extends RecordType>(type: K, event: RecordEvent<K>, live: RecordLive<K>): void;
+}
+
+/**
+ * The server runtime's observe surface — where a server-side consumer
+ * installs what only the server has: the trace-context provider slot.
+ * Declared EMPTY here and typed by the runtime that owns the surface:
+ * `solid-js`'s server entry augments this interface with `trace:
+ * ServerTrace`, an interface of its own that `@solidjs/web`'s server
+ * entries fill in (`provide`) — so the core never learns that shape and
+ * the consumer still finds it on the one `OBSERVE`. One augmenter per
+ * interface: see `RecordTypes` for why.
+ *
+ * The OBJECT behind it is not the core's either: the core has one artifact
+ * per tier for both platforms, and the client would carry it for nothing.
+ * `solid-js`'s server entry replaces this empty literal with the
+ * process-wide slot the moment it evaluates (see `serverSlots` in
+ * solid-js/src/server/observe.ts), so a consumer that imports only
+ * `solid-js` can provide before the web runtime that reads it has loaded,
+ * and from a second copy when a host bundles one. On the client this stays
+ * `{}`.
  */
 export interface ServerObserve {}
 
@@ -221,6 +294,8 @@ export interface ServerObserve {}
  */
 export interface Observe {
   diagnostics: Diagnostics;
+  /** Completed records from the runtimes, by type — see `Records`. */
+  records: Records;
   /** The attribution hook slot and interaction frame — see `AttributionSlot`. */
   attribution: AttributionSlot;
   /** The server runtime's surface — see `ServerObserve`. */
@@ -318,12 +393,55 @@ const attributionSlot: AttributionSlot = {
     return attrHooks;
   },
   withInteraction,
-  withOrigin
+  withOrigin,
+  currentOrigin
 };
+
+// The records channel is process-wide (see `Records`): a host that bundles
+// the core into its server build beside an instrumented `--import`ed copy
+// holds two of this module, and a listener installed through one must hear
+// the records the render emits through the other. The registered key makes
+// every copy find the one listener set; the object is generic — a Map of
+// type to listener set — and carries no knowledge of the records.
+const RECORDS = Symbol.for("@solidjs/signals/observe/records");
+function recordsChannel(): Records {
+  const g = globalThis as { [RECORDS]?: Records };
+  if (g[RECORDS]) return g[RECORDS];
+  const listeners = new Map<string, Set<Function>>();
+  return (g[RECORDS] = {
+    subscribe(type: string, listener: Function) {
+      let set = listeners.get(type);
+      if (!set) listeners.set(type, (set = new Set()));
+      set.add(listener);
+      return () => {
+        set!.delete(listener);
+      };
+    },
+    observed(type: string) {
+      const set = listeners.get(type);
+      return set !== undefined && set.size > 0;
+    },
+    emit(type: string, event: unknown, live: unknown) {
+      const set = listeners.get(type);
+      if (set === undefined || set.size === 0) return;
+      // Snapshot: a listener unsubscribing (itself or another) mid-delivery
+      // must not skip or double-call anyone this round. A throwing listener
+      // is reported; the others, and what was observed, are unaffected.
+      for (const listener of [...set]) {
+        try {
+          listener(event, live);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    }
+  } as Records);
+}
 
 export const OBSERVE: Observe = __OBSERVE__
   ? {
       diagnostics,
+      records: recordsChannel(),
       attribution: attributionSlot,
       // Replaced by solid-js's server entry (see `ServerObserve`); on the
       // client the slot stays this placeholder. The cast: the interface is

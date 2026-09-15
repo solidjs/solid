@@ -1,0 +1,10 @@
+{
+  // The published-types augmentation acceptance tests: a consumer augments
+  // `@solidjs/web` (`RequestEventLocals`) and the merge must flow through the
+  // built `types/` exactly as shipped. Their own program, holding ONE copy of
+  // the package — see tsconfig.test.json for why they cannot share the runtime
+  // specs' program, which also holds `../src`.
+  "extends": "./tsconfig.test.json",
+  "include": ["./test/request-event-locals.*"],
+  "exclude": []
+}
