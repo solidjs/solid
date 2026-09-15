@@ -169,11 +169,13 @@ describe("a second write while an async chain is in flight", () => {
     setCount(1);
     await settle();
     await advanceTo(4000);
-    // page=1 resets the boundary (`on`): fallback, pageData1 due 5000. The only
-    // reader of details is now behind the fallback, so the hold on count=1 is
-    // over (ruled 2026-09-12): the reset wakes the parked transaction and it
-    // commits in the idle pass that follows — same drain, one pass after the
-    // ambient page=1 commit, hence two Sum publishes at 4000.
+    // page=1 resets the boundary (`on`): fallback, pageData1 due 5000. Its
+    // flight makes `details` — a memo the count=1 transaction holds — pending,
+    // so page=1 joins that transaction (A15 shared derivation, #3443). The only
+    // reader of details is now behind the fallback, so the hold is over (ruled
+    // 2026-09-12): the reset wakes the parked transaction and both writes
+    // commit together — one Sum publish at 4000 (before #3443 the ambient
+    // page=1 committed a pass ahead: `Sum: 1 | Sum: 2`).
     setPage(1);
     await settle();
     await advanceTo(5500);
@@ -186,7 +188,7 @@ describe("a second write while an async chain is in flight", () => {
     expect(frames(log, when)).toEqual([
       "0: Boundary: Loading... | Sum: 0",
       "3000: Boundary: content | Details: 0",
-      "4000: Boundary: Loading... | Sum: 1 | Sum: 2",
+      "4000: Boundary: Loading... | Sum: 2",
       "5500: Sum: 3",
       "8500: Boundary: content | Details: 3"
     ]);

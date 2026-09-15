@@ -71,8 +71,16 @@ export const zombieQueue: Heap = {
 
 /** runHeap callback that discards a queued zombie recompute instead of running
  * it: unlink pure recompute entries; strip just the recompute bit from dirtied
- * height-adjust entries so their height work still happens. */
+ * height-adjust entries so their height work still happens. A zombie dirtied
+ * through the lane channel (OPTIMISTIC_DIRTY — an override or a `latest()`
+ * companion) runs instead (#3444): a zombie renders mainline until the commit
+ * disposes it, and the lane's values ARE the mainline frame — the still-visible
+ * branch a held `Show` is removing showed the old `latest(count)` beside the
+ * new one outside. Its pass runs under the lane and its run lands on the
+ * lane's effect queue, so a held lane defers it exactly as it defers every
+ * other reader's. */
 function cancelZombieRecompute(el: Computed<unknown>): void {
+  if (el._flags & REACTIVE_OPTIMISTIC_DIRTY) return GlobalQueue._update(el);
   if (el._flags & REACTIVE_IN_HEAP_HEIGHT)
     el._flags &= ~(REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK);
   else {

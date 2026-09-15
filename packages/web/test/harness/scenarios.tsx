@@ -45,6 +45,7 @@ import {
   ssrElement,
   type JSX
 } from "@solidjs/web";
+import { makeRows, TriggerList, forms, type Row } from "./polymorphic.jsx";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -1793,7 +1794,42 @@ function DynamicNamespaceLink() {
   );
 }
 
+// Kobalte-shaped component chain (test/harness/polymorphic.tsx): every
+// element reached through merge → omit → merge layers and a per-instance
+// `dynamic(() => props.as)`. Hydration must claim the `<a>` through all of
+// that with ids aligned on both sides, and a label update must flow through
+// the chain's getters into aria-label/title/text without recreating the
+// element. `compiled` is the floor twin, hydrated the same way so a chain
+// failure can't hide behind a fixture problem.
+let chainRows: Row[] = [];
+function polymorphicChainApp(form: keyof typeof forms) {
+  return function PolymorphicChain() {
+    chainRows = makeRows(0, 3);
+    return <TriggerList rows={() => chainRows} render={forms[form]} />;
+  };
+}
+
 export const scenarios: Scenario[] = [
+  {
+    name: "polymorphic-chain",
+    App: polymorphicChainApp("chain"),
+    expectedText: "row-0row-1row-2",
+    adoptAll: true,
+    noSeparators: true,
+    update: () => chainRows[1].setLabel("ROW-1"),
+    expectedTextAfterUpdate: "row-0ROW-1row-2",
+    stableSelector: "ul, li, a.btn"
+  },
+  {
+    name: "polymorphic-chain-compiled-floor",
+    App: polymorphicChainApp("compiled"),
+    expectedText: "row-0row-1row-2",
+    adoptAll: true,
+    noSeparators: true,
+    update: () => chainRows[1].setLabel("ROW-1"),
+    expectedTextAfterUpdate: "row-0ROW-1row-2",
+    stableSelector: "ul, li, a.btn"
+  },
   {
     name: "text-hole",
     App: TextHole,

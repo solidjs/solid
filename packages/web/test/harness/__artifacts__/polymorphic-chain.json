@@ -1,0 +1,5 @@
+{
+  "name": "polymorphic-chain",
+  "shell": "<ul _hk=000><li _hk=00100><a _hk=0010110 role=\"button\" tabindex=\"0\" aria-haspopup=\"dialog\" aria-expanded=\"false\" data-closed class=\"btn\" href=\"#row-0\" data-x=\"1\" aria-label=\"row-0\" title=\"row-0\">row-0</a></li><li _hk=00110><a _hk=0011110 role=\"button\" tabindex=\"0\" aria-haspopup=\"dialog\" aria-expanded=\"false\" data-closed class=\"btn\" href=\"#row-1\" data-x=\"1\" aria-label=\"row-1\" title=\"row-1\">row-1</a></li><li _hk=00120><a _hk=0012110 role=\"button\" tabindex=\"0\" aria-haspopup=\"dialog\" aria-expanded=\"false\" data-closed class=\"btn\" href=\"#row-2\" data-x=\"1\" aria-label=\"row-2\" title=\"row-2\">row-2</a></li></ul>",
+  "rest": ""
+}
