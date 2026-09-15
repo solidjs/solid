@@ -1,3 +1,4 @@
+import { NOT_PENDING } from "./constants.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -72,7 +73,11 @@ export function effect<T>(
     options
   ) as Effect<T>;
   recompute(node, true);
+  // A first pass that derived from a live transaction's staged world was
+  // staged into that transaction (recompute: born held); the transaction's
+  // commit replays this effect. Its first run is not this creation's (A29).
   !options?.defer &&
+    node._pendingValue === NOT_PENDING &&
     (node._type === EFFECT_USER || options?.schedule
       ? node._queue.enqueue(node._type, runEffect.bind(null, node))
       : runEffect(node, LANE_RUN));

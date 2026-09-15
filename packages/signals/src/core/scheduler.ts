@@ -689,6 +689,9 @@ export class GlobalQueue extends Queue {
    * transaction — then the displayed override, as it keeps a foreign
    * transaction's committed value over its staged write. */
   static _supersededRead: ((el: Signal<any> | Computed<any>) => unknown) | null = null;
+  /** Verdict-layer recompute in progress (companion creation, latest()/
+   * isPending() pulls): never born held — see core.ts enterStagedRead. */
+  static _verdictPull = false;
   /** setSignal's authoritative (projection-write) landing on an override-
    * covered node (#3331 store twin): stage the truth for its transaction's
    * commit whatever its relation to the committed value — a landing equal to
@@ -1100,6 +1103,8 @@ function commitPendingNode(n: Signal<any>): void {
   if (n._pendingValue !== NOT_PENDING) {
     n._value = n._pendingValue as any;
     n._pendingValue = NOT_PENDING;
+    // A node born held (recompute) initializes at this commit.
+    c._statusFlags! &= ~STATUS_UNINITIALIZED;
     // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
     // A quiet re-ask classification preserved through a held landing dies

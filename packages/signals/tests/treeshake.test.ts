@@ -293,7 +293,22 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // instead of being cancelled when the parking batch is the transaction
     // (#3444; one guard in cancelZombieRecompute). Measured at 23,419 on top
     // of #3442 (23,365 → 23,419).
-    expect(minifiedBytes).toBeLessThan(23_450);
+    // CONSCIOUS BUMP (2026-09-14): +316 B for A29's creation-time form —
+    // "born held". A memo or effect created from MAINLINE code while a
+    // transaction holds a value it reads used to direct-commit its creation
+    // pass (`create ||`) — publishing the held value into the mainline frame
+    // beside readers showing the committed one — and `enterStagedRead`
+    // entered the transaction ambiently from creation code, so an unrelated
+    // write made after the mount was swallowed into the action. Now the pass
+    // records the transaction (`stagedEntry`) and is staged INTO it: stamped,
+    // pushed to its pending nodes, `STATUS_UNINITIALIZED` kept until its
+    // commit, effects skipped on creation and replayed by the commit
+    // (`_gatedSubs`); read() holds readers of a node with a staged value and
+    // no committed one. Core-retained by necessity: recompute's create arms,
+    // read()'s selection, commitPendingNode. Measured at 23,681 on top of
+    // #3442; 23,753 rebased over #3443/#3444 (23,419 → 23,753, +334 — the
+    // two land on the same notifyStatus/recompute seams).
+    expect(minifiedBytes).toBeLessThan(23_800);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

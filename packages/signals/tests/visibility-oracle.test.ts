@@ -325,10 +325,9 @@ const STATES: State[] = [
         1,
         "A29: a tracked pass served the staged value derives from the transaction's world"
       ),
-      published: violation(
+      published: rule(
         HELD,
-        1,
-        "A29: a fresh mainline memo + render effect created during the hold publishes the HELD value into the mainline frame; a fresh effect reading the signal directly, and pre-existing readers, correctly show 0"
+        "A29 (born held): a memo created mainline during the hold derives from the transaction’s world and is staged into it; the render effect over it is replayed by the commit, publishing nothing before"
       ),
       preexisting: rule(HELD, "A19 (i): the held write is not on screen"),
       staleForeign: rule(
@@ -429,10 +428,9 @@ const STATES: State[] = [
         "A18 (c): untracked reads keep the override until the transaction commits"
       ),
       derivesFrom: rule(2, "A18 (b): tracked derivations recompute from the arrived value"),
-      published: violation(
+      published: rule(
         HELD,
-        2,
-        "A18 (c): a fresh mainline memo + render effect over the superseded node publishes the TRUTH (2) while a fresh DIRECT render effect in the same root publishes the override (3) and every pre-existing reader holds — a tear between readers of one frame"
+        "A18 (c) / A29 (born held): a fresh mainline memo over the superseded node derives from the staged truth and is held with the transaction; the frame keeps the override"
       ),
       preexisting: rule(HELD, "A18 (c): the applied frame keeps the override until commit"),
       staleForeign: rule(
@@ -446,7 +444,7 @@ const STATES: State[] = [
     }
   },
   {
-    name: "superseded, downstream never initialized (its first flight never lands)",
+    name: "superseded before its first commit (the first landing was held by a downstream reveal that never landed)",
     async build(installStale) {
       const built = supersededGraph(false);
       await built.prime();
@@ -457,7 +455,7 @@ const STATES: State[] = [
     expect: {
       untracked: rule(3, "A18 (c)"),
       derivesFrom: rule(2, "A18 (b)"),
-      published: violation(HELD, 2, "as above"),
+      published: rule(HELD, "A18 (c) / A29 (born held)"),
       preexisting: observed(
         HELD,
         "this reader (created after the node initialized) holds. A render effect on the node created BEFORE its first landing published the truth (2) at the supersession in a side probe — while untracked reads still served 3 — so the hold here is shape-dependent; follow-up"
@@ -465,10 +463,9 @@ const STATES: State[] = [
       staleForeign: observed(3, "displays the override, as in the initialized case"),
       childrenForbidden: rule(3, "A32"),
       latest: rule(2, "A18 (d)"),
-      isPending: violation(
+      isPending: rule(
         true,
-        false,
-        "A18 (d): the arrival differs from the override yet the verdict is false — the uninitialized downstream reporter is not counted as observing the flight"
+        "A18 (d): pending iff the arrival differs from the displayed override — even before the node's first commit (the override is the observable value; A19 exception 1 does not apply)"
       ),
       authoritative: rule(2, "A17 carve-out")
     }

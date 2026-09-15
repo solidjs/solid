@@ -228,7 +228,16 @@ module.exports = [
     // lane-dirtied zombie runs instead of being cancelled; +54 B minified in
     // the in-package floor (23,365 -> 23,419). The first cut (stamp-only
     // entanglement) fit at 8690; the holds carve-out is what tips the cap.
-    limit: "8.75 KB",
+    // Born held (A29 creation-time form, 2026-09-14): 8.70 -> 8.85 KB,
+    // measured at 8796 B against 8691 (+105) — a memo or effect created from
+    // mainline while a hold is live stages INTO the transaction instead of
+    // committing (recompute), the read-side "no committed value" rule, the
+    // commit-time init, and enterStagedRead's pass-scoped path (no ambient
+    // entry from creation code: an unrelated write after the mount stays
+    // mainline). +316 B minified in the in-package floor (23,365 -> 23,681).
+    // Rebased over #3443/#3444 (2026-09-15): measured at 8820 B against
+    // `next`'s 8708 (+112); 23,419 -> 23,753 minified.
+    limit: "8.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -458,7 +467,10 @@ module.exports = [
     // 15.70 KB, measured at 15679 B — pending propagation onto a held memo enters
     // its transaction, and a lane-dirtied zombie runs instead of being
     // cancelled (+54 B minified in the in-package floor); see the core floor note.
-    limit: "15.70 KB",
+    // Born held (2026-09-14): 15.65 -> 15.80 KB, measured at 15750 B against
+    // 15624 (+126); rebased over #3443/#3444: 15743 B against `next`'s 15658
+    // (+85); see the core floor note.
+    limit: "15.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -574,7 +586,11 @@ module.exports = [
     // 11.10 KB, measured at 11066 B — pending propagation onto a held memo enters
     // its transaction, and a lane-dirtied zombie runs instead of being
     // cancelled (+54 B minified in the in-package floor); see the core floor note.
-    limit: "11.10 KB",
+    // Born held (2026-09-14): 11.05 -> 11.25 KB, measured at 11196 B against
+    // 11050 (+146 — the core seams plus the verdict pulls' `_verdictPull`
+    // brackets and supersededRead's entry); rebased over #3443/#3444: 11213 B
+    // against `next`'s 11084 (+129); see the core floor note.
+    limit: "11.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -660,7 +676,10 @@ module.exports = [
     // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 11.40 ->
     // 11.45 KB, measured at 11417 B against `next`'s 11368 (+49) — `enterStagedRead` on read()'s value
     // selections and the deferred dependency trim; see the core floor note.
-    limit: "11.45 KB",
+    // Born held (A29 creation-time form, #3451; 2026-09-15): 11.45 -> 11.65 KB,
+    // measured at 11566 B against `next`'s 11407 (+159); the signals-core
+    // bytes from the core floor note, nothing app-side.
+    limit: "11.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -770,7 +789,10 @@ module.exports = [
     // core floor note.
     // Memo lane posture (#3442, 2026-09-14): no bump, measured at 18854 B on
     // the rebase over #3438 (+12 B minified; brotli noise absorbs it).
-    limit: "18.90 KB",
+    // Born held (A29 creation-time form, #3451; 2026-09-15): 18.90 -> 19.10 KB,
+    // measured at 19023 B against `next`'s 18899 (+124); the signals-core
+    // bytes from the core floor note, nothing app-side.
+    limit: "19.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -923,7 +945,10 @@ module.exports = [
     // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 28.65 ->
     // 28.70 KB, measured at 28680 B against `next`'s 28602 (+78) — `enterStagedRead` on read()'s value
     // selections and the deferred dependency trim; see the core floor note.
-    limit: "28.70 KB",
+    // Born held (A29 creation-time form, #3451; 2026-09-15): 28.70 -> 28.85 KB,
+    // measured at 28746 B against `next`'s 28580 (+166); the signals-core
+    // bytes from the core floor note, nothing app-side.
+    limit: "28.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -1001,7 +1026,10 @@ module.exports = [
     // selections and the deferred dependency trim; see the core floor note.
     // Effect arm of A30 (#3438, 2026-09-14): 14.25 -> 14.30 KB, measured at
     // 14251 B against `next`'s 14245 (+6); see the core floor note.
-    limit: "14.30 KB",
+    // Born held (A29 creation-time form, #3451; 2026-09-15): 14.30 -> 14.45 KB,
+    // measured at 14384 B against `next`'s 14257 (+127); the signals-core
+    // bytes from the core floor note, nothing app-side.
+    limit: "14.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -1085,7 +1113,10 @@ module.exports = [
     // 15.70 KB, measured at 15681 B — pending propagation onto a held memo enters
     // its transaction, and a lane-dirtied zombie runs instead of being
     // cancelled (+54 B minified in the in-package floor); see the core floor note.
-    limit: "15.70 KB",
+    // Born held (A29 creation-time form, #3451; 2026-09-15): 15.70 -> 15.90 KB,
+    // measured at 15811 B against `next`'s 15679 (+132); the signals-core
+    // bytes from the core floor note, nothing app-side.
+    limit: "15.90 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1187,7 +1218,10 @@ module.exports = [
     // #3426/#3427/#3407 (2026-09-14): 27.16 -> 27.25 KB, measured at 27203 B
     // against `next`'s 27109 (+94 — the core seams on the observe artifacts);
     // see the core floor note.
-    limit: "27.25 KB",
+    // Born held (A29 creation-time form, #3451; 2026-09-15): 27.25 -> 27.45 KB,
+    // measured at 27350 B against `next`'s 27227 (+123); the signals-core
+    // bytes from the core floor note, nothing app-side.
+    limit: "27.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -219,11 +219,14 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   // the window's own landing in flight to its commit — verdict-quiet like the
   // rest of the window (the UNINITIALIZED check suppresses exactly this frame
   // for windowless first loads; born-committed nodes need their own gate, #2990).
-  if (
-    el._pendingValue !== NOT_PENDING &&
-    !(comp._statusFlags & STATUS_UNINITIALIZED) &&
-    !comp._loading
-  ) {
+  if (el._pendingValue !== NOT_PENDING && !comp._loading) {
+    // A18 (d): under a displayed override the observable value is the
+    // override, so the verdict is "the arrived truth differs from it" —
+    // even before the node's first commit. The UNINITIALIZED suppression
+    // below is A19 exception (1), "no observable value exists to be
+    // non-final"; an override is one (a node whose first landing was held
+    // by a reveal it never got to commit, then superseded under its
+    // override, read false here).
     if (hasActiveOverride(el))
       return (
         !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._x?._overrideValue))
@@ -232,7 +235,7 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
     // classification survives the landing (asyncWrite) and dies with the
     // commit (commitPendingNode) — verdict-quiet through the reveal, like
     // the loading window above (#3178).
-    if (!comp._x?._reask) return true;
+    if (!(comp._statusFlags & STATUS_UNINITIALIZED) && !comp._x?._reask) return true;
   }
   return newQuestionInFlight(comp);
 }
@@ -364,7 +367,12 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     setPendingCheckActive(false);
     const prevContext = context;
     setContextInternal(null); // Detach from owner so it isn't disposed with effects
-    lvc = optimisticComputed(() => read(el), { ownedWrite: true });
+    GlobalQueue._verdictPull = true;
+    try {
+      lvc = optimisticComputed(() => read(el), { ownedWrite: true });
+    } finally {
+      GlobalQueue._verdictPull = false;
+    }
     ext(el)._latestValueComputed = lvc;
     el._config |= CONFIG_HAS_COMPANIONS;
     markFirewallChildCompanions(el);
@@ -417,10 +425,12 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
       // latest(() => isPending(x)) from true to false).
       const prevCheck = pendingCheckActive;
       setPendingCheckActive(false);
+      GlobalQueue._verdictPull = true;
       try {
         prepareComputed(pendingComputed as Computed<unknown>, true);
       } finally {
         setPendingCheckActive(prevCheck);
+        GlobalQueue._verdictPull = false;
       }
     }
     value = read(pendingComputed);
@@ -482,8 +492,14 @@ function pendingCheckRead(
   firewall: Computed<any> | null
 ): void {
   setPendingCheckActive(false);
-  if (typeof (el as Partial<Computed<unknown>>)._fn === "function")
-    prepareComputed(el as Computed<unknown>, true);
+  if (typeof (el as Partial<Computed<unknown>>)._fn === "function") {
+    GlobalQueue._verdictPull = true;
+    try {
+      prepareComputed(el as Computed<unknown>, true);
+    } finally {
+      GlobalQueue._verdictPull = false;
+    }
+  }
   const ownerStatus = (owner as Computed<any>)._statusFlags!;
   if (
     c &&
