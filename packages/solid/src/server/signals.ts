@@ -2594,10 +2594,15 @@ export type ServerRevealGroup = {
    * Returns `collapseFallback` (hide fallback visually, used for collapsed-sequential
    * tail) and `held` (stash `revealFragments` swaps until the parent releases us).
    * `held` only applies when the caller is a nested Reveal — Loadings ignore it.
+   *
+   * `onReveal` (a Loading's, observe tier): called when the group issues the
+   * swap for `key` — its `revealFragments` — so the boundary record can say
+   * how long the finished content was held. Synchronous from `onResolved`
+   * when the order lets the child reveal live; later otherwise.
    */
   register(
     key: string,
-    options?: { onActivate?: () => void }
+    options?: { onActivate?: () => void; onReveal?: () => void }
   ): { collapseFallback: boolean; held: boolean };
   /** Called by a child when its subtree is fully resolved, which also implies minimal readiness. */
   onResolved(key: string): void;

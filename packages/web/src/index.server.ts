@@ -24,12 +24,7 @@ setContainerTraceResolver(getProjectionTrace);
 
 export * from "./server.js";
 export * from "./response.js";
-export type {
-  InvocationChannel,
-  InvocationEvent,
-  InvocationListener,
-  InvocationLive
-} from "./server-observe.js";
+export type { InvocationEvent, InvocationListener, InvocationLive } from "./server-observe.js";
 export type { TraceContext, TraceProvider, TraceSlot } from "./trace.js";
 export type { JSX } from "../jsx/jsx.js";
 

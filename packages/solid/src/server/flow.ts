@@ -428,6 +428,26 @@ export function Reveal(props: RevealProps): SolidElement {
     heldByParent = reg.held;
   }
 
+  // Observe tier: a leaf's `onReveal` (see `ServerRevealGroup.register`),
+  // fired as its swap is issued. Kept off the prod shape — the map exists
+  // only when a boundary registered one, which only the observe/dev
+  // boundary does.
+  let revealHooks: Map<string, () => void> | undefined;
+
+  // Every leaf swap this group issues goes through here, so the boundary
+  // behind each key learns the moment it was revealed.
+  function revealLeaves(leafKeys: string[]) {
+    ctx.revealFragments?.(leafKeys);
+    if (revealHooks === undefined) return;
+    for (const key of leafKeys) {
+      const hook = revealHooks.get(key);
+      if (hook !== undefined) {
+        revealHooks.delete(key);
+        hook();
+      }
+    }
+  }
+
   function notifyParentIfDone() {
     if (registering || notifiedParentDone) return;
     if (parentGroup && resolved.size === keys.length) {
@@ -460,7 +480,7 @@ export function Reveal(props: RevealProps): SolidElement {
       // A composite that we're walking past must be activated so it drains its
       // own stash (the inner subtree's stashed swaps).
       if (composites.has(k)) activateComposite(k);
-      else ctx.revealFragments?.([k]);
+      else revealLeaves([k]);
       frontier++;
     }
     if (frontier < keys.length) {
@@ -478,7 +498,7 @@ export function Reveal(props: RevealProps): SolidElement {
     // into every inner composite (they're minimally ready too, so this releases
     // their own stashes in one pass).
     if (stash.length) {
-      ctx.revealFragments?.([...stash]);
+      revealLeaves([...stash]);
       stash.length = 0;
     }
     composites.forEach((_, key) => activateComposite(key));
@@ -492,7 +512,7 @@ export function Reveal(props: RevealProps): SolidElement {
     // where natural does not hold composites back. `activateComposite` is
     // idempotent, and each inner's own order governs when its leaves reveal.
     if (stash.length) {
-      ctx.revealFragments?.([...stash]);
+      revealLeaves([...stash]);
       stash.length = 0;
     }
     composites.forEach((_, key) => activateComposite(key));
@@ -502,10 +522,11 @@ export function Reveal(props: RevealProps): SolidElement {
   return runWithOwner(o, () => {
     setContext(RevealGroupContext, {
       id,
-      register(key: string, options?: { onActivate?: () => void }) {
+      register(key: string, options?: { onActivate?: () => void; onReveal?: () => void }) {
         keys.push(key);
         const isComposite = !!options?.onActivate;
         if (isComposite) composites.set(key, options!.onActivate!);
+        else if (options?.onReveal) (revealHooks ||= new Map()).set(key, options.onReveal);
         const selfCollapse = order === "sequential" && collapsed && keys.length > 1;
         const collapseFallback = collapsedByParent || selfCollapse;
         // Track leaf keys that render collapsed so we can emit revealFallbacks
@@ -540,7 +561,7 @@ export function Reveal(props: RevealProps): SolidElement {
             // until naturalRelease() drains it.
             stash.push(key);
           } else if (order === "natural") {
-            ctx.revealFragments?.([key]);
+            revealLeaves([key]);
           }
           // sequential: no stash needed — advanceFrontier re-reads `resolved`
           // when we're released (if held) or runs inline below.

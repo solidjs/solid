@@ -297,7 +297,12 @@ type/tooling reuse, with unused members no-op.
 > `solid-js`, and populated (object at load, type by `declare module
 "solid-js"` augmentation) by `@solidjs/web`'s server entries. First channel:
 > `OBSERVE.server.invocations` (`subscribe("invocation", (event, live) =>
-…)`), emitted from both server-function legs. Observe-tier only: web now
+…)`), emitted from both server-function legs. _(Since C3, 2026-09-14: the
+> channel is `OBSERVE.server.records`, generic over record type — the
+> `"boundary"` record from solid-js's server entry joined the `"invocation"`
+> one — and the objects and the `records`/`trace` members are solid-js's,
+> with web augmenting solid-js's `ServerRecords`/`ServerTrace`; see
+> `sentry-integration-plan.md` C3.)_ Observe-tier only: web now
 > ships `dist/server.observe.js`, `server-functions/dist/server.observe.js`
 > and `frames/dist/server.observe.js` under the `observe` condition (the P0
 > plumbing, third flavour), and every emit site folds out of prod behind

@@ -3,9 +3,9 @@
 // containers created once per process under a registered `globalThis`
 // symbol, so a consumer can subscribe before this runtime has loaded and
 // from a second bundled copy of it — and this module owns the FACTS and the
-// TYPES: it emits invocations into the listener set and augments the
-// interface with the channel's shape, so neither signals nor solid-js learn
-// the server runtime's records.
+// TYPES of one record: it emits invocations into the listener set and
+// augments the channel's `subscribe` with the `"invocation"` overload, so
+// neither signals nor solid-js learn the server runtime's records.
 //
 // Everything here folds out of the prod server artifacts behind the
 // `"_SOLID_OBSERVE_"` literal (replaced per build, like the `_SOLID_DEV_`
@@ -21,8 +21,8 @@ import { OBSERVE } from "solid-js";
 import type { RequestEvent } from "./server.js";
 
 /**
- * One server function execution, delivered on `OBSERVE.server.invocations`
- * once it settled. Serializable — the live handles (`event`, `args`, the
+ * One server function execution, delivered on
+ * `OBSERVE.server.records.subscribe("invocation", …)` once it settled. Serializable — the live handles (`event`, `args`, the
  * thrown error) travel beside it in `InvocationLive`, not on it.
  */
 export interface InvocationEvent {
@@ -69,26 +69,24 @@ export interface InvocationLive {
 
 export type InvocationListener = (event: InvocationEvent, live: InvocationLive) => void;
 
-/**
- * The server-function invocation channel — `OBSERVE.server.invocations`.
- * An observer's seam, as opposed to `wrapInvocation`, the app's single
- * policy hook: any number of listeners, none of them able to replace the
- * result or alter the call. Listeners run synchronously at settle; one
- * that throws is reported and the call is unaffected.
- */
-export interface InvocationChannel {
-  subscribe(type: "invocation", listener: InvocationListener): () => void;
-}
-
+// The `"invocation"` record on the server records channel —
+// `OBSERVE.server.records.subscribe("invocation", …)`. An observer's seam, as
+// opposed to `wrapInvocation`, the app's single policy hook: any number of
+// listeners, none of them able to replace the result or alter the call.
+// Listeners run synchronously at settle; one that throws is reported and the
+// call is unaffected.
+//
 // Augmented through `solid-js` — the peer every consumer of this package
-// resolves — rather than `@solidjs/signals`, which is a transitive
-// dependency a strict package layout does not expose from here. The
-// interface is declared in signals and re-exported by solid-js; the merge
-// follows the alias to the declaration (pinned by the type tests).
+// resolves, and the runtime that DECLARES `ServerRecords` (with its own
+// `"boundary"` overload; the merge follows the re-export alias to that
+// declaration, pinned by the type tests). Not through `@solidjs/signals`:
+// that is a transitive dependency a strict package layout does not expose
+// from here — and the core's `ServerObserve` has exactly one augmenter
+// (solid-js) for a reason it documents.
 declare module "solid-js" {
-  interface ServerObserve {
-    /** Server-function executions — see `InvocationChannel`. */
-    invocations: InvocationChannel;
+  interface ServerRecords {
+    /** Server-function executions — see `InvocationEvent`. */
+    subscribe(type: "invocation", listener: InvocationListener): () => void;
   }
 }
 
@@ -112,11 +110,11 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // Re-created by name — the contract is the registered string, not an import.
 const LISTENERS = Symbol.for("solid-js/observe/server/listeners");
 
-type ChannelState = InvocationChannel & { [LISTENERS]: Map<string, Set<InvocationListener>> };
+type ChannelState = { [LISTENERS]: Map<string, Set<InvocationListener>> };
 
 function invocationListeners(): Set<InvocationListener> | undefined {
   if (!IS_OBSERVE || OBSERVE === undefined) return undefined;
-  const channel = OBSERVE.server.invocations as ChannelState | undefined;
+  const channel = OBSERVE.server.records as unknown as ChannelState | undefined;
   return channel && channel[LISTENERS].get("invocation");
 }
 

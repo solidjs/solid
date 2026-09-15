@@ -1,7 +1,8 @@
 /**
- * `OBSERVE.server.invocations` — the server runtime's observe surface and
- * its first channel: every server-function execution, on both dispatch
- * legs, delivered to any number of listeners once it settles.
+ * The `"invocation"` record on `OBSERVE.server.records` — the server
+ * runtime's observe surface and its first record: every server-function
+ * execution, on both dispatch legs, delivered to any number of listeners
+ * once it settles.
  *
  * This is an OBSERVER's seam, next to `wrapInvocation` (the app's single
  * policy hook). The properties that make it one, each pinned here:
@@ -55,7 +56,7 @@ afterAll(() => {
   delete (globalThis as any)[RequestContext];
 });
 
-const channel = () => OBSERVE!.server.invocations;
+const channel = () => OBSERVE!.server.records;
 
 function record() {
   const records: Array<{ event: InvocationEvent; live: InvocationLive }> = [];
@@ -94,9 +95,9 @@ describe("the install point", () => {
     // Source (`@solidjs/web` alias), the prod artifact and the observe
     // artifact have all loaded by now; the channel is one object.
     expect(typeof channel().subscribe).toBe("function");
-    // The surface as shipped: the invocation channel and the trace-provider
+    // The surface as shipped: the records channel and the trace-provider
     // slot (see trace.ts / server-trace.spec.tsx). A new member joins here.
-    expect(Object.keys(OBSERVE!.server).sort()).toEqual(["invocations", "trace"]);
+    expect(Object.keys(OBSERVE!.server).sort()).toEqual(["records", "trace"]);
   });
 });
 

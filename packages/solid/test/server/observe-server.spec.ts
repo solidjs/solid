@@ -9,8 +9,9 @@
  * evaluates — and they are one per PROCESS, under a registered symbol on
  * `globalThis`, so a second copy of the runtime (a bundled server build
  * instrumented through a `--import`ed module) finds the same listener set and
- * provider. The containers are generic: solid-js knows neither the record
- * types nor the provider's shape; those are the emitting runtime's
+ * provider. The containers are generic: solid-js knows only its own record
+ * type (`"boundary"`, see server-boundary-records.spec.ts) and nothing of
+ * the provider's shape; the rest are the emitting runtime's
  * (`@solidjs/web`), which reads them by the same registered names.
  */
 import { describe, expect, it } from "vitest";
@@ -22,7 +23,7 @@ const LISTENERS = Symbol.for("solid-js/observe/server/listeners");
 const PROVIDER = Symbol.for("solid-js/observe/server/provider");
 
 type Slots = {
-  invocations: {
+  records: {
     [LISTENERS]: Map<string, Set<Function>>;
     subscribe(type: string, listener: Function): () => void;
   };
@@ -33,7 +34,7 @@ describe("OBSERVE.server", () => {
   const server = OBSERVE!.server as unknown as Slots;
 
   it("is populated by solid-js's server entry, before any web runtime loads", () => {
-    expect(typeof server.invocations.subscribe).toBe("function");
+    expect(typeof server.records.subscribe).toBe("function");
     expect(typeof server.trace.provide).toBe("function");
     // Installed onto the core's own OBSERVE object, which is what solid-js
     // re-exports: one object, whichever import a consumer reads it through.
@@ -46,8 +47,8 @@ describe("OBSERVE.server", () => {
 
   it("subscribe: a listener set per record type, reachable by the emitter's registered symbol", () => {
     const seen: unknown[] = [];
-    const off = server.invocations.subscribe("probe", (e: unknown) => seen.push(e));
-    const set = server.invocations[LISTENERS].get("probe")!;
+    const off = server.records.subscribe("probe", (e: unknown) => seen.push(e));
+    const set = server.records[LISTENERS].get("probe")!;
     expect(set.size).toBe(1);
     // What `@solidjs/web`'s emitter does: read the set by symbol and call.
     for (const listener of set) listener({ id: "x" });

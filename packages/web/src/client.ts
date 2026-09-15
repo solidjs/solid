@@ -103,16 +103,12 @@ export interface RequestEvent {
 
 export type { CookieOptions } from "./cookies.js";
 
-// The server observe surface's types (`OBSERVE.server.invocations`), and
-// with them the `ServerObserve` augmentation that module declares: the
-// published types resolve to this entry under every condition, so this
-// re-export is what puts the augmentation in a consumer's program.
-export type {
-  InvocationChannel,
-  InvocationEvent,
-  InvocationListener,
-  InvocationLive
-} from "./server-observe.js";
+// The server observe surface's types (the `"invocation"` record on
+// `OBSERVE.server.records`), and with them the `ServerRecords` augmentation
+// that module declares: the published types resolve to this entry under
+// every condition, so this re-export is what puts the augmentation in a
+// consumer's program.
+export type { InvocationEvent, InvocationListener, InvocationLive } from "./server-observe.js";
 // The trace context's types (`getTraceContext()`, `OBSERVE.server.trace`),
 // with the `ServerObserve.trace` augmentation, for the same reason.
 export type { TraceContext, TraceProvider, TraceSlot } from "./trace.js";

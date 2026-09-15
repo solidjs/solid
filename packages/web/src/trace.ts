@@ -34,7 +34,7 @@
 // State hangs off the shared `OBSERVE` object under a registered symbol for
 // the same reason as `server-observe.ts`: each server bundle carries its own
 // copy of this module.
-import { OBSERVE } from "solid-js";
+import { OBSERVE, type ServerTrace } from "solid-js";
 
 /**
  * The trace the current request belongs to — continued from the incoming
@@ -76,22 +76,24 @@ export interface TraceContext {
  */
 export type TraceProvider = (request: Request | undefined) => Partial<TraceContext> | undefined;
 
-/**
- * `OBSERVE.server.trace` — the provider slot. One provider at a time: an
- * observer installs its answer once at startup (Sentry's `init()`), and a
- * later install replaces it — the single-plugin shape, not a chain.
- */
-export interface TraceSlot {
-  /** Installs `provider`, replacing any current one. Returns the uninstall. */
-  provide(provider: TraceProvider): () => void;
-}
-
+// `OBSERVE.server.trace` — the provider slot. One provider at a time: an
+// observer installs its answer once at startup (Sentry's `init()`), and a
+// later install replaces it — the single-plugin shape, not a chain.
+//
+// The member and its container are `solid-js`'s (`ServerTrace`, declared
+// empty there); what a provider IS is this runtime's, so `provide` is typed
+// here, by augmentation through `solid-js` — the peer every consumer of this
+// package resolves, and the one module name solid-js's interfaces are
+// augmented through (see the core's `ServerObserve` note on why one).
 declare module "solid-js" {
-  interface ServerObserve {
-    /** The trace-context provider slot — see `TraceSlot`. */
-    trace: TraceSlot;
+  interface ServerTrace {
+    /** Installs `provider`, replacing any current one. Returns the uninstall. */
+    provide(provider: TraceProvider): () => void;
   }
 }
+
+/** The provider slot's type, as this package names it — `solid-js`'s `ServerTrace`, filled in above. */
+export type TraceSlot = ServerTrace;
 
 /** A derived trace plus whether the browser is told about it (see the header note). */
 export interface TraceRecord {
