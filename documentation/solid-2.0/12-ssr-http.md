@@ -134,6 +134,14 @@ Under streaming this implies the natural constraint: status and headers must be 
 
 Said plainly, `httpHeader` is a **shell-time API**. Headers declared by streamed route content — anything below a `<Loading>` boundary that resolves after the shell went out — run post-flush and are committed no-ops by contract. There is no queue that holds them for a later response; the head is on the wire. If a header matters, it belongs to the shell (or to a `deferStream`-held source that keeps the shell waiting for it).
 
+### What a render failure looks like from the client
+
+A render failure reaches the client on several roads: the error an `<Errored>` caught, serialized so the client hydrates the same fallback; a rejected async source serialized into the stream; a `<Loading>` fragment rejecting its `_fr` promise; a frame stream's error chunks. On every one of them the **non-dev** build hands the client a generic `Error` (`"Internal Server Error"`) in place of a plain thrown value — `message`, `cause` and own properties stay on the server — the same policy the server-function wire applies ([RFC 10](10-server-functions.md#thrown-errors-sanitized-by-default)). A `"use server"` function called in-process during a render never touches that wire, so without this the production page load leaked exactly what the RPC withheld ([#3468](https://github.com/solidjs/solid/issues/3468)).
+
+The boundary sanitizes _before_ rendering its fallback, and serializes the same replacement: the fallback is rendered on the server with the error and hydrates against the record, so the two must agree. A fallback that prints `err().message` therefore shows the generic message in production, as it would for a server-function failure. `markSafeError` is the escape hatch on both wires — a branded error passes through with its own properties. An Error reached as a _value_ (never thrown — a form's field errors, say) is data and passes as written.
+
+The dev/prod line is the build variant: the `development` export condition's server artifacts keep full fidelity; the production and observe artifacts sanitize. The observe tier records each replacement once as `SSR_ERROR_SANITIZED` (advisory; `data.error` the original), beside the `SSR_RENDER_ERROR_CONTAINED` finding that carries the failure itself — the server keeps the truth, the wire gets the generic.
+
 ### The trace the request belongs to: `getTraceContext()`
 
 A distributed trace follows one user action across every service it touches; each hop needs the trace's id and the id of the span that called it, carried across HTTP by the W3C Trace Context header `traceparent` (`00-<traceId>-<parentId>-<flags>`, with `tracestate` and `baggage` beside it). The runtime reads that half of the exchange once per request and exposes it:

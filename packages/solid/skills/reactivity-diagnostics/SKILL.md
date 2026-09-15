@@ -449,7 +449,7 @@ Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
 
 The server runtime reports on the same channel, with the same `in <App> ›
 <Page>` line. Two groups. **Findings** (`SSR_*`, `LATE_HEADER_WRITE`,
-`SERVER_FN_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a
+`SERVER_FN_ERROR_SANITIZED`, `SSR_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a
 render that exist in observe builds too — an APM sees them in production; in
 dev they print. **Checks** (the rest) are dev-only guidance. A captured
 artifact from a server render carries both.
@@ -494,6 +494,16 @@ A server function threw and the production wire replaced the error with the
 generic message; `data.error` is the original. Fix the failure it names. If
 the client is meant to see this error, brand it with `markSafeError` or map
 it in `wrapInvocation`; do not turn sanitization off.
+
+### SSR_ERROR_SANITIZED
+
+A render failure reached the client — an `<Errored>` record, a rejected async
+source in the stream, a fragment's rejection, a frame's error chunk — and the
+production wire replaced it with the generic `Error`; `data.error` is the
+original. Advisory: the failure itself is the `SSR_RENDER_ERROR_CONTAINED`
+finding beside it — fix that. If the client is meant to see this error, brand
+it with `markSafeError`; do not turn sanitization off. A fallback that prints
+`err().message` shows "Internal Server Error" in production by design.
 
 ### FRAME_MARKER_CORRUPTED
 
