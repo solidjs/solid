@@ -36,6 +36,26 @@ artifact.attribution; // { reruns, costs, holds, feedback } — who re-ran, why,
 
 Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to the engine's `enable()` (`@solidjs/signals/attribution`). `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
 
+### Server renders
+
+The same capture works over a server render. Where the client's evidence is re-runs and holds, the server's is **waits and calls**: run `renderToStream` (or `renderToString`) as the scenario and the artifact carries `artifact.server` — the server runtime's records (`OBSERVE.server.records`) folded into two tables:
+
+```ts
+import { captureArtifact, expectNoDiagnostics } from "@solidjs/diagnostics";
+import { renderToStream } from "@solidjs/web";
+
+const { artifact } = await captureArtifact(() => renderToStream(() => <App />), {
+  scenario: "profile page",
+  attribution: false
+});
+
+artifact.diagnostics; // server findings too: SSR_RENDER_ERROR_CONTAINED, SERVER_WRITE, HEAD_TAG_INVALID …
+artifact.server!.boundaries; // every <Loading> that waited: durationMs, heldMs, passes, outcome, ownerPath
+artifact.server!.invocations; // every server-function execution: id, durationMs, outcome, boundary
+```
+
+`boundaries` is one row per `<Loading>` boundary that **waited** (a boundary that rendered on its first pass has nothing to attribute): how long it held its content up (`durationMs`), how long finished content then sat behind `<Reveal>` siblings (`heldMs`), how many render passes it took (`passes` — `2` is one round of async, more is a sequential chain) and how it ended (`outcome`: settled, the `renderToString` fallback, a client-only handoff, an error). `invocations` is one row per server-function execution; a direct call made during a boundary's pass carries that boundary's `id` in `boundary`, so a boundary's wait reads as the calls it consisted of. The runtime derives two dev checks from the same facts — `ASYNC_WATERFALL` (server) for a sequential chain and `SSR_CLIENT_CONTENT_MASKED` for client-only content that surfaced only after a wait — so `expectNoDiagnostics` catches them without reading the tables. `artifact.server` is `null` when the scenario ran without the server runtime (a client or bare-signals capture, the browser bridge); JSONL egress adds `boundary` and `invocation` lines.
+
 ## Assertions and budgets
 
 Assertion helpers take an artifact and throw `DiagnosticsAssertionError` with an explanatory message:

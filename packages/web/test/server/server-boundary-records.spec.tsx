@@ -28,7 +28,7 @@
 // (vite.config.server.mjs), so `<App />` is a labelled component call.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { Loading, Reveal, renderToStream, renderToString } from "@solidjs/web";
 import { OBSERVE, createMemo, type BoundaryEvent, type BoundaryLive } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -405,6 +405,132 @@ describe("<Reveal> groups: heldMs", () => {
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+// The dev CHECKS the runtime derives from the same facts (server-dev-build-plan
+// P4): coded verdicts on `OBSERVE.diagnostics`, so the console and
+// `expectNoDiagnostics` see what an agent would otherwise have to read off
+// the record. Dev tier (this suite imports source); they need no listener.
+describe("dev checks off the record", () => {
+  let capture: ReturnType<NonNullable<typeof OBSERVE>["diagnostics"]["capture"]>;
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    capture = OBSERVE!.diagnostics.capture();
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    capture.stop();
+    warn.mockRestore();
+  });
+  const byCode = (code: string) => capture.events.filter(e => e.code === code);
+
+  /** `depth` sequential reads, each gated on the previous answer. */
+  function Chain(props: { depth: number }): JSX.Element {
+    const data = createMemo(async () => {
+      await delay(3);
+      return props.depth;
+    });
+    return <div>{data() && (props.depth > 1 ? <Chain depth={props.depth - 1} /> : "leaf")}</div>;
+  }
+
+  test("ASYNC_WATERFALL: two sequential flights are advisory (structured only)", async () => {
+    function App() {
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <Chain depth={2} />
+        </Loading>
+      );
+    }
+    const html = await stream(() => <App />);
+    expect(html).toContain("leaf");
+    const [event, ...rest] = byCode("ASYNC_WATERFALL");
+    expect(rest).toHaveLength(0);
+    expect(event.kind).toBe("perf");
+    expect(event.severity).toBe("info");
+    expect(event.data).toMatchObject({ side: "server", passes: 3 });
+    expect(typeof event.data!.sequentialMs).toBe("number");
+    // Located by component and keyed by the boundary, like the record.
+    expect(event.ownerPath).toEqual(["<App>", "<Loading>"]);
+    expect(event.data!.boundary).toBe(placeholderIds(html)[0]);
+    expect(event.message).toContain("2 sequential async flights");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("ASYNC_WATERFALL: three sequential flights earn the console, once", async () => {
+    function App() {
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <Chain depth={3} />
+        </Loading>
+      );
+    }
+    await stream(() => <App />);
+    const [event, ...rest] = byCode("ASYNC_WATERFALL");
+    expect(rest).toHaveLength(0);
+    expect(event.severity).toBe("warn");
+    expect(event.data).toMatchObject({ side: "server", passes: 4 });
+    expect(event.message).toContain("3 sequential async flights");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("[ASYNC_WATERFALL]");
+    expect(String(warn.mock.calls[0][0])).toContain("in <App> › <Loading>");
+  });
+
+  test("a single wait is not a waterfall", async () => {
+    function App() {
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <Slow ms={5} value="content" />
+        </Loading>
+      );
+    }
+    await stream(() => <App />);
+    expect(byCode("ASYNC_WATERFALL")).toHaveLength(0);
+    expect(byCode("SSR_CLIENT_CONTENT_MASKED")).toHaveLength(0);
+  });
+
+  test("SSR_CLIENT_CONTENT_MASKED: client-only content that surfaced behind a server wait", async () => {
+    function LateClientOnly() {
+      const gate = createMemo(async () => {
+        await delay(5);
+        return true;
+      });
+      const data = (createMemo as any)(() => "client", { ssrSource: "client" });
+      return <div>{gate() && data()}</div>;
+    }
+    function App() {
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <LateClientOnly />
+        </Loading>
+      );
+    }
+    const html = await stream(() => <App />);
+    const [event, ...rest] = byCode("SSR_CLIENT_CONTENT_MASKED");
+    expect(rest).toHaveLength(0);
+    expect(event.kind).toBe("ssr");
+    expect(event.severity).toBe("warn");
+    expect(event.data).toMatchObject({ boundary: placeholderIds(html)[0], passes: 2 });
+    expect(event.ownerPath).toEqual(["<App>", "<Loading>"]);
+    expect(event.message).toContain("after 1 server wait");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("[SSR_CLIENT_CONTENT_MASKED]");
+  });
+
+  test("client-only content found at discovery ships with the shell: no finding", async () => {
+    function ClientOnly() {
+      const data = (createMemo as any)(() => "client", { ssrSource: "client" });
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <ClientOnly />
+        </Loading>
+      );
+    }
+    await stream(() => <App />);
+    expect(byCode("SSR_CLIENT_CONTENT_MASKED")).toHaveLength(0);
   });
 });
 

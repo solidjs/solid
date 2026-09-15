@@ -516,6 +516,34 @@ a subscription, make the subscription the async source itself.
 Nested `<Reveal>` with `collapsed`/`together` needs a stream to coordinate
 on; `renderToString` has none. Use `renderToStream`, or drop the ordering.
 
+### ASYNC_WATERFALL (server)
+
+`data.side: "server"`. A `<Loading>` boundary rendered in `data.passes`
+passes — discovery, then one per wait — and each pass past the first is a
+read that could only start once the previous pass's async answered:
+`passes - 1` sequential flights, `data.sequentialMs` end to end. Unlike the
+client's verdict this proof is exact (the pass structure IS the chain), so
+there is no `markFlight` false positive to rule out; the same repairs apply,
+in the same order: derive both reads from the same inputs so they start
+together (read ALL async sources before using any), or, if the dependency is
+intrinsic, preload the dependent data or join the requests. Two flights are
+`info` — a lead; three or more `warn`. The boundary is `data.boundary`; a
+captured artifact has its record in `artifact.server.boundaries` (same
+`id`) and the server-function calls under it in `artifact.server.invocations`
+(`boundary` field).
+
+### SSR_CLIENT_CONTENT_MASKED
+
+A `<Loading>` boundary's content turned out to be client-only (a
+`ssrSource: "client"` read) but only after `data.passes - 1` real server
+waits: an async read on an earlier pass masked it. The server did the work
+(`data.durationMs`), streamed the fallback, then handed the whole subtree to
+the client anyway — the work was discarded and the user saw the fallback
+for the wait, then a client render. Give the client-only read its own
+`<Loading>` so it hands off with the shell while the async data streams, or
+read it before the async data so the boundary hands off on its first pass
+(no finding for that case).
+
 ### LAZY_ASSET_UNMAPPED
 
 A `lazy()` component's client chunk could not be resolved for the page

@@ -25,6 +25,9 @@ export type Finding = Omit<DiagnosticEvent, "sequence">;
  * inside the scope that misbehaved). Server owners are signals-shaped
  * enough for the core's `ownerPath` walk (`_parent` + `_name`), so component
  * labels (see `createComponent`) come through unchanged. No-op in prod.
+ *
+ * Advisory (`info`) findings are structured-channel only, as in the core:
+ * a fact worth recording that has not earned the console.
  */
 export function emitFinding(
   finding: Finding,
@@ -34,7 +37,7 @@ export function emitFinding(
   // `OBSERVE`/`DEV` are typed optional (undefined in the tiers below theirs);
   // the gates above are the same conditions that define them.
   const entry = OBSERVE!.diagnostics.emit(finding, subject);
-  if (IS_DEV) DEV!.report(entry);
+  if (IS_DEV && finding.severity !== "info") DEV!.report(entry);
 }
 
 /**

@@ -2,7 +2,8 @@
 
 _Drafted 2026-09-06. Status: AGREED 2026-09-06 (decisions D1–D3 below
 resolved). **P0 implemented 2026-09-07** on branch `server-dev-build` (see the
-P0 status note); P1–P4 not started. `diagnostics-expansion` merged to `next`
+P0 status note); P1+P2 landed 2026-09-13, P3 resolved 2026-09-12, P4 landed
+2026-09-15 (see each section's note). `diagnostics-expansion` merged to `next`
 as #3302 on 2026-09-07, so D3's ordering constraint on P1/P2 is satisfied.
 Precedes every server item in
 `documentation/proposals/production-observability-sketch.md` (§9,
@@ -318,6 +319,46 @@ One test: `captureArtifact(() => renderToStream(<App/>))` on the dev server
 build asserts a seeded `HEAD_TAG_INVALID` and a seeded `SERVER_WRITE` appear
 in `artifact.diagnostics` with `ownerPath`. Proves P1's promise end to end and
 becomes the contract test for server codes.
+
+> **Landed 2026-09-15**, wider than the one test, because by then the server
+> had records (C3) and the artifact had nowhere to put them. Three parts:
+>
+> **(a) The join.** `InvocationEvent.boundary` — a direct call made during a
+> `<Loading>` boundary's render pass carries that boundary's hydration id
+> (read from `sharedConfig.context._currentBoundaryId` at call start, the id
+> `runWithBoundaryErrorContext` sets for the pass). A boundary's wait now
+> reads as the server-function calls it consisted of. Absent for HTTP
+> dispatch and for calls outside any boundary's pass.
+>
+> **(b) Checks off the record.** `ssrLoadingBoundary` derives two dev checks
+> from the same facts the `"boundary"` record carries (the clock now runs in
+> dev without a listener): `ASYNC_WATERFALL` with `data.side: "server"` —
+> `passes - 1` sequential flights, exact where the client's proof is
+> inferred, same thresholds (2 → `info`, structured only; 3+ → `warn`) — and
+> a new `SSR_CLIENT_CONTENT_MASKED` (`warn`, `ssr`) for a client-only outcome
+> that surfaced only after a real wait: the server did the work, streamed the
+> fallback, then handed the subtree off anyway. `emitFinding` now keeps
+> `info` off the console, as the core does. Not made a check: `heldMs` (a
+> `<Reveal>` hold is the ordering the author asked for; the record carries
+> it) and async under `renderToString` (a legitimate posture). Both are
+> readable off the tables if an agent wants them.
+>
+> **(c) The artifact.** `@solidjs/diagnostics` format v5 adds
+> `artifact.server: { boundaries, invocations } | null`, folded from
+> `OBSERVE.server.records` when the server runtime installed its surface
+> (`null` otherwise — client captures, the browser bridge). The package still
+> depends on `@solidjs/signals` alone: it reads the channel by its contract
+> (`subscribe(type, listener)`, structurally) and mirrors the two record
+> types (`ServerBoundaryRecord`, `ServerInvocationRecord`); the web server
+> suite pins the mirrors to the runtime types at compile time, both ways and
+> by key set. JSONL egress adds `boundary`/`invocation` lines. The contract
+> test is `packages/web/test/server/diagnostics-server-scenario.spec.tsx`
+> (harness aliased from source in `vite.config.server.mjs` and
+> `tsconfig.test.json`): the seeded `HEAD_TAG_INVALID` and `SERVER_WRITE`
+> with `ownerPath`, a boundary and the invocation under it joined by id, the
+> waterfall as a finding `expectNoDiagnostics` catches, and the tables
+> serializable line by line. The package's own suite covers the fold against
+> a stand-in channel (bare signals has no server surface).
 
 ## Decisions (resolved 2026-09-06)
 

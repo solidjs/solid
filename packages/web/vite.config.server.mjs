@@ -37,7 +37,11 @@ export default defineConfig({
       "@solidjs/web/serialization/decode": resolve(rootDir, "serialization/dist/decode.js"),
       "@solidjs/web/serialization": resolve(rootDir, "serialization/dist/serialization.js"),
       "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
-      "solid-js": resolve(rootDir, "../solid/src/server/index.ts")
+      "solid-js": resolve(rootDir, "../solid/src/server/index.ts"),
+      // The harness, from source, for the server scenario contract
+      // (diagnostics-server-scenario.spec.tsx): its `@solidjs/signals`
+      // resolves to the one workspace package, so it shares this `OBSERVE`.
+      "@solidjs/diagnostics": resolve(rootDir, "../diagnostics/src/index.ts")
     }
   }
 });
