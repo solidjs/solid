@@ -21,6 +21,11 @@ import {
   getServerFunctionsCodec
 } from "../../server-functions/src/shared.js";
 import { REVALIDATE_HEADER } from "../../src/response.js";
+import { observeFrameApply } from "../../src/observe.js";
+
+// Replaced per build (see src/observe.ts): the observe emitters fold out of
+// the prod artifact behind it, call sites included.
+const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API
@@ -149,11 +154,34 @@ export function isFrameStreamResponse(response) {
  * ```
  * @experimental
  */
-export function applyFrameResponse(
+export const applyFrameResponse: (
   response: Response,
   host: FrameHost,
   options?: ApplyFrameResponseOptions
-): Promise<string>;
+) => Promise<string> = IS_OBSERVE ? observedApplyFrameResponse : applyFrames;
+
+// Observe tier: the client half of the `"frame"` record (`OBSERVE.records`,
+// see `FrameAppliedEvent`) — one per stream in the response, start →
+// complete as applied here, with the chunk census; an apply that threw (a
+// read that failed, a chunk that would not parse, a host that rejected one)
+// closes the open stream as `error` with the failure beside it. Nothing is
+// read, not even the clock, without a listener. This wrapper exists in the
+// observe and dev artifacts only: `applyFrameResponse` above IS `applyFrames`
+// where the literal folds, so prod pays neither the extra frame nor the
+// promise hop.
+async function observedApplyFrameResponse(response, host, options = {}) {
+  const observation = observeFrameApply(response);
+  if (!observation) return applyFrames(response, host, options);
+  let applied;
+  try {
+    applied = await applyFrames(response, host, options, observation);
+  } catch (error) {
+    observation.end(error);
+    throw error;
+  }
+  observation.end();
+  return applied;
+}
 
 /**
  * Reads a frame-stream Response to completion, applying every chunk to
@@ -176,7 +204,7 @@ export function applyFrameResponse(
  * the response-scoped single-flight envelope, which is the caller's result
  * rather than anything the host renders.
  */
-export async function applyFrameResponse(response, host, options = {}) {
+async function applyFrames(response, host, options = {}, observation) {
   const rootId = response.headers.get(FRAME_STREAM_HEADER) ?? "";
   const as = options.as;
   const version = options.version;
@@ -188,12 +216,16 @@ export async function applyFrameResponse(response, host, options = {}) {
     if (chunk.type === "outcome") {
       if (options.onOutcome) options.onOutcome(chunk.payload);
     } else {
+      const wireId = chunk.id;
       if (as !== undefined && chunk.id === rootId) chunk.id = as;
       if (perFrame) {
         let v = perFrame.get(chunk.id);
         if (v === undefined) perFrame.set(chunk.id, (v = version(chunk.id)));
         chunk.version = v;
       } else if (version !== undefined) chunk.version = version;
+      // The observe tier's chunk census (see `observedApplyFrameResponse`);
+      // folds with the literal.
+      if (IS_OBSERVE && observation) observation.chunk(chunk, wireId);
       // Codec-free until a `data` chunk actually arrives: a host whose
       // deserializer loads lazily (`prepareData`) gets awaited here, and
       // because the loop is sequential every later chunk — the records

@@ -4,13 +4,15 @@
 // The `@solidjs/diagnostics` server scenario (server-dev-build-plan P4): the
 // contract that a server render captured with `captureArtifact` yields an
 // artifact an agent can work from — the server findings with `ownerPath`,
-// and the server tables (`artifact.server`) that fold `OBSERVE.server.records`:
+// and the records tables (`artifact.records`) that fold `OBSERVE.records`:
 // every `<Loading>` boundary that waited, every server function execution,
-// joined by `invocation.boundary` → `boundary.id`.
+// every frame stream produced, joined by `invocation.boundary` →
+// `boundary.id` and `frame.id` = `invocation.id`.
 //
-// The harness depends on `@solidjs/signals` alone and reads the server
-// surface by its contract, so this suite is also where its mirrored record
-// types are pinned to the runtime's (compile-time, below).
+// The harness depends on `@solidjs/signals` alone and reads the channel by
+// its contract, so this suite is also where its mirrored record types are
+// pinned to the runtime's (compile-time, below) — the client's `"call"`
+// included, since the mirrors are one package.
 //
 // Imports source (the dev tier) and compiles with `componentNames`
 // (vite.config.server.mjs); the server-functions runtime is the built
@@ -18,7 +20,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { Loading, renderToStream, useHead } from "@solidjs/web";
-import type { InvocationEvent, JSX } from "@solidjs/web";
+import type {
+  CallEvent,
+  FrameAppliedEvent,
+  FrameEvent,
+  FrameProducedEvent,
+  InvocationEvent,
+  JSX
+} from "@solidjs/web";
 import { createMemo, createSignal, type BoundaryEvent } from "solid-js";
 import {
   artifactToJSONL,
@@ -26,8 +35,12 @@ import {
   DiagnosticsAssertionError,
   expectDiagnostic,
   expectNoDiagnostics,
-  type ServerBoundaryRecord,
-  type ServerInvocationRecord
+  type BoundaryRecord,
+  type CallRecord,
+  type FrameAppliedRecord,
+  type FrameProducedRecord,
+  type FrameRecord,
+  type InvocationRecord
 } from "@solidjs/diagnostics";
 import type * as prodRuntime from "@solidjs/web/server-functions/server";
 
@@ -35,14 +48,28 @@ import type * as prodRuntime from "@solidjs/web/server-functions/server";
 // Mutual assignability pins every required member; the key sets pin the
 // optional ones too (an optional field missing on one side still assigns).
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-const boundaryShape: Same<ServerBoundaryRecord, BoundaryEvent> = true;
-const boundaryKeys: Same<keyof ServerBoundaryRecord, keyof BoundaryEvent> = true;
-const invocationShape: Same<ServerInvocationRecord, InvocationEvent> = true;
-const invocationKeys: Same<keyof ServerInvocationRecord, keyof InvocationEvent> = true;
+const boundaryShape: Same<BoundaryRecord, BoundaryEvent> = true;
+const boundaryKeys: Same<keyof BoundaryRecord, keyof BoundaryEvent> = true;
+const invocationShape: Same<InvocationRecord, InvocationEvent> = true;
+const invocationKeys: Same<keyof InvocationRecord, keyof InvocationEvent> = true;
+const callShape: Same<CallRecord, CallEvent> = true;
+const callKeys: Same<keyof CallRecord, keyof CallEvent> = true;
+const frameShape: Same<FrameRecord, FrameEvent> = true;
+const producedShape: Same<FrameProducedRecord, FrameProducedEvent> = true;
+const producedKeys: Same<keyof FrameProducedRecord, keyof FrameProducedEvent> = true;
+const appliedShape: Same<FrameAppliedRecord, FrameAppliedEvent> = true;
+const appliedKeys: Same<keyof FrameAppliedRecord, keyof FrameAppliedEvent> = true;
 void boundaryShape;
 void boundaryKeys;
 void invocationShape;
 void invocationKeys;
+void callShape;
+void callKeys;
+void frameShape;
+void producedShape;
+void producedKeys;
+void appliedShape;
+void appliedKeys;
 
 const RequestContext = Symbol.for("solid.RequestContext");
 let runtime: typeof prodRuntime;
@@ -124,7 +151,7 @@ describe("captureArtifact over a server render", () => {
       expect(html).toContain("Ada");
 
       // The findings, located by component.
-      expect(artifact.formatVersion).toBe(5);
+      expect(artifact.formatVersion).toBe(6);
       expect(artifact.scenario).toBe("profile page");
       expectDiagnostic(artifact, "HEAD_TAG_INVALID", { count: 1 });
       expectDiagnostic(artifact, "SERVER_WRITE", { count: 1 });
@@ -136,9 +163,15 @@ describe("captureArtifact over a server render", () => {
       expect(() => expectNoDiagnostics(artifact)).toThrow(DiagnosticsAssertionError);
       expectNoDiagnostics(artifact, { allow: ["HEAD_TAG_INVALID", "SERVER_WRITE"] });
 
-      // The server tables.
-      expect(artifact.server).not.toBeNull();
-      const { boundaries, invocations } = artifact.server!;
+      // The records tables.
+      const {
+        boundary: boundaries,
+        invocation: invocations,
+        frame: frames,
+        call: calls
+      } = artifact.records;
+      expect(frames).toEqual([]);
+      expect(calls).toEqual([]);
       expect(boundaries).toHaveLength(1);
       expect(boundaries[0]).toMatchObject({
         passes: 2,
@@ -156,17 +189,16 @@ describe("captureArtifact over a server render", () => {
       expect(invocations[0].durationMs).toBeLessThanOrEqual(boundaries[0].durationMs);
 
       // Serializable as a whole and line by line.
-      expect(JSON.parse(JSON.stringify(artifact.server))).toEqual(artifact.server);
+      expect(JSON.parse(JSON.stringify(artifact.records))).toEqual(artifact.records);
       const lines = artifactToJSONL(artifact)
         .trim()
         .split("\n")
         .map(line => JSON.parse(line));
       expect(lines[0]).toMatchObject({
         type: "meta",
-        formatVersion: 5,
+        formatVersion: 6,
         diagnosticCount: 2,
-        boundaryCount: 1,
-        invocationCount: 1
+        recordCounts: { boundary: 1, invocation: 1, frame: 0, call: 0 }
       });
       expect(lines.filter(l => l.type === "boundary")).toEqual([
         { type: "boundary", ...boundaries[0] }
@@ -202,7 +234,7 @@ describe("captureArtifact over a server render", () => {
         attribution: false
       });
       expectDiagnostic(artifact, "ASYNC_WATERFALL", { count: 1 });
-      const [boundary] = artifact.server!.boundaries;
+      const [boundary] = artifact.records.boundary;
       expect(boundary.passes).toBe(4);
       // The finding and the record are the same boundary.
       const finding = artifact.diagnostics.find(e => e.code === "ASYNC_WATERFALL")!;
@@ -214,7 +246,44 @@ describe("captureArtifact over a server render", () => {
     }
   });
 
-  test("a render with no waits and no calls leaves the tables empty, not null", async () => {
+  test("a server component rendered to the frame transport is a frame row", async () => {
+    const { renderServerComponent } = await import("../../frames/src/frame-sink.js");
+    const ServerComp = (props: any) => (
+      <section>
+        <props.comment id={1} />
+        <Loading fallback={<i>loading</i>}>
+          <Slow ms={3} value="late" />
+        </Loading>
+      </section>
+    );
+    const { artifact } = await captureArtifact(
+      // The stream is a thenable that collects its chunks; awaiting it runs it to `complete`.
+      async () => {
+        await renderServerComponent(ServerComp, { frame: { id: "getStory" } });
+      },
+      { attribution: false }
+    );
+    expect(artifact.records.frame).toHaveLength(1);
+    expect(artifact.records.frame[0]).toMatchObject({
+      side: "server",
+      id: "getStory",
+      version: 1,
+      outcome: "complete",
+      fragments: 1,
+      slots: 1,
+      regions: 0,
+      errors: 0
+    });
+    // The boundary inside the frame is a boundary row too.
+    expect(artifact.records.boundary).toHaveLength(1);
+    const lines = artifactToJSONL(artifact)
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
+    expect(lines.filter(l => l.type === "frame")).toHaveLength(1);
+  });
+
+  test("a render with no waits and no calls leaves the tables empty", async () => {
     function App() {
       return (
         <Loading fallback={<i>loading</i>}>
@@ -226,7 +295,7 @@ describe("captureArtifact over a server render", () => {
       attribution: false
     });
     expectNoDiagnostics(artifact);
-    expect(artifact.server).toEqual({ boundaries: [], invocations: [] });
+    expect(artifact.records).toEqual({ boundary: [], invocation: [], frame: [], call: [] });
   });
 
   test("records outside the capture are not in it", async () => {
@@ -239,6 +308,6 @@ describe("captureArtifact over a server render", () => {
     }
     await stream(() => <App />);
     const { artifact } = await captureArtifact(() => {}, { attribution: false });
-    expect(artifact.server).toEqual({ boundaries: [], invocations: [] });
+    expect(artifact.records).toEqual({ boundary: [], invocation: [], frame: [], call: [] });
   });
 });

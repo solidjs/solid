@@ -30,10 +30,9 @@ import {
   createServerReference,
   getServerFunctionMetadata,
   isServerFunction,
-  observeServerFunctionCalls,
   withMeta
 } from "@solidjs/web/server-functions/client";
-import type { PrepareRequestHook, ServerFunctionCall } from "@solidjs/web/server-functions/client";
+import type { PrepareRequestHook } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 
@@ -49,9 +48,8 @@ afterAll(() => {
 // handler — a full round trip through both published bundles.
 function connectTransport() {
   const original = globalThis.fetch;
-  // Both halves of the extension surface flow through here: observer tests
-  // (#3025) pass a prepared Request through untouched, and the CSRF check
-  // (#3027) requires the browser-stamped Sec-Fetch-Site header.
+  // A prepared Request passes through untouched, and the CSRF check (#3027)
+  // requires the browser-stamped Sec-Fetch-Site header.
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const request =
       input instanceof Request
@@ -224,7 +222,7 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
-  it("hands the fetch one shape whether or not observers are attached", async () => {
+  it("hands the fetch the (address, init) shape", async () => {
     registerServerFunction("ext-fetch-1", async () => "ok");
     const shapes: string[] = [];
     configureServerFunctionsClient({
@@ -235,13 +233,7 @@ describe("server-function extension surface (built bundles)", () => {
     });
     try {
       expect(await createServerReference("ext-fetch-1")()).toBe("ok");
-      const stop = observeServerFunctionCalls(() => {});
-      try {
-        expect(await createServerReference("ext-fetch-1")()).toBe("ok");
-      } finally {
-        stop();
-      }
-      expect(shapes).toEqual(["string:POST", "string:POST"]);
+      expect(shapes).toEqual(["string:POST"]);
     } finally {
       configureServerFunctionsClient({ fetch: null });
     }
@@ -288,7 +280,7 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
-  it("does not consume a streaming body to show it to observers", async () => {
+  it("sends a streaming body prepareRequest produced, unconsumed", async () => {
     registerServerFunction("ext-fetch-7", async (value: unknown) => String(value));
     const restore = connectTransport();
     const send = globalThis.fetch;
@@ -301,11 +293,9 @@ describe("server-function extension surface (built bundles)", () => {
       }),
       fetch: (address, init) => send(address, init)
     });
-    const stop = observeServerFunctionCalls(() => {});
     try {
       expect(await createServerReference("ext-fetch-7")("ignored")).toBe("streamed");
     } finally {
-      stop();
       configureServerFunctionsClient({ prepareRequest: null as any, fetch: null });
       restore();
     }
@@ -328,28 +318,6 @@ describe("server-function extension surface (built bundles)", () => {
       expect(sends).toBe(1);
     } finally {
       configureServerFunctionsClient({ fetch: null });
-      restore();
-    }
-  });
-
-  it("observes calls through the client bridge", async () => {
-    registerServerFunction("ext-observe-0", async (value: number) => value * 2);
-    const calls: ServerFunctionCall[] = [];
-    const stop = observeServerFunctionCalls(call => calls.push(call));
-    const restore = connectTransport();
-    try {
-      expect(await createServerReference("ext-observe-0")(21)).toBe(42);
-      expect(calls.map(call => call.type)).toEqual(["request", "response"]);
-      expect(calls[0]).toMatchObject({
-        id: "ext-observe-0",
-        instance: expect.any(String)
-      });
-      expect(calls[1]).toMatchObject({
-        id: "ext-observe-0",
-        instance: calls[0].instance
-      });
-    } finally {
-      stop();
       restore();
     }
   });

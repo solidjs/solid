@@ -303,7 +303,9 @@ type/tooling reuse, with unused members no-op.
 > `"boundary"` record from solid-js's server entry joined the `"invocation"`
 > one — and the objects and the `records`/`trace` members are solid-js's,
 > with web augmenting solid-js's `ServerRecords`/`ServerTrace`; see
-> `sentry-integration-plan.md` C3.)_ Observe-tier only: web now
+> `sentry-integration-plan.md` C3. Since C4's client half, 2026-09-15: the
+> channel is the core's `OBSERVE.records`, on both platforms — see C4
+> there; `OBSERVE.server` keeps only `trace`.)_ Observe-tier only: web now
 > ships `dist/server.observe.js`, `server-functions/dist/server.observe.js`
 > and `frames/dist/server.observe.js` under the `observe` condition (the P0
 > plumbing, third flavour), and every emit site folds out of prod behind
@@ -346,19 +348,22 @@ becomes the contract test for server codes.
 > **(c) The artifact.** `@solidjs/diagnostics` format v5 adds
 > `artifact.server: { boundaries, invocations } | null`, folded from
 > `OBSERVE.server.records` when the server runtime installed its surface
-> (`null` otherwise — client captures, the browser bridge). The package still
+> (`null` otherwise — client captures, the browser bridge). _(v6, with C4's
+> client half: `artifact.records.{boundary, invocation, frame, call}`,
+> folded from the core's `OBSERVE.records` on both platforms and always
+> present.)_ The package still
 > depends on `@solidjs/signals` alone: it reads the channel by its contract
-> (`subscribe(type, listener)`, structurally) and mirrors the two record
-> types (`ServerBoundaryRecord`, `ServerInvocationRecord`); the web server
+> (`subscribe(type, listener)`, structurally) and mirrors the record
+> types (`BoundaryRecord`, `InvocationRecord`, `FrameRecord`, `CallRecord`); the web server
 > suite pins the mirrors to the runtime types at compile time, both ways and
-> by key set. JSONL egress adds `boundary`/`invocation` lines. The contract
+> by key set. JSONL egress adds one line per record. The contract
 > test is `packages/web/test/server/diagnostics-server-scenario.spec.tsx`
 > (harness aliased from source in `vite.config.server.mjs` and
 > `tsconfig.test.json`): the seeded `HEAD_TAG_INVALID` and `SERVER_WRITE`
 > with `ownerPath`, a boundary and the invocation under it joined by id, the
 > waterfall as a finding `expectNoDiagnostics` catches, and the tables
-> serializable line by line. The package's own suite covers the fold against
-> a stand-in channel (bare signals has no server surface).
+> serializable line by line. The package's own suite covers the fold with
+> records emitted onto the real channel by hand (bare signals has no emitter).
 
 ## Decisions (resolved 2026-09-06)
 

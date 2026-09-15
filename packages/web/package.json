@@ -135,6 +135,14 @@
         "default": "./server-functions/dist/server.js"
       },
       "browser": {
+        "development": {
+          "types": "./types/server-functions/client.d.ts",
+          "default": "./server-functions/dist/client.dev.js"
+        },
+        "observe": {
+          "types": "./types/server-functions/client.d.ts",
+          "default": "./server-functions/dist/client.observe.js"
+        },
         "types": "./types/server-functions/client.d.ts",
         "default": "./server-functions/dist/client.js"
       },
@@ -162,6 +170,14 @@
         "types": "./types/server-functions/server.d.ts",
         "default": "./server-functions/dist/server.js"
       },
+      "development": {
+        "types": "./types/server-functions/client.d.ts",
+        "default": "./server-functions/dist/client.dev.js"
+      },
+      "observe": {
+        "types": "./types/server-functions/client.d.ts",
+        "default": "./server-functions/dist/client.observe.js"
+      },
       "types": "./types/server-functions/client.d.ts",
       "default": "./server-functions/dist/client.js"
     },
@@ -178,6 +194,14 @@
       "default": "./server-functions/dist/server.js"
     },
     "./server-functions/client": {
+      "development": {
+        "types": "./types/server-functions/client.d.ts",
+        "default": "./server-functions/dist/client.dev.js"
+      },
+      "observe": {
+        "types": "./types/server-functions/client.d.ts",
+        "default": "./server-functions/dist/client.observe.js"
+      },
       "types": "./types/server-functions/client.d.ts",
       "default": "./server-functions/dist/client.js"
     },
@@ -202,6 +226,10 @@
         "development": {
           "types": "./types/frames/client.d.ts",
           "default": "./frames/dist/client.dev.js"
+        },
+        "observe": {
+          "types": "./types/frames/client.d.ts",
+          "default": "./frames/dist/client.observe.js"
         },
         "types": "./types/frames/client.d.ts",
         "default": "./frames/dist/client.js"
@@ -234,6 +262,10 @@
         "types": "./types/frames/client.d.ts",
         "default": "./frames/dist/client.dev.js"
       },
+      "observe": {
+        "types": "./types/frames/client.d.ts",
+        "default": "./frames/dist/client.observe.js"
+      },
       "types": "./types/frames/client.d.ts",
       "default": "./frames/dist/client.js"
     },
@@ -250,6 +282,14 @@
       "default": "./frames/dist/server.js"
     },
     "./frames/client": {
+      "development": {
+        "types": "./types/frames/client.d.ts",
+        "default": "./frames/dist/client.dev.js"
+      },
+      "observe": {
+        "types": "./types/frames/client.d.ts",
+        "default": "./frames/dist/client.observe.js"
+      },
       "types": "./types/frames/client.d.ts",
       "default": "./frames/dist/client.js"
     },
@@ -272,7 +312,7 @@
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",
-    "test-types": "tsc --project tsconfig.test.json"
+    "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.test.augment.json"
   },
   "dependencies": {
     "seroval": "~1.6.7",

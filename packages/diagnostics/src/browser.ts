@@ -10,6 +10,7 @@
  */
 import { OBSERVE, flush } from "@solidjs/signals";
 import { attribution as engine } from "@solidjs/signals/attribution";
+import { captureRecords, type RecordsCapture } from "./records.js";
 import type {
   AttributionCosts,
   AttributionFeedback,
@@ -32,6 +33,7 @@ export interface BridgePayload {
   durationMs: number;
   diagnostics: DiagnosticsArtifact["diagnostics"];
   attribution: DiagnosticsArtifact["attribution"];
+  records: DiagnosticsArtifact["records"];
 }
 
 export interface DiagnosticsBridge {
@@ -80,6 +82,7 @@ export function installDiagnosticsBridge(
 
   interface Session {
     capture: ReturnType<NonNullable<typeof OBSERVE>["diagnostics"]["capture"]>;
+    records: RecordsCapture;
     useAttribution: boolean;
     startedAt: Date;
     start: number;
@@ -101,7 +104,13 @@ export function installDiagnosticsBridge(
             : { log: false };
         engine.enable(opts);
       }
-      session = { capture, useAttribution, startedAt: new Date(), start: performance.now() };
+      session = {
+        capture,
+        records: captureRecords(),
+        useAttribution,
+        startedAt: new Date(),
+        start: performance.now()
+      };
     },
     end() {
       if (!session) {
@@ -122,11 +131,13 @@ export function installDiagnosticsBridge(
         engine.disable();
       }
       const events = active.capture.stop();
+      const records = active.records.stop();
       return toSerializable({
         capturedAt: active.startedAt.toISOString(),
         durationMs: performance.now() - active.start,
         diagnostics: events,
-        attribution
+        attribution,
+        records
       });
     },
     active() {

@@ -160,17 +160,31 @@ stable field or `reconcile`). Each names its repair in the message.
 The same fixture over `renderToStream(() => <App />)` (or `renderToString`)
 captures the server side: the server findings in `artifact.diagnostics`
 (`SSR_RENDER_ERROR_CONTAINED`, `SERVER_WRITE`, `HEAD_TAG_INVALID`, …, each
-with `ownerPath`), and two tables in `artifact.server`:
+with `ownerPath`), and the records tables in `artifact.records`, keyed by
+record type:
 
-- `boundaries[]` — every `<Loading>` boundary that waited: `durationMs`
+- `boundary[]` — every `<Loading>` boundary that waited: `durationMs`
   (how long it held its content up), `heldMs` (how long finished content
   then sat behind `<Reveal>` siblings), `passes` (render passes: `2` is one
   round of async, `3+` is a sequential chain — a read that depended on the
   previous answer), `outcome` (`settled`, `fallback`, `client`, `error`),
   `streamed`, `ownerPath`.
-- `invocations[]` — every server-function execution: `id`, `durationMs`,
+- `invocation[]` — every server-function execution: `id`, `durationMs`,
   `outcome`, and for a direct call made during a boundary's pass the
   boundary's `id` in `boundary`.
+- `frame[]` — every frame stream produced (`side: "server"`; a server
+  component rendered to the frame transport): `shellMs` (time to first
+  content), `durationMs` (to `complete`), `outcome`, and the census —
+  `fragments`, `slots`, `regions`, `errors`. A server-function response
+  that is a frame stream has an invocation row (the call) and a frame row
+  (the response) with the same `id`; a large `durationMs - shellMs` with
+  `fragments > 0` is the server waiting on data behind the shell — look at
+  the boundary rows.
+- `call[]` — empty on the server. In a browser capture (jsdom, or the
+  bridge) it is every server-function call the page made — `id`, `method`,
+  `durationMs` (the caller's whole wait), `status`, `outcome` — and
+  `frame[]` rows with `side: "client"` are the streams it applied. A `call`
+  next to the server's `invocation` of the same `id` is the wire.
 
 Read them together: a boundary's `durationMs` is the sum of its passes'
 waits, and the invocations with its `id` are what those waits were spent on.
@@ -180,8 +194,8 @@ waterfall; the runtime already says so (`ASYNC_WATERFALL` with
 when a client-only read surfaced only after a wait — so Loop 1's rule holds
 on the server: capture, read the codes, repair, re-capture. Use
 `attribution: false` here; the engine has nothing to see in a server render.
-`artifact.server` is `null` when the scenario did not run under the server
-runtime.
+The tables are always present; a table is empty when nothing of its kind
+happened (or no runtime that emits it was loaded).
 
 ## Practical rules
 
@@ -193,7 +207,7 @@ runtime.
    landing async value).
 3. **Egress for offline analysis.** `artifactToJSONL(artifact)` emits one
    JSON record per line (`meta`, `diagnostic`, `rerun`, `costs`, `hold`,
-   `feedback`, `boundary`, `invocation`) — grep it, diff it between runs,
+   `feedback`, `boundary`, `invocation`, `frame`) — grep it, diff it between runs,
    attach it to a report.
 4. **Dev builds only.** `captureArtifact` throws where the `DEV` export is
    stripped. Run under Vitest or a dev server.

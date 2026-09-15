@@ -115,12 +115,24 @@ export interface RequestEvent {
 
 export type { CookieOptions } from "./cookies.js";
 
-// The server observe surface's types (the `"invocation"` record on
-// `OBSERVE.server.records`), and with them the `ServerRecords` augmentation
-// that module declares: the published types resolve to this entry under
-// every condition, so this re-export is what puts the augmentation in a
+// This runtime's records on `OBSERVE.records` (`"invocation"`, `"call"`,
+// `"frame"`), and with them the `HostRecordTypes` augmentation that module
+// declares: the published types resolve to this entry under every
+// condition, so this re-export is what puts the augmentation in a
 // consumer's program.
-export type { InvocationEvent, InvocationListener, InvocationLive } from "./server-observe.js";
+export type {
+  CallEvent,
+  CallListener,
+  CallLive,
+  FrameAppliedEvent,
+  FrameEvent,
+  FrameListener,
+  FrameLive,
+  FrameProducedEvent,
+  InvocationEvent,
+  InvocationListener,
+  InvocationLive
+} from "./observe.js";
 // The trace context's types (`getTraceContext()`, `OBSERVE.server.trace`),
 // with the `ServerObserve.trace` augmentation, for the same reason.
 export type { TraceContext, TraceProvider, TraceSlot } from "./trace.js";
