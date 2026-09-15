@@ -82,8 +82,8 @@ async function scenario(shape: "two-effects" | "one-effect") {
   return log;
 }
 
-describe("A15 / #3459 a Loading `on` reset keeps the fallback until every reader under it settles", () => {
-  it("A15 / #3459 fast and slow read from sibling effects (the JSX shape): fallback until slow lands", async () => {
+describe("A33 / #3459 a Loading `on` reset keeps the fallback until every reader under it settles", () => {
+  it("A33 / #3459 fast and slow read from sibling effects (the JSX shape): fallback until slow lands", async () => {
     const log = await scenario("two-effects");
     expect(log[0]).toBe("initial: B: 0 | Fast: 0 | Slow: 0");
     // Before the reset the lane holds B with slow's flight.
@@ -93,7 +93,7 @@ describe("A15 / #3459 a Loading `on` reset keeps the fallback until every reader
     expect(log.find(l => l.startsWith("t=50:"))).toBe("t=50: B: 1 | Loading");
     expect(log.at(-1)).toBe("t=300: B: 1 | Fast: 1 | Slow: 1");
   });
-  it("A15 / #3459 control: one effect reading both — the notifying reader carries slow in its pending sources", async () => {
+  it("A33 / #3459 control: one effect reading both — the notifying reader carries slow in its pending sources", async () => {
     const log = await scenario("one-effect");
     for (const line of log) expect(line, line).not.toMatch(/Fast: 1 \| Slow: 0/);
     expect(log.find(l => l.startsWith("t=50:"))).toBe("t=50: B: 1 | Loading");

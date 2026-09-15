@@ -1470,7 +1470,7 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
   // but a reader registered while its boundary showed content stays
   // registered when the boundary's `on` later changes and it flips to the
   // fallback. The reader is behind the fallback now; if nothing outside the
-  // boundary consumes the flight, the hold is over (ruled 2026-09-12, #3375).
+  // boundary consumes the flight, the hold is over (A33, ruled 2026-09-12, #3375).
   for (let q: IQueue | null = reporter._queue; q; q = q._parent)
     if (q._collectionType! & STATUS_PENDING && !q._initialized) return false;
   if (reporter._x?._pendingSources?.has(source)) return true;

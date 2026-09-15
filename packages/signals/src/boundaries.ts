@@ -310,12 +310,12 @@ export class CollectionQueue extends Queue {
         this._sources.clear();
         // Readers forwarded while this boundary showed content are behind the
         // fallback now: they stop blocking (`reporterBlocksSource`), and the
-        // transactions they were holding must be re-judged for it (#3375).
+        // transactions they were holding must be re-judged for it (A33, #3375).
         // What those readers still wait on is this boundary's to wait on now:
         // they never re-notify (status propagation dedupes on the reader's
         // `_pendingSources`), so the reset collects it from their registrations
         // — the one place a forwarded reader is recorded (INV-3) — or a sibling
-        // reader's flight that lands first reveals them stale (#3459).
+        // reader's flight that lands first reveals them stale (A33, #3459).
         for (const t of transitions)
           for (const [source, reporters] of t._asyncReporters)
             for (const reporter of reporters)

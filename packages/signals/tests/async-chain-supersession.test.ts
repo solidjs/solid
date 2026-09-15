@@ -138,7 +138,7 @@ describe("a second write while an async chain is in flight", () => {
     expect(log).toEqual(["Pending: false", "Pending: true", "Pending: false"]);
   });
 
-  it("#3375 a Loading boundary reset ends the hold on writes only its readers observed and waits for the downstream async", async () => {
+  it("A33 / #3375 a Loading boundary reset ends the hold on writes only its readers observed and waits for the downstream async", async () => {
     reset();
     const log: string[] = [];
     const when: number[] = [];
@@ -194,7 +194,7 @@ describe("a second write while an async chain is in flight", () => {
     ]);
   });
 
-  it("a Loading boundary reset keeps the hold while a reader outside the boundary observes the flight", async () => {
+  it("A33 / #3375 a Loading boundary reset keeps the hold while a reader outside the boundary observes the flight", async () => {
     reset();
     const log: string[] = [];
     const when: number[] = [];
