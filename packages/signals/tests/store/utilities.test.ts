@@ -592,6 +592,132 @@ describe("omit Props", () => {
   });
 });
 
+// The shape headless-UI libraries (Kobalte) compose per element: a compiled
+// props object → merge(defaults) → omit(consumed) → merge(call-site statics)
+// … → omit("as") at the polymorphic renderer. These pin what the chain must
+// mean regardless of whether the layers are eager copies or lazy views.
+describe("props chain (component-library shape)", () => {
+  function compiledProps(label: () => string, open: () => boolean) {
+    return {
+      as: "a",
+      class: "btn",
+      href: "#row",
+      get "aria-label"() {
+        return label();
+      },
+      get disabled() {
+        return open();
+      }
+    };
+  }
+
+  function buttonRoot(props: Record<string, any>) {
+    // Button.Root: defaults in, consume type/disabled, add derived attrs at the call site.
+    const merged = merge({ type: "button" }, props);
+    const others = omit(merged, "type", "disabled");
+    const isButton = () => (merged.as ?? "button") === "button";
+    return merge(
+      {
+        as: "button",
+        get role() {
+          return isButton() ? undefined : "button";
+        },
+        get "data-disabled"() {
+          return merged.disabled ? "" : undefined;
+        }
+      },
+      others
+    );
+  }
+
+  function polymorphic(props: Record<string, any>) {
+    return omit(props, "as");
+  }
+
+  test("later layers shadow earlier ones and omitted keys stay hidden through re-merges", () => {
+    const [label] = createSignal("Open");
+    const [open] = createSignal(false);
+    const props = compiledProps(label, open);
+    const atPolymorphic = buttonRoot(props);
+    // The user's as="a" (rightmost via `others`) beats Button.Root's as="button" default.
+    expect(atPolymorphic.as).toBe("a");
+    expect(atPolymorphic.role).toBe("button");
+    // Consumed keys don't reappear once merged with new statics.
+    expect("type" in atPolymorphic).toBe(false);
+    expect("disabled" in atPolymorphic).toBe(false);
+    expect((atPolymorphic as any).type).toBeUndefined();
+
+    const element = polymorphic(atPolymorphic);
+    expect("as" in element).toBe(false);
+    expect(Object.keys(element).sort()).toEqual(
+      ["aria-label", "class", "data-disabled", "href", "role"].sort()
+    );
+  });
+
+  test("nested omits accumulate their hidden keys", () => {
+    const rest = omit(omit(omit({ a: 1, b: 2, c: 3, d: 4 }, "a"), "b"), "c");
+    expect(Object.keys(rest)).toEqual(["d"]);
+    expect("a" in rest).toBe(false);
+    expect("b" in rest).toBe(false);
+    expect((rest as any).c).toBeUndefined();
+    // …and a merge on top can't resurrect them.
+    const remerged = merge({ e: 5 }, rest);
+    expect(Object.keys(remerged).sort()).toEqual(["d", "e"]);
+    expect("a" in remerged).toBe(false);
+  });
+
+  test("reactive reads stay live through every layer", () => {
+    const [label, setLabel] = createSignal("Open");
+    const [open, setOpen] = createSignal(false);
+    const seen: string[] = [];
+    createRoot(() => {
+      const element = polymorphic(buttonRoot(compiledProps(label, open)));
+      createEffect(
+        () => `${element["aria-label"]}|${element["data-disabled"]}`,
+        v => {
+          seen.push(v);
+        }
+      );
+    });
+    flush();
+    expect(seen).toEqual(["Open|undefined"]);
+    setLabel("Close");
+    setOpen(true);
+    flush();
+    expect(seen).toEqual(["Open|undefined", "Close|"]);
+  });
+
+  test("a spread copy of the chain result is a plain snapshot with the surviving keys", () => {
+    const [label] = createSignal("Open");
+    const [open] = createSignal(false);
+    const element = polymorphic(buttonRoot(compiledProps(label, open)));
+    const copy = { ...element };
+    expect(copy).toEqual({
+      class: "btn",
+      href: "#row",
+      "aria-label": "Open",
+      role: "button",
+      "data-disabled": undefined
+    });
+  });
+
+  test("descriptor kind survives the chain: static stays data, reactive stays a getter", () => {
+    const [label] = createSignal("Open");
+    const [open] = createSignal(false);
+    const element = polymorphic(buttonRoot(compiledProps(label, open)));
+    // A consumer (spread's children fast path, isStaticProp) must be able to
+    // tell a compiled static attribute from a reactive one at the bottom of
+    // the chain — that distinction is the compiler's verdict and must not be
+    // erased by the layers in between.
+    const staticDesc = Object.getOwnPropertyDescriptor(element, "class")!;
+    expect(staticDesc.get).toBeUndefined();
+    expect(staticDesc.value).toBe("btn");
+    const reactiveDesc = Object.getOwnPropertyDescriptor(element, "aria-label")!;
+    expect(typeof reactiveDesc.get).toBe("function");
+    expect(Object.getOwnPropertyDescriptor(element, "as")).toBeUndefined();
+  });
+});
+
 describe("deep", () => {
   // RULED (INTERNALS-STORE-STATE.md, recon-snap pin 2): pins the LEGACY graph
   // shape (one $TRACK dep per level). The rewrite's deep() subscribes the
