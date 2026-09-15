@@ -237,7 +237,11 @@ module.exports = [
     // mainline). +316 B minified in the in-package floor (23,365 -> 23,681).
     // Rebased over #3443/#3444 (2026-09-15): measured at 8820 B against
     // `next`'s 8708 (+112); 23,419 -> 23,753 minified.
-    limit: "8.85 KB",
+    // Superseded source keeps blocking (#3462, 2026-09-15): 8.85 -> 8.90 KB,
+    // measured at 8851 B against `next`'s 8849 (+2) — transitionComplete
+    // judges a reporter's source by a non-empty `_pendingSources`, not the
+    // self entry alone. The cap sat 1 B under the baseline; +2 B tips it.
+    limit: "8.90 KB",
     modifyEsbuildConfig
   },
   {
