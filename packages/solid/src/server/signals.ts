@@ -33,12 +33,20 @@ export {
   storePath,
   $PROXY,
   $TRACK,
+  mergeView,
+  viewOf,
+  OmitView,
+  MergeView,
   omitView,
   sourceKeys,
   sourceHas,
   sourceGet,
   hasStaticKeys,
-  resolvedTable
+  resolvedTable,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO
 } from "@solidjs/signals";
 
 // === Type re-exports ===
@@ -53,6 +61,7 @@ import type {
 export type SourceAccessor<T> = Refreshable<SignalAccessor<T>>;
 
 export type {
+  SourceKind,
   Accessor,
   ComputeFunction,
   EffectFunction,

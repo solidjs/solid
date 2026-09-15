@@ -9,13 +9,18 @@ import {
   createMemo,
   createRenderEffect,
   flush,
-  mergeSources,
-  omitView,
+  $PROXY,
+  viewOf,
+  OmitView,
   sourceKeys,
   sourceHas,
   sourceGet,
   hasStaticKeys,
-  resolvedTable
+  resolvedTable,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO
 } from "solid-js";
 
 export interface RendererOptions<NodeType> {
@@ -410,15 +415,19 @@ export function createRenderer({
           node,
           () => {
             for (let i = props.length - 1; i >= 0; i--) {
-              const s = resolveEntry(props[i]);
-              if (s != null && sourceHas(s, "children")) return sourceGet(s, "children");
+              const s = resolveSource(props[i]);
+              if (s != null && entryHas(s, "children")) return entryGet(s, "children");
             }
           },
           undefined,
           undefined,
           childrenOptions()
         );
-      effect(() => collectSources({}, props), apply, named(options, "renderer spread props"));
+      effect(
+        () => collectSources({}, props, undefined),
+        apply,
+        named(options, "renderer spread props")
+      );
       return prevProps;
     }
     if (!skipChildren) {
@@ -438,8 +447,8 @@ export function createRenderer({
         insert(
           node,
           () => {
-            const s = resolveEntry(props);
-            return s != null ? sourceGet(s, "children") : undefined;
+            const s = resolveSource(props);
+            return s != null ? entryGet(s, "children") : undefined;
           },
           undefined,
           undefined,
@@ -462,9 +471,12 @@ export function createRenderer({
           }
           return newProps;
         }
-        const sources = mergeSources(s);
-        if (sources !== undefined) return collectSources(newProps, sources);
-        if (s != null) collectProps(newProps, entryOf(s));
+        if (s != null) {
+          const view = viewOf(s);
+          if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT);
+          else if (view !== undefined) collectSources(newProps, view.sources, view.kinds);
+          else collectProps(newProps, s, $PROXY in s ? SOURCE_PROXY : SOURCE_PLAIN);
+        }
         return newProps;
       },
       apply,
@@ -477,38 +489,55 @@ export function createRenderer({
     return typeof s === "function" ? s() : s;
   }
 
-  // A resolved source as the ENTRY a consumer walks: an omit() proxy is
-  // replaced by its view record, anything else is itself.
-  function entryOf(s) {
-    if (s == null) return s;
-    const view = omitView(s);
-    return view !== undefined ? view : s;
+  // `key in s` / `s[key]` for one resolved, non-null spread source: an
+  // omit() proxy answers from its view record, anything else as itself.
+  function entryHas(s, key) {
+    const view = viewOf(s);
+    return view instanceof OmitView ? sourceHas(view, SOURCE_OMIT, key) : key in s;
   }
-
-  function resolveEntry(s) {
-    return entryOf(resolveSource(s));
+  function entryGet(s, key) {
+    const view = viewOf(s);
+    return view instanceof OmitView ? sourceGet(view, SOURCE_OMIT, key) : s[key];
   }
 
   // Layered sources into `out`. Every function source is resolved once, up
   // front, a merge() proxy among them contributes its flattened sources in
-  // place; keys are then collected left-to-right (Object.assign order), and
-  // a key any LATER source has is skipped unread. `sourceHas` is merge()'s
-  // own resolution test, so a proxy source answers through its `has` trap
-  // and an omit view from its filter.
-  function collectSources(out, sources) {
+  // place — each entry with its KIND, so the per-key walk asks nothing of a
+  // proxy but the read; keys are then collected left-to-right (Object.assign
+  // order), and a key any LATER source has is skipped unread. `sourceHas` is
+  // merge()'s own resolution test, so a proxy source answers through its
+  // `has` trap and an omit view from its filter.
+  function collectSources(out, sources, kinds) {
     const resolved = [];
-    for (let i = 0; i < sources.length; i++) {
-      const s = resolveSource(sources[i]);
-      const merged = mergeSources(s);
-      if (merged !== undefined) {
-        for (let j = 0; j < merged.length; j++) resolved.push(resolveEntry(merged[j]));
-      } else resolved.push(entryOf(s));
-    }
-    for (let i = 0; i < resolved.length; i++) {
-      const s = resolved[i];
-      if (s != null) collectProps(out, s, resolved, i + 1);
-    }
+    const resolvedKinds = [];
+    for (let i = 0; i < sources.length; i++)
+      pushEntry(resolved, resolvedKinds, sources[i], kinds !== undefined ? kinds[i] : SOURCE_MEMO);
+    for (let i = 0; i < resolved.length; i++)
+      collectProps(out, resolved[i], resolvedKinds[i], resolved, resolvedKinds, i + 1);
     return out;
+  }
+
+  // One source into the resolved entry lists (see @solidjs/web).
+  function pushEntry(resolved, kinds, s, kind) {
+    if (kind !== SOURCE_MEMO) {
+      resolved.push(s);
+      kinds.push(kind);
+      return;
+    }
+    s = resolveSource(s);
+    if (s == null) return;
+    const view = viewOf(s);
+    if (view instanceof OmitView) {
+      resolved.push(view);
+      kinds.push(SOURCE_OMIT);
+    } else if (view !== undefined) {
+      const f = view.sources,
+        k = view.kinds;
+      for (let j = 0; j < f.length; j++) pushEntry(resolved, kinds, f[j], k[j]);
+    } else {
+      resolved.push(s);
+      kinds.push($PROXY in s ? SOURCE_PROXY : SOURCE_PLAIN);
+    }
   }
 
   // One layer of a spread source into `out`: own string keys (one `ownKeys`
@@ -516,17 +545,15 @@ export function createRenderer({
   // `children` excluded (it has its own insert), `ref` carried through for
   // the commit half. With `later` (the sources after this one, from index
   // `from`), a key one of them defines is shadowed and never read here.
-  function collectProps(out, s, later?, from?) {
-    const keys = sourceKeys(s);
+  function collectProps(out, s, kind, later?, laterKinds?, from?) {
+    const keys = sourceKeys(s, kind);
     outer: for (let i = 0; i < keys.length; i++) {
       const prop = keys[i];
       if (typeof prop !== "string" || prop === "children") continue;
       if (later !== undefined)
-        for (let j = from; j < later.length; j++) {
-          const t = later[j];
-          if (t != null && sourceHas(t, prop)) continue outer;
-        }
-      out[prop] = sourceGet(s, prop);
+        for (let j = from; j < later.length; j++)
+          if (sourceHas(later[j], laterKinds[j], prop)) continue outer;
+      out[prop] = sourceGet(s, kind, prop);
     }
     return out;
   }

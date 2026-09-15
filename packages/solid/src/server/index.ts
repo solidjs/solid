@@ -37,12 +37,20 @@ export {
   mapArray,
   merge,
   mergeSources,
+  mergeView,
+  viewOf,
+  OmitView,
+  MergeView,
   omitView,
   sourceKeys,
   sourceHas,
   sourceGet,
   hasStaticKeys,
   resolvedTable,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO,
   omit,
   onCleanup,
   onSettled,
@@ -72,6 +80,7 @@ export {
 
 // All type re-exports from signals
 export type {
+  SourceKind,
   Accessor,
   ComputeFunction,
   EffectFunction,

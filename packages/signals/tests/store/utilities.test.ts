@@ -7,11 +7,22 @@ import {
   deep,
   flush,
   getOwner,
+  $TARGET,
   merge,
   mergeSources,
   hasStaticKeys,
   omit,
   OmitView,
+  MergeView,
+  viewOf,
+  resolvedTable,
+  sourceKeys,
+  sourceHas,
+  sourceGet,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO,
   reconcile,
   snapshot,
   type Store
@@ -820,6 +831,127 @@ describe("view descriptors", () => {
     expect(Object.getOwnPropertyDescriptor(l5, "as")).toBeUndefined();
     expect(Object.getOwnPropertyDescriptor(l5, "role")!.value).toBe("button");
     expect(Object.keys(l5).sort()).toEqual(["class", "extra", "label", "role"]);
+  });
+  // A store-shaped proxy that logs every trap it is asked. `$PROXY in`,
+  // `$TARGET` and `$PROXY` are a store's fast paths; anything else — an
+  // unknown symbol taking its generic read path, `getPrototypeOf` from an
+  // `instanceof`, a descriptor per key — is a cost per read that the views
+  // must not add over a direct read of the store.
+  function storeShaped(data: Record<string, unknown>) {
+    const log: string[] = [];
+    const target = {};
+    const proxy: any = new Proxy(target, {
+      get(_, key, receiver) {
+        if (key === $PROXY) return receiver;
+        if (key === $TARGET) return target;
+        log.push(`get ${String(key)}`);
+        return data[key as string];
+      },
+      has(_, key) {
+        if (key === $PROXY || key === $TARGET) return true;
+        log.push(`has ${String(key)}`);
+        return key in data;
+      },
+      ownKeys() {
+        log.push("ownKeys");
+        return Reflect.ownKeys(data);
+      },
+      getOwnPropertyDescriptor(_, key) {
+        log.push(`descriptor ${String(key)}`);
+        const desc = Reflect.getOwnPropertyDescriptor(data, key);
+        return desc && { ...desc, configurable: true };
+      },
+      getPrototypeOf() {
+        log.push("getPrototypeOf");
+        return Object.prototype;
+      }
+    });
+    return { proxy, log };
+  }
+  test("a read through a merge or omit asks a store exactly what a direct read would", () => {
+    const { proxy: store, log } = storeShaped({ a: 1, b: 2 });
+    const merged: any = merge({ a: 0, z: 9 }, store);
+    expect(log).toEqual([]);
+    expect(merged.a).toBe(1);
+    expect(log).toEqual(["has a", "get a"]);
+    log.length = 0;
+    expect(merged.z).toBe(9);
+    expect(log).toEqual(["has z"]);
+    log.length = 0;
+    expect("b" in merged).toBe(true);
+    expect(log).toEqual(["has b"]);
+    log.length = 0;
+
+    const rest: any = omit(store, "a");
+    expect(log).toEqual([]);
+    expect(rest.b).toBe(2);
+    expect(rest.a).toBeUndefined();
+    expect(log).toEqual(["get b"]);
+    log.length = 0;
+
+    // Enumeration: one ownKeys, then per key one existence check for the
+    // descriptor — never the store's own descriptor trap.
+    expect(Object.keys(rest)).toEqual(["b"]);
+    expect(log).toEqual(["ownKeys", "has b"]);
+    log.length = 0;
+    // A merge with a store leaf has no resolved table: the user-facing key
+    // set is the enumerable keys of each source (a descriptor per store key,
+    // #2769), then each key is a shadowing walk (`has` on the store) that
+    // the descriptor reuses.
+    expect(Object.keys(merged)).toEqual(["z", "a", "b"]);
+    expect(log).toEqual(["ownKeys", "descriptor a", "descriptor b", "has z", "has a", "has b"]);
+    log.length = 0;
+
+    // The consumers' entry helpers over the store's kind: no probe at all.
+    expect(sourceKeys(store, SOURCE_PROXY)).toEqual(["a", "b"]);
+    expect(sourceHas(store, SOURCE_PROXY, "a")).toBe(true);
+    expect(sourceGet(store, SOURCE_PROXY, "a")).toBe(1);
+    expect(log).toEqual(["ownKeys", "has a", "get a"]);
+    log.length = 0;
+    expect(hasStaticKeys(store)).toBe(false);
+    expect(viewOf(store)).toBeUndefined();
+    expect(resolvedTable(store)).toBeUndefined();
+    expect(log).toEqual([]);
+  });
+  test("merge and omit record what each source is, once", () => {
+    const store = createStore({ s: 1 })[0];
+    const plain = { p: 1 };
+    const rest = omit({ o: 1, hide: 1 }, "hide");
+    const memo = () => ({ m: 1 });
+    const merged = merge(plain, store, rest, memo);
+    const view = viewOf(merged) as MergeView;
+    expect(view).toBeInstanceOf(MergeView);
+    expect(view.kinds).toEqual([SOURCE_PLAIN, SOURCE_PROXY, SOURCE_OMIT, SOURCE_MEMO]);
+    expect(view.sources[0]).toBe(plain);
+    expect(view.sources[1]).toBe(store);
+    expect(view.sources[2]).toBeInstanceOf(OmitView);
+    expect(typeof view.sources[3]).toBe("function");
+    // A merge among the sources flattens with its kinds.
+    const outer = viewOf(merge({ x: 1 }, merged)) as MergeView;
+    expect(outer.kinds).toEqual([
+      SOURCE_PLAIN,
+      SOURCE_PLAIN,
+      SOURCE_PROXY,
+      SOURCE_OMIT,
+      SOURCE_MEMO
+    ]);
+    // An omit records its source's kind, and over a merge one entry per leaf.
+    expect((viewOf(omit(store, "s")) as OmitView).kind).toBe(SOURCE_PROXY);
+    expect((viewOf(omit(plain, "p")) as OmitView).kind).toBe(SOURCE_PLAIN);
+    const overProxy: any = omit(merged, "p");
+    const over = viewOf(overProxy) as OmitView;
+    expect(over.kind).toBe(SOURCE_PROXY);
+    expect(over.entries!.map(e => e.kind)).toEqual([
+      SOURCE_PLAIN,
+      SOURCE_PROXY,
+      SOURCE_PLAIN,
+      SOURCE_MEMO
+    ]);
+    expect(overProxy.p).toBeUndefined();
+    expect(overProxy.s).toBe(1);
+    expect(overProxy.o).toBe(1);
+    expect(overProxy.hide).toBeUndefined();
+    expect(overProxy.m).toBe(1);
   });
   test("hasStaticKeys: plain objects and views over them; not stores, memos, or views over them", () => {
     createRoot(() => {

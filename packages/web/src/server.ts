@@ -11,11 +11,16 @@ import {
   createComponent,
   untrack,
   merge as mergeProps,
-  mergeSources,
-  omitView,
+  $PROXY,
+  viewOf,
+  OmitView,
   sourceKeys,
   sourceGet,
   resolvedTable,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO,
   ssrScope as scope
 } from "solid-js";
 import { effect, memo } from "./render.js";
@@ -3807,6 +3812,34 @@ export function ssrElement(
 ): { t: string };
 
 // review with new ssr
+// One spread source into the resolved entry lists. A known plain /
+// omit-record / proxy entry (a merge's leaf) joins as is. Anything else — a
+// function (the array form's thunk, merge's memo), called once — is
+// classified: a merge() proxy contributes its leaves, an omit() proxy its
+// record, a store is walked through its traps, and nothing nullish
+// contributes at all (#3297).
+function pushEntry(resolved, kinds, s, kind) {
+  if (kind !== SOURCE_MEMO) {
+    resolved.push(s);
+    kinds.push(kind);
+    return;
+  }
+  if (typeof s === "function") s = s();
+  if (s == null) return;
+  const view = viewOf(s);
+  if (view instanceof OmitView) {
+    resolved.push(view);
+    kinds.push(SOURCE_OMIT);
+  } else if (view !== undefined) {
+    const f = view.sources,
+      k = view.kinds;
+    for (let j = 0; j < f.length; j++) pushEntry(resolved, kinds, f[j], k[j]);
+  } else {
+    resolved.push(s);
+    kinds.push($PROXY in s ? SOURCE_PROXY : SOURCE_PLAIN);
+  }
+}
+
 export function ssrElement(tag, props, children, needsId, skip) {
   // The hydration key must be allocated before the props thunk runs: dynamic
   // props (`mergeProps(() => ...)`) create a memo, which consumes a child id.
@@ -3828,53 +3861,37 @@ export function ssrElement(tag, props, children, needsId, skip) {
   // hydration ids of its own — the client `spread` array form follows the
   // same rule. A nullish source is an empty source.
   //
-  // Sources are walked as ENTRIES (`sourceKeys`/`sourceGet`): a
-  // merge() proxy contributes its flattened sources and an omit() proxy its
-  // view record, so neither is enumerated through its traps — a descriptor
-  // trap per key, allocating, on every element. The common case, one plain
-  // object, allocates nothing here.
+  // Sources are walked as ENTRIES (`sourceKeys`/`sourceGet`), each with its
+  // KIND (see `SourceKind`): a merge() proxy contributes its flattened
+  // sources and an omit() proxy its view record, so neither is enumerated
+  // through its traps — a descriptor trap per key, allocating, on every
+  // element — and nothing is asked of a store proxy per key but the read.
+  // The common case, one plain object, allocates nothing here.
   let sources = null;
+  let kinds = null;
+  let kind = SOURCE_PLAIN;
   let table = undefined;
   if (Array.isArray(props)) {
-    sources = props;
-    for (let i = 0; i < sources.length; i++) {
-      let s = sources[i];
-      if (typeof s === "function") s = s();
-      // Sources first: a merge() proxy AND an omit() over a merge both answer
-      // with flattened entries; only an omit() of a plain object is one view.
-      const merged = mergeSources(s);
-      const view = merged === undefined ? omitView(s) : undefined;
-      if (s !== sources[i] || view !== undefined || merged !== undefined) {
-        // Resolve into a copy: the caller's array stays as passed.
-        if (sources === props) sources = sources.slice();
-        if (merged !== undefined) {
-          // The flattened sources take this slot and are visited in turn: a
-          // function source among them is merge's memo, resolved like any
-          // other function entry.
-          sources.splice(i, 1, ...merged);
-          i--;
-        } else sources[i] = view !== undefined ? view : s;
-      }
-    }
+    sources = [];
+    kinds = [];
+    for (let i = 0; i < props.length; i++) pushEntry(sources, kinds, props[i], SOURCE_MEMO);
   } else if (props == null) {
     // A nullish source (static or resolved) is an empty spread (#3297).
     props = {};
   } else if ((table = resolvedTable(props)) === undefined) {
-    const merged = mergeSources(props);
-    if (merged !== undefined) {
+    const view = viewOf(props);
+    if (view instanceof OmitView) {
+      props = view;
+      kind = SOURCE_OMIT;
+    } else if (view !== undefined) {
       // Flattened entries take the array walk; a function among them is
       // merge's memo, resolved here (the keys are allocated, see above).
-      sources = merged;
-      for (let i = 0; i < sources.length; i++) {
-        if (typeof sources[i] === "function") {
-          if (sources === merged) sources = sources.slice();
-          sources[i] = sources[i]();
-        }
-      }
-    } else {
-      const view = omitView(props);
-      if (view !== undefined) props = view;
-    }
+      sources = [];
+      kinds = [];
+      const f = view.sources,
+        k = view.kinds;
+      for (let i = 0; i < f.length; i++) pushEntry(sources, kinds, f[i], k[i]);
+    } else if ($PROXY in props) kind = SOURCE_PROXY;
   }
   // A merge/omit view over plain objects has a RESOLVED TABLE (key → owning
   // leaf, shadowing applied, built once and shared with the component's own
@@ -3894,7 +3911,7 @@ export function ssrElement(tag, props, children, needsId, skip) {
   let keysOf = null;
   if (sources !== null) {
     keysOf = new Array(last + 1);
-    for (let s = 0; s <= last; s++) keysOf[s] = sources[s] == null ? null : sourceKeys(sources[s]);
+    for (let s = 0; s <= last; s++) keysOf[s] = sourceKeys(sources[s], kinds[s]);
   }
   for (let s = 0; s <= last; s++) {
     const keys =
@@ -3902,17 +3919,18 @@ export function ssrElement(tag, props, children, needsId, skip) {
         ? keysOf[s]
         : table !== undefined
           ? Array.from(table.keys())
-          : sourceKeys(props);
-    if (keys === null) continue;
-    if (sources !== null) props = sources[s];
+          : sourceKeys(props, kind);
+    if (sources !== null) {
+      props = sources[s];
+      kind = kinds[s];
+    }
     nextKey: for (let i = 0; i < keys.length; i++) {
       const prop = keys[i];
       if (typeof prop !== "string" || (skip !== undefined && skip(prop))) continue;
       // A later source that has the key owns it; this source's getter stays
       // unread.
       for (let j = s + 1; j <= last; j++) {
-        const later = keysOf[j];
-        if (later !== null && later.includes(prop)) continue nextKey;
+        if (keysOf[j].includes(prop)) continue nextKey;
       }
       // Every branch reads the prop itself, and only when it will use it.
       // On a spread these are compiled getters: `children` builds the child
@@ -3927,7 +3945,7 @@ export function ssrElement(tag, props, children, needsId, skip) {
       // path equivalent: textarea value/defaultValue are its text content,
       // never HTML attributes (#3286).
       if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
-        const value = table !== undefined ? table.get(prop)[prop] : sourceGet(props, prop);
+        const value = table !== undefined ? table.get(prop)[prop] : sourceGet(props, kind, prop);
         if (value !== null) children = escape(value);
         continue;
       }
@@ -3937,11 +3955,11 @@ export function ssrElement(tag, props, children, needsId, skip) {
             tag === "script" || tag === "style" || prop === "innerHTML"
               ? table !== undefined
                 ? table.get(prop)[prop]
-                : sourceGet(props, prop)
-              : escape(table !== undefined ? table.get(prop)[prop] : sourceGet(props, prop));
+                : sourceGet(props, kind, prop)
+              : escape(table !== undefined ? table.get(prop)[prop] : sourceGet(props, kind, prop));
         continue;
       }
-      const value = table !== undefined ? table.get(prop)[prop] : sourceGet(props, prop);
+      const value = table !== undefined ? table.get(prop)[prop] : sourceGet(props, kind, prop);
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382).

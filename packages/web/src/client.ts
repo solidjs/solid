@@ -11,13 +11,17 @@ import {
   untrack,
   merge as mergeProps,
   $PROXY,
-  mergeSources,
-  omitView,
+  viewOf,
+  OmitView,
   sourceKeys,
   sourceHas,
   sourceGet,
   hasStaticKeys,
   resolvedTable,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO,
   flatten,
   createMemo,
   flush,
@@ -803,7 +807,7 @@ export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(readShallow);
   if (value[$PROXY] !== value) return value;
-  const keys = sourceKeys(value);
+  const keys = sourceKeys(value, SOURCE_PROXY);
   const out = {};
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
@@ -880,11 +884,11 @@ export function spread(node, props, skipChildren, skip) {
     if (!skipChildren && !(skip !== undefined && skip("children")))
       insert(node, () => {
         for (let i = props.length - 1; i >= 0; i--) {
-          const s = resolveEntry(props[i]);
-          if (s != null && sourceHas(s, "children")) return sourceGet(s, "children");
+          const s = resolveSource(props[i]);
+          if (s != null && entryHas(s, "children")) return entryGet(s, "children");
         }
       });
-    effect(() => collectSources({}, props, skip), apply);
+    effect(() => collectSources({}, props, undefined, skip), apply);
     return prevProps;
   }
   if (!skipChildren && !(skip !== undefined && skip("children"))) {
@@ -902,9 +906,9 @@ export function spread(node, props, skipChildren, skip) {
       }
     } else
       insert(node, () => {
-        const source = resolveEntry(props);
-        return source != null && sourceHas(source, "children")
-          ? sourceGet(source, "children")
+        const source = resolveSource(props);
+        return source != null && entryHas(source, "children")
+          ? entryGet(source, "children")
           : undefined;
       });
   }
@@ -928,11 +932,11 @@ export function spread(node, props, skipChildren, skip) {
     // key, no re-enumeration and no per-key walk of the later sources.
     const table = resolvedTable(source);
     if (table !== undefined) return collectTable(newProps, table, skip);
-    const sources = mergeSources(source);
-    if (sources !== undefined) return collectSources(newProps, sources, skip);
     if (source != null) {
-      const view = omitView(source);
-      collectProps(newProps, view !== undefined ? view : source, skip);
+      const view = viewOf(source);
+      if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
+      else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
+      else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
     }
     return newProps;
   }, apply);
@@ -955,43 +959,63 @@ function resolveSource(s) {
   return typeof s === "function" ? s() : s;
 }
 
-// A resolved source as the ENTRY a consumer walks: an omit() proxy is
-// replaced by its view record, anything else is itself. (A merge() proxy is
-// flattened by the caller, since it contributes several entries.)
-function entryOf(s) {
-  if (s == null) return s;
-  const view = omitView(s);
-  return view !== undefined ? view : s;
+// `key in s` / `s[key]` for one resolved, non-null spread source: an omit()
+// proxy answers from its view record (the filter, then its source), anything
+// else — a plain object, a store, a merge() proxy — as itself.
+function entryHas(s, key) {
+  const view = viewOf(s);
+  return view instanceof OmitView ? sourceHas(view, SOURCE_OMIT, key) : key in s;
 }
-
-function resolveEntry(s) {
-  return entryOf(resolveSource(s));
+function entryGet(s, key) {
+  const view = viewOf(s);
+  return view instanceof OmitView ? sourceGet(view, SOURCE_OMIT, key) : s[key];
 }
 
 // Layered sources into `out`. Every function source is resolved once, up
 // front, and a merge() proxy among them contributes its flattened sources in
-// place; keys are then collected left-to-right (Object.assign order — the
-// order assign() applies them in, which `type`/`value`/`min`/`max` style
-// pairs care about), and a key any LATER source has is skipped unread.
-// `sourceHas` is merge()'s own resolution test, so a proxy source (store)
-// answers through its `has` trap rather than a per-key descriptor trap, and
-// an omit view answers from its filter.
-function collectSources(out, sources, skip) {
+// place — each entry with its KIND (see `SourceKind`), so the per-key walk
+// below asks nothing of a proxy but the read itself; keys are then collected
+// left-to-right (Object.assign order — the order assign() applies them in,
+// which `type`/`value`/`min`/`max` style pairs care about), and a key any
+// LATER source has is skipped unread. `sourceHas` is merge()'s own
+// resolution test, so a proxy source (store) answers through its `has` trap
+// rather than a per-key descriptor trap, and an omit view answers from its
+// filter.
+function collectSources(out, sources, kinds, skip) {
   const resolved = [];
-  for (let i = 0; i < sources.length; i++) {
-    const s = resolveSource(sources[i]);
-    const merged = mergeSources(s);
-    if (merged !== undefined) {
-      // A merge() result among the sources: its entries take its place. A
-      // function among THEM is merge's memo, resolved like any other.
-      for (let j = 0; j < merged.length; j++) resolved.push(resolveEntry(merged[j]));
-    } else resolved.push(entryOf(s));
-  }
-  for (let i = 0; i < resolved.length; i++) {
-    const s = resolved[i];
-    if (s != null) collectProps(out, s, skip, resolved, i + 1);
-  }
+  const resolvedKinds = [];
+  for (let i = 0; i < sources.length; i++)
+    pushEntry(resolved, resolvedKinds, sources[i], kinds !== undefined ? kinds[i] : SOURCE_MEMO);
+  for (let i = 0; i < resolved.length; i++)
+    collectProps(out, resolved[i], resolvedKinds[i], skip, resolved, resolvedKinds, i + 1);
   return out;
+}
+
+// One source into the resolved entry lists. A known plain / omit-record /
+// proxy entry (a merge's leaf) joins as is. Anything else — a function (the
+// compiler's `() => rest`, merge's memo) resolved once — is classified: a
+// merge() proxy contributes its leaves, an omit() proxy its record, a proxy
+// is walked through its traps, and nothing nullish contributes at all.
+function pushEntry(resolved, kinds, s, kind) {
+  if (kind !== SOURCE_MEMO) {
+    resolved.push(s);
+    kinds.push(kind);
+    return;
+  }
+  s = resolveSource(s);
+  if (s == null) return;
+  const view = viewOf(s);
+  if (view instanceof OmitView) {
+    resolved.push(view);
+    kinds.push(SOURCE_OMIT);
+  } else if (view !== undefined) {
+    const f = view.sources,
+      k = view.kinds;
+    for (let j = 0; j < f.length; j++) pushEntry(resolved, kinds, f[j], k[j]);
+  } else {
+    resolved.push(s);
+    kinds.push($PROXY in s ? SOURCE_PROXY : SOURCE_PLAIN);
+  }
 }
 
 // One layer of a spread source into `out`: own string keys, `children`
@@ -999,18 +1023,16 @@ function collectSources(out, sources, skip) {
 // half, object-valued style/class read HERE, tracked (see readShallow()).
 // With `later` (the sources after this one, from index `from`), a key one of
 // them defines is shadowed and never read here.
-function collectProps(out, s, skip, later?, from?) {
-  const keys = sourceKeys(s);
+function collectProps(out, s, kind, skip, later?, laterKinds?, from?) {
+  const keys = sourceKeys(s, kind);
   outer: for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
     if (typeof prop !== "string" || prop === "children") continue;
     if (skip !== undefined && skip(prop)) continue;
     if (later !== undefined)
-      for (let j = from; j < later.length; j++) {
-        const t = later[j];
-        if (t != null && sourceHas(t, prop)) continue outer;
-      }
-    const v = sourceGet(s, prop);
+      for (let j = from; j < later.length; j++)
+        if (sourceHas(later[j], laterKinds[j], prop)) continue outer;
+    const v = sourceGet(s, kind, prop);
     out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
   }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */

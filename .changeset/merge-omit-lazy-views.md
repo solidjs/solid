@@ -14,6 +14,8 @@ The two compose flat. An `omit()` over a `merge()` carries one filtered view per
 
 Reads stay cheap: a view over plain objects resolves a key → owning-leaf table once, on first read, and every `get`/`has`/descriptor is one lookup after that. `spread()` (DOM and universal) and `ssrElement()` read the leaves directly — never through the proxies' traps — and walk that table when there is one, so an effect rerun costs one read per key, as it did over the copy. Both proxies use a class target and one shared handler (no per-instance closures).
 
+A view over a store asks the store nothing but the read. Each source's kind (plain object, omit record, proxy, memo) is decided once, when the view is built, and carried beside it — every brand check on a Proxy is a trap (`instanceof` is a `getPrototypeOf` trap, as expensive as a store read), and store detection goes through `$TARGET`, a symbol the store's `get` trap answers on its fast path, never its generic tracked-read path. `merge(defaults, store)` constructs ~30% faster than the copy did and reads ~15% faster; `omit(store)` reads at parity.
+
 The views tell the truth: `Object.getOwnPropertyDescriptor(view, key)` reports a data descriptor only when the key is a data property of a plain leaf (the compiler's encoding of a static prop) and an accessor for a getter, a store key, or a memo source. Together with the new internal `hasStaticKeys()`, `spread()` now skips the children effect for static children behind `omit`/`merge` layers (#3388 through views).
 
 Behavior changes:
@@ -24,4 +26,4 @@ Behavior changes:
 - Sources are treated as own-keyed; a key added to a plain source after merging is not seen (the copy did not see it either).
 - Enumerating a view through its traps (`for…in`, `Object.keys`, `{ ...view }`) costs a trap per key, as any proxy does; the internal consumers avoid it. Environments without `Proxy` keep the copy paths.
 
-Internal helpers for consumers, exported from `solid-js`: `omitView(o)`, `sourceKeys(entry)`, `sourceHas(entry, key)`, `sourceGet(entry, key)`, `hasStaticKeys(o)`, `resolvedTable(o)`.
+Internal helpers for consumers, exported from `solid-js`: `viewOf(o)`, `mergeView(o)`, `omitView(o)`, `sourceKeys(entry, kind)`, `sourceHas(entry, kind, key)`, `sourceGet(entry, kind, key)`, `hasStaticKeys(o)`, `resolvedTable(o)`, the `SOURCE_*` kinds.
