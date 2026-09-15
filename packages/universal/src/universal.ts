@@ -9,7 +9,13 @@ import {
   createMemo,
   createRenderEffect,
   flush,
-  $PROXY
+  mergeSources,
+  omitView,
+  sourceKeys,
+  sourceHas,
+  sourceGet,
+  hasStaticKeys,
+  resolvedTable
 } from "solid-js";
 
 export interface RendererOptions<NodeType> {
@@ -404,8 +410,8 @@ export function createRenderer({
           node,
           () => {
             for (let i = props.length - 1; i >= 0; i--) {
-              const s = resolveSource(props[i]);
-              if (s != null && "children" in s) return s.children;
+              const s = resolveEntry(props[i]);
+              if (s != null && sourceHas(s, "children")) return sourceGet(s, "children");
             }
           },
           undefined,
@@ -416,10 +422,12 @@ export function createRenderer({
       return prevProps;
     }
     if (!skipChildren) {
-      if (typeof props !== "function" && props != null && props[$PROXY] !== props) {
-        // A plain object's key set can't change reactively: no `children`
-        // key means nothing to insert, a data property inserts its value
-        // with no effect, only a getter needs the tracking scope.
+      if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
+        // A plain object's key set can't change reactively — nor can a
+        // merge/omit view's over plain objects, and its descriptor trap
+        // tells the truth about the owning leaf: no `children` key means
+        // nothing to insert, a data property inserts its value with no
+        // effect, only a getter needs the tracking scope.
         const desc = Object.getOwnPropertyDescriptor(props, "children");
         if (desc !== undefined) {
           if (desc.get === undefined)
@@ -430,8 +438,8 @@ export function createRenderer({
         insert(
           node,
           () => {
-            const s = resolveSource(props);
-            return s != null ? s.children : undefined;
+            const s = resolveEntry(props);
+            return s != null ? sourceGet(s, "children") : undefined;
           },
           undefined,
           undefined,
@@ -442,7 +450,21 @@ export function createRenderer({
       () => {
         const s = resolveSource(props);
         const newProps = {};
-        if (s != null) collectProps(newProps, s);
+        // A merge() proxy is read through its sources and an omit() proxy
+        // through its view record, never through their traps; a view over
+        // plain objects through its resolved table, one read per key on
+        // every rerun (see @solidjs/web).
+        const table = resolvedTable(s);
+        if (table !== undefined) {
+          for (const [prop, leaf] of table) {
+            if (typeof prop !== "string" || prop === "children") continue;
+            newProps[prop] = leaf[prop];
+          }
+          return newProps;
+        }
+        const sources = mergeSources(s);
+        if (sources !== undefined) return collectSources(newProps, sources);
+        if (s != null) collectProps(newProps, entryOf(s));
         return newProps;
       },
       apply,
@@ -455,35 +477,56 @@ export function createRenderer({
     return typeof s === "function" ? s() : s;
   }
 
+  // A resolved source as the ENTRY a consumer walks: an omit() proxy is
+  // replaced by its view record, anything else is itself.
+  function entryOf(s) {
+    if (s == null) return s;
+    const view = omitView(s);
+    return view !== undefined ? view : s;
+  }
+
+  function resolveEntry(s) {
+    return entryOf(resolveSource(s));
+  }
+
   // Layered sources into `out`. Every function source is resolved once, up
-  // front; keys are then collected left-to-right (Object.assign order), and
-  // a key any LATER source has is skipped unread. `in` is mergeProps()'s own
-  // resolution test, so a proxy source answers through its `has` trap.
+  // front, a merge() proxy among them contributes its flattened sources in
+  // place; keys are then collected left-to-right (Object.assign order), and
+  // a key any LATER source has is skipped unread. `sourceHas` is merge()'s
+  // own resolution test, so a proxy source answers through its `has` trap
+  // and an omit view from its filter.
   function collectSources(out, sources) {
-    const n = sources.length;
-    const resolved = new Array(n);
-    for (let i = 0; i < n; i++) resolved[i] = resolveSource(sources[i]);
-    for (let i = 0; i < n; i++) {
+    const resolved = [];
+    for (let i = 0; i < sources.length; i++) {
+      const s = resolveSource(sources[i]);
+      const merged = mergeSources(s);
+      if (merged !== undefined) {
+        for (let j = 0; j < merged.length; j++) resolved.push(resolveEntry(merged[j]));
+      } else resolved.push(entryOf(s));
+    }
+    for (let i = 0; i < resolved.length; i++) {
       const s = resolved[i];
       if (s != null) collectProps(out, s, resolved, i + 1);
     }
     return out;
   }
 
-  // One layer of a spread source into `out`: enumerable keys (for...in, so a
-  // renderer's proxy props answer through their traps), `children` excluded
-  // (it has its own insert), `ref` carried through for the commit half. With
-  // `later` (the sources after this one, from index `from`), a key one of
-  // them defines is shadowed and never read here.
+  // One layer of a spread source into `out`: own string keys (one `ownKeys`
+  // trap for a renderer's proxy props, no descriptor trap per key),
+  // `children` excluded (it has its own insert), `ref` carried through for
+  // the commit half. With `later` (the sources after this one, from index
+  // `from`), a key one of them defines is shadowed and never read here.
   function collectProps(out, s, later?, from?) {
-    outer: for (const prop in s) {
-      if (prop === "children") continue;
+    const keys = sourceKeys(s);
+    outer: for (let i = 0; i < keys.length; i++) {
+      const prop = keys[i];
+      if (typeof prop !== "string" || prop === "children") continue;
       if (later !== undefined)
         for (let j = from; j < later.length; j++) {
           const t = later[j];
-          if (t != null && prop in t) continue outer;
+          if (t != null && sourceHas(t, prop)) continue outer;
         }
-      out[prop] = s[prop];
+      out[prop] = sourceGet(s, prop);
     }
     return out;
   }

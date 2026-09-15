@@ -13,7 +13,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import { render, spread } from "@solidjs/web";
-import { createRoot, createSignal, flush, getOwner, merge } from "solid-js";
+import { createRoot, createSignal, createStore, flush, getOwner, merge, omit } from "solid-js";
 
 const mount = (el: () => any) => {
   const container = document.createElement("div");
@@ -86,6 +86,27 @@ describe("reactive node count per element", () => {
   test("plain data children insert with no effect", () => {
     expect(spreadNodes(() => ({ title: "a", children: "static" }))).toBe(1);
     expect(spreadNodes(() => ({ title: "a", children: document.createElement("b") }))).toBe(1);
+  });
+
+  test("…and so do data children behind merge/omit views over plain objects", () => {
+    // The Kobalte shape: `<Tag {...omit(props, "as")}>` where the caller
+    // wrote static children. The view's descriptor trap reports the leaf's
+    // data property, so no children effect is created (#3388, #3448).
+    const props = { as: "a", title: "a", children: "static" };
+    expect(spreadNodes(() => omit(props, "as"))).toBe(1);
+    expect(spreadNodes(() => merge({ role: "button" }, omit(props, "as")))).toBe(1);
+    expect(spreadNodes(() => omit(merge({ role: "button" }, props), "as"))).toBe(1);
+    // a getter behind the same layers still gets its effect
+    const reactive = {
+      as: "a",
+      get children() {
+        return "text";
+      }
+    };
+    expect(spreadNodes(() => omit(merge({ role: "button" }, reactive), "as"))).toBe(2);
+    // a store leaf can grow a `children` key later: reactive path
+    const [store] = createStore<{ title: string; children?: string }>({ title: "a" });
+    expect(spreadNodes(() => merge({ role: "button" }, store))).toBe(2);
   });
 
   test("compiled mergeProps source: 1 memo for the reactive part + 1 attribute effect", () => {

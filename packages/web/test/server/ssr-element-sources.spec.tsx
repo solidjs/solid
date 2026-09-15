@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToString, ssrElement } from "@solidjs/web";
-import { merge } from "solid-js";
+import { merge, omit } from "solid-js";
 
 // `ssrElement(tag, [a, b, c], ...)` serializes straight from several prop
 // sources. Its contract is the merged one — byte-for-byte what
@@ -311,5 +311,82 @@ describe("ssrElement with multiple sources", () => {
     expect(render("div", () => null)).toBe("<div></div>");
     expect(render("div", null)).toBe("<div></div>");
     expect(render("br", {}, undefined, true)).toMatch(/^<br _hk=\w+ \/>$/);
+  });
+});
+
+// omit() and merge() results are walked as VIEWS — the underlying sources,
+// filter attached — not enumerated through their proxies. Output is what the
+// proxy would have produced; the getters behind hidden or shadowed keys are
+// never read.
+describe("ssrElement over omit() and merge() views", () => {
+  test("a lone omit() of a plain object: hidden keys are skipped unread", () => {
+    const { source, reads } = counting({
+      id: "a",
+      isActive: true,
+      disabled: false,
+      title: "t",
+      children: "kid"
+    });
+    const html = render("li", omit(source, "isActive", "disabled"));
+    expect(html).toBe('<li id="a" title="t">kid</li>');
+    expect(reads).toEqual({ id: 1, isActive: 0, disabled: 0, title: 1, children: 1 });
+  });
+
+  test("a predicate omit hides by rule", () => {
+    const { source, reads } = counting({ $props: 1, $theme: 2, id: "a", class: "c" });
+    const html = render(
+      "div",
+      omit(source, k => typeof k === "string" && k[0] === "$")
+    );
+    expect(html).toBe('<div id="a" class="c"></div>');
+    expect(reads.$props).toBe(0);
+    expect(reads.$theme).toBe(0);
+  });
+
+  test("an omit() view inside a sources array follows later-wins", () => {
+    const { source: rest, reads } = counting({
+      id: "from-rest",
+      type: "submit",
+      "aria-label": "x",
+      isActive: true
+    });
+    const html = render("button", [
+      omit(rest, "isActive"),
+      {
+        type: "button",
+        get class() {
+          return "tab";
+        }
+      }
+    ]);
+    // merged order: each key at the position of the LAST source carrying it
+    expect(html).toBe('<button id="from-rest" aria-label="x" type="button" class="tab"></button>');
+    // `type` is owned by the later source: the view's getter is not read
+    expect(reads).toEqual({ id: 1, type: 0, "aria-label": 1, isActive: 0 });
+  });
+
+  test("a merge() result among the sources contributes its flattened sources", () => {
+    const { source: a, reads } = counting({ id: "a", title: "t-a", "data-a": "1" });
+    const merged = merge(a, () => ({ title: "t-fn" }), { "data-b": "2" });
+    expect(render("div", [merged, { "data-c": "3" }])).toBe(
+      '<div id="a" data-a="1" title="t-fn" data-b="2" data-c="3"></div>'
+    );
+    expect(reads.title).toBe(0);
+  });
+
+  test("omit() over a merge() stays filtered (#3014) and reads each getter once", () => {
+    const { source: dyn, reads } = counting({ value: "v", onChange: () => {}, placeholder: "p" });
+    const props = merge({ label: "L", name: "n" }, dyn);
+    const rest = omit(props, "name", "label", "value", "onChange");
+    expect(render("input", [{ name: "n", value: "v" }, rest], undefined, false)).toBe(
+      '<input name="n" value="v" placeholder="p" />'
+    );
+    expect(reads).toEqual({ value: 0, onChange: 0, placeholder: 1 });
+  });
+
+  test("a nested omit() flattens to one view", () => {
+    const { source, reads } = counting({ a: "1", b: "2", c: "3" });
+    expect(render("i", omit(omit(source, "a"), "b"))).toBe('<i c="3"></i>');
+    expect(reads).toEqual({ a: 0, b: 0, c: 1 });
   });
 });

@@ -27,7 +27,19 @@ export {
 } from "@solidjs/signals";
 
 export { flatten } from "@solidjs/signals";
-export { snapshot, omit, storePath, $PROXY, $TRACK } from "@solidjs/signals";
+export {
+  snapshot,
+  omit,
+  storePath,
+  $PROXY,
+  $TRACK,
+  omitView,
+  sourceKeys,
+  sourceHas,
+  sourceGet,
+  hasStaticKeys,
+  resolvedTable
+} from "@solidjs/signals";
 
 // === Type re-exports ===
 
