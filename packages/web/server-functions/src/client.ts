@@ -5,6 +5,10 @@
 // fns/client.ts with neutral header names and a configurable endpoint.
 import { REVALIDATE_HEADER } from "../../src/response.js";
 import { observeCall } from "../../src/observe.js";
+
+// Replaced per build (see src/observe.ts): the observe emitter and its
+// wrapper fold out of the prod artifact behind it.
+const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
 // emit would leave them dangling (implicit any for every consumer).
@@ -590,8 +594,11 @@ async function initializeResponse(base, id, options, args, meta) {
 // state by the call (function + arguments) must still see the real ones.
 // Observe tier: the `"call"` record (`OBSERVE.records`, see `CallEvent`) —
 // the call as the caller awaited it, request through decode; with no
-// listener the dispatch runs bare, not even reading the clock.
-async function fetchServerFunction(base, id, options, args, meta, callArgs = args) {
+// listener the dispatch runs bare, not even reading the clock. The wrapper
+// exists in the observe and dev artifacts only: `fetchServerFunction` below
+// is the dispatch itself where the literal folds, so prod pays neither the
+// extra frame nor the promise hop.
+async function observedFetch(base, id, options, args, meta, callArgs = args) {
   const observation = observeCall(
     id,
     options.method && options.method.toUpperCase() === "GET" ? "GET" : "POST",
@@ -608,8 +615,9 @@ async function fetchServerFunction(base, id, options, args, meta, callArgs = arg
   observation.settle("ok", result);
   return result;
 }
+const fetchServerFunction = IS_OBSERVE ? observedFetch : dispatchServerFunction;
 
-async function dispatchServerFunction(base, id, options, args, meta, callArgs, observation) {
+async function dispatchServerFunction(base, id, options, args, meta, callArgs = args, observation) {
   // Captured synchronously at the call site (an async function body runs
   // sync up to its first await), so ambient call context is still live.
   const handler = config.responseHandler;
@@ -626,7 +634,7 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs, o
   if (controller) options = { ...options, signal: controller.signal };
 
   const response = await initializeResponse(base, id, options, args, meta);
-  if (observation) observation.response(response);
+  if (IS_OBSERVE && observation) observation.response(response);
 
   // The integration seam sees the response first: a handler that claims it
   // (returns non-undefined) owns the call's result.

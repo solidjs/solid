@@ -382,6 +382,7 @@ export function observeCall(
   method: "GET" | "POST",
   args: unknown[]
 ): CallObservation | undefined {
+  if (!IS_OBSERVE) return undefined;
   const channel = records();
   if (channel === undefined || !channel.observed("call")) return undefined;
   const at = performance.now();
@@ -418,7 +419,10 @@ export interface FrameApplyObservation {
    * `wireId` is the id the chunk carried before it.
    */
   chunk(chunk: { type: string; id: string; version: number }, wireId: string): void;
-  /** The body ended — cleanly, or with the failure the read threw. */
+  /**
+   * The apply ended — cleanly, or with the failure it threw (a read that
+   * failed, a chunk that would not parse, a host that rejected a chunk).
+   */
   end(error?: unknown): void;
 }
 
@@ -431,6 +435,7 @@ export interface FrameApplyObservation {
  * listener or outside observe builds.
  */
 export function observeFrameApply(response: Response): FrameApplyObservation | undefined {
+  if (!IS_OBSERVE) return undefined;
   const channel = records();
   if (channel === undefined || !channel.observed("frame")) return undefined;
   // The stream open now: streams in one response are sequential (the

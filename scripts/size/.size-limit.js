@@ -1160,7 +1160,14 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 15.70 -> 15.90 KB,
     // measured at 15811 B against `next`'s 15679 (+132); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "15.90 KB",
+    // Records channel (#3472, 2026-09-15): 15.90 -> 16.05 KB, measured at
+    // 16027 B against `next`'s 15811 (+216). `OBSERVE.records` — the one
+    // channel every runtime record rides (subscribe/observed/emit, one Map of
+    // listener sets, registered on globalThis) — and the attribution slot's
+    // `currentOrigin` query with the installed engine's globalThis
+    // registration. Observe-only by construction: the prod scenarios above
+    // did not move, and the frames prod scenario below folds its emitters.
+    limit: "16.05 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1265,7 +1272,11 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 27.25 -> 27.45 KB,
     // measured at 27350 B against `next`'s 27227 (+123); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "27.45 KB",
+    // Records channel (#3472, 2026-09-15): 27.45 -> 27.70 KB, measured at
+    // 27673 B against `next`'s 27350 (+323): the +216 from the observe CSR
+    // note plus the engine's answer to `currentOrigin` — the root origin a
+    // recompute's causes trace back to, else the ambient frame.
+    limit: "27.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
