@@ -140,8 +140,10 @@ export {
   runInServerComponentScope,
   inServerComponentScope,
   getProjectionTrace,
-  ssrSanitizeError
+  ssrSanitizeError,
+  reportServerError
 } from "./signals.js";
+export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
 

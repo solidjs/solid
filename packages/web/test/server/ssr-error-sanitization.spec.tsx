@@ -65,6 +65,15 @@ interface Results {
   value: Scenario;
   frameRoot: Scenario<any[]>;
   frameFragment: Scenario<any[]>;
+  hooked: Scenario & {
+    heard: Array<{
+      kind: string;
+      handling: string;
+      boundary: string;
+      ownerPath?: string[];
+      same: boolean;
+    }>;
+  };
 }
 
 const runs = new Map<string, Results>();
@@ -160,6 +169,32 @@ function describeSanitizing(name: string, conditions: string[], observe: boolean
 describeSanitizing("the production artifacts", [], false);
 describeSanitizing("the observe artifacts", ["observe"], true);
 
+describe("the server error hook, in every tier", () => {
+  for (const [name, conditions, labelled] of [
+    ["production", [], false],
+    ["observe", ["observe"], true],
+    ["development", ["development"], true]
+  ] as const) {
+    test(`${name}: heard once, where it was met; its return is the fallback and the record`, () => {
+      const { value: html, heard } = run([...conditions]).hooked;
+      // Component labels exist where the runtime keeps owner names — the
+      // observe and dev artifacts; production owners carry none.
+      expect(heard).toEqual([
+        {
+          kind: "render",
+          handling: "fallback",
+          boundary: "string",
+          ...(labelled ? { ownerPath: ["<Errored>"] } : {}),
+          same: true
+        }
+      ]);
+      expect(html).toContain(`<p class="fallback">Something went wrong|undefined</p>`);
+      expect(serializedErrors(html)).toEqual([`new Error("Something went wrong")`]);
+      expectNoSecrets(html);
+    });
+  }
+});
+
 describe("the observe artifacts' record of it", () => {
   test("the failure is the contained-render finding's, with the original; the replacement is one advisory record beside it", () => {
     const { findings } = run(["observe"]).errored;
@@ -169,7 +204,7 @@ describe("the observe artifacts' record of it", () => {
     expect(sanitized).toHaveLength(1);
     expect(sanitized[0].severity).toBe("info");
     expect(sanitized[0].error).toContain("ECONNREFUSED");
-    expect(sanitized[0].message).toContain("replaced with a generic Error");
+    expect(sanitized[0].message).toContain("replaced before reaching the client");
     expect(sanitized[0].ownerPath).toEqual(["<Errored>"]);
   });
 
