@@ -1,5 +1,6 @@
-import { CONFIG_HAS_LANE, NOT_PENDING } from "./constants.js";
-import { ext } from "./core.js";
+import { CONFIG_HAS_LANE, NOT_PENDING, REACTIVE_DISPOSED } from "./constants.js";
+import { currentOptimisticLane, ext } from "./core.js";
+import { enqueueSub } from "./heap.js";
 import {
   activeTransition,
   currentTransition,
@@ -109,6 +110,30 @@ export function laneHeld(lane: OptimisticLane): boolean {
   if (!lane._transition) return false;
   for (const node of lane._pendingAsync) if (waitingTransition(node) !== null) return true;
   return false;
+}
+
+/**
+ * Lanes mirror transitions (#3460): a render effect OFF a HELD lane that reads
+ * a value the lane is revealing — an override, a `latest()` shadow — sees the
+ * committed value, exactly as a stale reader of a held transaction does
+ * (A15 reveal corollary): it publishes now, with the frame that is on screen
+ * (the lane defers its own readers' runs, so the committed value is what is
+ * visible), entangles nothing — a sync write is never held by a lane — and
+ * re-derives at the release. The release re-run rides the lane's own render
+ * queue, which runs when the lane reveals (runLaneEffects) or its transaction
+ * commits (cleanupCompletedLanes). A reader ON the lane computes the lane's
+ * reveal and takes the value as before.
+ */
+export function readsHeldCommitted(owner: Computed<any>, c: Computed<any>): boolean {
+  const lane = resolveLane(owner);
+  if (
+    !lane ||
+    (currentOptimisticLane !== null && findLane(currentOptimisticLane) === lane) ||
+    !laneHeld(lane)
+  )
+    return false;
+  lane._effectQueues[0].push(() => c._flags & REACTIVE_DISPOSED || enqueueSub(c));
+  return true;
 }
 
 /**
