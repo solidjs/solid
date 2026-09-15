@@ -1506,9 +1506,11 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
  * transaction (born held) and mainline is never touched. */
 let stagedEntry: Transition | null = null;
 
-export function enterStagedRead(el: Signal<any> | Computed<any>): void {
-  const t = el._transition;
-  if (t === null || t === activeTransition || pendingCheckActive) return;
+export function enterStagedRead(
+  el: Signal<any> | Computed<any>,
+  t: Transition | null | undefined = el._transition
+): void {
+  if (!t || t === activeTransition || pendingCheckActive) return;
   // Verdict machinery (GlobalQueue._verdictPull: companion creation and the
   // latest()/isPending() pulls — the latest() shadow is created before it is
   // marked optimistic, so the bit alone cannot tell) and optimistic nodes
@@ -1516,16 +1518,21 @@ export function enterStagedRead(el: Signal<any> | Computed<any>): void {
   // entering path.
   // (`context` is non-null here: every caller selected a value for a reader.)
   const ctx = context as Computed<any>;
-  if (
-    activeTransition === null &&
-    !globalQueue._running &&
-    !GlobalQueue._verdictPull &&
-    ctx._flags & REACTIVE_RECOMPUTING_DEPS &&
-    !(ctx._config & CONFIG_OPTIMISTIC) &&
-    (stagedEntry === null || stagedEntry === t)
-  )
-    stagedEntry = t;
-  else globalQueue.initTransition(t);
+  if (activeTransition === null && !globalQueue._running) {
+    // Verdict pulls are observations, not derivations: a latest() /
+    // isPending() call from mainline must never enter a transaction (it
+    // would capture the rest of the caller's synchronous block).
+    if (GlobalQueue._verdictPull) return;
+    if (
+      ctx._flags & REACTIVE_RECOMPUTING_DEPS &&
+      !(ctx._config & CONFIG_OPTIMISTIC) &&
+      (stagedEntry === null || stagedEntry === t)
+    ) {
+      stagedEntry = t;
+      return;
+    }
+  }
+  globalQueue.initTransition(t);
 }
 
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {

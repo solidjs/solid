@@ -24,21 +24,28 @@
  * - isPending          isPending(() => x())
  * - authoritative      until()'s predicate reading x (CONFIG_AUTHORITATIVE_READ)
  */
-import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
-  NotReadyError,
   action,
   createMemo,
   createOptimistic,
   createRenderEffect,
   createRoot,
   createSignal,
-  createTrackedEffect,
   flush,
-  isPending,
-  latest,
   until
 } from "../src/index.js";
+import {
+  HELD,
+  holds,
+  NOT_READY,
+  never,
+  observed,
+  rule,
+  runOracle,
+  settle,
+  violation,
+  type State
+} from "./visibility-oracle.harness.js";
 
 /** The #3331 reporter graph: an optimistic computed over an async fetch of a
  * signal, with an async memo downstream. `prime()` lands the initial fetch
@@ -67,6 +74,8 @@ function supersededGraph(initDownstream: boolean) {
   return {
     x,
     dispose,
+    setValue,
+    landFetch: () => fetchResolvers.shift()!(),
     async prime() {
       flush();
       fetchResolvers.shift()!();
@@ -88,165 +97,6 @@ function supersededGraph(initDownstream: boolean) {
       await settle();
     }
   };
-}
-
-// ── cell values ─────────────────────────────────────────────────────────────
-const HELD = "HELD" as const; // nothing published / the reader is holding
-const NOT_READY = "throws:NotReady" as const;
-type Cell = unknown | typeof HELD | typeof NOT_READY | `throws:${string}`;
-
-type Expect =
-  | { value: Cell; rule: string }
-  | { observed: Cell; note: string }
-  | { violation: { rule: Cell; current: Cell }; note: string }
-  | { na: string };
-const rule = (value: Cell, rule: string): Expect => ({ value, rule });
-const observed = (observed: Cell, note: string): Expect => ({ observed, note });
-/** The spec fixes this cell to `rule`; the runtime currently serves `current`.
- * Pinned at `current` so the suite is green; listed red by the report. When
- * the runtime is fixed this cell fails — flip it to `rule(...)`. */
-const violation = (ruleValue: Cell, current: Cell, note: string): Expect => ({
-  violation: { rule: ruleValue, current },
-  note
-});
-const na = (why: string): Expect => ({ na: why });
-
-const READERS = [
-  "untracked",
-  "derivesFrom",
-  "published",
-  "preexisting",
-  "staleForeign",
-  "childrenForbidden",
-  "latest",
-  "isPending",
-  "authoritative"
-] as const;
-type Reader = (typeof READERS)[number];
-
-type State = {
-  name: string;
-  /** Build the state. Returns the node accessor and a disposer. The stale
-   * foreign reader must be created BEFORE the state is entered, so builders
-   * receive a hook to install it. */
-  build: (
-    installStale: (x: () => unknown) => void
-  ) =>
-    | { x: () => unknown; dispose: () => void }
-    | Promise<{ x: () => unknown; dispose: () => void }>;
-  expect: Record<Reader, Expect>;
-};
-
-// ── helpers ─────────────────────────────────────────────────────────────────
-const settle = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
-  flush();
-};
-// Every open-ended promise a state creates is registered here and released
-// between cells: a never-settling action would otherwise leave its transaction
-// live across the next cell (observed: an unrelated async memo's NotReady then
-// escaped flush()).
-let holds: Array<() => void> = [];
-const never = () => new Promise<never>(r => holds.push(r as () => void));
-const releaseAll = async () => {
-  for (const r of holds.splice(0)) r();
-  await settle();
-  await settle();
-};
-const classify = (fn: () => unknown): Cell => {
-  try {
-    return fn();
-  } catch (e) {
-    return e instanceof NotReadyError
-      ? NOT_READY
-      : `throws:${(e as Error)?.constructor?.name ?? String(e)}`;
-  }
-};
-
-function readCell(
-  reader: Reader,
-  x: () => unknown,
-  stale: { log: Cell[]; bump: () => void } | null
-): Cell {
-  switch (reader) {
-    case "untracked":
-      return classify(x);
-    case "latest":
-      return classify(() => latest(() => x()));
-    case "isPending":
-      return classify(() => isPending(() => x()));
-    case "derivesFrom": {
-      const log: Cell[] = [];
-      const dispose = createRoot(d => {
-        const m = createMemo(() => {
-          let v: Cell;
-          try {
-            v = x();
-          } catch (e) {
-            log.push(
-              e instanceof NotReadyError ? NOT_READY : `throws:${(e as Error)?.constructor?.name}`
-            );
-            throw e; // suspend like a real derivation
-          }
-          log.push(v);
-          return v;
-        });
-        createRenderEffect(m, () => {});
-        return d;
-      });
-      flush();
-      dispose();
-      return log.length ? log[log.length - 1] : HELD;
-    }
-    case "published": {
-      const log: Cell[] = [];
-      const dispose = createRoot(d => {
-        const m = createMemo(() => x());
-        createRenderEffect(m, v => {
-          log.push(v);
-        });
-        return d;
-      });
-      flush();
-      dispose();
-      return log.length ? log[log.length - 1] : HELD;
-    }
-    case "preexisting": {
-      if (!stale) return na("no pre-existing reader") as any;
-      return stale.log.length ? stale.log[stale.log.length - 1] : HELD;
-    }
-    case "staleForeign": {
-      if (!stale) return na("no stale reader") as any;
-      stale.log.length = 0;
-      stale.bump();
-      flush();
-      return stale.log.length ? stale.log[stale.log.length - 1] : HELD;
-    }
-    case "childrenForbidden": {
-      const log: Cell[] = [];
-      const dispose = createRoot(d => {
-        createTrackedEffect(() => {
-          log.push(classify(x));
-        });
-        return d;
-      });
-      flush();
-      dispose();
-      return log.length ? log[log.length - 1] : HELD;
-    }
-    case "authoritative": {
-      let seen: Cell = HELD;
-      // until()'s predicate is the authoritative reader; it runs synchronously
-      // on the first evaluation. Resolve immediately so nothing is left open.
-      until(() => {
-        seen = classify(x);
-        return true;
-      }).catch(() => {});
-      flush();
-      return seen;
-    }
-  }
 }
 
 // ── states ──────────────────────────────────────────────────────────────────
@@ -589,74 +439,201 @@ const STATES: State[] = [
         "A17 carve-out / A27: the loading value is commit #0 — landed by declaration"
       )
     }
+  },
+  {
+    name: "body ended (override's downstream flight still up; nothing authoritative in flight — #3427)",
+    async build(installStale) {
+      const flights: Array<() => void> = [];
+      let x!: () => unknown;
+      let setX!: (v: number) => void;
+      const dispose = createRoot(d => {
+        [x, setX] = createOptimistic(0);
+        const downstream = createMemo(() => {
+          const n = x();
+          return new Promise<string>(r => flights.push(() => r(`${n}!`)));
+        });
+        createRenderEffect(downstream, () => {});
+        return d;
+      });
+      holds.push(() => flights.splice(0).forEach(f => f()));
+      flush();
+      flights.shift()!(); // prime downstream(0)
+      await settle();
+      installStale(x);
+      action(function* () {
+        setX(1);
+        yield Promise.resolve(); // the body ends; the downstream flight for 1 is still up
+      })();
+      flush();
+      await settle();
+      await settle();
+      return { x, dispose };
+    },
+    expect: {
+      untracked: rule(1, "A18 (c): the display keeps the override until the commit"),
+      derivesFrom: rule(
+        0,
+        "A18 body-end corollary: the override is superseded by the truth at hand (committed 0); the graph re-derives from it"
+      ),
+      published: rule(
+        HELD,
+        "A18 (c) / A29: a superseded read is a staged read whether the truth is staged or committed — the fresh derivation is the owning transaction's and is held"
+      ),
+      preexisting: rule(HELD, "A18 (c): display unchanged until commit"),
+      staleForeign: rule(
+        1,
+        "A18 (c): a stale reader of the owning transaction displays the override (owner via _overrideOwner, #2912 — the node carries no stamp)"
+      ),
+      childrenForbidden: rule(
+        1,
+        "A32: the displayed override shows through — as for landing supersession"
+      ),
+      latest: rule(0, "A18 (d): latest returns the truth"),
+      isPending: rule(
+        true,
+        "A18 (d): the truth (committed 0) differs from the displayed override (1)"
+      ),
+      authoritative: rule(0, "A17 carve-out: the truth beneath the override")
+    }
+  },
+  {
+    name: "un-superseded (a later mainline landing equal to the override — A18)",
+    async build(installStale) {
+      const built = supersededGraph(true);
+      await built.prime();
+      installStale(built.x);
+      await built.supersede(); // truth 2 ≠ override 3
+      built.setValue(1.5); // mainline new question; the refetch lands 3 === override
+      flush();
+      built.landFetch();
+      await settle();
+      return built;
+    },
+    expect: {
+      untracked: rule(3, "A17: the override is the displayed value"),
+      derivesFrom: rule(
+        3,
+        "A18: a later landing equal to the override un-supersedes it — the override is again the graph's value"
+      ),
+      published: observed(
+        3,
+        "the override is display AND graph; a fresh reader publishes it — no rule names the fresh-reader cell of an un-superseded node"
+      ),
+      preexisting: rule(HELD, "A18 (c): the display never changed"),
+      staleForeign: rule(3, "A17"),
+      childrenForbidden: rule(3, "A32"),
+      latest: rule(3, "A18 (d): the arrived value equals the override"),
+      isPending: rule(false, "A18 (d): the arrival does not differ"),
+      authoritative: rule(3, "A17 carve-out: the staged truth (3) equals the override")
+    }
+  },
+  {
+    name: "held truth (a foreign primitive's confirming landing stolen by an awaited until(), action still open — #3164)",
+    async build(installStale) {
+      let landV1!: () => void;
+      const v1 = new Promise<void>(r => (landV1 = r));
+      let stream!: () => { version: number };
+      let setSaving!: (v: boolean) => void;
+      const dispose = createRoot(d => {
+        [, setSaving] = createOptimistic(false);
+        stream = createMemo(async function* () {
+          yield { version: 0 };
+          await v1;
+          yield { version: 1 };
+        });
+        createRenderEffect(stream, () => {});
+        return d;
+      });
+      flush();
+      await settle();
+      const x = () => stream().version;
+      installStale(x);
+      action(function* () {
+        setSaving(true);
+        yield until(() => stream().version >= 1);
+        yield never(); // stays open past the flip: the confirmation is held
+      })();
+      flush();
+      await settle();
+      landV1();
+      await settle();
+      await settle();
+      return { x, dispose };
+    },
+    expect: {
+      untracked: rule(
+        0,
+        "A17 held truth (#3164): staged confirming truth is masked from ordinary readers until the transaction's reveal"
+      ),
+      derivesFrom: rule(0, "A17 held truth: ordinary tracked readers keep committed"),
+      published: observed(
+        0,
+        "a fresh reader of a held-truth node publishes the committed value; no rule names the fresh-reader cell"
+      ),
+      preexisting: observed(
+        0,
+        "the pre-existing effect re-runs when the stolen landing arrives and re-publishes the committed 0 — the frame does not change, but the run is observable"
+      ),
+      staleForeign: rule(0, "A17 held truth"),
+      childrenForbidden: rule(0, "A32"),
+      latest: rule(1, "A17 held truth: latest() sees the staged truth (the deadlock-free tunnel)"),
+      isPending: observed(
+        true,
+        "the stolen landing is a held fresh value (A19 iii); whether held truth pends is not stated in A17's mask rule"
+      ),
+      authoritative: rule(
+        1,
+        "A17 carve-out: until()'s predicate sees the staged truth — the tunnel that keeps the hold deadlock-free"
+      )
+    }
+  },
+  {
+    name: "loading window over a held input (loadingValue memo re-asked by an action-held write; its flight lands while the input is held)",
+    async build(installStale) {
+      const [q, setQ] = createSignal(0);
+      const fetches: Array<() => void> = [];
+      let x!: () => unknown;
+      const dispose = createRoot(d => {
+        const m = createMemo(
+          () => {
+            const v = q();
+            return new Promise<number>(r => fetches.push(() => r(v * 10)));
+          },
+          { loadingValue: -1 }
+        );
+        x = m;
+        createRenderEffect(m, () => {});
+        return d;
+      });
+      flush();
+      installStale(x);
+      action(function* () {
+        setQ(1); // new question while the window is still open
+        yield never();
+      })();
+      flush();
+      fetches.splice(0).pop()!(); // the newest flight lands (10) — held by the action
+      await settle();
+      return { x, dispose };
+    },
+    expect: {
+      untracked: rule(
+        10,
+        "A27 (ruled 2026-09-15): the window's first real landing is initial-load class — like a boundary's first content reveal — and commits on arrival even when the input that re-asked it is held by an action"
+      ),
+      derivesFrom: rule(10, "A27: initial-load class"),
+      published: rule(10, "A27: initial-load class"),
+      preexisting: rule(10, "A27: the landing reveals on arrival"),
+      staleForeign: rule(10, "A27: initial-load class"),
+      childrenForbidden: rule(10, "A27: initial-load class"),
+      latest: rule(10, "A27: initial-load class"),
+      isPending: rule(
+        false,
+        "A27: verdict-quiet through the window — a hydration invariant (the server answers false; the client must match on creation)"
+      ),
+      authoritative: rule(10, "A27: initial-load class")
+    }
   }
 ];
 
-// ── run ─────────────────────────────────────────────────────────────────────
-const unspecified: string[] = [];
-const violations: string[] = [];
-afterEach(async () => {
-  await releaseAll();
-  flush();
-});
-
-afterAll(() => {
-  if (process.env.VISIBILITY_ORACLE_REPORT)
-    require("node:fs").writeFileSync(
-      process.env.VISIBILITY_ORACLE_REPORT,
-      ["# violations", ...violations, "", "# unspecified", ...unspecified].join("\n") + "\n"
-    );
-});
-
-describe("visibility oracle (A7, A15, A16, A17, A18, A19, A24, A26, A27, A29, A32)", () => {
-  for (const state of STATES) {
-    describe(state.name, () => {
-      for (const reader of READERS) {
-        const exp = state.expect[reader];
-        if ("na" in exp) continue;
-        const title =
-          "value" in exp
-            ? `${String(exp.value)} [${exp.rule}]`
-            : "violation" in exp
-              ? `VIOLATION: rule says ${String(exp.violation.rule)}, runtime serves ${String(exp.violation.current)} (${exp.note})`
-              : `${String(exp.observed)} (observed; ${exp.note})`;
-        it(`${reader} → ${title}`, async () => {
-          let stale: { log: Cell[]; bump: () => void } | null = null;
-          const [u, setU] = createSignal(0);
-          const installStale = (x: () => unknown) => {
-            const log: Cell[] = [];
-            createRoot(() => {
-              createRenderEffect(
-                () => {
-                  u();
-                  return x(); // a throw suspends the pass → HELD
-                },
-                v => {
-                  log.push(v);
-                }
-              );
-            });
-            flush();
-            log.length = 0;
-            stale = { log, bump: () => setU(n => n + 1) };
-          };
-          const built = state.build(installStale);
-          const { x, dispose } = built instanceof Promise ? await built : built;
-          const got = readCell(reader, x, stale);
-          dispose();
-          await releaseAll();
-          if ("value" in exp) expect(got).toEqual(exp.value);
-          else if ("violation" in exp) {
-            violations.push(
-              `${state.name} × ${reader}: rule ${String(exp.violation.rule)}, runtime ${String(got)} — ${exp.note}`
-            );
-            expect(got).toEqual(exp.violation.current);
-          } else {
-            unspecified.push(`${state.name} × ${reader} = ${String(got)} — ${exp.note}`);
-            expect(got).toEqual(exp.observed);
-          }
-        });
-      }
-    });
-  }
-});
+runOracle("visibility oracle (A7, A15, A16, A17, A18, A19, A24, A26, A27, A29, A32)", STATES);
