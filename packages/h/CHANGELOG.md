@@ -1,5 +1,39 @@
 # @solidjs/h
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- c452850: `dynamic()` / `Dynamic` with a tag-name source honor an `xmlns` prop when creating the element (#3386)
+
+  The compiler resolves a tag's namespace from its parent at build time; the `dynamic()` runtime path creates the element before it has a parent, so a tag that exists in both HTML and SVG (`a`, `script`, `style`, `title`) was always created as an HTML element — `<svg><Link href=…/></svg>` with `Link = dynamic(() => "a")` produced an HTML anchor inside the SVG tree. The instance can now say which one it means with the same attribute compiled JSX uses for the same purpose: `<Link xmlns="http://www.w3.org/2000/svg" href=…/>`. Like `is`, `xmlns` is read once, untracked, at creation (the DOM can't re-namespace a node) and then applied as an ordinary attribute, so a client-rendered element carries the same attribute the server serializes. Without `xmlns` the namespace is still inferred from the tag name. Hydration is unaffected: it claims the parser-namespaced node.
+
+  Types: `xmlns` is now accepted on the four tags that exist in both HTML and SVG (`a`, `script`, `style`, `title`) in addition to the SVG/MathML attribute sets that already had it — those are the only tags where the attribute changes what gets created, and the compiler has honored `<a xmlns=…>` on them all along. Unambiguous HTML tags (`div`, `span`, …) still reject it. `dynamic()`'s tag-name components inherit it through their intrinsic attribute types. Also syncs `@solidjs/h`'s generated JSX types.
+
+- Updated dependencies [17b0bda]
+- Updated dependencies [1af28a1]
+- Updated dependencies [d2a36f5]
+- Updated dependencies [c452850]
+- Updated dependencies [5b31076]
+- Updated dependencies [084e621]
+- Updated dependencies [b298154]
+- Updated dependencies [899c2c4]
+- Updated dependencies [3ae9e92]
+- Updated dependencies [da6ed76]
+- Updated dependencies [5f688a6]
+- Updated dependencies [c66130d]
+- Updated dependencies [36db287]
+- Updated dependencies [61a114c]
+- Updated dependencies [0d8347a]
+- Updated dependencies [7623ce1]
+- Updated dependencies [af94f67]
+- Updated dependencies [042b540]
+- Updated dependencies [7f6332a]
+- Updated dependencies [40977c9]
+- Updated dependencies [34287d8]
+- Updated dependencies [48f007e]
+  - @solidjs/web@2.0.0-rc.9
+
 ## 2.0.0-rc.8
 
 ### Patch Changes

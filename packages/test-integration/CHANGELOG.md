@@ -1,5 +1,70 @@
 # test-integration
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- Updated dependencies [8ff4803]
+- Updated dependencies [0da94f9]
+- Updated dependencies [a8a8949]
+- Updated dependencies [d80cd1f]
+- Updated dependencies [8d6de07]
+- Updated dependencies [17b0bda]
+- Updated dependencies [1af28a1]
+- Updated dependencies [d2a36f5]
+- Updated dependencies [c452850]
+- Updated dependencies [50323b4]
+- Updated dependencies [d7cb456]
+- Updated dependencies [a0d6dd2]
+- Updated dependencies [c3ae310]
+- Updated dependencies [6095955]
+- Updated dependencies [e80f241]
+- Updated dependencies [5c1f01f]
+- Updated dependencies [a5d8eae]
+- Updated dependencies [14ded24]
+- Updated dependencies [25c5064]
+- Updated dependencies [1ce0f85]
+- Updated dependencies [05c7e21]
+- Updated dependencies [9da7f0a]
+- Updated dependencies [5b31076]
+- Updated dependencies [084e621]
+- Updated dependencies [b298154]
+- Updated dependencies [d80cd1f]
+- Updated dependencies [76230f9]
+- Updated dependencies [347a5ca]
+- Updated dependencies [a8a8949]
+- Updated dependencies [632e45c]
+- Updated dependencies [75c5113]
+- Updated dependencies [899c2c4]
+- Updated dependencies [ca05917]
+- Updated dependencies [3ae9e92]
+- Updated dependencies [da6ed76]
+- Updated dependencies [5f688a6]
+- Updated dependencies [c66130d]
+- Updated dependencies [36db287]
+- Updated dependencies [61a114c]
+- Updated dependencies [0d8347a]
+- Updated dependencies [7623ce1]
+- Updated dependencies [af94f67]
+- Updated dependencies [042b540]
+- Updated dependencies [c245532]
+- Updated dependencies [7f6332a]
+- Updated dependencies [5426ffb]
+- Updated dependencies [63560a1]
+- Updated dependencies [40977c9]
+- Updated dependencies [34287d8]
+- Updated dependencies [48f007e]
+- Updated dependencies [5f7da9d]
+- Updated dependencies [350f65f]
+- Updated dependencies [1643d2a]
+  - @solidjs/signals@2.0.0-rc.9
+  - @solidjs/babel-plugin@2.0.0-rc.9
+  - @solidjs/web@2.0.0-rc.9
+  - @solidjs/h@2.0.0-rc.9
+  - solid-js@2.0.0-rc.9
+  - @solidjs/universal@2.0.0-rc.9
+  - @solidjs/html@2.0.0-rc.9
+
 ## 2.0.0-rc.8
 
 ### Patch Changes
