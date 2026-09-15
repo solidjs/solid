@@ -1,9 +1,8 @@
 /**
  * TSRX → Solid JSX desugaring.
  *
- * Walks the ESTree AST produced by `@tsrx/core` (before Solid's local
- * lazy-destructuring transform runs) and lowers every TSRX construct to Solid 2.0 builtIn
- * component JSX, in place. The result is a plain ESTree TSX program that
+ * Walks the ESTree AST produced by `@tsrx/core` and lowers every TSRX
+ * construct to Solid 2.0 builtIn component JSX, in place. The result is a plain ESTree TSX program that
  * `estree-to-babel` converts for the existing JSX pipeline. BuiltIns are
  * referenced as bare identifiers (`Show`, `For`, …) so the plugin's normal
  * `builtIns` auto-import machinery resolves them against `moduleName`.
@@ -16,14 +15,17 @@
  *   becomes `fallback`.
  * - `@for (const x of expr; index i; key k)` — `For`; `key` present emits
  *   `keyed={(x) => k}`, while an index without a key emits `keyed={false}`;
- *   `@empty` becomes `fallback`. RC `For` hands the callback an item accessor
- *   in custom-key and non-keyed modes. The index is an accessor only with a
- *   custom key.
+ *   `@empty` becomes `fallback`. The bindings pass through as authored:
+ *   `For` hands the callback an item accessor in custom-key and non-keyed
+ *   modes (and an index accessor only with a custom key), and the author
+ *   reads it as `x()` exactly as in JSX. Destructuring `x` where it is an
+ *   accessor is rejected (#3474).
  * - `@switch` — `Switch` with one `Match when={disc === test}` per `@case`;
  *   `@default` becomes `fallback`.
  * - `@try/@pending/@catch (e, reset)` — `<Errored fallback={(e, reset) =>
- *   …}><Loading fallback={pending}>{content}</Loading></Errored>`; RC
- *   `Errored` passes an `ErrorAccessor`, so reads of `e` rewrite to calls.
+ *   …}><Loading fallback={pending}>{content}</Loading></Errored>`; `Errored`
+ *   passes an `ErrorAccessor`, which the author reads as `e()`. Destructuring
+ *   `e` is rejected.
  * - `<{expr}>` — `<Dynamic component={expr} …>` (deliberate adaptation from
  *   `@tsrx/solid`'s hoisted `dynamic()` factory; semantically equivalent).
  *
@@ -724,61 +726,3 @@ function tryToJsx(node: EsNode): EsNode {
 
   return result;
 }
-
-// ---------------------------------------------------------------------------
-// Lazy-engine adaptation: intrinsic element names
-// ---------------------------------------------------------------------------
-
-/**
- * Older lazy-transform paths rewrote *any* JSX name matching a lazy binding —
- * including lowercase intrinsic tags (`<address>` with a lazy `address` in
- * scope became `<__lazy0.address>`), which hijacked the element into a
- * component. Per JSX semantics a single lowercase identifier tag is always
- * intrinsic, so such rewrites are unambiguously wrong. Keep this repair for
- * compatibility with trees produced by those paths; the local engine does not
- * produce the invalid rewrite.
- */
-export function restoreIntrinsicJsxNames(root: EsNode): void {
-  visit(root);
-
-  function restore(owner: EsNode): void {
-    const name = owner.name as EsNode | undefined;
-    if (!name || name.type !== "JSXMemberExpression") return;
-    const object = name.object as EsNode;
-    const property = name.property as EsNode;
-    if (
-      object.type === "JSXIdentifier" &&
-      /^__lazy\d+$/.test(object.name as string) &&
-      property.type === "JSXIdentifier" &&
-      /^[a-z]/.test(property.name as string)
-    ) {
-      owner.name = jsxIdent(property.name as string, name);
-    }
-  }
-
-  function visit(node: EsNode): void {
-    if (node.type === "JSXOpeningElement" || node.type === "JSXClosingElement") restore(node);
-    for (const key of Object.keys(node)) {
-      if (SKIP_KEYS.has(key)) continue;
-      const value = node[key];
-      if (Array.isArray(value)) {
-        for (const item of value) if (isNode(item)) visit(item);
-      } else if (isNode(value)) {
-        visit(value);
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Scope-aware read → call rewriting (accessor adaptations)
-// ---------------------------------------------------------------------------
-
-/** Keys whose contents are TS type positions — never value references. */
-const TYPE_KEYS = new Set([
-  "typeAnnotation",
-  "typeParameters",
-  "typeArguments",
-  "superTypeArguments",
-  "returnType"
-]);

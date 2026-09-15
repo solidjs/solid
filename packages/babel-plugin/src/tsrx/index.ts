@@ -3,18 +3,18 @@
  *
  * Routes `.tsrx` sources (or any source when `syntax: "tsrx"`) through
  * `@tsrx/core`'s parser + semantic analysis, processes scoped styles with
- * core's CSS helpers, desugars every TSRX construct to Solid builtIn JSX,
- * applies Solid's local deferred-pattern transform for generated control-flow
- * callbacks, and converts the result to a Babel `File` for the unchanged JSX
- * pipeline. Authored lazy destructuring is rejected for the Solid target.
+ * core's CSS helpers, desugars every TSRX construct to Solid builtIn JSX, and
+ * converts the result to a Babel `File` for the unchanged JSX pipeline.
+ * Bindings pass through as authored; authored lazy destructuring is rejected
+ * for the Solid target.
  *
  * `@tsrx/core` is an optional peer dependency loaded lazily on first TSRX
  * routing, so plain JSX users never pay for it.
  */
 
-import { desugarProgram, restoreIntrinsicJsxNames, type EsNode } from "./desugar";
+import { desugarProgram, type EsNode } from "./desugar";
 import { toBabelFile } from "./estree-to-babel";
-import { applyLazyTransforms, rejectAuthoredLazyDestructuring } from "./lazy";
+import { rejectAuthoredLazyDestructuring } from "./lazy";
 import { processTsrxStyles, type TsrxStyleCore } from "./style";
 import type { TsrxBabelAst, TsrxStyleResult } from "../types";
 
@@ -80,18 +80,9 @@ export function parseTsrx(code: string, filename?: string): TsrxBabelFile {
   tsrx.analyzeTsrx(program, filename ?? null);
   const styleResult = processTsrxStyles(program, tsrx);
 
-  // Desugar before the lazy transform: the lazy engine collects block-level
-  // `let &[…]`/`const &{…}` bindings in its BlockStatement/Program handlers,
-  // which only fire once `@{}` containers have become real blocks. Lazy
-  // patterns themselves pass through the desugarer untouched.
   desugarProgram(program);
 
-  const transformed = applyLazyTransforms(program);
-  // Keep this compatibility repair in place for trees produced by older
-  // desugaring paths. The local engine itself never rewrites intrinsic names.
-  restoreIntrinsicJsxNames(transformed);
-
-  const file = toBabelFile(transformed) as TsrxBabelFile;
+  const file = toBabelFile(program) as TsrxBabelFile;
   // Babel's default AST clone preserves enumerable string keys. Program.enter
   // lifts this temporary payload into transform metadata and removes it from
   // the AST, avoiding mutable plugin-factory state (and concurrent-run races).

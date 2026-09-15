@@ -9,12 +9,6 @@
 //! pipeline — generated parentheses are trivia (`preserve_parens: false`)
 //! and generated JSX carries no stray whitespace children.
 //!
-//! Lazy `&` patterns are only *stripped* here (each pattern keeps its
-//! authored binding names, so the reparsed program has real,
-//! scope-resolvable bindings); the `__lazyN` renames and accessor-call
-//! rewrites happen after the reparse in [`crate::tsrx::rewrite`], driven by
-//! the anchors recorded in [`Projection`].
-//!
 //! Emission is strictly append-only (no detached buffers), so anchor offsets
 //! are final as they are recorded. Where output order differs from authored
 //! order (a `@switch` `@default` case becomes the leading `fallback`
@@ -31,7 +25,7 @@ use super::{
         self, RefSetup, StyleAction, StyleProjection, class_attribute, decode_json_string,
         is_callback_ref, is_class_attribute, is_direct_ref_target, push_class_map, push_js_string,
     },
-    tape::{self, Node},
+    tape::Node,
 };
 
 /// Result of projecting one TSRX module to plain TSX.
@@ -45,14 +39,6 @@ pub struct Projection {
     pub(super) embedded_regions: Vec<semantic::EmbeddedRegion>,
     /// Exact authored ranges copied into `text`, used to compose codegen maps.
     pub(super) source_map: ProjectionMap,
-    /// Projected offset of each lazy pattern's opening bracket, with its
-    /// preallocated `__lazyN` name.
-    pub lazy_patterns: Vec<(u32, String, bool)>,
-    /// Projected offset of a generated arrow (its parameter `(`), with the
-    /// binding names whose reads must become zero-argument calls (RC accessor
-    /// semantics for non-default `For` items, custom-key `For` indexes, and
-    /// `@catch` errors).
-    pub accessor_arrows: Vec<(u32, Vec<String>)>,
 }
 
 /// A structured frontend diagnostic in authored coordinates.
@@ -94,18 +80,6 @@ fn is_function(ty: &str) -> bool {
     FUNCTION_TYPES.contains(&ty)
 }
 
-fn contains_pattern_default(node: Node<'_>) -> bool {
-    let mut found = false;
-    tape::walk(node, &mut |child| {
-        if child.ty() == "AssignmentPattern" {
-            found = true;
-            return false;
-        }
-        true
-    });
-    found
-}
-
 pub fn project(
     source: &str,
     filename: &str,
@@ -131,9 +105,6 @@ pub fn project_with_styles(
         out: String::with_capacity(source.len() + source.len() / 4),
         semantic,
         styles,
-        lazy_ids: collect_lazy_ids(semantic),
-        lazy_patterns: Vec::new(),
-        accessor_arrows: Vec::new(),
         source_map: ProjectionMap::new(source_maps),
     };
 
@@ -145,19 +116,7 @@ pub fn project_with_styles(
         css_hash,
         embedded_regions,
         source_map: renderer.source_map,
-        lazy_patterns: renderer.lazy_patterns,
-        accessor_arrows: renderer.accessor_arrows,
     })
-}
-
-/// Preallocate `__lazyN` names for every lazy pattern in document order,
-/// mirroring `@tsrx/core`'s `preallocateLazyIds`. Keyed by pattern span.
-fn collect_lazy_ids(semantic: &semantic::SolidTsrxModule<'_>) -> Vec<(u32, u32)> {
-    semantic
-        .lazy_patterns
-        .iter()
-        .map(|pattern| (pattern.origin.span.start, pattern.origin.span.end))
-        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -166,8 +125,7 @@ fn collect_lazy_ids(semantic: &semantic::SolidTsrxModule<'_>) -> Vec<(u32, u32)>
 
 struct Special<'t> {
     node: Node<'t>,
-    /// Replacement span in authored bytes (differs from the node span only
-    /// for lazy patterns, which also consume the preceding `&` sigil).
+    /// Replacement span in authored bytes.
     span: (u32, u32),
     position: Position,
 }
@@ -198,9 +156,7 @@ fn collect_specials<'t>(
     let ty = node.ty();
     let start = node.span().map_or(u32::MAX, |span| span.0);
 
-    let special_span = if semantic.lazy_assignment_for(node).is_some() {
-        node.span()
-    } else if let Some(control) = semantic.control_for(node) {
+    let special_span = if let Some(control) = semantic.control_for(node) {
         let extent = control.origin().extent;
         Some((extent.start, extent.end))
     } else if semantic.template_site_for(node).is_some()
@@ -211,10 +167,6 @@ fn collect_specials<'t>(
         || (ty == "JSXFragment" && styles.owner_setups.contains_key(&start))
     {
         node.span()
-    } else if semantic.is_authored_lazy_pattern(node) {
-        // The `&` sigil sits immediately before the pattern's bracket.
-        node.span()
-            .map(|(start, end)| (start.saturating_sub(1), end))
     } else if is_synthetic_undefined(node) {
         node.span()
     } else {
@@ -282,10 +234,6 @@ struct Renderer<'s, 'm, 't> {
     out: String,
     semantic: &'m semantic::SolidTsrxModule<'t>,
     styles: StyleProjection<'t>,
-    /// Document-ordered lazy pattern spans; index = lazy id.
-    lazy_ids: Vec<(u32, u32)>,
-    lazy_patterns: Vec<(u32, String, bool)>,
-    accessor_arrows: Vec<(u32, Vec<String>)>,
     source_map: ProjectionMap,
 }
 
@@ -350,9 +298,6 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                     || self.styles.owner_setups.contains_key(&start)
                     || has_synthetic_closing_element(node)))
             || (ty == "JSXFragment" && self.styles.owner_setups.contains_key(&start))
-            || self.semantic.lazy_assignment_for(node).is_some()
-            || self.semantic.is_authored_lazy_pattern(node)
-            || self.semantic.lazy_pattern_for(node).is_some()
             || is_synthetic_undefined(node)
         {
             return self.render_special(node, position);
@@ -381,16 +326,9 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
                 TemplateSite::DynamicElement { .. } => self.render_scoped_element(node, position),
             };
         }
-        if let Some(assignment) = self.semantic.lazy_assignment_for(node) {
-            return self.render_lazy_assignment(assignment);
-        }
         match node.ty() {
             "JSXFragment" => self.render_scoped_fragment(node, position),
             "JSXElement" => self.render_scoped_element(node, position),
-            "ArrayPattern" | "ObjectPattern" if self.semantic.lazy_pattern_for(node).is_some() => {
-                self.render_lazy_pattern(node)
-            }
-            "ArrayPattern" | "ObjectPattern" => self.emit_eager_pattern(node),
             "Identifier" if is_synthetic_undefined(node) => {
                 self.push("undefined");
                 Ok(())
@@ -553,11 +491,7 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         self.push("}");
         if let Some(key) = key {
             self.push(" keyed={(");
-            if pattern.ty() == "Identifier" {
-                self.emit_node(pattern, Position::Expression)?;
-            } else {
-                self.emit_eager_pattern(pattern)?;
-            }
+            self.emit_node(pattern, Position::Expression)?;
             self.push(") => (");
             self.emit_node(key, Position::Expression)?;
             self.push(")}");
@@ -1133,63 +1067,6 @@ impl<'s, 'm, 't> Renderer<'s, 'm, 't> {
         self.push("={");
         self.push(name);
         self.push("}");
-        Ok(())
-    }
-
-    fn render_lazy_pattern(&mut self, node: Node<'_>) -> Result<()> {
-        let source_accessor = self
-            .semantic
-            .lazy_pattern_for(node)
-            .ok_or_else(|| {
-                ProjectError::new("internal TSRX frontend error: unknown lazy pattern", node)
-            })?
-            .source_accessor;
-        let span = span_of(node)?;
-        let id = self
-            .lazy_ids
-            .iter()
-            .position(|candidate| *candidate == span)
-            .ok_or_else(|| {
-                ProjectError::new("internal TSRX frontend error: unindexed lazy pattern", node)
-            })?;
-        self.lazy_patterns.push((
-            self.out.len() as u32,
-            format!("__lazy{id}"),
-            source_accessor,
-        ));
-        // Emit the pattern minus its `&` sigil; binding names stay authored so
-        // the reparsed program resolves scope exactly, and the post-reparse
-        // pass renames them.
-        let mut specials = Vec::new();
-        collect_children(node, &self.styles, self.semantic, &mut specials);
-        self.emit_region(span.0, span.1, &mut specials)
-    }
-
-    fn emit_eager_pattern(&mut self, node: Node<'_>) -> Result<()> {
-        let span = span_of(node)?;
-        let mut specials = Vec::new();
-        collect_children(node, &self.styles, self.semantic, &mut specials);
-        self.emit_region(span.0, span.1, &mut specials)
-    }
-
-    fn render_lazy_assignment(&mut self, assignment: &semantic::LazyAssignment<'t>) -> Result<()> {
-        let pattern = assignment.pattern;
-        if contains_pattern_default(pattern) {
-            return Err(ProjectError::new(
-                "TSRX standalone lazy assignment defaults are not supported by the JavaScript TSRX parser",
-                pattern,
-            ));
-        }
-        let value = assignment.value;
-
-        // Reparse the assignment as a lexical declaration so oxc_semantic can
-        // resolve the introduced lazy names. The binding-pattern rewrite then
-        // collapses this scaffold to `const __lazyN`, matching the JS frontend.
-        self.push("const ");
-        self.render_lazy_pattern(pattern)?;
-        self.push(" = (");
-        self.emit_node(value, Position::Expression)?;
-        self.push(");");
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 //! Host-independent TSRX projection for typecheck and editor tooling.
 //!
-//! This backend ends at post-semantic-rewrite TSX. It intentionally does not
+//! This backend ends at projected TSX. It intentionally does not
 //! contain host mappings or run Solid's DOM, SSR, or universal transforms.
 
 use std::{collections::HashMap, path::PathBuf};
@@ -13,7 +13,7 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::Span;
 
 use super::{
-    apply_rewrites, compose_source_map,
+    compose_source_map,
     names::Names,
     parse_projected_tsx,
     project::Projection,
@@ -69,7 +69,7 @@ pub struct TsrxTypecheckMapping {
     pub length: u32,
 }
 
-/// Owned post-rewrite virtual TSX and its authored sidecars.
+/// Owned projected virtual TSX and its authored sidecars.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TsrxTypecheckProjection {
     pub code: String,
@@ -80,7 +80,7 @@ pub struct TsrxTypecheckProjection {
     pub embedded_regions: Vec<TsrxEmbeddedRegion>,
 }
 
-/// Project authored TSRX into valid post-rewrite TSX for typechecking tools.
+/// Project authored TSRX into valid TSX for typechecking tools.
 ///
 /// This unstable API shares the compiler-owned semantic IR with
 /// [`crate::compile`], then deliberately emits and parses an independently
@@ -94,7 +94,6 @@ pub fn project_tsrx_for_typecheck(
     let allocator = Allocator::default();
     let mut program = parse_projected_tsx(&allocator, &projection)?;
     inject_typecheck_helpers(&allocator, &mut program, &projection);
-    apply_rewrites(&allocator, &mut program, &projection, true)?;
     let build = Codegen::new()
         .with_options(CodegenOptions {
             source_map_path: Some(PathBuf::from(filename)),

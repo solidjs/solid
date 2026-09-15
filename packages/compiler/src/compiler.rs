@@ -192,17 +192,12 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
 
     let allocator = Allocator::default();
     #[cfg(feature = "tsrx")]
-    let (mut direct_program, direct_artifacts, direct_css, direct_css_hash) = if tsrx_route {
+    let (mut direct_program, direct_css, direct_css_hash) = if tsrx_route {
         let lowered =
             crate::tsrx::run_compiler_frontend(&allocator, source, options.filename.as_deref())?;
-        (
-            Some(lowered.program),
-            Some(lowered.artifacts),
-            Some(lowered.css),
-            lowered.css_hash,
-        )
+        (Some(lowered.program), Some(lowered.css), lowered.css_hash)
     } else {
-        (None, None, None, None)
+        (None, None, None)
     };
 
     let source_type = if tsrx_route {
@@ -243,13 +238,8 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
     }
 
     #[cfg(feature = "tsrx")]
-    if let Some(artifacts) = direct_artifacts.as_ref() {
-        crate::tsrx::apply_direct_rewrites(
-            &allocator,
-            &mut program,
-            artifacts,
-            options.source_map,
-        )?;
+    if tsrx_route {
+        crate::tsrx::clear_generated_spans(&mut program, options.source_map);
     }
 
     match options.generate {
