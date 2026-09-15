@@ -1,6 +1,5 @@
 export {
   $PROXY,
-  $REFRESH,
   $TRACK,
   action,
   affects,
@@ -20,29 +19,10 @@ export {
   isWrappable,
   mapArray,
   merge,
-  mergeSources,
-  mergeView,
-  viewOf,
-  OmitView,
-  MergeView,
-  omitView,
-  sourceKeys,
-  sourceHas,
-  sourceGet,
-  hasStaticKeys,
-  resolvedTable,
-  SOURCE_PLAIN,
-  SOURCE_OMIT,
-  SOURCE_PROXY,
-  SOURCE_MEMO,
   omit,
   onCleanup,
   onSettled,
   latest,
-  // REGION-DELIVERY BRANCH: patch-channel contract gutted (regions replace it)
-  storeIsShallow,
-  storeHasFamily,
-  storeHasOptimisticFamily,
   reconcile,
   refresh,
   repeat,
@@ -55,12 +35,10 @@ export {
   enableExternalSource,
   enforceLoadingBoundary,
   snapshot,
-  storePath,
   untrack
 } from "@solidjs/signals";
 
 export type {
-  SourceKind,
   Accessor,
   ComputeFunction,
   EffectBundle,
@@ -126,10 +104,13 @@ export {
   createRenderEffect,
   createEffect,
   NoHydration,
-  Hydration,
-  NoHydrateContext,
-  materializeContainerTrace
+  Hydration
 } from "./client/hydration.js";
+// Seams for the runtimes in this repo, reached through `solid-js/internal`
+// (src/internal.ts): exported here at runtime so that entry shares this
+// module's state, `@internal` so they are stripped from the declarations.
+/** @internal */
+export { materializeContainerTrace } from "./client/hydration.js";
 // Stub exports — only meaningful on the server entry; the client entry
 // satisfies the export surface so isomorphic builds don't break.
 /** @internal */

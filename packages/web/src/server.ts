@@ -3,15 +3,17 @@ import { COMPOSED_BODY_FRAMING, ChildProperties, isHttpNavigationTarget } from "
 import {
   sharedConfig,
   createRoot as root,
-  ssrHandleError,
   getOwner,
   runWithOwner,
-  creationStamp,
-  inServerComponentScope,
   createComponent,
   untrack,
   merge as mergeProps,
-  $PROXY,
+  $PROXY
+} from "solid-js";
+import {
+  ssrHandleError,
+  creationStamp,
+  inServerComponentScope,
   viewOf,
   OmitView,
   sourceKeys,
@@ -22,7 +24,7 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO,
   ssrScope as scope
-} from "solid-js";
+} from "solid-js/internal";
 import { effect, memo } from "./render.js";
 // Trace context (W3C `traceparent`): derived per request, exposed through
 // `getTraceContext()`, emitted on the response head at commit and in the

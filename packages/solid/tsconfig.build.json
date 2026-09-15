@@ -2,11 +2,12 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./types",
+    "stripInternal": true,
     "rootDir": "./src",
     "baseUrl": "",
     "paths": {
       "solid-js": ["./src/index.ts"]
     }
   },
-  "include": ["./src"],
+  "include": ["./src"]
 }

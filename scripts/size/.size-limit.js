@@ -4,7 +4,11 @@
 // sizes at landing: a breach means tree-shaking regressed (or a deliberate
 // feature landed — bump the limit in the same PR and say why). The simple-app
 // scenario is pinned at 10 KB on purpose.
+// Subpath aliases first: esbuild's alias matches by prefix, so the bare
+// `solid-js` entry would otherwise remap `solid-js/internal` (the seams the
+// runtimes consume — packages/solid/src/internal.ts) to `solid.js/internal`.
 const alias = {
+  "solid-js/internal": "../../packages/solid/dist/internal.js",
   "solid-js": "../../packages/solid/dist/solid.js",
   "@solidjs/web": "../../packages/web/dist/web.js",
   "@solidjs/signals": "../../packages/signals/dist/prod/index.js"
@@ -20,6 +24,7 @@ const modifyEsbuildConfig = config => ({ ...config, alias });
 // the bare `solid-js` entry would otherwise swallow `solid-js/attribution`.
 const observeAlias = {
   "solid-js/attribution": "../../packages/solid/dist/attribution.js",
+  "solid-js/internal": "../../packages/solid/dist/internal.js",
   "@solidjs/signals/attribution": "../../packages/signals/dist/observe/attribution.js",
   "solid-js": "../../packages/solid/dist/solid.observe.js",
   "@solidjs/web": "../../packages/web/dist/web.observe.js",
@@ -43,6 +48,7 @@ const framesEsbuildConfig = config => ({
   },
   external: [
     "solid-js",
+    "solid-js/internal",
     "@solidjs/web",
     "@solidjs/web/serialization",
     "@solidjs/web/serialization/decode"
@@ -972,7 +978,15 @@ module.exports = [
     // `next`'s 28815 (+46 — the reset walk in boundaries.ts, retained wherever
     // Loading is; the PR alone measured 28848 against the pre-#3464 `next`,
     // 2 B under, and the three fixes that landed meanwhile used the room).
-    limit: "28.90 KB",
+    // Seams behind `solid-js/internal` (#3470, 2026-09-15): 28.90 -> 28.95 KB,
+    // measured at 28901 B against `next`'s 28861 (+40). Mangler noise, not
+    // cost: the minified bundle is byte-identical (89072 B both sides) and
+    // differs only in which short names the minifier hands out — the extra
+    // module boundary shifts its allocation. The same swap compresses the
+    // other app scenarios BETTER (simple-app -33, hydrating -45, CSR -21);
+    // this one drew the short straw, 1 B over a cap #3459 had just
+    // consumed the room under.
+    limit: "28.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -1293,8 +1307,17 @@ module.exports = [
     // and the mirrored qualifier folding above). The per-commit notes were
     // measured on the pre-removal base, so their absolutes no longer line
     // up with this file's floor, but their deltas do.
+    //
+    // Seams behind `solid-js/internal` (#3470, 2026-09-15): 11.40 -> 11.45 KB,
+    // measured at 11442 B against `next`'s 11370 (+72 brotli on +31 minified).
+    // Nothing in this bundle changed but one import's SPECIFIER:
+    // `materializeContainerTrace` used to fold into the single
+    // `from "solid-js"` statement and is now its own `from "solid-js/internal"`
+    // statement, which brotli cannot share with the first; the module is
+    // external either way. The price of taking the view protocol and the
+    // server-scope seams off the public `solid-js` surface.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.40 KB",
+    limit: "11.45 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

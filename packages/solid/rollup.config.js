@@ -78,5 +78,11 @@ export default [
   // `solid-js/attribution`: a re-export of `@solidjs/signals/attribution`
   // with no wiring of its own, so one build serves every tier — the engine it
   // resolves to is chosen where the signals subpath is resolved.
-  build("src/attribution.ts", "attribution", ["@solidjs/signals/attribution"], false, false)
+  build("src/attribution.ts", "attribution", ["@solidjs/signals/attribution"], false, false),
+  // `solid-js/internal`: the seams the runtimes in this repo consume (see
+  // src/internal.ts). No tier-specific code of its own, so one build: the view
+  // protocol is `@solidjs/signals` (external, the app's one instance) and the
+  // server-scope seams are read back from "solid-js" (external, so the
+  // platform/tier conditions pick the same main build the app runs).
+  build("src/internal.ts", "internal", ["solid-js", "@solidjs/signals"], false, false)
 ];

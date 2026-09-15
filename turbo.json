@@ -66,7 +66,10 @@
       "outputs": []
     },
     "solid-js#test": {
-      "dependsOn": ["@solidjs/signals#build", "solid-js#build"],
+      // `solid-js#types`: internal-surface.spec.ts reads the GENERATED
+      // declarations — what `stripInternal` did or did not keep is the thing
+      // under test (see src/internal.ts).
+      "dependsOn": ["@solidjs/signals#build", "solid-js#build", "solid-js#types"],
       "outputs": []
     },
     "@solidjs/web#test": {

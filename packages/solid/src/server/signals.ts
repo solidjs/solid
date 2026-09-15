@@ -27,27 +27,7 @@ export {
 } from "@solidjs/signals";
 
 export { flatten } from "@solidjs/signals";
-export {
-  snapshot,
-  omit,
-  storePath,
-  $PROXY,
-  $TRACK,
-  mergeView,
-  viewOf,
-  OmitView,
-  MergeView,
-  omitView,
-  sourceKeys,
-  sourceHas,
-  sourceGet,
-  hasStaticKeys,
-  resolvedTable,
-  SOURCE_PLAIN,
-  SOURCE_OMIT,
-  SOURCE_PROXY,
-  SOURCE_MEMO
-} from "@solidjs/signals";
+export { snapshot, omit, storePath, $PROXY, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===
 
@@ -61,7 +41,6 @@ import type {
 export type SourceAccessor<T> = Refreshable<SignalAccessor<T>>;
 
 export type {
-  SourceKind,
   Accessor,
   ComputeFunction,
   EffectFunction,
@@ -101,12 +80,10 @@ import {
   $PROXY,
   isWrappable,
   merge as signalMerge,
-  mergeSources,
   NotReadyError,
   NoOwnerError,
   ContextNotFoundError
 } from "@solidjs/signals";
-export { mergeSources };
 
 import type {
   Accessor,
