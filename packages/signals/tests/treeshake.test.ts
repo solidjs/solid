@@ -283,6 +283,9 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // recompute's tail keeps an effect's dependency tail while a run is owed
     // (`_modified`), and runEffect trims it once the run applies. Measured
     // at 23,353 post-change.
+    // NOTE (2026-09-14, no bump): +12 B for memo lane posture (#3442) — one
+    // assignment at recompute's head runs a memo plain unless it owns or
+    // adopts a lane. Measured at 23,365 on top of #3438 (23,353 → 23,365).
     expect(minifiedBytes).toBeLessThan(23_400);
   });
 

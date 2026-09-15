@@ -318,6 +318,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // covers creation-time computes and flushes that run inside the window.
   const prevLatestRead = latestReadActive;
   latestReadActive = false;
+  // A memo computes under its OWN lane posture, never the puller's (A31,
+  // #3442): its value is one shared slot every reader sees, so a pull from a
+  // lane-carrying reader (a probe effect on its companion lane pulling a sync
+  // memo) must not run it with that lane's read carve-outs — under a lane, a
+  // pending node on no lane serves its committed value instead of throwing,
+  // and the memo then published a stale "settled" value, dropped its
+  // pending status, and stopped holding its transaction. The branches below
+  // re-establish the posture the memo itself owns (OPT-dirty, or adopted
+  // through its deps). Effects keep the ambient lane: their runs are the
+  // lane's own view.
+  if (!isEffect) currentOptimisticLane = null;
   // Lane posture lives with the engine: OPTIMISTIC_DIRTY is only ever set by
   // engine-driven paths, and _optimisticNodes is only pushed by
   // _optimisticWrite, so the hook is installed whenever either gate holds.
