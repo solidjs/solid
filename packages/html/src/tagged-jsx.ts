@@ -219,35 +219,43 @@ function createHtml() {
     components: ComponentRegistry,
     props: Record<string, any> = {}
   ) => {
+    // A merge() result is a read-only view — writes to it are no-ops — so
+    // own props are collected into plain objects and the spreads interleaved
+    // as sources, merged once at the end in source order (later wins).
+    const sources: unknown[] = [];
+    let own: Record<string, any> = props;
     for (const prop of node.props) {
       switch (prop.type) {
         case BOOLEAN_PROP:
-          props[prop.name] = true;
+          own[prop.name] = true;
           break;
         case STATIC_PROP:
-          props[prop.name] = prop.value;
+          own[prop.name] = prop.value;
           break;
         case EXPRESSION_PROP:
-          applyGetter(props, prop.name, values[prop.value]);
+          applyGetter(own, prop.name, values[prop.value]);
           break;
         case SPREAD_PROP:
           const spreadValue = values[prop.value];
           if (!spreadValue || typeof spreadValue !== "object")
             throw new Error("Can only spread objects");
-          props = mergeProps(props, spreadValue);
+          sources.push(own, spreadValue);
+          own = {};
           break;
       }
     }
 
     // children - childNodes overwrites any props.children
     if (node.type === COMPONENT_NODE && node.children.length) {
-      Object.defineProperty(props, "children", {
+      Object.defineProperty(own, "children", {
         get() {
           return renderChildren(node, values, components);
         }
       });
     }
-    return props;
+    if (sources.length === 0) return own;
+    sources.push(own);
+    return mergeProps(...sources) as Record<string, any>;
   };
 
   const applyGetter = (props: Record<string, any>, name: string, value: any) => {

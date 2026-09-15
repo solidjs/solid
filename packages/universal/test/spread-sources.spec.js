@@ -1,5 +1,5 @@
 import * as r from "./custom.js";
-import { createRoot, createSignal, flush, onCleanup } from "solid-js";
+import { createRoot, createSignal, flush, merge, omit, onCleanup } from "solid-js";
 
 // The renderer's spread() follows @solidjs/web's contract (#3388, #3419): at
 // most two reactive nodes per element, `ref` folded into the props effect,
@@ -185,6 +185,57 @@ describe("universal spread: sources array", () => {
     const dispose = mount(() => r.spread(node, [{ ref: seen }, { title: "t" }]));
     expect(seen.mock.calls[0][0]).toBe(node);
     expect(node.getAttribute("ref")).toBeNull();
+    dispose();
+  });
+});
+
+describe("universal spread: omit() and merge() views", () => {
+  it("walks an omit() view directly: hidden keys skipped unread, the rest reactive", () => {
+    const node = document.createElement("div");
+    const [title, setTitle] = createSignal("t1");
+    const hidden = vi.fn(() => true);
+    const props = {
+      id: "a",
+      get title() {
+        return title();
+      },
+      get isActive() {
+        return hidden();
+      },
+      children: "kid"
+    };
+    const dispose = mount(() => r.spread(node, omit(props, "isActive")));
+    expect(node.getAttribute("id")).toBe("a");
+    expect(node.getAttribute("title")).toBe("t1");
+    expect(node.textContent).toBe("kid");
+    expect(node.hasAttribute("isActive")).toBe(false);
+    setTitle("t2");
+    flush();
+    expect(node.getAttribute("title")).toBe("t2");
+    expect(hidden).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("flattens a merge() and reads omit() views inside a sources array, later wins", () => {
+    const node = document.createElement("button");
+    const shadowed = vi.fn(() => "submit");
+    const rest = {
+      id: "r",
+      get type() {
+        return shadowed();
+      },
+      isActive: true
+    };
+    const merged = merge({ "data-a": "1" }, () => ({ "data-b": "2" }));
+    const dispose = mount(() =>
+      r.spread(node, [omit(rest, "isActive"), merged, { type: "button" }], true)
+    );
+    expect(node.getAttribute("id")).toBe("r");
+    expect(node.getAttribute("type")).toBe("button");
+    expect(node.getAttribute("data-a")).toBe("1");
+    expect(node.getAttribute("data-b")).toBe("2");
+    expect(node.hasAttribute("isActive")).toBe(false);
+    expect(shadowed).not.toHaveBeenCalled();
     dispose();
   });
 });

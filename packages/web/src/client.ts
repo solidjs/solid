@@ -11,7 +11,17 @@ import {
   untrack,
   merge as mergeProps,
   $PROXY,
-  mergeSources,
+  viewOf,
+  OmitView,
+  sourceKeys,
+  sourceHas,
+  sourceGet,
+  hasStaticKeys,
+  resolvedTable,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO,
   flatten,
   createMemo,
   flush,
@@ -793,7 +803,7 @@ export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(readShallow);
   if (value[$PROXY] !== value) return value;
-  const keys = ownKeys(value);
+  const keys = sourceKeys(value, SOURCE_PROXY);
   const out = {};
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
@@ -802,16 +812,7 @@ export function readShallow(value) {
   return out;
 }
 
-// The own keys of a spread/style source for a one-layer copy. For a proxy
-// (merge/omit/`{...props}`, store records) ONE `ownKeys` trap: the trap keeps
-// the key set tracked, and the enumerability check `for…in` would run — a
-// `getOwnPropertyDescriptor` trap per key, allocating a descriptor plus a
-// getter closure, then AGAIN for `hasOwn` — never happens. `Object.keys` for a
-// plain object is exactly the own-enumerable set `for…in` + `hasOwn` yielded.
-// Callers skip symbol keys.
-function ownKeys(o: object): (string | symbol)[] {
-  return o[$PROXY] === o ? Reflect.ownKeys(o) : Object.keys(o);
-} /** Compiler-emitted primitive; not for hand-written code. @internal */
+/** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setStyleProperty(node: Element, name: string, value: any): void;
 
 export function setStyleProperty(node, name, value) {
@@ -880,17 +881,20 @@ export function spread(node, props, skipChildren, skip) {
       insert(node, () => {
         for (let i = props.length - 1; i >= 0; i--) {
           const s = resolveSource(props[i]);
-          if (s != null && "children" in s) return s.children;
+          if (s != null && entryHas(s, "children")) return entryGet(s, "children");
         }
       });
-    effect(() => collectSources({}, props, skip), apply);
+    effect(() => collectSources({}, props, undefined, skip), apply);
     return prevProps;
   }
   if (!skipChildren && !(skip !== undefined && skip("children"))) {
-    if (typeof props !== "function" && props != null && props[$PROXY] !== props) {
-      // A plain object's key set can't change reactively: no `children` key
-      // means nothing to insert, a data property inserts its value with no
-      // effect, only a getter needs the tracking scope.
+    if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
+      // A plain object's key set can't change reactively — nor can a
+      // merge/omit view's over plain objects, and its descriptor trap tells
+      // the truth about the owning leaf: no `children` key means nothing to
+      // insert, a data property inserts its value with no effect, only a
+      // getter needs the tracking scope. So `<Tag {...omit(props, "as")}>`
+      // with static children costs no children effect either.
       const desc = Object.getOwnPropertyDescriptor(props, "children");
       if (desc !== undefined) {
         if (desc.get === undefined) insert(node, desc.value);
@@ -899,7 +903,9 @@ export function spread(node, props, skipChildren, skip) {
     } else
       insert(node, () => {
         const source = resolveSource(props);
-        return source != null && hasOwn.call(source, "children") ? source.children : undefined;
+        return source != null && entryHas(source, "children")
+          ? entryGet(source, "children")
+          : undefined;
       });
   }
   effect(() => {
@@ -912,35 +918,100 @@ export function spread(node, props, skipChildren, skip) {
     // source) and then, per key, a right-to-left `in` walk of the sources.
     // The union of own string keys with later sources overriding earlier
     // — Object.assign order, merge's own contract — is all a spread needs.
-    // omit() is not a merge: it stays a proxy and is enumerated through its
-    // own filtering trap.
-    const sources = mergeSources(source);
-    if (sources !== undefined) return collectSources(newProps, sources, skip);
-    if (source != null) collectProps(newProps, source, skip);
+    // An omit() proxy likewise is read through its VIEW RECORD — its source
+    // walked directly with the hidden keys filtered — never through its
+    // traps (a descriptor trap per key, allocating, on every rerun).
+    //
+    // A view over plain objects only has a RESOLVED TABLE — key → owning
+    // leaf, shadowing already applied — built once; on every rerun this
+    // effect then does exactly what it did over an eager copy: one read per
+    // key, no re-enumeration and no per-key walk of the later sources.
+    const table = resolvedTable(source);
+    if (table !== undefined) return collectTable(newProps, table, skip);
+    if (source != null) {
+      const view = viewOf(source);
+      if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
+      else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
+      else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
+    }
     return newProps;
   }, apply);
   return prevProps;
+}
+
+// A resolved view table (see `resolvedTable`) into `out`: the owning leaf's
+// value per key, children excluded, `skip` honored.
+function collectTable(out, table, skip) {
+  for (const [prop, leaf] of table) {
+    if (typeof prop !== "string" || prop === "children") continue;
+    if (skip !== undefined && skip(prop)) continue;
+    const v = leaf[prop];
+    out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
+  }
+  return out;
 }
 
 function resolveSource(s) {
   return typeof s === "function" ? s() : s;
 }
 
+// `key in s` / `s[key]` for one resolved, non-null spread source: an omit()
+// proxy answers from its view record (the filter, then its source), anything
+// else — a plain object, a store, a merge() proxy — as itself.
+function entryHas(s, key) {
+  const view = viewOf(s);
+  return view instanceof OmitView ? sourceHas(view, SOURCE_OMIT, key) : key in s;
+}
+function entryGet(s, key) {
+  const view = viewOf(s);
+  return view instanceof OmitView ? sourceGet(view, SOURCE_OMIT, key) : s[key];
+}
+
 // Layered sources into `out`. Every function source is resolved once, up
-// front; keys are then collected left-to-right (Object.assign order — the
-// order assign() applies them in, which `type`/`value`/`min`/`max` style
-// pairs care about), and a key any LATER source has is skipped unread. `in`
-// is merge()'s own resolution test, so a proxy source (store, omit) answers
-// through its `has` trap rather than a per-key descriptor trap.
-function collectSources(out, sources, skip) {
-  const n = sources.length;
-  const resolved = new Array(n);
-  for (let i = 0; i < n; i++) resolved[i] = resolveSource(sources[i]);
-  for (let i = 0; i < n; i++) {
-    const s = resolved[i];
-    if (s != null) collectProps(out, s, skip, resolved, i + 1);
-  }
+// front, and a merge() proxy among them contributes its flattened sources in
+// place — each entry with its KIND (see `SourceKind`), so the per-key walk
+// below asks nothing of a proxy but the read itself; keys are then collected
+// left-to-right (Object.assign order — the order assign() applies them in,
+// which `type`/`value`/`min`/`max` style pairs care about), and a key any
+// LATER source has is skipped unread. `sourceHas` is merge()'s own
+// resolution test, so a proxy source (store) answers through its `has` trap
+// rather than a per-key descriptor trap, and an omit view answers from its
+// filter.
+function collectSources(out, sources, kinds, skip) {
+  const resolved = [];
+  const resolvedKinds = [];
+  for (let i = 0; i < sources.length; i++)
+    pushEntry(resolved, resolvedKinds, sources[i], kinds !== undefined ? kinds[i] : SOURCE_MEMO);
+  for (let i = 0; i < resolved.length; i++)
+    collectProps(out, resolved[i], resolvedKinds[i], skip, resolved, resolvedKinds, i + 1);
   return out;
+}
+
+// One source into the resolved entry lists. A known plain / omit-record /
+// proxy entry (a merge's leaf) joins as is. Anything else — a function (the
+// compiler's `() => rest`, merge's memo) resolved once — is classified: a
+// merge() proxy contributes its leaves, an omit() proxy its record, a proxy
+// is walked through its traps, and nothing nullish contributes at all.
+function pushEntry(resolved, kinds, s, kind) {
+  if (kind !== SOURCE_MEMO) {
+    resolved.push(s);
+    kinds.push(kind);
+    return;
+  }
+  s = resolveSource(s);
+  if (s == null) return;
+  const view = viewOf(s);
+  if (view instanceof OmitView) {
+    resolved.push(view);
+    kinds.push(SOURCE_OMIT);
+  } else if (view !== undefined) {
+    const f = view.sources,
+      k = view.kinds;
+    for (let j = 0; j < f.length; j++) pushEntry(resolved, kinds, f[j], k[j]);
+  } else {
+    resolved.push(s);
+    kinds.push($PROXY in s ? SOURCE_PROXY : SOURCE_PLAIN);
+  }
 }
 
 // One layer of a spread source into `out`: own string keys, `children`
@@ -948,18 +1019,16 @@ function collectSources(out, sources, skip) {
 // half, object-valued style/class read HERE, tracked (see readShallow()).
 // With `later` (the sources after this one, from index `from`), a key one of
 // them defines is shadowed and never read here.
-function collectProps(out, s, skip, later?, from?) {
-  const keys = ownKeys(s);
+function collectProps(out, s, kind, skip, later?, laterKinds?, from?) {
+  const keys = sourceKeys(s, kind);
   outer: for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
     if (typeof prop !== "string" || prop === "children") continue;
     if (skip !== undefined && skip(prop)) continue;
     if (later !== undefined)
-      for (let j = from; j < later.length; j++) {
-        const t = later[j];
-        if (t != null && prop in t) continue outer;
-      }
-    const v = s[prop];
+      for (let j = from; j < later.length; j++)
+        if (sourceHas(later[j], laterKinds[j], prop)) continue outer;
+    const v = sourceGet(s, kind, prop);
     out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
   }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */

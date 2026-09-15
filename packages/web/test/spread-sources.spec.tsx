@@ -10,7 +10,7 @@
  * symbol keys ignored, omit() still opaque.
  */
 import { describe, expect, test } from "vitest";
-import { render } from "@solidjs/web";
+import { render, spread } from "@solidjs/web";
 import { createSignal, createStore, flush, merge, omit } from "solid-js";
 
 const mount = (el: () => any) => {
@@ -77,6 +77,82 @@ describe("spread over merge() sources", () => {
     expect(m.el().getAttribute("data-drop")).toBeNull();
     m.dispose();
   });
+
+  test("an omit() view of a plain object stays reactive and never reads hidden getters", () => {
+    const [title, setTitle] = createSignal("t1");
+    let hiddenReads = 0;
+    const props = {
+      id: "keep",
+      get title() {
+        return title();
+      },
+      get isActive() {
+        hiddenReads++;
+        return true;
+      },
+      children: "kid"
+    };
+    const m = mount(() => <div {...omit(props, "isActive")} />);
+    expect(m.el().getAttribute("title")).toBe("t1");
+    expect(m.el().textContent).toBe("kid");
+    setTitle("t2");
+    flush();
+    expect(m.el().getAttribute("title")).toBe("t2");
+    expect(m.el().hasAttribute("isActive")).toBe(false);
+    expect(hiddenReads).toBe(0);
+    m.dispose();
+  });
+
+  test("a predicate omit() hides by rule through the spread", () => {
+    const m = mount(() => (
+      <div {...omit({ $props: "x", $theme: "y", id: "a" }, k => String(k)[0] === "$")} />
+    ));
+    expect(m.el().id).toBe("a");
+    expect(m.el().hasAttribute("$props")).toBe(false);
+    m.dispose();
+  });
+
+  test("omit() views and a merge() inside a sources array follow later-wins", () => {
+    let typeReads = 0;
+    const rest = {
+      id: "from-rest",
+      get type() {
+        typeReads++;
+        return "submit";
+      },
+      isActive: true
+    };
+    const merged = merge({ "data-a": "1" }, () => ({ "data-b": "2" }));
+    const m = mount(() => {
+      const el = document.createElement("button");
+      spread(el, [omit(rest, "isActive"), merged, { type: "button" }]);
+      return el;
+    });
+    expect(m.el().id).toBe("from-rest");
+    expect(m.el().getAttribute("type")).toBe("button");
+    expect(m.el().getAttribute("data-a")).toBe("1");
+    expect(m.el().getAttribute("data-b")).toBe("2");
+    expect(m.el().hasAttribute("isActive")).toBe(false);
+    expect(typeReads).toBe(0);
+    m.dispose();
+  });
+
+  test("children flow from an omit() view", () => {
+    const [kid, setKid] = createSignal("a");
+    const props = {
+      get children() {
+        return kid();
+      },
+      hidden: true
+    };
+    const m = mount(() => <div {...omit(props, "hidden")} />);
+    expect(m.el().textContent).toBe("a");
+    expect(m.el().hasAttribute("hidden")).toBe(false);
+    setKid("b");
+    flush();
+    expect(m.el().textContent).toBe("b");
+    m.dispose();
+  });
 });
 
 describe("spread over a store proxy", () => {
@@ -141,14 +217,13 @@ describe("style() with an object", () => {
     m.dispose();
   });
 
-  test("merge()'s PLAIN-object form mutated after merging: own writes win over the sources", () => {
-    // @solidjs/html builds props as `props = merge(props, spread)` and then
-    // keeps assigning props onto the result. Plain sources produce merge's
-    // plain-object form, which records $SOURCES too — the spread must read
-    // the object, not the stale sources.
-    const props: any = merge({ class: "base", id: "base-id" }, { class: "override" });
-    props.id = "final-id";
-    props.class = "final";
+  test("a copy of a merge() result is a plain object: the spread reads the copy, not the sources", () => {
+    // merge() is a view; writes to it are no-ops. A caller that needs its own
+    // object copies it (`{...merged}`), and the copy carries no $SOURCES — the
+    // spread must read what is on the copy, never tunnel back (#3384).
+    const merged: any = merge({ class: "base", id: "base-id" }, { class: "override" });
+    merged.id = "ignored";
+    const props = { ...merged, id: "final-id", class: "final" };
     const m = mount(() => <div {...props} />);
     expect(m.el().className).toBe("final");
     expect(m.el().id).toBe("final-id");
