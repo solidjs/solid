@@ -321,7 +321,17 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (`unflushedStaged`) instead of `_running`: inline, they cost ~140 B of
     // setSignal bytecode and 10–20% on the write-loop benches (+156 B here).
     // Measured at 24,478 rebased over #3464–#3471 (`next` 23,750 → 24,478).
-    expect(minifiedBytes).toBeLessThan(24_600);
+    // CONSCIOUS BUMP (2026-09-15): five hold-consistency seams (#3456 #3458
+    // #3460 #3463 #3469), all core-retained: recompute's re-park sweep over
+    // the sources a pass stopped carrying; `heldFromStale` notifying a first
+    // observer's pending up its queue chain; `reporterBlocksSource` walking a
+    // zombie's owner chain to the transaction staging its removal (+ the
+    // `verdict` argument through `sourceObserved`); `heldTrims` deferring an
+    // unchanged pass's dep trim to the flush verdict; and the one
+    // `CONFIG_HAS_LANE`-gated hook in read()'s override arm for the lane
+    // outside-view rule (the rule itself lives in lanes.ts, shed with the
+    // engine). Measured at 24,873 (24,478 → 24,873, +395).
+    expect(minifiedBytes).toBeLessThan(25_000);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

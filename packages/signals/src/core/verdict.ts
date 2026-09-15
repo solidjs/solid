@@ -48,7 +48,13 @@ import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
-import { assignOrMergeLane, findLane, hasActiveOverride, laneHeld } from "./lanes.js";
+import {
+  assignOrMergeLane,
+  findLane,
+  hasActiveOverride,
+  laneHeld,
+  readsHeldCommitted
+} from "./lanes.js";
 import { installOptimisticEngine } from "./optimistic.js";
 import {
   activeAffectsMarks,
@@ -525,13 +531,13 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
     if (uninitializedSource(el)) throw new NotReadyError(el);
     return visibleValue;
   }
-  if (stale && currentOptimisticLane && pendingComputed._x?._optimisticLane) {
-    const pcLane = findLane(pendingComputed._x?._optimisticLane);
-    const curLane = findLane(currentOptimisticLane);
-    if (pcLane !== curLane && laneHeld(pcLane)) {
-      return visibleValue;
-    }
-  }
+  // A render effect off the shadow's HELD lane sees the committed value and
+  // re-runs at the release (#3460; lanes mirror transitions — see
+  // readsHeldCommitted). Was: only a reader under ANOTHER lane; a mainline
+  // reader, mounted or re-run by a sync write mid-hold, showed the
+  // speculative value beside the lane's deferred readers.
+  if (stale && context !== null && readsHeldCommitted(pendingComputed, context as Computed<any>))
+    return el._value as T;
   // A shadow recomputed by the pull above (not at creation) holds its fresh
   // speculative value in _pendingValue; a contextless read() only surfaces
   // _value. Overrides stay authoritative (A17), and stale readers keep the

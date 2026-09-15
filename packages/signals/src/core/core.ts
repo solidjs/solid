@@ -97,6 +97,7 @@ import {
   insertSubs,
   projectionWriteActive,
   queuePendingNode,
+  heldTrims,
   runInTransition,
   schedule,
   zombieQueue
@@ -431,6 +432,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // The replacement source is fully propagated now. If no new flight
       // re-owned self, retire the superseded flight and its dependent copies.
       if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
+      // A re-park drops what the earlier pass carried (#3456): a source this
+      // pass no longer reaches — its branch switched, or a fresh flight
+      // replaced the inputs' pending with its own — stays copied onto
+      // dependents that reached it only through here, and its landing walk
+      // stops at this node (nothing left to retire) before it finds them. A
+      // dependent then waits forever on a flight it has no path to. The
+      // re-park twin of the unchanged-value recovery sweep below; dependents
+      // with another path keep the source (retryReaches).
+      if (notReady && outgoingPendingSources)
+        for (const source of outgoingPendingSources)
+          if (source !== el && !el._x?._pendingSources?.has(source))
+            settlePendingSource(el, source);
       if (reaskChanged) GlobalQueue._repollVerdicts!(el);
     }
   } finally {
@@ -685,18 +698,24 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // so a write to a dependency the committed value still derives from
   // reaches this node — and joins its hold if the stage is transaction-held
   // by then (a plain flush decides nothing here: the transaction that holds
-  // the pass may open later in the same flush). A pass that published, or
-  // changed nothing, trims now. An errored pass (a throw, NotReady included,
-  // or a comparator throw above) keeps its full list as before — `_depsTail`
-  // marks where it stopped — and the commit skips it by the same `_error`.
-  // An effect's frame is the run its value is applied by, not the value slot
-  // (#3438): a direct-committed pass that still owes a run (`_modified`) has
-  // not replaced what the last run published — the same flush may stash that
-  // run into a transaction it opens later — so its tail waits for `runEffect`
-  // to trim once the run applies. A pass that changed nothing owes no run
-  // and trims here.
-  if (!el._x?._error && el._pendingValue === NOT_PENDING && !(isEffect && (el as any)._modified))
-    trimStaleDeps(el);
+  // the pass may open later in the same flush). A pass that published
+  // directly (a first pass, a lane's own reveal) trims now. An errored pass
+  // (a throw, NotReady included, or a comparator throw above) keeps its full
+  // list as before — `_depsTail` marks where it stopped — and the commit
+  // skips it by the same `_error`. An effect's frame is the run its value is
+  // applied by, not the value slot (#3438): a direct-committed pass that
+  // still owes a run (`_modified`) has not replaced what the last run
+  // published — the same flush may stash that run into a transaction it
+  // opens later — so its tail waits for `runEffect` to trim once the run
+  // applies. A pass that changed nothing replaced nothing either (#3469): the
+  // same flush may park with its inputs held, and the committed frame still
+  // derives from the tail — its trim waits on the flush's verdict (heldTrims).
+  // A tracked effect's pass IS its run (it bypasses the heap and runs after
+  // the commit): the frame is replaced, trim now.
+  if (!el._x?._error && el._pendingValue === NOT_PENDING && !(isEffect && (el as any)._modified)) {
+    if (create || isOptimisticDirty || isEffect === EFFECT_TRACKED) trimStaleDeps(el);
+    else if ((el._depsTail as Link | null)?._nextDep ?? el._deps) heldTrims.push(el);
+  }
   // Attribution hook: fired before the lane restore so `currentOptimisticLane`
   // still reflects THIS run's posture. The facts distinguish an overlay
   // recompute (optimistic lane, transition replay, transition-held commit)
@@ -1466,10 +1485,16 @@ export function installAuthoritativeRead(): void {
  * reporter the transaction recorded when the flight started may be gone (a
  * keyed remount disposed it, #3374); a completion check that found no live
  * reporter committed the writes ahead of the answer, tearing the new
- * reader's frame (`Count: 1` beside `Details: 0`). Joins only an entry the
- * transaction already holds — a staged signal or a settled node has none;
- * INV-3: entries open from queue notification alone, so a boundary-consumed
- * flight stays consumed — and dies with the reader like every reporter
+ * reader's frame (`Count: 1` beside `Details: 0`). Joins an entry the
+ * transaction already holds; a flight nobody had observed yet has none (the
+ * reader is its first observer — a conditional that just revealed it, #3458)
+ * and is notified up the reader's own queue chain under that transaction,
+ * the one sanctioned registration site (INV-3): a collecting boundary above
+ * the reader consumes it as it would any pending, an unboundaried reader
+ * opens the entry — and the transaction, judged complete on its other
+ * flights, revealed the inputs beside the reader's pre-flight value
+ * otherwise (`Count: 1 | A: 1` beside `B: 0`). A staged signal or a settled
+ * node registers nothing. Every reporter dies with its reader
  * (reporterBlocksSource: the read linked it as a dep). The node's own entry
  * is the only one that can matter: a chain's intermediate memo is re-pulled
  * by the read (updateIfNecessary's retry) and enters the transaction, so the
@@ -1483,7 +1508,10 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
   const txn = currentTransition(t);
   const vt: Transition | null | undefined = (c as any)._valueTransition;
   if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
-  txn._asyncReporters.get(el as Computed<any>)?.add(c);
+  const reporters = txn._asyncReporters.get(el as Computed<any>);
+  if (reporters) reporters.add(c);
+  else if ((el as Computed<any>)._statusFlags & STATUS_PENDING)
+    runInTransition(txn, () => c._queue.notify(c, STATUS_PENDING, STATUS_PENDING, el._x!._error));
   return true;
 }
 
@@ -1857,6 +1885,21 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // yet the active override — fall through to the normal selection (the
     // authoritative mark below still applies: until() must wake on landing).
     if (!(c && c._config & CONFIG_AUTHORITATIVE_READ) && !unflushedOverride(el)) {
+      // Lanes mirror transitions (#3460): a render effect OFF the override's
+      // held lane — re-run by a sync write, or mounted mid-hold — sees the
+      // committed value, as a stale reader of a held transaction does, and
+      // publishes now; the lane's release re-runs it. The lane defers the
+      // override's own readers' runs, so the committed value is what is on
+      // screen — the override is the visible value only once the lane has
+      // revealed (or, demoted at body-end, A18). Engine-owned (a lane
+      // implies the engine).
+      if (
+        stale &&
+        c &&
+        el._config & CONFIG_HAS_LANE &&
+        GlobalQueue._readsHeldCommitted!(el as Computed<any>, c as Computed<any>)
+      )
+        return el._value as T;
       // A18 supersession (#3331): the node's own source answered with a
       // DIFFERENT value. The optimism is over for the graph — a tracked
       // reader sees the staged truth — while the override remains the

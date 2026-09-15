@@ -39,6 +39,7 @@ import {
   getOrCreateLane,
   hasActiveOverride,
   laneHeld,
+  readsHeldCommitted,
   resolveLane,
   resolveTransition,
   signalLanes,
@@ -305,7 +306,7 @@ function endOptimism(transition: Transition): boolean {
     return false;
   for (const source of transition._asyncReporters.keys())
     if (
-      sourceObserved(transition, source) &&
+      sourceObserved(transition, source, transition) &&
       source._x?._pendingSources?.has(source) &&
       !resolveLane(source)
     )
@@ -607,6 +608,7 @@ export function installOptimisticEngine(): void {
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
   GlobalQueue._laneLive = laneLive;
+  GlobalQueue._readsHeldCommitted = readsHeldCommitted;
   GlobalQueue._laneReadsCommitted = laneReadsCommitted;
   GlobalQueue._recomputeLane = recomputeLane;
   GlobalQueue._laneAsyncPending = laneAsyncPending;
