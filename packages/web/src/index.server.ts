@@ -4,6 +4,7 @@ import {
   createMemo,
   omit,
   onCleanup,
+  untrack,
   getOwner,
   getNextChildId,
   NotReadyError,
@@ -78,12 +79,30 @@ export interface DynamicOptions {
    * for its module load, since its code is a prerequisite to the render).
    */
   deferStream?: boolean;
+  /**
+   * The source cannot change: call it once, untracked, now, and render the
+   * result with no computation per instance (see the client `dynamic`). The
+   * source must resolve synchronously.
+   */
+  static?: boolean;
 }
 
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false,
   options?: DynamicOptions
 ): Component<ComponentProps<T>> {
+  // Static: the same owner-free path as the client — a tag is one
+  // ssrElement(), a component one call — so both sides allocate the same
+  // hydration keys. No memo on either level, so nothing to serialize or hold.
+  if (options?.static) {
+    const component: any = untrack(source);
+    if (isDev && component && typeof component.then === "function")
+      throw new Error("dynamic(): a static source must resolve synchronously, not to a promise");
+    if (typeof component === "function") return props => (component as Function)(props);
+    if (typeof component === "string")
+      return props => ssrElement(component, props, undefined, true) as unknown as JSX.Element;
+    return () => undefined as unknown as JSX.Element;
+  }
   // Mirrors the client exactly: a factory-level memo over the source, then a
   // per-instance memo that applies props. An async source needs no bespoke
   // handling — the (async-aware, non-`sync`) server memo suspends the read

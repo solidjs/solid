@@ -1,0 +1,5 @@
+{
+  "name": "dynamic-static-forms",
+  "shell": "<div _hk=0><!--$--><a _hk=1 href=\"/x\" class=\"one\">one</a><!--/--><!--$--><i _hk=2>one</i><!--/--><!--$--><!--/--><b>one</b></div>",
+  "rest": ""
+}

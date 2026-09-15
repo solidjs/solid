@@ -21,6 +21,9 @@
  *
  * Fidelity notes (vs kobalte `solid2` branch):
  *   - `Polymorphic` uses `dynamic()` rather than the deprecated `<Dynamic>`.
+ *     `PolymorphicStatic` is the same component on `dynamic()`'s static path,
+ *     deciding per instance from the compiled shape of `as` (#3387); the
+ *     `chain-static` form is the chain built over it.
  *   - `Button.Root`'s native-tag detection reads the resolved `as` instead of
  *     the mounted element's tagName (that path needs a DOM ref and would make
  *     the SSR and DOM trees diverge). Same attribute set results.
@@ -30,7 +33,16 @@
  * `CompiledRow` is the floor: the same final element written directly, so a
  * bench delta between it and `TriggerRow` is attributable to the chain alone.
  */
-import { createContext, createSignal, merge, omit, useContext, For, type Accessor } from "solid-js";
+import {
+  createContext,
+  createSignal,
+  isStatic,
+  merge,
+  omit,
+  useContext,
+  For,
+  type Accessor
+} from "solid-js";
 import { dynamic, type JSX } from "@solidjs/web";
 
 // --- Layer 3: Polymorphic ------------------------------------------------
@@ -44,29 +56,44 @@ export function Polymorphic(props: PolymorphicProps): JSX.Element {
   return <Tag {...others} />;
 }
 
+/**
+ * The same component deciding per instance: `as` written as a literal at the
+ * call site is a data property through every merge/omit layer, so the tag
+ * takes the no-computation path; a reactive `as` keeps the memo.
+ */
+export function PolymorphicStatic(props: PolymorphicProps): JSX.Element {
+  const others = omit(props, "as");
+  const Tag = dynamic(() => props.as, { static: isStatic(props, "as") });
+  return <Tag {...others} />;
+}
+
 // --- Layer 2: Button.Root -----------------------------------------------
 
 /**
  * Defaults merged in, a few keys consumed, aria derived from what the
- * element will be, rest forwarded (kobalte button-root.tsx).
+ * element will be, rest forwarded (kobalte button-root.tsx). Built over a
+ * given `Polymorphic`, so the two forms of it render the identical chain.
  */
-export function ButtonRoot(props: Record<string, any>): JSX.Element {
-  const mergedProps = merge({ type: "button" }, props);
-  const others = omit(mergedProps, "type", "disabled");
-  const isNativeButton = () => (mergedProps.as ?? "button") === "button";
-  return (
-    <Polymorphic
-      as="button"
-      type={isNativeButton() ? mergedProps.type : undefined}
-      role={isNativeButton() ? undefined : "button"}
-      tabindex={isNativeButton() || mergedProps.disabled ? undefined : 0}
-      disabled={isNativeButton() ? mergedProps.disabled : undefined}
-      aria-disabled={!isNativeButton() && mergedProps.disabled ? "true" : undefined}
-      data-disabled={mergedProps.disabled ? "" : undefined}
-      {...others}
-    />
-  );
+export function makeButtonRoot(Polymorphic: (props: PolymorphicProps) => JSX.Element) {
+  return function ButtonRoot(props: Record<string, any>): JSX.Element {
+    const mergedProps = merge({ type: "button" }, props);
+    const others = omit(mergedProps, "type", "disabled");
+    const isNativeButton = () => (mergedProps.as ?? "button") === "button";
+    return (
+      <Polymorphic
+        as="button"
+        type={isNativeButton() ? mergedProps.type : undefined}
+        role={isNativeButton() ? undefined : "button"}
+        tabindex={isNativeButton() || mergedProps.disabled ? undefined : 0}
+        disabled={isNativeButton() ? mergedProps.disabled : undefined}
+        aria-disabled={!isNativeButton() && mergedProps.disabled ? "true" : undefined}
+        data-disabled={mergedProps.disabled ? "" : undefined}
+        {...others}
+      />
+    );
+  };
 }
+export const ButtonRoot = makeButtonRoot(Polymorphic);
 
 // --- Layer 1: Dialog + Dialog.Trigger --------------------------------------
 
@@ -87,23 +114,27 @@ export function Dialog(props: { open?: boolean; children: JSX.Element }): JSX.El
 }
 
 /** Context-driven aria, consumes `onClick`, forwards the rest (kobalte dialog-trigger.tsx). */
-export function DialogTrigger(props: Record<string, any>): JSX.Element {
-  const context = useContext(DialogContext)!;
-  const others = omit(props, "onClick");
-  return (
-    <ButtonRoot
-      aria-haspopup="dialog"
-      aria-expanded={context.isOpen() ? "true" : "false"}
-      data-expanded={context.isOpen() ? "" : undefined}
-      data-closed={context.isOpen() ? undefined : ""}
-      onClick={(e: MouseEvent) => {
-        props.onClick?.(e);
-        context.toggle();
-      }}
-      {...others}
-    />
-  );
+export function makeDialogTrigger(ButtonRoot: (props: Record<string, any>) => JSX.Element) {
+  return function DialogTrigger(props: Record<string, any>): JSX.Element {
+    const context = useContext(DialogContext)!;
+    const others = omit(props, "onClick");
+    return (
+      <ButtonRoot
+        aria-haspopup="dialog"
+        aria-expanded={context.isOpen() ? "true" : "false"}
+        data-expanded={context.isOpen() ? "" : undefined}
+        data-closed={context.isOpen() ? undefined : ""}
+        onClick={(e: MouseEvent) => {
+          props.onClick?.(e);
+          context.toggle();
+        }}
+        {...others}
+      />
+    );
+  };
 }
+export const DialogTrigger = makeDialogTrigger(ButtonRoot);
+export const DialogTriggerStatic = makeDialogTrigger(makeButtonRoot(PolymorphicStatic));
 
 // --- Rows -------------------------------------------------------------------
 
@@ -128,21 +159,25 @@ export function makeRows(start: number, count: number): Row[] {
  * reactive ones (getters). `as="a"` overrides Button.Root's default, so the
  * chain exercises shadowing through merge → omit → merge, not just pass-through.
  */
-export function TriggerRow(props: { row: Row }): JSX.Element {
-  const { row } = props;
-  return (
-    <DialogTrigger
-      as="a"
-      class="btn"
-      href={`#row-${row.id}`}
-      data-x="1"
-      aria-label={row.label()}
-      title={row.label()}
-    >
-      {row.label()}
-    </DialogTrigger>
-  );
+export function makeTriggerRow(DialogTrigger: (props: Record<string, any>) => JSX.Element) {
+  return function TriggerRow(props: { row: Row }): JSX.Element {
+    const { row } = props;
+    return (
+      <DialogTrigger
+        as="a"
+        class="btn"
+        href={`#row-${row.id}`}
+        data-x="1"
+        aria-label={row.label()}
+        title={row.label()}
+      >
+        {row.label()}
+      </DialogTrigger>
+    );
+  };
 }
+export const TriggerRow = makeTriggerRow(DialogTrigger);
+export const TriggerRowStatic = makeTriggerRow(DialogTriggerStatic);
 
 /** Floor: the element `TriggerRow` resolves to, written directly. */
 export function CompiledRow(props: { row: Row }): JSX.Element {
@@ -170,9 +205,10 @@ export function CompiledRow(props: { row: Row }): JSX.Element {
 
 export type RowRenderer = (row: Row) => JSX.Element;
 
-export const forms: Record<"compiled" | "chain", RowRenderer> = {
+export const forms: Record<"compiled" | "chain" | "chain-static", RowRenderer> = {
   compiled: row => <CompiledRow row={row} />,
-  chain: row => <TriggerRow row={row} />
+  chain: row => <TriggerRow row={row} />,
+  "chain-static": row => <TriggerRowStatic row={row} />
 };
 
 /** A `Dialog` wrapping a list of rows — the tree every consumer of this fixture renders. */
