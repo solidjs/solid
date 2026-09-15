@@ -8,5 +8,15 @@
       "@solidjs/diagnostics": ["../diagnostics/src/index.ts"]
     }
   },
-  "include": ["./test"]
+  "include": ["./test"],
+  // This program holds the package TWICE: the runtime specs import `../src`,
+  // and everything importing `@solidjs/web` reaches the built `types/` through
+  // the self-link. That is fine as long as the two copies are identical — both
+  // augment `solid-js`'s record catalogue (src/observe.ts), and TypeScript
+  // requires duplicate property declarations to be of identical type. A test
+  // that augments the PUBLISHED copy alone (`RequestEventLocals`) makes the
+  // copies differ, and the conflict surfaces in whichever file the program
+  // happens to load second. Those tests run in their own program against the
+  // published types only: tsconfig.test.augment.json.
+  "exclude": ["./test/request-event-locals.*"]
 }

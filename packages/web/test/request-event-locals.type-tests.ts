@@ -3,11 +3,13 @@
 // must flow to `getRequestEvent()!.locals` everywhere the event surfaces
 // (main entry, `createRequestEvent`, the server-functions event, storage's
 // provider constraint). Compile-only — runs under `test-types`
-// (tsconfig.test.json) against the BUILT package types via the self-link
-// (`pnpm types` first), which is the point: the interface is declared in
-// the copied server.d.ts and reaches "@solidjs/web" through the
+// (tsconfig.test.augment.json) against the BUILT package types via the
+// self-link (`pnpm types` first), which is the point: the interface is
+// declared in the copied server.d.ts and reaches "@solidjs/web" through the
 // index → client → server re-export chain, and augmentation identity must
-// survive that chain exactly as published.
+// survive that chain exactly as published. Its own program, with the two
+// augmenting siblings: augmenting the published copy alone would make it
+// differ from the `../src` copy the runtime specs' program also holds.
 import {
   commitEventResponse,
   createRequestEvent,

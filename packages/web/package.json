@@ -312,7 +312,7 @@
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",
-    "test-types": "tsc --project tsconfig.test.json"
+    "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.test.augment.json"
   },
   "dependencies": {
     "seroval": "~1.6.7",
