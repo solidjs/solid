@@ -214,6 +214,39 @@ export function hasStaticKeys(o: any): boolean {
   return true;
 }
 
+/**
+ * Whether `o[key]` can never change for the lifetime of `o`: the key is a
+ * data property of a plain object, or is absent from an object whose key set
+ * is fixed. A getter, a key on a store, a memo-backed `merge()` source, or
+ * any key of an object whose keys can appear later (a store) is not static.
+ *
+ * Looks through `merge()`/`omit()` views to the leaf that owns the key. Any
+ * object will do, but props are the case it exists for: the compiler encodes
+ * a literal at the call site (`as="button"`) as a data property and an
+ * expression (`as={isLink() ? "a" : "button"}`) as a getter, so a component
+ * library reads the caller's own static/dynamic classification of a prop at
+ * runtime — identically on server and client, the compiled shape being the
+ * same on both — and can take a no-computation path for the literal:
+ *
+ * ```tsx
+ * const Tag = dynamic(() => props.as, { static: isStatic(props, "as") });
+ * ```
+ *
+ * One descriptor lookup; no read of the value, nothing tracked.
+ */
+export function isStatic(o: object, key: PropertyKey): boolean {
+  if ($PROXY in o) {
+    // A store answers its descriptor trap with a value; through a view the
+    // descriptor is truthful (see `sourceDescriptor`). A foreign proxy is
+    // opaque: nothing about it is known to be fixed.
+    if (viewOf(o) === undefined) return false;
+    const desc = Reflect.getOwnPropertyDescriptor(o, key);
+    return desc === undefined ? hasStaticKeys(o) : desc.get === undefined;
+  }
+  const desc = Reflect.getOwnPropertyDescriptor(o, key);
+  return desc === undefined || (desc.get === undefined && desc.set === undefined);
+}
+
 function accessorDescriptor(get: () => any, enumerable = true): PropertyDescriptor {
   return { configurable: true, enumerable, get, set: trueFn };
 }

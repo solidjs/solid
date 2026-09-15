@@ -1794,6 +1794,33 @@ function DynamicNamespaceLink() {
   );
 }
 
+// dynamic(source, { static }) (#3387): the source resolves once and the
+// instance creates no owner, so its hydration ids differ from the memo path's
+// and must agree between server and client. Three forms in one tree — a tag,
+// a component, and a falsy source (which renders nothing yet still has to
+// leave the id sequence in the same state on both sides) — followed by a
+// reactive tail whose binding only survives if every claim above it landed.
+let setStaticLabel!: (v: string) => void;
+const StaticTag = dynamic(() => "a", { static: true });
+const StaticComp = dynamic(() => (props: { label: string }) => <i>{props.label}</i>, {
+  static: true
+});
+const StaticNothing = dynamic(() => null, { static: true });
+function DynamicStaticForms() {
+  const [label, set] = createSignal("one");
+  setStaticLabel = set;
+  return (
+    <div>
+      <StaticTag href="/x" class={label()}>
+        {label()}
+      </StaticTag>
+      <StaticComp label={label()} />
+      <StaticNothing />
+      <b>{label()}</b>
+    </div>
+  );
+}
+
 // Kobalte-shaped component chain (test/harness/polymorphic.tsx): every
 // element reached through merge → omit → merge layers and a per-instance
 // `dynamic(() => props.as)`. Hydration must claim the `<a>` through all of
@@ -1813,6 +1840,20 @@ export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
     App: polymorphicChainApp("chain"),
+    expectedText: "row-0row-1row-2",
+    adoptAll: true,
+    noSeparators: true,
+    update: () => chainRows[1].setLabel("ROW-1"),
+    expectedTextAfterUpdate: "row-0ROW-1row-2",
+    stableSelector: "ul, li, a.btn"
+  },
+  // The same chain over `dynamic()`'s static path (#3387): `as="a"` is a data
+  // property through every layer, so no instance memo exists on either side.
+  // Hydration keys are therefore DIFFERENT from `polymorphic-chain` (one
+  // owner fewer per element) and must still agree between server and client.
+  {
+    name: "polymorphic-chain-static",
+    App: polymorphicChainApp("chain-static"),
     expectedText: "row-0row-1row-2",
     adoptAll: true,
     noSeparators: true,
@@ -2474,5 +2515,15 @@ export const scenarios: Scenario[] = [
     update: () => setNsLabel("went"),
     expectedTextAfterUpdate: "went",
     stableSelector: "svg, a, text"
+  },
+  {
+    name: "dynamic-static-forms",
+    App: DynamicStaticForms,
+    expectedText: "oneoneone",
+    adoptAll: true,
+    noSeparators: true,
+    update: () => setStaticLabel("two"),
+    expectedTextAfterUpdate: "twotwotwo",
+    stableSelector: "div, a, i, b"
   }
 ];

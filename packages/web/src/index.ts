@@ -250,6 +250,18 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  * compiled JSX uses for the same purpose. `is` (customized built-ins) and
  * `xmlns` are read once at creation and then applied as ordinary attributes.
  *
+ * `{ static: true }` says the source cannot change: it is called once,
+ * untracked, when `dynamic()` is called, and each instance renders the result
+ * with no computation of its own — a tag name goes straight to the compiled
+ * element path (create or claim, spread), a component is called directly. No
+ * owner is created on either side, so hydration keys stay aligned with the
+ * compiled output. Use it for a constant (`dynamic(() => "li", { static: true })`
+ * in a runtime `styled()`), or per instance from the shape of a prop:
+ * `isStatic(props, "as")` is true when the caller wrote `as="button"`
+ * (a data property) and false when they wrote `as={cond() ? …}` (a getter),
+ * so a polymorphic component keeps a reactive public `as` and still pays
+ * nothing for the literal case. A static source may not return a promise.
+ *
  * @example
  * ```tsx
  * // `source` can return either a custom Component or a native tag
@@ -261,6 +273,12 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
  * // An ambiguous tag inside an SVG tree: say which namespace you mean.
  * const Link = dynamic(() => "a");
  * <svg><Link xmlns="http://www.w3.org/2000/svg" href="/x">…</Link></svg>
+ *
+ * // A polymorphic component: no memo when `as` arrived as a literal.
+ * function Polymorphic(props) {
+ *   const Tag = dynamic(() => props.as, { static: isStatic(props, "as") });
+ *   return <Tag {...omit(props, "as")} />;
+ * }
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/dynamic
@@ -289,12 +307,19 @@ export interface DynamicOptions {
    * `deferStream`. Ignored on the client.
    */
   deferStream?: boolean;
+  /**
+   * The source cannot change: call it once, untracked, now, and render the
+   * result with no computation per instance (see `dynamic`). The source must
+   * resolve synchronously.
+   */
+  static?: boolean;
 }
 
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false,
-  _options?: DynamicOptions
+  options?: DynamicOptions
 ): Component<ComponentProps<T>> {
+  if (options?.static) return staticDynamic(untrack(source));
   // `prev` threads into the resolution so a source switching server-component
   // calls of the same function DELIVERS instead of swapping: the memo keeps
   // its previous value (the mount below never re-renders) and the new call's
@@ -375,35 +400,63 @@ export function dynamic<T extends ValidComponent>(
           return untrack(() => (component as Function)(props));
         }
 
-        case "string": {
-          const hydrating = sharedConfig.hydrating;
-          // `is` and `xmlns` are attributes of the element that also decide
-          // how it is CREATED (customized built-in / namespace), so they are
-          // read once here, untracked — the DOM can't change either after
-          // creation — and then flow through spread() like any attribute.
-          // Hydration claims the parser-namespaced node, so neither applies.
-          const el = hydrating
-            ? getNextElement()
-            : createElement(
-                component as string,
-                untrack(() => (props as any).is),
-                untrack(() => (props as any).xmlns)
-              );
-          spread(el, props);
-          // Compiled JSX emits runHydrationEvents() after an element that
-          // carries event handlers. Handlers bound through spread() here need
-          // the same call, or events the hydration script queued for this
-          // element are only replayed if some other compiled element happens
-          // to hydrate after it.
-          if (hydrating) runHydrationEvents();
-          return el;
-        }
+        case "string":
+          return staticElement(component, props);
 
         default:
           break;
       }
     }) as unknown as JSX.Element;
   };
+}
+
+// `dynamic(source, { static: true })`: the resolved value once, no factory
+// memo, no per-instance memo — the instance IS the element or the component
+// call, owner-free like compiled JSX, so the server's static path (the same
+// rule) produces the same hydration keys.
+function staticDynamic(component: any): Component<any> {
+  if (isDev && component && typeof component.then === "function")
+    throw new Error("dynamic(): a static source must resolve synchronously, not to a promise");
+  if (typeof component === "function") {
+    if (isDev) Object.assign(component, { [$DEVCOMP]: true });
+    const binding = bindingOf(component);
+    if (binding) {
+      // A server-function component: its address is fixed too (the source is
+      // never re-resolved), so the live accessor is a constant.
+      const address = () => binding.address;
+      return props => untrack(() => (binding.component as any)(props, address));
+    }
+    return props => untrack(() => component(props));
+  }
+  if (typeof component === "string") return props => staticElement(component, props);
+  return () => undefined as unknown as JSX.Element;
+}
+
+// One element for a tag: what the compiler emits for `<tag {...props}>` —
+// claim or create, spread, replay hydration events — and nothing else. Both
+// dynamic() paths end here; the memo path just reaches it from inside a
+// computation.
+function staticElement(tag: string, props: any): JSX.Element {
+  const hydrating = sharedConfig.hydrating;
+  // `is` and `xmlns` are attributes of the element that also decide how it is
+  // CREATED (customized built-in / namespace), so they are read once here,
+  // untracked — the DOM can't change either after creation — and then flow
+  // through spread() like any attribute. Hydration claims the
+  // parser-namespaced node, so neither applies.
+  const el = hydrating
+    ? getNextElement()
+    : createElement(
+        tag,
+        untrack(() => props.is),
+        untrack(() => props.xmlns)
+      );
+  spread(el, props);
+  // Compiled JSX emits runHydrationEvents() after an element that carries
+  // event handlers. Handlers bound through spread() here need the same call,
+  // or events the hydration script queued for this element are only replayed
+  // if some other compiled element happens to hydrate after it.
+  if (hydrating) runHydrationEvents();
+  return el as unknown as JSX.Element;
 }
 
 /**

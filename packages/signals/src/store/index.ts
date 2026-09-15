@@ -21,6 +21,7 @@ export {
   sourceHas,
   sourceGet,
   hasStaticKeys,
+  isStatic,
   resolvedTable,
   OmitView,
   MergeView,

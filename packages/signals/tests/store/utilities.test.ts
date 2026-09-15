@@ -11,6 +11,7 @@ import {
   merge,
   mergeSources,
   hasStaticKeys,
+  isStatic,
   omit,
   OmitView,
   MergeView,
@@ -969,6 +970,114 @@ describe("view descriptors", () => {
       expect(hasStaticKeys(merge(plain, () => ({ b: 2 })))).toBe(false);
     });
   });
+  // #3387: the per-key classification a polymorphic component reads to decide
+  // whether `dynamic(() => props.as)` needs a computation at all. A data
+  // property is what the compiler emits for a literal at the call site; a
+  // getter is what it emits for an expression.
+  describe("isStatic", () => {
+    test("plain objects: data properties and absent keys are static, accessors are not", () => {
+      const [sig] = createSignal("a");
+      const props = {
+        as: "button",
+        get dyn() {
+          return sig();
+        }
+      };
+      expect(isStatic(props, "as")).toBe(true);
+      expect(isStatic(props, "dyn")).toBe(false);
+      // Absent from a plain object: it can never appear (no trap can add it).
+      expect(isStatic(props, "missing")).toBe(true);
+      // A setter-only accessor is not a fixed value either.
+      const setterOnly = Object.defineProperty({}, "x", { set() {}, configurable: true });
+      expect(isStatic(setterOnly, "x")).toBe(false);
+    });
+    test("through merge() and omit() views, the leaf that owns the key decides", () => {
+      const [sig, setSig] = createSignal("a");
+      const literal = { as: "button", label: "x" };
+      const expr = {
+        get as() {
+          return sig();
+        }
+      };
+      // The compiler's call-site shape: defaults merged under the caller's props.
+      expect(isStatic(merge({ as: "div" }, literal), "as")).toBe(true);
+      expect(isStatic(merge({ as: "div" }, expr), "as")).toBe(false);
+      // Later sources shadow: a static override over a getter is static, and
+      // vice versa — the descriptor is the WINNING leaf's.
+      expect(isStatic(merge(expr, literal), "as")).toBe(true);
+      expect(isStatic(merge(literal, expr), "as")).toBe(false);
+      // omit() over either keeps the classification of what remains …
+      expect(isStatic(omit(literal, "label"), "as")).toBe(true);
+      expect(isStatic(omit(expr, "label"), "as")).toBe(false);
+      // … and an omitted key is absent from a fixed key set: static.
+      expect(isStatic(omit(literal, "as"), "as")).toBe(true);
+      // Deep Kobalte-shaped chain: omit(merge(omit(merge(...)))).
+      const chain = omit(
+        merge({ as: "div" }, omit(merge(literal, { extra: 1 }), "extra")),
+        "label"
+      );
+      expect(isStatic(chain, "as")).toBe(true);
+      const chainDyn = omit(
+        merge({ as: "div" }, omit(merge(expr, { extra: 1 }), "extra")),
+        "label"
+      );
+      expect(isStatic(chainDyn, "as")).toBe(false);
+      // The check reads no value: nothing was tracked, and the answer for a
+      // getter does not depend on what it currently returns.
+      setSig("b");
+      flush();
+      expect(isStatic(chainDyn, "as")).toBe(false);
+    });
+    test("memo sources, stores, and anything reaching them are not static", () => {
+      const [store] = createStore({ as: "button" });
+      const plain = { label: "x" };
+      // A store answers `as` with a value, but the key can change and even
+      // appear/disappear: never static, whether direct or through a view.
+      expect(isStatic(store, "as")).toBe(false);
+      expect(isStatic(store, "missing")).toBe(false);
+      expect(isStatic(merge(plain, store), "as")).toBe(false);
+      expect(isStatic(omit(store, "label"), "as")).toBe(false);
+      // A key the store does NOT own, but the view's key set is not fixed:
+      // the store could grow it later.
+      expect(isStatic(merge(plain, store), "missing")).toBe(false);
+      // A plain literal shadowing the store IS static: the store can't win.
+      expect(isStatic(merge(store, { as: "a" }), "as")).toBe(true);
+      // A memo-backed source resolves per read.
+      expect(
+        isStatic(
+          merge(plain, () => ({ as: "a" })),
+          "as"
+        )
+      ).toBe(false);
+      expect(
+        isStatic(
+          merge(plain, () => ({ as: "a" })),
+          "label"
+        )
+      ).toBe(true);
+      expect(
+        isStatic(
+          merge(plain, () => ({ as: "a" })),
+          "missing"
+        )
+      ).toBe(false);
+    });
+    test("a foreign proxy is opaque", () => {
+      const foreign = new Proxy({ as: "a" }, {});
+      expect($PROXY in foreign).toBe(false);
+      // Not $PROXY-marked: treated as a plain object, its own descriptor rules.
+      expect(isStatic(foreign, "as")).toBe(true);
+      // $PROXY-marked but neither a store nor one of our views: unknown, so not static.
+      const marked = new Proxy(
+        { as: "a" },
+        {
+          has: (t, k) => k === $PROXY || k in t,
+          get: (t, k) => (k === $PROXY ? marked : (t as any)[k])
+        }
+      );
+      expect(isStatic(marked, "as")).toBe(false);
+    });
+  });
   test("a spread copy of a view is a plain snapshot with the right kinds", () => {
     let n = 0;
     const view = merge(
@@ -1108,7 +1217,7 @@ describe("props chain (component-library shape)", () => {
     const [label] = createSignal("Open");
     const [open] = createSignal(false);
     const element = polymorphic(buttonRoot(compiledProps(label, open)));
-    // A consumer (spread's children fast path, isStaticProp) must be able to
+    // A consumer (spread's children fast path, isStatic) must be able to
     // tell a compiled static attribute from a reactive one at the bottom of
     // the chain — that distinction is the compiler's verdict and must not be
     // erased by the layers in between.

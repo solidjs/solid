@@ -34,6 +34,7 @@ export {
   isWrappable,
   mapArray,
   merge,
+  isStatic,
   omit,
   onCleanup,
   onSettled,
