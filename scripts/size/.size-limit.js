@@ -251,7 +251,14 @@ module.exports = [
     // Superseded source keeps blocking (#3462, 2026-09-15): transitionComplete
     // judges a reporter's source by a non-empty `_pendingSources`, not the
     // self entry alone; -2 B minified (23,750), measured at 8855 B on top of #3464 (8851).
-    limit: "8.90 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15, rebased over #3464–#3471):
+    // measured at 9,102 B against `next` (+204 B). `unflushedValue` and its exemptions,
+    // the flushed-value selection arms and late-linker latch, `_flushedStaged` for
+    // held rewrites, CONFIG_PROMOTED, the companion re-sync at flush start (lazy
+    // companions join it), the override arm's flush gate; the write-path arms are cold
+    // helpers and the read sites test one module flag, keeping the write loop at
+    // parity. +728 B minified in the in-package floor (23,752 -> 24,480).
+    limit: "9.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -489,7 +496,9 @@ module.exports = [
     // store/utils; #3455's verdict/optimistic changes measured 15780 against
     // the pre-#3454 `next`) — the union tipped the cap by 9 B after both
     // merged.
-    limit: "15.85 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 16,155 B
+    // against `next` (+305 B); the signals core delta, see the core floor note.
+    limit: "16.20 KB",
     modifyEsbuildConfig
   },
   {
@@ -615,7 +624,9 @@ module.exports = [
     // verdict's body-end A18 (d) branch, and `uninitializedSource`'s owner
     // walk; all in the verdict/optimistic modules this scenario retains
     // (core floor 8820 -> 8832, +createStore 15743 -> 15780, both in cap).
-    limit: "11.30 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 11,639 B
+    // against `next` (+339 B); the signals core delta, see the core floor note.
+    limit: "11.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -704,7 +715,9 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 11.45 -> 11.65 KB,
     // measured at 11566 B against `next`'s 11407 (+159); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "11.65 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 11,829 B
+    // against `next` (+179 B); the signals core delta, see the core floor note.
+    limit: "11.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -817,7 +830,9 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 18.90 -> 19.10 KB,
     // measured at 19023 B against `next`'s 18899 (+124); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "19.10 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 19,367 B
+    // against `next` (+267 B); the signals core delta, see the core floor note.
+    limit: "19.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -986,7 +1001,9 @@ module.exports = [
     // other app scenarios BETTER (simple-app -33, hydrating -45, CSR -21);
     // this one drew the short straw, 1 B over a cap #3459 had just
     // consumed the room under.
-    limit: "28.95 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 29,280 B
+    // against `next` (+330 B); the signals core delta, see the core floor note.
+    limit: "29.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -1073,7 +1090,9 @@ module.exports = [
     // (`_holds` + the source harvest) in boundaries.ts, retained wherever
     // Loading is. Signals-only scenarios moved the other way (createStore
     // -62 B) — the new scheduler export shifts brotli layout, not a shrink.
-    limit: "14.5 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 14,747 B
+    // against `next` (+247 B); the signals core delta, see the core floor note.
+    limit: "14.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1167,7 +1186,9 @@ module.exports = [
     // `currentOrigin` query with the installed engine's globalThis
     // registration. Observe-only by construction: the prod scenarios above
     // did not move, and the frames prod scenario below folds its emitters.
-    limit: "16.05 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 16311 B
+    // on top of #3472 (+233 B); the signals core delta, see the core floor note.
+    limit: "16.40 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1276,7 +1297,9 @@ module.exports = [
     // 27673 B against `next`'s 27350 (+323): the +216 from the observe CSR
     // note plus the engine's answer to `currentOrigin` — the root origin a
     // recompute's causes trace back to, else the ambient frame.
-    limit: "27.70 KB",
+    // A28 — writes visible at flush, read-side (2026-09-15): measured at 27909 B
+    // on top of #3472 (+286 B); the signals core delta, see the core floor note.
+    limit: "28.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

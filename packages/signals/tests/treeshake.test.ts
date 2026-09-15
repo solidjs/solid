@@ -308,7 +308,20 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // read()'s selection, commitPendingNode. Measured at 23,681 on top of
     // #3442; 23,753 rebased over #3443/#3444 (23,419 → 23,753, +334 — the
     // two land on the same notifyStatus/recompute seams).
-    expect(minifiedBytes).toBeLessThan(23_800);
+    // CONSCIOUS BUMP (2026-09-15): A28 — writes become visible at flush, as a
+    // READ-SIDE rule (supersedes #3337's deferred walk; +572 B vs its +387,
+    // with the plain write path untouched — no per-write list, no promotion
+    // pass). Core-retained pieces: `unflushedValue` (the structural test and
+    // its exemptions), the selection arms that serve the flushed value and
+    // latch the late linker, `_flushedStaged` for a rewrite of a held node,
+    // CONFIG_PROMOTED for writes inside a creation-time recompute, the
+    // companion re-sync at flush start, and the override arm's flush gate.
+    // The write-path arms are cold helpers gated on loads the write already
+    // pays (`_transition`, `context`) and the read sites test one module flag
+    // (`unflushedStaged`) instead of `_running`: inline, they cost ~140 B of
+    // setSignal bytecode and 10–20% on the write-loop benches (+156 B here).
+    // Measured at 24,478 rebased over #3464–#3471 (`next` 23,750 → 24,478).
+    expect(minifiedBytes).toBeLessThan(24_600);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

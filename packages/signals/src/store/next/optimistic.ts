@@ -69,6 +69,7 @@ import {
   getNode,
   hasActiveOverride,
   heldMaskView,
+  visibleOverride,
   runAuthoritative,
   stagedTruthPB,
   storeSetterNext,
@@ -108,7 +109,10 @@ function installNextBlockedHalf(): void {
     applyTentative,
     retainsOptimism: transitionHoldsOptimism
   });
-  setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw));
+  // The affects() declaration walk is a WRITER channel (A28 (5)): tagging a
+  // parent covers the record as the writer sees it, this tick's optimistic
+  // writes included — the draft view, not the reader view.
+  setNextOptimisticViewResolver((t: StoreNextTarget, raw: any) => optimisticView(t, raw, true));
   // Scheduler flush tails call _clearOptimisticStores whenever tracked
   // stores exist; next has no layer to clear — reverts are engine-native —
   // so the hook only empties the batch set.
@@ -632,7 +636,8 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
  * overlay. (Write-side emission callers never run under such a compute.) */
 export function optimisticView(
   t: StoreNextTarget,
-  src: Record<PropertyKey, any>
+  src: Record<PropertyKey, any>,
+  draft = false
 ): Record<PropertyKey, any> {
   if (t.fam?.opt !== true || authoritativeRead()) return src;
   let out: Record<PropertyKey, any> | null = null;
@@ -641,7 +646,9 @@ export function optimisticView(
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
       const node = nodes[key as any];
-      if (!hasActiveOverride(node)) continue;
+      // A28 (5): readers see an optimistic write once a flush carried it;
+      // the draft (writer channel) composes on it now.
+      if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
       const ov = unwrapOverride(node._x?._overrideValue);
       if (key === "length" && Array.isArray(src)) {
         if ((src as any[]).length !== ov) (ensure() as any[]).length = ov;
@@ -652,7 +659,9 @@ export function optimisticView(
   if (has !== null) {
     for (const key of Reflect.ownKeys(has)) {
       const node = has[key as any];
-      if (!hasActiveOverride(node)) continue;
+      // A28 (5): readers see an optimistic write once a flush carried it;
+      // the draft (writer channel) composes on it now.
+      if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
       const present = !!unwrapOverride(node._x?._overrideValue);
       if (!present && key in (out ?? src)) delete ensure()[key as any];
     }

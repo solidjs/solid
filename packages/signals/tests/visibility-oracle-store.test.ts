@@ -28,6 +28,7 @@ import {
   rule,
   runOracle,
   settle,
+  violation,
   type State
 } from "./visibility-oracle.harness.js";
 
@@ -66,21 +67,18 @@ const STATES: State[] = [
       return { x, dispose() {} };
     },
     expect: {
-      untracked: observed(
+      untracked: rule(
         0,
-        "pre-flush untracked store read serves the committed backing — same as the signal side; A28 (#3337) territory"
+        "A28: an untracked store read serves the committed backing until the flush"
       ),
       derivesFrom: rule(1, "the flush carries the write"),
       published: rule(1, "the flush carries the write"),
-      preexisting: observed(HELD, "pre-flush: nothing has run yet"),
+      preexisting: rule(HELD, "A28: nothing is visible before the flush"),
       staleForeign: rule(1, "the flush carries the write"),
       childrenForbidden: rule(1, "the flush carries the write"),
-      latest: observed(1, "pre-flush latest() serves the unflushed write; A28 territory"),
-      isPending: observed(
-        true,
-        "pre-flush verdict flips on the unflushed write — same as the signal side; A28 territory"
-      ),
-      authoritative: observed(1, "pre-flush; A28 territory")
+      latest: rule(0, "A28: latest() reads the flushed staged world"),
+      isPending: rule(false, "A28 (2): false for an unflushed write"),
+      authoritative: rule(1, "A28 (4): the predicate runs in the carrying flush and sees the write")
     }
   },
   {
@@ -155,13 +153,16 @@ const STATES: State[] = [
       return { x, dispose() {} };
     },
     expect: {
-      untracked: rule(5, "OL-R2: synchronously visible before any flush"),
+      untracked: rule(
+        0,
+        "A28 (5): an optimistic store edit is a write — visible at the flush that carries it (supersedes OS-R1, CS-R34 visibility)"
+      ),
       derivesFrom: rule(0, "OL-R5: an ambient optimistic write reverts at the next flush"),
       published: rule(0, "OL-R5"),
-      preexisting: observed(HELD, "pre-flush: nothing has run yet"),
+      preexisting: rule(HELD, "A28: nothing is visible before the flush"),
       staleForeign: rule(0, "OL-R5"),
       childrenForbidden: rule(0, "OL-R5"),
-      latest: rule(5, "OL-R11 pre-flush"),
+      latest: rule(0, "A28 (5)"),
       isPending: rule(false, "A24 (3)"),
       authoritative: rule(0, "A17 carve-out")
     }

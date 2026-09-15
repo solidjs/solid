@@ -130,26 +130,26 @@ const STATES: State[] = [
     },
     expect: {
       // Readers that flush observe the write land — trivially 1.
-      untracked: observed(
+      untracked: rule(
         0,
-        "pre-flush untracked read serves committed; A28 (#3337, unmerged) rules on this tick"
+        "A28: an unflushed write is not the committed value — an untracked read serves committed until the flush"
       ),
       derivesFrom: rule(1, "the flush carries the write"),
       published: rule(1, "the flush carries the write"),
-      preexisting: observed(HELD, "pre-flush: nothing has run yet"),
+      preexisting: rule(HELD, "A28: nothing is visible before the flush"),
       staleForeign: rule(1, "the flush carries the write"),
       childrenForbidden: rule(1, "the flush carries the write"),
-      latest: observed(
-        1,
-        "pre-flush latest() serves the unflushed write; A28 (#3337) would make this 0 until the flush"
+      latest: rule(
+        0,
+        'A28: latest() reads the flushed staged world — the pre-write answer until the flush that carries the write ("nothing is ever 30 while its derivations are still 20-shaped")'
       ),
-      isPending: observed(
-        true,
-        "pre-flush verdict flips on the unflushed write; A28 (#3337) territory"
+      isPending: rule(
+        false,
+        "A28 (2): isPending is false for an unflushed write — nothing is observable yet to be pending from"
       ),
-      authoritative: observed(
+      authoritative: rule(
         1,
-        "until() predicate pre-flush sees the unflushed write; A28 (#3337) territory"
+        "A28 (4): until()'s predicate is evaluated inside the flush that carries the write, where the write is promoted — it sees 1"
       )
     }
   },
@@ -246,16 +246,22 @@ const STATES: State[] = [
       return { x, dispose };
     },
     expect: {
-      untracked: rule(5, "OL-R2: synchronously visible before any flush"),
+      untracked: rule(
+        0,
+        "A28 (5): an optimistic write is a write — it becomes the active override at the flush that carries it; until then no reader sees it (supersedes OL-R2)"
+      ),
       derivesFrom: rule(
         0,
         "OL-R5: an ambient optimistic write reverts at the next flush (the flush the reader forces)"
       ),
       published: rule(0, "OL-R5"),
-      preexisting: observed(HELD, "pre-flush: nothing has run yet"),
+      preexisting: rule(HELD, "A28: nothing is visible before the flush"),
       staleForeign: rule(0, "OL-R5"),
       childrenForbidden: rule(0, "OL-R5"),
-      latest: rule(5, "OL-R11 pre-flush"),
+      latest: rule(
+        0,
+        "A28 (5): not visible before the flush on any channel (supersedes OL-R11 pre-flush)"
+      ),
       isPending: rule(false, "A24 (3)"),
       authoritative: rule(
         0,

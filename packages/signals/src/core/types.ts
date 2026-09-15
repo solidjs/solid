@@ -79,6 +79,9 @@ export interface NodeExtension {
    * tick derives from inputs that predate the override and does not
    * supersede it (A18 supersession ordering, #3331). */
   _overrideTime: number;
+  /** A28: the staged value the last flush left on a HELD node that has since
+   * been rewritten (latest() keeps answering with it); NOT_PENDING otherwise. */
+  _flushedStaged: unknown;
   /** Provenance of the active override's write: the scheduler's `origin` (the
    * asking action's invocation sequence; 0 = mainline). An arriving answer
    * whose flight an older action issued asked a question the override has

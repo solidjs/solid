@@ -117,7 +117,13 @@ describe("projection transition isolation", () => {
     expect(m()).toBe(0);
     expect(p.a).toBe(0);
 
-    // latest() sees the in-flight value everywhere — projections included
+    // writes become visible at flush: pre-flush latest() agrees with the
+    // plain reads everywhere — signal, memo, projection — and after the
+    // flush every channel has the value (nothing holds this write).
+    expect(latest(count)).toBe(0);
+    expect(latest(m)).toBe(0);
+    expect(latest(() => p.a)).toBe(0);
+    flush();
     expect(latest(count)).toBe(5);
     expect(latest(m)).toBe(5);
     expect(latest(() => p.a)).toBe(5);
