@@ -967,7 +967,12 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 28.70 -> 28.85 KB,
     // measured at 28746 B against `next`'s 28580 (+166); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "28.85 KB",
+    // Loading `on` reset collects forwarded readers (#3459, 2026-09-15), on
+    // top of #3464/#3465/#3466: 28.85 -> 28.90 KB, measured at 28861 B against
+    // `next`'s 28815 (+46 — the reset walk in boundaries.ts, retained wherever
+    // Loading is; the PR alone measured 28848 against the pre-#3464 `next`,
+    // 2 B under, and the three fixes that landed meanwhile used the room).
+    limit: "28.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -1048,7 +1053,13 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 14.30 -> 14.45 KB,
     // measured at 14384 B against `next`'s 14257 (+127); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "14.45 KB",
+    // #3459 Loading `on` reset collects its forwarded readers (2026-09-15):
+    // 14.45 -> 14.5 KB, measured at 14.467 against next's 14.429 (+38 B):
+    // the CollectionQueue reset walk over the live transactions' reporters
+    // (`_holds` + the source harvest) in boundaries.ts, retained wherever
+    // Loading is. Signals-only scenarios moved the other way (createStore
+    // -62 B) — the new scheduler export shifts brotli layout, not a shrink.
+    limit: "14.5 KB",
     modifyEsbuildConfig
   },
   {
