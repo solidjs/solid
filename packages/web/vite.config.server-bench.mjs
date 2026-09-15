@@ -33,6 +33,8 @@ export default defineConfig({
     conditions: ["node"],
     alias: {
       "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
+      // Before "solid-js": a string alias prefix-matches its subpaths.
+      "solid-js/internal": resolve(rootDir, "../solid/src/internal.ts"),
       "solid-js": resolve(rootDir, "../solid/src/server/index.ts")
     }
   }

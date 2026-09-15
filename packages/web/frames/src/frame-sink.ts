@@ -40,11 +40,9 @@ import {
   getOwner,
   runWithOwner,
   NoHydration,
-  Hydration,
-  runInServerComponentScope,
-  ssrHandleError,
-  creationStamp
+  Hydration
 } from "solid-js";
+import { runInServerComponentScope, ssrHandleError, creationStamp } from "solid-js/internal";
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API

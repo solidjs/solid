@@ -5,7 +5,6 @@ import { installConsoleFooter } from "../console-footer.js";
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
   $PROXY,
-  $REFRESH,
   $TRACK,
   action,
   affects,
@@ -15,7 +14,6 @@ export {
   createOptimisticStore,
   createErrorBoundary,
   createOwner,
-  creationStamp,
   createProjection,
   createReaction,
   createRenderEffect,
@@ -36,28 +34,10 @@ export {
   isWrappable,
   mapArray,
   merge,
-  mergeSources,
-  mergeView,
-  viewOf,
-  OmitView,
-  MergeView,
-  omitView,
-  sourceKeys,
-  sourceHas,
-  sourceGet,
-  hasStaticKeys,
-  resolvedTable,
-  SOURCE_PLAIN,
-  SOURCE_OMIT,
-  SOURCE_PROXY,
-  SOURCE_MEMO,
   omit,
   onCleanup,
   onSettled,
   latest,
-  storeIsShallow,
-  storeHasFamily,
-  storeHasOptimisticFamily,
   reconcile,
   refresh,
   repeat,
@@ -66,12 +46,8 @@ export {
   until,
   NotReadyError,
   TimeoutError,
-  runInServerComponentScope,
-  inServerComponentScope,
-  getProjectionTrace,
   runWithOwner,
   snapshot,
-  storePath,
   createDeepProxy,
   enableExternalSource,
   enforceLoadingBoundary,
@@ -80,7 +56,6 @@ export {
 
 // All type re-exports from signals
 export type {
-  SourceKind,
   Accessor,
   ComputeFunction,
   EffectFunction,
@@ -151,16 +126,21 @@ export * from "./flow.js";
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
-export {
-  sharedConfig,
-  createLoadingBoundary,
-  ssrHandleError,
-  ssrScope,
-  NoHydration,
-  Hydration,
-  NoHydrateContext
-} from "./hydration.js";
+export { sharedConfig, createLoadingBoundary, NoHydration, Hydration } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
+
+// Seams for the runtimes in this repo, reached through `solid-js/internal`
+// (src/internal.ts): exported here at runtime so that entry shares this
+// module's state, `@internal` so they are stripped from the declarations.
+/** @internal */
+export {
+  creationStamp,
+  runInServerComponentScope,
+  inServerComponentScope,
+  getProjectionTrace
+} from "./signals.js";
+/** @internal */
+export { ssrHandleError, ssrScope } from "./hydration.js";
 
 /**
  * @internal — client-only (see client/hydration.ts). The server stub is

@@ -127,7 +127,7 @@ export default [
   {
     input: "src/index.ts",
     output: { file: "dist/web.js", format: "es" },
-    external: ["solid-js"],
+    external: ["solid-js", "solid-js/internal"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -138,7 +138,7 @@ export default [
     // and storage have none and fall through to prod under `observe`.
     input: "src/index.ts",
     output: { file: "dist/web.observe.js", format: "es" },
-    external: ["solid-js"],
+    external: ["solid-js", "solid-js/internal"],
     plugins: [replaceFlags(false, true)].concat(plugins)
   },
   {
@@ -153,7 +153,7 @@ export default [
     // scan can't catch this: the folding erases the marker either way).
     input: "src/index.server.ts",
     output: { file: "dist/server.js", format: "es" },
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -167,7 +167,7 @@ export default [
     // artifact must THROW on a late header write where prod reports and drops.
     input: "src/index.server.ts",
     output: { file: "dist/server.dev.js", format: "es" },
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
@@ -178,13 +178,13 @@ export default [
     // dist/server.observe.* so `OBSERVE` is one live object across the hop.
     input: "src/index.server.ts",
     output: { file: "dist/server.observe.js", format: "es" },
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceFlags(false, true)].concat(plugins)
   },
   {
     input: "src/index.ts",
     output: { file: "dist/web.dev.js", format: "es" },
-    external: ["solid-js"],
+    external: ["solid-js", "solid-js/internal"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
@@ -232,7 +232,7 @@ export default [
     // the default resolution — plain node, production bundles.
     input: "server-functions/src/server.ts",
     output: { file: "server-functions/dist/server.js", format: "es" },
-    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -242,7 +242,7 @@ export default [
     // mirroring the frames client's dev/prod split.
     input: "server-functions/src/server.ts",
     output: { file: "server-functions/dist/server.dev.js", format: "es" },
-    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
@@ -252,7 +252,7 @@ export default [
     // under node/worker/deno, exactly like `development`.
     input: "server-functions/src/server.ts",
     output: { file: "server-functions/dist/server.observe.js", format: "es" },
-    external: ["solid-js", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "seroval", "seroval-plugins/web"],
     plugins: [replaceFlags(false, true)].concat(plugins)
   },
   // @solidjs/web/frames — the server-component transport. The client half
@@ -274,6 +274,7 @@ export default [
     output: { file: "frames/dist/client.js", format: "es" },
     external: [
       "solid-js",
+      "solid-js/internal",
       "@solidjs/web",
       "seroval",
       "seroval-plugins/web",
@@ -297,6 +298,7 @@ export default [
     output: { file: "frames/dist/client.dev.js", format: "es" },
     external: [
       "solid-js",
+      "solid-js/internal",
       "@solidjs/web",
       "seroval",
       "seroval-plugins/web",
@@ -314,7 +316,7 @@ export default [
     // — same build-mode bug as #2982, dev-only noise shipped in prod here.
     input: "frames/src/server.ts",
     output: { file: "frames/dist/server.js", format: "es" },
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -324,7 +326,7 @@ export default [
     // main dist/server.dev entry above.
     input: "frames/src/server.ts",
     output: { file: "frames/dist/server.dev.js", format: "es" },
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
@@ -333,7 +335,7 @@ export default [
     // sites) at production speed. Same nesting as the other two.
     input: "frames/src/server.ts",
     output: { file: "frames/dist/server.observe.js", format: "es" },
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceFlags(false, true)].concat(plugins)
   }
 ];

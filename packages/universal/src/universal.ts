@@ -9,7 +9,9 @@ import {
   createMemo,
   createRenderEffect,
   flush,
-  $PROXY,
+  $PROXY
+} from "solid-js";
+import {
   viewOf,
   OmitView,
   sourceKeys,
@@ -21,7 +23,7 @@ import {
   SOURCE_OMIT,
   SOURCE_PROXY,
   SOURCE_MEMO
-} from "solid-js";
+} from "solid-js/internal";
 
 export interface RendererOptions<NodeType> {
   createElement(tag: string, staticProps?: Record<string, unknown>): NodeType;

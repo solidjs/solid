@@ -49,7 +49,7 @@ import {
   reviveContainerTraces,
   setContainerTraceMaterializer
 } from "./frame-container-plugin.js";
-import { materializeContainerTrace } from "solid-js";
+import { materializeContainerTrace } from "solid-js/internal";
 
 setContainerTraceMaterializer(materializeContainerTrace);
 // This import must resolve to the SHARED built instance, not a bundled

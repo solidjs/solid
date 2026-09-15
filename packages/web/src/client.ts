@@ -11,6 +11,15 @@ import {
   untrack,
   merge as mergeProps,
   $PROXY,
+  flatten,
+  createMemo,
+  flush,
+  enableHydration,
+  enforceLoadingBoundary,
+  resetErrorHalt,
+  OBSERVE
+} from "solid-js";
+import {
   viewOf,
   OmitView,
   sourceKeys,
@@ -21,15 +30,8 @@ import {
   SOURCE_PLAIN,
   SOURCE_OMIT,
   SOURCE_PROXY,
-  SOURCE_MEMO,
-  flatten,
-  createMemo,
-  flush,
-  enableHydration,
-  enforceLoadingBoundary,
-  resetErrorHalt,
-  OBSERVE
-} from "solid-js";
+  SOURCE_MEMO
+} from "solid-js/internal";
 import { effect, memo, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";

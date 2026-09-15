@@ -16,7 +16,7 @@ import type { Element as SolidElement } from "solid-js";
 // is by plugin TAG, which every seam compares; the resolver function itself
 // comes from external solid-js, so both copies answer identically.
 import { setContainerTraceResolver } from "./frame-container-plugin.js";
-import { getProjectionTrace } from "solid-js";
+import { getProjectionTrace } from "solid-js/internal";
 
 setContainerTraceResolver(getProjectionTrace);
 

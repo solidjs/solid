@@ -100,6 +100,10 @@
       "types": "./types/attribution.d.ts",
       "default": "./dist/attribution.js"
     },
+    "./internal": {
+      "types": "./types/internal.d.ts",
+      "default": "./dist/internal.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
