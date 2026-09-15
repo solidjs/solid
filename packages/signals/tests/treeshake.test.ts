@@ -286,7 +286,14 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // NOTE (2026-09-14, no bump): +12 B for memo lane posture (#3442) — one
     // assignment at recompute's head runs a memo plain unless it owns or
     // adopts a lane. Measured at 23,365 on top of #3438 (23,353 → 23,365).
-    expect(minifiedBytes).toBeLessThan(23_400);
+    // CONSCIOUS BUMP (2026-09-14): +54 B for two overlapping-flight rules —
+    // pending propagation onto a memo another live transaction holds enters
+    // that transaction (A15 shared derivation, #3443; one ternary at the
+    // propagation site), and a zombie dirtied through the lane channel runs
+    // instead of being cancelled when the parking batch is the transaction
+    // (#3444; one guard in cancelZombieRecompute). Measured at 23,419 on top
+    // of #3442 (23,365 → 23,419).
+    expect(minifiedBytes).toBeLessThan(23_450);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  action,
   createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
   createSignal,
   flush,
+  latest,
   onCleanup
 } from "../src/index.js";
 
@@ -198,5 +200,53 @@ describe("#3404 nested render effect reading a downstream async value", () => {
     setA(x => x + 1);
     flush();
     expect(log).toEqual(["run 1", "run 2", "cleanup 1"]);
+  });
+
+  // #3444: a held `Show` removing its branch marks the branch's effects
+  // zombies — they render mainline until the commit disposes them. Their
+  // queued recomputes are cancelled when the parking batch IS the transaction
+  // (the staged writes are a world a zombie never displays), but a zombie
+  // dirtied through the lane channel displays exactly that: `latest(count)`
+  // inside the branch stayed 0 while the same read outside showed 1.
+  it("#3444 latest() inside a branch a held Show is removing follows the value outside", async () => {
+    reset();
+    const log: string[] = [];
+    let save!: () => unknown;
+    createRoot(() => {
+      const [count, setCount] = createSignal(0);
+      save = action(function* () {
+        setCount(1);
+        yield delay(1000);
+      });
+      createRenderEffect(
+        () => `Outside: ${latest(count)}`,
+        v => {
+          log.push(`${v}@${now}`);
+        }
+      );
+      // Show: the branch's effects are owned by the run that built them.
+      createRenderEffect(
+        () => {
+          if (count() === 0) {
+            createRenderEffect(
+              () => `Inside: ${latest(count)}`,
+              v => {
+                log.push(`${v}@${now}`);
+              }
+            );
+            onCleanup(() => log.push(`Inside gone@${now}`));
+          }
+        },
+        () => {}
+      );
+    });
+    flush();
+    await advanceTo(500);
+    expect(log).toEqual(["Outside: 0@0", "Inside: 0@0"]);
+    save();
+    await settle();
+    expect(log).toEqual(["Outside: 0@0", "Inside: 0@0", "Outside: 1@500", "Inside: 1@500"]);
+    await advanceTo(2000);
+    expect(log.slice(4)).toEqual(["Inside gone@1500"]);
   });
 });
