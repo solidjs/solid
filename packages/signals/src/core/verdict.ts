@@ -569,10 +569,15 @@ function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
   // action (#2831: a reader that saw the new value must not also see
   // pending); still-computing answers are covered by the reporter scan.
   if (t._actions.length && !(el as Partial<Computed<any>>)._fn) return true;
-  // A node not yet stamped with a transition only qualifies through the
-  // action check above; the reporter scan below is for transition-held
-  // writes whose source async is still computing.
-  if (!et) return false;
+  // The reporter scan runs for an unstamped node too (#3457): a node staged
+  // AFTER the transaction opened is pushed straight into the transaction's
+  // batch (queuePendingNode, once initTransition adopted it) and only gets
+  // its `_transition` stamp when the flush stashes the hold, but its staged
+  // value is already the transaction's, and `t` resolved to that very
+  // transaction above. Gating on the stamp let a memo whose recompute read
+  // a sync memo's fresh staged value mid-flush pair "not pending" with it
+  // (A10) while the transaction's async source was still computing, so a
+  // memo-wrapped isPending() read false where a direct probe read true.
   for (const [source, reporters] of t._asyncReporters) {
     if (
       reporters.size &&

@@ -134,7 +134,7 @@ After an async memo resolves, `[isPending(x), latest(x)]` is `[false, resolvedVa
 
 **Status:** **ruled** — #2831 finding 2
 **Pinned by:** `tests/latest-isPending-consistency.test.ts`
-**Mechanism (index, 2026-09-14):** `_recordFresh` (#2831): a probe that observed the fresh value cannot pair it with `pending`.
+**Mechanism (index, 2026-09-14):** `_recordFresh` (#2831): a probe that observed the fresh value cannot pair it with `pending`. The pairing only covers a LANDED answer awaiting reveal: while the transaction still has an async source computing, the fresh value is an input and pending stays the verdict for every reader (`heldAwaitingAsync`, #3028) — including a node staged after the transaction opened, which carries no `_transition` stamp until the flush stashes the hold (#3457).
 
 `[isPending(x), x()]` read in one scope is atomic: a reader that observed the fresh value must not see `pending === true` for it.
 
