@@ -2473,7 +2473,11 @@ export function renderToStream(code, options = {}) {
           if (error) abandonSubtree(key, error);
           const wireError = error ? ssrSanitizeError(error, null) : error;
 
-          if (item.children) {
+          // A settled nested fragment parked its markup here to be spliced
+          // into this fragment's content. On the error path there is no
+          // content (`value` is undefined): the client re-renders the whole
+          // subtree, so the parked children are dropped, not spliced (#3478).
+          if (item.children && !error) {
             for (const k in item.children) {
               value = replacePlaceholder(value, k, item.children[k]);
             }
