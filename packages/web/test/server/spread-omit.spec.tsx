@@ -9,7 +9,8 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToString } from "@solidjs/web";
-import { createSignal, omit } from "solid-js";
+import { createSignal, merge, omit } from "solid-js";
+import { viewOf, type MergeView, type OmitView } from "solid-js/internal";
 
 function Field(
   props: {
@@ -55,5 +56,30 @@ describe("SSR spread respects omit() over a merge proxy (#3014)", () => {
     expect(html).toMatch(/<input[^>]*placeholder="you@example\.com"/);
     // the label text still renders as content
     expect(html).toContain("Email address");
+  });
+
+  test("the element walks the view's entries; it builds no resolved table", () => {
+    // A spread is one pass over each key, and the view is gone after it, so
+    // serializing must not pay for the key table a long-lived client view
+    // would (the Kobalte-shaped chain profile). Both view shapes an element can receive:
+    // an omit over a merge (filtered leaf entries) and a bare merge.
+    let rest: any, merged: any;
+    const html = renderToString(() => {
+      merged = merge({ type: "button", as: "button" }, { as: "a", class: "btn", href: "#x" });
+      rest = omit(merged, "type", "as");
+      return (
+        <>
+          <a {...rest} />
+          <span {...merged} />
+        </>
+      );
+    });
+    expect(html).toContain('<a _hk=0 class="btn" href="#x"></a>');
+    // The merge's own `as` is shadowed by the later source and sits at that
+    // source's position (the merged order); `type` is a data attribute the
+    // span happily carries.
+    expect(html).toContain('<span _hk=1 type="button" as="a" class="btn" href="#x"></span>');
+    expect((viewOf(rest) as OmitView).table).toBe(0);
+    expect((viewOf(merged) as MergeView).table).toBe(0);
   });
 });
