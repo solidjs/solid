@@ -470,7 +470,12 @@ module.exports = [
     // Born held (2026-09-14): 15.65 -> 15.80 KB, measured at 15750 B against
     // 15624 (+126); rebased over #3443/#3444: 15743 B against `next`'s 15658
     // (+85); see the core floor note.
-    limit: "15.80 KB",
+    // #3454 + #3455 together (2026-09-15): 15.80 -> 15.85 KB, measured at 15809 B
+    // on `next` a8a89497. Each fit alone (#3454's lazy merge/omit views in
+    // store/utils; #3455's verdict/optimistic changes measured 15780 against
+    // the pre-#3454 `next`) — the union tipped the cap by 9 B after both
+    // merged.
+    limit: "15.85 KB",
     modifyEsbuildConfig
   },
   {
