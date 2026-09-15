@@ -293,6 +293,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // a pending frame to live observers of the verdict (#2990).
   const wasLoading = el._loading;
 
+  // Creation-time A29 (see enterStagedRead): a pass outside a flush that is
+  // served a live transaction's staged value records the transaction here
+  // and is staged INTO it below — "born held" — instead of committing.
+  const prevStagedEntry = stagedEntry;
+  stagedEntry = null;
   const oldcontext = context;
   context = el;
   el._depsTail = null;
@@ -389,7 +394,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // its body gates on is either _statusFlags or lives in the cold
     // extension — no extension, no status to clear. (_x from an unrelated
     // installer just makes clearStatus a cheap re-verified no-op.)
-    if (el._statusFlags !== 0 || el._x !== null) clearStatus(el, create);
+    // A node born held keeps STATUS_UNINITIALIZED until its transaction
+    // commits: it has no committed value, and read() holds its readers.
+    if (el._statusFlags !== 0 || el._x !== null) clearStatus(el, create && stagedEntry === null);
     // _optimisticLane is only ever assigned by engine paths (CONFIG_HAS_LANE
     // is their sticky presence mark).
     if (el._config & CONFIG_HAS_LANE && el._x?._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
@@ -439,6 +446,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
   }
+  // The cast re-widens: TS narrowed `stagedEntry` to `null` at the reset
+  // above and does not invalidate that across the compute call that
+  // `enterStagedRead` runs under. No emitted code.
+  const bornHeld = stagedEntry as Transition | null;
+  stagedEntry = prevStagedEntry;
 
   if (!el._x?._error) {
     // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
@@ -536,7 +548,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const prevVisible = hasOverride ? el._x?._overrideValue : undefined;
 
       if (
-        create ||
+        (create && bornHeld === null) ||
         // Plain sync flush (no transition on either side) commits effect
         // values directly — the pending round-trip (queuePendingNode +
         // commitPendingNodes) exists to sequence transition reveals, and
@@ -546,6 +558,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // not the stashed queues, so a staged value would hand the immediate
         // apply stale state — see CONFIG_DIRECT_COMMIT.
         (isEffect &&
+          bornHeld === null &&
           (activeTransition !== el._transition ||
             activeTransition === null ||
             el._config & CONFIG_DIRECT_COMMIT)) ||
@@ -576,6 +589,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       } else {
         el._pendingValue = value;
         if (__DEV__) devTrackHeldPending(el);
+        if (bornHeld !== null) {
+          // Born held: the pass ran from mainline and derived from this
+          // transaction's staged world (enterStagedRead). Its value is the
+          // transaction's — staged into it directly, stamped, and committed
+          // with it; mainline's batch never sees it. A born-held effect
+          // skips its synchronous first run (effect()) and is replayed by
+          // the commit like a stale reader that showed the committed frame.
+          el._transition = bornHeld;
+          bornHeld._pendingNodes.push(el);
+          if (isEffect) bornHeld._gatedSubs.add(el);
+        }
         // A window landing that gets held re-opens the window until the hold
         // commits — the verdict's held-value branch is window-gated (#2990).
         if (wasLoading) el._loading = true;
@@ -706,7 +730,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // zombies deferred at the top are superseded on that same frame. Its
   // commit rides the transaction, not this flush: release them here rather
   // than let two generations render at once.
-  let held = needsPendingCommit && (!create || (el._statusFlags & STATUS_PENDING) !== 0);
+  let held =
+    needsPendingCommit &&
+    (!create || bornHeld !== null || (el._statusFlags & STATUS_PENDING) !== 0);
   if (held && (!el._transition || hasOverride)) queuePendingNode(el);
   else if (
     held &&
@@ -718,7 +744,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   if (held) el._config |= CONFIG_HELD_CHILDREN;
   else el._config &= ~CONFIG_HELD_CHILDREN;
-  if (el._transition && isEffect && activeTransition !== el._transition) {
+  // (A born-held pass IS the transaction's staged view — nothing to refresh.)
+  if (el._transition && isEffect && activeTransition !== el._transition && bornHeld === null) {
     // The re-run refreshes the transaction's STAGED view (_pendingValue); the
     // value this pass published in _value belongs to the run that just
     // finished. Keep that ownership, or the effect phase parks a
@@ -1469,9 +1496,36 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
  * not derive) and a no-op for the ambient batch (`_transition` null) or the
  * transaction already active.
  */
-function enterStagedRead(el: Signal<any> | Computed<any>): void {
+/** The transaction a pass running OUTSIDE a flush was served a staged value
+ * from (A29, creation-time form). Inside a flush the pass enters through
+ * initTransition; outside one — a memo or effect created from mainline code
+ * while a hold is live — entering would leave `activeTransition` and the
+ * batch pointed at the transaction for the rest of the synchronous block,
+ * so an unrelated write made after the mount was held with someone else's
+ * action. The entry is the pass's alone: recompute stages the node into the
+ * transaction (born held) and mainline is never touched. */
+let stagedEntry: Transition | null = null;
+
+export function enterStagedRead(el: Signal<any> | Computed<any>): void {
   const t = el._transition;
-  if (t !== null && t !== activeTransition && !pendingCheckActive) globalQueue.initTransition(t);
+  if (t === null || t === activeTransition || pendingCheckActive) return;
+  // Verdict machinery (GlobalQueue._verdictPull: companion creation and the
+  // latest()/isPending() pulls — the latest() shadow is created before it is
+  // marked optimistic, so the bit alone cannot tell) and optimistic nodes
+  // (own lane posture, A31) read staged truth by design; they keep the
+  // entering path.
+  // (`context` is non-null here: every caller selected a value for a reader.)
+  const ctx = context as Computed<any>;
+  if (
+    activeTransition === null &&
+    !globalQueue._running &&
+    !GlobalQueue._verdictPull &&
+    ctx._flags & REACTIVE_RECOMPUTING_DEPS &&
+    !(ctx._config & CONFIG_OPTIMISTIC) &&
+    (stagedEntry === null || stagedEntry === t)
+  )
+    stagedEntry = t;
+  else globalQueue.initTransition(t);
 }
 
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
@@ -1729,13 +1783,21 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // (The lane-context clause lives with the engine.) Children-forbidden readers
   // (createTrackedEffect / onSettled callbacks) get committed visibility — see
   // readNodeFast (#3006).
+  // A node born held (recompute) has a staged value and no committed one: a
+  // stale reader cannot fall back to the committed frame, so it takes the
+  // staged value and enters like a tracked reader (A29); an untracked reader
+  // has nothing to serve and holds (A19 exception 1).
+  const noCommitted =
+    el._pendingValue !== NOT_PENDING &&
+    ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) !== 0;
+  if (noCommitted && !c) throw new NotReadyError(null);
   const value =
     !c ||
     (currentOptimisticLane !== null &&
       GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && heldFromStale(el, c as Computed<any>)) ||
+    (stale && !noCommitted && heldFromStale(el, c as Computed<any>)) ||
     // A17 for HELD truth (#3164, see CONFIG_HELD_TRUTH): staged confirming
     // truth — fold-staged onto an armed family, or entangle-stolen by an
     // awaited until() — is masked from ordinary readers until its

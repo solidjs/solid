@@ -364,7 +364,12 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     setPendingCheckActive(false);
     const prevContext = context;
     setContextInternal(null); // Detach from owner so it isn't disposed with effects
-    lvc = optimisticComputed(() => read(el), { ownedWrite: true });
+    GlobalQueue._verdictPull = true;
+    try {
+      lvc = optimisticComputed(() => read(el), { ownedWrite: true });
+    } finally {
+      GlobalQueue._verdictPull = false;
+    }
     ext(el)._latestValueComputed = lvc;
     el._config |= CONFIG_HAS_COMPANIONS;
     markFirewallChildCompanions(el);
@@ -417,10 +422,12 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
       // latest(() => isPending(x)) from true to false).
       const prevCheck = pendingCheckActive;
       setPendingCheckActive(false);
+      GlobalQueue._verdictPull = true;
       try {
         prepareComputed(pendingComputed as Computed<unknown>, true);
       } finally {
         setPendingCheckActive(prevCheck);
+        GlobalQueue._verdictPull = false;
       }
     }
     value = read(pendingComputed);
@@ -482,8 +489,14 @@ function pendingCheckRead(
   firewall: Computed<any> | null
 ): void {
   setPendingCheckActive(false);
-  if (typeof (el as Partial<Computed<unknown>>)._fn === "function")
-    prepareComputed(el as Computed<unknown>, true);
+  if (typeof (el as Partial<Computed<unknown>>)._fn === "function") {
+    GlobalQueue._verdictPull = true;
+    try {
+      prepareComputed(el as Computed<unknown>, true);
+    } finally {
+      GlobalQueue._verdictPull = false;
+    }
+  }
   const ownerStatus = (owner as Computed<any>)._statusFlags!;
   if (
     c &&

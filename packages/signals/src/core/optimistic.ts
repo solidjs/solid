@@ -29,7 +29,7 @@ import {
   CONFIG_OVERRIDE_SUPERSEDED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { currentOptimisticLane, latestReadActive, stale, ext } from "./core.js";
+import { currentOptimisticLane, enterStagedRead, latestReadActive, stale, ext } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { devCheckMergedLaneEmpty, devTrackHeldPending, devTrackOptimistic } from "./invariants.js";
 import {
@@ -340,7 +340,11 @@ function endOptimism(transition: Transition): boolean {
 function supersededRead(el: OptimisticNode): unknown {
   if (stale && el._transition && activeTransition !== el._transition)
     return unwrapOverride(el._x?._overrideValue);
-  return el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+  if (el._pendingValue === NOT_PENDING) return el._value;
+  // The staged truth is a staged read like any other (A29): the pass that
+  // derives from it is the transaction's.
+  enterStagedRead(el);
+  return el._pendingValue;
 }
 
 /**
