@@ -7,13 +7,13 @@ export function Matrix() @{
     } @pending {
       <p>pending</p>
     } @catch (error) {
-      <p>{error.message}</p>
+      <p>{error().message}</p>
     }
 
     @try {
       <span>ready</span>
     } @catch (failure) {
-      <em>{failure.name}</em>
+      <em>{failure().name}</em>
     }
   </main>
 }

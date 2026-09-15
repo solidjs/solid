@@ -297,7 +297,7 @@ fn source_maps_cover_reordered_switches_and_accessor_rewrites() {
     let for_source = r#"export function List({ items }) @{
   <ul>
     @for (const item of items; index index; key item.id) {
-      <li>{index + 1}. {item.name}</li>
+      <li>{index() + 1}. {item().name}</li>
     }
   </ul>
 }"#;
@@ -310,8 +310,8 @@ fn source_maps_cover_reordered_switches_and_accessor_rewrites() {
         },
     )
     .expect("keyed for source maps compile");
-    assert_maps_to(&for_output, "item().name", 0, for_source, "item.name");
-    assert_maps_to(&for_output, "index()", 0, for_source, "index +");
+    assert_maps_to(&for_output, "item().name", 0, for_source, "item().name");
+    assert_maps_to(&for_output, "index()", 0, for_source, "index() +");
 }
 
 // -- syntax routing ----------------------------------------------------------

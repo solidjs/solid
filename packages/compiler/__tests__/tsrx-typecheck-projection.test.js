@@ -112,26 +112,31 @@ function expectEveryOccurrenceMapped(source, output, identifier, skip = 0) {
 }
 
 describe("TSRX typecheck projection", () => {
-  test("returns post-rewrite TSX, authored maps, styles, and UTF-16 embeds", () => {
+  test("returns projected TSX, authored maps, styles, and UTF-16 embeds", () => {
     const css = ".card { color: red }";
     const script = '{"emoji":"🚀"}';
     const source = `const marker = "🚀";
 export function Card({ rows }) @{
   <>
     <style>${css}</style>
-    @for (const { name = "missing" } of rows; index index) {
-      <p class="card">{name}:{index}</p>
+    @for (const row of rows; index index) {
+      <p class="card">{row().name}:{index}</p>
     }
-    @try { <Broken /> } @catch (error) { <p>{error.message}</p> }
+    @try { <Broken /> } @catch (error) { <p>{error().message}</p> }
     <script type="application/json">${script}</script>
   </>
 }`;
 
     const output = projectTsrxForTypecheck(source, { filename: "card.tsrx" });
 
+    // #3474: bindings pass through as authored — the projection emits the
+    // same `(row, index) =>` / `(error) =>` arrows `@tsrx/solid` does.
     expect(output.code).toContain("keyed={false}");
-    expect(output.code).toMatch(/__lazy\d+\(\)\.name/);
-    expect(output.code).toContain("error().message");
+    expect(output.code).toMatch(
+      /\{\(row, index\) => <p class="card[^"]*">\{row\(\)\.name\}:\{index\}<\/p>\}/
+    );
+    expect(output.code).toMatch(/fallback=\{\(error\) => <p[^>]*>\{error\(\)\.message\}<\/p>\}/);
+    expect(output.code).not.toContain("__lazy");
     expect(output.cssHash).toMatch(/^tsrx-/);
     expect(output.css).toContain(output.cssHash);
     expect(JSON.parse(output.map)).toMatchObject({
@@ -236,6 +241,25 @@ export function Rows({ rows }: { rows: { name: string }[] }) @{
         { filename: "authored-lazy.tsrx" }
       )
     ).toThrow(/Solid's TSRX frontend does not support authored lazy destructuring/);
+  });
+
+  test("rejects destructuring where Solid passes an accessor", () => {
+    expect(() =>
+      projectTsrxForTypecheck(
+        `export function Rows({ rows }) @{\n  @for (const { name } of rows; index i) { <p>{name}</p> }\n}`,
+        { filename: "reject.tsrx" }
+      )
+    ).toThrow(
+      "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`) (2:14)"
+    );
+    expect(() =>
+      projectTsrxForTypecheck(
+        `export function Rows() @{\n  @try { <Broken /> } @catch ({ message }) { <p>{message}</p> }\n}`,
+        { filename: "reject.tsrx" }
+      )
+    ).toThrow(
+      "A destructured `@catch` error binding is not supported: Solid passes the error as an accessor. Bind a name and read it as a call (`err().message`) (2:30)"
+    );
   });
 
   test("supports diagnostics, completion, navigation, and rename through exact mappings", () => {

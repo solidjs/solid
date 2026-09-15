@@ -148,218 +148,6 @@ afterAll(() => {
 });
 
 describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
-  test.skip("supports dormant authored lazy bindings across lexical loops and var scopes", async () => {
-    const source = `
-      export function lazyLoops() @{
-        const seen = [];
-        const outer = { value: 10 };
-        let &{ value } = outer;
-        const counter = { value: 0 };
-        for (let &{ value } = counter; value < 3; value++) {
-          seen.push(value);
-        }
-        for (const &{ value } of [{ value: 3 }, { value: 4 }]) {
-          seen.push(value);
-        }
-        for (var &{ item } of [{ item: "a" }, { item: "b" }]) {
-          seen.push(item);
-        }
-        if (true) {
-          var &{ blockValue } = { blockValue: "block" };
-        }
-        return {
-          seen,
-          counter: counter.value,
-          outer: value,
-          item,
-          blockValue
-        };
-        <p />
-      }
-
-      export function lexicalRhsTdz() @{
-        const outer = { value: 10 };
-        let &{ value } = outer;
-        for (const &{ value } of (value, [])) {}
-        return value;
-        <p />
-      }
-    `;
-    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "dom"), "dom");
-
-    expect(runtime.lazyLoops()).toEqual({
-      seen: [0, 1, 2, 3, 4, "a", "b"],
-      counter: 3,
-      outer: 10,
-      item: "b",
-      blockValue: "block"
-    });
-    expect(() => runtime.lexicalRhsTdz()).toThrow(ReferenceError);
-  });
-
-  test.skip("keeps dormant authored lazy arrow parameters deferred", async () => {
-    const source = `
-      export const inspect = (
-        prefix,
-        &{ value = prefix, nested: &{ count }, ...rest }
-      ) => {
-        const before = count++;
-        return { value, before, after: count, other: rest.other };
-      };
-    `;
-    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "dom"), "dom");
-    const input = { value: undefined, nested: { count: 2 }, other: 3 };
-
-    expect(runtime.inspect("fallback", input)).toEqual({
-      value: "fallback",
-      before: 2,
-      after: 3,
-      other: 3
-    });
-    expect(input.nested.count).toBe(3);
-  });
-
-  test.skip("preserves dormant authored lazy destructuring semantics", async () => {
-    const source = `
-      export function defaults() @{
-        let backing;
-        let reads = 0;
-        let writes = 0;
-        let fallbacks = 0;
-        const source = {
-          get value() {
-            reads++;
-            return backing;
-          },
-          set value(next) {
-            writes++;
-            backing = next;
-          }
-        };
-        let &{ value = ++fallbacks } = source;
-
-        const first = value;
-        const post = value++;
-        const pre = ++value;
-        value = undefined;
-        const compound = value += 5;
-        source.value = null;
-        const nullValue = value;
-        return { first, post, pre, compound, nullValue, backing, reads, writes, fallbacks };
-        <p />
-      }
-
-      export function nestedAndRest() @{
-        const source = { nested: { value: undefined }, selected: 1, other: 2 };
-        let &{
-          nested: { ["value"]: renamed = 3 },
-          selected,
-          ...rest
-        } = source;
-        const arrayLike = { 0: "a", 1: "b", 2: "c", length: 3 };
-        let &[head, ...tail] = arrayLike;
-        return { renamed, selected, restA: rest, restB: rest, head, tailA: tail, tailB: tail };
-        <p />
-      }
-
-      export function embeddedBindings() @{
-        const source = {};
-        let &{ a = 1, b = a } = source;
-
-        let keyReads = 0;
-        const outer = {
-          get key() {
-            keyReads++;
-            return "target";
-          }
-        };
-        let &{ key } = outer;
-        const computed = { target: undefined };
-        let &{ [key]: value = key } = computed;
-
-        return { a, b, first: value, second: value, keyReads };
-        <p />
-      }
-
-      export function cyclicDefaults(source = {}) @{
-        let &{ a = b, b = a } = source;
-        return a;
-        <p />
-      }
-
-      export function selfDefault(source = {}) @{
-        let &{ value = value } = source;
-        return value;
-        <p />
-      }
-
-      export function legitimateReentry() @{
-        const source = {};
-        let &{ value = 1 } = source;
-        const result = value += value;
-        return { result, stored: source.value };
-        <p />
-      }
-
-      export function standaloneAssignments() @{
-        const source = { value: 1, other: 2, items: ["a", "b", "c"] };
-        &{ value, ...rest } = source;
-        &[first, ...tail] = source.items;
-        const before = value;
-        value++;
-        return { before, after: value, stored: source.value, other: rest.other, first, tail };
-        <p />
-      }
-    `;
-    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "dom"), "dom");
-
-    expect(runtime.defaults()).toEqual({
-      first: 1,
-      post: 2,
-      pre: 4,
-      compound: 8,
-      nullValue: null,
-      backing: null,
-      reads: 5,
-      writes: 5,
-      fallbacks: 3
-    });
-
-    const nested = runtime.nestedAndRest();
-    expect(nested).toEqual({
-      renamed: 3,
-      selected: 1,
-      restA: { other: 2 },
-      restB: { other: 2 },
-      head: "a",
-      tailA: ["b", "c"],
-      tailB: ["b", "c"]
-    });
-    expect(nested.restA).not.toBe(nested.restB);
-    expect(nested.tailA).not.toBe(nested.tailB);
-
-    expect(runtime.embeddedBindings()).toEqual({
-      a: 1,
-      b: 1,
-      first: "target",
-      second: "target",
-      keyReads: 4
-    });
-
-    expect(runtime.cyclicDefaults({ b: 2 })).toBe(2);
-    expect(() => runtime.cyclicDefaults()).toThrow(ReferenceError);
-    expect(() => runtime.selfDefault()).toThrow(ReferenceError);
-    expect(runtime.legitimateReentry()).toEqual({ result: 2, stored: 2 });
-    expect(runtime.standaloneAssignments()).toEqual({
-      before: 1,
-      after: 2,
-      stored: 2,
-      other: 2,
-      first: "a",
-      tail: ["b", "c"]
-    });
-  });
-
   test("executes statement containers in expression positions", async () => {
     const source = `
       import { render } from "@solidjs/web";
@@ -391,7 +179,9 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     dispose();
   });
 
-  test("keeps keyed destructuring and catch patterns deferred", async () => {
+  test("passes For and Errored accessor bindings through as authored", async () => {
+    // #3474: the bindings are the accessors Solid hands out. `row()` and `i()`
+    // read live under a custom key, `err()` is the ErrorAccessor.
     const source = `
       import { createSignal, flush } from "solid-js";
       import { render } from "@solidjs/web";
@@ -410,14 +200,15 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
       export function App() @{
         <section>
           <ul>
-            @for (const { id, label = id, ...rest } of rows(); key id) {
-              <li data-id={id}>{label}:{rest.extra}</li>
+            @for (const row of rows(); index i; key row.id) {
+              const snapshot = row;
+              <li data-id={snapshot().id}>{i()}:{row().label ?? row().id}:{row().extra}</li>
             }
           </ul>
           @try {
             <Broken />
-          } @catch ({ message = "fallback", ...details }) {
-            <p class="error">{message}:{details.code}</p>
+          } @catch (err) {
+            <p class="error">{err().message}:{err().code}</p>
           }
         </section>
       }
@@ -437,8 +228,8 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
 
     const retained = root.querySelector('[data-id="2"]');
     expect([...root.querySelectorAll("li")].map(node => node.textContent)).toEqual([
-      "one:first",
-      "2:second"
+      "0:one:first",
+      "1:2:second"
     ]);
     expect(root.querySelector(".error").textContent).toBe("boom:E_BROKEN");
 
@@ -448,13 +239,42 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     ]);
     expect(root.querySelector('[data-id="2"]')).toBe(retained);
     expect([...root.querySelectorAll("li")].map(node => node.textContent)).toEqual([
-      "TWO:updated",
-      "3:third"
+      "0:TWO:updated",
+      "1:3:third"
     ]);
     dispose();
   });
 
-  test("updates keyed DOM rows, events, control flow, and lazy write targets", async () => {
+  test("rejects destructuring where Solid passes an accessor", () => {
+    const cases = [
+      [
+        `export function App({ rows }) @{ <ul>@for (const { id } of rows; index i) { <li>{id}</li> }</ul> }`,
+        "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`)"
+      ],
+      [
+        `export function App({ rows }) @{ <ul>@for (const [first] of rows; key first) { <li>{first}</li> }</ul> }`,
+        "A destructured `@for` item binding is not supported together with `index` or `key`"
+      ],
+      [
+        `export function App() @{ @try { <p /> } @catch ({ message }) { <p>{message}</p> } }`,
+        "A destructured `@catch` error binding is not supported: Solid passes the error as an accessor. Bind a name and read it as a call (`err().message`)"
+      ]
+    ];
+    for (const [source, message] of cases) {
+      expect(() => compileRuntime(source, compiler, "dom")).toThrow(message);
+    }
+    // Default keyed `@for` hands the callback the raw item; destructuring
+    // there is an ordinary one-time destructure and stays allowed.
+    expect(() =>
+      compileRuntime(
+        `export function App({ rows }) @{ <ul>@for (const { id } of rows) { <li>{id}</li> }</ul> }`,
+        compiler,
+        "dom"
+      )
+    ).not.toThrow();
+  });
+
+  test("updates keyed DOM rows, events, control flow, and plain write targets", async () => {
     const source = readRuntimeFixture("dom");
     const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "dom"), "dom");
     const root = document.createElement("div");

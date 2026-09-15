@@ -9,14 +9,14 @@ use oxc_ast::ast::{
     PropertyKey, PropertyKind, Statement, TemplateElementValue, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, VisitMut, walk, walk_mut};
-use oxc_span::{GetSpan, GetSpanMut, Span};
+use oxc_span::{GetSpan, Span};
 use oxc_syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
 use tsrx_syntax::ControlContext;
 
 use super::{
     leaf::LeafProgram,
     semantic::{
-        AuthoredSpan, CatchBinding, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule,
+        AuthoredSpan, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule,
         TemplateBlock, TemplateSite, Try as SemanticTry,
     },
     style::ClassMapEntry,
@@ -30,7 +30,6 @@ use crate::{error::CompileError, shared::ast_builder::AstBuilder};
 
 pub(crate) struct DirectLowered<'a> {
     pub program: Program<'a>,
-    pub artifacts: super::rewrite::RewriteArtifacts,
     pub css: String,
     pub css_hash: Option<String>,
 }
@@ -44,20 +43,6 @@ pub(super) fn lower<'a>(
     if !is_supported(semantic, styles) {
         return Err(direct_invariant(
             "semantic control-flow validation admitted an unsupported block",
-        ));
-    }
-    if semantic.lazy_patterns.iter().any(|pattern| {
-        semantic.is_authored_lazy_pattern(pattern.origin.tape)
-            && pattern
-                .origin
-                .span
-                .start
-                .checked_sub(1)
-                .and_then(|start| source.as_bytes().get(start as usize))
-                != Some(&b'&')
-    }) {
-        return Err(CompileError::parse(
-            "Unexpected token in lazy binding pattern",
         ));
     }
     let mut leaves = LeafProgram::parse(allocator, source)?;
@@ -76,26 +61,6 @@ pub(super) fn lower<'a>(
     if leaves.control_contexts().len() != controls.len() {
         return Err(direct_invariant(
             "parser and semantic control-flow counts do not match",
-        ));
-    }
-
-    let mut lazy_assignments = LazyAssignmentScaffoldNormalizer {
-        map: &leaves.map,
-        patterns: semantic
-            .lazy_assignments
-            .iter()
-            .filter_map(|assignment| {
-                assignment
-                    .pattern
-                    .span()
-                    .map(|(start, end)| AuthoredSpan { start, end })
-            })
-            .collect(),
-    };
-    lazy_assignments.visit_program(&mut leaves.program);
-    if !lazy_assignments.patterns.is_empty() {
-        return Err(direct_invariant(
-            "a lazy assignment scaffold could not be normalized",
         ));
     }
 
@@ -127,20 +92,6 @@ pub(super) fn lower<'a>(
         ast: AstBuilder::new(allocator),
         semantic,
         leaves: &leaves,
-        artifacts: super::rewrite::RewriteArtifacts {
-            lazy_patterns: semantic
-                .lazy_patterns
-                .iter()
-                .map(|pattern| {
-                    (
-                        pattern.origin.span.start,
-                        String::new(),
-                        pattern.source_accessor,
-                    )
-                })
-                .collect(),
-            accessor_arrows: Vec::new(),
-        },
     };
     let mut expression_replacements = HashMap::new();
     let mut statement_replacements = HashMap::new();
@@ -180,7 +131,6 @@ pub(super) fn lower<'a>(
         code_block_replacements.insert(start, lowerer.code_block(block)?);
         code_block_origins.insert(start, ast_span(block.origin.span));
     }
-    let artifacts = lowerer.artifacts;
     let function_style_owners = code_block_origins
         .iter()
         .map(|(render, origin)| (*render, origin.start))
@@ -252,24 +202,9 @@ pub(super) fn lower<'a>(
         )));
     }
     AuthoredJsxTextSanitizer { source }.visit_program(&mut leaves.program);
-    let mut lazy_patterns = LazyPatternRootAligner {
-        expected: semantic
-            .lazy_patterns
-            .iter()
-            .map(|pattern| pattern.origin.span.start)
-            .collect(),
-    };
-    lazy_patterns.visit_program(&mut leaves.program);
-    if !lazy_patterns.expected.is_empty() {
-        return Err(direct_invariant(&format!(
-            "lazy binding patterns could not be aligned; missing {:?}",
-            lazy_patterns.expected
-        )));
-    }
     let authored = allocator.alloc_str(source);
     Ok(DirectLowered {
         program: leaves.finish(authored),
-        artifacts,
         css: styles.css.clone(),
         css_hash: styles.css_hash.clone(),
     })
@@ -315,7 +250,6 @@ struct Lowerer<'a, 's, 't> {
     ast: AstBuilder<'a>,
     semantic: &'s SolidTsrxModule<'t>,
     leaves: &'s LeafProgram<'a>,
-    artifacts: super::rewrite::RewriteArtifacts,
 }
 
 impl<'a> Lowerer<'a, '_, '_> {
@@ -375,18 +309,13 @@ impl<'a> Lowerer<'a, '_, '_> {
         }
         if let Some(catch) = try_.catch.as_ref() {
             let mut patterns = Vec::new();
-            let mut accessor_names = Vec::new();
             match &catch.binding {
-                Some(CatchBinding::Identifier { name }) => {
+                Some(_) => {
                     let parameter =
                         catch.origin.tape.node_field("param").ok_or_else(|| {
                             CompileError::transform("TSRX @catch binding is missing")
                         })?;
                     patterns.push(self.binding_pattern(parameter)?);
-                    accessor_names.push((*name).to_string());
-                }
-                Some(CatchBinding::Pattern(pattern)) => {
-                    patterns.push(self.binding_pattern(*pattern)?);
                 }
                 None => patterns.push(
                     self.ast
@@ -398,11 +327,6 @@ impl<'a> Lowerer<'a, '_, '_> {
             }
             let callback_span = ast_span(catch.origin.span);
             let callback = self.arrow_with_block(callback_span, patterns, &catch.body)?;
-            if !accessor_names.is_empty() {
-                self.artifacts
-                    .accessor_arrows
-                    .push((callback_span.start, accessor_names));
-            }
             let attributes = self.ast.vec1(
                 self.ast
                     .jsx_attribute_item_expression(span, "fallback", callback),
@@ -465,23 +389,6 @@ impl<'a> Lowerer<'a, '_, '_> {
             .map(|pattern| self.binding_pattern(*pattern))
             .collect::<Result<Vec<_>, _>>()?;
         let callback = self.arrow_with_block(span, callback_patterns, &loop_.body)?;
-        let mut accessor_names = Vec::new();
-        if loop_.callback_mode.item_is_accessor()
-            && let Some(name) = identifier_name(loop_.pattern)
-        {
-            accessor_names.push(name.to_string());
-        }
-        if loop_.callback_mode.index_is_accessor()
-            && let Some(index) = loop_.index
-            && let Some(name) = identifier_name(index)
-        {
-            accessor_names.push(name.to_string());
-        }
-        if !accessor_names.is_empty() {
-            self.artifacts
-                .accessor_arrows
-                .push((span.start, accessor_names));
-        }
         let children = self.ast.vec1(self.ast.jsx_child_expression(span, callback));
         Ok(self
             .ast
@@ -1198,75 +1105,6 @@ impl<'a> VisitMut<'a> for StyleOwnerLowerer<'a> {
     }
 }
 
-struct LazyPatternRootAligner {
-    expected: HashSet<u32>,
-}
-
-impl LazyPatternRootAligner {
-    fn align(&mut self, pattern: &mut oxc_ast::ast::BindingPattern<'_>, owner: Span) {
-        if !matches!(
-            pattern,
-            oxc_ast::ast::BindingPattern::ObjectPattern(_)
-                | oxc_ast::ast::BindingPattern::ArrayPattern(_)
-        ) {
-            return;
-        }
-        let pattern_start = if pattern.span() == Span::default() {
-            let mut finder = AuthoredStartFinder { start: None };
-            finder.visit_binding_pattern(pattern);
-            finder.start.unwrap_or_default()
-        } else {
-            pattern.span().start
-        };
-        let expected = self.expected.iter().copied().find(|expected| {
-            (owner.start <= *expected && *expected <= owner.end)
-                || expected.abs_diff(pattern_start) <= 2
-        });
-        if let Some(expected) = expected {
-            self.expected.remove(&expected);
-            pattern.span_mut().start = expected;
-        }
-    }
-}
-
-impl<'a> VisitMut<'a> for LazyPatternRootAligner {
-    fn visit_function(
-        &mut self,
-        function: &mut oxc_ast::ast::Function<'a>,
-        flags: oxc_syntax::scope::ScopeFlags,
-    ) {
-        for parameter in &mut function.params.items {
-            self.align(&mut parameter.pattern, parameter.span);
-        }
-        walk_mut::walk_function(self, function, flags);
-    }
-
-    fn visit_arrow_function_expression(
-        &mut self,
-        arrow: &mut oxc_ast::ast::ArrowFunctionExpression<'a>,
-    ) {
-        for parameter in &mut arrow.params.items {
-            self.align(&mut parameter.pattern, parameter.span);
-        }
-        walk_mut::walk_arrow_function_expression(self, arrow);
-    }
-
-    fn visit_formal_parameter(&mut self, parameter: &mut oxc_ast::ast::FormalParameter<'a>) {
-        self.align(&mut parameter.pattern, parameter.span);
-        walk_mut::walk_formal_parameter(self, parameter);
-    }
-
-    fn visit_variable_declarator(&mut self, declarator: &mut oxc_ast::ast::VariableDeclarator<'a>) {
-        self.align(&mut declarator.id, declarator.span);
-        walk_mut::walk_variable_declarator(self, declarator);
-    }
-
-    fn visit_catch_parameter(&mut self, parameter: &mut oxc_ast::ast::CatchParameter<'a>) {
-        self.align(&mut parameter.pattern, parameter.span);
-        walk_mut::walk_catch_parameter(self, parameter);
-    }
-}
-
 struct AuthoredJsxTextSanitizer<'s> {
     source: &'s str,
 }
@@ -1503,27 +1341,6 @@ impl<'a> VisitMut<'a> for StyleScaffoldLowerer<'a, '_> {
             self.inject_hash(element, &hashes.join(" "));
         }
         walk_mut::walk_jsx_element(self, element);
-    }
-}
-
-struct LazyAssignmentScaffoldNormalizer<'m> {
-    map: &'m super::leaf::LeafMap,
-    patterns: HashSet<AuthoredSpan>,
-}
-
-impl<'a> VisitMut<'a> for LazyAssignmentScaffoldNormalizer<'_> {
-    fn visit_statement(&mut self, statement: &mut Statement<'a>) {
-        if let Statement::VariableDeclaration(declaration) = statement
-            && declaration.declarations.len() == 1
-        {
-            let span = declaration.declarations[0].id.span();
-            if let Some(authored) = self.map.authored_extent(span)
-                && self.patterns.remove(&authored)
-            {
-                declaration.kind = VariableDeclarationKind::Const;
-            }
-        }
-        walk_mut::walk_statement(self, statement);
     }
 }
 

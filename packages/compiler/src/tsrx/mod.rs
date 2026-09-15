@@ -3,18 +3,19 @@
 //! Routes `.tsrx` sources through `tsrx_parser_engine` (the community
 //! `oxc-tsrx` project, pinned by revision — the only TSRX grammar authority
 //! on the Rust side), lowers parser interchange into compiler-owned typed
-//! Solid TSRX semantic IR, lowers that IR directly to the crate's Oxc AST,
-//! and finishes with symbol-exact lazy/accessor rewrites. The desugaring contract
-//! is frozen by `@solidjs/babel-plugin/src/tsrx/desugar.ts` and its fixture
-//! corpus; both frontends must lower identically.
+//! Solid TSRX semantic IR, and lowers that IR directly to the crate's Oxc
+//! AST. Bindings pass through as authored — nothing is rewritten after the
+//! lowering. The desugaring contract is frozen by
+//! `@solidjs/babel-plugin/src/tsrx/desugar.ts` and its fixture corpus; both
+//! frontends must lower identically.
 
 mod leaf;
 mod lower;
 mod names;
 mod project;
-mod rewrite;
 mod semantic;
 mod source_map;
+mod spans;
 mod style;
 mod style_projection;
 mod tape;
@@ -145,27 +146,7 @@ fn project_error(source: &str, error: project::ProjectError) -> CompileError {
     CompileError::parse(format!("{} ({line}:{column})", error.message))
 }
 
-/// Apply lazy/accessor rewrites to the explicit tooling projection.
-pub fn apply_rewrites<'a>(
-    allocator: &'a oxc_allocator::Allocator,
-    program: &mut oxc_ast::ast::Program<'a>,
-    projection: &Projection,
-    source_maps: bool,
-) -> Result<(), CompileError> {
-    rewrite::apply(allocator, program, projection, source_maps).map_err(CompileError::transform)
-}
-
-pub fn apply_direct_rewrites<'a>(
-    allocator: &'a oxc_allocator::Allocator,
-    program: &mut oxc_ast::ast::Program<'a>,
-    artifacts: &rewrite::RewriteArtifacts,
-    source_maps: bool,
-) -> Result<(), CompileError> {
-    rewrite::apply_artifacts(allocator, program, artifacts, source_maps)
-        .map_err(CompileError::transform)?;
-    rewrite::clear_generated_spans(program, artifacts, source_maps);
-    Ok(())
-}
+pub use spans::clear_generated_spans;
 
 /// Parse compiler-projected TSX for the explicit tooling path.
 pub(crate) fn parse_projected_tsx<'a>(

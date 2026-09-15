@@ -6,7 +6,7 @@
 //! blocks remain tape [`Node`] references in this transitional slice; future
 //! backends can lower those leaves directly to their native AST.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::tape::{self, Node};
 use tsrx_tape_schema::RecordIndex;
@@ -195,6 +195,12 @@ pub struct IfChain<'t> {
 }
 
 /// Runtime callback contract selected by the authored `index`/`key` clauses.
+///
+/// The bindings pass through to `For` exactly as authored (#3474): where
+/// Solid hands the callback an accessor, the author reads it as one
+/// (`item()`, `i()`), the same as in JSX. The mode only decides what the
+/// lowering emits for `keyed=` and which item positions cannot be
+/// destructured — destructuring an accessor is rejected with a diagnostic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ForCallbackMode {
     /// No index and no custom key: raw item.
@@ -217,18 +223,24 @@ impl ForCallbackMode {
         }
     }
 
+    /// Solid passes the item as an accessor in every non-default mode, so a
+    /// destructuring pattern in the item position has nothing to destructure.
     pub fn item_is_accessor(self) -> bool {
         self != Self::Default
-    }
-
-    pub fn index_is_accessor(self) -> bool {
-        self == Self::KeyedIndexed
     }
 
     pub fn emits_non_keyed_intent(self) -> bool {
         self == Self::Indexed
     }
 }
+
+/// Diagnostic for a destructured `@for` item where Solid passes an accessor.
+/// Shared text with the Babel frontend (`desugar.ts`).
+pub const FOR_ACCESSOR_DESTRUCTURING_MESSAGE: &str = "A destructured `@for` item binding is not supported together with `index` or `key`: Solid passes the item as an accessor. Bind a name and read it as a call (`item().name`)";
+
+/// Diagnostic for a destructured `@catch` error binding. Shared text with the
+/// Babel frontend (`desugar.ts`).
+pub const CATCH_ACCESSOR_DESTRUCTURING_MESSAGE: &str = "A destructured `@catch` error binding is not supported: Solid passes the error as an accessor. Bind a name and read it as a call (`err().message`)";
 
 #[derive(Clone)]
 pub struct ForLoop<'t> {
@@ -285,15 +297,12 @@ impl<'t> Switch<'t> {
 }
 
 #[derive(Clone)]
-pub enum CatchBinding<'t> {
-    Identifier { name: &'t str },
-    Pattern(Node<'t>),
-}
-
-#[derive(Clone)]
 pub struct TryCatch<'t> {
     pub origin: Origin<'t>,
-    pub binding: Option<CatchBinding<'t>>,
+    /// The authored error binding name. Solid passes an `ErrorAccessor`; the
+    /// author reads it as `err()`. A destructuring pattern is rejected at
+    /// lowering (`CATCH_ACCESSOR_DESTRUCTURING_MESSAGE`).
+    pub binding: Option<&'t str>,
     pub reset: Option<Node<'t>>,
     pub body: TemplateBlock<'t>,
 }
@@ -352,19 +361,6 @@ impl<'t> TemplateSite<'t> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct LazyPattern<'t> {
-    pub origin: Origin<'t>,
-    pub source_accessor: bool,
-}
-
-#[derive(Clone, Copy)]
-pub struct LazyAssignment<'t> {
-    pub origin: Origin<'t>,
-    pub pattern: Node<'t>,
-    pub value: Node<'t>,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmbeddedKind {
     Css,
@@ -383,14 +379,9 @@ pub struct SolidTsrxModule<'t> {
     pub root: Node<'t>,
     pub control_flow: Vec<ControlFlow<'t>>,
     pub template_sites: Vec<TemplateSite<'t>>,
-    pub lazy_patterns: Vec<LazyPattern<'t>>,
-    pub lazy_assignments: Vec<LazyAssignment<'t>>,
     pub embedded_regions: Vec<EmbeddedRegion>,
     control_index: HashMap<RecordIndex, usize>,
     template_site_index: HashMap<RecordIndex, usize>,
-    lazy_pattern_index: HashMap<RecordIndex, usize>,
-    authored_lazy_pattern_index: HashSet<RecordIndex>,
-    lazy_assignment_index: HashMap<RecordIndex, usize>,
 }
 
 impl<'t> SolidTsrxModule<'t> {
@@ -426,22 +417,6 @@ impl<'t> SolidTsrxModule<'t> {
             Some(TemplateSite::StyleElement { .. })
         )
     }
-
-    pub fn lazy_pattern_for(&self, node: Node<'_>) -> Option<&LazyPattern<'t>> {
-        self.lazy_pattern_index
-            .get(&node.object())
-            .map(|index| &self.lazy_patterns[*index])
-    }
-
-    pub fn is_authored_lazy_pattern(&self, node: Node<'_>) -> bool {
-        self.authored_lazy_pattern_index.contains(&node.object())
-    }
-
-    pub fn lazy_assignment_for(&self, node: Node<'_>) -> Option<&LazyAssignment<'t>> {
-        self.lazy_assignment_index
-            .get(&node.object())
-            .map(|index| &self.lazy_assignments[*index])
-    }
 }
 
 /// A semantic-lowering diagnostic in authored coordinates.
@@ -462,47 +437,33 @@ impl SemanticError {
 
 /// Lower the parser-interchange root into compiler-owned Solid TSRX IR.
 pub fn lower<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
-    lower_with_options(root, false, AuthoredLazyPolicy::Reject)
+    lower_with_options(root, false)
 }
 
 pub fn lower_recovered<'t>(root: Node<'t>) -> Result<SolidTsrxModule<'t>, SemanticError> {
-    lower_with_options(root, true, AuthoredLazyPolicy::Reject)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AuthoredLazyPolicy {
-    Reject,
-    #[cfg(test)]
-    Allow,
+    lower_with_options(root, true)
 }
 
 fn lower_with_options<'t>(
     root: Node<'t>,
     allow_missing_render: bool,
-    authored_lazy: AuthoredLazyPolicy,
 ) -> Result<SolidTsrxModule<'t>, SemanticError> {
     AuthoredSpan::of(root)?;
     let mut controls = Vec::new();
     let mut template_sites = Vec::new();
-    let mut authored_lazy_patterns = Vec::new();
-    let mut lazy_assignment_nodes = Vec::new();
     let mut embedded_regions = Vec::new();
     let mut lowering_error = None;
     tape::walk(root, &mut |node| {
         if lowering_error.is_some() {
             return false;
         }
-        if authored_lazy == AuthoredLazyPolicy::Reject && is_authored_lazy_pattern(node) {
+        // Authored `&{}` / `&[]` is not part of the Solid target (and no
+        // longer part of TSRX); reject it before anything else looks at the
+        // pattern so the failure is one clear message.
+        if is_authored_lazy_pattern(node) {
             lowering_error = Some(SemanticError::new(
                 "Solid's TSRX frontend does not support authored lazy destructuring; keep property and accessor reads explicit",
                 node,
-            ));
-            return false;
-        }
-        if is_exported_lazy_declaration(node) {
-            lowering_error = Some(SemanticError::new(
-                "TSRX lazy bindings cannot be exported",
-                node.node_field("declaration").unwrap_or(node),
             ));
             return false;
         }
@@ -570,12 +531,6 @@ fn lower_with_options<'t>(
                 }
             }
         }
-        if is_authored_lazy_pattern(node) {
-            authored_lazy_patterns.push(node);
-        }
-        if lazy_assignment_parts(node).is_some() {
-            lazy_assignment_nodes.push(node);
-        }
         if node.ty() == "JSXStyleElement"
             && let Some((start, end)) = tape::paired_element_payload_span(node)
         {
@@ -621,42 +576,14 @@ fn lower_with_options<'t>(
         .enumerate()
         .map(|(index, site)| (site.origin().tape.object(), index))
         .collect();
-    let authored_lazy_pattern_index = authored_lazy_patterns
-        .iter()
-        .map(|pattern| pattern.object())
-        .collect();
-    let (lazy_patterns, lazy_pattern_index) =
-        lower_lazy_patterns(authored_lazy_patterns, &control_flow)?;
-    let lazy_assignments = lazy_assignment_nodes
-        .into_iter()
-        .map(|node| {
-            let (pattern, value) = lazy_assignment_parts(node)
-                .expect("lazy assignment candidates are filtered before lowering");
-            Ok(LazyAssignment {
-                origin: Origin::new(node, false)?,
-                pattern,
-                value,
-            })
-        })
-        .collect::<Result<Vec<_>, SemanticError>>()?;
-    let lazy_assignment_index = lazy_assignments
-        .iter()
-        .enumerate()
-        .map(|(index, assignment)| (assignment.origin.tape.object(), index))
-        .collect();
     embedded_regions.sort_by_key(|region| region.span);
     Ok(SolidTsrxModule {
         root,
         control_flow,
         template_sites,
-        lazy_patterns,
-        lazy_assignments,
         embedded_regions,
         control_index,
         template_site_index,
-        lazy_pattern_index,
-        authored_lazy_pattern_index,
-        lazy_assignment_index,
     })
 }
 
@@ -747,6 +674,13 @@ fn lower_for<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
         .node_field("empty")
         .map(|empty| TemplateBlock::new(empty, "@empty"))
         .transpose()?;
+    let callback_mode = ForCallbackMode::from_clauses(index.is_some(), key.is_some());
+    if callback_mode.item_is_accessor() && pattern.ty() != "Identifier" {
+        return Err(SemanticError::new(
+            FOR_ACCESSOR_DESTRUCTURING_MESSAGE,
+            pattern,
+        ));
+    }
     Ok(ControlFlow::For(ForLoop {
         origin: Origin::new(node, true)?,
         pattern,
@@ -755,7 +689,7 @@ fn lower_for<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
         key,
         body,
         empty,
-        callback_mode: ForCallbackMode::from_clauses(index.is_some(), key.is_some()),
+        callback_mode,
     }))
 }
 
@@ -809,12 +743,13 @@ fn lower_try<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
             let binding = handler
                 .node_field("param")
                 .map(|param| match param.ty() {
-                    "Identifier" => Ok(CatchBinding::Identifier {
-                        name: param.str_field("name").unwrap_or(""),
-                    }),
-                    "ObjectPattern" | "ArrayPattern" => Ok(CatchBinding::Pattern(param)),
+                    "Identifier" => Ok(param.str_field("name").unwrap_or("")),
+                    "ObjectPattern" | "ArrayPattern" => Err(SemanticError::new(
+                        CATCH_ACCESSOR_DESTRUCTURING_MESSAGE,
+                        param,
+                    )),
                     _ => Err(SemanticError::new(
-                        "The @catch error binding must be an identifier, object pattern, or array pattern",
+                        "The @catch error binding must be an identifier",
                         param,
                     )),
                 })
@@ -840,120 +775,8 @@ fn lower_try<'t>(node: Node<'t>) -> Result<ControlFlow<'t>, SemanticError> {
     }))
 }
 
-fn lower_lazy_patterns<'t>(
-    mut authored: Vec<Node<'t>>,
-    controls: &[ControlFlow<'t>],
-) -> Result<(Vec<LazyPattern<'t>>, HashMap<RecordIndex, usize>), SemanticError> {
-    authored.sort_by_key(|node| {
-        let (start, end) = node.span().unwrap_or((u32::MAX, 0));
-        (start, std::cmp::Reverse(end))
-    });
-    let mut patterns = HashMap::<RecordIndex, LazyPattern<'t>>::new();
-    let mut containing_end = 0;
-    for node in authored {
-        let span = AuthoredSpan::of(node)?;
-        if span.start < containing_end {
-            continue;
-        }
-        containing_end = span.end;
-        patterns.insert(
-            node.object(),
-            LazyPattern {
-                origin: Origin::new(node, false)?,
-                source_accessor: false,
-            },
-        );
-    }
-    for control in controls {
-        let pattern = match control {
-            ControlFlow::For(loop_)
-                if loop_.callback_mode.item_is_accessor() && loop_.pattern.ty() != "Identifier" =>
-            {
-                Some(loop_.pattern)
-            }
-            ControlFlow::Try(try_) => try_.catch.as_ref().and_then(|catch| match catch.binding {
-                Some(CatchBinding::Pattern(pattern)) => Some(pattern),
-                _ => None,
-            }),
-            _ => None,
-        };
-        if let Some(pattern) = pattern {
-            match patterns.get_mut(&pattern.object()) {
-                Some(site) => site.source_accessor = true,
-                None => {
-                    patterns.insert(
-                        pattern.object(),
-                        LazyPattern {
-                            origin: Origin::new(pattern, false)?,
-                            source_accessor: true,
-                        },
-                    );
-                }
-            }
-        }
-    }
-    let mut patterns = patterns.into_values().collect::<Vec<_>>();
-    patterns.sort_by_key(|pattern| pattern.origin.span);
-    let mut outer_end = 0;
-    patterns.retain(|pattern| {
-        if pattern.origin.span.start < outer_end {
-            return false;
-        }
-        outer_end = pattern.origin.span.end;
-        true
-    });
-    let index = patterns
-        .iter()
-        .enumerate()
-        .map(|(index, pattern)| (pattern.origin.tape.object(), index))
-        .collect();
-    Ok((patterns, index))
-}
-
 fn is_authored_lazy_pattern(node: Node<'_>) -> bool {
     matches!(node.ty(), "ArrayPattern" | "ObjectPattern") && node.bool_field("lazy")
-}
-
-fn lazy_assignment_parts(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
-    if node.ty() != "ExpressionStatement" {
-        return None;
-    }
-    let expression = node.node_field("expression")?;
-    if expression.ty() != "AssignmentExpression" || expression.str_field("operator") != Some("=") {
-        return None;
-    }
-    let pattern = expression
-        .node_field("left")
-        .filter(|pattern| is_authored_lazy_pattern(*pattern))?;
-    Some((pattern, expression.node_field("right")?))
-}
-
-fn is_exported_lazy_declaration(node: Node<'_>) -> bool {
-    matches!(
-        node.ty(),
-        "ExportNamedDeclaration" | "ExportDefaultDeclaration"
-    ) && node
-        .node_field("declaration")
-        .filter(|declaration| declaration.ty() == "VariableDeclaration")
-        .is_some_and(|declaration| {
-            declaration
-                .list_field("declarations")
-                .flatten()
-                .filter_map(|declarator| declarator.node_field("id"))
-                .any(contains_authored_lazy_pattern)
-        })
-}
-
-fn contains_authored_lazy_pattern(node: Node<'_>) -> bool {
-    let mut found = false;
-    tape::walk(node, &mut |child| {
-        if is_authored_lazy_pattern(child) {
-            found = true;
-            return false;
-        }
-        true
-    });
-    found
 }
 
 fn partition_entries<'t>(
@@ -1272,21 +1095,18 @@ mod tests {
     }
 
     #[test]
-    fn owns_template_and_lazy_site_semantics() {
+    fn owns_template_site_semantics() {
         let source = "export function C({ Tag, rows, model }) @{\n\
-            const &{ title } = model;\n\
-            &{ current } = model;\n\
+            const title = model.title;\n\
             <>\n\
               <style>.item { color: red; }</style>\n\
               <{Tag} /><div {title} />\n\
-              @for (const { name } of rows; index index) { <p>{name}:{index}</p> }\n\
-              @try { <Broken /> } @catch ({ message }) { <p>{message}</p> }\n\
+              @for (const row of rows; index index) { <p>{row().name}:{index}</p> }\n\
+              @try { <Broken /> } @catch (err) { <p>{err().message}</p> }\n\
             </>\n\
         }";
         let tape = parse(source);
-        let module =
-            lower_with_options(Node::root(&tape).unwrap(), false, AuthoredLazyPolicy::Allow)
-                .expect("semantic IR");
+        let module = lower(Node::root(&tape).unwrap()).expect("semantic IR");
 
         assert_eq!(
             module
@@ -1312,24 +1132,6 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(module.lazy_assignments.len(), 1);
-        assert_eq!(module.lazy_patterns.len(), 4);
-        assert_eq!(
-            module
-                .lazy_patterns
-                .iter()
-                .filter(|pattern| pattern.source_accessor)
-                .count(),
-            2
-        );
-        for pattern in &module.lazy_patterns {
-            assert_eq!(
-                module
-                    .lazy_pattern_for(pattern.origin.tape)
-                    .map(|indexed| indexed.origin.span),
-                Some(pattern.origin.span)
-            );
-        }
     }
 
     #[test]
@@ -1388,8 +1190,10 @@ mod tests {
         );
         assert!(!modes[0].item_is_accessor());
         assert!(modes[1].emits_non_keyed_intent());
-        assert!(!modes[1].index_is_accessor());
-        assert!(modes[3].index_is_accessor());
+        assert!(modes[1].item_is_accessor());
+        assert!(modes[2].item_is_accessor());
+        assert!(modes[3].item_is_accessor());
+        assert!(!modes[3].emits_non_keyed_intent());
     }
 
     #[test]
@@ -1412,10 +1216,7 @@ mod tests {
         };
         assert!(try_.pending.is_some());
         let catch = try_.catch.as_ref().expect("catch");
-        assert!(matches!(
-            catch.binding,
-            Some(CatchBinding::Identifier { name: "error", .. })
-        ));
+        assert_eq!(catch.binding, Some("error"));
         assert_eq!(
             catch.reset.and_then(|node| node.str_field("name")),
             Some("reset")

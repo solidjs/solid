@@ -276,7 +276,7 @@ Requirements and behavior:
 - Desugared constructs rely on the `builtIns` auto-imports, so those components must exist in `moduleName`.
 - Scoped `<style>` blocks are removed at compile time, matching native and dynamic elements receive a `tsrx-<hash>` class, and the scoped/pruned stylesheet is returned as `result.metadata.css` with `result.metadata.cssHash`. Style expressions produce class-map objects, `<style ref={styles}>` initializes a class map, and `:global(...)` opts selectors out of scoping. The plugin emits no runtime style helper; a bundler integration must emit the CSS metadata.
 - Solid rejects authored TSRX lazy destructuring (`&{ … }` / `&[ … ]`). Keep accessor calls and reactive property reads explicit in Solid source.
-- Destructured bindings in keyed `@for` loops and `@catch` clauses stay deferred against Solid's item and error accessors, including nested patterns, defaults, computed keys, and rest.
+- Control-flow bindings pass through exactly as authored. `@for … index` / `@for … key` hand the callback the item as an accessor (and the index as an accessor under a custom key), and `@catch (err, reset)` receives Solid's `ErrorAccessor` — write `item()`, `i()`, `err()` as in JSX. Destructuring a binding in one of those positions is rejected with a diagnostic; the default keyed `@for` item is a raw value and destructures as usual.
 - The native compiler ([`@solidjs/compiler`](../compiler)) compiles the same sources to byte-identical output.
 
 ## Special Binding

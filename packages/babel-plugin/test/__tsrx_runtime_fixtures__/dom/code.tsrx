@@ -13,7 +13,7 @@ export function App() @{
     <button onClick={() => setCount(count() + 1)}>Count: {count}</button>
     <ul>
       @for (const row of rows(); key row.id) {
-        <li data-id={row.id}>{row.label}</li>
+        <li data-id={row().id}>{row().label}</li>
       } @empty {
         <li class="empty">empty</li>
       }

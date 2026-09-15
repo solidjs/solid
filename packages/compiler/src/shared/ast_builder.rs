@@ -13,7 +13,7 @@ use oxc_str::{Ident, Str};
 use oxc_syntax::{
     number::NumberBase,
     operator::{
-        AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
+        AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator,
     },
 };
 
@@ -215,16 +215,6 @@ impl<'a> AstBuilder<'a> {
         argument: Expression<'a>,
     ) -> Expression<'a> {
         Expression::new_unary_expression(span, operator, argument, &self.inner())
-    }
-
-    pub(crate) fn expression_update(
-        &self,
-        span: Span,
-        operator: UpdateOperator,
-        prefix: bool,
-        argument: SimpleAssignmentTarget<'a>,
-    ) -> Expression<'a> {
-        Expression::new_update_expression(span, operator, prefix, argument, &self.inner())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -780,15 +770,6 @@ impl<'a> AstBuilder<'a> {
             JSXClosingFragment::new(span, &self.inner()),
             &self.inner(),
         ))
-    }
-
-    pub(crate) fn alloc_jsx_member_expression(
-        &self,
-        span: Span,
-        object: JSXMemberExpressionObject<'a>,
-        property: JSXIdentifier<'a>,
-    ) -> ArenaBox<'a, JSXMemberExpression<'a>> {
-        JSXMemberExpression::boxed(span, object, property, &self.inner())
     }
 
     pub(crate) fn template_element_with_lone_surrogates(

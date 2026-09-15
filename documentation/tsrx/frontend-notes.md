@@ -63,10 +63,12 @@ versioned paths:
 3. `@tsrx/oxc` projects authored TSRX for Oxlint/Oxfmt and maps diagnostics and
    safe fixes back to authored ranges.
 
-`@tsrx/solid`'s virtual projection must model the source-level callback
-contract, not expose Solid's internal callback accessors: accessor-backed
-`@for` item/index and `@catch` error reads are implicit in authored TSRX.
-Compiler, Volar, and runtime fixtures cover the same callback-mode matrix.
+`@tsrx/solid`'s virtual projection models the source-level callback contract
+exactly as Solid's compilers do: `@for` item/index and `@catch` error bindings
+are the accessors `For` and `Errored` hand out, and the author reads them as
+`item()` / `err()` (#3474). Both projections emit the same `(item, i) =>` /
+`(err, reset) =>` arrows, so they agree on every binding's type. Compiler,
+Volar, and runtime fixtures cover the same callback-mode matrix.
 
 The recommended general lint/format path is `@tsrx/oxc`.
 `@tsrx/eslint-parser` and `@tsrx/eslint-plugin` remain useful for TSRX-specific
@@ -76,38 +78,45 @@ complete enough to be the primary checker.
 ## Lowering contract (oracle-verified, adapted to 2.0 RC)
 
 All flow-control imports come from `solid-js`; `dynamic` from `@solidjs/web`.
-The TSRX grammar and both parser integrations continue to recognize lazy
-patterns, but the Solid target rejects parser-authored `&{}` and `&[]`.
-Solid keeps property reads and accessor calls explicit. The existing lowering
-remains dormant for possible future policy changes and for compiler-generated
-deferred patterns used by accessor-backed `@for` and `@catch` callbacks.
+Solid keeps property reads and accessor calls explicit: bindings pass through
+to `For` / `Errored` exactly as authored and nothing is rewritten after the
+lowering. Parsers that still produce `&{}` / `&[]` (TSRX has since removed the
+sigil from the language) are rejected by the Solid target with an explicit
+diagnostic; there is no lazy lowering on this target.
 
-| TSRX                                                | Lowering                                                                                                           | Verified oracle output                                 |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| `@{ body; render }` as function body                | Inline statements + `return render`                                                                                | yes                                                    |
-| `@{ body; render }` in expression/child position    | IIFE `(() => { body; return render; })()`                                                                          | yes                                                    |
-| `@if (c) { A }`                                     | `<Show when={c}>A</Show>`                                                                                          | yes                                                    |
-| `@if (c) { A } @else { B }`                         | `<Show when={c} fallback={B}>A</Show>`                                                                             | yes                                                    |
-| `@if / @else if / … / @else` (chain)                | `<Switch fallback={else}>` + `<Match when={cN}>` per branch                                                        | yes                                                    |
-| `@for (const x of expr; index i; key k(x))`         | `<For each={expr} keyed={(x) => k(x)}>{(x, i) => …}</For>`                                                         | yes — RC `For` has the `keyed: (item) => any` overload |
-| `@for (const x of expr; index i)`                   | `<For each={expr} keyed={false}>{(x, i) => …}</For>`                                                               | yes — accessor item, raw numeric index                 |
-| `@empty { F }`                                      | `fallback={F}` on `For`                                                                                            | yes                                                    |
-| `@switch (v) { @case 'a': {A} @default: {D} }`      | `<Switch fallback={D}><Match when={v === 'a'}>A</Match>…</Switch>`                                                 | yes                                                    |
-| `@try { C } @pending { P } @catch (e, reset) { E }` | `<Errored fallback={(e, reset) => E}><Loading fallback={P}>C</Loading></Errored>`                                  | yes, with one adaptation (below)                       |
-| `<{expr}>…</{expr}>`                                | `const TsrxDynamic_N = dynamic(() => expr)` hoisted into scope, used as component                                  | yes                                                    |
-| `{name}` prop shorthand                             | `name={name}`                                                                                                      | yes                                                    |
-| Authored `&{ … }` / `&[ … ]` patterns               | Rejected by the Solid target with an explicit diagnostic                                                           | parser support and dormant lowering retained           |
-| Scoped `<style>` blocks                             | Removed from JSX; scoped/pruned CSS returned separately and matching native/dynamic elements receive `tsrx-<hash>` | yes; Babel metadata and native result expose CSS/hash  |
-| Native TSRX source maps                             | Compose codegen mappings through exact authored projection ranges; generated-only ranges remain unmapped           | yes; original filename/source content preserved        |
-| Guard `if (!x) return null;` before render          | Preserved as ordinary statements                                                                                   | yes                                                    |
+| TSRX                                                           | Lowering                                                                                                           | Verified oracle output                                 |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `@{ body; render }` as function body                           | Inline statements + `return render`                                                                                | yes                                                    |
+| `@{ body; render }` in expression/child position               | IIFE `(() => { body; return render; })()`                                                                          | yes                                                    |
+| `@if (c) { A }`                                                | `<Show when={c}>A</Show>`                                                                                          | yes                                                    |
+| `@if (c) { A } @else { B }`                                    | `<Show when={c} fallback={B}>A</Show>`                                                                             | yes                                                    |
+| `@if / @else if / … / @else` (chain)                           | `<Switch fallback={else}>` + `<Match when={cN}>` per branch                                                        | yes                                                    |
+| `@for (const x of expr; index i; key k(x))`                    | `<For each={expr} keyed={(x) => k(x)}>{(x, i) => …}</For>`                                                         | yes — `x` and `i` are accessors, read as `x()` / `i()` |
+| `@for (const x of expr; index i)`                              | `<For each={expr} keyed={false}>{(x, i) => …}</For>`                                                               | yes — accessor item `x()`, raw numeric index           |
+| `@empty { F }`                                                 | `fallback={F}` on `For`                                                                                            | yes                                                    |
+| `@switch (v) { @case 'a': {A} @default: {D} }`                 | `<Switch fallback={D}><Match when={v === 'a'}>A</Match>…</Switch>`                                                 | yes                                                    |
+| `@try { C } @pending { P } @catch (e, reset) { E }`            | `<Errored fallback={(e, reset) => E}><Loading fallback={P}>C</Loading></Errored>`                                  | yes — `e` is the `ErrorAccessor`, read as `e()`        |
+| `<{expr}>…</{expr}>`                                           | `const TsrxDynamic_N = dynamic(() => expr)` hoisted into scope, used as component                                  | yes                                                    |
+| `{name}` prop shorthand                                        | `name={name}`                                                                                                      | yes                                                    |
+| Authored `&{ … }` / `&[ … ]` patterns                          | Rejected by the Solid target with an explicit diagnostic                                                           | no lowering on this target                             |
+| Destructured `@for` item with `index`/`key`, or `@catch` error | Rejected with a diagnostic — Solid passes an accessor there, so there is nothing to destructure                    | default keyed `@for` still destructures the raw item   |
+| Scoped `<style>` blocks                                        | Removed from JSX; scoped/pruned CSS returned separately and matching native/dynamic elements receive `tsrx-<hash>` | yes; Babel metadata and native result expose CSS/hash  |
+| Native TSRX source maps                                        | Compose codegen mappings through exact authored projection ranges; generated-only ranges remain unmapped           | yes; original filename/source content preserved        |
+| Guard `if (!x) return null;` before render                     | Preserved as ordinary statements                                                                                   | yes                                                    |
 
-### Deliberate adaptation: `@catch` error binding
+### Accessor bindings are explicit (#3474)
 
-`@tsrx/solid` emits `fallback={(e, reset) => …e.message…}` — a **raw** `e`
-read, written against beta.15. In the current RC, `Errored`'s fallback receives
-`err: ErrorAccessor` (a function). Our frontend rewrites reads of the catch
-binding to calls (`e()` → `e().message`), consistent with the deferred-access
-treatment of `&` bindings. Report upstream to `@tsrx/solid`.
+`Errored`'s fallback receives `err: ErrorAccessor`, and `For`'s callback
+receives an accessor item in every non-default mode (plus an accessor index
+under a custom key). Earlier RCs hid that: the frontends rewrote every read of
+those bindings into a call and turned destructured patterns into synthetic
+`__lazyN` parameters. That was the implicit lazy-binding idea the Solid target
+already rejected for `&{}` / `&[]` — a binding that reads like a value but is
+a function, with nothing at the use site saying which — and it made
+`projectTsrxForTypecheck` disagree with `@tsrx/solid` on the type of `item`
+and `err`. Both frontends now pass the bindings through untouched; the author
+writes `item()`, `i()`, `err()` as in JSX. A destructuring pattern where Solid
+passes an accessor is rejected at semantic lowering with a shared diagnostic.
 
 ### Stage 2 findings (Babel frontend implementation)
 
@@ -117,41 +126,12 @@ treatment of `&` bindings. Report upstream to `@tsrx/solid`.
   enforces it (`validateNoControlFlowEscape`), reusing `@tsrx/solid`'s exact
   messages for `@if`/`@for` and uniform equivalents for the other constructs.
   These messages are part of the parity contract the Rust frontend mirrors.
-- **The previous lazy engine hijacked intrinsic tags (upstream bug,
-  @tsrx/core 0.1.61).**
-  `rewrite_lazy_jsx_name` rewrites _any_ JSX name matching a lazy binding —
-  `<address>` with `const &{ address } = user` in scope becomes
-  `<__lazy0.address>`, turning an element into a component. Per JSX semantics
-  a single lowercase identifier tag is always intrinsic. The Solid-local
-  engine never performs that rewrite; `restoreIntrinsicJsxNames` remains as a
-  compatibility repair for trees produced by older paths.
-- **Ordering: desugar before deferred-pattern lowering.** The lazy engine only collects block-level
-  `let &[…]`/`const &{…}` bindings in its BlockStatement/Program handlers,
-  which never fire while function bodies are still `JSXCodeBlock` nodes. The
-  frontend therefore desugars first (containers become real blocks), then runs
-  preallocate + apply on the plain tree. The public frontend rejects authored
-  lazy patterns before this stage; generated control-flow patterns still use it.
-- **Dormant Solid-local lazy lowering.** The Babel frontend no longer delegates lazy
-  rewriting to `@tsrx/core`. Both frontends implement the same lowering for
-  nested and computed paths, defaults, and object/array rest. Defaults use
-  JavaScript's `=== undefined` rule, evaluate the fallback only when needed,
-  and preserve direct source writes and prefix/postfix update results.
-  Bindings below an ancestor default and rest views are read-only; attempting
-  to write them produces a structured diagnostic instead of targeting an
-  invalid raw path. Solid currently exposes this machinery only for
-  compiler-generated deferred patterns.
-- **RC `For` accessor semantics (adaptation).** With a custom `keyed` function
-  the children callback receives accessor item and index parameters. An index
-  without a key selects `keyed={false}`, whose callback receives an accessor
-  item and raw numeric index; without either clause, the default callback item
-  is raw. The desugarer rewrites only accessor-backed bindings to calls,
-  scope-aware. Destructured accessor items become synthetic lazy parameters,
-  so nested/defaulted/computed/rest reads remain deferred when a row is
-  replaced.
-- **RC `@catch` accessor semantics (adaptation).** Identifier error bindings
-  rewrite to accessor calls. Object and array patterns become synthetic lazy
-  parameters backed by the `ErrorAccessor`, preserving defaults, computed
-  keys, rest views, and the current error value without eager destructuring.
+- **Accessor bindings pass through.** The desugarer emits the `For` /
+  `Errored` callback parameters exactly as authored (see above). It rejects a
+  destructuring pattern in the item position of a non-default `@for` and in
+  the `@catch` error position with a fixed message shared byte-for-byte with
+  the Rust frontend, and still rejects authored `&{}` / `&[]` before
+  desugaring. There is no lazy lowering step on the Solid target.
 - **Dynamic tags lower to the `Dynamic` builtIn** (`<Dynamic component={expr}
 …>`), not `@tsrx/solid`'s hoisted `dynamic()` factory — semantically
   equivalent (web's `Dynamic` wraps `dynamic()`), uniform with the other
@@ -182,9 +162,8 @@ lowering**:
    `SolidTsrxModule`: typed code blocks, if chains, for loops (including
    computed callback mode), switches, and try/pending/catch clauses with
    authored UTF-8 spans. It structurally validates required fields and records
-   typed dynamic, lazy, lazy-assignment, style, raw-script, and shorthand sites.
-   Lazy ids and accessor-backed pattern intent are assigned here rather than
-   rediscovered by a backend.
+   typed dynamic, style, raw-script, and shorthand sites. It rejects authored
+   `&` patterns and destructured accessor bindings here, so no backend has to.
    Ordinary JavaScript expressions and blocks remain read-only tape nodes;
    `FlatTape` itself is not the compiler IR.
 3. `leaf.rs` asks `tsrx_syntax` for a legal parser scaffold and parses it once
@@ -196,10 +175,9 @@ lowering**:
    shorthand attributes, raw scripts, and scoped-style edits directly with
    `AstBuilder`. Every parser scaffold must be consumed before the program can
    enter the shared compiler.
-5. Lazy `&` bindings and accessor callbacks feed compiler-owned rewrite
-   artifacts into the existing symbol-aware AST pass (pattern → deterministic
-   `__lazyN`, reads → deferred property/index access). No generated Solid-JSX
-   text is parsed.
+5. Nothing is rewritten after the lowering: callback bindings are the
+   authored identifiers. `spans.rs` only clears generated (or, without source
+   maps, all) spans. No generated Solid-JSX text is parsed.
 6. Native source maps use authored spans on cloned leaves. Generated-only
    nodes are unspanned, so mappings cannot bleed across compiler-created
    structure.
@@ -222,9 +200,11 @@ fields need a named future backend consumer rather than an open-ended
 compatibility shim. Every slice records its net code growth, preserves the
 full byte-parity corpus, and is cleaned up before the next backend is added.
 The migration is complete for runtime compilation: `project.rs` and
-`style_projection.rs` now consume semantic template/lazy indices, and the
-duplicate lazy preallocation, export validation, dynamic-tag, style-tag, and
-shorthand discovery paths have been removed. Template blocks are partitioned
+`style_projection.rs` now consume semantic template indices, and the
+duplicate export validation, dynamic-tag, style-tag, and shorthand discovery
+paths have been removed. The lazy-binding engine (`rewrite.rs`, its
+projection anchors, and the Babel `lazy.ts` transform) was deleted with
+#3474 once nothing generated a deferred pattern. Template blocks are partitioned
 and escape-validated once in the IR, which also owns their post-lowering
 render shape; the corresponding projector analysis and validation code has
 been deleted. Runtime constructs now lower directly to Oxc AST and the
@@ -233,15 +213,10 @@ parser remain intentionally scoped to the public type-checking/tooling path.
 
 ### Known upstream gaps (pin in fixtures)
 
-- **Arrow-function lazy params:** supported by both parser frontends, including
-  synchronous, asynchronous, typed, defaulted, nested, multi-parameter, and
-  generic arrows. Until the upstream parser changes are released, local
-  verification uses the corresponding pinned revisions.
-- `@tsrx/core`'s `transform/lazy.js` is an exported framework-agnostic
-  AST-to-AST lazy transform (`create_lazy_context`, `preallocateLazyIds`,
-  `applyLazyTransforms`, deterministic `__lazyN` naming). The Babel frontend
-  reuses it on the ESTree AST before conversion; the Rust frontend replicates
-  the same algorithm so generated names match byte-for-byte.
+- **Lazy `&` patterns:** TSRX removed the sigil from the language
+  ([Removing lazy destructuring](https://tsrx.dev/blog/removing-lazy-destructuring)).
+  The pinned parsers here still recognize it; the Solid target rejects it
+  and does not carry a lowering.
 - **Expression-position statement containers:** the v0.6.0 parser gap was
   fixed in [tsrx-org/oxc#34](https://github.com/tsrx-org/oxc/pull/34).
   The native frontend now accepts the same function-body, statement,

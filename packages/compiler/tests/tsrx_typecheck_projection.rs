@@ -32,17 +32,17 @@ fn line_column(source: &str, byte_offset: usize) -> (u32, u32) {
 }
 
 #[test]
-fn projects_identifier_and_destructured_callback_modes() {
+fn projects_callback_bindings_as_authored() {
+    // The bindings pass through untouched (#3474): where `For`/`Errored` hand
+    // the callback an accessor the author reads it as one, and the projection
+    // emits exactly the arrows `@tsrx/solid` does. Nothing is rewritten.
     let source = r#"export function Rows({ rows }) @{
   <>
     @for (const plain of rows) { <p>{plain.name}</p> }
-    @for (const indexed of rows; index index) { <p>{indexed.name}:{index}</p> }
-    @for (const keyed of rows; key keyed.id) { <p>{keyed.name}</p> }
-    @for (const both of rows; index position; key both.id) { <p>{both.name}:{position}</p> }
-    @for (const { name = "missing", ...rest } of rows; index offset) {
-      <p>{name}:{rest.extra}:{offset}</p>
-    }
-    @try { <Broken /> } @catch (error) { <p>{error.message}</p> }
+    @for (const indexed of rows; index index) { <p>{indexed().name}:{index}</p> }
+    @for (const keyed of rows; key keyed.id) { <p>{keyed().name}</p> }
+    @for (const both of rows; index position; key both.id) { <p>{both().name}:{position()}</p> }
+    @try { <Broken /> } @catch (error) { <p>{error().message}</p> }
   </>
 }"#;
     let output = project(source);
@@ -50,17 +50,28 @@ fn projects_identifier_and_destructured_callback_modes() {
     assert!(output.code.contains("from \"solid-js\""));
     assert!(output.code.contains("<__tsrx_For0"));
     assert!(output.code.contains("<__tsrx_Errored0"));
-    assert!(output.code.contains("plain.name"));
-    assert!(!output.code.contains("plain().name"));
-    assert!(output.code.contains("indexed().name"));
-    assert!(output.code.contains("keyed().name"));
-    assert!(output.code.contains("both().name"));
-    assert!(output.code.contains("position()"));
+    assert!(output.code.contains("{(plain) => <p>{plain.name}</p>}"), "{}", output.code);
+    assert!(
+        output.code.contains("{(indexed, index) => <p>{indexed().name}:{index}</p>}"),
+        "{}",
+        output.code
+    );
     assert!(output.code.contains("keyed={false}"));
-    assert!(output.code.contains("__lazy"));
-    assert!(output.code.contains(".name"));
-    assert!(output.code.contains(".extra"));
-    assert!(output.code.contains("error().message"));
+    assert!(output.code.contains("keyed={(keyed) => keyed.id}"), "{}", output.code);
+    assert!(output.code.contains("{(keyed) => <p>{keyed().name}</p>}"), "{}", output.code);
+    assert!(
+        output.code.contains("{(both, position) => <p>{both().name}:{position()}</p>}"),
+        "{}",
+        output.code
+    );
+    assert!(
+        output.code.contains("fallback={(error) => <p>{error().message}</p>}"),
+        "{}",
+        output.code
+    );
+    assert!(!output.code.contains("__lazy"));
+    assert!(!output.code.contains("plain().name"));
+    assert!(!output.code.contains("index()"));
 
     let runtime = compile(
         source,
@@ -71,13 +82,99 @@ fn projects_identifier_and_destructured_callback_modes() {
         },
     )
     .expect("runtime projection");
-    for shared_semantic_read in ["indexed().name", "error().message"] {
+    for shared_semantic_read in ["indexed().name", "both().name", "error().message", "plain.name"] {
         assert!(
             runtime.code.contains(shared_semantic_read),
             "runtime and tooling must share {shared_semantic_read}: {}",
             runtime.code
         );
     }
+    assert!(!runtime.code.contains("__lazy"));
+}
+
+#[test]
+fn rejects_destructuring_where_solid_passes_an_accessor() {
+    // Destructuring an accessor has nothing to destructure. Both the runtime
+    // compile and the typecheck projection fail at semantic lowering with the
+    // same diagnostic, pointing at the pattern (#3474).
+    let cases: [(&str, &str, u32, u32); 5] = [
+        (
+            "export function Rows({ rows }) @{\n  @for (const { name } of rows; index i) { <p>{name}</p> }\n}",
+            "A destructured `@for` item binding is not supported together with `index` or `key`",
+            2,
+            14,
+        ),
+        (
+            "export function Rows({ rows }) @{\n  @for (const [first] of rows; key first) { <p>{first}</p> }\n}",
+            "A destructured `@for` item binding is not supported together with `index` or `key`",
+            2,
+            14,
+        ),
+        (
+            "export function Rows({ rows }) @{\n  @for (const { id } of rows; index i; key id) { <p>{id}</p> }\n}",
+            "A destructured `@for` item binding is not supported together with `index` or `key`",
+            2,
+            14,
+        ),
+        (
+            "export function Rows() @{\n  @try { <Broken /> } @catch ({ message }) { <p>{message}</p> }\n}",
+            "A destructured `@catch` error binding is not supported",
+            2,
+            30,
+        ),
+        (
+            "export function Rows() @{\n  @try { <Broken /> } @catch ([first], reset) { <p onClick={reset}>{first}</p> }\n}",
+            "A destructured `@catch` error binding is not supported",
+            2,
+            30,
+        ),
+    ];
+    for (source, expected, line, column) in cases {
+        let error = project_tsrx_for_typecheck(
+            source,
+            &TsrxTypecheckProjectionOptions {
+                filename: Some("reject.tsrx".into()),
+            },
+        )
+        .expect_err("destructured accessor must be rejected by the projection");
+        assert!(
+            error.message().contains(expected),
+            "{source}\nprojection: {error}"
+        );
+        assert!(
+            error.message().ends_with(&format!("({line}:{column})")),
+            "{source}\nprojection location: {error}"
+        );
+
+        let error = compile(
+            source,
+            &CompileOptions {
+                filename: Some("reject.tsrx".into()),
+                syntax: Syntax::Tsrx,
+                ..CompileOptions::default()
+            },
+        )
+        .expect_err("destructured accessor must be rejected by the compile");
+        assert!(error.message().contains(expected), "{source}\nruntime: {error}");
+        assert!(
+            error.message().ends_with(&format!("({line}:{column})")),
+            "{source}\nruntime location: {error}"
+        );
+    }
+
+    // Default keyed `@for` hands the callback the raw item: destructuring is
+    // an ordinary one-time destructure there and stays allowed.
+    let keyed = "export function Rows({ rows }) @{\n  @for (const { name } of rows) { <p>{name}</p> }\n}";
+    assert!(project(keyed).code.contains("{({ name }) => <p>{name}</p>}"));
+    compile(
+        keyed,
+        &CompileOptions {
+            filename: Some("keyed.tsrx".into()),
+            syntax: Syntax::Tsrx,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("default keyed destructuring compiles");
 }
 
 #[test]
