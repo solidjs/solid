@@ -113,6 +113,8 @@ Two ways to send intentional error content in production:
 
 Framework error hooks compose the same way: a `wrapInvocation`/`transformResult` override that maps a thrown error expresses intent by throwing an envelope or branding its replacement with `markSafeError` — core never second-guesses a branded value, and never trusts an unbranded one.
 
+The same policy covers the SSR roads a failure takes to the client — an `<Errored>` record, a rejected async source in the stream, a fragment's rejection, a frame's error chunks — so a `"use server"` function called in-process during a render (which never touches this handler) cannot ship on the page what the RPC wire withholds; see [RFC 12](12-ssr-http.md#what-a-render-failure-looks-like-from-the-client) and `SSR_ERROR_SANITIZED` in [RFC 08](08-dev-diagnostics.md#ssr_error_sanitized). `markSafeError` is the one brand on both.
+
 ### Single-flight
 
 The protocol folds integration data (typically revalidated route data) into a mutation’s response, saving a round trip. Core standardizes only the wire shape and delivery; what the data _is_ — a data-only render, route preloads, a cache query — is entirely the integration’s business.

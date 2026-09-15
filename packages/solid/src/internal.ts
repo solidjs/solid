@@ -61,6 +61,16 @@ export const runInServerComponentScope: <T>(fn: () => T) => T = core.runInServer
 /** Server: whether a server-component scope is active. Client: `false`. */
 export const inServerComponentScope: () => boolean = core.inServerComponentScope;
 
+/**
+ * Server: the value the client may see in place of a render failure about to
+ * be serialized or rendered for it — the value itself in the dev build or
+ * when branded with `markSafeError`, else one generic `Error` per original
+ * (recorded once as `SSR_ERROR_SANITIZED`). `subject` locates the finding;
+ * `null` from a serialization funnel. Client: identity.
+ */
+export const ssrSanitizeError: (value: unknown, subject?: object | null) => unknown =
+  core.ssrSanitizeError;
+
 /** Server: a monotonic stamp for owner creation order. Client: `0`. */
 export const creationStamp: () => number = core.creationStamp;
 

@@ -42,7 +42,12 @@ import {
   NoHydration,
   Hydration
 } from "solid-js";
-import { runInServerComponentScope, ssrHandleError, creationStamp } from "solid-js/internal";
+import {
+  runInServerComponentScope,
+  ssrHandleError,
+  ssrSanitizeError,
+  creationStamp
+} from "solid-js/internal";
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API
@@ -661,8 +666,10 @@ function frameStream(makeCode, options) {
       // A synchronous render failure travels as a structured chunk — the
       // consumer stores an `:error` record instead of seeing a truncated
       // stream. (Async fragment errors already ride their rejected `_fr`
-      // promise through the data codec.)
-      sink.error("", err instanceof Error ? err.message : String(err));
+      // promise through the data codec.) What the chunk carries is the wire
+      // policy's (#3468); the record beside it keeps the original.
+      const wire = ssrSanitizeError(err, null);
+      sink.error("", wire instanceof Error ? wire.message : String(wire));
       sink.end();
       observation && observation.settle("error", err);
       w.end && w.end();

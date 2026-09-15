@@ -132,6 +132,10 @@ export function creationStamp(): number {
 export function inServerComponentScope(): boolean {
   return false;
 }
+/** @internal — server-only: the client has no wire to sanitize for. */
+export function ssrSanitizeError(value: unknown): unknown {
+  return value;
+}
 /** @internal — server-only: on the client no value carries a trace. */
 export function getProjectionTrace(
   value: unknown

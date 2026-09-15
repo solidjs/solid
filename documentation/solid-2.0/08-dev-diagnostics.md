@@ -486,6 +486,12 @@ Finding (`error`, observe + dev) plus the existing behavior: the dev build **thr
 
 Finding (`error`, observe + dev). A server function threw and the non-dev wire replaced the error with the generic message (RFC 10's sanitization). The client sees the replacement; this record carries the original in `data.error`. Beside the invocation channel's `outcome: "error"` it is the one place the real failure surfaces in production. A value branded with `markSafeError` passes through and is not reported.
 
+#### `SSR_ERROR_SANITIZED`
+
+**Message:** "[SSR_ERROR_SANITIZED] Render error replaced with a generic Error before reaching the client: TypeError: …"
+
+Finding (`info`, observe + dev; channel only). A render failure was about to reach the client through one of SSR's roads — the record an `<Errored>` serializes so the client hydrates the same fallback, a rejected async source serialized into the stream, a `<Loading>` fragment's `_fr` rejection, a frame stream's error chunk (the fragment's, a live hole's, the root's) — and the non-dev wire replaced it with the generic `Error` (`"Internal Server Error"`), the same policy the server-function wire applies (`SERVER_FN_ERROR_SANITIZED`; a `"use server"` function called in-process during SSR never touches that wire, so before this the page load leaked what the RPC withheld — [#3468](https://github.com/solidjs/solid/issues/3468)). The boundary sanitizes _before_ rendering its fallback and serializes the same replacement, so fallback markup and record agree on hydration. Advisory because the failure itself is the `SSR_RENDER_ERROR_CONTAINED` finding's, which carries the original; this is the record of what the wire carried instead, `data.error` the original, once per original however many roads it took. A value branded with `markSafeError` passes through and is not reported; an Error reached as a _value_ — never thrown — is data and passes as the author wrote it (#3113's ruling). The dev build keeps full fidelity.
+
 #### `FRAME_MARKER_CORRUPTED`
 
 **Message:** "[FRAME_MARKER_CORRUPTED] Frame slot range "comment#0" is missing its end marker (<!--slot:comment#0:end-->) among its start marker's siblings. …"

@@ -111,6 +111,7 @@ import {
   errorText,
   recordFinding
 } from "./diagnostics.js";
+import type { DiagnosticSubject } from "@solidjs/signals";
 
 // === Lean SSR Owner Runtime ===
 //
@@ -2663,6 +2664,76 @@ export function runWithBoundaryErrorContext<T>(
 
 export { NoHydrateContext };
 
+// --- What a render failure looks like from the client ------------------------
+//
+// A plain thrown value reaching the client verbatim ships its `message`,
+// `cause` and every own property — a driver error's failing query,
+// connection string, bound params — to anyone who can trigger the throw.
+// The server-function wire has sanitized that since #3113/#3116
+// (`sanitizeServerError`); the SSR roads did not (#3468): an <Errored>
+// serializing the error it caught so the client hydrates the same fallback,
+// a rejected async source serialized into the stream, a <Loading> fragment
+// rejecting its `_fr` promise, a frame stream's error chunk. A `"use server"`
+// function called in-process during SSR never touches dispatch, so the
+// production page load leaked exactly what its RPC wire withholds.
+//
+// One policy for every SSR road, applied where the value is about to be
+// rendered or serialized FOR the client — never to what the server keeps:
+// the observe tier's findings and records carry the original beside it.
+//
+//  - The dev/prod line is the build variant, `IS_DEV` — `server.dev.js`
+//    behind the `development` condition keeps fidelity; the prod and observe
+//    artifacts sanitize — the same gate every dev check in this entry uses,
+//    so a harness that runs the entry from source is uniformly the dev tier
+//    (the server-function wire's `sanitizeServerError` reads its literal
+//    strictly instead, because that entry's raw source is a plausible
+//    runtime; this one's is not, and the artifact specs pin the replace).
+//  - A value branded with `markSafeError` (`Symbol.for("solid.SafeError")`,
+//    registered so this needs nothing from `@solidjs/web`) is intentional
+//    client-facing content and passes through.
+//  - One replacement per original: the same error reaches this through
+//    several roads (the boundary's catch, the channel it rejected, a Loading
+//    re-pull recurring the throw), and every road must hand the client the
+//    same object, and the finding must be recorded once.
+const SAFE_ERROR = Symbol.for("solid.SafeError");
+const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
+const sanitizedErrors = new WeakMap<object, Error>();
+
+/**
+ * The value the client may see in place of `value`, a render failure that is
+ * about to be rendered into a fallback or serialized: `value` itself in the
+ * dev build or when branded safe, else one generic `Error` per original.
+ * Outside dev the replacement is recorded once as `SSR_ERROR_SANITIZED`
+ * (observe/dev), the original in `data.error` — advisory (`info`): the
+ * failure itself is the `SSR_RENDER_ERROR_CONTAINED` finding's, and this is
+ * the record of what the wire carried instead. `subject` locates it (the
+ * boundary's owner; `null` from a serialization funnel).
+ * @internal
+ */
+export function ssrSanitizeError(value: unknown, subject?: DiagnosticSubject | null): unknown {
+  if (IS_DEV) return value;
+  const isObject = value !== null && (typeof value === "object" || typeof value === "function");
+  if (isObject) {
+    if ((value as any)[SAFE_ERROR]) return value;
+    const prior = sanitizedErrors.get(value as object);
+    if (prior !== undefined) return prior;
+  }
+  const replacement = new Error(GENERIC_SERVER_ERROR_MESSAGE);
+  if (isObject) sanitizedErrors.set(value as object, replacement);
+  if (IS_OBSERVE)
+    emitFinding(
+      {
+        code: "SSR_ERROR_SANITIZED",
+        kind: "ssr",
+        severity: "info",
+        message: `[SSR_ERROR_SANITIZED] Render error replaced with a generic Error before reaching the client: ${errorText(value)}`,
+        data: { error: value }
+      },
+      subject === undefined ? getOwner() : subject
+    );
+  return replacement;
+}
+
 export function createErrorBoundary<T, U>(
   fn: () => T,
   fallback: (error: Accessor<unknown>, reset: () => void) => U
@@ -2778,10 +2849,16 @@ export function createErrorBoundary<T, U>(
       owner
     );
   };
+  // The finding first, with the original; then the one value the client may
+  // see — rendered into the fallback AND serialized, since the fallback is
+  // rendered here with the error and hydrates against the record (a
+  // sanitized record under a fallback rendered from the original would
+  // mismatch). See `ssrSanitizeError`.
   const handleError = (err: any) => {
     reportContained(err);
-    serializeError(err);
-    return renderFallback(err);
+    const wire = ssrSanitizeError(err, owner);
+    serializeError(wire);
+    return renderFallback(wire);
   };
   // `$lhSkip`: boundary machinery owns this position (see ssrLoadingBoundary)
   // — a live binding over the boundary's output would re-run resolve(),

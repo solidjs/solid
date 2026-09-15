@@ -139,7 +139,8 @@ export {
   creationStamp,
   runInServerComponentScope,
   inServerComponentScope,
-  getProjectionTrace
+  getProjectionTrace,
+  ssrSanitizeError
 } from "./signals.js";
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";

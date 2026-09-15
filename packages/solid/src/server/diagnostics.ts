@@ -36,8 +36,27 @@ export function emitFinding(
   if (!IS_OBSERVE) return;
   // `OBSERVE`/`DEV` are typed optional (undefined in the tiers below theirs);
   // the gates above are the same conditions that define them.
-  const entry = OBSERVE!.diagnostics.emit(finding, subject);
+  const entry = OBSERVE!.diagnostics.emit(located(finding, subject), subject);
   if (IS_DEV && finding.severity !== "info") DEV!.report(entry);
+}
+
+/**
+ * The finding with its `ownerPath` — the labels up this entry's OWN owner
+ * chain (`createComponentOwner`'s `<Name>`) — filled in here rather than by
+ * the core's walk: the core reads `_parent` under its own build's property
+ * mangling (the observe and prod artifacts rename `_`-fields; `_name` alone
+ * is reserved as the cross-package label), so its walk finds nothing on a
+ * server owner in the observe artifact. An `ownerPath` already on the
+ * finding wins, as in the core.
+ */
+function located(finding: Finding, subject: DiagnosticSubject | null): Finding {
+  if (finding.ownerPath !== undefined || !subject || !("_parent" in subject)) return finding;
+  const path: string[] = [];
+  for (let owner: any = subject; owner; owner = owner._parent) {
+    const name = owner._name;
+    if (typeof name === "string" && name.length) path.push(name);
+  }
+  return path.length ? { ...finding, ownerPath: path.reverse() } : finding;
 }
 
 /**
@@ -50,7 +69,7 @@ export function recordFinding(
   finding: Finding,
   subject: DiagnosticSubject | null = getOwner()
 ): void {
-  if (IS_OBSERVE) OBSERVE!.diagnostics.emit(finding, subject);
+  if (IS_OBSERVE) OBSERVE!.diagnostics.emit(located(finding, subject), subject);
 }
 
 /**

@@ -23,7 +23,8 @@ import {
   SOURCE_OMIT,
   SOURCE_PROXY,
   SOURCE_MEMO,
-  ssrScope as scope
+  ssrScope as scope,
+  ssrSanitizeError
 } from "solid-js/internal";
 import { effect, memo } from "./render.js";
 // Trace context (W3C `traceparent`): derived per request, exposed through
@@ -2148,6 +2149,43 @@ export function renderToStream(code, options = {}) {
   // serialization its subtree owns. Hydration ids are a prefix code (each
   // sibling ordinal is self-delimiting), so `startsWith` is exact ancestry.
   const pendingSerialized = new Map();
+  // The wire policy on a channel: a thenable's rejection and an async
+  // iterable's thrown step reach the client sanitized; a seroval stream
+  // (`__SEROVAL_STREAM__`, the container-trace carrier) is the codec's own
+  // and passes as-is; values pass as-is — an Error reached as a value was
+  // never thrown, so it is data and the author's (#3113's ruling). One guard
+  // per channel object, so a source serialized under two ids stays one
+  // channel for seroval's cross-references.
+  const guardedChannels = new WeakMap();
+  const guardChannel = p => {
+    if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
+    const thenable = typeof p.then === "function";
+    const iterable = !thenable && typeof p[Symbol.asyncIterator] === "function";
+    if (!thenable && !iterable) return p;
+    let guarded = guardedChannels.get(p);
+    if (guarded === undefined) {
+      guarded = thenable
+        ? p.then(undefined, error => {
+            throw ssrSanitizeError(error, null);
+          })
+        : {
+            [Symbol.asyncIterator]() {
+              const iterator = p[Symbol.asyncIterator]();
+              return {
+                next: value =>
+                  iterator.next(value).then(undefined, error => {
+                    throw ssrSanitizeError(error, null);
+                  }),
+                return: value =>
+                  iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value }),
+                throw: error => (iterator.throw ? iterator.throw(error) : Promise.reject(error))
+              };
+            }
+          };
+      guardedChannels.set(p, guarded);
+    }
+    return guarded;
+  };
   const trackSerialized = (id, p) => {
     let settle;
     const raced = Promise.race([p, new Promise(r => (settle = r))]);
@@ -2355,6 +2393,14 @@ export function renderToStream(code, options = {}) {
     },
     serialize(id, p, deferStream) {
       if (sharedConfig.context.noHydrate) return;
+      // The channels the runtime opens to the client — an async source's
+      // promise, a live source's iterable — reject or throw with the RAW
+      // failure, and seroval encodes that reason as a value for the client
+      // (#3468). Guard the channel here, the one funnel every hydration
+      // write takes, so the reason the client receives is what the wire
+      // policy allows (`ssrSanitizeError`); the boundary that caught the
+      // same failure server-side hands it the same replacement.
+      p = guardChannel(p);
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
@@ -2420,8 +2466,12 @@ export function renderToStream(code, options = {}) {
           const item = registry.get(key);
           registry.delete(key);
           // Terminal error: the subtree is discarded — release everything in
-          // it that would otherwise gate response completion (#3165).
+          // it that would otherwise gate response completion (#3165). The
+          // ledger and its finding keep the original; the client — the
+          // `<key>_fr` rejection, a transport sink's error chunk — gets what
+          // the wire policy allows (#3468).
           if (error) abandonSubtree(key, error);
+          const wireError = error ? ssrSanitizeError(error, null) : error;
 
           if (item.children) {
             for (const k in item.children) {
@@ -2450,7 +2500,7 @@ export function renderToStream(code, options = {}) {
               // a pending fragment, so renderShellHead picks them up).
               queue(() => (html = replacePlaceholder(html, key, value !== undefined ? value : "")));
               serializeFragmentAssets(key, tracking.boundaryModules, context);
-              item.resolve(error);
+              item.resolve(wireError);
             } else {
               serializeFragmentAssets(key, tracking.boundaryModules, context);
               const styles = collectStreamStyles(key, tracking, headStyles);
@@ -2467,9 +2517,9 @@ export function renderToStream(code, options = {}) {
               sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
                 styles,
                 revealGroup,
-                error
+                error: wireError
               });
-              item.resolve(error);
+              item.resolve(wireError);
             }
           }
         }
@@ -3019,6 +3069,14 @@ function ssrGroupSlot(fn, idx) {
   };
 }
 
+// A binding's terminal failure surfaces to the client as a keyed error
+// chunk carrying a message: the wire policy's (`ssrSanitizeError`, #3468) —
+// the original stays server-side.
+function wireErrorMessage(err) {
+  const wire = ssrSanitizeError(err, null);
+  return String((wire && wire.message) || wire);
+}
+
 // ---- live markup holes (Stage 3): the DR-2 binding ledger generalized ----
 //
 // In a live frame render (the call-driven face), thunk-compiled content
@@ -3276,7 +3334,7 @@ export function createLiveHoles(sink, scoped) {
             // markup stands and the failure surfaces as a keyed error.
             b.closed = true;
             sink.closeBinding(b.key);
-            sink.error(b.key, String((err && err.message) || err));
+            sink.error(b.key, wireErrorMessage(err));
             return;
           } finally {
             engine.sweeping = prevSweeping;
@@ -3473,7 +3531,7 @@ export function createLiveHoles(sink, scoped) {
             if (ssrHandleError(err, true)) return;
             b.closed = true;
             sink.closeBinding(b.key);
-            sink.error("lha:" + cap.id, String((err && err.message) || err));
+            sink.error("lha:" + cap.id, wireErrorMessage(err));
             return;
           } finally {
             engine.sweeping = prevSweeping;
