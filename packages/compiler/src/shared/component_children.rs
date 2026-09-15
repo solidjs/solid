@@ -13,7 +13,7 @@ use crate::shared::ast::arrow_return_expression;
 use crate::shared::condition::{is_condition_shape, transform_condition_inline};
 use crate::shared::fragment::lower_fragment;
 use crate::shared::mode_lower::{ModeLower, mode_ast};
-use crate::shared::utils::{decode_html_entities, trim_jsx_text};
+use crate::shared::utils::{decode_html_entities, is_coverage_ignore_pragma, trim_jsx_text};
 
 /// The extra seam component children need beyond [`ModeLower`]: element
 /// children keep their setup statements (template declarations + operations)
@@ -29,6 +29,10 @@ pub(crate) struct ComponentChildren<'a> {
     pub(crate) value: Expression<'a>,
     pub(crate) needs_getter: bool,
     pub(crate) setup: std::vec::Vec<Statement<'a>>,
+    /// The source anchor of an authored coverage pragma. Oxc attaches a JSX
+    /// empty-expression comment to its closing `}`, so the synthetic getter
+    /// uses that span to retain the pragma in generated output.
+    pub(crate) coverage_pragma_span: Option<oxc_span::Span>,
 }
 
 enum ChildKind {
@@ -58,6 +62,7 @@ pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
 ) -> Result<Option<ComponentChildren<'a>>> {
     let allocator = ctx.condition_allocator();
     let ast = mode_ast(ctx);
+    let coverage_pragma_span = component_children_coverage_pragma_span(children, ctx.source());
     let mut values = std::vec::Vec::new();
     for child in children {
         match child {
@@ -153,6 +158,7 @@ pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
                 value: child.value,
                 needs_getter: !matches!(child.kind, ChildKind::Static),
                 setup: child.setup,
+                coverage_pragma_span,
             })
         }
         _ => {
@@ -186,7 +192,33 @@ pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
                 value: ast.expression_array(span, ast.vec_from_iter(elements)),
                 needs_getter: true,
                 setup: std::vec::Vec::new(),
+                coverage_pragma_span,
             })
         }
     })
+}
+
+pub(crate) fn component_children_coverage_pragma_span(
+    children: &[JSXChild<'_>],
+    source: &str,
+) -> Option<oxc_span::Span> {
+    let mut pending = None;
+    for child in children {
+        match child {
+            JSXChild::ExpressionContainer(container)
+                if matches!(container.expression, JSXExpression::EmptyExpression(_)) =>
+            {
+                if is_coverage_ignore_pragma(source, container.span) {
+                    pending = Some(oxc_span::Span::new(
+                        container.span.end - 1,
+                        container.span.end,
+                    ));
+                }
+            }
+            JSXChild::Text(text) if trim_jsx_text(&text.value).is_empty() => {}
+            _ if pending.is_some() => return pending,
+            _ => {}
+        }
+    }
+    None
 }
