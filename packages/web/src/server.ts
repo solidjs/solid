@@ -18,7 +18,6 @@ import {
   OmitView,
   sourceKeys,
   sourceGet,
-  resolvedTable,
   SOURCE_PLAIN,
   SOURCE_OMIT,
   SOURCE_PROXY,
@@ -3872,7 +3871,6 @@ export function ssrElement(tag, props, children, needsId, skip) {
   let sources = null;
   let kinds = null;
   let kind = SOURCE_PLAIN;
-  let table = undefined;
   if (Array.isArray(props)) {
     sources = [];
     kinds = [];
@@ -3880,11 +3878,24 @@ export function ssrElement(tag, props, children, needsId, skip) {
   } else if (props == null) {
     // A nullish source (static or resolved) is an empty spread (#3297).
     props = {};
-  } else if ((table = resolvedTable(props)) === undefined) {
+  } else {
+    // A view is walked as its ENTRIES, never through its resolved table: the
+    // table (key → owning leaf, every key of every leaf) is worth building
+    // for a client spread that reruns, but this pass reads each key once and
+    // the view is gone after it — and asking for the table would build one
+    // per view where the walk below allocates nothing but the key lists.
+    // An omit over a merge is its filtered leaf entries, an omit over one
+    // object is one entry.
     const view = viewOf(props);
     if (view instanceof OmitView) {
-      props = view;
-      kind = SOURCE_OMIT;
+      const entries = view.entries;
+      if (entries !== undefined) {
+        sources = entries;
+        kinds = new Array(entries.length).fill(SOURCE_OMIT);
+      } else {
+        props = view;
+        kind = SOURCE_OMIT;
+      }
     } else if (view !== undefined) {
       // Flattened entries take the array walk; a function among them is
       // merge's memo, resolved here (the keys are allocated, see above).
@@ -3895,10 +3906,6 @@ export function ssrElement(tag, props, children, needsId, skip) {
       for (let i = 0; i < f.length; i++) pushEntry(sources, kinds, f[i], k[i]);
     } else if ($PROXY in props) kind = SOURCE_PROXY;
   }
-  // A merge/omit view over plain objects has a RESOLVED TABLE (key → owning
-  // leaf, shadowing applied, built once and shared with the component's own
-  // reads of the same view): one read per key, no per-key walk of the later
-  // sources.
   const skipChildren = VOID_ELEMENTS.test(tag);
   // Each emitted attribute carries its own leading space (the hydration key
   // already does), so skipped props leave no stray whitespace behind:
@@ -3916,12 +3923,7 @@ export function ssrElement(tag, props, children, needsId, skip) {
     for (let s = 0; s <= last; s++) keysOf[s] = sourceKeys(sources[s], kinds[s]);
   }
   for (let s = 0; s <= last; s++) {
-    const keys =
-      keysOf !== null
-        ? keysOf[s]
-        : table !== undefined
-          ? Array.from(table.keys())
-          : sourceKeys(props, kind);
+    const keys = keysOf !== null ? keysOf[s] : sourceKeys(props, kind);
     if (sources !== null) {
       props = sources[s];
       kind = kinds[s];
@@ -3947,7 +3949,7 @@ export function ssrElement(tag, props, children, needsId, skip) {
       // path equivalent: textarea value/defaultValue are its text content,
       // never HTML attributes (#3286).
       if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
-        const value = table !== undefined ? table.get(prop)[prop] : sourceGet(props, kind, prop);
+        const value = sourceGet(props, kind, prop);
         if (value !== null) children = escape(value);
         continue;
       }
@@ -3955,13 +3957,11 @@ export function ssrElement(tag, props, children, needsId, skip) {
         if (children === undefined && !skipChildren)
           children =
             tag === "script" || tag === "style" || prop === "innerHTML"
-              ? table !== undefined
-                ? table.get(prop)[prop]
-                : sourceGet(props, kind, prop)
-              : escape(table !== undefined ? table.get(prop)[prop] : sourceGet(props, kind, prop));
+              ? sourceGet(props, kind, prop)
+              : escape(sourceGet(props, kind, prop));
         continue;
       }
-      const value = table !== undefined ? table.get(prop)[prop] : sourceGet(props, kind, prop);
+      const value = sourceGet(props, kind, prop);
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382).

@@ -87,8 +87,8 @@ const $VIEW = Symbol(__DEV__ ? "MERGE_VIEW" : 0);
  * trap round-trip per layer. A leaf may be merge's memo for a function
  * source; it is resolved on access. */
 export class OmitView {
-  /** see `resolvedTable` */
-  table: Map<PropertyKey, any> | null | undefined = undefined;
+  /** see `MergeView.table` */
+  table: Map<PropertyKey, any> | null | number = 0;
   /** see `tableOwnKeys` / `tableDescriptor` */
   keys: (string | symbol)[] | undefined = undefined;
   descs: Map<PropertyKey, PropertyDescriptor> | undefined = undefined;
@@ -110,9 +110,20 @@ function isHidden(view: OmitView, key: PropertyKey): boolean {
 }
 
 // Both filters as one. Two key lists stay a key list (one `includes`, no
-// closure); a predicate on either side needs a closure.
+// closure); a predicate on either side needs a closure. An omit over a
+// merge builds one combined list per leaf, per component layer, so the
+// copy's form matters in every tier: `concat` runs the species/spreadable
+// protocol (2–3× the cost of a copy once optimized), a hand loop is 2–4×
+// `concat` in the interpreter and baseline tiers (a bytecode per element
+// against one builtin), and a presized `new Array(n)` is holey, which takes
+// `includes` off its fast path. `slice` + `push` of the (short) second list
+// is within a third of the best form in every tier, and packed.
 function combineHidden(a: Hidden, b: Hidden): Hidden {
-  if (typeof a !== "function" && typeof b !== "function") return a.concat(b);
+  if (typeof a !== "function" && typeof b !== "function") {
+    const out = a.slice();
+    for (let i = 0; i < b.length; i++) out.push(b[i]);
+    return out;
+  }
   return key =>
     (typeof a === "function" ? a(key) : a.includes(key)) ||
     (typeof b === "function" ? b(key) : b.includes(key));
@@ -321,9 +332,14 @@ function sourceEnumerableKeys(s: any, kind: SourceKind): (string | symbol)[] {
 // `$SOURCES` answers.
 /** @internal */
 export class MergeView {
-  /** key → the plain leaf that owns it (later sources win), built on first
-   * read when every leaf has static keys; `null` when one doesn't. */
-  table: Map<PropertyKey, any> | null | undefined = undefined;
+  /** key → the plain leaf that owns it (later sources win), built by an
+   * enumeration or once the reads have paid for it (see `resolvedTable`)
+   * when every leaf has static keys; `null` when one doesn't. Until then
+   * the slot counts the per-key trap reads so far. One slot rather than a
+   * counter field of its own: a view is built per source per component
+   * layer, and each field initializer is a measurable share of a
+   * constructor that small in the lower JIT tiers. */
+  table: Map<PropertyKey, any> | null | number = 0;
   /** see `tableOwnKeys` / `tableDescriptor` */
   keys: (string | symbol)[] | undefined = undefined;
   descs: Map<PropertyKey, PropertyDescriptor> | undefined = undefined;
@@ -357,13 +373,28 @@ export function viewOf(o: any): MergeView | OmitView | undefined {
  * keys can change, or the object is not a view at all.
  *
  * This is the flat object the eager copy used to build, made lazily and
- * without copying: one pass over the leaves' own keys on first read, then
- * every `get`/`has`/descriptor is one lookup plus one read of the owning
- * leaf, and a consumer (`spread` rerunning its effect, `ssrElement`) walks
- * the table instead of re-deriving shadowing from the leaves each time. Own
- * keys only, as the copy's were: a plain source's key set is fixed once
- * merged (keys added to it later are not seen — the copy didn't see them
- * either). */
+ * without copying: one pass over the leaves' own keys, then every
+ * `get`/`has`/descriptor is one lookup plus one read of the owning leaf, and
+ * a consumer (`spread` rerunning its effect) walks the table instead of
+ * re-deriving shadowing from the leaves each time. Own keys only, as the
+ * copy's were: a plain source's key set is fixed once merged (keys added to
+ * it later are not seen — the copy didn't see them either).
+ *
+ * It is built by an ENUMERATION — the `ownKeys` trap, or a consumer asking
+ * for it here — or once per-key reads have paid for it (`READS_FOR_TABLE`),
+ * not on the first read. A per-key read has a direct answer (a walk of the
+ * sources, last to first, one `in` each) whose cost is the source count,
+ * while the table's is every key of every leaf, so the walk wins until a
+ * view has been read about as many times as it has keys. On the server it
+ * never is: a component reads its props a few times, the element enumerates
+ * them once through its own source walk, and the view is gone — building on
+ * first read there cost a component chain a table per layer (profiled on
+ * the Kobalte-shaped chain: a third of SSR time in the table code and its
+ * garbage). On the
+ * client a view read on every reactive rerun crosses the threshold in its
+ * first few updates and is one lookup per read from then on, as before.
+ * Once built — by a `spread`, `Object.keys`, `{...props}`, or the count —
+ * every trap uses it. */
 export function resolvedTable(o: any): Map<PropertyKey, any> | undefined {
   if (o == null || !($PROXY in o) || o[$TARGET] !== undefined) return undefined;
   const view = o[$OMIT];
@@ -374,7 +405,8 @@ export function resolvedTable(o: any): Map<PropertyKey, any> | undefined {
 
 function mergeTable(view: MergeView): Map<PropertyKey, any> | undefined {
   let table = view.table;
-  if (table === undefined) {
+  if (typeof table !== "object") {
+    // a read count: not decided yet
     const f = view.sources,
       k = view.kinds;
     for (let i = 0; i < f.length; i++) {
@@ -418,7 +450,7 @@ function tableSet(table: Map<PropertyKey, any>, key: PropertyKey, leaf: any) {
 // own keys) minus the hidden keys. Cached on the record.
 function omitTable(view: OmitView): Map<PropertyKey, any> | undefined {
   let table = view.table;
-  if (table === undefined) {
+  if (typeof table !== "object") {
     const src = view.source;
     let base: Map<PropertyKey, any> | undefined;
     if (view.kind === SOURCE_MEMO) base = undefined;
@@ -485,8 +517,46 @@ function tableDescriptor(
   };
 }
 
+// Per-key trap reads a view takes before building its table, from the
+// break-even: a build is ~60 ns per key (an `ownKeys` share, a `has`, a
+// `set`), a walk ~20 ns per source (an `in`, a hidden-list check), and a
+// leaf carries about five keys — so the table has paid for itself after
+// ~15 reads. Measured on the Kobalte-shaped chain: a walk is 2× a lookup at
+// depth 1 and up to 10× for a first-source key at depth 7 (15 entries with
+// long hidden lists), so a view read on every update wants the table; a
+// view read a handful of times (every server-side view) never wants it.
+const READS_FOR_TABLE = 16;
+
+// The table for a per-key trap: the one a view HAS (built by an enumeration
+// or an earlier read, see `resolvedTable`), or the one this read pays for,
+// or none — a walk answers. One per view type, so a trap pays no type check.
+// A settled slot is an object (the Map, or `null`); a number is the count.
+function mergeReadTable(view: MergeView): Map<PropertyKey, any> | undefined {
+  const table = view.table;
+  if (typeof table === "object") return table === null ? undefined : table;
+  if (table + 1 < READS_FOR_TABLE) {
+    view.table = table + 1;
+    return undefined;
+  }
+  return mergeTable(view);
+}
+
+// Only for an omit over a merge (`entries` set; the caller checks, inline —
+// a call is not free in every tier): an omit over one object reads it
+// directly — a list check and a property read, nothing a table would
+// shorten.
+function omitReadTable(view: OmitView): Map<PropertyKey, any> | undefined {
+  const table = view.table;
+  if (typeof table === "object") return table === null ? undefined : table;
+  if (table + 1 < READS_FOR_TABLE) {
+    view.table = table + 1;
+    return undefined;
+  }
+  return omitTable(view);
+}
+
 function mergeGet(view: MergeView, property: PropertyKey): any {
-  const table = mergeTable(view);
+  const table = mergeReadTable(view);
   if (table !== undefined) {
     const leaf = table.get(property);
     return leaf === undefined ? undefined : leaf[property];
@@ -519,7 +589,7 @@ const mergeTraps: ProxyHandler<MergeView> = {
     if (property === $PROXY) return true;
     if (property === $TARGET || property === $OMIT || property === $SOURCES || property === $VIEW)
       return false;
-    const table = mergeTable(view);
+    const table = mergeReadTable(view);
     if (table !== undefined) return table.has(property);
     const f = view.sources,
       k = view.kinds;
@@ -537,7 +607,7 @@ const mergeTraps: ProxyHandler<MergeView> = {
       property === $VIEW
     )
       return undefined;
-    const table = mergeTable(view);
+    const table = mergeReadTable(view);
     if (table !== undefined) return tableDescriptor(view, table, property);
     const f = view.sources,
       k = view.kinds;
@@ -570,11 +640,11 @@ const mergeTraps: ProxyHandler<MergeView> = {
   }
 };
 
-// Over a plain object an omit view reads its source directly — a hidden-key
-// check and one property read, nothing to cache. Over a MERGE it answers from
-// its resolved table when the merge has one (plain leaves only), so a read
-// is one lookup rather than a hop through the merge proxy's traps; the table
-// is the merge's, filtered, built once per view.
+// An omit view reads its source directly — a hidden-key check and one
+// property read (over a merge, a hop through the merge proxy's traps, which
+// walk). Once an enumeration or the read count has built its table (over a
+// merge with plain leaves only: the merge's, filtered) every trap answers
+// from that instead.
 const omitTraps: ProxyHandler<OmitView> = {
   get(view, property, receiver) {
     if (property === $PROXY) return receiver;
@@ -586,7 +656,7 @@ const omitTraps: ProxyHandler<OmitView> = {
     // re-merge the unfiltered objects and leak the omitted keys (#3014).
     if (property === $SOURCES) return view.entries;
     if (view.entries !== undefined) {
-      const table = omitTable(view);
+      const table = omitReadTable(view);
       if (table !== undefined) {
         const leaf = table.get(property);
         return leaf === undefined ? undefined : leaf[property];
@@ -600,7 +670,7 @@ const omitTraps: ProxyHandler<OmitView> = {
     if (property === $TARGET || property === $VIEW || property === $SOURCES || property === $OMIT)
       return false;
     if (view.entries !== undefined) {
-      const table = omitTable(view);
+      const table = omitReadTable(view);
       if (table !== undefined) return table.has(property);
     }
     if (isHidden(view, property)) return false;
@@ -618,7 +688,7 @@ const omitTraps: ProxyHandler<OmitView> = {
     )
       return undefined;
     if (view.entries !== undefined) {
-      const table = omitTable(view);
+      const table = omitReadTable(view);
       if (table !== undefined) return tableDescriptor(view, table, property);
     }
     return sourceDescriptor(view, SOURCE_OMIT, property);
