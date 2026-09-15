@@ -444,7 +444,7 @@ const STATES: State[] = [
     }
   },
   {
-    name: "superseded, downstream never initialized (its first flight never lands)",
+    name: "superseded before its first commit (the first landing was held by a downstream reveal that never landed)",
     async build(installStale) {
       const built = supersededGraph(false);
       await built.prime();
@@ -463,10 +463,9 @@ const STATES: State[] = [
       staleForeign: observed(3, "displays the override, as in the initialized case"),
       childrenForbidden: rule(3, "A32"),
       latest: rule(2, "A18 (d)"),
-      isPending: violation(
+      isPending: rule(
         true,
-        false,
-        "A18 (d): the arrival differs from the override yet the verdict is false — the uninitialized downstream reporter is not counted as observing the flight"
+        "A18 (d): pending iff the arrival differs from the displayed override — even before the node's first commit (the override is the observable value; A19 exception 1 does not apply)"
       ),
       authoritative: rule(2, "A17 carve-out")
     }

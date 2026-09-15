@@ -219,11 +219,14 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   // the window's own landing in flight to its commit — verdict-quiet like the
   // rest of the window (the UNINITIALIZED check suppresses exactly this frame
   // for windowless first loads; born-committed nodes need their own gate, #2990).
-  if (
-    el._pendingValue !== NOT_PENDING &&
-    !(comp._statusFlags & STATUS_UNINITIALIZED) &&
-    !comp._loading
-  ) {
+  if (el._pendingValue !== NOT_PENDING && !comp._loading) {
+    // A18 (d): under a displayed override the observable value is the
+    // override, so the verdict is "the arrived truth differs from it" —
+    // even before the node's first commit. The UNINITIALIZED suppression
+    // below is A19 exception (1), "no observable value exists to be
+    // non-final"; an override is one (a node whose first landing was held
+    // by a reveal it never got to commit, then superseded under its
+    // override, read false here).
     if (hasActiveOverride(el))
       return (
         !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._x?._overrideValue))
@@ -232,7 +235,7 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
     // classification survives the landing (asyncWrite) and dies with the
     // commit (commitPendingNode) — verdict-quiet through the reveal, like
     // the loading window above (#3178).
-    if (!comp._x?._reask) return true;
+    if (!(comp._statusFlags & STATUS_UNINITIALIZED) && !comp._x?._reask) return true;
   }
   return newQuestionInFlight(comp);
 }
