@@ -660,7 +660,6 @@ export class GlobalQueue extends Queue {
    * value: a lane-derived flight's inputs are already revealed through the
    * lane (#3334). Gated on CONFIG_HAS_LANE, which only the engine sets. */
   static _laneLive: ((el: Computed<any>) => boolean) | null = null;
-  static _readsHeldCommitted: ((owner: Computed<any>, c: Computed<any>) => boolean) | null = null;
   static _laneReadsCommitted:
     | ((el: OptimisticNode, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -696,7 +695,9 @@ export class GlobalQueue extends Queue {
    * staged truth, unless the reader is a stale (render) reader of another
    * transaction — then the displayed override, as it keeps a foreign
    * transaction's committed value over its staged write. */
-  static _supersededRead: ((el: Signal<any> | Computed<any>) => unknown) | null = null;
+  /** A tracked read of an active override: the lane outside-view rule
+   * (#3460) and the A18 supersession selection (#3331) — see optimistic.ts. */
+  static _overrideRead: ((el: Computed<any>, c: Computed<any>) => unknown) | null = null;
   /** Verdict-layer recompute in progress (companion creation, latest()/
    * isPending() pulls): never born held — see core.ts enterStagedRead. */
   static _verdictPull = false;

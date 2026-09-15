@@ -338,7 +338,23 @@ function endOptimism(transition: Transition): boolean {
  * has left) — or the displayed override for a stale (render) reader of some
  * OTHER transaction, the same visibility a foreign transaction's staged
  * write has. */
-function supersededRead(el: OptimisticNode): unknown {
+/**
+ * A tracked read of an active override (read()'s override arm). Lanes mirror
+ * transitions (#3460): a render effect OFF the override's held lane — re-run
+ * by a sync write, or mounted mid-hold — sees the committed value, as a stale
+ * reader of a held transaction does, and publishes now; the lane's release
+ * re-runs it (readsHeldCommitted). The lane defers the override's own readers'
+ * runs, so the committed value is what is on screen — the override is the
+ * visible value only once the lane has revealed (or, demoted at body-end,
+ * A18). Otherwise the override displays, unless the node's own source
+ * answered with a DIFFERENT value (A18 supersession, #3331): the optimism is
+ * over for the graph — a tracked reader sees the staged truth — while the
+ * override remains the DISPLAYED value for untracked reads (and for a stale
+ * reader of some other transaction).
+ */
+function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
+  if (stale && readsHeldCommitted(el as Computed<any>, c)) return el._value;
+  if (!(el._config & CONFIG_OVERRIDE_SUPERSEDED)) return unwrapOverride(el._x?._overrideValue);
   // The owning transaction: `_overrideOwner` (#2912), not the stamp — an
   // override written directly inside an action never passes the adoption
   // loop that stamps `_transition`, and a body-end supersession (#3427)
@@ -603,12 +619,11 @@ export function installOptimisticEngine(): void {
   GlobalQueue._runLaneEffects = runLaneEffects;
   GlobalQueue._supersedeOverride = supersedeOverride;
   GlobalQueue._endOptimism = endOptimism;
-  GlobalQueue._supersededRead = supersededRead;
+  GlobalQueue._overrideRead = overrideRead;
   GlobalQueue._landOnOverride = landOnOverride;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
   GlobalQueue._laneLive = laneLive;
-  GlobalQueue._readsHeldCommitted = readsHeldCommitted;
   GlobalQueue._laneReadsCommitted = laneReadsCommitted;
   GlobalQueue._recomputeLane = recomputeLane;
   GlobalQueue._laneAsyncPending = laneAsyncPending;

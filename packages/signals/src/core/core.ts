@@ -1885,28 +1885,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // yet the active override — fall through to the normal selection (the
     // authoritative mark below still applies: until() must wake on landing).
     if (!(c && c._config & CONFIG_AUTHORITATIVE_READ) && !unflushedOverride(el)) {
-      // Lanes mirror transitions (#3460): a render effect OFF the override's
-      // held lane — re-run by a sync write, or mounted mid-hold — sees the
-      // committed value, as a stale reader of a held transaction does, and
-      // publishes now; the lane's release re-runs it. The lane defers the
-      // override's own readers' runs, so the committed value is what is on
-      // screen — the override is the visible value only once the lane has
-      // revealed (or, demoted at body-end, A18). Engine-owned (a lane
-      // implies the engine).
-      if (
-        stale &&
-        c &&
-        el._config & CONFIG_HAS_LANE &&
-        GlobalQueue._readsHeldCommitted!(el as Computed<any>, c as Computed<any>)
-      )
-        return el._value as T;
-      // A18 supersession (#3331): the node's own source answered with a
-      // DIFFERENT value. The optimism is over for the graph — a tracked
-      // reader sees the staged truth — while the override remains the
-      // DISPLAYED value for untracked reads (and for a stale reader of some
-      // other transaction). The selection lives with the engine.
-      if (c && el._config & CONFIG_OVERRIDE_SUPERSEDED)
-        return GlobalQueue._supersededRead!(el) as T;
+      // A tracked read of an override is the engine's selection (a lane or a
+      // supersession implies the engine): a render effect OFF the override's
+      // held lane sees the committed value (#3460, lanes mirror transitions);
+      // a node whose own source answered with a DIFFERENT value hands a
+      // tracked reader the staged truth (A18 supersession, #3331). Untracked
+      // reads display the override.
+      if (c && el._config & (CONFIG_HAS_LANE | CONFIG_OVERRIDE_SUPERSEDED))
+        return GlobalQueue._overrideRead!(el as Computed<any>, c as Computed<any>) as T;
       return unwrapOverride<T>(el._x?._overrideValue);
     }
     el._config |= CONFIG_AUTHORITATIVE_OBSERVED;
