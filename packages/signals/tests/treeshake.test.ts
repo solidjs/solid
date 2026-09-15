@@ -328,9 +328,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // zombie's owner chain to the transaction staging its removal (+ the
     // `verdict` argument through `sourceObserved`); `heldTrims` deferring an
     // unchanged pass's dep trim to the flush verdict; and the one
-    // `CONFIG_HAS_LANE`-gated hook in read()'s override arm for the lane
-    // outside-view rule (the rule itself lives in lanes.ts, shed with the
-    // engine). Measured at 24,873 (24,478 → 24,873, +395).
+    // read()'s override arm folded to one engine hook (`_overrideRead`,
+    // absorbing `_supersededRead` and carrying the lane outside-view rule,
+    // whose body lives in lanes.ts and sheds with the engine). Measured at
+    // 24,836 (24,478 → 24,836, +358; 24,873 before the fold).
     // A pending reporter recovering without its flight landing wakes its
     // parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16): +100 B
     // (24,478 -> 24,578), `wasPending` and the wokenTransitions site at
