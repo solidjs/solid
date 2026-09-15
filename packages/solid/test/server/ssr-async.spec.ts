@@ -1593,7 +1593,7 @@ describe("Stream Blocking / deferStream", () => {
 
     createRoot(
       () => {
-        createProjection(() => d.promise, {} as { name?: string });
+        createProjection(() => d.promise, {} as any);
       },
       { id: "t" }
     );
@@ -3727,6 +3727,31 @@ describe("Async Iterable — createProjection", () => {
     expect(serializeLog[0].value).toBeInstanceOf(Promise);
 
     // Before resolution, reads throw NotReadyError
+    expect(() => store.name).toThrow(NotReadyError);
+
+    d.resolve({ name: "resolved", count: 42 });
+    await tick();
+
+    expect(store.name).toBe("resolved");
+    expect(store.count).toBe(42);
+  });
+
+  test("createStore(fn) without a seed initializes from its first value", async () => {
+    const { context, serializeLog } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    const { createStore: createServerStore } = await import("../../src/server/signals.js");
+    const d = deferred<{ name: string; count: number }>();
+    let store: any;
+
+    createRoot(
+      () => {
+        [store] = createServerStore(() => d.promise);
+      },
+      { id: "t" }
+    );
+
+    expect(serializeLog.length).toBe(1);
     expect(() => store.name).toThrow(NotReadyError);
 
     d.resolve({ name: "resolved", count: 42 });
