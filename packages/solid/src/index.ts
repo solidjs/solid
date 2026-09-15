@@ -136,6 +136,22 @@ export function inServerComponentScope(): boolean {
 export function ssrSanitizeError(value: unknown): unknown {
   return value;
 }
+/** @internal — server-only: the server error hook has no client half here. */
+export function reportServerError(): { mapped: boolean; value?: unknown } {
+  return { mapped: false };
+}
+/** Where a server failure was met, as the server error hook hears it (see `@solidjs/web`'s `ServerErrorContext`). */
+export interface ServerErrorSite {
+  kind: "render" | "server-function";
+  handling: "fallback" | "client" | "failed" | "thrown" | "channel";
+  boundary?: string;
+  ownerPath?: string[];
+  functionId?: string;
+  direct?: boolean;
+  /** The request event, when the caller has it in hand; else read from the request scope. */
+  event?: unknown;
+}
+export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
 /** @internal — server-only: on the client no value carries a trace. */
 export function getProjectionTrace(
   value: unknown

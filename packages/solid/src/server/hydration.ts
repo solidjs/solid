@@ -9,7 +9,8 @@ import {
   getContext,
   setContext,
   runWithBoundaryErrorContext,
-  RevealGroupContext
+  RevealGroupContext,
+  reportServerError
 } from "./signals.js";
 import { OBSERVE, ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
@@ -286,6 +287,10 @@ function ssrLoadingBoundary(
           // fallback expecting server DOM that was never emitted, derailing
           // hydration before the fragment channel can engage.
           reportRouted(err, "client");
+          // The server error hook hears of it here, before the channel
+          // carries it (the `_fr` rejection, a transport sink's error chunk
+          // read the verdict the hook decides).
+          reportServerError(err, { kind: "render", handling: "client", boundary: id }, o);
           streamedOnError = done(undefined, err);
           throw err;
         }
@@ -321,8 +326,15 @@ function ssrLoadingBoundary(
       return;
     }
     if (done) {
-      const streamed = done(undefined, err);
-      if (streamed) {
+      // Post-flush the fragment rejects to the client: the server error hook
+      // hears of it BEFORE the channel carries it, so the `_fr` rejection and
+      // a transport sink's error chunk read the verdict it decides. Pre-flush
+      // the rejection reaches the client lazily (the funnel reads the verdict
+      // when it delivers) and the failure is met next by the parent handler
+      // — an <Errored> rendering its fallback — or fails the request below.
+      const streamed = ctx.flushed !== undefined && ctx.flushed();
+      if (streamed) reportServerError(err, { kind: "render", handling: "client", boundary: id }, o);
+      if (done(undefined, err)) {
         reportRouted(err, "client");
         record("error", true, err);
         return;
@@ -331,6 +343,7 @@ function ssrLoadingBoundary(
     record("error", false, err);
     if (!parentHandler) {
       reportRouted(err, "failed");
+      reportServerError(err, { kind: "render", handling: "failed", boundary: id }, o);
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
     }
@@ -339,6 +352,7 @@ function ssrLoadingBoundary(
     } catch (caught) {
       if (caught !== err) {
         reportRouted(caught, "failed");
+        reportServerError(caught, { kind: "render", handling: "failed", boundary: id }, o);
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
     }

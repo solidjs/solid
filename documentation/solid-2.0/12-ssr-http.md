@@ -140,7 +140,31 @@ A render failure reaches the client on several roads: the error an `<Errored>` c
 
 The boundary sanitizes _before_ rendering its fallback, and serializes the same replacement: the fallback is rendered on the server with the error and hydrates against the record, so the two must agree. A fallback that prints `err().message` therefore shows the generic message in production, as it would for a server-function failure. `markSafeError` is the escape hatch on both wires — a branded error passes through with its own properties. An Error reached as a _value_ (never thrown — a form's field errors, say) is data and passes as written.
 
-The dev/prod line is the build variant: the `development` export condition's server artifacts keep full fidelity; the production and observe artifacts sanitize. The observe tier records each replacement once as `SSR_ERROR_SANITIZED` (advisory; `data.error` the original), beside the `SSR_RENDER_ERROR_CONTAINED` finding that carries the failure itself — the server keeps the truth, the wire gets the generic.
+The dev/prod line is the build variant: the `development` export condition's server artifacts keep full fidelity; the production and observe artifacts sanitize. The observe tier records each replacement once as `SSR_ERROR_SANITIZED` (advisory; `data.error` the original, `data.wire` what replaced it), beside the `SSR_RENDER_ERROR_CONTAINED` finding that carries the failure itself — the server keeps the truth, the wire gets the generic.
+
+#### The server error hook: `configureServerErrors` / `onServerError`
+
+Everything above is what the runtime does on its own. What it _handles_ — a fallback rendered, a fragment rejected and re-rendered by the client, a server-function throw sanitized — was, until this hook, invisible to a production consumer: the observe tier records it, a prod build has no `OBSERVE`, and `renderToStream`'s `onError` hears only the failure that fails the request. The server error hook is the prod-tier seam for both **reporting** and **mapping**:
+
+```ts
+import { configureServerErrors } from "@solidjs/web";
+
+configureServerErrors({
+  onError(error, { kind, handling, boundary, functionId, direct, ownerPath, event }) {
+    Sentry.captureException(error, {
+      mechanism: { type: `solid.${kind}.${handling}`, handled: handling !== "failed" }
+    });
+    // return nothing: the default wire policy applies
+    // return new Error("Something went wrong"): the client receives this instead
+  }
+});
+```
+
+- **Called once per error object, at first sight**, with where the failure was met. `kind: "render"` — `fallback` (an `<Errored>` rendered its fallback; `boundary` is its hydration id, `ownerPath` the component labels when the compiler emitted them), `client` (a `<Loading>` fragment rejected, the client re-renders the subtree), `failed` (nothing contained it; the request fails, and `onError` hears it too). `kind: "server-function"` — `thrown` (the body threw; `functionId`, and `direct: true` for an in-process call during SSR) or `channel` (a rejection or throw escaping through the result graph, the head already committed). `event` is the request, when the failure happened inside one.
+- **The return is the wire value**: rendered into the fallback, serialized for hydration, sent as the RPC error. `undefined` leaves the default policy in place (generic outside dev, fidelity in dev). A returned value is the author's intent — like a `wrapInvocation` mapping — and is not sanitized again; `markSafeError` is not needed on it. Ignored for `failed`, which has no wire.
+- **Once means once across roads.** A direct server-function call that throws during SSR is met first by the invocation (`kind: "server-function"`, `direct: true`) and then by the `<Errored>` that contains it; the boundary reuses the verdict — the same replacement in the fallback and the record — and does not report again. A `<Loading>` re-pull recurring the same throw is the same object, the same verdict. The observe tier keeps the multi-event picture (an `"invocation"` record _and_ an `SSR_RENDER_ERROR_CONTAINED` finding) for consumers that want it.
+- **Two tiers, as `wrapInvocation` has.** Ambient: `configureServerErrors({ onError })`, once per process, registered on `globalThis` under a registered symbol so a bundled server build and an instrumented `--import`ed module share it — and the only tier that sees direct in-process calls. Per request, overriding it: `renderToStream(code, { onServerError })` / `renderToString(code, { onServerError })`, and `handleServerFunctionRequest(request, { onServerError })` for the call it dispatches. A throwing hook is reported on the console and treated as silent.
+- **Where it runs.** The hook fires in every tier — dev included (an error monitor in development is ordinary); only the _default_ mapping differs by tier. `onError` on `renderToStream` keeps its meaning — the request failed — unchanged.
 
 ### The trace the request belongs to: `getTraceContext()`
 

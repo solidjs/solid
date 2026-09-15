@@ -503,7 +503,11 @@ production wire replaced it with the generic `Error`; `data.error` is the
 original. Advisory: the failure itself is the `SSR_RENDER_ERROR_CONTAINED`
 finding beside it — fix that. If the client is meant to see this error, brand
 it with `markSafeError`; do not turn sanitization off. A fallback that prints
-`err().message` shows "Internal Server Error" in production by design.
+`err().message` shows "Internal Server Error" in production by design. To
+_report_ these failures from a production build (no `OBSERVE`), register the
+server error hook — `configureServerErrors({ onError })` from `@solidjs/web`
+— which hears every handled failure once, and may return the value the client
+should see instead.
 
 ### FRAME_MARKER_CORRUPTED
 

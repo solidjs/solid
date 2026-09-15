@@ -24,6 +24,7 @@
  *    entries mark them `@internal` and strip them from their declarations.
  */
 import * as core from "solid-js";
+import type { ServerErrorHook, ServerErrorSite } from "solid-js";
 
 export {
   mergeSources,
@@ -68,8 +69,26 @@ export const inServerComponentScope: () => boolean = core.inServerComponentScope
  * (recorded once as `SSR_ERROR_SANITIZED`). `subject` locates the finding;
  * `null` from a serialization funnel. Client: identity.
  */
-export const ssrSanitizeError: (value: unknown, subject?: object | null) => unknown =
-  core.ssrSanitizeError;
+export const ssrSanitizeError: (
+  value: unknown,
+  subject?: object | null,
+  site?: ServerErrorSite
+) => unknown = core.ssrSanitizeError;
+
+/**
+ * Server: tells the server error hook about a failure — once per error
+ * object, at first sight — with where it was met; `{ mapped: true, value }`
+ * when the hook gave a wire value (now or earlier), `{ mapped: false }`
+ * otherwise. `hook` is a per-request override ahead of the SSR context's
+ * `errorPolicy` and the ambient registration. Client: `{ mapped: false }`.
+ */
+export const reportServerError: (
+  value: unknown,
+  site: ServerErrorSite,
+  subject?: object | null,
+  hook?: ServerErrorHook
+) => { mapped: boolean; value?: unknown } = core.reportServerError as any;
+export type { ServerErrorSite, ServerErrorHook } from "solid-js";
 
 /** Server: a monotonic stamp for owner creation order. Client: `0`. */
 export const creationStamp: () => number = core.creationStamp;
