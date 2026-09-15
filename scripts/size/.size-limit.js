@@ -237,10 +237,14 @@ module.exports = [
     // mainline). +316 B minified in the in-package floor (23,365 -> 23,681).
     // Rebased over #3443/#3444 (2026-09-15): measured at 8820 B against
     // `next`'s 8708 (+112); 23,419 -> 23,753 minified.
-    // Superseded source keeps blocking (#3462, 2026-09-15): 8.85 -> 8.90 KB,
-    // measured at 8851 B against `next`'s 8849 (+2) — transitionComplete
+    // Async landing keeps the committed frame's deps (A30 landing arm,
+    // #3461, 2026-09-15): 8.85 -> 8.90 KB, measured at 8851 B against
+    // `next`'s 8849 (+2, brotli noise for a moved call: asyncWrite's
+    // trimStaleDeps now runs after the write, only when the landing
+    // published; 0 B minified in the in-package floor, 23,752 flat).
+    // Superseded source keeps blocking (#3462, 2026-09-15): transitionComplete
     // judges a reporter's source by a non-empty `_pendingSources`, not the
-    // self entry alone. The cap sat 1 B under the baseline; +2 B tips it.
+    // self entry alone; -2 B minified (23,750), measured at 8855 B on top of #3464 (8851).
     limit: "8.90 KB",
     modifyEsbuildConfig
   },
@@ -474,7 +478,12 @@ module.exports = [
     // Born held (2026-09-14): 15.65 -> 15.80 KB, measured at 15750 B against
     // 15624 (+126); rebased over #3443/#3444: 15743 B against `next`'s 15658
     // (+85); see the core floor note.
-    limit: "15.80 KB",
+    // #3454 + #3455 together (2026-09-15): 15.80 -> 15.85 KB, measured at 15809 B
+    // on `next` a8a89497. Each fit alone (#3454's lazy merge/omit views in
+    // store/utils; #3455's verdict/optimistic changes measured 15780 against
+    // the pre-#3454 `next`) — the union tipped the cap by 9 B after both
+    // merged.
+    limit: "15.85 KB",
     modifyEsbuildConfig
   },
   {

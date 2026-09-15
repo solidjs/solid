@@ -484,7 +484,6 @@ export function handleAsync<T>(
     // old value as pending, a one-frame pulse to direct observers (#3178).
     // A truthy capture implies `_x` exists, so the restore writes it directly.
     const wasReask = el._x?._reask;
-    trimStaleDeps(el);
     landStatus(el);
     if (wasReask) el._x!._reask = true;
     const lane = resolveLane(el as any);
@@ -590,6 +589,15 @@ export function handleAsync<T>(
     if (el._pendingValue === NOT_PENDING) {
       el._loading = false;
       if (wasReask) el._x!._reask = false;
+      // The landing published: the dependency tail the flight's pass left
+      // linked goes now (A30, #3410). A transition-held landing has not
+      // replaced the committed frame — the committed value still derives
+      // from the previous pass's inputs, and a mainline write to one of them
+      // must reach this node and join its hold (its stamp) instead of
+      // publishing beside the stale derivation (#3461: `b() ? b() : a()`
+      // held on `b` dropped `a` at its landing, and `A: 1` then committed
+      // beside `Selected: 0`). `commitPendingNode` trims a held landing.
+      trimStaleDeps(el);
     }
     settlePendingSource(el);
     schedule();
