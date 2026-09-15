@@ -220,6 +220,11 @@ module.exports = [
     // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 8.65 ->
     // 8.70 KB, measured at 8685 B against `next`'s 8628 (+57) — `enterStagedRead` on read()'s value
     // selections and the deferred dependency trim; see the core floor note.
+    // Overlapping flights (#3443, #3444; 2026-09-14, on top of #3442): no bump,
+    // measured at 8690 B — pending propagation onto a held memo enters its
+    // transaction (`initTransition` at notifyStatus's dependent walk), and a
+    // lane-dirtied zombie runs instead of being cancelled; +54 B minified in
+    // the in-package floor (23,365 -> 23,419), brotli absorbs most of it.
     limit: "8.70 KB",
     modifyEsbuildConfig
   },
@@ -446,7 +451,11 @@ module.exports = [
     // Memo lane posture (#3442, 2026-09-14): no bump, measured at 15624 B on
     // the rebase over #3438 (+12 B minified — one assignment in recompute's
     // head; brotli noise absorbs it; see the core floor note).
-    limit: "15.65 KB",
+    // Overlapping flights (#3443, #3444; 2026-09-14, on top of #3442): 15.65 ->
+    // 15.70 KB, measured at 15679 B — pending propagation onto a held memo enters
+    // its transaction, and a lane-dirtied zombie runs instead of being
+    // cancelled (+54 B minified in the in-package floor); see the core floor note.
+    limit: "15.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -558,7 +567,11 @@ module.exports = [
     // #3426/#3427/#3407 (2026-09-14): 10.90 -> 11.05 KB, measured at 11018 B
     // against `next`'s 10897 (+121 — the core seams plus `endOptimism` in the
     // optimistic module this scenario loads); see the core floor note.
-    limit: "11.05 KB",
+    // Overlapping flights (#3443, #3444; 2026-09-14, on top of #3442): 11.05 ->
+    // 11.10 KB, measured at 11066 B — pending propagation onto a held memo enters
+    // its transaction, and a lane-dirtied zombie runs instead of being
+    // cancelled (+54 B minified in the in-package floor); see the core floor note.
+    limit: "11.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -1065,7 +1078,11 @@ module.exports = [
     // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 15.60 ->
     // 15.65 KB, measured at 15630 B against `next` (#3434 head) — `enterStagedRead` on read()'s value
     // selections and the deferred dependency trim; see the core floor note.
-    limit: "15.65 KB",
+    // Overlapping flights (#3443, #3444; 2026-09-14, on top of #3442): 15.65 ->
+    // 15.70 KB, measured at 15681 B — pending propagation onto a held memo enters
+    // its transaction, and a lane-dirtied zombie runs instead of being
+    // cancelled (+54 B minified in the in-package floor); see the core floor note.
+    limit: "15.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -992,7 +992,19 @@ export function notifyStatus(
         schedule();
         return;
       }
-      if (!downstreamBlockStatus && !sub._transition) queuePendingNode(sub);
+      // A memo another live transaction holds, made pending by THIS flight,
+      // cannot reveal before the flight lands: the two settle as one unit
+      // (A15, a shared derivation of both — #3443). Propagation marks the
+      // held memo without recomputing it (its inputs' values are unchanged),
+      // so this is the one moment the entanglement is known; the memo's
+      // stamped re-entry at its next pass came too late — the holder's own
+      // flight landed first and revealed the inputs beside the stale sum.
+      // Effects entangle nothing (A15 shared-hole corollary): their reader
+      // registers with the flight's transaction at queue notification.
+      if (!downstreamBlockStatus)
+        sub._transition
+          ? pendingSource && !(sub as any)._type && globalQueue.initTransition(sub._transition)
+          : queuePendingNode(sub);
       notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);
     }
   });
