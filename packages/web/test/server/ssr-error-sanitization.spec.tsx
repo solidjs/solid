@@ -70,15 +70,15 @@ interface Results {
 const runs = new Map<string, Results>();
 function run(conditions: string[]): Results {
   const key = conditions.join(",");
-  let results = runs.get(key);
-  if (!results) {
-    const stdout = execFileSync(
-      process.execPath,
-      [...conditions.map(c => `--conditions=${c}`), FIXTURE],
-      { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
-    );
-    runs.set(key, (results = JSON.parse(stdout)));
-  }
+  const cached = runs.get(key);
+  if (cached) return cached;
+  const stdout = execFileSync(
+    process.execPath,
+    [...conditions.map(c => `--conditions=${c}`), FIXTURE],
+    { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+  );
+  const results: Results = JSON.parse(stdout);
+  runs.set(key, results);
   return results;
 }
 
