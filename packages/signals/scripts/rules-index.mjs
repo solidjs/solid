@@ -211,7 +211,6 @@ if (process.argv.includes("--check")) {
       cited.src.size +
       " ids); every live A-rule is cited by a test"
   );
-  process.exit(0);
 }
 const order = { A: 0, V: 1, B: 2, C: 3, INV: 4, RUL: 5, R: 6, "§": 7 };
 const rows = [...rules.values()].sort(
@@ -307,7 +306,22 @@ for (const r of rows) {
     `| ${r.key} | ${r.status} | \`${r.def}\` | ${esc(fmtCites(cited.src.get(r.key)))} | ${esc(fmtCites(cited.tests.get(r.key)))} | ${esc(r.text.slice(0, 200))}${r.text.length > 200 ? "…" : ""} |`
   );
 }
-fs.writeFileSync(path.join(DOCS, "RULES-INDEX.md"), L.join("\n") + "\n");
+const INDEX = path.join(DOCS, "RULES-INDEX.md");
+const generated = L.join("\n") + "\n";
+if (process.argv.includes("--check")) {
+  // The committed index must be current. Prettier reflows table padding,
+  // escapes underscores, rewrites *em* as _em_ and adds blank lines around
+  // headings on commit, so compare with whitespace, backslashes, emphasis
+  // markers and dash runs collapsed.
+  const norm = t => t.replace(/[\s\\*_]+/g, "").replace(/-+/g, "-");
+  if (norm(read(INDEX)) !== norm(generated)) {
+    console.error("rules-index: docs/RULES-INDEX.md is stale — run `node scripts/rules-index.mjs`");
+    process.exit(1);
+  }
+  console.log("rules-index: docs/RULES-INDEX.md is current");
+  process.exit(0);
+}
+fs.writeFileSync(INDEX, generated);
 console.log(
   `RULES-INDEX.md: ${rows.length} rules; src citations ${cited.src.size} ids (${un.length} unresolved); tests ${cited.tests.size} ids (${unT.length} unresolved)`
 );

@@ -30,11 +30,11 @@ The former Tier A table is these sections. Tier B/C, the fixed violations, and t
 
 ### A17. An active override is the displayed value until its transaction commits, and the graph's value until its own source answers
 
-**Status:** **ruled, amended in place** 2026-07-06 (promoted from C4) — maintainer ruling, 2026-07-06/07; amended 2026-09-09 (#3331: "knowing otherwise" splits display from tracked derivations — see A18 supersession)
+**Status:** **ruled, amended in place** 2026-07-06 (promoted from C4) — maintainer ruling, 2026-07-06/07; amended 2026-09-09 (#3331: "knowing otherwise" splits display from tracked derivations — see A18 supersession); carve-out ruled 2026-09-14 (`until()` reads the landed world)
 **Pinned by:** `tests/spec-async-semantics.test.ts`; downstream-async lane holding: `tests/createOptimistic.test.ts` (CategoryDisplay/News-Finance real-world sections)
 **Mechanism (index, 2026-09-14):** `_overrideValue` + `hasActiveOverride`; value selection in `read` / `readNodeFast` / store `serveDataKey`; authoritative-view carve-out for `until()` (`CONFIG_AUTHORITATIVE_READ`); held-truth mask `CONFIG_HELD_TRUTH` (#3164); after the own-source landing `supersededRead` routes tracked readers to the arrived value while untracked reads keep `_overrideValue` (`CONFIG_OVERRIDE_SUPERSEDED`, #3331).
 
-**Statement (current).** (was C4) **Amended 2026-09-09 (#3331):** "until we know otherwise" is the landing of the node's own async, and knowing otherwise splits the readers: from that landing on, the override is the value for the _display_ — untracked/ambient reads and the applied frame — until the transaction commits, while tracked derivations (memos, async drivers, lane recomputes) see the arrived truth (A18 supersession). `latest(x)` returns the arrived value; `isPending(x)` is `true` iff it differs from the override. "It is the optimistic future value... it is both immediate and is the future until we know otherwise." "Knowing otherwise" is its own async source resolving (see A18); a transition whose optimistic node is still pending on its own fetch is not complete, so the override cannot be dropped early. **No-tearing is an effect-level concern, not a read-level one**: when async _derived from_ the optimistic value is in flight, the lane holds its render effects (the rendered view keeps the committed state as a unit) — but direct reads still return the override ("direct read shows optimistic, effect waits").
+**Statement (current).** (was C4) **Amended 2026-09-09 (#3331):** "until we know otherwise" is the landing of the node's own async, and knowing otherwise splits the readers: from that landing on, the override is the value for the _display_ — untracked/ambient reads and the applied frame — until the transaction commits, while tracked derivations (memos, async drivers, lane recomputes) see the arrived truth (A18 supersession). `latest(x)` returns the arrived value; `isPending(x)` is `true` iff it differs from the override. "It is the optimistic future value... it is both immediate and is the future until we know otherwise." "Knowing otherwise" is its own async source resolving (see A18); a transition whose optimistic node is still pending on its own fetch is not complete, so the override cannot be dropped early. **No-tearing is an effect-level concern, not a read-level one**: when async _derived from_ the optimistic value is in flight, the lane holds its render effects (the rendered view keeps the committed state as a unit) — but direct reads still return the override ("direct read shows optimistic, effect waits"). **Authoritative-reader carve-out (ruled 2026-09-14, visibility oracle):** `until()`'s predicate reads the _landed_ world — values a source has actually produced, staged or committed, before they have become visible — and never the caller's optimism. Maintainer: "it needs to work off landed values, but before they have become visible." So under a held write it sees the staged value; over an override it sees the truth beneath (staged if one arrived, else committed); over a pending or uninitialized node it suspends like any reader; over a loading-window node it sees the loading value. Mechanism: `CONFIG_AUTHORITATIVE_READ` on the predicate's computation, `authoritativeServe()` on the store side.
 
 **History (superseded formulation, kept verbatim).** The 2026-07-06 wording — its "tracked alike" and "any read path" clauses are replaced by the 2026-09-09 amendment the statement now leads with; the display half of both sentences still holds: An _active_ optimistic override is THE value for every **read** — ambient/untracked and tracked alike — regardless of transition entanglement. Do NOT mask the override from any read path to prevent tearing; that breaks the real-world optimistic-UI contract.
 
@@ -80,6 +80,14 @@ A tracked computation served a node's staged `_pendingValue` — a value a live 
 
 A memo's value is one shared slot every reader sees, so its pass runs under the lane posture the memo itself owns — OPT-dirty, or adopted through its dependencies — and never under the lane of whichever reader happened to pull it. Lane posture changes what a read serves: under a lane, a pending node on no lane (or another lane) serves its committed value instead of throwing, and the entanglement gates serve committed values for the lane's own view. Those carve-outs are sound for the lane's effects, whose runs are that view, and unsound for a memo, whose result is cached for everyone. Before: the probe effect of `isPending(() => [fast(), copy()])` carried the companion lane of the pending signals it reads, and its pull of `copy = createMemo(() => slow())` ran under it; `copy` read the in-flight `slow` as its committed `0`, published a clean value, dropped its pending status, and its readers stopped holding `slow` — the transaction settled on `fast`'s landing with `slow` still in flight (`Fast: 1` beside `Slow: 0`, `Pending: false`). Now the pull throws `NotReady` as a plain reader would, `copy` stays pending, and the hold lasts until both flights land. A plain getter in place of `copy` never had the gap: the probe read `slow` directly, and a probe observes without deriving (A23).
 
+### A32. Children-forbidden readers see the frame, not the graph
+
+**Status:** **ruled** 2026-09-14 — maintainer ruling (visibility oracle): "createTrackedEffect is like an after effect, it can't really participate in any meaningful way. It will be held for any transition it is linked to if something else holds it, but it's too late on creation… onSettled is a similar issue."
+**Pinned by:** `tests/visibility-oracle.test.ts` (childrenForbidden column, every state)
+**Mechanism (index, 2026-09-14):** `CONFIG_CHILDREN_FORBIDDEN` on the reader; `read()` / `readNodeFast()` serve `_value` for it after the override arm (#3006); `PENDING_ASYNC_FORBIDDEN_SCOPE` dev warning on a pending read.
+
+`createTrackedEffect` and `onSettled` callbacks are effect-phase code that runs after the frame is decided. They read the frame as it stands: committed values, and an active override where one is displayed (the override _is_ the frame — it shows through, superseded or not); a write held by a transaction is never visible to them. They cannot open or enter a hold of their own — a transaction reaches them only through the computation that linked them, and then only as a hold, never as a view of the staged world. On a pending node they read its committed value (the frame); on an uninitialized node there is none and they receive the `NotReadyError` (dev: `PENDING_ASYNC_FORBIDDEN_SCOPE` warns on any pending read); on a loading-window node, the loading value (A27).
+
 ## Verdicts — `isPending()` and `latest()`
 
 ### A19. `isPending(x)` ≡ the observable value is not final (three causes)
@@ -100,11 +108,11 @@ A memo's value is one shared slot every reader sees, so its pass runs under the 
 
 ### A7. Resolved async never reads `[false, undefined]`
 
-**Status:** **ruled** — #2829 (the `[false, undefined]` pins were a regression)
+**Status:** **ruled, amended in place** — #2829 (the `[false, undefined]` pins were a regression); amended 2026-09-14 (uninitialized: `latest()` throws in every scope, never `undefined`)
 **Pinned by:** `tests/latest-async.test.ts`, `tests/createMemo.test.ts`
 **Mechanism (index, 2026-09-14):** `latest()` shadow (`_latestValueComputed`) is backfilled from `_pendingValue` when created after the write (verdict.ts, #3041).
 
-After an async memo resolves, `[isPending(x), latest(x)]` is `[false, resolvedValue]` — never `[false, undefined]`.
+After an async memo resolves, `[isPending(x), latest(x)]` is `[false, resolvedValue]` — never `[false, undefined]`. **Amended 2026-09-14:** before the first landing there is no visible value, and `latest()` never fabricates one — it throws `NotReadyError` in every scope, owned or unowned, exactly like the plain read. (Maintainer: returning `undefined` "would mess with types" — `latest<T>` returns `T`.) The unowned scope used to return `undefined` by sharing the pending-shadow fallback's condition; the `isPending` twin stays `false` there because `false` inhabits `boolean` (A16).
 
 ### A8. `isPending(() => latest(x))` follows `x`'s own async only — verdicts are per-channel
 
@@ -156,11 +164,11 @@ A resting optimistic node reports pending via exactly the causes a plain async m
 
 ### A16. `isPending` never throws in untracked contexts
 
-**Status:** **ruled** 2026-07-06 (promoted from B5) — maintainer keep, 2026-07-06
+**Status:** **ruled, amended in place** 2026-07-06 (promoted from B5) — maintainer keep, 2026-07-06; wording corrected 2026-09-14 (the boundary is ownership, not tracking)
 **Pinned by:** `tests/spec-async-semantics.test.ts`
 **Mechanism (index, 2026-09-14):** `pendingCheckRead` swallows `NotReadyError` / errors when `getObserver() === null`; tracked carve-out B5a.
 
-(was B5) `isPending` never throws in untracked contexts — thunks that throw real errors or read uninitialized async sources yield `false`. Carve-out (B5a, pinned as current behavior): in _tracked_ contexts the `NotReadyError` of an uninitialized source propagates so the reader participates in loading boundaries.
+(was B5) `isPending` never throws in untracked contexts — thunks that throw real errors or read uninitialized async sources yield `false`. Carve-out (B5a, pinned as current behavior): in _tracked_ contexts the `NotReadyError` of an uninitialized source propagates so the reader participates in loading boundaries. **Wording corrected 2026-09-14 (visibility oracle):** the boundary is _ownership_ (`context === null`), not tracking. Inside an owner — a `createRoot` body, a computation, `untrack()` within either — the `NotReadyError` propagates, tracked or not, because an owner can route it to a boundary; only an unowned caller (event handler, imperative scope) gets `false`. `latest()` shares the mechanism but not the verdict: it throws in every scope (A7).
 
 ### A22. Pending is per-node; store-wide only for the firewall's own work
 
