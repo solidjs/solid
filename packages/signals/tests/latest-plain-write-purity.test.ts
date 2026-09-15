@@ -8,8 +8,10 @@
  * `_value` — leaking the queued plain write into committed reads before the
  * flush: `m()` returned the latest value instead of the committed one.
  *
- * The fix demotes wake-only-lane recomputes pulled outside the flush to plain
- * staged recomputes, so `latest()` stays a pure probe.
+ * Writes now become visible at flush for every channel, so `latest(m)` no
+ * longer pulls at all before the flush — the leak has no path. The purity
+ * invariant these tests pin is unchanged: probing `latest(m)` never changes
+ * what plain `m()` returns, and the flush commits and notifies normally.
  */
 import { createEffect, createMemo, createRoot, createSignal, flush, latest } from "../src/index.js";
 import { isPending } from "../src/index.js";
@@ -26,13 +28,16 @@ it("latest(m) does not change what plain m() returns before the flush (#3009)", 
 
   setCount(4);
   expect(m()).toBe(0); // A
-  expect(latest(m)).toBe(8); // B
-  expect(m()).toBe(0); // C — was 8 before the fix
-  expect(latest(m)).toBe(8); // probe repeats stay consistent
+  expect(latest(m)).toBe(0); // B — the flushed world (was 8 under the pull)
+  expect(m()).toBe(0); // C
+  expect(latest(m)).toBe(0); // probe repeats stay consistent
   expect(m()).toBe(0);
+  flush();
+  expect(m()).toBe(8);
+  expect(latest(m)).toBe(8);
 });
 
-it("the demoted recompute still commits at flush and notifies effects (#3009)", () => {
+it("the flush commits and notifies effects after latest() probes (#3009)", () => {
   let m!: () => number;
   let setCount!: (v: number) => void;
   const effectLog: number[] = [];
@@ -46,20 +51,20 @@ it("the demoted recompute still commits at flush and notifies effects (#3009)", 
   expect(effectLog).toEqual([0]);
 
   setCount(4);
-  expect(latest(m)).toBe(8);
+  expect(latest(m)).toBe(0);
   flush();
   expect(m()).toBe(8);
   expect(latest(m)).toBe(8);
   expect(effectLog).toEqual([0, 8]);
 
-  // Later writes keep flowing normally after the demoted pull.
+  // Later writes keep flowing normally.
   setCount(10);
   flush();
   expect(m()).toBe(20);
   expect(effectLog).toEqual([0, 8, 20]);
 });
 
-it("chained memos over latest() stay pure through the pull (#3009)", () => {
+it("chained memos over latest() stay pure (#3009)", () => {
   let m!: () => number;
   let m2!: () => number;
   let setCount!: (v: number) => void;
@@ -73,14 +78,15 @@ it("chained memos over latest() stay pure through the pull (#3009)", () => {
   expect(m2()).toBe(3);
 
   setCount(5);
-  // Pulling through the chain must not commit any intermediate node.
-  expect(latest(m2)).toBe(11);
+  // Probing through the chain must not commit any intermediate node.
+  expect(latest(m2)).toBe(3);
   expect(m()).toBe(2);
   expect(m2()).toBe(3);
 
   flush();
   expect(m()).toBe(10);
   expect(m2()).toBe(11);
+  expect(latest(m2)).toBe(11);
 });
 
 it("an isPending probe on the same shape does not pollute committed reads (#3009)", () => {

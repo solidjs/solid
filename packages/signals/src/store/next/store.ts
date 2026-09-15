@@ -35,6 +35,8 @@ import {
   devGuardStoreSetterWrite,
   isEqual,
   latestReadActive,
+  stale,
+  unflushedOverride,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -279,11 +281,16 @@ export function getNode(
     // (stageHeldKey). Its held-adoption notification (stageHeldAdoptions)
     // ran before the node existed and the drain has nothing left to say.
     // Without this the node was born from whichever view its first reader
-    // saw and never learned the other. (The held-FOLD twin — a setter's
-    // write to an unobserved key landing only in the pending backing — is
-    // #3336's, and lands with #3337.)
-    const held = heldAdoptionTransition(target);
+    // saw and never learned the other. Two kinds of hold, one rule (#3336):
+    //  - a held FOLD (pb): a setter's write to an unobserved key landed only
+    //    in the pending backing; committed is `v[key]`, staged is `pb[key]`
+    //    (undefined for a deleted key);
+    //  - a held ADOPTION (ht): the adopted value already swapped into `v`;
+    //    committed is the held view `hv[key]`, staged is `v[key]`.
+    const fold = heldFoldTransition(target);
+    let held = heldAdoptionTransition(target);
     if (held !== null) current = (target.hv as any)[key];
+    else if ((held = fold) !== null) current = (target.v as any)[key];
     // Create-floor diet: slotSignal bakes the whole node into one literal —
     // no options object, no equals/unobserved closures, no NodeExtension,
     // no post-construction expandos (acc + the wrap cache px/pxv are
@@ -323,7 +330,16 @@ export function getNode(
     // A node born inside a live mark's identity scope inherits the mark
     // (the declaration walk could only cover nodes existing then).
     if (key !== $AFFECTS && affectsScopesLive()) inheritAffectsMarks(created, target.v, key);
-    if (held !== null) stageHeldKey(created, (target.v as any)[key], held);
+    if (held !== null)
+      stageHeldKey(
+        created,
+        fold !== null
+          ? target.del !== null && target.del.has(key)
+            ? undefined
+            : (target.pb as any)[key]
+          : (target.v as any)[key],
+        held
+      );
     nodes[key] = node;
     target.nc++;
     markDescendants(target);
@@ -353,6 +369,56 @@ function heldAdoptionTransition(target: StoreNextTarget): Transition | null {
  * it walks no subscriber (the node has none yet). Transition-stamped now, as
  * `runFolded` does — no parked-flush pass will stamp it.
  */
+/** The live transaction holding `target`'s pending backing (the #3089
+ * write-time stamp, resolved through merges), else null. */
+function liveFoldTransition(target: StoreNextTarget): Transition | null {
+  if (target.pb === null) return null;
+  const fb = foldBatches.get(target);
+  if (fb === undefined) return null;
+  const txn = currentTransition(fb);
+  return txn._done === false ? txn : null;
+}
+
+/** liveFoldTransition for node materialization (stageHeldKey). Inside the
+ * draft the backing is the setter's working copy, not a flushed hold — its
+ * nodes take their writes at setter exit (notifyWrites). Optimistic families
+ * hold at the backing: tentative writes are node overrides over a discarded
+ * clone, and a truth-staged landing is masked from ordinary readers by
+ * heldTruthMasked — neither is a plain staged write to mirror. Chained
+ * backings serve the inner store's live value, never a node value. */
+function heldFoldTransition(target: StoreNextTarget): Transition | null {
+  if (target.ch || target.fam?.opt === true || inDraft(target)) return null;
+  return liveFoldTransition(target);
+}
+
+/**
+ * Core read()'s committed-visibility clause, at the backing (#3336):
+ * `(stale && el._transition !== null) ? _value : _pendingValue`. While a live
+ * transaction holds the pending backing, a stale (render) reader — and a
+ * reader with no owner at all — sees committed, through every channel: an
+ * untracked read in the effect, `in`, `Object.keys`, `deep()`/`snapshot()`.
+ * The node path already answers this way; without the backing twin the same
+ * effect read `0` through `a.count` and `1` through `untrack(() => a.count)`
+ * or `"added" in a`. Speculation stays visible to non-stale owner-context
+ * readers and to the peek from inside one; a pending backing with no
+ * transaction (a same-tick plain write) is unaffected.
+ */
+function heldFromReader(target: StoreNextTarget): boolean {
+  if (!stale && inOwnerContext()) return false;
+  const txn = liveFoldTransition(target);
+  return txn !== null && foreignHold(txn);
+}
+
+/** Core read()'s `activeTransition !== el._transition`: a hold belongs to a
+ * FOREIGN transaction unless the flush running now is that transaction's —
+ * its own stale readers (a render effect recomputing in it, whose run the
+ * commit applies) see the staged world. */
+function foreignHold(txn: Transition): boolean {
+  return (
+    activeTransition === null || currentTransition(activeTransition) !== currentTransition(txn)
+  );
+}
+
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
   if (slotNodeEquals.call(node, node._value, nv)) return;
   node._pendingValue = nv;
@@ -1588,7 +1654,10 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
     !latestReadActive &&
     !inDraft(target) &&
     !getWriteOverride() &&
-    !inOwnerContext()
+    // A stale (render) reader of a FOREIGN transaction's hold is a
+    // committed-visibility reader whatever its owner context (#3336).
+    (!inOwnerContext() ||
+      (stale && target.ht !== PLAIN_HOLD && foreignHold(currentTransition(target.ht))))
   ) {
     const hv = heldMaskView(target);
     if (hv !== null) return hv;
@@ -1623,13 +1692,20 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
       // and only the authoritative postures and latest() see it (the
       // backing-level twin of core read()'s A17-for-held-truth arm;
       // ordinary readers keep committed until the transaction's reveal).
-      ((speculative || inOwnerContext()) && !heldTruthMasked(target)) ||
+      // Stale readers and owner-less peeks of a TRANSACTION-held backing see
+      // committed, as core read() serves them (#3336, heldFromReader).
+      ((speculative || inOwnerContext()) && !heldTruthMasked(target) && !heldFromReader(target)) ||
       // A projection's pending backing is authoritative-elect: serve it to
       // context-free readers too UNLESS a transition is holding the node
       // commits (downstream async hold — stale committed is the contract)
       // or the reader is a CHILDREN_FORBIDDEN scope, which never observes
       // its own unsettled write (#3082, signal parity per #3006).
-      (target.fam !== null && !heldTruthMasked(target) && !foldHeld(target) && !inForbiddenScope()))
+      // (The write-time stamp covers keys with no node, #3336.)
+      (target.fam !== null &&
+        !heldTruthMasked(target) &&
+        !foldHeld(target) &&
+        liveFoldTransition(target) === null &&
+        !inForbiddenScope()))
   );
 }
 
@@ -1681,6 +1757,13 @@ export function runAuthoritative<T>(fn: () => T): T {
 export function hasActiveOverride(node: Signal<any>): boolean {
   return node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING;
 }
+/** The override a READER sees: installed, and carried by a flush (A28 (5) —
+ * an optimistic write is a write; until its flush no reader sees it). The
+ * writer's own channels (the draft, `in`/keys inside the setter) compose on
+ * the installed override regardless — they use hasActiveOverride. */
+export function visibleOverride(node: Signal<any>): boolean {
+  return hasActiveOverride(node) && !unflushedOverride(node);
+}
 
 /** The reading computation is until()'s authoritative-view predicate — same
  * source of truth as core read()'s A17 carve-out (`context`, which persists
@@ -1718,7 +1801,7 @@ function nodeValue(node: Signal<any>, backing: any): any {
   // only: staged pending values are authoritative, overrides are the
   // caller's optimism.
   const v =
-    !authoritativeServe() && hasActiveOverride(node)
+    !authoritativeServe() && hasActiveOverride(node) && !unflushedOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
       : node._pendingValue !== NOT_PENDING &&
           (latestReadActive ||
@@ -1728,7 +1811,12 @@ function nodeValue(node: Signal<any>, backing: any): any {
             // see (core read()'s A17-for-held-truth twin; ordinary readers
             // keep committed until the transaction's reveal — latest() is
             // exempted by the leading arm above).
-            ((inOwnerContext() || authoritativeServe()) &&
+            // — and core read()'s stale-reader clause: a render effect's
+            // untracked read of a FOREIGN transaction's write sees committed
+            // (#3336; the tracked read reaches core read() and already does).
+            (((inOwnerContext() &&
+              !(stale && node._transition !== null && foreignHold(node._transition))) ||
+              authoritativeServe()) &&
               !(node._config & CONFIG_HELD_TRUTH && !authoritativeServe())))
         ? node._pendingValue
         : backing;
@@ -1792,7 +1880,9 @@ function serveDataKey(
     // Truth authors read the backing's own length — an optimistic row from
     // the caller's transaction must not shift where the author's next write
     // lands (#3108).
-    return ((authoritativeServe() ? src : optHooks!.optimisticView(target, src)) as any[]).length;
+    return (
+      (authoritativeServe() ? src : optHooks!.optimisticView(target, src, inDraft(target))) as any[]
+    ).length;
   }
   if (inDraft(target)) {
     // Optimistic drafts before their first write have no pending backing yet;
@@ -1806,23 +1896,23 @@ function serveDataKey(
         v = unwrapOverride(node._x?._overrideValue);
     }
   } else {
-    if (node !== undefined) {
-      // §7b: a lane value on the outer node SHADOWS read-through — an active
-      // override pierces the chained gate; otherwise chained backings always
-      // serve the live inner value.
-      if (getObserver() !== null) {
-        // read()'s plain-signal fast path hoisted over the call (legacy trap
-        // parity): READ_SLOW = a global read window or non-plain node.
-        let nv = readNodeFast(node);
-        if (nv === READ_SLOW) nv = readNode(node);
-        if (!chained || hasActiveOverride(node)) v = nv === (FORCE as any) ? backingValue : nv;
-      } else if (!chained || hasActiveOverride(node)) {
-        v = nodeValue(node, backingValue);
-      }
-    } else if (getObserver() !== null) {
-      // First tracked read: create + link, and let the wrap-cache branch
-      // below populate px/pxv so read #2 skips wrapNext (slice 2).
-      readNode((node = getNode(target, key, backingValue, accKnown)));
+    // §7b: a lane value on the outer node SHADOWS read-through — an active
+    // override pierces the chained gate; otherwise chained backings always
+    // serve the live inner value.
+    if (getObserver() !== null) {
+      // First tracked read: create + link (the wrap-cache branch below
+      // populates px/pxv so read #2 skips wrapNext, slice 2). The value is
+      // served THROUGH the node from this read on — a node born under a held
+      // fold carries the hold (getNode, #3336), and the backing it was read
+      // from does not.
+      if (node === undefined) node = getNode(target, key, backingValue, accKnown);
+      // read()'s plain-signal fast path hoisted over the call (legacy trap
+      // parity): READ_SLOW = a global read window or non-plain node.
+      let nv = readNodeFast(node);
+      if (nv === READ_SLOW) nv = readNode(node);
+      if (!chained || hasActiveOverride(node)) v = nv === (FORCE as any) ? backingValue : nv;
+    } else if (node !== undefined && (!chained || hasActiveOverride(node))) {
+      v = nodeValue(node, backingValue);
     }
   }
   // Shallow stores serve data raw; store-proxy slots get boundary wrappers.
@@ -2049,7 +2139,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         !authoritativeServe()
       ) {
         const node = target.n?.[key];
-        if (node !== undefined && hasActiveOverride(node))
+        if (node !== undefined && visibleOverride(node))
           v = unwrapOverride(node._x?._overrideValue);
       }
       if (target.s) return serveShallow(target, key, v);
@@ -2082,7 +2172,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
         if (hasActiveOverride(node)) present = !!nv;
       } else if (!authoritativeServe()) {
         const node = target.h?.[key as any];
-        if (node !== undefined && hasActiveOverride(node))
+        if (node !== undefined && visibleOverride(node))
           present = !!unwrapOverride(node._x?._overrideValue);
       }
     } else if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
@@ -2386,9 +2476,10 @@ function visibleKeys(target: StoreNextTarget, src: Record<PropertyKey, any>): (s
     (!inDraft(target) || draftSeesOverrides(target))
   ) {
     let set: Set<PropertyKey> | null = null;
+    const draft = inDraft(target);
     for (const key of Reflect.ownKeys(target.h)) {
       const node = target.h[key as any];
-      if (!hasActiveOverride(node)) continue;
+      if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
       set ??= new Set(keys);
       if (unwrapOverride(node._x?._overrideValue)) set.add(key);
       else set.delete(key);
@@ -2415,7 +2506,7 @@ function visibleDescriptor(
   }
   if (!authoritativeServe() && target.fam?.opt && !inDraft(target)) {
     const node = target.h?.[key as any];
-    if (node !== undefined && hasActiveOverride(node)) {
+    if (node !== undefined && visibleOverride(node)) {
       if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
       if (desc === undefined) {
         const vn = target.n?.[key as any];

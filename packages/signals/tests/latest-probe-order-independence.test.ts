@@ -52,18 +52,19 @@ describe("latest-mode probe order independence (#3104)", () => {
     // The heisenberg: these two used to disagree (false vs true).
     expect(withRead.reads.latestProbe).toBe(without.reads.latestProbe);
 
-    // The designed pre-flush answers for a plain staged write: the direct
-    // probe reports the held write; every latest-flavored probe saw the
-    // fresh value in the latest view, so it must not also report pending.
+    // The pre-flush answers for a plain write: writes become visible at
+    // flush, so an unflushed write is pending on no channel — the direct
+    // probe and every latest-flavored probe agree (false), and no read can
+    // have pulled the shadow current against it.
     expect(withRead.reads).toEqual({
       m1Internal: false, // memo created pre-write, no flush seen yet (#3078)
       m1External: false,
-      direct: true,
+      direct: false,
       latestProbe: false
     });
     expect(without.reads).toMatchObject({
       m1Internal: false,
-      direct: true,
+      direct: false,
       latestProbe: false
     });
 

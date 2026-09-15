@@ -158,6 +158,11 @@ export const CONFIG_HELD_CHILDREN = 1 << 20;
  * lane-revealed. Set by `commitPendingNodes`; cleared when the node next
  * enters pending fresh (a new flight from a settled state). */
 export const CONFIG_INPUTS_PUBLISHED = 1 << 21;
+/** A28 (4): the node was written inside a recompute that ran OUTSIDE a flush
+ * (a creation-time compute — boundary machinery, a mapArray's first run). Such
+ * a write is promoted at that recompute's end: readers in the same block see
+ * it. Cleared when the next flush begins; set only on that rare path. */
+export const CONFIG_PROMOTED = 1 << 22;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

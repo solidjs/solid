@@ -28,7 +28,14 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { currentOptimisticLane, ext, slotUnobservedHook } from "./core.js";
+import {
+  currentOptimisticLane,
+  ext,
+  slotUnobservedHook,
+  markUnflushedStaged,
+  resyncUnflushedCompanions,
+  unflushedCompanions
+} from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
@@ -720,6 +727,10 @@ export class GlobalQueue extends Queue {
     ) {
       this._running = true;
       try {
+        // A28: companions of nodes written since the last flush mirror the
+        // flushed world — re-synced inside the running window (the write is
+        // "flushed" from here on).
+        resyncUnflushedCompanions();
         // Sweep first: unobserved() pulls swept nodes out of the dirty heap,
         // so a dormant memo dirtied in the same tick is reclaimed instead of
         // recomputed (matching the old inline dispose-on-read counts).
@@ -737,6 +748,7 @@ export class GlobalQueue extends Queue {
       return;
     }
     this._running = true;
+    resyncUnflushedCompanions(); // A28, see above
     try {
       if (__DEV__) devCheckFlushStart();
       // Before runHeap for the same reason as the fast drain above; late
@@ -990,6 +1002,7 @@ export class GlobalQueue extends Queue {
 export function queuePendingNode(node: Signal<any>): void {
   if (__DEV__) lastStagedNodeName = (node as any)._name ?? null;
   currentBatch._pendingNodes.push(node);
+  if (!globalQueue._running) markUnflushedStaged(); // A28
 }
 
 // Dev-only attribution for the flush loop guard (#3140): when the guard

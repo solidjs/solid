@@ -46,7 +46,7 @@ function status(text) {
       .replace("ruled, amended in place", "amended")
       .replace(/ \d{4}-\d{2}-\d{2}.*$/, "")
       .replace(/ \(promoted.*$/, "");
-  if (/SUPERSEDED/.test(text)) return "superseded";
+  if (/SUPERSEDED|\*\*Superseded \d{4}/.test(text)) return "superseded";
   if (/RETIRED/.test(head)) return "retired";
   if (/RULED OUT/.test(head)) return "ruled out";
   if (/— FIXED|FIXED\.\*\*/.test(head)) return "fixed";

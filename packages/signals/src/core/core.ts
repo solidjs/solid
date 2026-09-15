@@ -27,6 +27,7 @@ import {
   CONFIG_OPTIMISTIC,
   CONFIG_OVERRIDE_SUPERSEDED,
   CONFIG_OWNED_WRITE,
+  CONFIG_PROMOTED,
   CONFIG_SLOT_NODE,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
@@ -913,6 +914,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _overrideValue: undefined,
     _overrideOwner: undefined,
     _overrideTime: 0,
+    _flushedStaged: NOT_PENDING,
     _overrideStamp: 0,
     _optimisticLane: undefined,
     _pendingSignal: undefined,
@@ -1511,6 +1513,12 @@ export function enterStagedRead(
   t: Transition | null | undefined = el._transition
 ): void {
   if (!t || t === activeTransition || pendingCheckActive) return;
+  // A companion (the latest() shadow, the isPending() verdict signal) is the
+  // engine's mirror of the flushed world — reading it, or being it, is an
+  // observation, not a derivation from the hold: latest(x) never enters x's
+  // transaction, and the shadow's own pass never enters either (it would
+  // flip activeTransition under the reader that pulled it).
+  if (el._x?._parentSource || (context as Computed<any> | null)?._x?._parentSource) return;
   // Verdict machinery (GlobalQueue._verdictPull: companion creation and the
   // latest()/isPending() pulls — the latest() shadow is created before it is
   // marked optimistic, so the bit alone cannot tell) and optimistic nodes
@@ -1535,6 +1543,92 @@ export function enterStagedRead(
   globalQueue.initTransition(t);
 }
 
+/** A28 — set when a node is staged (queuePendingNode) or a held node rewritten
+ * (stashHeldRewrite) OUTSIDE a flush; cleared when the next flush begins. The
+ * read sites test this one module boolean instead of `globalQueue._running`:
+ * inside a flush it is false and the A28 arm costs nothing; outside, only a
+ * tick with unflushed writes pays the staged-node check. */
+export let unflushedStaged = false;
+export function markUnflushedStaged(): void {
+  unflushedStaged = true;
+}
+
+/** A28 — a write becomes visible at flush. Outside a flush, a node holding an
+ * AMBIENT staged value (no transaction stamp) was written since the last
+ * flush: ambient staging commits at flush end, so nothing else leaves a node
+ * in this state; a stamped value is the flushed held world, which A28 says
+ * latest() serves. Inside a flush the rule does not apply (A28 (4): promoted
+ * within the round). Structural — no marker on the write path. */
+export function unflushed(el: Signal<any> | Computed<any>): boolean {
+  return unflushedValue(el) !== NOT_PENDING;
+}
+/** The value an unflushed node serves — the committed value for an ambient
+ * write, the flushed staged value for a rewrite of a held node — or
+ * NOT_PENDING when nothing is unflushed. Exempt: owned-write nodes (A28 (4):
+ * a write issued inside a recompute is promoted at that recompute's end —
+ * boundary and loading machinery, until()'s internals, signals declared for
+ * in-computation writes) and engine companions (the isPending() verdict
+ * signal, the latest() shadow: the system's own writes, made at the source's
+ * write to mirror it, installing eagerly — A28, A8). */
+export function unflushedValue(el: Signal<any> | Computed<any>): unknown {
+  if (
+    globalQueue._running ||
+    el._pendingValue === NOT_PENDING ||
+    el._config & CONFIG_PROMOTED ||
+    el._x?._parentSource
+  )
+    return NOT_PENDING;
+  if (el._transition === null) return el._value;
+  // A held node: unflushed only if rewritten since the last flush (stash).
+  return el._x === null ? NOT_PENDING : el._x._flushedStaged;
+}
+/** Held nodes rewritten since the last flush (setSignal); the flush clears
+ * their stash — from then on latest() answers with the rewrite. */
+const unflushedRewrites: Array<Signal<any> | Computed<any>> = [];
+/** Nodes written inside a creation-time recompute (CONFIG_PROMOTED). */
+const promotedWrites: Array<Signal<any> | Computed<any>> = [];
+/** A28 (5): an optimistic write becomes the ACTIVE override at the flush that
+ * carries it. `_overrideTime` is stamped with `clock` at the write and `clock`
+ * advances after every flush, so "this tick, outside a flush" is unflushed. */
+export function unflushedOverride(el: Signal<any> | Computed<any>): boolean {
+  // Companions are optimistic signals written by the engine (see unflushed).
+  return !globalQueue._running && el._x?._overrideTime === clock && !el._x?._parentSource;
+}
+/** A derivation served the committed value because of an unflushed write
+ * (A28) must run again in the flush that carries it — the late-linker case
+ * (#3337's reason to defer the walk): it linked after the write walked. */
+export function markLateLinker(c: Computed<any>): true {
+  // The pass's own tail re-enqueues on this latch (recompute's finally) —
+  // a direct enqueue here would be wiped by the pass's flag reset.
+  c._flags |= REACTIVE_MISSED_WAKE;
+  return true;
+}
+
+/** Companion-bearing nodes written outside a flush (setSignal); the flush
+ * that carries their writes re-syncs their companions (A28). */
+export const unflushedCompanions: Array<Signal<any> | Computed<any>> = [];
+export function resyncUnflushedCompanions(): void {
+  unflushedStaged = false;
+  // Length-guarded: the common flush has nothing here, and must allocate nothing.
+  // Length-guarded: the common flush has nothing here and allocates nothing.
+  if (unflushedRewrites.length !== 0) {
+    for (const el of unflushedRewrites) el._x!._flushedStaged = NOT_PENDING;
+    unflushedRewrites.length = 0;
+  }
+  if (promotedWrites.length !== 0) {
+    for (const el of promotedWrites) el._config &= ~CONFIG_PROMOTED;
+    promotedWrites.length = 0;
+  }
+  if (unflushedCompanions.length !== 0) {
+    for (const el of unflushedCompanions)
+      GlobalQueue._syncCompanions!(
+        el,
+        el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value
+      );
+    unflushedCompanions.length = 0;
+  }
+}
+
 export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
   if (
     latestReadActive ||
@@ -1546,6 +1640,9 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     activeTransition !== null ||
     currentOptimisticLane !== null ||
     snapshotCaptureActive ||
+    // A28: a staged node read outside a flush may serve its committed value;
+    // that arm lives on the slow path so this body stays inlinable.
+    (unflushedStaged && el._pendingValue !== NOT_PENDING) ||
     (__DEV__ && strictRead)
   )
     return READ_SLOW;
@@ -1602,6 +1699,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     activeTransition === null &&
     currentOptimisticLane === null &&
     !snapshotCaptureActive &&
+    (!unflushedStaged || el._pendingValue === NOT_PENDING) && // A28, see readNodeFast
     (!__DEV__ || !strictRead)
   ) {
     if (c && tracking) link(el, c as Computed<any>);
@@ -1755,7 +1853,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // authoritative — optimism never lives there); the sticky mark makes the
     // A17-silent "landing equals override" paths notify this node's subs so
     // the reader re-runs when truth arrives.
-    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ)) {
+    // A28 (5): an optimistic write written this tick, outside a flush, is not
+    // yet the active override — fall through to the normal selection (the
+    // authoritative mark below still applies: until() must wake on landing).
+    if (!(c && c._config & CONFIG_AUTHORITATIVE_READ) && !unflushedOverride(el)) {
       // A18 supersession (#3331): the node's own source answered with a
       // DIFFERENT value. The optimism is over for the graph — a tracked
       // reader sees the staged truth — while the override remains the
@@ -1798,6 +1899,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     el._pendingValue !== NOT_PENDING &&
     ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) !== 0;
   if (noCommitted && !c) throw new NotReadyError(null);
+  const u = c && unflushedStaged ? unflushedValue(el) : NOT_PENDING;
+  if (u !== NOT_PENDING) {
+    markLateLinker(c as Computed<any>);
+    if (pendingCheckActive) GlobalQueue._recordFresh!(el, u);
+    return u as T;
+  }
   const value =
     !c ||
     (currentOptimisticLane !== null &&
@@ -1875,6 +1982,27 @@ function ownedScopeWriteMessage(owner: Owner) {
     : REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE;
 }
 
+/** A28 — a rewrite of a HELD node outside a flush keeps the staged value the
+ * last flush left, for latest()/verdicts, until the next flush carries it
+ * (stash, cleared at that flush). Cold: only stamped nodes reach here. */
+function stashHeldRewrite(el: Signal<any> | Computed<any>): void {
+  if (globalQueue._running) return;
+  const x = ext(el);
+  if (x._flushedStaged === NOT_PENDING) {
+    x._flushedStaged = el._pendingValue;
+    unflushedRewrites.push(el);
+    unflushedStaged = true;
+  }
+}
+/** A28 (4) — written inside a recompute that runs OUTSIDE a flush (a
+ * creation-time compute): promoted at that pass's end, visible to the rest of
+ * the block. Cold: only contextual writes reach here. */
+function notePromotedWrite(el: Signal<any> | Computed<any>): void {
+  if (globalQueue._running || el._config & CONFIG_PROMOTED) return;
+  el._config |= CONFIG_PROMOTED;
+  promotedWrites.push(el);
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (
     __DEV__ &&
@@ -1896,7 +2024,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     throw new Error(ownedScopeWriteMessage(context));
   }
 
-  if (el._transition && activeTransition !== el._transition)
+  // A write to a held node inside a flush joins the hold (the round's other
+  // work is the transaction's). From mainline it does not: the node is
+  // already the transaction's (stamped, in its pending list) and the rewrite
+  // commits with it; entering here left activeTransition set for the rest of
+  // the caller's block, so a memo created after the write — and the whole
+  // next flush — became the transaction's instead of mainline's (A28, A29).
+  if (el._transition && activeTransition !== el._transition && globalQueue._running)
     globalQueue.initTransition(el._transition);
 
   // The optimistic write path lives with the engine: only optimisticSignal /
@@ -1929,17 +2063,27 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   const wasStaged = el._pendingValue !== NOT_PENDING;
   if (!wasStaged) queuePendingNode(el);
+  // A28 arms, gated on the loads the write already pays for (a plain ambient
+  // rewrite outside a flush — the write-loop shape — costs `_transition` and
+  // `context` here and nothing else; the arms themselves are cold helpers so
+  // setSignal stays within every setter's inlining budget, ~300 B bytecode).
+  else if (el._transition !== null) stashHeldRewrite(el);
   el._pendingValue = v;
   if (__DEV__) devTrackHeldPending(el);
+  if (context !== null) notePromotedWrite(el);
 
   // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
   // neither companion present the call is a guaranteed no-op (companions are
   // only ever created, never removed, and creating one installs the hook and
   // sets CONFIG_HAS_COMPANIONS — one masked read replaces two optional-field
   // probes on every write).
-  el._config & CONFIG_HAS_COMPANIONS &&
-    GlobalQueue._syncCompanions !== null &&
+  if (el._config & CONFIG_HAS_COMPANIONS && GlobalQueue._syncCompanions !== null) {
     GlobalQueue._syncCompanions(el, v);
+    // A28 (2): the verdict computed here is the PRE-flush one (an unflushed
+    // write is not pending); the flush that carries the write re-syncs so
+    // the companions mirror the flushed world. Only companion nodes pay.
+    if (!globalQueue._running) unflushedCompanions.push(el);
+  }
 
   // _time is a computed-only slot (§12e): writing it on a signal would fork
   // the lean shape. Every read site is computed-typed.

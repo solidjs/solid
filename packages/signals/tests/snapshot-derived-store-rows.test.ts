@@ -11,6 +11,7 @@
  */
 import { types } from "node:util";
 import {
+  action,
   createOptimisticStore,
   createRoot,
   createStore,
@@ -52,18 +53,25 @@ it("per-row snapshot through the view matches the base row snapshot identity", (
   });
 });
 
-it("snapshot(view[i]) reflects an in-flight optimistic override", () => {
-  createRoot(() => {
-    const { base, view, setView } = setup();
+it("snapshot(view[i]) reflects an in-flight optimistic override", async () => {
+  let resolveIt!: () => void;
+  const { base, view, setView } = createRoot(setup);
+  const done = action(function* () {
     setView(d => {
       (d as any)[0].qty = 5;
     });
-    const row = snapshot((view as any)[0]) as any;
-    expect(types.isProxy(row)).toBe(false);
-    expect(row.qty).toBe(5);
-    expect((base as any)[0].qty).toBe(1); // base untouched by the overlay
-    flush();
-  });
+    yield new Promise<void>(r => (resolveIt = r));
+  })();
+  // A28: the override is in flight once a flush has carried the write
+  expect((snapshot((view as any)[0]) as any).qty).toBe(1);
+  flush();
+  const row = snapshot((view as any)[0]) as any;
+  expect(types.isProxy(row)).toBe(false);
+  expect(row.qty).toBe(5);
+  expect((base as any)[0].qty).toBe(1); // base untouched by the overlay
+  resolveIt();
+  await done;
+  flush();
 });
 
 it("unwraps chained derived stores (view over view)", () => {

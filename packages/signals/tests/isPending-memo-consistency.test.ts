@@ -61,11 +61,16 @@ describe("isPending memo consistency (#3078)", () => {
 
     try {
       // Mid-tick the memo serves its last-flushed verdict (false — created
-      // before the write); what matters is that reads do not flip it.
+      // before the write); what matters is that reads do not flip it. The
+      // direct probe agrees: writes become visible at flush, and an
+      // unflushed write is not pending on any channel yet.
       expect(r1).toBe(false);
       expect(r2).toBe(r1);
       expect(r3).toBe(r1);
+      expect(isPending(count)).toBe(false);
+      flush(); // the action holds the transition: the flushed write is pending
       expect(isPending(count)).toBe(true);
+      expect(untrack(m)).toBe(true);
     } finally {
       release();
       await done;
@@ -90,9 +95,11 @@ describe("isPending memo consistency (#3078)", () => {
     const mOwnerless = createMemo(() => isPending(count));
 
     setCount(v => v + 1);
-    // m2: created after the write; its creation compute reads the live verdict
+    // m2: created after the write. Writes become visible at flush, so its
+    // creation compute answers for the flushed world (nothing pending yet)
+    // and is marked by the write's flush like any other subscriber.
     const m2 = runWithOwner(owner, () => createMemo(() => isPending(count)))!;
-    expect(untrack(m2)).toBe(true);
+    expect(untrack(m2)).toBe(false);
 
     const done = act() as Promise<unknown>;
     flush(); // what the browser render loop does while the action runs
