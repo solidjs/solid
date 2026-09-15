@@ -220,12 +220,15 @@ module.exports = [
     // Held-input rules (#3408, #3410; 2026-09-14, on top of #3434): 8.65 ->
     // 8.70 KB, measured at 8685 B against `next`'s 8628 (+57) — `enterStagedRead` on read()'s value
     // selections and the deferred dependency trim; see the core floor note.
-    // Overlapping flights (#3443, #3444; 2026-09-14, on top of #3442): no bump,
-    // measured at 8690 B — pending propagation onto a held memo enters its
-    // transaction (`initTransition` at notifyStatus's dependent walk), and a
+    // Overlapping flights (#3443, #3444; 2026-09-14, on top of #3442): 8.70 ->
+    // 8.75 KB, measured at 8718 B against `next`'s 8691 (+27) — pending
+    // propagation onto a memo another transaction HOLDS enters its
+    // transaction (`initTransition` at notifyStatus's dependent walk, keyed on
+    // STATUS_PENDING / a staged value, not the stamp alone), and a
     // lane-dirtied zombie runs instead of being cancelled; +54 B minified in
-    // the in-package floor (23,365 -> 23,419), brotli absorbs most of it.
-    limit: "8.70 KB",
+    // the in-package floor (23,365 -> 23,419). The first cut (stamp-only
+    // entanglement) fit at 8690; the holds carve-out is what tips the cap.
+    limit: "8.75 KB",
     modifyEsbuildConfig
   },
   {
