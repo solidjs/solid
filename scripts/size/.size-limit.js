@@ -237,7 +237,12 @@ module.exports = [
     // mainline). +316 B minified in the in-package floor (23,365 -> 23,681).
     // Rebased over #3443/#3444 (2026-09-15): measured at 8820 B against
     // `next`'s 8708 (+112); 23,419 -> 23,753 minified.
-    limit: "8.85 KB",
+    // Async landing keeps the committed frame's deps (A30 landing arm,
+    // #3461, 2026-09-15): 8.85 -> 8.90 KB, measured at 8851 B against
+    // `next`'s 8849 (+2, brotli noise for a moved call: asyncWrite's
+    // trimStaleDeps now runs after the write, only when the landing
+    // published; 0 B minified in the in-package floor, 23,752 flat).
+    limit: "8.90 KB",
     modifyEsbuildConfig
   },
   {
