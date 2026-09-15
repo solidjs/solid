@@ -242,6 +242,9 @@ module.exports = [
     // `next`'s 8849 (+2, brotli noise for a moved call: asyncWrite's
     // trimStaleDeps now runs after the write, only when the landing
     // published; 0 B minified in the in-package floor, 23,752 flat).
+    // Superseded source keeps blocking (#3462, 2026-09-15): transitionComplete
+    // judges a reporter's source by a non-empty `_pendingSources`, not the
+    // self entry alone; -2 B minified (23,750), measured at 8855 B on top of #3464 (8851).
     limit: "8.90 KB",
     modifyEsbuildConfig
   },
