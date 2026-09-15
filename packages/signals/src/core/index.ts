@@ -76,6 +76,7 @@ export type {
 export {
   DEV,
   OBSERVE,
+  ownerPath,
   type AttributionSlot,
   type Dev,
   type Observe,

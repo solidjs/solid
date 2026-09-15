@@ -186,11 +186,20 @@ export interface AttributionSlot {
 /**
  * The server runtime's observe surface — the one place a server-side
  * consumer (an APM adapter's `init()`) installs on, beside `diagnostics`.
- * Declared EMPTY here and typed by the runtime that owns the facts:
- * `@solidjs/web`'s server entries augment this interface with their
- * members (the server-function invocation channel, the trace-provider
- * slot), so the core never learns those shapes and the consumer still finds
- * everything on the one `OBSERVE`.
+ * Declared EMPTY here and typed by the runtime that owns the surface:
+ * `solid-js`'s server entry augments this interface with its members — the
+ * records channel (`ServerRecords`) and the trace-provider slot
+ * (`ServerTrace`), each an interface of its own that `@solidjs/web`'s
+ * server entries fill in further — so the core never learns those shapes
+ * and the consumer still finds everything on the one `OBSERVE`.
+ *
+ * One augmenter per interface, by design: TypeScript merges an
+ * augmentation into a re-exported interface by following the alias, and
+ * two augmentations reaching the same interface through DIFFERENT aliases
+ * (`"@solidjs/signals"` from solid-js, `"solid-js"` from web) merge
+ * order-dependently — one set is lost. So each layer augments only the
+ * layer beneath it, through one module name, and declares the interfaces
+ * the layer above fills in.
  *
  * The OBJECTS behind those members are not the core's either: the core has
  * one artifact per tier for both platforms, and the client would carry
@@ -315,7 +324,10 @@ export const OBSERVE: Observe = __OBSERVE__
   ? {
       diagnostics,
       attribution: attributionSlot,
-      server: {},
+      // Replaced by solid-js's server entry (see `ServerObserve`); on the
+      // client the slot stays this placeholder. The cast: the interface is
+      // empty HERE and gains its members by augmentation downstream.
+      server: {} as ServerObserve,
       subjectOf(event) {
         return eventSubjects.get(event);
       },

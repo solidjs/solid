@@ -1251,7 +1251,7 @@ export function createServerReference({ id, fn, name }) {
         const run = () => fn.apply(thisArg, args);
         // The wrapper must return run()'s value (this path stays
         // synchronous for synchronous functions). Observed as a whole —
-        // policy included — on `OBSERVE.server.invocations`; a no-op with
+        // policy included — on `OBSERVE.server.records` ("invocation"); a no-op with
         // no listener and outside observe builds.
         return observeInvocation({ id, direct: true, event: evt, args }, () =>
           wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()

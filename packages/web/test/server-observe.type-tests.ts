@@ -1,16 +1,23 @@
-// Acceptance test for the `OBSERVE.server` augmentation point: signals
-// declares `ServerObserve` empty, solid-js re-exports the type, and
-// `@solidjs/web`'s server-observe module augments it THROUGH `solid-js` (the
-// peer a consumer can resolve from this package's types) with the
-// invocation channel. The merge has to follow the alias to the declaration
-// in signals: a consumer reading `OBSERVE.server.invocations` off the
-// `solid-js` import must find the channel typed, and the record/live types
-// must be the ones this package exports. Compile-only — runs under
-// `test-types` against the BUILT package types via the self-link (`pnpm
-// types` first), so the augmentation is checked exactly as published.
-import { OBSERVE } from "solid-js";
+// Acceptance test for the `OBSERVE.server` augmentation layering: signals
+// declares `ServerObserve` empty; solid-js augments it (once) with `records:
+// ServerRecords` and `trace: ServerTrace`, declaring both interfaces itself
+// with its own `"boundary"` record; and `@solidjs/web`'s server modules
+// augment THOSE two, through `solid-js` (the peer a consumer can resolve
+// from this package's types), with the `"invocation"` record and `provide`.
+// Each merge has to follow a re-export alias to its declaration: a consumer
+// reading `OBSERVE.server.records` off the `solid-js` import must find BOTH
+// overloads, and the record/live types must be the ones each package
+// exports. Compile-only — runs under `test-types` against the BUILT package
+// types via the self-link (`pnpm types` first), so the augmentations are
+// checked exactly as published.
+import {
+  OBSERVE,
+  type BoundaryEvent,
+  type BoundaryLive,
+  type ServerRecords,
+  type ServerTrace
+} from "solid-js";
 import type {
-  InvocationChannel,
   InvocationEvent,
   InvocationLive,
   TraceContext,
@@ -21,12 +28,12 @@ import { getTraceContext } from "@solidjs/web";
 
 declare const observe: NonNullable<typeof OBSERVE>;
 
-// The augmented member surfaces with its exact type, not as an error on an
-// empty interface.
-observe.server.invocations satisfies InvocationChannel;
+// The channel surfaces with its declared type, not as an error on an empty
+// interface.
+observe.server.records satisfies ServerRecords;
 
 // A consumer's listener sees the record and the live handles typed.
-observe.server.invocations.subscribe("invocation", (event, live) => {
+observe.server.records.subscribe("invocation", (event, live) => {
   event satisfies InvocationEvent;
   live satisfies InvocationLive;
   event.id satisfies string;
@@ -39,18 +46,37 @@ observe.server.invocations.subscribe("invocation", (event, live) => {
   live.args satisfies unknown[];
 });
 
-// The subscription type is closed: the channel carries invocations only
-// (boundary/frame records join it in later work, by name).
+// solid-js's own record merges onto the same channel, from its module.
+observe.server.records.subscribe("boundary", (event, live) => {
+  event satisfies BoundaryEvent;
+  live satisfies BoundaryLive;
+  event.id satisfies string;
+  event.durationMs satisfies number;
+  event.heldMs satisfies number;
+  event.passes satisfies number;
+  event.outcome satisfies "settled" | "fallback" | "client" | "error";
+  event.streamed satisfies boolean;
+  event.revealGroup satisfies string | undefined;
+  event.ownerPath satisfies string[] | undefined;
+  live.error satisfies unknown;
+});
+
+// The subscription type is closed: the union of record types is what the
+// loaded runtimes declared (frame records join it in later work, by name).
 // @ts-expect-error no such record type on the channel yet
-observe.server.invocations.subscribe("boundary", () => {});
+observe.server.records.subscribe("frame", () => {});
 
 // The unsubscribe is a plain thunk.
-const off: () => void = observe.server.invocations.subscribe("invocation", () => {});
+const off: () => void = observe.server.records.subscribe("invocation", () => {});
 off();
 
-// The trace-provider slot (trace.ts) augments the same interface, from a
-// second module: both merges land.
+// The trace-provider slot: the member is solid-js's (`ServerTrace`), the
+// `provide` on it is this package's augmentation (trace.ts) — a second
+// solid-js interface filled in from a second module; both merges land.
 observe.server.trace satisfies TraceSlot;
+observe.server.trace satisfies ServerTrace;
+const slot: TraceSlot = observe.server.trace;
+slot.provide satisfies (provider: TraceProvider) => () => void;
 const provider: TraceProvider = request => {
   request satisfies Request | undefined;
   // A partial answer: fields and entries are both optional.

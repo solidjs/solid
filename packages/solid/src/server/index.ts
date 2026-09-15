@@ -108,6 +108,15 @@ export type {
   DiagnosticSeverity,
   DiagnosticSubject
 } from "@solidjs/signals";
+// The server surface this entry declares onto `OBSERVE.server`, and the
+// record it emits — `OBSERVE.server.records.subscribe("boundary", …)`.
+export type {
+  BoundaryEvent,
+  BoundaryLive,
+  BoundaryListener,
+  ServerRecords,
+  ServerTrace
+} from "./observe.js";
 
 // Wrappers — context, children, dev symbols
 export { $DEVCOMP, children, createContext, useContext } from "./core.js";

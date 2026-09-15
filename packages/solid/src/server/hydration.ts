@@ -11,8 +11,15 @@ import {
   runWithBoundaryErrorContext,
   RevealGroupContext
 } from "./signals.js";
+import { ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import { IS_OBSERVE, emitFinding, errorText } from "./diagnostics.js";
+import {
+  deliverRecord,
+  recordListeners,
+  type BoundaryEvent,
+  type BoundaryLive
+} from "./observe.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
 import type { Accessor } from "./signals.js";
 import type { Element as SolidElement } from "../types.js";
@@ -89,6 +96,63 @@ function ssrLoadingBoundary(
   let done: ((value?: string, error?: any) => boolean) | undefined;
   let handledRenderError: any;
   let retryPromise: Promise<any> | undefined;
+
+  // Render passes over the content: discovery, plus one per wait. Doubles as
+  // the convergence budget's counter below.
+  let passes = 0;
+
+  // Observe tier: the boundary RECORD (`OBSERVE.server.records`, type
+  // `"boundary"` — see `BoundaryEvent`), for a boundary that waited. Cost
+  // is paid only with a listener: one `performance.now()` at discovery, one
+  // at settle. Delivered at settle; when a `<Reveal>` group coordinates the
+  // fragment swap the record waits for the group's `onReveal` so it can
+  // carry `heldMs` — the time finished content sat behind its siblings.
+  // (A group that never reveals — the stream abandoned — loses the record;
+  // `SSR_STREAM_ABANDONED` is that request's account.)
+  const recordListenersSet = IS_OBSERVE ? recordListeners("boundary") : undefined;
+  const discoveredAt = recordListenersSet ? performance.now() : 0;
+  let recorded = false;
+  let streamedOnError = false;
+  let pendingRecord: (() => void) | undefined;
+  const record = (outcome: BoundaryEvent["outcome"], streamed: boolean, error?: unknown) => {
+    if (!recordListenersSet || recorded) return;
+    recorded = true;
+    const settledAt = performance.now();
+    const event: BoundaryEvent = {
+      id,
+      at: discoveredAt,
+      durationMs: settledAt - discoveredAt,
+      heldMs: 0,
+      passes,
+      outcome,
+      streamed
+    };
+    if (revealGroup) event.revealGroup = revealGroup.id;
+    // The core's walk (`_parent` + `_name`), the same one its diagnostics
+    // make over these owners, so the record and the finding it may pair with
+    // locate to the same `<App> › <Page>`.
+    const path = ownerPath(o);
+    if (path) event.ownerPath = path;
+    const live: BoundaryLive = {};
+    if (outcome === "error") live.error = error;
+    // Only a fragment swap can be held: `done` exists once the fragment is
+    // registered with the stream. The renderToString outcomes and a
+    // final-at-discovery client hole ship with the shell — nothing to hold.
+    if (revealGroup && done !== undefined) {
+      pendingRecord = () => {
+        event.heldMs = performance.now() - settledAt;
+        deliverRecord(recordListenersSet, event, live);
+      };
+      return;
+    }
+    deliverRecord(recordListenersSet, event, live);
+  };
+  const onReveal = () => {
+    const deliver = pendingRecord;
+    if (deliver === undefined) return;
+    pendingRecord = undefined;
+    deliver();
+  };
   // The finding (observe/dev) for a render error this boundary routed rather
   // than an <Errored> catching it: `client` — the fragment rejected and the
   // client re-renders the subtree fresh (the response completes, the user
@@ -171,7 +235,7 @@ function ssrLoadingBoundary(
           // fallback expecting server DOM that was never emitted, derailing
           // hydration before the fragment channel can engage.
           reportRouted(err, "client");
-          done(undefined, err);
+          streamedOnError = done(undefined, err);
           throw err;
         }
         // Synchronous discovery (no fragment yet): the enclosing Errored's
@@ -202,14 +266,18 @@ function ssrLoadingBoundary(
   function finalizeError(err: any) {
     if (handledRenderError === err) {
       handledRenderError = undefined;
+      record("error", streamedOnError, err);
       return;
     }
     if (done) {
-      if (done(undefined, err)) {
+      const streamed = done(undefined, err);
+      if (streamed) {
         reportRouted(err, "client");
+        record("error", true, err);
         return;
       }
     }
+    record("error", false, err);
     if (!parentHandler) {
       reportRouted(err, "failed");
       ctx.failRender ? ctx.failRender(err) : console.error(err);
@@ -254,6 +322,7 @@ function ssrLoadingBoundary(
     serializeBuffer = [];
     retryPromise = undefined;
     resolveCount = 0;
+    passes++;
     return runLoadingPhase(() => {
       try {
         // The boundary is an insertion root: its content never passes a
@@ -293,12 +362,15 @@ function ssrLoadingBoundary(
     return skipLive(() => ret);
   }
 
-  const regResult = revealGroup ? revealGroup.register(id) : null;
+  const regResult = revealGroup
+    ? revealGroup.register(id, recordListenersSet ? { onReveal } : undefined)
+    : null;
   const collapseFallback = regResult?.collapseFallback ?? false;
 
   if (collapseFallback && !ctx.async) {
     commitBoundaryState();
     ctx.serialize(id, "$$f");
+    record("fallback", false);
     return skipLive(() => undefined);
   }
 
@@ -321,6 +393,7 @@ function ssrLoadingBoundary(
   if (finalAtDiscovery) {
     commitBoundaryState();
     ctx.serialize(id, "$$f");
+    record("client", false);
     // Registered above like every pending boundary — release the reveal
     // frontier now or later siblings would wait on this slot forever.
     if (revealGroup) revealGroup.onResolved(id);
@@ -338,7 +411,11 @@ function ssrLoadingBoundary(
     // (resume(false)), the closest streaming analogue of the client-continue.
     const clientHandoff = () => {
       if (!flushed) commitBoundaryState();
-      done!(undefined, new Error(`client-only content (bare ssrSource: "client")`));
+      const streamed = done!(
+        undefined,
+        new Error(`client-only content (bare ssrSource: "client")`)
+      );
+      record("client", streamed);
     };
     (async () => {
       try {
@@ -349,11 +426,10 @@ function ssrLoadingBoundary(
         // answer is never adoptable at the re-created slot) would otherwise
         // loop at microtask speed, serializing a new deferred per pass until
         // the process OOMs (#3003). Fail the boundary loudly instead.
-        let passes = 0;
         const checkBudget = () => {
-          if (++passes <= 10000) return;
+          if (passes <= 10000) return;
           throw new Error(
-            `<Loading> boundary discovery did not converge after ${passes - 1} passes — ` +
+            `<Loading> boundary discovery did not converge after ${passes} passes — ` +
               `an async source produces a new pending answer on every retry. Ensure repeated ` +
               `reads settle (e.g. return a stable promise or value for the same question).`
           );
@@ -370,10 +446,12 @@ function ssrLoadingBoundary(
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
           await Promise.all(pending.p).catch(() => {});
+          passes++;
           ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }
         flushSerializeBuffer();
-        done!(ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any));
+        const streamed = done!(ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any));
+        record("settled", streamed);
       } catch (err) {
         finalizeError(err);
       } finally {
@@ -391,6 +469,7 @@ function ssrLoadingBoundary(
 
   commitBoundaryState();
   ctx.serialize(id, "$$f");
+  record("fallback", false);
   return skipLive(() => fallbackResult);
 }
 
