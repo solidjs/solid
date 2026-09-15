@@ -17,7 +17,7 @@
 // dist/server.*, server-functions/dist/server.*, frames/dist/server.* each
 // carry their own copy of src/server.ts and of this file — and a subscriber
 // must be reached by an invocation observed in any of them.
-import { OBSERVE } from "solid-js";
+import { OBSERVE, sharedConfig } from "solid-js";
 import type { RequestEvent } from "./server.js";
 
 /**
@@ -46,6 +46,14 @@ export interface InvocationEvent {
    * not its consumption.
    */
   deferred?: true;
+  /**
+   * Direct calls only: the hydration id of the `<Loading>` boundary whose
+   * render pass made the call — the `id` of that boundary's `"boundary"`
+   * record — so a boundary's wait can be read as the server-function calls
+   * it consisted of. Absent for a call outside any boundary's pass (the
+   * shell, or HTTP dispatch).
+   */
+  boundary?: string;
 }
 
 /**
@@ -99,6 +107,11 @@ export interface InvocationContext {
   args: unknown[];
 }
 
+// The server entry's `sharedConfig`: its `context` is the render's hydration
+// context, on which `ssrLoadingBoundary` sets the id of the boundary whose
+// pass is running (`runWithBoundaryErrorContext`).
+type ServerSharedConfig = { context?: { _currentBoundaryId?: string | null } };
+
 // Replaced per build; a module const (not an inline literal) so the typed
 // gates below read as booleans (cookies.ts uses the same shape).
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
@@ -150,6 +163,7 @@ function deliver(
   listeners: Set<InvocationListener>,
   context: InvocationContext,
   at: number,
+  boundary: string | undefined,
   outcome: "ok" | "error",
   value: unknown
 ): void {
@@ -160,6 +174,7 @@ function deliver(
     durationMs: performance.now() - at,
     outcome
   };
+  if (boundary !== undefined) record.boundary = boundary;
   const live: InvocationLive = { event: context.event, args: context.args };
   if (context.request !== undefined) live.request = context.request;
   if (outcome === "ok") {
@@ -189,26 +204,34 @@ export function observeInvocation<T>(context: InvocationContext, execute: () => 
   const listeners = invocationListeners();
   if (listeners === undefined || listeners.size === 0) return execute();
   const at = performance.now();
+  // The boundary whose pass is running NOW — a direct call is synchronous
+  // up to its first await, so this is the boundary that made it; read here,
+  // at the start, since by settle another boundary may be rendering. (The
+  // published `sharedConfig` type is the client's; the server's context
+  // carries the id the boundary set for its pass.)
+  const boundary = context.direct
+    ? ((sharedConfig as ServerSharedConfig).context?._currentBoundaryId ?? undefined)
+    : undefined;
   let result: T;
   try {
     result = execute();
   } catch (error) {
-    deliver(listeners, context, at, "error", error);
+    deliver(listeners, context, at, boundary, "error", error);
     throw error;
   }
   const promised = settledPromise(result);
   if (promised !== undefined) {
     return promised.then(
       value => {
-        deliver(listeners, context, at, "ok", value);
+        deliver(listeners, context, at, boundary, "ok", value);
         return value;
       },
       error => {
-        deliver(listeners, context, at, "error", error);
+        deliver(listeners, context, at, boundary, "error", error);
         throw error;
       }
     ) as T;
   }
-  deliver(listeners, context, at, "ok", result);
+  deliver(listeners, context, at, boundary, "ok", result);
   return result;
 }

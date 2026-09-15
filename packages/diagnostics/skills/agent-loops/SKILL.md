@@ -6,7 +6,7 @@ timing and waste accounting). This package captures both into one
 serializable artifact. Use it to verify claims about reactive code instead
 of inferring them from reading it.
 
-There are four loops. Each takes the same fixture:
+There are five loops. Each takes the same fixture:
 
 ```ts
 import { captureArtifact } from "@solidjs/diagnostics";
@@ -155,6 +155,34 @@ write, the first frame inconsistent; make it a memo), `IMMUTABLE_UPDATE_IN_STORE
 `UNSTABLE_LIST_IDENTITY` (a list rebuilt for equivalent records — key by a
 stable field or `reconcile`). Each names its repair in the message.
 
+## Loop 5 — Server renders (waits and calls)
+
+The same fixture over `renderToStream(() => <App />)` (or `renderToString`)
+captures the server side: the server findings in `artifact.diagnostics`
+(`SSR_RENDER_ERROR_CONTAINED`, `SERVER_WRITE`, `HEAD_TAG_INVALID`, …, each
+with `ownerPath`), and two tables in `artifact.server`:
+
+- `boundaries[]` — every `<Loading>` boundary that waited: `durationMs`
+  (how long it held its content up), `heldMs` (how long finished content
+  then sat behind `<Reveal>` siblings), `passes` (render passes: `2` is one
+  round of async, `3+` is a sequential chain — a read that depended on the
+  previous answer), `outcome` (`settled`, `fallback`, `client`, `error`),
+  `streamed`, `ownerPath`.
+- `invocations[]` — every server-function execution: `id`, `durationMs`,
+  `outcome`, and for a direct call made during a boundary's pass the
+  boundary's `id` in `boundary`.
+
+Read them together: a boundary's `durationMs` is the sum of its passes'
+waits, and the invocations with its `id` are what those waits were spent on.
+A boundary with `passes: 3` and two invocations under it in sequence is a
+waterfall; the runtime already says so (`ASYNC_WATERFALL` with
+`data.side: "server"`, `warn` from three flights), and `SSR_CLIENT_CONTENT_MASKED`
+when a client-only read surfaced only after a wait — so Loop 1's rule holds
+on the server: capture, read the codes, repair, re-capture. Use
+`attribution: false` here; the engine has nothing to see in a server render.
+`artifact.server` is `null` when the scenario did not run under the server
+runtime.
+
 ## Practical rules
 
 1. **Name your scopes.** Pass `{ name }` to `createSignal`/`createMemo`/
@@ -165,7 +193,8 @@ stable field or `reconcile`). Each names its repair in the message.
    landing async value).
 3. **Egress for offline analysis.** `artifactToJSONL(artifact)` emits one
    JSON record per line (`meta`, `diagnostic`, `rerun`, `costs`, `hold`,
-   `feedback`) — grep it, diff it between runs, attach it to a report.
+   `feedback`, `boundary`, `invocation`) — grep it, diff it between runs,
+   attach it to a report.
 4. **Dev builds only.** `captureArtifact` throws where the `DEV` export is
    stripped. Run under Vitest or a dev server.
 5. **Browser capture uses the same artifact.** For real pages, import

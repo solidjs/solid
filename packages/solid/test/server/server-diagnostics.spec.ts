@@ -294,7 +294,14 @@ describe("tiers, in the built artifacts", () => {
     const observe = read("server.observe.js");
     const dev = read("server.dev.js");
     expect(prod).not.toContain("diagnostics.emit");
-    for (const check of ["SERVER_WRITE", "LAZY_ASSET_UNMAPPED", "REVEAL_IN_RENDER_TO_STRING"]) {
+    for (const check of [
+      "SERVER_WRITE",
+      "LAZY_ASSET_UNMAPPED",
+      "REVEAL_IN_RENDER_TO_STRING",
+      // The boundary checks read off the boundary record's facts (hydration.ts).
+      "ASYNC_WATERFALL",
+      "SSR_CLIENT_CONTENT_MASKED"
+    ]) {
       expect(prod, check).not.toContain(`[${check}]`);
       expect(observe, check).not.toContain(`[${check}]`);
       expect(dev, check).toContain(`[${check}]`);

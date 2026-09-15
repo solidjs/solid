@@ -78,7 +78,9 @@ export async function captureBrowserArtifact<T>(
       capturedAt: payload.capturedAt,
       durationMs: payload.durationMs,
       diagnostics: payload.diagnostics,
-      attribution: payload.attribution
+      attribution: payload.attribution,
+      // The bridge runs in the browser: no server runtime, no server tables.
+      server: null
     }
   };
 }

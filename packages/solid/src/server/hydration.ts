@@ -13,7 +13,7 @@ import {
 } from "./signals.js";
 import { ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
-import { IS_OBSERVE, emitFinding, errorText } from "./diagnostics.js";
+import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
 import {
   deliverRecord,
   recordListeners,
@@ -103,20 +103,24 @@ function ssrLoadingBoundary(
 
   // Observe tier: the boundary RECORD (`OBSERVE.server.records`, type
   // `"boundary"` — see `BoundaryEvent`), for a boundary that waited. Cost
-  // is paid only with a listener: one `performance.now()` at discovery, one
-  // at settle. Delivered at settle; when a `<Reveal>` group coordinates the
-  // fragment swap the record waits for the group's `onReveal` so it can
-  // carry `heldMs` — the time finished content sat behind its siblings.
-  // (A group that never reveals — the stream abandoned — loses the record;
+  // is paid only with a listener (or in dev, where the checks below read
+  // the same facts): one `performance.now()` at discovery, one at settle.
+  // Delivered at settle; when a `<Reveal>` group coordinates the fragment
+  // swap the record waits for the group's `onReveal` so it can carry
+  // `heldMs` — the time finished content sat behind its siblings. (A group
+  // that never reveals — the stream abandoned — loses the record;
   // `SSR_STREAM_ABANDONED` is that request's account.)
   const recordListenersSet = IS_OBSERVE ? recordListeners("boundary") : undefined;
-  const discoveredAt = recordListenersSet ? performance.now() : 0;
+  const timed = IS_DEV || recordListenersSet !== undefined;
+  const discoveredAt = timed ? performance.now() : 0;
   let recorded = false;
   let streamedOnError = false;
   let pendingRecord: (() => void) | undefined;
   const record = (outcome: BoundaryEvent["outcome"], streamed: boolean, error?: unknown) => {
-    if (!recordListenersSet || recorded) return;
+    if (recorded) return;
     recorded = true;
+    if (IS_DEV) checkWaited(outcome, timed ? performance.now() - discoveredAt : 0);
+    if (!recordListenersSet) return;
     const settledAt = performance.now();
     const event: BoundaryEvent = {
       id,
@@ -152,6 +156,58 @@ function ssrLoadingBoundary(
     if (deliver === undefined) return;
     pendingRecord = undefined;
     deliver();
+  };
+  // The dev CHECKS read off the same facts as the record, for a boundary
+  // that waited — the verdicts an agent would otherwise derive from the
+  // artifact, coded so the console and `expectNoDiagnostics` see them.
+  const checkWaited = (outcome: BoundaryEvent["outcome"], durationMs: number) => {
+    // Sequential flights: each pass past the first is a wait that could
+    // only start once the previous answered. Same code and thresholds as
+    // the client's graph-proved verdict — depth 2 advisory (a dependent
+    // fetch is sometimes intrinsic), depth 3+ earns the console — but the
+    // proof here is exact: the pass structure IS the chain.
+    const flights = passes - 1;
+    if (flights >= 2) {
+      const severity = flights > 2 ? "warn" : "info";
+      devCheck(
+        {
+          code: "ASYNC_WATERFALL",
+          kind: "perf",
+          severity,
+          message:
+            `[ASYNC_WATERFALL] ${flights} sequential async flights in a <Loading> boundary — ` +
+            `${durationMs.toFixed(0)}ms over ${passes} render passes: each read could start ` +
+            `only after the previous one answered. If a later read doesn't need the earlier ` +
+            `answer, derive both from the same inputs so they start together; if the ` +
+            `dependency is intrinsic, preload the dependent data or join the requests.`,
+          data: { side: "server", boundary: id, passes, sequentialMs: durationMs }
+        },
+        o
+      );
+    }
+    // Client-only content that surfaced only after a server wait: the
+    // boundary streamed its fallback, did the server work, then handed the
+    // whole subtree to the client anyway — the work is discarded and the
+    // user sees the fallback twice as long. A client hole found on the
+    // first pass ships with the shell and costs nothing extra.
+    if (outcome === "client" && passes > 1) {
+      devCheck(
+        {
+          code: "SSR_CLIENT_CONTENT_MASKED",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[SSR_CLIENT_CONTENT_MASKED] Client-only content (ssrSource: "client") in a ` +
+            `<Loading> boundary surfaced only after ${passes - 1} server ` +
+            `${passes > 2 ? "waits" : "wait"} (${durationMs.toFixed(0)}ms): the boundary ` +
+            `streamed its fallback and then handed the subtree to the client, discarding the ` +
+            `server's work. Give the client-only content its own <Loading>, or read it before ` +
+            `the async data, so the handoff ships with the shell.`,
+          data: { boundary: id, passes, durationMs }
+        },
+        o
+      );
+    }
   };
   // The finding (observe/dev) for a render error this boundary routed rather
   // than an <Errored> catching it: `client` — the fragment rejected and the

@@ -25,6 +25,7 @@ export type {
   AttributionCosts,
   AttributionFeedback,
   ArtifactAttribution,
+  ArtifactServer,
   ChangeOrigin,
   ChangeRecord,
   DiagnosticsArtifact,
@@ -39,5 +40,7 @@ export type {
   RerunEvent,
   RerunRecord,
   ScopeCost,
+  ServerBoundaryRecord,
+  ServerInvocationRecord,
   WriteCost
 } from "./types.js";
