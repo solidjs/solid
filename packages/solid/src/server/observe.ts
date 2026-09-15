@@ -100,21 +100,6 @@ export function deliverRecord(listeners: Set<Function>, record: unknown, live: u
 }
 
 /**
- * Root-first component labels enclosing `owner` — the `ownerPath` a record
- * carries, the same walk (`_parent` + `_name`) the core's diagnostics make
- * over these owners, so a boundary record and the finding it may pair with
- * locate to the same `<App> › <Page>`.
- */
-export function ownerLabels(owner: { _parent: any; _name?: string } | null): string[] | undefined {
-  const path: string[] = [];
-  for (let o = owner; o !== null; o = o._parent) {
-    const name = o._name;
-    if (typeof name === "string" && name.length) path.push(name);
-  }
-  return path.length ? path.reverse() : undefined;
-}
-
-/**
  * One `<Loading>` boundary that WAITED during a server render — discovered
  * with pending async, then settled — delivered on
  * `OBSERVE.server.records.subscribe("boundary", …)` once it settled and,

@@ -13,7 +13,7 @@ import {
   RevealGroupContext
 } from "./signals.js";
 import { createLoadingBoundary } from "./hydration.js";
-import { IS_DEV, devCheck } from "./diagnostics.js";
+import { IS_DEV, IS_OBSERVE, devCheck } from "./diagnostics.js";
 import { sharedConfig } from "./shared.js";
 import type { Accessor, RevealOrder } from "./signals.js";
 import type { Element as SolidElement } from "../types.js";
@@ -429,16 +429,16 @@ export function Reveal(props: RevealProps): SolidElement {
   }
 
   // Observe tier: a leaf's `onReveal` (see `ServerRevealGroup.register`),
-  // fired as its swap is issued. Kept off the prod shape — the map exists
-  // only when a boundary registered one, which only the observe/dev
-  // boundary does.
+  // fired as its swap is issued. Only the observe/dev boundary registers
+  // one, so the plumbing is gated on the tier constant and folds out of the
+  // prod artifact entirely (the spec pins it), not merely left unallocated.
   let revealHooks: Map<string, () => void> | undefined;
 
   // Every leaf swap this group issues goes through here, so the boundary
   // behind each key learns the moment it was revealed.
   function revealLeaves(leafKeys: string[]) {
     ctx.revealFragments?.(leafKeys);
-    if (revealHooks === undefined) return;
+    if (!IS_OBSERVE || revealHooks === undefined) return;
     for (const key of leafKeys) {
       const hook = revealHooks.get(key);
       if (hook !== undefined) {
@@ -526,7 +526,9 @@ export function Reveal(props: RevealProps): SolidElement {
         keys.push(key);
         const isComposite = !!options?.onActivate;
         if (isComposite) composites.set(key, options!.onActivate!);
-        else if (options?.onReveal) (revealHooks ||= new Map()).set(key, options.onReveal);
+        else if (IS_OBSERVE) {
+          if (options?.onReveal) (revealHooks ||= new Map()).set(key, options.onReveal);
+        }
         const selfCollapse = order === "sequential" && collapsed && keys.length > 1;
         const collapseFallback = collapsedByParent || selfCollapse;
         // Track leaf keys that render collapsed so we can emit revealFallbacks

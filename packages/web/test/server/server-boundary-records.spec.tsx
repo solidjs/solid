@@ -466,4 +466,15 @@ describe("tiers, in the built artifacts", () => {
     expect(read("server.observe.js")).toContain(marker);
     expect(read("server.dev.js")).toContain(marker);
   });
+
+  test("the Reveal group's onReveal plumbing folds out of prod with it", () => {
+    const read = (name: string) =>
+      readFileSync(resolve(import.meta.dirname, "../../../solid/dist", name), "utf8");
+    // The hook is registered under this option name and read back from the
+    // group's map; prod has no boundary that registers one, so the tier
+    // gate takes both out of the artifact.
+    expect(read("server.js")).not.toContain("onReveal");
+    expect(read("server.observe.js")).toContain("onReveal");
+    expect(read("server.dev.js")).toContain("onReveal");
+  });
 });

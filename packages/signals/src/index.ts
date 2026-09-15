@@ -28,7 +28,8 @@ export {
   clearSnapshots,
   enforceLoadingBoundary,
   enableExternalSource,
-  resetErrorHalt
+  resetErrorHalt,
+  ownerPath
 } from "./core/index.js";
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "./core/index.js";
 /**

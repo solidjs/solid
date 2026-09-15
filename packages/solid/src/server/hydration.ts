@@ -11,11 +11,11 @@ import {
   runWithBoundaryErrorContext,
   RevealGroupContext
 } from "./signals.js";
+import { ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import { IS_OBSERVE, emitFinding, errorText } from "./diagnostics.js";
 import {
   deliverRecord,
-  ownerLabels,
   recordListeners,
   type BoundaryEvent,
   type BoundaryLive
@@ -128,7 +128,10 @@ function ssrLoadingBoundary(
       streamed
     };
     if (revealGroup) event.revealGroup = revealGroup.id;
-    const path = ownerLabels(o);
+    // The core's walk (`_parent` + `_name`), the same one its diagnostics
+    // make over these owners, so the record and the finding it may pair with
+    // locate to the same `<App> › <Page>`.
+    const path = ownerPath(o);
     if (path) event.ownerPath = path;
     const live: BoundaryLive = {};
     if (outcome === "error") live.error = error;
