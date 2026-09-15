@@ -338,13 +338,19 @@ function endOptimism(transition: Transition): boolean {
  * OTHER transaction, the same visibility a foreign transaction's staged
  * write has. */
 function supersededRead(el: OptimisticNode): unknown {
-  if (stale && el._transition && activeTransition !== el._transition)
-    return unwrapOverride(el._x?._overrideValue);
-  if (el._pendingValue === NOT_PENDING) return el._value;
-  // The staged truth is a staged read like any other (A29): the pass that
-  // derives from it is the transaction's.
-  enterStagedRead(el);
-  return el._pendingValue;
+  // The owning transaction: `_overrideOwner` (#2912), not the stamp — an
+  // override written directly inside an action never passes the adoption
+  // loop that stamps `_transition`, and a body-end supersession (#3427)
+  // stages nothing that would queue it. Without the owner a stale reader of
+  // a body-ended node read the committed truth beside a display still
+  // showing the override.
+  const owner = resolveTransition(el);
+  if (stale && owner && activeTransition !== owner) return unwrapOverride(el._x?._overrideValue);
+  // A superseded read is a staged read (A29) whether the truth is staged or
+  // already committed: the pass that derives from it derives from the
+  // owning transaction's world (the override is still displayed by it).
+  enterStagedRead(el, owner);
+  return el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
 }
 
 /**

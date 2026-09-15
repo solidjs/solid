@@ -17,7 +17,8 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  CONFIG_HAS_COMPANIONS
+  CONFIG_HAS_COMPANIONS,
+  CONFIG_OVERRIDE_SUPERSEDED
 } from "./constants.js";
 import {
   context,
@@ -219,6 +220,15 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   // the window's own landing in flight to its commit — verdict-quiet like the
   // rest of the window (the UNINITIALIZED check suppresses exactly this frame
   // for windowless first loads; born-committed nodes need their own gate, #2990).
+  // A18 (d) for a body-end supersession (#3427): the truth at hand is the
+  // COMMITTED value — nothing staged — yet the display still shows the
+  // override; pending iff they differ, as for a staged arrival below.
+  if (
+    el._config & CONFIG_OVERRIDE_SUPERSEDED &&
+    el._pendingValue === NOT_PENDING &&
+    hasActiveOverride(el)
+  )
+    return !el._equals || !el._equals(el._value as any, unwrapOverride(el._x?._overrideValue));
   if (el._pendingValue !== NOT_PENDING && !comp._loading) {
     // A18 (d): under a displayed override the observable value is the
     // override, so the verdict is "the arrived truth differs from it" —
@@ -392,6 +402,16 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
 }
 
 /** The latest()-mode read path, installed as GlobalQueue._latestRead. */
+/** A7: the source has no visible value yet — judged on the OWNER, as read()
+ * does: a store leaf behind a projection's firewall is a plain signal whose
+ * `_value` is the seed (A25: a draft, never a value), and read() routes a
+ * latest() read here before its own firewall/status logic. An override
+ * displays a value even before the first commit (A17). */
+function uninitializedSource(el: Signal<any> | Computed<any>): boolean {
+  const owner = ((el as FirewallSignal<any>)._firewall || el) as Computed<any>;
+  return !!(owner._statusFlags & STATUS_UNINITIALIZED) && !hasActiveOverride(el);
+}
+
 function latestRead<T>(el: Signal<T> | Computed<T>): T {
   const pendingComputed = getLatestValueComputed(el);
   const prevPending = latestReadActive;
@@ -440,13 +460,15 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
     // uninitialized source has no visible value — latest() throws in every
     // scope rather than fabricate `undefined` for a `T` that excludes it
     // (A7; the unowned scope used to return undefined here).
-    if (e instanceof NotReadyError && !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED))
-      return visibleValue;
+    if (e instanceof NotReadyError && !uninitializedSource(el)) return visibleValue;
     throw e;
   } finally {
     setLatestReadActive(prevPending);
   }
-  if (pendingComputed._statusFlags & STATUS_PENDING) return visibleValue;
+  if (pendingComputed._statusFlags & STATUS_PENDING) {
+    if (uninitializedSource(el)) throw new NotReadyError(el);
+    return visibleValue;
+  }
   if (stale && currentOptimisticLane && pendingComputed._x?._optimisticLane) {
     const pcLane = findLane(pendingComputed._x?._optimisticLane);
     const curLane = findLane(currentOptimisticLane);

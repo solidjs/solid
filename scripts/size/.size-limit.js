@@ -590,7 +590,13 @@ module.exports = [
     // 11050 (+146 — the core seams plus the verdict pulls' `_verdictPull`
     // brackets and supersededRead's entry); rebased over #3443/#3444: 11213 B
     // against `next`'s 11084 (+129); see the core floor note.
-    limit: "11.25 KB",
+    // Body-end visibility + latest() seed (#3455, 2026-09-15): 11.25 -> 11.30 KB,
+    // measured at 11267 B against `next`'s 11213 (+54) — `supersededRead`
+    // resolves the override owner and enters for a committed truth too, the
+    // verdict's body-end A18 (d) branch, and `uninitializedSource`'s owner
+    // walk; all in the verdict/optimistic modules this scenario retains
+    // (core floor 8820 -> 8832, +createStore 15743 -> 15780, both in cap).
+    limit: "11.30 KB",
     modifyEsbuildConfig
   },
   {
