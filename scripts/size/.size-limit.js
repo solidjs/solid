@@ -1035,7 +1035,13 @@ module.exports = [
     // Born held (A29 creation-time form, #3451; 2026-09-15): 14.30 -> 14.45 KB,
     // measured at 14384 B against `next`'s 14257 (+127); the signals-core
     // bytes from the core floor note, nothing app-side.
-    limit: "14.45 KB",
+    // #3459 Loading `on` reset collects its forwarded readers (2026-09-15):
+    // 14.45 -> 14.5 KB, measured at 14.467 against next's 14.429 (+38 B):
+    // the CollectionQueue reset walk over the live transactions' reporters
+    // (`_holds` + the source harvest) in boundaries.ts, retained wherever
+    // Loading is. Signals-only scenarios moved the other way (createStore
+    // -62 B) — the new scheduler export shifts brotli layout, not a shrink.
+    limit: "14.5 KB",
     modifyEsbuildConfig
   },
   {

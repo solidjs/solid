@@ -12,6 +12,7 @@ import {
   Queue,
   read,
   REACTIVE_DISPOSED,
+  REACTIVE_ZOMBIE,
   setContext,
   runWithOwner,
   setSignal,
@@ -26,7 +27,7 @@ import {
 import type { IQueue, Signal } from "./core/index.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { attrHooks } from "./core/attribution-hooks.js";
-import { haltReactivity, schedule, wakeParked } from "./core/scheduler.js";
+import { haltReactivity, schedule, transitions, wakeParked } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
@@ -310,6 +311,23 @@ export class CollectionQueue extends Queue {
         // Readers forwarded while this boundary showed content are behind the
         // fallback now: they stop blocking (`reporterBlocksSource`), and the
         // transactions they were holding must be re-judged for it (#3375).
+        // What those readers still wait on is this boundary's to wait on now:
+        // they never re-notify (status propagation dedupes on the reader's
+        // `_pendingSources`), so the reset collects it from their registrations
+        // — the one place a forwarded reader is recorded (INV-3) — or a sibling
+        // reader's flight that lands first reveals them stale (#3459).
+        for (const t of transitions)
+          for (const [source, reporters] of t._asyncReporters)
+            for (const reporter of reporters)
+              if (this._holds(reporter)) {
+                this._sources.add(source);
+                reporter._x?._pendingSources?.forEach(s => this._sources.add(s));
+              }
+        if (this._sources.size) {
+          setSignal(this._disabled, true);
+          if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
+            attrHooks.boundaryFallback(this, this._tree, true);
+        }
         wakeParked();
       }
     }
@@ -354,6 +372,16 @@ export class CollectionQueue extends Queue {
     }
     type &= ~this._collectionType;
     return type ? super.notify(node, type, flags, error) : true;
+  }
+  /** Is `reporter` live and routed to this boundary — under it, with no
+   * collecting pending-type boundary in between (`reporterBlocksSource`'s test)? */
+  _holds(reporter: Computed<any>): boolean {
+    if (reporter._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) return false;
+    for (let q: IQueue | null = reporter._queue; q; q = q._parent) {
+      if (q === this) return true;
+      if (q._collectionType! & STATUS_PENDING && !q._initialized) return false;
+    }
+    return false;
   }
   _checkSources() {
     for (const source of this._sources) {

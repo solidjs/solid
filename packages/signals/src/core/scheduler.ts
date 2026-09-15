@@ -55,7 +55,7 @@ import type { Computed, Signal } from "./types.js";
 export { activeLanes, assignOrMergeLane, findLane };
 export { getOrCreateLane, hasActiveOverride, mergeLanes, resolveLane } from "./lanes.js";
 
-const transitions = new Set<Transition>();
+export const transitions = new Set<Transition>();
 export const dirtyQueue: Heap = {
   _heap: new Array(2000).fill(undefined),
   _marked: false,
