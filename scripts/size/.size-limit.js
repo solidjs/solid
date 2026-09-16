@@ -520,7 +520,9 @@ module.exports = [
     // (+1 over the cap); +100 B minified in the signals floor (24,478 -> 24,578).
     // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 16,343 B; the signals
     // core delta, see the core floor note.
-    limit: "16.45 KB",
+    // Shallow projection correctness (#3498): 16,366 -> 16,470 B locally.
+    // Preserve raw draft leaves and shallow loading snapshots.
+    limit: "16.47 KB",
     modifyEsbuildConfig
   },
   {
@@ -881,7 +883,8 @@ module.exports = [
     // ~+200 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "19.80 KB",
+    // Shallow shadows and hybrid handoff (#3498): 19,782 -> 19,853 B locally.
+    limit: "19.86 KB",
     modifyEsbuildConfig
   },
   {
@@ -1063,7 +1066,8 @@ module.exports = [
     // ~+250 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "29.90 KB",
+    // Shallow projections and hybrid handoff (#3498): 29,854 -> 29,952 B locally.
+    limit: "29.96 KB",
     modifyEsbuildConfig
   },
   {
@@ -1161,7 +1165,8 @@ module.exports = [
     // ~+180 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "15.15 KB",
+    // Store/hydration correctness (#3498): 15,140 -> 15,180 B locally.
+    limit: "15.18 KB",
     modifyEsbuildConfig
   },
   {

@@ -46,7 +46,7 @@ async function bundleFixture(code: string): Promise<{
   const chunk = result[0].output[0];
   const retained = Object.entries(chunk.modules)
     .filter(([, mod]) => mod.renderedLength > 0)
-    .map(([id]) => id.replace(SRC + "/", ""));
+    .map(([id]) => id.replace(SRC.replaceAll("\\", "/") + "/", ""));
   // Vite lib-mode ES output is not truly minified; match the #2883 harness
   // (esbuild minify + `_`-prefixed property mangling, as the dist build does).
   const minified = await transformWithEsbuild(chunk.code, "out.js", {
@@ -414,7 +414,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       }
     })) as Rollup.RollupOutput[];
     const chunk = result[0].output[0];
-    const distRoot = dirname(DIST) + "/";
+    const distRoot = dirname(DIST).replaceAll("\\", "/") + "/";
     return Object.entries(chunk.modules)
       .filter(([, mod]) => mod.renderedLength > 0)
       .map(([id]) => id.replace(distRoot, ""));

@@ -64,7 +64,8 @@ import type { StoreNextFamily } from "./target.js";
 function wrapDraft(
   inner: any,
   isActive?: () => boolean,
-  aroundWrite?: (op: () => void) => void
+  aroundWrite?: (op: () => void) => void,
+  wrap: (value: any, active?: () => boolean, write?: (op: () => void) => void) => any = wrapDraft
 ): any {
   const write = (op: () => void) => (aroundWrite ? aroundWrite(op) : op());
   const traps: ProxyHandler<any> = {
@@ -79,9 +80,8 @@ function wrapDraft(
         setWriteOverride(false);
         setProjectionWriteActive(was);
       }
-      if (prop === $TARGET) return value;
-      return typeof value === "object" && value !== null
-        ? wrapDraft(value, isActive, aroundWrite)
+      return typeof value === "object" && value !== null && prop !== $TARGET
+        ? wrap(value, isActive, aroundWrite)
         : value;
     },
     has(_, prop) {
@@ -236,6 +236,16 @@ export function createStoreDerivedNext<T extends object = {}>(
   ];
 }
 
+function cloneProjection<T extends object>(value: T, shallow?: boolean): T {
+  return (
+    shallow
+      ? Array.isArray(value)
+        ? value.slice()
+        : { ...value }
+      : JSON.parse(JSON.stringify(value))
+  ) as T;
+}
+
 export function runProjectionComputedNext<T extends object>(
   wrappedStore: Store<T>,
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
@@ -244,19 +254,20 @@ export function runProjectionComputedNext<T extends object>(
   aroundDraftWrite?: (op: () => void) => void
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
+  const target = (wrappedStore as any)[$TARGET];
   let settled = false;
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the
   // seed so draft writes cannot tear through to readers (#2988). Every commit
   // point reconciles the shadow through the normal commit path.
-  const shadow = owner._loading
-    ? (JSON.parse(JSON.stringify((wrappedStore as any)[$TARGET][STORE_VALUE])) as T)
-    : null;
+  const shadow = owner._loading ? cloneProjection(target[STORE_VALUE], target.s) : null;
+  // Choose leaf wrapping once; Object is identity for the object-valued reads below.
   const draft = wrapDraft(
     wrappedStore,
     () => !settled || owner._x?._inFlight === result,
-    aroundDraftWrite
+    aroundDraftWrite,
+    target.s ? Object : wrapDraft
   );
   storeSetterNext(
     draft,
@@ -268,7 +279,7 @@ export function runProjectionComputedNext<T extends object>(
         // (adoption takes the value by identity — handing it the live shadow
         // would fuse the draft to the observable store).
         if (shadow && (v === undefined || v === (shadow as any)))
-          v = JSON.parse(JSON.stringify(shadow)) as T;
+          v = cloneProjection(shadow, target.s);
         if (v === (s as any) || v === undefined) return;
         const write = () =>
           storeSetterNext(wrappedStore, st => reconcileNextState(v, st, key, true), false);

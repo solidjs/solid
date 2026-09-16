@@ -563,8 +563,12 @@ function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";
 }
 
-function createShadowDraft(realDraft: any) {
-  const shadow = JSON.parse(JSON.stringify(realDraft));
+function createShadowDraft(realDraft: any, shallow?: boolean) {
+  const shadow = shallow
+    ? Array.isArray(realDraft)
+      ? realDraft.slice()
+      : { ...realDraft }
+    : JSON.parse(JSON.stringify(realDraft));
   let useShadow = true;
   return {
     proxy: new Proxy(shadow, {
@@ -721,7 +725,7 @@ function hydrateStoreFromAsyncIterable(
       // dependencies read before the first suspension are tracked. Writes go
       // to a shadow of the draft and are discarded — the server iterator is
       // authoritative and drives the real draft via the iterable below.
-      const { proxy } = createShadowDraft(draft);
+      const { proxy } = createShadowDraft(draft, options?.shallow);
       subFetch(fn, proxy);
       const process = (res: any) => {
         if (res.done) {
@@ -1130,27 +1134,46 @@ function hydrateStoreLikeFn(
     );
   }
   if (ssrSource === "hybrid") {
-    return withHydrationGate(hydrated =>
-      coreFn(
-        (draft: any) => {
-          const o = getOwner()!;
-          if (!hydrated()) {
-            if (sharedConfig.has!(o.id!))
-              return readHydratedValue(
-                sharedConfig.load!(o.id!),
-                () => subFetch(fn, draft),
-                options
-              );
-            return fn(draft);
-          }
-          const { proxy, activate } = createShadowDraft(draft);
-          const r = fn(proxy);
-          return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
-        },
-        initialValue,
-        options
-      )
+    let live = false;
+    const id = peekNextChildId(getOwner()!);
+    const ready = sharedConfig.has!(id) ? sharedConfig.load!(id) : undefined;
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
+    const result = coreFn(
+      (draft: any) => {
+        if (live) return fn(draft);
+        const o = getOwner()!;
+        if (!hydrated()) {
+          if (sharedConfig.has!(o.id!))
+            return readHydratedValue(sharedConfig.load!(o.id!), () => subFetch(fn, draft), options);
+          return fn(draft);
+        }
+        const { proxy, activate } = createShadowDraft(draft, options?.shallow);
+        const r = fn(proxy);
+        if (isAsyncIterable(r))
+          return wrapFirstYield(r, () => {
+            live = true;
+            activate();
+          });
+        live = true;
+        return r;
+      },
+      initialValue,
+      options
     );
+    // A loading seed can hydrate before its first server answer arrives.
+    // Preserve that adoption AND the DOM claim before starting the live source.
+    onHydrationEnd(() => {
+      if (ready && typeof ready.then === "function")
+        ready.then(
+          () => setHydrated(true),
+          () => {
+            // Keep the server error until refresh, then allow a fresh client answer.
+            live = true;
+          }
+        );
+      else setHydrated(true);
+    });
+    return result;
   }
   const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
