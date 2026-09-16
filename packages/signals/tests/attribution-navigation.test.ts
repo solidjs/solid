@@ -686,6 +686,9 @@ describe("at — a router whose request predates the write it wraps", () => {
     // wraps, with the user's request time carried in.
     const requested = performance.now();
     await wait(10);
+    // The wait actually taken on the engine's clock (a 10ms timer can fire a
+    // hair under 10ms of `performance.now()`); settledMs must cover it.
+    const waited = performance.now() - requested;
     OBSERVE!.attribution.withOrigin({ ...NAV, at: requested }, () => app.setLocation("/users/42"));
     flush();
     const [nav] = attribution.navigations();
@@ -694,7 +697,7 @@ describe("at — a router whose request predates the write it wraps", () => {
     app.resolve("b");
     await until(() => app.shown.includes("b@/users/42"), "the held page to land");
     expect(nav.outcome).toBe("held");
-    expect(nav.settledMs).toBeGreaterThanOrEqual(10);
+    expect(nav.settledMs).toBeGreaterThanOrEqual(waited);
     expect(nav.hold!.origin).toBe(nav.origin);
   });
 });

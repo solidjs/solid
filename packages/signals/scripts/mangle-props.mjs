@@ -40,12 +40,19 @@ for (const dir of process.argv.slice(2)) {
         keep_classnames: true,
         keep_fnames: true,
         module: false,
-        // `_name` is the one cross-package field: solid-js writes the
-        // component label onto signals' owners (`owner._name = "<App>"`) and
-        // `ownerPath` reads it. Mangling it in the observe tree would put the
-        // write and the read on different properties. Every other `_` field
-        // is private to this package.
-        properties: { regex: /^_/, reserved: ["_name"] }
+        // Two cross-package owner fields, both reserved: `_name` — solid-js
+        // writes the component label onto signals' owners (`owner._name =
+        // "<App>"`) and `ownerPath` reads it — and `_parent`, the owner-tree
+        // link, which solid-js walks on signals' owners (client hydration's
+        // root lookup) and which the core walks on solid-js's server owners
+        // (`ownerPath`, `OBSERVE.exclude`/`isExcluded`). Mangling either
+        // puts the write and the read on different properties: before
+        // `_parent` was reserved, the prod client marked the wrong snapshot
+        // scope and `OBSERVE.exclude` was a silent no-op for server owners
+        // in the observe tier. Every other `_` field is private to this
+        // package; solid's cross-package-fields spec scans the downstream
+        // artifacts for any new one.
+        properties: { regex: /^_/, reserved: ["_name", "_parent"] }
       },
       // preserve_annotations: terser consumes /*@__PURE__*/ during parse and
       // only re-emits it when asked — without this the prod tree loses the
