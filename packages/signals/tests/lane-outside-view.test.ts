@@ -5,6 +5,7 @@ import {
   createOptimistic,
   createRenderEffect,
   createRoot,
+  createLoadingBoundary,
   createSignal,
   flush,
   latest,
@@ -186,6 +187,156 @@ describe("a held lane from the outside", () => {
       "Both: 0 y",
       "Details: 0",
       "Value: 0"
+    ]);
+  });
+
+  // Lanes stage (#3479 review, fuzzer latest-1 #1955): the committed view an
+  // outsider sees must be a WHOLE frame. A memo derived from the held value
+  // used to publish its speculative result straight into `_value` (the lane's
+  // direct commit), so a reader mounted mid-hold saw the source's committed
+  // `0` beside the derivation's speculative `1` — a torn tuple. A lane pass
+  // now publishes a derived override: `_value` stays committed for the
+  // outsider, the override is the lane's view, and the release re-runs the
+  // outsider with the revealed frame.
+  it("#3479 an outsider mounted mid-hold sees the held value and its derivation as one committed frame", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let setShow!: (v: boolean) => void;
+    let start!: () => unknown;
+    createRoot(() => {
+      const [count, setCount] = createSignal(0);
+      const [show, ss] = createSignal(false);
+      setShow = ss;
+      const value = () => latest(count);
+      const derived = createMemo(() => value());
+      const details = createMemo(() => delay(2000, value()));
+      start = action(function* () {
+        setCount(1);
+        yield delay(3000);
+      });
+      text(() => `Value: ${value()}`, log, when);
+      text(() => `Derived: ${derived()}`, log, when);
+      text(() => `Details: ${details()}`, log, when);
+      text(() => `Late: ${show() ? `${value()} ${derived()}` : "hidden"}`, log, when);
+    });
+    flush();
+    await settle();
+    await advanceTo(3000);
+    start();
+    await settle();
+    await advanceTo(3500);
+    setShow(true);
+    await settle();
+    await advanceTo(12000);
+    // `Late: 0 0` at 3500 (was `0 1`); `1 1` with the lane's reveal at 5000.
+    // No frame after the reveal: the revert PROMOTES the derived overrides
+    // (the truth confirmed the guess) instead of re-deriving `details` and
+    // re-asking its flight — which held the transaction to 8000 for a frame
+    // identical to the one on screen.
+    expect(frames(log, when)).toEqual([
+      "0: Derived: 0 | Late: hidden | Value: 0",
+      "2000: Details: 0",
+      "3500: Late: 0 0",
+      "5000: Derived: 1 | Details: 1 | Late: 1 1 | Value: 1"
+    ]);
+  });
+
+  // #3479 review (gabbev, differential fuzzing): the optimistic `1` never
+  // finishes preparing — `details` is still in flight when the body ends and
+  // the truth (`0`) supersedes. The landing of `fast` re-enters the lane's
+  // transaction with no ambient lane; read as an outsider, that pass published
+  // the committed view and queued a replay that later revealed `1` beside the
+  // stale `0` derivation (`1:0`). A pass under the lane's own transaction is
+  // the lane's work (provenance, not membership).
+  it("#3479 an optimistic value that never finished preparing does not show beside its old derivation", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let save!: () => unknown;
+    createRoot(() => {
+      const [source, setSource] = createSignal(0);
+      const [value, setValue] = createOptimistic(source);
+      const fast = createMemo(async () => value());
+      const details = createMemo(() => delay(1500, fast()));
+      save = action(function* () {
+        setValue(1);
+        yield delay(500);
+        setSource(0);
+      });
+      text(() => `${value()}:${details()}`, log, when);
+    });
+    flush();
+    await settle();
+    await advanceTo(3000);
+    save();
+    await settle();
+    await advanceTo(9000);
+    // Never `1:0`, and never `1:1` (the guess was wrong).
+    expect(frames(log, when).map(f => f.split(": ")[1])).toEqual(["0:0", "0:0"]);
+  });
+
+  // #3479 review (fuzzer latest-1 #2481): a loading boundary mounted mid-hold
+  // holds a memo born under the lane — its first pass threw, `_value` never
+  // committed. Its landing dirtied the memo twice: the lane pass published
+  // the derived override, then the boundary reset re-ran it PLAIN. Still a
+  // lane member, that pass re-derived the lane's view (a fresh tuple) and
+  // A18's sync twin took it for a differing truth: superseded, lane demoted.
+  // The lane's next pass dropped the staged "truth" and left the flag —
+  // readers were served the never-committed `undefined`. A pass over a live
+  // lane member carrying a derived override is the lane's pass.
+  it("#3479 a boundary mounted mid-hold over a lane-born memo reveals a whole tuple, never undefined", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let setMounted!: (v: boolean) => void;
+    let start!: () => unknown;
+    createRoot(() => {
+      const [source, setSource] = createSignal(0);
+      const [mounted, sm] = createSignal(false);
+      setMounted = sm;
+      const value = () => latest(source);
+      const node = createMemo(() => delay(1000, value()));
+      start = action(function* () {
+        setSource(1);
+        yield delay(1500);
+        setSource(0);
+        yield delay(1500);
+        setSource(1);
+      });
+      text(() => `Node: ${node()}`, log, when);
+      createRenderEffect(
+        () => {
+          if (!mounted()) return;
+          createRoot(dispose => {
+            onCleanup(dispose);
+            const view = createLoadingBoundary(
+              () => `${value()} ${node()}`,
+              () => "loading"
+            );
+            text(() => `Late: ${view()}`, log, when);
+          });
+        },
+        () => {}
+      );
+    });
+    flush();
+    await settle();
+    await advanceTo(1000);
+    start();
+    await settle();
+    await advanceTo(3000);
+    setMounted(true);
+    await settle();
+    await advanceTo(9000);
+    // `Late` never publishes `undefined`; it reveals the whole tuple with the
+    // lane. `Node` is the lane's own reader and shows each landing.
+    expect(frames(log, when)).toEqual([
+      "1000: Node: 0",
+      "2000: Node: 1",
+      "3000: Late: loading",
+      "3500: Node: 0",
+      "5000: Late: 1 1 | Node: 1"
     ]);
   });
 

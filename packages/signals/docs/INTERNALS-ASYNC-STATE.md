@@ -196,20 +196,48 @@ Confidence: **high** = implementation self-consistency, assert now.
   verdict `true` forever (the declared-motion analogue of the INV-9 latch).
 - **INV-11 (high, structural — pinned, not asserted)** A recompute's equality
   gate compares the new result against the slot it is about to publish to:
-  the override for an override-covered node, `_value` for a lane (OPT-dirty)
-  direct commit, `_pendingValue` for a transaction-staged run. "Unchanged" is
+  the override for an override-covered node (a written one, or the derived
+  one a previous lane pass left — `CONFIG_DERIVED_OVERRIDE`, #3479), `_value`
+  for a lane pass's FIRST publish (no override yet: the compare is against the
+  committed value the override will shadow) and for an effect's or a
+  reversion pass's direct commit, `_pendingValue` for a transaction-staged
+  run. **Lanes stage (#3479):** a lane pass on a memo no longer direct-commits
+  `_value`; it publishes into the override slot (`laneOverride`), so the
+  committed view an outsider is served (`readsHeldCommitted`) is a whole frame
+  — the source's shadow and its derivations — and the lane's own view is the
+  override end to end. The reversion pass (OPT-dirty with no live lane, the
+  override dropped) and an effect's lane pass still direct-commit. "Unchanged" is
   a statement about what the publishing view will show, so comparing against
   a different view produces torn frames: #3330 compared a lane recompute
   against a `_pendingValue` an earlier action write had staged, called the
   identical result unchanged, and revealed the override without its
   derivation. Pinned in `tests/spec-async-semantics.test.ts` (A17, #3330);
   not a runtime assertion because the publishing slot is decided inside the
-  same branch that compares. Corollary (#3377): a lane direct commit also
-  _retires_ the transaction-staged `_pendingValue` it supersedes, override
-  or not — a node that adopted the lane through its deps (a `latest()` read;
-  the companion is an optimistic node) may have staged a hold on an earlier,
+  same branch that compares. Corollary (#3377): a lane pass also _retires_
+  the transaction-staged `_pendingValue` it supersedes, override or not — a
+  node that adopted the lane through its deps (a `latest()` read; the
+  companion is an optimistic node) may have staged a hold on an earlier,
   lane-free pass of the same transaction, and left in place that older frame
-  commits over the fresh `_value`.
+  commits over the fresh one. Derived-override lifecycle (#3479): joins the
+  lane's transaction's `_optimisticNodes` on its first publish (the ambient
+  batch would revert an async landing's at its own end); reverts with it —
+  _promoted_ to `_value` when not superseded (sources revert before their
+  derivations in that list, and a source whose truth differs dirties them, so
+  a derivation the revert did not dirty is what the truth yields), dropped
+  when superseded (the truth is staged); the slot disarms to `undefined` for
+  a plain memo and stays `NOT_PENDING` for a written node the lane corrected.
+  Demoted by its source's supersession (A18), its plain re-derivation runs
+  the sync twin and its landing takes `asyncWrite`'s hold-and-supersede
+  branch (never the plain `setSignal`, which would read the armed slot as a
+  fresh optimistic write and open a lane with the memo as source). Until then,
+  _every_ pass over it is the lane's pass, whatever channel dirtied it
+  (`recompute`'s derived-override branch): it is still a member, its inputs
+  serve the lane's view, and its result is the lane's — run plain, the sync
+  twin read a re-derived lane view (a fresh tuple) as a differing truth,
+  superseded and demoted, and the lane's next pass dropped that staged
+  "truth" and left the flag pointing at a `_value` never committed (fuzzer
+  latest-1 #2481: a boundary reset re-ran a lane-born memo). A fresh lane
+  publish clears `CONFIG_OVERRIDE_SUPERSEDED` for the same reason.
 
 Rejected for assertion (state space too dynamic, would need semantic rulings):
 whether `_optimisticLane` must always resolve to a live lane (stale lanes are

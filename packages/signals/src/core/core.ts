@@ -25,6 +25,7 @@ import {
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_NO_SNAPSHOT,
   CONFIG_OPTIMISTIC,
+  CONFIG_DERIVED_OVERRIDE,
   CONFIG_OVERRIDE_SUPERSEDED,
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
@@ -269,8 +270,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
 
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
+  // A derived override (lanes stage, #3479) is override-covered like a written
+  // one: a plain pass over it — its source superseded (A18) — stages the truth
+  // and supersedes the override through the sync twin below.
   const hasOverride =
-    (el._config & CONFIG_OPTIMISTIC) !== 0 &&
+    (el._config & (CONFIG_OPTIMISTIC | CONFIG_DERIVED_OVERRIDE)) !== 0 &&
     el._x?._overrideValue !== NOT_PENDING &&
     el._x?._overrideValue !== undefined;
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
@@ -347,6 +351,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // latest()/isPending() pull stages instead of direct-committing (#3009).
     // The predicate lives with the engine (recomputeLane).
     else if (lane === false) isOptimisticDirty = false;
+  } else if (el._config & CONFIG_DERIVED_OVERRIDE) {
+    // Lanes stage (#3479): a pass over a live lane member carrying a derived
+    // override is the lane's pass whatever channel dirtied it (a boundary
+    // reset, an unrelated sync write) — its inputs serve the lane's view, so
+    // its result is the lane's and belongs in the override slot. Run plain,
+    // A18's sync twin below read that re-derived lane view as a differing
+    // truth (a fresh array), superseded the override and demoted the lane;
+    // the lane's next pass then dropped the staged "truth" and left the node
+    // flagged superseded with nothing to serve (fuzzer latest-1 #2481). A
+    // demoted node resolves no lane and stays plain: its pass IS the truth.
+    const lane = GlobalQueue._recomputeLane!(el, true);
+    if (lane) {
+      isOptimisticDirty = true;
+      currentOptimisticLane = lane;
+    }
   } else if (activeTransition && !create && activeTransition._optimisticNodes.length) {
     // Lane adoption: parent-deeper-than-owned-child can run before its OPT-dirty
     // child propagates. Walk deps once and inherit the OPT lane so this node
@@ -586,21 +605,24 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // round-trip is that separation; it cannot be skipped on any path a
         // pull can reach.
       ) {
-        el._value = value;
-        // Lane-propagated correction: upstream data is fresh, correct the
-        // override unconditionally. The direct _value commit is the lane's
-        // own reveal schedule; drop any superseded older hold so its queued
-        // commit can't clobber the fresh value. Override or not: a node that
-        // adopted the lane through its deps (a `latest()` read — the
-        // companion is an optimistic node) direct-commits the same way, and
-        // a hold it staged on an earlier, lane-free pass of the SAME
-        // transaction is just as superseded — left in place, the commit
-        // published the older frame over the fresh one (#3377).
-        if (isOptimisticDirty) {
-          if (hasOverride)
-            ext(el)._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
-          el._pendingValue = NOT_PENDING;
-        }
+        // Lanes stage (#3479): a lane pass on a memo publishes its speculative
+        // result as an OVERRIDE — `_value` stays the committed truth, so a
+        // reader off the lane (A17's committed view, #3460) sees a whole
+        // committed frame: the source's shadow and its derivations together,
+        // never a committed shadow beside a speculative memo. The lane's own
+        // readers and untracked reads see the override (A17); the revert
+        // drops it and re-derives (resolveOptimisticNodes). Effects keep the
+        // direct commit — their `_value` is a run result the lane's queues
+        // already sequence. Either way the lane pass drops any superseded
+        // older hold so its queued commit can't clobber the fresh frame: a
+        // hold staged on an earlier, lane-free pass of the SAME transaction
+        // is superseded — left in place, the commit published the older
+        // frame over the fresh one (#3377). A reversion pass (OPT-dirty with
+        // no lane — the override dropped) commits directly: it IS the truth.
+        if (isOptimisticDirty && !isEffect && currentOptimisticLane !== null)
+          GlobalQueue._laneOverride!(el, value, currentOptimisticLane);
+        else el._value = value;
+        if (isOptimisticDirty) el._pendingValue = NOT_PENDING;
       } else {
         el._pendingValue = value;
         if (__DEV__) devTrackHeldPending(el);

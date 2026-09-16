@@ -336,7 +336,12 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16): +100 B
     // (24,478 -> 24,578), `wasPending` and the wokenTransitions site at
     // recompute's tail.
-    expect(minifiedBytes).toBeLessThan(25_000);
+    // Lanes stage (#3479 review, 2026-09-16): +139 B core-retained — recompute's
+    // publish arm routing an optimistic-dirty memo through `_laneOverride`, its
+    // override test admitting a derived one, and the derived-override posture
+    // branch (every pass over a live lane member is the lane's pass, fuzzer
+    // latest-1 #2481). Measured at 25,075 over #3488's 24,936.
+    expect(minifiedBytes).toBeLessThan(25_200);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

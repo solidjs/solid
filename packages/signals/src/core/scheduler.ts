@@ -698,6 +698,11 @@ export class GlobalQueue extends Queue {
   /** A tracked read of an active override: the lane outside-view rule
    * (#3460) and the A18 supersession selection (#3331) — see optimistic.ts. */
   static _overrideRead: ((el: Computed<any>, c: Computed<any>) => unknown) | null = null;
+  /** A lane pass's publish for a memo (#3479, lanes stage): the speculative
+   * result becomes a DERIVED override, `_value` stays committed — see
+   * optimistic.ts laneOverride. Set with the engine, which a lane implies. */
+  static _laneOverride: ((el: Computed<any>, value: unknown, lane: OptimisticLane) => void) | null =
+    null;
   /** Verdict-layer recompute in progress (companion creation, latest()/
    * isPending() pulls): never born held — see core.ts enterStagedRead. */
   static _verdictPull = false;
