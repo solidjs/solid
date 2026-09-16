@@ -17,8 +17,10 @@ import {
   enableHydration,
   enforceLoadingBoundary,
   resetErrorHalt,
+  ROOT_ERROR_HOOK,
   OBSERVE
 } from "solid-js";
+import type { ClientErrorHook } from "solid-js";
 import {
   viewOf,
   OmitView,
@@ -267,7 +269,18 @@ export function render(
   code: () => JSX.Element,
   element: MountableElement,
   init?: JSX.Element,
-  options?: { owner?: unknown; renderId?: string }
+  options?: {
+    owner?: unknown;
+    renderId?: string;
+    /**
+     * This root's client error hook, ahead of `configureClientErrors`':
+     * every failure an error boundary under it renders a fallback for —
+     * the one event no global handler sees (an uncaught error halts the
+     * reactive system and reaches `reportError` / `window.onerror`). Once
+     * per error object; no return — the client has no wire to map for.
+     */
+    onError?: ClientErrorHook;
+  }
 ): () => void;
 
 export function render(code, element, init, options = {}) {
@@ -288,6 +301,10 @@ export function render(code, element, init, options = {}) {
     root(
       dispose => {
         disposer = dispose;
+        // Parked on the root owner under the registered key: the hook
+        // machinery is retained only by a boundary or the app's own
+        // `configureClientErrors` import (see signals' error-hooks).
+        if (options.onError) getOwner()[ROOT_ERROR_HOOK] = options.onError;
         if (element === document) {
           const tree = code();
           effect(
@@ -1940,7 +1957,7 @@ function loadModuleAssets(mapping) {
 export function hydrate(
   fn: () => JSX.Element,
   node: MountableElement,
-  options?: { renderId?: string; owner?: unknown }
+  options?: { renderId?: string; owner?: unknown; onError?: ClientErrorHook }
 ): () => void;
 
 export function hydrate(code, element, options = {}) {

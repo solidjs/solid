@@ -143,6 +143,31 @@ The reset function is an action: pass it to event handlers or other imperative c
 </Errored>
 ```
 
+#### Reporting what a boundary caught: the client error hook
+
+A fallback rendered is a failure handled — and, until now, one nothing outside the app could see in production: the browser's global handlers hear what reaches `window.onerror`, and a caught error never does. The client error hook is the prod-tier seam for it — any app that wants to log its errors, not only an APM — and the twin of the server's `configureServerErrors` ([RFC 12](12-ssr-http.md#the-server-error-hook-configureservererrors--onerror)):
+
+```ts
+import { configureClientErrors } from "solid-js";
+
+configureClientErrors({
+  onError(error, { ownerPath }) {
+    Sentry.captureException(error, { mechanism: { type: "solid.error_boundary", handled: true } });
+  }
+});
+
+// or per root, ahead of the ambient hook:
+render(() => <App />, root, undefined, { onError });
+```
+
+- Fires when an `Errored` (or `createErrorBoundary`) collected a failure and renders its fallback. An **uncaught** error is not this hook's: nothing contained it, the reactive system halts (`REACTIVITY_HALTED`), and the cause goes to the platform's `reportError` — `window.onerror`, the channel every monitor and every `addEventListener("error")` already listens on. One event, one channel.
+- **Once per error object**: a `reset()` that recomputes the same failing node re-collects the same error and says nothing new; a primitive thrown has no identity and is reported per sight.
+- `ownerPath` carries the component labels root-first where the runtime keeps owner names (the observe and dev artifacts; production owners carry none).
+- No return: the client has no wire to map for. A throwing hook is reported on the console and ignored — a monitor never takes the app down.
+- Pay-for-use: the hook machinery rides with `createErrorBoundary` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner, so `render` retains nothing for an app that passes none.
+
+An effect's own error arm (`createEffect(compute, effect, onError)`) is the author handling the failure and is not reported here.
+
 ### Dynamic components: the `dynamic` factory
 
 Solid 2.0 reshapes `createDynamic` into a `lazy`-style factory named `dynamic`. Given a source that produces a component (or native tag name), `dynamic` returns a **stable `Component<P>`** whose identity is driven reactively. The returned value is usable anywhere a component is — children, refs, and reactive props flow through the normal JSX path.

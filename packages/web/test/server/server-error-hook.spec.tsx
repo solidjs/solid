@@ -19,9 +19,10 @@
  *    as the FUNCTION's failure; the boundary that contains it reuses the
  *    verdict and does not report again;
  *  - two tiers: ambient (`configureServerErrors`) and per request
- *    (`renderToStream`'s `onServerError`, the handler's), the latter winning;
- *  - `handling: "failed"` has no wire — the return is ignored — and
- *    `renderToStream`'s `onError` still hears it;
+ *    (`renderToStream`'s `onError` — which IS the hook — and the handler's),
+ *    the latter winning;
+ *  - `handling: "failed"` has no wire — the return is ignored — and with no
+ *    hook anywhere it reaches `console.error`;
  *  - a throwing hook is reported and treated as silent.
  *
  * Runs the runtimes from source (the dev tier: the default is fidelity, so a
@@ -170,7 +171,7 @@ describe("<Errored> during SSR", () => {
           <Bad />
         </Errored>
       ),
-      { onServerError: hook(() => new Error("per request")) }
+      { onError: hook(() => new Error("per request")) }
     );
     expect(ambient).toHaveLength(0);
     expect(calls).toHaveLength(1);
@@ -252,10 +253,17 @@ describe("<Loading> fragments and the failed request", () => {
     expect(calls.map(c => c.context.handling)).toEqual(["fallback"]);
   });
 
-  test("a root failure: one `failed` call, `onError` still hears it, the return is ignored", async () => {
+  test("a root failure: one `failed` call, the return is ignored; a one-argument onError hears it too", async () => {
     const boom = new Error("root boom");
-    const onError = vi.fn();
-    configureServerErrors({ onError: hook(() => new Error("ignored")) });
+    // The render's `onError` IS the hook; a listener written for the old
+    // single-argument shape still hears the failure (and, unfiltered, every
+    // other handled one).
+    const heard: unknown[] = [];
+    const onError = (err: unknown) => {
+      heard.push(err);
+      return new Error("ignored");
+    };
+    configureServerErrors({ onError: hook(() => new Error("ambient, not asked")) });
     // A failure on a retry pass: no boundary owns it, nothing is on the
     // stack to throw to, so the renderer's containment channel fails the
     // request (the same shape server-diagnostics.spec.tsx pins).
@@ -276,10 +284,28 @@ describe("<Loading> fragments and the failed request", () => {
       ),
       { onError }
     );
-    expect(calls).toHaveLength(1);
-    expect(calls[0].error).toBe(boom);
-    expect(calls[0].context).toMatchObject({ kind: "render", handling: "failed" });
-    expect(onError).toHaveBeenCalledWith(boom);
+    // The render's own hook won; the ambient one heard nothing.
+    expect(heard).toEqual([boom]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("without a hook anywhere, a failure that fails the request reaches console.error", async () => {
+    const boom = new Error("silent?");
+    let first = true;
+    await stream(() => (
+      <div>
+        {
+          (() => {
+            if (first) {
+              first = false;
+              throw new NotReadyError(Promise.resolve() as any);
+            }
+            throw boom;
+          }) as unknown as JSX.Element
+        }
+      </div>
+    ));
+    expect(reported.some(c => c[0] === boom)).toBe(true);
   });
 });
 
@@ -353,7 +379,7 @@ describe("server functions", () => {
     registerServerFunction("hook/per-request", () => {
       throw new Error("boom");
     });
-    const restore = connect({ onServerError: hook(() => new Error("handler said")) });
+    const restore = connect({ onError: hook(() => new Error("handler said")) });
     try {
       await expect(clientReference("hook/per-request")()).rejects.toMatchObject({
         message: "handler said"

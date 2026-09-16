@@ -2707,7 +2707,7 @@ export { NoHydrateContext };
 // `wrapInvocation` has: ambient (`configureServerErrors` in `@solidjs/web`,
 // parked on `globalThis` under a registered symbol so a bundled build and an
 // instrumented `--import`ed copy share it) and per request
-// (`renderToStream(code, { onServerError })`, set on the SSR context as
+// (`renderToStream(code, { onError })`, set on the SSR context as
 // `errorPolicy`; the server-function handler's option is passed explicitly).
 // Prod-tier code throughout: no `OBSERVE`, no finding text.
 const SAFE_ERROR = Symbol.for("solid.SafeError");
@@ -2718,7 +2718,7 @@ const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
 /** Where a failure was met, as the hook hears it (the `event` is added at the call). */
 export interface ServerErrorSite {
   kind: "render" | "server-function";
-  handling: "fallback" | "client" | "failed" | "thrown" | "channel";
+  handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
   boundary?: string;
   ownerPath?: string[];
   functionId?: string;
@@ -3176,6 +3176,20 @@ export function flush() {}
 
 // SSR is pull-based with no scheduler, so there is no halt state to reset.
 export function resetErrorHalt() {}
+
+// The client error hook has no server half: a server render's failures
+// reach `configureServerErrors` (see @solidjs/web). Stubs so isomorphic
+// setup code can call the client registration unguarded.
+export interface ClientErrorContext {
+  ownerPath?: string[];
+}
+export type ClientErrorHook = (error: unknown, context: ClientErrorContext) => void;
+export interface ClientErrorsConfig {
+  onError?: ClientErrorHook;
+}
+export function configureClientErrors(_config: ClientErrorsConfig): void {}
+/** @internal */
+export const ROOT_ERROR_HOOK: unique symbol = Symbol.for("solid-js/root-error-hook") as any;
 
 export function resolve<T>(fn: () => T): Promise<T> {
   throw new Error("resolve is not implemented on the server");

@@ -164,9 +164,8 @@ export function renderToString<T>(
     noScripts?: boolean;
     plugins?: any[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
-    onError?: (err: any) => void;
-    /** This render's server error hook, ahead of `configureServerErrors`'. */
-    onServerError?: ServerErrorHook;
+    /** This render's server error hook, ahead of `configureServerErrors`' (see the server entry). */
+    onError?: ServerErrorHook;
     /**
      * Embedded-render contract for hosts that own the document. When the
      * render output contains no `</head>`, everything head-bound (resolved
@@ -218,9 +217,8 @@ export function renderToStream<T>(
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
-    onError?: (err: any) => void;
-    /** This render's server error hook, ahead of `configureServerErrors`'. */
-    onServerError?: ServerErrorHook;
+    /** This render's server error hook, ahead of `configureServerErrors`' (see the server entry). */
+    onError?: ServerErrorHook;
     /**
      * Embedded-render contract for hosts that own the document. When the
      * shell contains no `</head>`, everything head-bound at first flush

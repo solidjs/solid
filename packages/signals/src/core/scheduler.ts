@@ -427,6 +427,15 @@ export function wakeParked(): void {
  * every boundary — app state is undefined at that point, so scheduling stops
  * entirely rather than limping along with a half-applied update.
  */
+/**
+ * The key a root owner carries its client error hook under (`render`'s
+ * `onError`) — registered, so a runtime writes it with no import of the hook
+ * module (core/error-hooks.ts) and no property mangling in the way. Defined
+ * HERE, not there: a runtime that only writes the key must not retain the
+ * hook machinery (pay-for-use).
+ */
+export const ROOT_ERROR_HOOK: unique symbol = Symbol.for("solid-js/root-error-hook") as any;
+
 export function haltReactivity(cause?: unknown): void {
   if (halted) return;
   halted = true;

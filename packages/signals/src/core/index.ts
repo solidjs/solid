@@ -73,6 +73,13 @@ export type {
   NavigationRef,
   OriginRef
 } from "./attribution-hooks.js";
+export { ROOT_ERROR_HOOK } from "./scheduler.js";
+export {
+  configureClientErrors,
+  type ClientErrorContext,
+  type ClientErrorHook,
+  type ClientErrorsConfig
+} from "./error-hooks.js";
 export {
   DEV,
   OBSERVE,
