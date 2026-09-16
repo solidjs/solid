@@ -36,10 +36,16 @@ export {
   enableExternalSource,
   enforceLoadingBoundary,
   snapshot,
-  untrack
+  untrack,
+  configureClientErrors
 } from "@solidjs/signals";
+/** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
+export { ROOT_ERROR_HOOK } from "@solidjs/signals";
 
 export type {
+  ClientErrorContext,
+  ClientErrorHook,
+  ClientErrorsConfig,
   Accessor,
   ComputeFunction,
   EffectBundle,
@@ -143,7 +149,7 @@ export function reportServerError(): { mapped: boolean; value?: unknown } {
 /** Where a server failure was met, as the server error hook hears it (see `@solidjs/web`'s `ServerErrorContext`). */
 export interface ServerErrorSite {
   kind: "render" | "server-function";
-  handling: "fallback" | "client" | "failed" | "thrown" | "channel";
+  handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
   boundary?: string;
   ownerPath?: string[];
   functionId?: string;

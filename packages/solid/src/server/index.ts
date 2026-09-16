@@ -52,8 +52,11 @@ export {
   createDeepProxy,
   enableExternalSource,
   enforceLoadingBoundary,
-  untrack
+  untrack,
+  configureClientErrors,
+  ROOT_ERROR_HOOK
 } from "./signals.js";
+export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";
 
 // All type re-exports from signals
 export type {

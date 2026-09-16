@@ -498,7 +498,7 @@ export interface HandleServerFunctionOptions {
    * like `wrapInvocation`: a direct call the body makes during a render
    * reports through the ambient hook.
    */
-  onServerError?: ServerErrorHook;
+  onError?: ServerErrorHook;
   /**
    * Observes or replaces the function's result before encoding — the
    * extension point for response metadata policies (headers, statuses,
@@ -3588,7 +3588,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   };
   const provide = options.provideEvent || provideEvent;
   const scope = run => provide(event, run);
-  if (options.onServerError !== undefined) REQUEST_ERROR_HOOKS.set(event, options.onServerError);
+  if (options.onError !== undefined) REQUEST_ERROR_HOOKS.set(event, options.onError);
   const flightHook =
     options.collectFlightData !== undefined ? options.collectFlightData : config.collectFlightData;
   // Same fallback pattern: a generic dispatcher calling

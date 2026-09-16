@@ -874,7 +874,14 @@ module.exports = [
     // 19,606 B (+72 brotli on ~+40 B minified: recompute's derived-override
     // posture branch, fuzzer latest-1 #2481). Brotli noise: the same bytes
     // read -6 on the core floor and +16 on isPending/latest.
-    limit: "19.70 KB",
+    // Client error hook (2026-09-16): 19.70 -> 19.80 KB, measured at 19,782 B rebased
+    // over #3479–#3488. This scenario renders <Errored>, so it carries the hook
+    // module (core/error-hooks.ts: the ambient registration, once-per-error,
+    // the owner-label walk), retained by `createErrorBoundary`'s report —
+    // ~+200 B; pay-for-use, the price of a boundary that can tell a monitor
+    // what it caught. Scenarios without a boundary did not move (`render`'s
+    // write of `onError` onto the root owner is the only prod-floor cost).
+    limit: "19.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1049,7 +1056,14 @@ module.exports = [
     // core delta, see the core floor note.
     // Lanes stage (#3479 review, 2026-09-15): measured at 29,657 B (+156 B); the
     // signals optimistic-engine delta, see the isPending/latest note.
-    limit: "29.75 KB",
+    // Client error hook (2026-09-16): 29.75 -> 29.90 KB, measured at 29,854 B rebased
+    // over #3479–#3488. This scenario renders <Errored>, so it carries the hook
+    // module (core/error-hooks.ts: the ambient registration, once-per-error,
+    // the owner-label walk), retained by `createErrorBoundary`'s report —
+    // ~+250 B; pay-for-use, the price of a boundary that can tell a monitor
+    // what it caught. Scenarios without a boundary did not move (`render`'s
+    // write of `onError` onto the root owner is the only prod-floor cost).
+    limit: "29.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -1140,7 +1154,14 @@ module.exports = [
     // against `next` (+247 B); the signals core delta, see the core floor note.
     // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 14,917 B; the signals
     // core delta, see the core floor note.
-    limit: "15.00 KB",
+    // Client error hook (2026-09-16): 15.00 -> 15.15 KB, measured at 15,140 B rebased
+    // over #3479–#3488. This scenario renders <Errored>, so it carries the hook
+    // module (core/error-hooks.ts: the ambient registration, once-per-error,
+    // the owner-label walk), retained by `createErrorBoundary`'s report —
+    // ~+180 B; pay-for-use, the price of a boundary that can tell a monitor
+    // what it caught. Scenarios without a boundary did not move (`render`'s
+    // write of `onError` onto the root owner is the only prod-floor cost).
+    limit: "15.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -1238,7 +1259,14 @@ module.exports = [
     // on top of #3472 (+233 B); the signals core delta, see the core floor note.
     // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 16,453 B; the signals
     // core delta, see the core floor note.
-    limit: "16.55 KB",
+    // Client error hook (2026-09-16): 16.55 -> 16.70 KB, measured at 16,688 B rebased
+    // over #3479–#3488. This scenario renders <Errored>, so it carries the hook
+    // module (core/error-hooks.ts: the ambient registration, once-per-error,
+    // the owner-label walk), retained by `createErrorBoundary`'s report —
+    // ~+170 B; pay-for-use, the price of a boundary that can tell a monitor
+    // what it caught. Scenarios without a boundary did not move (`render`'s
+    // write of `onError` onto the root owner is the only prod-floor cost).
+    limit: "16.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1351,7 +1379,14 @@ module.exports = [
     // on top of #3472 (+286 B); the signals core delta, see the core floor note.
     // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 28,098 B; the signals
     // core delta, see the core floor note.
-    limit: "28.20 KB",
+    // Client error hook (2026-09-16): 28.20 -> 28.35 KB, measured at 28,350 B rebased
+    // over #3479–#3488. This scenario renders <Errored>, so it carries the hook
+    // module (core/error-hooks.ts: the ambient registration, once-per-error,
+    // the owner-label walk), retained by `createErrorBoundary`'s report —
+    // ~+160 B; pay-for-use, the price of a boundary that can tell a monitor
+    // what it caught. Scenarios without a boundary did not move (`render`'s
+    // write of `onError` onto the root owner is the only prod-floor cost).
+    limit: "28.35 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

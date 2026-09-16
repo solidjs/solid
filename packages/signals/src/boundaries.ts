@@ -27,6 +27,7 @@ import {
 import type { IQueue, Signal } from "./core/index.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { attrHooks } from "./core/attribution-hooks.js";
+import { reportClientError } from "./core/error-hooks.js";
 import { haltReactivity, schedule, transitions, wakeParked } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
@@ -285,6 +286,8 @@ export class CollectionQueue extends Queue {
   _initialized: boolean = false;
   _onFn: (() => any) | undefined;
   _prevOn: any = ON_INIT;
+  /** The boundary's owner — where a `caught` report locates itself, set before the children are built (a creation-time throw arrives before `_tree`). */
+  _owner?: Owner;
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -366,7 +369,13 @@ export class CollectionQueue extends Queue {
             attrHooks.boundaryFallback(this, this._tree, true);
         }
         if (this._collectionType & STATUS_ERROR) {
-          setSignal(this._error!, unwrapStatusError(source._x?._error));
+          const caught = unwrapStatusError(source._x?._error);
+          setSignal(this._error!, caught);
+          // The client error hook: this boundary renders its fallback for
+          // it — the one road a rendered failure took that no global handler
+          // ever saw. Once per error object; a `reset()` re-collecting the
+          // same failure says nothing new.
+          reportClientError(caught, this._owner);
         }
       }
     }
@@ -447,6 +456,7 @@ function createCollectionBoundary<T>(
   const owner = createOwner();
   if (_revealUsed) setContext(RevealControllerContext, null, owner);
   const queue = new CollectionQueue(type);
+  queue._owner = owner;
   if (type === STATUS_ERROR)
     queue._error = signal<unknown>(undefined, { ownedWrite: true, _noSnapshot: true });
   if (onFn) queue._onFn = onFn;

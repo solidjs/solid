@@ -29,7 +29,9 @@ export {
   enforceLoadingBoundary,
   enableExternalSource,
   resetErrorHalt,
-  ownerPath
+  ownerPath,
+  configureClientErrors,
+  ROOT_ERROR_HOOK
 } from "./core/index.js";
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "./core/index.js";
 /**
@@ -51,6 +53,9 @@ export type {
   Refreshable,
   AttributionHooks,
   AttributionSlot,
+  ClientErrorContext,
+  ClientErrorHook,
+  ClientErrorsConfig,
   InteractionRef,
   NavigationRef,
   OriginRef,

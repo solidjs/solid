@@ -1583,9 +1583,14 @@ export function renderToString<T>(
     noScripts?: boolean;
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
-    onError?: (err: any) => void;
-    /** This render's server error hook, ahead of `configureServerErrors`' (see `ServerErrorHook`). */
-    onServerError?: ServerErrorHook;
+    /**
+     * This render's server error hook, ahead of `configureServerErrors`'
+     * (see `ServerErrorHook`): every failure the render handles — an
+     * `<Errored>` fallback (`handling: "fallback"`), a hydration value that
+     * would not serialize (`"serialize"`) — once per error, with where it
+     * was met. A one-argument listener still works; it hears them all.
+     */
+    onError?: ServerErrorHook;
     /**
      * Embedded-render contract for hosts that own the document. When the
      * render output contains no `</head>`, everything head-bound (resolved
@@ -1618,7 +1623,7 @@ export function renderToString(code, options = {}) {
       }
       scripts += script + ";";
     },
-    onError: options.onError
+    onError: serializerErrorHook(options.onError)
   });
   const tracking = createAssetTracking();
   const headRegistry = createHeadRegistry();
@@ -1627,7 +1632,7 @@ export function renderToString(code, options = {}) {
     escape: escape,
     resolve: resolveSSRNode,
     ssr: ssr,
-    errorPolicy: options.onServerError,
+    errorPolicy: options.onError,
     registerHeadTags(tags) {
       // Sync render: everything is pre-shell, resources join the shell head.
       registerHeadTags(headRegistry, sharedConfig.context, tracking, null, nonce, tags);
@@ -1736,14 +1741,18 @@ export function renderToStream<T>(
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
-    onError?: (err: any) => void;
     /**
      * This render's server error hook, ahead of `configureServerErrors`'
      * (see `ServerErrorHook`): every failure the render handles — an
-     * `<Errored>` fallback, a rejected fragment — and the one that fails it,
-     * which `onError` also hears.
+     * `<Errored>` fallback (`handling: "fallback"`), a rejected fragment
+     * (`"client"`), a hydration value that would not serialize
+     * (`"serialize"`) — and the one that fails the request (`"failed"`),
+     * once per error, with where it was met. A one-argument listener still
+     * works; it hears them all — filter on `context.handling` for the
+     * request-failing ones alone. Without a hook (here or ambient) a
+     * failure that fails the request goes to `console.error`.
      */
-    onServerError?: ServerErrorHook;
+    onError?: ServerErrorHook;
     /**
      * Embedded-render contract for hosts that own the document. When the
      * shell contains no `</head>`, everything head-bound at first flush
@@ -1854,9 +1863,12 @@ export function renderToStream(code, options = {}) {
   // Exposed to the reactive library's boundary resume loop as
   // `context.failRender` (see the ssrLoadingBoundary finalizeError path).
   const failRender = err => {
-    try {
-      options.onError ? options.onError(err) : console.error(err);
-    } catch (_) {}
+    // The server error hook is the one channel (`handling: "failed"`); a
+    // boundary that already reported this error with its location leaves
+    // this a no-op (once per error). With no hook anywhere the failure is
+    // never silent.
+    reportServerError(err, { kind: "render", handling: "failed" }, null);
+    if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
     abandon();
   };
   // The same containment reached from the renderer's OWN retry passes (root
@@ -1864,7 +1876,6 @@ export function renderToStream(code, options = {}) {
   // owns the failure, so this is where its finding is recorded (a boundary
   // records its own before calling `failRender`, with its owner path).
   const failRootRender = err => {
-    reportServerError(err, { kind: "render", handling: "failed" }, null);
     if ("_SOLID_OBSERVE_")
       emitFinding(
         {
@@ -2105,7 +2116,7 @@ export function renderToStream(code, options = {}) {
     plugins: options.plugins,
     onData: payload => sink.data(payload),
     onDone,
-    onError: options.onError
+    onError: serializerErrorHook(options.onError)
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -2580,7 +2591,7 @@ export function renderToStream(code, options = {}) {
   // and the fact the Loading boundary needs to say how a failure was met:
   // post-flush a fragment rejects to the client; pre-flush it inlines or
   // fails the request.
-  context.errorPolicy = options.onServerError;
+  context.errorPolicy = options.onError;
   context.flushed = () => firstFlushed;
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
@@ -5115,8 +5126,9 @@ export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") 
  *
  * `kind: "render"` — `fallback`: an `<Errored>` rendered its fallback;
  * `client`: a `<Loading>` fragment rejected and the client re-renders the
- * subtree; `failed`: nothing contained it and the request fails (what
- * `renderToStream`'s `onError` hears). `kind: "server-function"` — `thrown`:
+ * subtree; `failed`: nothing contained it and the request fails;
+ * `serialize`: a hydration value would not serialize and the render went on
+ * without it (a render that passed `onError`). `kind: "server-function"` — `thrown`:
  * the body threw; `channel`: a rejection or throw escaping through the
  * result graph (a promise, an iterable, a stream) with the head already
  * committed. `boundary` is the hydration id the boundary records and
@@ -5162,7 +5174,7 @@ const ServerErrors: unique symbol = Symbol.for("solid-js/server/errors") as any;
  * the failure that fails a request. Called once per error object, at first
  * sight, wherever the runtime met it; its return, when given, is the wire
  * value (see `ServerErrorHook`). A per-request hook — `renderToStream`'s
- * `onServerError`, the server-function handler's — overrides it for that
+ * `onError`, the server-function handler's — overrides it for that
  * request. Registered on `globalThis` under a registered symbol, so a
  * bundled server build and an instrumented `--import`ed module share it.
  *
@@ -5177,6 +5189,26 @@ const ServerErrors: unique symbol = Symbol.for("solid-js/server/errors") as any;
  * ```
  */
 export function configureServerErrors(config: ServerErrorsConfig): void;
+
+/**
+ * The serializer's `onError`, when a render passed one: seroval reports a
+ * value that would not serialize here instead of throwing at the write
+ * (that difference is why this is only wired when a hook was given — as
+ * `onError` always was). The hook hears it as `handling: "serialize"`.
+ */
+function serializerErrorHook(hook) {
+  return hook === undefined
+    ? undefined
+    : err => {
+        reportServerError(err, { kind: "render", handling: "serialize" }, null);
+      };
+}
+
+/** The ambient hook (`configureServerErrors`), for the render's own reads. */
+function ambientServerErrorHook(): ServerErrorHook | undefined {
+  const slot = (globalThis as { [ServerErrors]?: { hook?: ServerErrorHook } })[ServerErrors];
+  return slot === undefined ? undefined : slot.hook;
+}
 
 export function configureServerErrors(config) {
   const g = globalThis as { [ServerErrors]?: { hook?: ServerErrorHook } };
