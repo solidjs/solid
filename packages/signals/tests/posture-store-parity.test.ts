@@ -13,6 +13,10 @@
  *      the content pass entered the hold, the creation direct-committed).
  *      Mainline creation over the same value is born held (A29).
  *
+ * S3 — INV-4 after disposing a projection mid-refetch: its own file,
+ *      tests/inv4-projection-dispose-shadow.test.ts (the live actions S1/S2
+ *      leave behind would mask the quiescence check here). Spec O5.
+ *
  * (A first cut also reported the projection's seed leaking as a value inside
  * boundary content, and `isPending` false / override invisible behind a
  * fallback. All three were a runner artifact — the boundary content re-ran

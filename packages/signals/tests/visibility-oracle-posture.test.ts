@@ -138,7 +138,7 @@ function enter(posture: Posture, build: () => void): { y: (() => number) | null 
       return d;
     });
     disposers.push(dispose);
-    flush();
+    gflush();
     if (view !== "fallback")
       throw new Error("behindFallback posture: fallback not showing (" + String(view) + ")");
     return { y: null };
@@ -161,6 +161,32 @@ function enter(posture: Posture, build: () => void): { y: (() => number) | null 
 }
 const disposers: Array<() => void> = [];
 
+/** Discovery mode must not die on a __TEST__ invariant: record the first
+ * INVARIANT_VIOLATION a step raises for the cell's `invariant` column and let
+ * the runtime recover. (A stale companion left by an earlier cell can trip
+ * the quiescence check at a later cell's first flush — attribution is by
+ * cell order, and the dedicated pins name the bug precisely.) */
+let cellInvariant: string | undefined;
+function guard<T>(fn: () => T): T | undefined {
+  try {
+    return fn();
+  } catch (e) {
+    const m = String((e as Error)?.message ?? e);
+    if (!m.startsWith("[INVARIANT_VIOLATION]")) throw e;
+    cellInvariant ??= m.slice(
+      "[INVARIANT_VIOLATION] ".length,
+      "[INVARIANT_VIOLATION] ".length + 60
+    );
+    return undefined;
+  }
+}
+const gflush = () => guard(flush);
+const gsettle = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  gflush();
+};
+
 type Row = {
   state: string;
   posture: Posture;
@@ -170,10 +196,12 @@ type Row = {
   afterSourceRelease: Cell; // untracked x() after ONLY the source's holds are released
   foreignStillHeld: boolean | null; // y() still 0 (the foreign action did not settle)
   afterGate?: string; // gatedAway: `x / source / isPending` after the gate closes, before any release
+  invariant?: string; // an INVARIANT_VIOLATION raised by this cell's own quiescence (attributed here, not to the next cell)
 };
 const rows: Row[] = [];
 
 async function cell(state: State, posture: Posture, reader: Reader): Promise<Row> {
+  cellInvariant = undefined;
   const built = state.build(() => {});
   const { x, dispose, source, perturb } = built instanceof Promise ? await built : built;
   const [show, setShow] = createSignal(true);
@@ -249,10 +277,10 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
       }
     }
   });
-  flush();
+  gflush();
   if (perturb) {
     perturb(); // the write the reader's hold is about, made while it observes
-    flush();
+    gflush();
   }
   if (reader === "memo" || reader === "effect") {
     served = log.length ? log[log.length - 1] : HELD;
@@ -266,24 +294,33 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
   let afterGate: string | undefined;
   if (gated) {
     setShow(false);
-    flush();
-    await settle();
+    gflush();
+    await gsettle();
     afterGate = `${fmt(classify(x))} / ${source ? fmt(classify(source)) : "—"} / ${fmt(classify(() => isPending(x)))}`;
   }
   if (posture === "disposedReader") {
     for (const d of disposers.splice(0)) d();
-    flush();
+    gflush();
   }
   // Entanglement probe: release ONLY the source's holds.
   for (const r of holds.splice(0, sourceHolds)) r();
-  await settle();
-  await settle();
+  await gsettle();
+  await gsettle();
   const afterSourceRelease = classify(x);
   const foreignStillHeld = y ? y() === 0 : null;
   dispose();
-  await releaseAll();
+  for (const r of holds.splice(0)) r();
+  await gsettle();
+  await gsettle();
   for (const d of disposers.splice(0)) d();
-  flush();
+  gflush();
+  // Force this cell's quiescence check now (it runs only on a flush with no
+  // parked transaction): an unrelated write, then a synchronous flush.
+  const [, poke] = createSignal(0);
+  poke(1);
+  gflush();
+  const invariant = cellInvariant;
+  cellInvariant = undefined;
   return {
     state: state.name,
     posture,
@@ -292,7 +329,8 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
     passValue,
     afterSourceRelease,
     foreignStillHeld,
-    afterGate
+    afterGate,
+    invariant
   };
 }
 
@@ -303,6 +341,13 @@ describe("visibility oracle — posture matrix (discovery)", () => {
     for (const posture of POSTURES)
       for (const reader of READERS) {
         if (posture === "gatedAway" && reader !== "memo" && reader !== "effect") continue; // a gate needs a tracked reader
+        // INV-4 (spec O5, pinned it.fails in posture-store-parity.test.ts): a
+        // projection leaf's latest() shadow is stale on the flush right after
+        // its root is disposed. Under __TEST__ the runtime's own scheduled
+        // flush throws and the scheduler is left mid-flush, poisoning every
+        // later cell. Excluded until fixed; the pin names the bug.
+        if (posture === "gatedAway" && state.name.startsWith("derived store (projection)"))
+          continue;
         it(`${state.name} × ${posture} × ${reader}`, async () => {
           rows.push(await cell(state, posture, reader));
           expect(true).toBe(true);
@@ -313,9 +358,9 @@ describe("visibility oracle — posture matrix (discovery)", () => {
     for (const state of STATES) {
       out.push(`## ${state.name}`, "");
       out.push(
-        "| reader | posture | served | memo pass | x after source release | foreign still held | after gate (x / source / isPending) |"
+        "| reader | posture | served | memo pass | x after source release | foreign still held | after gate (x / source / isPending) | invariant |"
       );
-      out.push("|---|---|---|---|---|---|---|");
+      out.push("|---|---|---|---|---|---|---|---|");
       for (const reader of READERS) {
         const base = rows.find(
           r => r.state === state.name && r.reader === reader && r.posture === "mainline"
@@ -331,7 +376,7 @@ describe("visibility oracle — posture matrix (discovery)", () => {
             fmt(r.afterSourceRelease) !== fmt(base.afterSourceRelease);
           const servedDiff = base && posture !== "mainline" && fmt(r.served) !== fmt(base.served);
           out.push(
-            `| ${reader} | ${posture} | ${fmt(r.served)}${servedDiff ? " **≠**" : ""} | ${fmt(r.passValue)} | ${fmt(r.afterSourceRelease)}${entangled ? " **ENTANGLED**" : ""} | ${r.foreignStillHeld === null ? "—" : r.foreignStillHeld} | ${r.afterGate ?? "—"} |`
+            `| ${reader} | ${posture} | ${fmt(r.served)}${servedDiff ? " **≠**" : ""} | ${fmt(r.passValue)} | ${fmt(r.afterSourceRelease)}${entangled ? " **ENTANGLED**" : ""} | ${r.foreignStillHeld === null ? "—" : r.foreignStillHeld} | ${r.afterGate ?? "—"} | ${r.invariant ? "**" + r.invariant + "**" : "—"} |`
           );
         }
       }

@@ -275,7 +275,10 @@ module.exports = [
     // `_laneOverride` engine hook and its override test admits a derived one;
     // the rest (laneOverride, the derived arms in the verdict, lane and status
     // modules) sheds with the engine.
-    limit: "9.35 KB",
+    // Reporter-liveness fix rebased over `_parent` mangling (#3495 + #3496,
+    // 2026-09-16): measured at 9,379 B. The signals floor is unchanged
+    // minified; the combined property names shift brotli layout.
+    limit: "9.38 KB",
     modifyEsbuildConfig
   },
   {
@@ -1070,7 +1073,9 @@ module.exports = [
     // ~+250 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "29.90 KB",
+    // Reporter-liveness fix rebased over `_parent` mangling (#3495 + #3496,
+    // 2026-09-16): measured at 29,903 B; combined brotli layout drift.
+    limit: "29.91 KB",
     modifyEsbuildConfig
   },
   {
@@ -1175,7 +1180,12 @@ module.exports = [
     // the core walks it on solid-js's server owners (`ownerPath`,
     // `OBSERVE.exclude`). ~+40 B across the prod scenarios; the observe ones
     // moved by gzip noise or shrank.
-    limit: "15.20 KB",
+    // Reporter liveness reads this pass's deps; a dropped dep retires the reporter
+    // and wakes every parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16):
+    // 15,170 B before the #3496 rebase (+30 over its base); 0 B minified in
+    // the signals floor (24,578 flat). Combined with `_parent` mangling:
+    // 15,250 B; cap ratcheted to the measured output.
+    limit: "15.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -1280,7 +1290,10 @@ module.exports = [
     // ~+170 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "16.70 KB",
+    // Reporter liveness reads this pass's deps; a dropped dep retires the reporter
+    // and wakes every parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16):
+    // 16,730 B (+40 over base); 0 B minified in the signals floor (24,578 flat).
+    limit: "16.75 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1400,7 +1413,9 @@ module.exports = [
     // ~+160 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "28.35 KB",
+    // Reporter-liveness fix rebased over `_parent` mangling (#3495 + #3496,
+    // 2026-09-16): measured at 28,363 B; combined brotli layout drift.
+    limit: "28.37 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
