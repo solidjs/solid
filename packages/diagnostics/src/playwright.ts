@@ -76,6 +76,7 @@ export async function captureBrowserArtifact<T>(
       formatVersion: ARTIFACT_FORMAT_VERSION,
       scenario: options.scenario,
       capturedAt: payload.capturedAt,
+      timeOrigin: payload.timeOrigin,
       durationMs: payload.durationMs,
       diagnostics: payload.diagnostics,
       attribution: payload.attribution,

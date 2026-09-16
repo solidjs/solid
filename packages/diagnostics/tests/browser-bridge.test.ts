@@ -82,8 +82,9 @@ describe("browser bridge + playwright adapter", () => {
     );
     app.dispose();
 
-    expect(artifact.formatVersion).toBe(6);
+    expect(artifact.formatVersion).toBe(7);
     expect(artifact.scenario).toBe("browser-toggle");
+    expect(artifact.timeOrigin).toBe(performance.timeOrigin);
     expectNoDiagnostics(artifact);
     // Same assertions work on browser-captured artifacts: mount happened
     // before the capture, so only the interaction's re-runs are counted.

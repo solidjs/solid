@@ -8,7 +8,7 @@ import {
   type InteractionRef,
   type OriginRef
 } from "./attribution-hooks.js";
-import type { ChangeOrigin } from "./attribution.js";
+import type { ChangeOrigin, RerunEvent } from "./attribution.js";
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
@@ -302,11 +302,16 @@ export interface Observe {
   /** The server runtime's surface — see `ServerObserve`. */
   server: ServerObserve;
   /**
-   * The live node an emitted event was about, when the emitter knew it.
-   * Events are serializable records and never carry the node; consumers that
-   * run in-process (devtools, the console reporter) look it up here.
+   * The live node an emitted record was about, when the emitter knew it.
+   * Records are serializable and never carry the node — a diagnostic event
+   * names its subject by `ownerPath`/`nodeName`, a re-run record by
+   * `nodeId` — so consumers that run in-process (devtools, the console
+   * reporter, `attribution.subscriptions(OBSERVE.subjectOf(run))`) look the
+   * node up here. Answers for `DiagnosticEvent`s and the attribution
+   * engine's `RerunEvent`s; `undefined` for anything else, and for a record
+   * that has left the process and come back.
    */
-  subjectOf(event: DiagnosticEvent): DiagnosticSubject | undefined;
+  subjectOf(record: DiagnosticEvent | RerunEvent): DiagnosticSubject | undefined;
   /**
    * Marks `owner`'s subtree as the observer's own. A consumer that renders
    * inside the app it watches — an APM adapter's panel, devtools — would
@@ -448,8 +453,8 @@ export const OBSERVE: Observe = __OBSERVE__
       // client the slot stays this placeholder. The cast: the interface is
       // empty HERE and gains its members by augmentation downstream.
       server: {} as ServerObserve,
-      subjectOf(event) {
-        return eventSubjects.get(event);
+      subjectOf(record) {
+        return eventSubjects.get(record);
       },
       exclude(owner) {
         excludedOwners.add(owner);
@@ -601,13 +606,28 @@ function takeFooter(entry: DiagnosticEvent): string | undefined {
 }
 
 /**
- * The subject each emitted event was about, for the console step: events are
- * serializable records and cannot carry the node, but the console can show
- * what the node knows — a rendering runtime may stamp a binding effect with
- * the DOM element it writes (`_devElement`), and a live element reference
- * beside the message is the most addressable pointer a console can print.
+ * The subject each emitted event was about: events are serializable records
+ * and cannot carry the node, so the node is kept beside the record for the
+ * in-process consumers that want it — the console step, which can show what
+ * the node knows (a rendering runtime may stamp a binding effect with the DOM
+ * element it writes, `_devElement`, and a live element reference beside the
+ * message is the most addressable pointer a console can print), and devtools
+ * that go from a re-run record back to the scope that ran. Keyed by the
+ * record object, so the subject lives exactly as long as some consumer holds
+ * the record (a ring buffer, a captured artifact) — the same lifetime the
+ * node had when records carried it directly.
  */
-const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
+const eventSubjects = new WeakMap<object, DiagnosticSubject>();
+
+/** Register `subject` as what `record` was about — see `Observe.subjectOf`. */
+export function recordSubject(record: object, subject: DiagnosticSubject): void {
+  eventSubjects.set(record, subject);
+}
+
+/** The live subject `record` was about, if its emitter registered one. */
+export function subjectOf(record: object): DiagnosticSubject | undefined {
+  return eventSubjects.get(record);
+}
 
 /**
  * The console face of a diagnostic — ONE entry per finding: the message, the

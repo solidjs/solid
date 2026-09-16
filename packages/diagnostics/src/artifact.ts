@@ -1,7 +1,7 @@
 import { RECORD_TYPES } from "./records.js";
 import type { DiagnosticsArtifact } from "./types.js";
 
-export const ARTIFACT_FORMAT_VERSION = 6 as const;
+export const ARTIFACT_FORMAT_VERSION = 7 as const;
 
 /** Pretty JSON for humans and for checked-in golden files. */
 export function serializeArtifact(artifact: DiagnosticsArtifact): string {
@@ -21,6 +21,7 @@ export function artifactToJSONL(artifact: DiagnosticsArtifact): string {
       formatVersion: artifact.formatVersion,
       scenario: artifact.scenario,
       capturedAt: artifact.capturedAt,
+      timeOrigin: artifact.timeOrigin,
       durationMs: artifact.durationMs,
       diagnosticCount: artifact.diagnostics.length,
       rerunCount: artifact.attribution?.reruns.length ?? null,

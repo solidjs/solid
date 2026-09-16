@@ -31,8 +31,10 @@ describe("captureArtifact — diagnostics channel", () => {
       { scenario: "orphan effect", attribution: deterministicAttribution }
     );
 
-    expect(artifact.formatVersion).toBe(6);
+    expect(artifact.formatVersion).toBe(7);
     expect(artifact.scenario).toBe("orphan effect");
+    // The anchor for every relative `at` in the artifact.
+    expect(artifact.timeOrigin).toBe(performance.timeOrigin);
     expectDiagnostic(artifact, "NO_OWNER_EFFECT");
     expect(() => expectNoDiagnostics(artifact)).toThrow(DiagnosticsAssertionError);
     expectNoDiagnostics(artifact, { allow: ["NO_OWNER_EFFECT"] });
@@ -83,6 +85,16 @@ describe("captureArtifact — attribution channel", () => {
     const updates = reruns.filter(rerun => rerun.causes.length > 0);
     expect(updates.length).toBe(2);
     expect(updates.map(rerun => rerun.nodeName).sort()).toEqual(["double", "render"]);
+    // Stored as the engine emitted them: a scope id, no live node, and every
+    // `at` on the clock `artifact.timeOrigin` anchors.
+    for (const rerun of reruns) {
+      expect(rerun).not.toHaveProperty("node");
+      expect(typeof rerun.nodeId).toBe("number");
+      expect(rerun.at).toBeGreaterThan(0);
+      expect(rerun.at).toBeLessThan(performance.now());
+    }
+    expect(new Set(reruns.map(r => r.nodeId)).size).toBe(new Set(reruns.map(r => r.nodeName)).size);
+    expect(JSON.parse(JSON.stringify(artifact))).toEqual(artifact);
     // Every update traces back to the "count" write.
     for (const rerun of updates) {
       const roots = new Set<string>();

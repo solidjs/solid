@@ -31,10 +31,13 @@ export type AttributionCosts = ReturnType<Attribution["costs"]>;
 export type AttributionFeedback = ReturnType<Attribution["feedback"]>;
 
 /**
- * A serializable projection of RerunEvent: everything except the live `node`
- * reference, which is a cyclic graph object that cannot leave the process.
+ * A re-run as the artifact stores it. The engine's `RerunEvent` is
+ * serializable as emitted — it names its scope by `nodeId` and never carries
+ * the live node (in-process consumers ask `OBSERVE.subjectOf(event)`) — so
+ * the artifact copies records verbatim; the alias is the artifact's
+ * vocabulary for the same shape.
  */
-export type RerunRecord = Omit<RerunEvent, "node">;
+export type RerunRecord = RerunEvent;
 
 export interface ArtifactAttribution {
   reruns: RerunRecord[];
@@ -209,13 +212,24 @@ export interface ArtifactRecords {
  * `"kind:source"` strings) for the structured `acknowledgements`; v5 adds
  * `server` (the server runtime's boundary, invocation and frame records);
  * v6 replaces it with `records` — the same tables keyed by record type, on
- * both platforms, plus the client's `call` and the frame's client half.
+ * both platforms, plus the client's `call` and the frame's client half. v7
+ * adds `timeOrigin`, the anchor that turns every relative `at` into absolute
+ * time, and stores re-runs as the engine emits them (`nodeId`, no `node`).
  */
 export interface DiagnosticsArtifact {
-  formatVersion: 6;
+  formatVersion: 7;
   /** Human/agent-readable label for the captured scenario. */
   scenario?: string;
   capturedAt: string;
+  /**
+   * Epoch milliseconds of the capturing process's `performance.now()` zero
+   * (`performance.timeOrigin`). Every `at` in the artifact — on re-runs,
+   * holds, interactions, navigations, the runtimes' records, and the
+   * `data` of a diagnostic — is on that clock, so `timeOrigin + at` is the
+   * absolute time of any of them, and two artifacts from one process (a
+   * server render and the browser session it served) line up on it.
+   */
+  timeOrigin: number;
   durationMs: number;
   diagnostics: DiagnosticEvent[];
   /** Null when attribution was disabled for the capture. */
