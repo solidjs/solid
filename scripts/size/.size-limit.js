@@ -881,7 +881,13 @@ module.exports = [
     // ~+200 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "19.80 KB",
+    // until() born held (#3482, 2026-09-16): 19.80 -> 19.85 KB, measured at
+    // 19.82 (macOS). One bit test in enterStagedRead's mainline arm — a
+    // CONFIG_DIRECT_COMMIT reader (resolve/until/refresh waiter) is neither
+    // entered nor born held, the exemption verdict pulls have — ~+20 B
+    // minified, read +20..+40 brotli across the scenarios (−30 on observe):
+    // layout. Correctness fix on the core's read path; nothing to shed.
+    limit: "19.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -1161,7 +1167,9 @@ module.exports = [
     // ~+180 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "15.15 KB",
+    // until() born held (#3482, 2026-09-16): 15.15 -> 15.20 KB, measured at
+    // 15.18 (macOS). See the hydrating (no stores) note; same bit test.
+    limit: "15.20 KB",
     modifyEsbuildConfig
   },
   {

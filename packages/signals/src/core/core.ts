@@ -1597,7 +1597,16 @@ export function enterStagedRead(
     // Verdict pulls are observations, not derivations: a latest() /
     // isPending() call from mainline must never enter a transaction (it
     // would capture the rest of the caller's synchronous block).
-    if (GlobalQueue._verdictPull) return;
+    // Likewise a promise-delivery effect (resolve() / until() / awaitable
+    // refresh()'s waiter — CONFIG_DIRECT_COMMIT): it reads staged truth by
+    // contract — it is the tunnel that keeps a hold deadlock-free — and
+    // applies on its own microtask, not the transaction's stashed queues, so
+    // it neither enters the transaction nor is born held. Born held, an
+    // until() created mainline AFTER its confirming frame was staged (the
+    // server broadcast before it answered the mutation) would skip its first
+    // run and be replayed only at the commit its own promise is holding open
+    // (#3482).
+    if (GlobalQueue._verdictPull || ctx._config & CONFIG_DIRECT_COMMIT) return;
     if (
       ctx._flags & REACTIVE_RECOMPUTING_DEPS &&
       !(ctx._config & CONFIG_OPTIMISTIC) &&
