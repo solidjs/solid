@@ -17,7 +17,6 @@ import type {
   AttributionOptions,
   DiagnosticsArtifact,
   HoldEvent,
-  RerunEvent,
   RerunRecord
 } from "./types.js";
 
@@ -30,6 +29,8 @@ export interface BridgeBeginOptions {
 /** The serializable half of an artifact — assembled into a full one Node-side. */
 export interface BridgePayload {
   capturedAt: string;
+  /** The page's `performance.timeOrigin` — see `DiagnosticsArtifact.timeOrigin`. */
+  timeOrigin: number;
   durationMs: number;
   diagnostics: DiagnosticsArtifact["diagnostics"];
   attribution: DiagnosticsArtifact["attribution"];
@@ -123,7 +124,7 @@ export function installDiagnosticsBridge(
       let attribution: DiagnosticsArtifact["attribution"] = null;
       if (active.useAttribution) {
         attribution = {
-          reruns: engine.history().map(({ node: _node, ...record }: RerunEvent) => record),
+          reruns: [...engine.history()],
           costs: engine.costs(),
           holds: [...engine.holds()],
           feedback: engine.feedback()
@@ -134,6 +135,7 @@ export function installDiagnosticsBridge(
       const records = active.records.stop();
       return toSerializable({
         capturedAt: active.startedAt.toISOString(),
+        timeOrigin: performance.timeOrigin,
         durationMs: performance.now() - active.start,
         diagnostics: events,
         attribution,
@@ -145,12 +147,7 @@ export function installDiagnosticsBridge(
     },
     whyDidRun(name) {
       requireAttributionSession("whyDidRun");
-      return toSerializable(
-        engine
-          .history()
-          .filter(event => event.nodeName === name)
-          .map(({ node: _node, ...record }: RerunEvent) => record)
-      );
+      return toSerializable(engine.history().filter(event => event.nodeName === name));
     },
     costs() {
       requireAttributionSession("costs");

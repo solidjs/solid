@@ -286,8 +286,9 @@ build.
 
 ### 4.4 Rerun record (from `RerunEvent`)
 
-Serialized as `Omit<RerunEvent, "node">` — `@solidjs/diagnostics` already
-defines exactly this projection (`RerunRecord`). Attached to the interaction
+Serialized as-is: since observe-tier-plan PR B the event carries `nodeId`
+instead of the live `node` (`OBSERVE.subjectOf(event)` for in-process
+consumers), so `@solidjs/diagnostics`'s `RerunRecord` is the same shape. Attached to the interaction
 span only above thresholds (4.1); otherwise folded into the span's aggregates.
 
 ### 4.5 Cause chain (from `ChangeRecord`)

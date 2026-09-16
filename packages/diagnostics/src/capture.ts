@@ -2,7 +2,7 @@ import { OBSERVE, flush } from "@solidjs/signals";
 import { attribution as engine } from "@solidjs/signals/attribution";
 import { ARTIFACT_FORMAT_VERSION } from "./artifact.js";
 import { captureRecords } from "./records.js";
-import type { AttributionOptions, DiagnosticsArtifact, RerunEvent, RerunRecord } from "./types.js";
+import type { AttributionOptions, DiagnosticsArtifact } from "./types.js";
 
 export interface CaptureOptions {
   /** Label stamped into the artifact meta. */
@@ -24,11 +24,6 @@ export interface CaptureOptions {
 export interface CaptureResult<T> {
   result: T;
   artifact: DiagnosticsArtifact;
-}
-
-function toRerunRecord(event: RerunEvent): RerunRecord {
-  const { node: _node, ...record } = event;
-  return record;
 }
 
 /**
@@ -74,7 +69,7 @@ export async function captureArtifact<T>(
     // Read every table before disable(): aggregates reset on disable.
     if (useAttribution) {
       attribution = {
-        reruns: engine.history().map(toRerunRecord),
+        reruns: [...engine.history()],
         costs: engine.costs(),
         holds: [...engine.holds()],
         feedback: engine.feedback()
@@ -92,6 +87,7 @@ export async function captureArtifact<T>(
       formatVersion: ARTIFACT_FORMAT_VERSION,
       scenario: options.scenario,
       capturedAt: startedAt.toISOString(),
+      timeOrigin: performance.timeOrigin,
       durationMs,
       diagnostics: events,
       attribution,

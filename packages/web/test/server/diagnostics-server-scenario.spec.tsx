@@ -151,7 +151,8 @@ describe("captureArtifact over a server render", () => {
       expect(html).toContain("Ada");
 
       // The findings, located by component.
-      expect(artifact.formatVersion).toBe(6);
+      expect(artifact.formatVersion).toBe(7);
+      expect(artifact.timeOrigin).toBe(performance.timeOrigin);
       expect(artifact.scenario).toBe("profile page");
       expectDiagnostic(artifact, "HEAD_TAG_INVALID", { count: 1 });
       expectDiagnostic(artifact, "SERVER_WRITE", { count: 1 });
@@ -196,7 +197,8 @@ describe("captureArtifact over a server render", () => {
         .map(line => JSON.parse(line));
       expect(lines[0]).toMatchObject({
         type: "meta",
-        formatVersion: 6,
+        formatVersion: 7,
+        timeOrigin: performance.timeOrigin,
         diagnosticCount: 2,
         recordCounts: { boundary: 1, invocation: 1, frame: 0, call: 0 }
       });

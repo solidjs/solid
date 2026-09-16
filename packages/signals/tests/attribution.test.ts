@@ -240,7 +240,50 @@ describe("why-did-this-run attribution", () => {
     flush();
     const last = events.filter(e => e.nodeName === "branchy").at(-1)!;
     expect(last.depsAdded).toEqual(["b"]);
-    expect(attribution.subscriptions(run.node)).toEqual(["flag", "b"]);
+    expect(attribution.subscriptions(OBSERVE!.subjectOf(run)!)).toEqual(["flag", "b"]);
+  });
+
+  it("re-run records are serializable: nodeId names the scope, subjectOf hands back the node", () => {
+    const [a, setA] = createSignal(0, { name: "a" });
+    let double!: () => number;
+    createRoot(() => {
+      double = createMemo(() => a() * 2, { name: "double" });
+      createEffect(
+        () => double(),
+        () => {},
+        { name: "reader" }
+      );
+    });
+    flush();
+    const events = collect();
+    setA(1);
+    flush();
+    setA(2);
+    flush();
+
+    const doubles = events.filter(e => e.nodeName === "double");
+    const readers = events.filter(e => e.nodeName === "reader");
+    expect(doubles.length).toBe(2);
+    expect(readers.length).toBe(2);
+    // No live reference on the record: it survives the wire as-is.
+    for (const e of events) {
+      expect(e).not.toHaveProperty("node");
+      expect(JSON.parse(JSON.stringify(e))).toEqual(e);
+    }
+    // One id per scope, stable across its runs, distinct between scopes.
+    expect(doubles[0].nodeId).toBe(doubles[1].nodeId);
+    expect(readers[0].nodeId).toBe(readers[1].nodeId);
+    expect(doubles[0].nodeId).not.toBe(readers[0].nodeId);
+    // In-process consumers get the node back through the observe surface;
+    // the engine's own queries still take the accessor.
+    const node = OBSERVE!.subjectOf(doubles[0]);
+    expect(node).toBeDefined();
+    expect(OBSERVE!.subjectOf(doubles[1])).toBe(node);
+    expect(attribution.subscriptions(node!)).toEqual(["a"]);
+    expect(attribution.why(double)).toEqual(doubles);
+    expect(attribution.why(node)).toEqual(doubles);
+    // A copy that left the process has no subject.
+    expect(OBSERVE!.subjectOf(JSON.parse(JSON.stringify(doubles[0])))).toBeUndefined();
   });
 
   it("warns on hot scopes, once per window", () => {

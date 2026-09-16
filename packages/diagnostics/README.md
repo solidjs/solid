@@ -36,6 +36,8 @@ artifact.attribution; // { reruns, costs, holds, feedback } — who re-ran, why,
 
 Options: `scenario` labels the artifact, `attribution: false` captures diagnostics only, and an options object is passed through to the engine's `enable()` (`@solidjs/signals/attribution`). `artifactToJSONL(artifact)` emits line-oriented output for offline or agent-side analysis.
 
+**Clocks.** Every `at` in the artifact — a re-run's start, a hold's, a record's — is on the capturing process's `performance.now()` clock; `artifact.timeOrigin` (epoch milliseconds, the process's `performance.timeOrigin`) anchors it, so `timeOrigin + at` is the absolute time of anything in the artifact and two captures from one process line up. Durations (`selfMs`, `holdMs`, `durationMs`) are already relative. Re-runs are stored as the engine emits them: `nodeId` names the scope (stable across its runs in the process, distinct between scopes), so runs of unnamed effects still fold to one scope offline; the live node never leaves the process (in-process, `OBSERVE.subjectOf(rerun)` hands it back).
+
 ### Records: server renders and browser requests
 
 Beside findings and attribution the artifact carries **records** — `artifact.records`, the runtimes' `OBSERVE.records` channel folded into one table per record type, on either platform. Over a server render the evidence is **waits and calls**: run `renderToStream` (or `renderToString`) as the scenario:

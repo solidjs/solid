@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render } from "@solidjs/web";
-import { createSignal, flush } from "solid-js";
+import { createSignal, flush, OBSERVE } from "solid-js";
 import { attribution } from "solid-js/attribution";
 
 /**
@@ -33,8 +33,9 @@ describe("diagnostic element references", () => {
     document.body.appendChild(container);
     const dispose = render(() => <div id="target" class={cls()} />, container);
     flush();
+    // Records never carry the node; the observe surface hands it back in-process.
     const nodes: any[] = [];
-    attribution.subscribe(e => nodes.push(e.node));
+    attribution.subscribe(e => nodes.push(OBSERVE!.subjectOf(e)));
 
     for (let i = 0; i < 6; i++) {
       setCls(`c${i}`);

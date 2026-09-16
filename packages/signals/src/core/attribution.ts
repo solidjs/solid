@@ -12,7 +12,9 @@ import {
   isExcluded,
   isSuppressed,
   ownerPath,
-  reportDiagnostic
+  recordSubject,
+  reportDiagnostic,
+  subjectOf
 } from "./dev.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
@@ -114,7 +116,16 @@ export interface RerunEvent {
   nodeRuns: number;
   nodeKind: "effect" | "memo";
   nodeName: string;
-  node: Computed<any>;
+  /**
+   * Identity of the scope that ran, stable for the node's lifetime within
+   * the process: every run of one memo/effect carries the same `nodeId`, so
+   * runs join to a scope after the record has left the process (where
+   * `nodeName` alone would merge every unnamed `effect`). The engine's own
+   * per-node id, also what `ChangeOrigin.run` and the cycle/relay checks
+   * key on; not meaningful across processes or sessions. In-process
+   * consumers that want the live node ask `OBSERVE.subjectOf(event)`.
+   */
+  nodeId: number;
   /**
    * The deps that changed since this node's previous run. Empty means the
    * re-run was not triggered by a tracked value change (creation-adjacent
@@ -405,8 +416,8 @@ function rootsOf(causes: ChangeRecord[], out: Set<string>): void {
   }
 }
 
-function recordCosts(event: RerunEvent): void {
-  let scope = scopeCosts.get(event.node);
+function recordCosts(el: Computed<any>, event: RerunEvent): void {
+  let scope = scopeCosts.get(el);
   if (scope === undefined) {
     scope = {
       name: event.nodeName,
@@ -416,7 +427,7 @@ function recordCosts(event: RerunEvent): void {
       wastedMs: 0,
       overlayMs: 0
     };
-    scopeCosts.set(event.node, scope);
+    scopeCosts.set(el, scope);
   }
   scope.runs++;
   scope.selfMs += event.selfMs;
@@ -1030,7 +1041,7 @@ function recordRerun(
     nodeRuns: (node._devRunCount = (node._devRunCount ?? 0) + 1),
     nodeKind: (el as { _type?: number })._type ? "effect" : "memo",
     nodeName: nodeName(el),
-    node: el,
+    nodeId: devId(el),
     causes,
     depCount: newDeps.length,
     depsAdded,
@@ -1049,9 +1060,13 @@ function recordRerun(
   node._devRunInteraction = interaction;
   node._devRunSeq = event.run;
   node._devRunCauses = causes;
+  // The record is serializable and never carries the node; keep the node
+  // beside it for `OBSERVE.subjectOf` and the engine's own joins (effect
+  // cycles, relay tears, `why()`), for as long as anyone holds the record.
+  recordSubject(event, el);
   history.push(event);
   if (history.length > options.historyLimit) history.shift();
-  recordCosts(event);
+  recordCosts(el, event);
   recordFeedbackRun(event);
   noteInteractionRun(interaction, timing.selfMs, false);
   if (event.nodeKind === "effect") checkEffectCycle(el, causes);
@@ -3549,7 +3564,7 @@ export const attribution: Attribution = {
   },
   why(target: unknown) {
     const node = ((target as Record<symbol, unknown>)?.[$REFRESH] ?? target) as Computed<unknown>;
-    return history.filter(event => event.node === node);
+    return history.filter(event => subjectOf(event) === node);
   },
   subscriptions(target: unknown) {
     const node = ((target as Record<symbol, unknown>)?.[$REFRESH] ?? target) as Computed<any>;

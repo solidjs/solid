@@ -180,7 +180,7 @@ skills and README text `DEV.attribution` → `OBSERVE.attribution`;
 
 ## PR B — serializable events, origin, engine diet
 
-The engine entry landed in PR A (D6). What remains is the engine's public
+The engine entry landed in PR A (D6). What remained was the engine's public
 record shape: `RerunEvent` drops the live `node` (`OBSERVE.subjectOf`-style
 lookup for in-process consumers), events gain `ts` and `origin`, and `origin`
 unifies client interaction and server request as the external cause of work
@@ -189,6 +189,53 @@ should also shed what a production consumer never calls (console formatters
 ride along with `enable()` today). Details in the sketch §4–§5; specified
 alongside server-dev-build-plan P1, which supplies the request half of
 `origin`.
+
+_Status (2026-09-16)._ Landed, in three pieces:
+
+- **`origin`** came through the Sentry workstream (`ChangeOrigin` /
+  `withOrigin`, stamped on `ChangeRecord`, `HoldEvent` and the client
+  `"call"` record; `OBSERVE.attribution.currentOrigin()` for wire layers; the
+  request half via server-dev-build-plan P1). The runtimes' records
+  (`OBSERVE.records`: boundary, invocation, call, frame) were designed
+  serializable from the start and already leave the process.
+- **`RerunEvent` is serializable as emitted.** `node` is gone; `nodeId` (the
+  engine's per-node id — the same one `ChangeOrigin.run` joins and the
+  cycle/relay checks key on) names the scope, stable across its runs in the
+  process and distinct between scopes, so unnamed effects still fold to one
+  scope offline. `OBSERVE.subjectOf` — the lookup diagnostics already had —
+  now answers for re-run records too, keyed by the record object for as long
+  as any consumer holds it (the lifetime the node had when the record carried
+  it). `@solidjs/diagnostics` stores re-runs verbatim (`RerunRecord` is now
+  an alias of `RerunEvent`).
+- **Clocks: no per-record `ts`.** Every `at` the engine and the runtimes emit
+  is on the `performance.now()` clock, consistently; a second clock per
+  record would cost bytes on every record and drift against the first. The
+  anchor travels once instead: `DiagnosticsArtifact.timeOrigin` (format v7,
+  the process's `performance.timeOrigin`) makes every `at` in an artifact
+  absolute after the fact and lines a server capture up with the browser
+  session it served. In-process exporters keep doing `timeOrigin + at`
+  themselves (RFC 08 documents the contract).
+
+**Engine diet — measured, not done.** Ranking the engine's functions by
+minified weight (esbuild, per top-level declaration): the console face
+(`formatRerun`/`formatCause`/`logRerun`) is ~1.7 KB minified, ~0.45 KB gz —
+4% of the engine's 11.7 KB gz — and `formatOrigin` another ~0.15 KB gz, which
+the spike's adapter calls for span names. The premise of the diet (formatters
+ride along) is true but small. The weight is spread across the checks (~15 KB
+min, a third), hold/interaction/navigation tracking, and the in-process query
+and fold surfaces (`costs`, `feedback`, `why`, `history`, ~3.5 KB min /
+~1.5 KB gz) — the last being what a production adapter that consumes records
+never calls. Shedding those needs the object split into tree-shakable named
+exports (`import { feedback } from "@solidjs/signals/attribution"`), an API
+change worth ~2 KB gz (17%). Deferred to a decision: it is the same shape
+freeze the record types just got, and better taken once than in pieces.
+
+**Idle wiring is now a cap.** `tests/observe-idle-cost.test.ts` runs one
+graph-heavy workload against the built prod and observe artifacts in one
+process, interleaved, best-of-k, and caps the observe/prod ratio at 1.25
+(measured 1.03–1.09 with no hooks installed; re-measured on a round over the
+cap so worker-thread contention does not fail it, a real regression does).
+`SIGNALS_TIER=observe pnpm bench` stays for the absolute number.
 
 ## Open questions
 
