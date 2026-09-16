@@ -7,6 +7,7 @@
 import {
   Errored,
   Loading,
+  configureServerErrors,
   createComponent,
   escape,
   isDev,
@@ -200,6 +201,39 @@ results.value = await withFindings(() =>
     );
     return chunks;
   });
+}
+
+// 7. The server error hook (C6): the ambient hook hears the <Errored>'s
+//    failure once, with where it was met, and its return is the wire value
+//    in every tier — the fallback and the record carry it, the original
+//    stays on the server.
+{
+  const boom = databaseError();
+  const heard = [];
+  configureServerErrors({
+    onError(error, context) {
+      heard.push({
+        kind: context.kind,
+        handling: context.handling,
+        boundary: typeof context.boundary,
+        ownerPath: context.ownerPath,
+        same: error === boom
+      });
+      return new Error("Something went wrong");
+    }
+  });
+  try {
+    results.hooked = await withFindings(() =>
+      renderToString(() =>
+        errored(() => {
+          throw boom;
+        })
+      )
+    );
+    results.hooked.heard = heard;
+  } finally {
+    configureServerErrors({ onError: undefined });
+  }
 }
 
 process.stdout.write(JSON.stringify(results));

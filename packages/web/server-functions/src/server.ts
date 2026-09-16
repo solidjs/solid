@@ -21,6 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
+import { reportServerError } from "solid-js/internal";
 import { observeInvocation } from "../../src/server-observe.js";
 import { emitFinding, errorText } from "../../src/diagnostics.js";
 import { encodeFlashCookie, setFlashSecret } from "./flash.js";
@@ -79,7 +80,7 @@ import { ResponseEnvelope } from "../../src/response.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
-import { RequestEvent } from "../../src/server.js";
+import { RequestEvent, ServerErrorHook } from "../../src/server.js";
 
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
@@ -489,6 +490,15 @@ export interface HandleServerFunctionOptions {
    * `wrapInvocation`, not here.
    */
   wrapInvocation?: WrapInvocationHook;
+  /**
+   * This request's server error hook, ahead of `configureServerErrors`' (see
+   * `ServerErrorHook` in `@solidjs/web`): the function's throw
+   * (`handling: "thrown"`) and a failure escaping through its result graph
+   * (`"channel"`), once per error, before the wire policy applies. Entry-only
+   * like `wrapInvocation`: a direct call the body makes during a render
+   * reports through the ambient hook.
+   */
+  onServerError?: ServerErrorHook;
   /**
    * Observes or replaces the function's result before encoding — the
    * extension point for response metadata policies (headers, statuses,
@@ -1234,7 +1244,10 @@ export function createServerReference({ id, fn, name }) {
         // policy included — as the `"invocation"` record on `OBSERVE.records`;
         // a no-op with no listener and outside observe builds.
         return observeInvocation({ id, direct: true, event: evt, args }, () =>
-          wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()
+          reportDirectFailure(
+            () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
+            id
+          )
         );
       });
       // A generator or stream body runs when the caller pulls it, after the
@@ -2342,7 +2355,7 @@ export function guardFailures(value, state) {
               // catch would sanitize anyway, but a re-entrant walk (inside a
               // wrapped promise's continuation) turns this throw into that
               // channel's rejection, which rides the wire as-is.
-              throw sanitizeServerError(error);
+              throw wireServerFunctionError(error, "channel");
             }
             top.accessorRead = i;
           }
@@ -2484,7 +2497,7 @@ function enterGuard(value, state) {
             ? controller.close()
             : controller.enqueue(guardOperation(state, () => guardFailures(chunk, state)));
         } catch (error) {
-          controller.error(guardOperation(state, () => sanitizeServerError(error)));
+          controller.error(guardOperation(state, () => wireServerFunctionError(error, "channel")));
         }
       },
       cancel(reason) {
@@ -2501,7 +2514,7 @@ function enterGuard(value, state) {
     const guardedPromise = Promise.resolve(value).then(
       resolved => guardOperation(state, () => guardFailures(resolved, state)),
       error => {
-        throw guardOperation(state, () => sanitizeServerError(error));
+        throw guardOperation(state, () => wireServerFunctionError(error, "channel"));
       }
     );
     // The guard consumes the source rejection and moves its sanitized form
@@ -2551,7 +2564,7 @@ function enterGuard(value, state) {
                   };
                 },
                 error => {
-                  throw guardOperation(state, () => sanitizeServerError(error));
+                  throw guardOperation(state, () => wireServerFunctionError(error, "channel"));
                 }
               );
         return {
@@ -2820,10 +2833,11 @@ export function serializeResponseStream(value, codecOptions, signal, scope) {
           // encode error's message can carry the value that refused to
           // encode; the dev build keeps the cause for DX.
           try {
-            const delivered = sanitizeServerError(
+            const delivered = wireServerFunctionError(
               DEV && error instanceof Error
                 ? new Error(`Server function result could not be encoded: ${error.message}`)
-                : error
+                : error,
+              "channel"
             );
             controller.enqueue(createChunk(encodeErrorTrailer(delivered)));
             controller.close();
@@ -3023,6 +3037,72 @@ export function sanitizeServerError(value: unknown): unknown;
  * that map errors express intent the same way — throw a Response/envelope,
  * or brand the mapped error safe — so core never second-guesses them.
  */
+// THE SERVER ERROR HOOK on this wire (sentry-integration-plan C6). Every
+// road a failure takes out of a server function meets the hook once — the
+// thrown tail, a channel in the result graph, the direct in-process call —
+// with the function named, before `sanitizeServerError` applies. The hook's
+// mapping, when it gives one, IS the wire value (intent, as a
+// `wrapInvocation` mapping is). The verdict is shared with the render side
+// through the same once-per-error cache (`reportServerError`), so a direct
+// call that throws during SSR is reported here as the function's failure
+// and the <Errored> that contains it reuses the answer without reporting
+// again. Per-request hooks ride the event (the handler's option); the
+// channel sites read the event off the scope their operations run in.
+const REQUEST_ERROR_HOOKS = new WeakMap();
+
+function siteFor(handling, event, direct) {
+  const invocation = event ? INVOCATIONS.get(event) : undefined;
+  const site = { kind: "server-function", handling, direct };
+  if (invocation) site.functionId = invocation.id;
+  if (event) site.event = event;
+  return site;
+}
+
+/**
+ * The wire value for a failure met on this leg: the hook's mapping when it
+ * gives one (now or on an earlier sight), else `sanitizeServerError`'s.
+ * `event` is the request's when the caller has it in hand; the channel sites
+ * read it off the scope their operation ran in.
+ */
+function wireServerFunctionError(value, handling, event = currentEvent()) {
+  const report = reportServerError(
+    value,
+    siteFor(handling, event, false),
+    null,
+    event ? REQUEST_ERROR_HOOKS.get(event) : undefined
+  );
+  return report.mapped ? report.value : sanitizeServerError(value);
+}
+
+/** The request event in scope, silently (`getRequestEvent` warns when there is none). */
+function currentEvent() {
+  const store = globalThis[RequestContext];
+  return store ? store.getStore() : undefined;
+}
+
+/**
+ * Reports a direct call's failure as the function's (`direct: true`) and
+ * rethrows the ORIGINAL: the render that made the call contains it, and the
+ * wire policy there reuses the verdict decided here.
+ */
+function reportDirectFailure(run, id) {
+  const report = error => {
+    reportServerError(
+      error,
+      { kind: "server-function", handling: "thrown", functionId: id, direct: true },
+      null
+    );
+    throw error;
+  };
+  let result;
+  try {
+    result = run();
+  } catch (error) {
+    report(error);
+  }
+  return result && typeof result.then === "function" ? result.then(undefined, report) : result;
+}
+
 export function sanitizeServerError(value) {
   if (DEV) return value;
   if (isSafeError(value)) return value;
@@ -3508,6 +3588,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   };
   const provide = options.provideEvent || provideEvent;
   const scope = run => provide(event, run);
+  if (options.onServerError !== undefined) REQUEST_ERROR_HOOKS.set(event, options.onServerError);
   const flightHook =
     options.collectFlightData !== undefined ? options.collectFlightData : config.collectFlightData;
   // Same fallback pattern: a generic dispatcher calling
@@ -3776,7 +3857,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       // sanitizeServerError). Both the wire body and the ERROR_HEADER
       // message derive from the sanitized value.
       const respondThrown = value => {
-        const safe = sanitizeServerError(value);
+        const safe = wireServerFunctionError(value, "thrown", event);
         if (!scripted) {
           if (handleNoJS) return handleNoJS(safe, request, parsed, true);
           const message = safe instanceof Error ? safe.message : String(safe);

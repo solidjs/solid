@@ -23,8 +23,10 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO,
   ssrScope as scope,
-  ssrSanitizeError
+  ssrSanitizeError,
+  reportServerError
 } from "solid-js/internal";
+import type { ServerErrorSite } from "solid-js/internal";
 import { effect, memo } from "./render.js";
 // Trace context (W3C `traceparent`): derived per request, exposed through
 // `getTraceContext()`, emitted on the response head at commit and in the
@@ -1582,6 +1584,8 @@ export function renderToString<T>(
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onError?: (err: any) => void;
+    /** This render's server error hook, ahead of `configureServerErrors`' (see `ServerErrorHook`). */
+    onServerError?: ServerErrorHook;
     /**
      * Embedded-render contract for hosts that own the document. When the
      * render output contains no `</head>`, everything head-bound (resolved
@@ -1623,6 +1627,7 @@ export function renderToString(code, options = {}) {
     escape: escape,
     resolve: resolveSSRNode,
     ssr: ssr,
+    errorPolicy: options.onServerError,
     registerHeadTags(tags) {
       // Sync render: everything is pre-shell, resources join the shell head.
       registerHeadTags(headRegistry, sharedConfig.context, tracking, null, nonce, tags);
@@ -1732,6 +1737,13 @@ export function renderToStream<T>(
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
     onError?: (err: any) => void;
+    /**
+     * This render's server error hook, ahead of `configureServerErrors`'
+     * (see `ServerErrorHook`): every failure the render handles — an
+     * `<Errored>` fallback, a rejected fragment — and the one that fails it,
+     * which `onError` also hears.
+     */
+    onServerError?: ServerErrorHook;
     /**
      * Embedded-render contract for hosts that own the document. When the
      * shell contains no `</head>`, everything head-bound at first flush
@@ -1852,6 +1864,7 @@ export function renderToStream(code, options = {}) {
   // owns the failure, so this is where its finding is recorded (a boundary
   // records its own before calling `failRender`, with its owner path).
   const failRootRender = err => {
+    reportServerError(err, { kind: "render", handling: "failed" }, null);
     if ("_SOLID_OBSERVE_")
       emitFinding(
         {
@@ -2155,7 +2168,22 @@ export function renderToStream(code, options = {}) {
   // never thrown, so it is data and the author's (#3113's ruling). One guard
   // per channel object, so a source serialized under two ids stays one
   // channel for seroval's cross-references.
+  //
+  // The verdict is read in the rejection's own microtask — no added tick on
+  // the error path. This handler was attached at serialize time, ahead of
+  // the boundary that will contain the failure, so for a source that
+  // rejects before the boundary meets it this is the error's first sight,
+  // with no site: the DEFAULT policy applies here (generic outside dev),
+  // and a server error hook's mapping — decided by the boundary a few
+  // microtasks later — reaches the boundary's record and fallback, which
+  // are what the hydrating client renders from, but not this channel's
+  // reason. Deferring the verdict past the boundary would put a tick into
+  // shell flush and completion on every rejected source; the mapping on a
+  // road nobody renders from is not worth it (see `ServerErrorHook`).
   const guardedChannels = new WeakMap();
+  const verdictNow = error => {
+    throw ssrSanitizeError(error, null);
+  };
   const guardChannel = p => {
     if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
     const thenable = typeof p.then === "function";
@@ -2164,17 +2192,12 @@ export function renderToStream(code, options = {}) {
     let guarded = guardedChannels.get(p);
     if (guarded === undefined) {
       guarded = thenable
-        ? p.then(undefined, error => {
-            throw ssrSanitizeError(error, null);
-          })
+        ? p.then(undefined, verdictNow)
         : {
             [Symbol.asyncIterator]() {
               const iterator = p[Symbol.asyncIterator]();
               return {
-                next: value =>
-                  iterator.next(value).then(undefined, error => {
-                    throw ssrSanitizeError(error, null);
-                  }),
+                next: value => iterator.next(value).then(undefined, verdictNow),
                 return: value =>
                   iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value }),
                 throw: error => (iterator.throw ? iterator.throw(error) : Promise.reject(error))
@@ -2449,10 +2472,14 @@ export function renderToStream(code, options = {}) {
         const p = new Promise((r, rej) => ((resolve = r), (reject = rej)));
         // double queue to ensure that the fragment is last but in same flush
         registry.set(key, {
+          // The rejection the client receives is the wire policy's verdict
+          // on the error, read at delivery: a pre-flush failure is met by
+          // the parent boundary (or fails the request) after the settle,
+          // and the verdict the hook decides there is the one this carries.
           resolve: err =>
             queue(() =>
               queue(() => {
-                err ? reject(err) : resolve(true);
+                err ? reject(ssrSanitizeError(err, null)) : resolve(true);
                 queue(flushEnd);
               })
             )
@@ -2470,7 +2497,6 @@ export function renderToStream(code, options = {}) {
           // `<key>_fr` rejection, a transport sink's error chunk — gets what
           // the wire policy allows (#3468).
           if (error) abandonSubtree(key, error);
-          const wireError = error ? ssrSanitizeError(error, null) : error;
 
           // A settled nested fragment parked its markup here to be spliced
           // into this fragment's content. On the error path there is no
@@ -2503,7 +2529,7 @@ export function renderToStream(code, options = {}) {
               // a pending fragment, so renderShellHead picks them up).
               queue(() => (html = replacePlaceholder(html, key, value !== undefined ? value : "")));
               serializeFragmentAssets(key, tracking.boundaryModules, context);
-              item.resolve(wireError);
+              item.resolve(error);
             } else {
               serializeFragmentAssets(key, tracking.boundaryModules, context);
               const styles = collectStreamStyles(key, tracking, headStyles);
@@ -2517,12 +2543,14 @@ export function renderToStream(code, options = {}) {
               // The error rides the sink call: the document sink ignores it
               // (its protocol rejects `<key>_fr` via item.resolve below), but
               // transport sinks with no resume protocol need the signal.
+              // Post-flush: the boundary told the hook before settling, so
+              // the verdict the chunk carries is the decided one.
               sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
                 styles,
                 revealGroup,
-                error: wireError
+                error: error ? ssrSanitizeError(error, null) : error
               });
-              item.resolve(wireError);
+              item.resolve(error);
             }
           }
         }
@@ -2548,6 +2576,12 @@ export function renderToStream(code, options = {}) {
   // library and has no other channel to fail the request from an async
   // retry.
   context.failRender = failRender;
+  // The server error hook for this render (see `configureServerErrors`),
+  // and the fact the Loading boundary needs to say how a failure was met:
+  // post-flush a fragment rejects to the client; pre-flush it inlines or
+  // fails the request.
+  context.errorPolicy = options.onServerError;
+  context.flushed = () => firstFlushed;
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
   // pass so the per-component context clones carry it; cleared at completion
@@ -5040,6 +5074,82 @@ function resolveSSRSync(node) {
 // found by every copy of this module (core entry and server-functions entry
 // bundle separately downstream).
 export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") as any; /**
+ * Where a server-side failure was met, as the server error hook hears it.
+ *
+ * `kind: "render"` — `fallback`: an `<Errored>` rendered its fallback;
+ * `client`: a `<Loading>` fragment rejected and the client re-renders the
+ * subtree; `failed`: nothing contained it and the request fails (what
+ * `renderToStream`'s `onError` hears). `kind: "server-function"` — `thrown`:
+ * the body threw; `channel`: a rejection or throw escaping through the
+ * result graph (a promise, an iterable, a stream) with the head already
+ * committed. `boundary` is the hydration id the boundary records and
+ * findings use; `ownerPath` the component labels root-first, when the
+ * compiler emitted them; `functionId`/`direct` name the server function and
+ * whether it was an in-process call during SSR; `event` the request, when
+ * the failure happened inside one.
+ */
+export interface ServerErrorContext extends Omit<ServerErrorSite, "event"> {
+  event?: RequestEvent;
+}
+
+/**
+ * The server error hook (see `configureServerErrors`): every failure the
+ * server runtime handles or fails on, once per error object, with where it
+ * was met. Return the value the client should receive in place of the error
+ * — rendered into the fallback, serialized for hydration, sent as the RPC
+ * error — or nothing for the default policy (a generic `Error` outside the
+ * dev build, the error itself in it; `markSafeError` still passes through).
+ * A returned value is taken as intended client-facing content and is not
+ * sanitized again. Ignored for `handling: "failed"`, which has no wire.
+ *
+ * One road a mapping does not reach: a rejected async source's serialized
+ * rejection is encoded the moment the source rejects, ahead of the boundary
+ * that meets the failure, and carries the default policy's value there. The
+ * hydrating client renders from the boundary's record, which carries the
+ * mapping; no tick is added to the error path to make the two agree.
+ */
+export type ServerErrorHook = (error: unknown, context: ServerErrorContext) => unknown | void;
+
+export interface ServerErrorsConfig {
+  /** The hook, or `undefined` to clear it. */
+  onError?: ServerErrorHook;
+}
+
+const ServerErrors: unique symbol = Symbol.for("solid-js/server/errors") as any;
+
+/**
+ * Registers the ambient server error hook — the one call a server
+ * `init()` makes to see every failure the runtime handles in production:
+ * an `<Errored>` fallback rendered, a `<Loading>` fragment rejected, a
+ * server-function throw (HTTP dispatch or an in-process call during SSR),
+ * the failure that fails a request. Called once per error object, at first
+ * sight, wherever the runtime met it; its return, when given, is the wire
+ * value (see `ServerErrorHook`). A per-request hook — `renderToStream`'s
+ * `onServerError`, the server-function handler's — overrides it for that
+ * request. Registered on `globalThis` under a registered symbol, so a
+ * bundled server build and an instrumented `--import`ed module share it.
+ *
+ * ```ts
+ * configureServerErrors({
+ *   onError: (error, { kind, handling, boundary, functionId }) => {
+ *     Sentry.captureException(error, {
+ *       mechanism: { type: `solid.${kind}.${handling}`, handled: handling !== "failed" }
+ *     });
+ *   }
+ * });
+ * ```
+ */
+export function configureServerErrors(config: ServerErrorsConfig): void;
+
+export function configureServerErrors(config) {
+  const g = globalThis as { [ServerErrors]?: { hook?: ServerErrorHook } };
+  if (config && config.onError !== undefined && typeof config.onError !== "function") {
+    throw new TypeError(`Invalid onError: expected a function, received ${typeof config.onError}.`);
+  }
+  (g[ServerErrors] ||= {}).hook = config ? config.onError : undefined;
+}
+
+/**
  * The current request event, when called on the server inside a request
  * scope (established by `provideRequestEvent` from `@solidjs/web/storage`
  * or by the framework). Undefined on the client and outside a request.

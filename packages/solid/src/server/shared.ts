@@ -74,6 +74,19 @@ export type HydrationContext = {
    */
   failRender?: (err: any) => void;
   /**
+   * @internal The per-request server error hook (`renderToStream`'s
+   * `onServerError`), set by @solidjs/web; consulted by `reportServerError`
+   * ahead of the ambient registration.
+   */
+  errorPolicy?: (error: unknown, context: any) => unknown | void;
+  /**
+   * @internal Whether the shell has flushed — a fragment that fails now
+   * rejects to the client (`handling: "client"`) rather than failing the
+   * request or inlining into a parent's fallback. Set by @solidjs/web's
+   * renderToStream.
+   */
+  flushed?: () => boolean;
+  /**
    * @internal Per-request memo of `resolveAssets(moduleUrl)` results, keyed
    * by moduleUrl. lazy() consults it so a component re-created across
    * suspended render passes asks the manifest exactly once per module —
