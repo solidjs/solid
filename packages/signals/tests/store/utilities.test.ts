@@ -954,6 +954,61 @@ describe("view descriptors", () => {
     expect(overProxy.hide).toBeUndefined();
     expect(overProxy.m).toBe(1);
   });
+  test("the resolved table is built by an enumeration or paid for by reads, not on first read", () => {
+    // A component chain: defaults → omit → call-site statics → omit, plain
+    // leaves only, so a table is possible. Reads and existence checks and
+    // descriptor lookups answer by a source walk while the view is young.
+    const user = {
+      as: "a",
+      class: "btn",
+      get title() {
+        return "t";
+      }
+    };
+    const merged: any = merge({ type: "button", as: "button" }, omit(user, "class"));
+    const rest: any = omit(merged, "type");
+    const mergedView = viewOf(merged) as MergeView;
+    const restView = viewOf(rest) as OmitView;
+    const expectSame = () => {
+      expect(merged.as).toBe("a");
+      expect(merged.type).toBe("button");
+      expect(merged.class).toBeUndefined();
+      expect(merged.title).toBe("t");
+      expect("class" in merged).toBe(false);
+      expect(Reflect.getOwnPropertyDescriptor(merged, "as")!.value).toBe("a");
+      expect(rest.type).toBeUndefined();
+      expect(rest.as).toBe("a");
+      expect("type" in rest).toBe(false);
+      expect(Reflect.getOwnPropertyDescriptor(rest, "title")!.get).toBeTypeOf("function");
+    };
+    expectSame(); // 8 trap reads on the merge (two of them through `rest`), 4 on the omit
+    expect(mergedView.table).toBe(8); // the slot counts the reads until it is decided
+    expect(restView.table).toBe(4);
+    // …and once the reads have paid for a table (16), it is built and every
+    // trap answers from it with the same results.
+    expectSame();
+    expect(mergedView.table).toBeInstanceOf(Map);
+    expect(restView.table).toBe(8);
+    expectSame();
+    expectSame();
+    expect(restView.table).toBeInstanceOf(Map);
+    expectSame();
+    // Enumeration builds it outright, even on a fresh view.
+    const fresh: any = merge({ a: 1 }, { b: 2 });
+    expect((viewOf(fresh) as MergeView).table).toBe(0);
+    expect(Object.keys(fresh)).toEqual(["a", "b"]);
+    expect((viewOf(fresh) as MergeView).table).toBeInstanceOf(Map);
+    // An omit over one object never builds one: its read is direct.
+    const plainRest: any = omit(user, "class");
+    for (let i = 0; i < 40; i++) expect(plainRest.as).toBe("a");
+    expect((viewOf(plainRest) as OmitView).table).toBe(0);
+    // A view with a store leaf can't have one; reads keep walking after the
+    // count runs out, and the answer is the same.
+    const [store] = createStore({ s: 1 });
+    const overStore: any = merge({ d: 0 }, store);
+    for (let i = 0; i < 40; i++) expect(overStore.s).toBe(1);
+    expect((viewOf(overStore) as MergeView).table).toBeNull();
+  });
   test("hasStaticKeys: plain objects and views over them; not stores, memos, or views over them", () => {
     createRoot(() => {
       const [store] = createStore({ a: 1 });
