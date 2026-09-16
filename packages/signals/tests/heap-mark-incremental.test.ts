@@ -63,16 +63,23 @@ describe("heap marking stays incremental across mid-tick pulls", () => {
     // the rows within one process instead — linear scaling lands near 8×,
     // the quadratic regime near 64×. Best-of-k tames JIT/GC noise at the
     // small end. Measured locally: ~10× fixed (3 → 30 ms), ~50× on next
-    // (17 → 850 ms).
+    // (17 → 850 ms). Under a loaded worker (the suite runs beside two other
+    // packages' suites) the one large sample can draw a GC pause the small
+    // ones did not, so a round over the cap is re-measured: the quadratic
+    // regime is over the cap every round, contention is not.
     const best = (N: number, k: number) => {
       let ms = Infinity;
       for (let i = 0; i < k; i++) ms = Math.min(ms, mount(N));
       return ms;
     };
     best(1000, 2); // warm
-    const small = best(1000, 3);
-    const large = best(8000, 2);
-    expect(large / small).toBeLessThan(24);
+    let ratio = Infinity;
+    for (let round = 0; round < 3 && ratio >= 24; round++) {
+      const small = best(1000, 3);
+      const large = best(8000, 2);
+      ratio = Math.min(ratio, large / small);
+    }
+    expect(ratio).toBeLessThan(24);
   });
 
   it("a write landing between two mid-tick pulls is visible through a memo chain in the same pass", () => {

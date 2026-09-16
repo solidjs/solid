@@ -881,7 +881,14 @@ module.exports = [
     // ~+200 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "19.80 KB",
+    // `_parent` reserved from property mangling (2026-09-16): 19.80 -> 19.85 KB,
+    // measured at 19,825 B. It is the second cross-package owner field beside
+    // `_name`: solid-js walks it on signals' owners (hydration's snapshot
+    // root — which the prod build was mis-marking while it was mangled) and
+    // the core walks it on solid-js's server owners (`ownerPath`,
+    // `OBSERVE.exclude`). ~+40 B across the prod scenarios; the observe ones
+    // moved by gzip noise or shrank.
+    limit: "19.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -1161,7 +1168,14 @@ module.exports = [
     // ~+180 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "15.15 KB",
+    // `_parent` reserved from property mangling (2026-09-16): 15.15 -> 15.20 KB,
+    // measured at 15,181 B. It is the second cross-package owner field beside
+    // `_name`: solid-js walks it on signals' owners (hydration's snapshot
+    // root — which the prod build was mis-marking while it was mangled) and
+    // the core walks it on solid-js's server owners (`ownerPath`,
+    // `OBSERVE.exclude`). ~+40 B across the prod scenarios; the observe ones
+    // moved by gzip noise or shrank.
+    limit: "15.20 KB",
     modifyEsbuildConfig
   },
   {
