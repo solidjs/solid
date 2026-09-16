@@ -932,12 +932,20 @@ export interface UntilOptions {
  *
  * Must be called *outside* a tracking scope.
  *
+ * Inside an action, call it from a step: after an `await`, put a bare `yield`
+ * before `yield until(...)`. The runtime cannot hook an async generator's
+ * `await` continuation, so the `until(...)` expression — which CREATES the
+ * predicate's reader — would otherwise run outside the transaction; created
+ * there it is born held (A29) and replays only at the commit its own promise
+ * holds open (#3482). See {@link action}.
+ *
  * @example
  * ```ts
  * const send = action(async function* (text: string) {
  *   const clientId = crypto.randomUUID();
  *   setMessages(m => { m.push({ clientId, text, pending: true }); }); // optimistic
  *   await socket.send({ clientId, text }); // fire-and-forget transport
+ *   yield; // re-enter the transaction after the await
  *   // Hold until the live source echoes the write (authoritative view —
  *   // the optimistic row above cannot satisfy this):
  *   yield until(() => messages.some(m => m.clientId === clientId), { timeout: 10_000 });
