@@ -104,13 +104,18 @@ export class OmitView {
 
 // What an omit view hides: the caller's key list or predicate, or — for a
 // view folded over another (an omit of an omit, or of a merge with omit
-// leaves) — both filters, CHAINED. A link is one two-field object where a
-// combined key list was a copy of every key hidden so far: an omit over a
-// merge combines once per leaf per layer, so on a component chain
-// (defaults → omit → statics → omit …) the copies grew with the depth and
-// were the largest allocation of the views (100–450 bytes a leaf on a
-// Kobalte-shaped chain, more with `push` growth). A check walks the links,
-// the same `includes` work a combined list did.
+// leaves) — both filters. Two short lists combine into one exact-size list
+// (one `includes` per check, the cheapest check in every tier); past
+// `COPY_LIMIT` keys, or with a predicate on either side, they CHAIN — one
+// two-field link over the filter folded, no copy. An omit over a merge
+// combines once per leaf per layer, so on a component chain (defaults →
+// omit → statics → omit …) a list that kept growing by copy was the largest
+// allocation of the views (100–450 bytes a leaf on a Kobalte-shaped chain,
+// quadratic in the depth); a chain that started at the first fold cost a
+// link walk per key of every leaf on the same shape, and the bytecode tiers
+// paid more for the walk than the copies had cost. The limit keeps most
+// leaves a flat list and bounds a deep leaf to a short list plus a few
+// links.
 type Filter = PropertyKey[] | ((key: PropertyKey) => boolean);
 type Hidden = Filter | HiddenChain;
 class HiddenChain {
@@ -121,18 +126,15 @@ class HiddenChain {
     public outer: Filter
   ) {}
 }
-
-function isHidden(view: OmitView, key: PropertyKey): boolean {
-  return hides(view.hidden, key);
-}
+const COPY_LIMIT = 8;
 
 // One loop, no recursion, and a link is told from a list or a predicate by
 // its constructor (a load and a compare; `instanceof` and `Array.isArray`
 // are builtin calls in the bytecode tiers): the check runs per key of every
-// leaf when a view is enumerated or its table is built, and on a chain that
-// is several links deep, so it is written for those tiers as much as for
-// the optimizer.
-function hides(h: Hidden, key: PropertyKey): boolean {
+// leaf when a view is enumerated or its table is built, so it is written
+// for those tiers as much as for the optimizer.
+function isHidden(view: OmitView, key: PropertyKey): boolean {
+  let h = view.hidden;
   for (;;) {
     if (h.constructor !== HiddenChain)
       return typeof h === "function" ? h(key) : (h as PropertyKey[]).includes(key);
@@ -142,17 +144,30 @@ function hides(h: Hidden, key: PropertyKey): boolean {
   }
 }
 
-// Both filters as one — a link, never a copy. A filter with nothing to hide
-// (an `omit(props)` with no keys) adds no link. `outer` is normally the
-// current omit's own filter; when it is a chain (an omit over an omit that
-// was itself over a merge), its links are re-hung over `inner` one by one so
-// every link's own filter stays atomic.
+// Both filters as one. A filter with nothing to hide (an `omit(props)` with
+// no keys) adds nothing. Two lists within the limit copy — `concat`, an
+// exact-size allocation in one builtin call (a `slice` + `push` grows the
+// backing store to 1.5n + 16 slots on the push; a hand loop is a bytecode
+// per element). `outer` is normally the current omit's own filter; when it
+// is a chain (an omit over an omit that was itself over a merge), its links
+// are re-hung over `inner` one by one so every link's own filter stays
+// atomic.
 function combineHidden(inner: Hidden, outer: Hidden): Hidden {
-  if (outer instanceof HiddenChain)
-    return combineHidden(combineHidden(inner, outer.inner), outer.outer);
-  if (Array.isArray(outer) && outer.length === 0) return inner;
-  if (Array.isArray(inner) && inner.length === 0) return outer;
-  return new HiddenChain(inner, outer);
+  if (outer.constructor === HiddenChain) {
+    const o = outer as HiddenChain;
+    return combineHidden(combineHidden(inner, o.inner), o.outer);
+  }
+  // From here `outer` is a list or a predicate; a list is told by `length`
+  // (a predicate's is its arity — never read, the typeof comes first).
+  const outerList = typeof outer !== "function";
+  if (outerList && (outer as PropertyKey[]).length === 0) return inner;
+  if (typeof inner !== "function" && inner.constructor !== HiddenChain) {
+    const list = inner as PropertyKey[];
+    if (list.length === 0) return outer;
+    if (outerList && list.length + (outer as PropertyKey[]).length <= COPY_LIMIT)
+      return list.concat(outer as PropertyKey[]);
+  }
+  return new HiddenChain(inner, outer as Filter);
 }
 
 // The object a view filters (see `leafOf`).

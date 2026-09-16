@@ -824,9 +824,8 @@ describe("view descriptors", () => {
     // l3's statics, l1's defaults, the user's props — in merge order
     expect((leaves[0] as OmitView).hidden).toEqual(["as"]);
     expect((leaves[2] as OmitView).source).toBe(user);
-    // both filters, chained rather than copied: the inner omit's list and the
-    // outer's, in that order
-    expect((leaves[2] as OmitView).hidden).toEqual({ inner: ["type"], outer: ["as"] });
+    // both filters as one short list: the inner omit's keys, then the outer's
+    expect((leaves[2] as OmitView).hidden).toEqual(["type", "as"]);
     // and the truth reaches the top
     expect(Object.getOwnPropertyDescriptor(l5, "class")!.value).toBe("btn");
     expect(typeof Object.getOwnPropertyDescriptor(l5, "label")!.get).toBe("function");
@@ -835,20 +834,43 @@ describe("view descriptors", () => {
     expect(Object.getOwnPropertyDescriptor(l5, "role")!.value).toBe("button");
     expect(Object.keys(l5).sort()).toEqual(["class", "extra", "label", "role"]);
   });
-  test("folded filters chain: lists, predicates and empty omits over each other", () => {
+  test("folded filters: short lists copy, predicates and long lists chain", () => {
     const user = { a: 1, b: 2, c: 3, d: 4, e: 5 };
     // omit of omit of predicate-omit of a no-key omit — every combination
-    const o1 = omit(user); // nothing hidden: adds no link
+    const o1 = omit(user); // nothing hidden: adds nothing
     const o2 = omit(o1, (key: PropertyKey) => key === "a");
-    const o3 = omit(o2, "b");
+    const o3 = omit(o2, "b"); // a predicate cannot copy: one link
     const o4 = omit(o3); // still nothing added
-    const o5 = omit(o4, "c", "zz");
+    const o5 = omit(o4, "c", "zz"); // a list over a chain: another link
     const view = viewOf(o5) as OmitView;
     expect(view.source).toBe(user);
     expect(view.hidden).toEqual({
       inner: { inner: expect.any(Function), outer: ["b"] },
       outer: ["c", "zz"]
     });
+    // lists copy while short, then chain: eight keys in one list, the ninth
+    // fold a link over it
+    let deep: any = user;
+    for (let i = 0; i < 4; i++) deep = omit(deep, `k${i}a`, `k${i}b`);
+    expect((viewOf(deep) as OmitView).hidden).toEqual([
+      "k0a",
+      "k0b",
+      "k1a",
+      "k1b",
+      "k2a",
+      "k2b",
+      "k3a",
+      "k3b"
+    ]);
+    deep = omit(deep, "k4a", "k4b");
+    expect((viewOf(deep) as OmitView).hidden).toEqual({
+      inner: ["k0a", "k0b", "k1a", "k1b", "k2a", "k2b", "k3a", "k3b"],
+      outer: ["k4a", "k4b"]
+    });
+    deep = omit(deep, "a");
+    expect(Object.keys(deep)).toEqual(["b", "c", "d", "e"]);
+    expect("a" in deep).toBe(false);
+    expect("k4a" in deep).toBe(false);
     expect(Object.keys(o5)).toEqual(["d", "e"]);
     expect("a" in o5).toBe(false);
     expect("b" in o5).toBe(false);
