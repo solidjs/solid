@@ -498,7 +498,10 @@ module.exports = [
     // merged.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 16,155 B
     // against `next` (+305 B); the signals core delta, see the core floor note.
-    limit: "16.20 KB",
+    // A pending reporter recovering without its flight landing wakes its parked
+    // transaction (fuzzer #3446 P1, spec O3, 2026-09-16): measured at 16,201 B
+    // (+1 over the cap); +100 B minified in the signals floor (24,478 -> 24,578).
+    limit: "16.25 KB",
     modifyEsbuildConfig
   },
   {

@@ -321,7 +321,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (`unflushedStaged`) instead of `_running`: inline, they cost ~140 B of
     // setSignal bytecode and 10–20% on the write-loop benches (+156 B here).
     // Measured at 24,478 rebased over #3464–#3471 (`next` 23,750 → 24,478).
-    expect(minifiedBytes).toBeLessThan(24_600);
+    // A pending reporter recovering without its flight landing wakes its
+    // parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16): +100 B
+    // (24,478 -> 24,578), `wasPending` and the wokenTransitions site at
+    // recompute's tail.
+    expect(minifiedBytes).toBeLessThan(24_700);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

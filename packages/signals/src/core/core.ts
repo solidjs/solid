@@ -99,6 +99,7 @@ import {
   queuePendingNode,
   runInTransition,
   schedule,
+  wokenTransitions,
   zombieQueue
 } from "./scheduler.js";
 import type {
@@ -276,8 +277,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
   const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
-  const outgoingPendingSources =
-    el._statusFlags & STATUS_PENDING ? el._x?._pendingSources : undefined;
+  const wasPending = (el._statusFlags & STATUS_PENDING) !== 0;
+  const outgoingPendingSources = wasPending ? el._x?._pendingSources : undefined;
   // Pending SOURCE-hood, captured before the compute clears status: a node
   // whose own flight parked dependents self-registers in _pendingSources
   // (notifyStatus, isSource). If this recompute supersedes that flight and
@@ -678,6 +679,22 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // a replacement source still has no truth to reveal and must stay parked.
     if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
       settlePendingSource(el);
+  }
+  // A pending REPORTER that recovered without its flight landing — this pass
+  // no longer reads the source (a gate closed) — stops counting for the
+  // transaction it reported to (A15 / #3426: the hold lasts while a live
+  // reporter observes the flight). Nothing else re-judges a parked
+  // transaction (see wokenTransitions; the disposal (#3372) and boundary
+  // (#3375) twins of this site), so the writes it held stayed staged for as
+  // long as the flight stayed up — forever, for one that never lands
+  // (fuzzer #3446 P1, spec O3). Not under the transaction's own flush: the
+  // landing that recovers a reader there is judged by that flush.
+  if (isEffect && wasPending && !(el._statusFlags & STATUS_PENDING)) {
+    const t = el._transition;
+    if (t !== null && t !== activeTransition && !t._done && !wokenTransitions.includes(t)) {
+      wokenTransitions.push(t);
+      schedule();
+    }
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410; the
   // deps twin of the held children above): a pass that staged its value

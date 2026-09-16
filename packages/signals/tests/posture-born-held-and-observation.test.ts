@@ -122,43 +122,73 @@ describe("B — creation under a transaction escapes the hold (OBSERVED, spec O2
   });
 });
 
-describe("P1 — a reader that stopped reading the flight must not keep its hold (fuzzer #3446 P1; A15 / #3426 live reporter) — VIOLATION, pinned it.fails", () => {
+describe("P1 — a reader that stopped reading the flight does not keep its hold (fuzzer #3446 P1; A15 / #3426 live reporter)", () => {
   // Reduced from fuzzer case 854 (seed 3289) and the posture matrix's
   // `effect × gatedAway` cell on the "observed only by the matrix reader"
   // state. A render effect DIRECTLY observing an uninitialized async memo
   // registers as the flight's reporter; when it re-runs without reading the
   // memo (gate closed) nothing visible needs the unresolved answer, yet the
   // source's ordinary write stays held — forever, since the flight never
-  // lands. With a memo between the effect and the flight the hold releases
-  // (the memo's re-run clears its status); the effect's own stale
-  // `_pendingSources` / NotReady source keeps `reporterBlocksSource` true.
-  it.fails(
-    "gating a render effect away from a never-landing memo releases the source's write",
-    async () => {
-      const [s, setS] = createSignal(0);
-      const [show, setShow] = createSignal(true);
-      const published: unknown[] = [];
-      createRoot(() => {
-        const m = createMemo(() => {
-          s();
-          return new Promise<number>(() => {}); // never lands
-        });
-        createRenderEffect(
-          () => (show() ? m() : "hidden"),
-          v => {
-            published.push(v);
-          }
-        );
+  // lands. The predicate (`reporterBlocksSource`) already judged the effect
+  // dead after its re-run; nothing RE-JUDGED the parked transaction — the
+  // flush that re-ran the effect had no active transaction. Fixed at
+  // recompute's tail: a pending reporter that recovers without its flight
+  // landing wakes the transaction it reported to (wokenTransitions — the
+  // third site after disposal #3372 and boundary reset #3375).
+  it("gating a render effect away from a never-landing memo releases the source's write", async () => {
+    const [s, setS] = createSignal(0);
+    const [show, setShow] = createSignal(true);
+    const published: unknown[] = [];
+    createRoot(() => {
+      const m = createMemo(() => {
+        s();
+        return new Promise<number>(() => {}); // never lands
       });
-      flush();
-      setS(1);
-      flush();
-      expect(s()).toBe(0); // held by the observed flight — correct
-      setShow(false);
-      flush();
-      await tick();
-      expect(published).toEqual(["hidden"]); // the reader re-ran and no longer derives from m
-      expect(s()).toBe(1); // P1: nothing visible still needs the answer — publish
-    }
-  );
+      createRenderEffect(
+        () => (show() ? m() : "hidden"),
+        v => {
+          published.push(v);
+        }
+      );
+    });
+    flush();
+    setS(1);
+    flush();
+    expect(s()).toBe(0); // held by the observed flight — correct
+    setShow(false);
+    flush();
+    await tick();
+    expect(published).toEqual(["hidden"]); // the reader re-ran and no longer derives from m
+    expect(s()).toBe(1); // P1: nothing visible still needs the answer — publish
+  });
+});
+
+describe("P1, same-flush form — gate and write in ONE flush (fuzzer #3446 case 21) — VIOLATION, pinned it.fails", () => {
+  // The effect is notified pending by the write (registering as the flight's
+  // reporter) and dirtied by the gate in the same flush. The verdict runs
+  // after the pure phase, BEFORE effects: the effect still looks live, the
+  // transaction parks, and the effect's run — the one that would prove it
+  // dead (it no longer reads the memo) — is stashed WITH the transaction.
+  // The hold keeps the run that would release it. Disposing the reader
+  // releases (#3372). Spec O3, remaining form.
+  it.fails("closing the gate and writing the source in one flush releases the write", async () => {
+    const [s, setS] = createSignal(0);
+    const [show, setShow] = createSignal(true);
+    createRoot(() => {
+      const m = createMemo(() => {
+        s();
+        return new Promise<number>(() => {});
+      });
+      createRenderEffect(
+        () => (show() ? m() : "hidden"),
+        () => {}
+      );
+    });
+    flush();
+    setShow(false);
+    setS(1);
+    flush();
+    await tick();
+    expect(s()).toBe(1);
+  });
 });
