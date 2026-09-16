@@ -21,9 +21,16 @@
  *                  the fallback is showing, the reader is not on screen
  * - disposedReader the reader is built mainline and its root is DISPOSED
  *                  before the source's hold is released — a dead reporter
+ * - gatedAway      the memo reader is built mainline behind a `show()` gate,
+ *                  then the gate closes: the reader is ALIVE but no longer
+ *                  derives from `x`. Records `x`, `isPending(x)` and the
+ *                  state's held SOURCE write after the gate closes, before
+ *                  any release — a reader that stopped reading the flight
+ *                  must not keep its hold (fuzzer #3446 P1, 2026-09-15)
  *
  * Readers under a posture: untracked, memo (its pass value and what a render
- * effect over it publishes), latest, isPending.
+ * effect over it publishes), effect (a render effect reading `x` DIRECTLY —
+ * the reporter shape the fuzzer's P1 reduction used), latest, isPending.
  *
  * This is the discovery pass: no cell is pinned. Every cell is recorded to
  * VISIBILITY_POSTURE_REPORT (a markdown table per state) so red cells can be
@@ -52,17 +59,46 @@ import {
   type Cell,
   type State
 } from "./visibility-oracle.harness.js";
-import { STATES } from "./visibility-oracle.states.js";
+import { STATES as ORACLE_STATES } from "./visibility-oracle.states.js";
+
+/** Matrix-only states (no reader-kind expectations): shapes whose question is
+ * the READER's hold rather than the served value. */
+const MATRIX_STATES: State[] = [
+  {
+    // Fuzzer #3446 P1 (case 854, reduced): the matrix reader is the flight's
+    // ONLY observer; the source is written while it observes (perturb); then
+    // the reader gates away. Nothing visible still needs the unresolved
+    // answer — does the ordinary write publish? (`source` after the gate.)
+    name: "pending own async, observed only by the matrix reader (fuzzer P1)",
+    build() {
+      const [q, setQ] = createSignal(0);
+      let x!: () => unknown;
+      const dispose = createRoot(d => {
+        x = createMemo(() => {
+          q();
+          return new Promise<number>(() => {}); // never lands
+        });
+        return d;
+      });
+      // No flush here: the memo's first computation happens under the matrix
+      // reader's observation (the fuzzer's schedule), not swept dormant first.
+      return { x, dispose, source: q, perturb: () => setQ(1) };
+    },
+    expect: {} as State["expect"]
+  }
+];
+const STATES = [...ORACLE_STATES, ...MATRIX_STATES];
 
 const POSTURES = [
   "mainline",
   "foreignAction",
   "foreignLane",
   "behindFallback",
-  "disposedReader"
+  "disposedReader",
+  "gatedAway"
 ] as const;
 type Posture = (typeof POSTURES)[number];
-const READERS = ["untracked", "memo", "latest", "isPending"] as const;
+const READERS = ["untracked", "memo", "effect", "latest", "isPending"] as const;
 type Reader = (typeof READERS)[number];
 
 const classify = (fn: () => unknown): Cell => {
@@ -79,7 +115,7 @@ const classify = (fn: () => unknown): Cell => {
  * accessor (null for mainline) so the probe can confirm the foreign action is
  * still live after the source's hold is released. */
 function enter(posture: Posture, build: () => void): { y: (() => number) | null } {
-  if (posture === "mainline" || posture === "disposedReader") {
+  if (posture === "mainline" || posture === "disposedReader" || posture === "gatedAway") {
     build();
     return { y: null };
   }
@@ -132,12 +168,15 @@ type Row = {
   passValue?: Cell; // memo: what its pass read
   afterSourceRelease: Cell; // untracked x() after ONLY the source's holds are released
   foreignStillHeld: boolean | null; // y() still 0 (the foreign action did not settle)
+  afterGate?: string; // gatedAway: `x / source / isPending` after the gate closes, before any release
 };
 const rows: Row[] = [];
 
 async function cell(state: State, posture: Posture, reader: Reader): Promise<Row> {
   const built = state.build(() => {});
-  const { x, dispose } = built instanceof Promise ? await built : built;
+  const { x, dispose, source, perturb } = built instanceof Promise ? await built : built;
+  const [show, setShow] = createSignal(true);
+  const gated = posture === "gatedAway";
   const sourceHolds = holds.length; // everything pushed so far belongs to the source
   let served: Cell = HELD;
   let passValue: Cell | undefined;
@@ -157,6 +196,7 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
       case "memo": {
         const d = createRoot(d => {
           const m = createMemo(() => {
+            if (gated && !show()) return "gated";
             let v: Cell;
             try {
               v = x();
@@ -177,13 +217,52 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
           return d;
         });
         disposers.push(d);
+        break;
+      }
+      case "effect": {
+        const d = createRoot(d => {
+          createRenderEffect(
+            () => {
+              if (gated && !show()) return "gated";
+              let v: Cell;
+              try {
+                v = x();
+              } catch (e) {
+                pass.push(
+                  e instanceof NotReadyError
+                    ? "throws:NotReady"
+                    : `throws:${(e as Error)?.constructor?.name}`
+                );
+                throw e;
+              }
+              pass.push(v);
+              return v;
+            },
+            v => {
+              log.push(v as Cell);
+            }
+          );
+          return d;
+        });
+        disposers.push(d);
       }
     }
   });
   flush();
-  if (reader === "memo") {
+  if (perturb) {
+    perturb(); // the write the reader's hold is about, made while it observes
+    flush();
+  }
+  if (reader === "memo" || reader === "effect") {
     served = log.length ? log[log.length - 1] : HELD;
     passValue = pass.length ? pass[pass.length - 1] : HELD;
+  }
+  let afterGate: string | undefined;
+  if (gated) {
+    setShow(false);
+    flush();
+    await settle();
+    afterGate = `${fmt(classify(x))} / ${source ? fmt(classify(source)) : "—"} / ${fmt(classify(() => isPending(x)))}`;
   }
   if (posture === "disposedReader") {
     for (const d of disposers.splice(0)) d();
@@ -206,7 +285,8 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
     served,
     passValue,
     afterSourceRelease,
-    foreignStillHeld
+    foreignStillHeld,
+    afterGate
   };
 }
 
@@ -215,19 +295,21 @@ const fmt = (c: Cell | undefined) => (c === undefined ? "" : c === HELD ? "HELD"
 describe("visibility oracle — posture matrix (discovery)", () => {
   for (const state of STATES)
     for (const posture of POSTURES)
-      for (const reader of READERS)
+      for (const reader of READERS) {
+        if (posture === "gatedAway" && reader !== "memo" && reader !== "effect") continue; // a gate needs a tracked reader
         it(`${state.name} × ${posture} × ${reader}`, async () => {
           rows.push(await cell(state, posture, reader));
           expect(true).toBe(true);
         });
+      }
   afterAll(() => {
     const out: string[] = ["# visibility oracle — posture matrix (discovery, no pins)", ""];
     for (const state of STATES) {
       out.push(`## ${state.name}`, "");
       out.push(
-        "| reader | posture | served | memo pass | x after source release | foreign still held |"
+        "| reader | posture | served | memo pass | x after source release | foreign still held | after gate (x / source / isPending) |"
       );
-      out.push("|---|---|---|---|---|---|");
+      out.push("|---|---|---|---|---|---|---|");
       for (const reader of READERS) {
         const base = rows.find(
           r => r.state === state.name && r.reader === reader && r.posture === "mainline"
@@ -235,14 +317,15 @@ describe("visibility oracle — posture matrix (discovery)", () => {
         for (const posture of POSTURES) {
           const r = rows.find(
             r => r.state === state.name && r.reader === reader && r.posture === posture
-          )!;
+          );
+          if (!r) continue;
           const entangled =
             base &&
             posture !== "mainline" &&
             fmt(r.afterSourceRelease) !== fmt(base.afterSourceRelease);
           const servedDiff = base && posture !== "mainline" && fmt(r.served) !== fmt(base.served);
           out.push(
-            `| ${reader} | ${posture} | ${fmt(r.served)}${servedDiff ? " **≠**" : ""} | ${fmt(r.passValue)} | ${fmt(r.afterSourceRelease)}${entangled ? " **ENTANGLED**" : ""} | ${r.foreignStillHeld === null ? "—" : r.foreignStillHeld} |`
+            `| ${reader} | ${posture} | ${fmt(r.served)}${servedDiff ? " **≠**" : ""} | ${fmt(r.passValue)} | ${fmt(r.afterSourceRelease)}${entangled ? " **ENTANGLED**" : ""} | ${r.foreignStillHeld === null ? "—" : r.foreignStillHeld} | ${r.afterGate ?? "—"} |`
           );
         }
       }

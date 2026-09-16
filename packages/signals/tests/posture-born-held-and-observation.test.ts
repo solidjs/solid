@@ -121,3 +121,44 @@ describe("B — creation under a transaction escapes the hold (OBSERVED, spec O2
     expect(published).toEqual([1]);
   });
 });
+
+describe("P1 — a reader that stopped reading the flight must not keep its hold (fuzzer #3446 P1; A15 / #3426 live reporter) — VIOLATION, pinned it.fails", () => {
+  // Reduced from fuzzer case 854 (seed 3289) and the posture matrix's
+  // `effect × gatedAway` cell on the "observed only by the matrix reader"
+  // state. A render effect DIRECTLY observing an uninitialized async memo
+  // registers as the flight's reporter; when it re-runs without reading the
+  // memo (gate closed) nothing visible needs the unresolved answer, yet the
+  // source's ordinary write stays held — forever, since the flight never
+  // lands. With a memo between the effect and the flight the hold releases
+  // (the memo's re-run clears its status); the effect's own stale
+  // `_pendingSources` / NotReady source keeps `reporterBlocksSource` true.
+  it.fails(
+    "gating a render effect away from a never-landing memo releases the source's write",
+    async () => {
+      const [s, setS] = createSignal(0);
+      const [show, setShow] = createSignal(true);
+      const published: unknown[] = [];
+      createRoot(() => {
+        const m = createMemo(() => {
+          s();
+          return new Promise<number>(() => {}); // never lands
+        });
+        createRenderEffect(
+          () => (show() ? m() : "hidden"),
+          v => {
+            published.push(v);
+          }
+        );
+      });
+      flush();
+      setS(1);
+      flush();
+      expect(s()).toBe(0); // held by the observed flight — correct
+      setShow(false);
+      flush();
+      await tick();
+      expect(published).toEqual(["hidden"]); // the reader re-ran and no longer derives from m
+      expect(s()).toBe(1); // P1: nothing visible still needs the answer — publish
+    }
+  );
+});
