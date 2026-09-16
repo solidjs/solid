@@ -1536,7 +1536,21 @@ function reporterBlocksSource(
   for (let q: IQueue | null = reporter._queue; q; q = q._parent)
     if (q._collectionType! & STATUS_PENDING && !q._initialized) return false;
   if (reporter._x?._pendingSources?.has(source)) return true;
-  for (let dep = reporter._deps; dep; dep = dep._nextDep) {
+  // "Still derives from the source" is a question about THIS pass's reads:
+  // the deps up to `_depsTail`. Past it lie the committed frame's — kept
+  // linked by A30 until the commit trims them (a staged pass, an errored
+  // one). Reading them here made a reporter whose pass had stopped reading
+  // the source (a gate closed in the same flush as the write) look live, and
+  // the hold it kept was the commit that would have trimmed the dep that
+  // kept it (spec O3, same-flush form; fuzzer #3446 P1 cases 21/79). A
+  // trimmed list ends at `_depsTail`, so the bound is free there; a pass
+  // that read nothing has a null tail and derives from nothing.
+  const tail = reporter._depsTail;
+  for (
+    let dep = tail === null ? null : reporter._deps;
+    dep;
+    dep = dep === tail ? null : dep._nextDep
+  ) {
     let current = dep._dep as Signal<any> | Computed<any> | undefined;
     while (current) {
       if (current === source || (current as any)._firewall === source) return true;

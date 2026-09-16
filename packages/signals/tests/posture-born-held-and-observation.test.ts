@@ -163,15 +163,14 @@ describe("P1 — a reader that stopped reading the flight does not keep its hold
   });
 });
 
-describe("P1, same-flush form — gate and write in ONE flush (fuzzer #3446 case 21) — VIOLATION, pinned it.fails", () => {
-  // The effect is notified pending by the write (registering as the flight's
-  // reporter) and dirtied by the gate in the same flush. The verdict runs
-  // after the pure phase, BEFORE effects: the effect still looks live, the
-  // transaction parks, and the effect's run — the one that would prove it
-  // dead (it no longer reads the memo) — is stashed WITH the transaction.
-  // The hold keeps the run that would release it. Disposing the reader
-  // releases (#3372). Spec O3, remaining form.
-  it.fails("closing the gate and writing the source in one flush releases the write", async () => {
+describe("P1, same-flush form — gate and write in ONE flush (fuzzer #3446 case 21; spec O3)", () => {
+  // The effect's pass runs under the transaction and STAGES "hidden", so A30
+  // keeps its previous dep on the memo linked past `_depsTail` until the
+  // commit trims it. `reporterBlocksSource`'s deps scan read that kept dep and
+  // called the effect live — the hold kept the dep that kept the hold. The
+  // scan is now bounded at `_depsTail`: "still derives from the source" is a
+  // question about this pass's reads, not the committed frame's.
+  it("closing the gate and writing the source in one flush releases the write", async () => {
     const [s, setS] = createSignal(0);
     const [show, setShow] = createSignal(true);
     createRoot(() => {

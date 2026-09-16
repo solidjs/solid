@@ -13,6 +13,14 @@
  *      the content pass entered the hold, the creation direct-committed).
  *      Mainline creation over the same value is born held (A29).
  *
+ * S3 — VIOLATION (INV-4), pinned it.fails: a projection leaf's latest()
+ *      shadow is stale on the flush right after the store's root is disposed
+ *      while a refetch is held. Transient (it recovers a microtask later),
+ *      but a __TEST__ quiescence check in that window throws — and a throw
+ *      from the runtime's own scheduled flush leaves the scheduler mid-flush.
+ *      Surfaced when #3488/O3 stopped leaking the parked transactions that
+ *      had masked every quiescence check in the posture matrix. Spec O5.
+ *
  * (A first cut also reported the projection's seed leaking as a value inside
  * boundary content, and `isPending` false / override invisible behind a
  * fallback. All three were a runner artifact — the boundary content re-ran
@@ -32,6 +40,13 @@ import {
   isPending,
   latest
 } from "../src/index.js";
+
+const settle = async () => {
+  for (let i = 0; i < 3; i++) {
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+  }
+};
 
 const never = () => new Promise<never>(() => {});
 
@@ -115,4 +130,42 @@ describe("S2 — creation in boundary content over a held value publishes it (OB
     expect(behindFallback(() => s.n)).toEqual([1]);
     expect(s.n).toBe(0);
   });
+});
+
+describe("S3 — INV-4: a projection leaf's latest() shadow after its root is disposed mid-refetch (spec O5) — VIOLATION, pinned it.fails", () => {
+  // Reproduces on `next`: the flush right after `dispose()` trips the
+  // quiescence invariant (the shadow holds the pre-refetch value, is not
+  // dirty, and the leaf's committed value differs). A microtask later the
+  // shadow is re-derived and the same check passes — so this is a window,
+  // not a permanent divergence; under __TEST__ the window is fatal.
+  it.fails(
+    "the flush right after disposing a projection with a held refetch passes the quiescence invariants",
+    async () => {
+      const [q, setQ] = createSignal(0);
+      const fetches: Array<() => void> = [];
+      let s!: { n: number };
+      const dispose = createRoot(d => {
+        [s] = createStore<{ n: number }>(
+          () => {
+            const v = q();
+            return new Promise(r => fetches.push(() => r({ n: v * 10 })));
+          },
+          { n: -1 }
+        );
+        createRenderEffect(
+          () => s.n,
+          () => {}
+        );
+        return d;
+      });
+      flush();
+      fetches.shift()!();
+      await settle();
+      setQ(1); // refetch, never lands
+      flush();
+      expect(latest(() => s.n)).toBe(0); // creates the leaf's shadow
+      dispose();
+      expect(() => flush()).not.toThrow(); // INV-4 here on next
+    }
+  );
 });

@@ -64,22 +64,15 @@ function restoreTransition<T>(seq: number, transition: Transition, fn: () => T):
  * `yield` is the transaction-safe suspension point: the action waits for a
  * yielded promise and re-enters the transaction before running the code after
  * it. A plain `await` does NOT — the runtime has no hook into an async
- * generator's internal await continuations, so code between an `await` and
- * the next `yield` runs OUTSIDE the transaction: writes to fresh signals
- * commit immediately, and anything that creates a reader there — `until()`,
- * `latest()`, a memo or effect, a mount — is created mainline, where a read of
- * this action's held state makes it born held (A29): staged with the
- * transaction and replayed at its commit. For `until()` that commit is the
- * settle its own promise holds open (#3482). `await` is still the ergonomic
- * choice for typed results; just put a bare `yield` before any write or
- * reader creation that follows it — including the expression of the next
- * `yield`, which is evaluated before the step re-enters:
+ * generator's internal await continuations, so writes to fresh signals
+ * between an `await` and the next `yield` escape the transaction and commit
+ * immediately. `await` is still the ergonomic choice for typed results; just
+ * put a bare `yield` before any writes that follow it:
  *
  * ```ts
  * const saved = await api.createTodo(text); // typed result
- * yield; // re-enter the transaction before writing or reading
+ * yield; // re-enter the transaction before writing
  * setTodos(t => { ... });
- * yield until(() => todos.some(t => t.id === saved.id));
  * ```
  *
  * (For the same reason, don't call `flush()` inside an action body — it

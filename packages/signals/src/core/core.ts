@@ -101,7 +101,7 @@ import {
   heldTrims,
   runInTransition,
   schedule,
-  wokenTransitions,
+  wakeParked,
   zombieQueue
 } from "./scheduler.js";
 import type {
@@ -715,22 +715,30 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
       settlePendingSource(el);
   }
-  // A pending REPORTER that recovered without its flight landing — this pass
-  // no longer reads the source (a gate closed) — stops counting for the
-  // transaction it reported to (A15 / #3426: the hold lasts while a live
-  // reporter observes the flight). Nothing else re-judges a parked
-  // transaction (see wokenTransitions; the disposal (#3372) and boundary
-  // (#3375) twins of this site), so the writes it held stayed staged for as
-  // long as the flight stayed up — forever, for one that never lands
-  // (fuzzer #3446 P1, spec O3). Not under the transaction's own flush: the
-  // landing that recovers a reader there is judged by that flush.
-  if (isEffect && wasPending && !(el._statusFlags & STATUS_PENDING)) {
-    const t = el._transition;
-    if (t !== null && t !== activeTransition && !t._done && !wokenTransitions.includes(t)) {
-      wokenTransitions.push(t);
-      schedule();
-    }
-  }
+  // A REPORTER whose pass stopped reading a source it reported on (a gate
+  // closed) stops counting for the transaction waiting on it (A15 / #3426:
+  // the hold lasts while a live reporter observes the flight). Nothing else
+  // re-judges a parked transaction (see wokenTransitions; the disposal
+  // (#3372) and boundary (#3375) twins of this site), so the writes it held
+  // stayed staged for as long as the flight stayed up — forever, for one
+  // that never lands (fuzzer #3446 P1, spec O3). The event is "this pass
+  // dropped a dep" — deps past `_depsTail` (trimmed below, or kept by A30
+  // for a staged pass), or a pass that read nothing — not "recovered from
+  // pending": a reporter registered by the stale-reader carve-out
+  // (heldFromStale, an INITIALIZED source refetching) displays the committed
+  // value and is never pending (fuzzer case 79). Every parked transaction,
+  // not the reporter's stamp: the transaction waiting on it registered it
+  // without stamping it. One idle pass per parked transaction; done ones
+  // return at re-entry. Effects only — reporters register from render-effect
+  // notification (INV-3).
+  // (`_depsTail` was reset at the top of the pass; TS keeps that narrowing.)
+  const tail = (el as Computed<any>)._depsTail as Link | null;
+  if (
+    isEffect &&
+    ((wasPending && !(el._statusFlags & STATUS_PENDING)) ||
+      (tail === null ? el._deps !== null : tail._nextDep !== null))
+  )
+    wakeParked();
   // Dependencies are the committed frame's until it is replaced (A30, #3410; the
   // deps twin of the held children above): a pass that staged its value
   // leaves the previous pass's tail linked for `commitPendingNode` to trim,
