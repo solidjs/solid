@@ -227,8 +227,14 @@ describe("<Loading> fragments and the failed request", () => {
       ownerPath: ["<App>", "<Loading>"]
     });
     expect(typeof calls[0].context.boundary).toBe("string");
+    // The fragment's `_fr` rejection carries the mapping — the boundary
+    // decided it before settling. The async source's OWN serialized
+    // rejection was encoded in the source's rejection microtask, ahead of
+    // the boundary, and carries the default policy's value (fidelity in
+    // this tier): a documented limit of the hook, kept so the error path
+    // gains no tick (see `ServerErrorHook`).
     expect(html).toContain('new Error("try again")');
-    expect(html).not.toContain("late-boom");
+    expect(html).toContain('new Error("late-boom")');
   });
 
   test("a synchronous failure under <Loading> inside <Errored>: the parent's fallback is the one sight", () => {

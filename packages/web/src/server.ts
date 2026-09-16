@@ -2170,16 +2170,21 @@ export function renderToStream(code, options = {}) {
   // per channel object, so a source serialized under two ids stays one
   // channel for seroval's cross-references.
   //
-  // The verdict is read a macrotask AFTER the rejection, not in its
-  // microtask: this handler was attached at serialize time, ahead of the
-  // boundary that will contain the failure, so it would otherwise be the
-  // error's first sight — with no idea how it is handled — and the server
-  // error hook's mapping, decided by the boundary a few microtasks later,
-  // would reach the record but not this channel. The client's read of a
-  // rejection waits on the fragment anyway; the delay is unobservable.
+  // The verdict is read in the rejection's own microtask — no added tick on
+  // the error path. This handler was attached at serialize time, ahead of
+  // the boundary that will contain the failure, so for a source that
+  // rejects before the boundary meets it this is the error's first sight,
+  // with no site: the DEFAULT policy applies here (generic outside dev),
+  // and a server error hook's mapping — decided by the boundary a few
+  // microtasks later — reaches the boundary's record and fallback, which
+  // are what the hydrating client renders from, but not this channel's
+  // reason. Deferring the verdict past the boundary would put a tick into
+  // shell flush and completion on every rejected source; the mapping on a
+  // road nobody renders from is not worth it (see `ServerErrorHook`).
   const guardedChannels = new WeakMap();
-  const verdictLater = error =>
-    new Promise((_, reject) => deferFlush(() => reject(ssrSanitizeError(error, null))));
+  const verdictNow = error => {
+    throw ssrSanitizeError(error, null);
+  };
   const guardChannel = p => {
     if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
     const thenable = typeof p.then === "function";
@@ -2188,12 +2193,12 @@ export function renderToStream(code, options = {}) {
     let guarded = guardedChannels.get(p);
     if (guarded === undefined) {
       guarded = thenable
-        ? p.then(undefined, verdictLater)
+        ? p.then(undefined, verdictNow)
         : {
             [Symbol.asyncIterator]() {
               const iterator = p[Symbol.asyncIterator]();
               return {
-                next: value => iterator.next(value).then(undefined, verdictLater),
+                next: value => iterator.next(value).then(undefined, verdictNow),
                 return: value =>
                   iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value }),
                 throw: error => (iterator.throw ? iterator.throw(error) : Promise.reject(error))
@@ -2204,18 +2209,15 @@ export function renderToStream(code, options = {}) {
     }
     return guarded;
   };
-  const trackSerialized = (id, p, source = p) => {
+  const trackSerialized = (id, p) => {
     let settle;
     const raced = Promise.race([p, new Promise(r => (settle = r))]);
     pendingSerialized.set(id, settle);
-    // Once the SOURCE settles the entry is dead weight; drop it — the
-    // source, not the guarded channel, whose rejection is deferred a
-    // macrotask (see `verdictLater`) and would count a settled failure as
-    // pending work in the abandonment ledger. The rejection arm also keeps
-    // an abandoned-then-rejected source from surfacing as an unhandled
-    // rejection (seroval only sees the race).
+    // Once the source settles the entry is dead weight; drop it. The
+    // rejection arm also keeps an abandoned-then-rejected source from
+    // surfacing as an unhandled rejection (seroval only sees the race).
     const drop = () => pendingSerialized.delete(id);
-    source.then(drop, drop);
+    p.then(drop, drop);
     return raced;
   };
   // A fragment settling with an error abandons its subtree: descendant
@@ -2421,7 +2423,6 @@ export function renderToStream(code, options = {}) {
       // write takes, so the reason the client receives is what the wire
       // policy allows (`ssrSanitizeError`); the boundary that caught the
       // same failure server-side hands it the same replacement.
-      const source = p;
       p = guardChannel(p);
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
@@ -2432,7 +2433,7 @@ export function renderToStream(code, options = {}) {
         // Every pending promise handed to seroval joins the abandonment
         // ledger (#3165) — pre-shell and streaming alike, since a fragment
         // can error terminally at any point after this write.
-        p = trackSerialized(id, p, source);
+        p = trackSerialized(id, p);
         // `shellCompleted` (not `firstFlushed`) gates batching: doShell()
         // flushes the batch into the shell's task snapshot, and writes in the
         // microtask window between the two flags must go direct or they'd
@@ -5096,6 +5097,12 @@ export interface ServerErrorContext extends Omit<ServerErrorSite, "event"> {
  * dev build, the error itself in it; `markSafeError` still passes through).
  * A returned value is taken as intended client-facing content and is not
  * sanitized again. Ignored for `handling: "failed"`, which has no wire.
+ *
+ * One road a mapping does not reach: a rejected async source's serialized
+ * rejection is encoded the moment the source rejects, ahead of the boundary
+ * that meets the failure, and carries the default policy's value there. The
+ * hydrating client renders from the boundary's record, which carries the
+ * mapping; no tick is added to the error path to make the two agree.
  */
 export type ServerErrorHook = (error: unknown, context: ServerErrorContext) => unknown | void;
 
