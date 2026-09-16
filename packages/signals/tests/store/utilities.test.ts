@@ -824,7 +824,9 @@ describe("view descriptors", () => {
     // l3's statics, l1's defaults, the user's props — in merge order
     expect((leaves[0] as OmitView).hidden).toEqual(["as"]);
     expect((leaves[2] as OmitView).source).toBe(user);
-    expect((leaves[2] as OmitView).hidden).toEqual(["type", "as"]);
+    // both filters, chained rather than copied: the inner omit's list and the
+    // outer's, in that order
+    expect((leaves[2] as OmitView).hidden).toEqual({ inner: ["type"], outer: ["as"] });
     // and the truth reaches the top
     expect(Object.getOwnPropertyDescriptor(l5, "class")!.value).toBe("btn");
     expect(typeof Object.getOwnPropertyDescriptor(l5, "label")!.get).toBe("function");
@@ -832,6 +834,36 @@ describe("view descriptors", () => {
     expect(Object.getOwnPropertyDescriptor(l5, "as")).toBeUndefined();
     expect(Object.getOwnPropertyDescriptor(l5, "role")!.value).toBe("button");
     expect(Object.keys(l5).sort()).toEqual(["class", "extra", "label", "role"]);
+  });
+  test("folded filters chain: lists, predicates and empty omits over each other", () => {
+    const user = { a: 1, b: 2, c: 3, d: 4, e: 5 };
+    // omit of omit of predicate-omit of a no-key omit — every combination
+    const o1 = omit(user); // nothing hidden: adds no link
+    const o2 = omit(o1, (key: PropertyKey) => key === "a");
+    const o3 = omit(o2, "b");
+    const o4 = omit(o3); // still nothing added
+    const o5 = omit(o4, "c", "zz");
+    const view = viewOf(o5) as OmitView;
+    expect(view.source).toBe(user);
+    expect(view.hidden).toEqual({
+      inner: { inner: expect.any(Function), outer: ["b"] },
+      outer: ["c", "zz"]
+    });
+    expect(Object.keys(o5)).toEqual(["d", "e"]);
+    expect("a" in o5).toBe(false);
+    expect("b" in o5).toBe(false);
+    expect("c" in o5).toBe(false);
+    expect("d" in o5).toBe(true);
+    expect(o5.a).toBeUndefined();
+    expect(o5.d).toBe(4);
+    expect(Object.getOwnPropertyDescriptor(o5, "b")).toBeUndefined();
+    expect(Object.getOwnPropertyDescriptor(o5, "e")!.value).toBe(5);
+    // through a merge, the chained filter travels with the leaf
+    const m = merge({ x: 0 }, o5);
+    expect(Object.keys(m)).toEqual(["x", "d", "e"]);
+    const o6 = omit(m, "d");
+    expect(Object.keys(o6)).toEqual(["x", "e"]);
+    expect({ ...o6 }).toEqual({ x: 0, e: 5 });
   });
   // A store-shaped proxy that logs every trap it is asked. `$PROXY in`,
   // `$TARGET` and `$PROXY` are a store's fast paths; anything else — an

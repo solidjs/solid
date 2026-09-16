@@ -102,31 +102,57 @@ export class OmitView {
   ) {}
 }
 
-type Hidden = PropertyKey[] | ((key: PropertyKey) => boolean);
-
-function isHidden(view: OmitView, key: PropertyKey): boolean {
-  const h = view.hidden;
-  return typeof h === "function" ? h(key) : h.includes(key);
+// What an omit view hides: the caller's key list or predicate, or — for a
+// view folded over another (an omit of an omit, or of a merge with omit
+// leaves) — both filters, CHAINED. A link is one two-field object where a
+// combined key list was a copy of every key hidden so far: an omit over a
+// merge combines once per leaf per layer, so on a component chain
+// (defaults → omit → statics → omit …) the copies grew with the depth and
+// were the largest allocation of the views (100–450 bytes a leaf on a
+// Kobalte-shaped chain, more with `push` growth). A check walks the links,
+// the same `includes` work a combined list did.
+type Filter = PropertyKey[] | ((key: PropertyKey) => boolean);
+type Hidden = Filter | HiddenChain;
+class HiddenChain {
+  constructor(
+    /** the filter folded over: a list, predicate, or a chain of its own */
+    public inner: Hidden,
+    /** this link's own filter — one list or predicate, never a chain */
+    public outer: Filter
+  ) {}
 }
 
-// Both filters as one. Two key lists stay a key list (one `includes`, no
-// closure); a predicate on either side needs a closure. An omit over a
-// merge builds one combined list per leaf, per component layer, so the
-// copy's form matters in every tier: `concat` runs the species/spreadable
-// protocol (2–3× the cost of a copy once optimized), a hand loop is 2–4×
-// `concat` in the interpreter and baseline tiers (a bytecode per element
-// against one builtin), and a presized `new Array(n)` is holey, which takes
-// `includes` off its fast path. `slice` + `push` of the (short) second list
-// is within a third of the best form in every tier, and packed.
-function combineHidden(a: Hidden, b: Hidden): Hidden {
-  if (typeof a !== "function" && typeof b !== "function") {
-    const out = a.slice();
-    for (let i = 0; i < b.length; i++) out.push(b[i]);
-    return out;
+function isHidden(view: OmitView, key: PropertyKey): boolean {
+  return hides(view.hidden, key);
+}
+
+// One loop, no recursion, and a link is told from a list or a predicate by
+// its constructor (a load and a compare; `instanceof` and `Array.isArray`
+// are builtin calls in the bytecode tiers): the check runs per key of every
+// leaf when a view is enumerated or its table is built, and on a chain that
+// is several links deep, so it is written for those tiers as much as for
+// the optimizer.
+function hides(h: Hidden, key: PropertyKey): boolean {
+  for (;;) {
+    if (h.constructor !== HiddenChain)
+      return typeof h === "function" ? h(key) : (h as PropertyKey[]).includes(key);
+    const outer = (h as HiddenChain).outer;
+    if (typeof outer === "function" ? outer(key) : outer.includes(key)) return true;
+    h = (h as HiddenChain).inner;
   }
-  return key =>
-    (typeof a === "function" ? a(key) : a.includes(key)) ||
-    (typeof b === "function" ? b(key) : b.includes(key));
+}
+
+// Both filters as one — a link, never a copy. A filter with nothing to hide
+// (an `omit(props)` with no keys) adds no link. `outer` is normally the
+// current omit's own filter; when it is a chain (an omit over an omit that
+// was itself over a merge), its links are re-hung over `inner` one by one so
+// every link's own filter stays atomic.
+function combineHidden(inner: Hidden, outer: Hidden): Hidden {
+  if (outer instanceof HiddenChain)
+    return combineHidden(combineHidden(inner, outer.inner), outer.outer);
+  if (Array.isArray(outer) && outer.length === 0) return inner;
+  if (Array.isArray(inner) && inner.length === 0) return outer;
+  return new HiddenChain(inner, outer);
 }
 
 // The object a view filters (see `leafOf`).
@@ -933,17 +959,19 @@ export function omit(props: any, ...keys: any[]): any {
     }
     return new Proxy(new OmitView(source, kind, hidden, entries), omitTraps);
   }
+  // No Proxy: no views exist, so `hidden` is the caller's list or predicate.
+  const own = hidden as PropertyKey[] | ((key: PropertyKey) => boolean);
   const result: Record<string, any> = {};
   const propNames = Object.getOwnPropertyNames(props);
   const isHiddenKey: (key: string) => boolean =
-    typeof hidden === "function"
-      ? hidden
-      : hidden.length > 4 && propNames.length > hidden.length
+    typeof own === "function"
+      ? own
+      : own.length > 4 && propNames.length > own.length
         ? (
             blocked => (key: string) =>
               blocked.has(key)
-          )(new Set(hidden))
-        : key => hidden.includes(key);
+          )(new Set(own))
+        : key => own.includes(key);
 
   for (const propName of propNames) {
     if (!isHiddenKey(propName)) {
