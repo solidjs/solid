@@ -60,6 +60,7 @@ import {
   type State
 } from "./visibility-oracle.harness.js";
 import { STATES as ORACLE_STATES } from "./visibility-oracle.states.js";
+import { STATES as STORE_STATES } from "./visibility-oracle-store.states.js";
 
 /** Matrix-only states (no reader-kind expectations): shapes whose question is
  * the READER's hold rather than the served value. */
@@ -87,7 +88,7 @@ const MATRIX_STATES: State[] = [
     expect: {} as State["expect"]
   }
 ];
-const STATES = [...ORACLE_STATES, ...MATRIX_STATES];
+const STATES = [...ORACLE_STATES, ...STORE_STATES, ...MATRIX_STATES];
 
 const POSTURES = [
   "mainline",
@@ -257,6 +258,11 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
     served = log.length ? log[log.length - 1] : HELD;
     passValue = pass.length ? pass[pass.length - 1] : HELD;
   }
+  // Freeze the served value HERE: the closure readers (untracked / latest /
+  // isPending) assign `served` inside the posture's own compute (boundary
+  // content), which may re-run after the probes below change the world — a
+  // later pass must not overwrite what the reader saw at build time.
+  const servedAtBuild = served;
   let afterGate: string | undefined;
   if (gated) {
     setShow(false);
@@ -282,7 +288,7 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
     state: state.name,
     posture,
     reader,
-    served,
+    served: servedAtBuild,
     passValue,
     afterSourceRelease,
     foreignStillHeld,
