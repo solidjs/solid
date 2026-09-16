@@ -349,7 +349,7 @@ export const STATES: State[] = [
       installStale(x);
       setQ(1); // new question; flight never lands
       flush();
-      return { x, dispose };
+      return { x, dispose, source: q }; // q's write (1) is what the flight holds
     },
     expect: {
       untracked: rule(

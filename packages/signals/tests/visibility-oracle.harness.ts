@@ -53,16 +53,25 @@ export const READERS = [
 ] as const;
 export type Reader = (typeof READERS)[number];
 
+/** What a state builder returns. `source`: the mainline signal whose ordinary
+ * write the state's flight holds (when there is one) — the posture matrix
+ * asks whether that write publishes once no visible reader needs the flight. */
+export type Built = {
+  x: () => unknown;
+  dispose: () => void;
+  /** The mainline signal whose ordinary write the state's flight holds. */
+  source?: () => unknown;
+  /** A write to make AFTER the matrix reader exists (the reader observes the
+   * flight it opens) — states whose question is about the reader's hold. */
+  perturb?: () => void;
+};
+
 export type State = {
   name: string;
   /** Build the state. Returns the node accessor and a disposer. The stale
    * foreign reader must be created BEFORE the state is entered, so builders
    * receive a hook to install it. */
-  build: (
-    installStale: (x: () => unknown) => void
-  ) =>
-    | { x: () => unknown; dispose: () => void }
-    | Promise<{ x: () => unknown; dispose: () => void }>;
+  build: (installStale: (x: () => unknown) => void) => Built | Promise<Built>;
   expect: Record<Reader, Expect>;
 };
 
