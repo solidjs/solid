@@ -312,6 +312,37 @@ describe("ssrElement with multiple sources", () => {
     expect(render("div", null)).toBe("<div></div>");
     expect(render("br", {}, undefined, true)).toMatch(/^<br _hk=\w+ \/>$/);
   });
+
+  // One string, a number, nothing, or one finished node joins the open and
+  // close tags in place; anything else — arrays, pending nodes — goes through
+  // the tree resolver. Same output either way; this pins the shapes.
+  test("children of every shape serialize as the resolver would", () => {
+    expect(render("p", {}, "text")).toBe("<p>text</p>");
+    expect(render("p", {}, () => "thunked")).toBe("<p>thunked</p>");
+    expect(render("p", {}, 42)).toBe("<p>42</p>");
+    expect(render("p", {}, 0)).toBe("<p>0</p>");
+    expect(render("p", {}, null)).toBe("<p></p>");
+    expect(render("p", {}, undefined)).toBe("<p></p>");
+    expect(render("p", {}, false)).toBe("<p></p>");
+    expect(render("p", {}, true)).toBe("<p></p>");
+    // a finished node from a nested element
+    expect(render("p", {}, () => ssrElement("b", { id: "i" }, "in", false))).toBe(
+      '<p><b id="i">in</b></p>'
+    );
+    // from the sources, escaped or raw
+    expect(render("p", [{ children: 7 }])).toBe("<p>7</p>");
+    expect(render("style", [{ children: "a > b {}" }])).toBe("<style>a > b {}</style>");
+    // arrays take the resolver: an element's direct children are never
+    // separated from each other, a nested array keeps the text separators the
+    // client needs to claim two text nodes
+    expect(render("p", {}, ["a", "b"])).toBe("<p>ab</p>");
+    expect(render("p", {}, () => [1, 2])).toBe("<p>12</p>");
+    expect(render("p", {}, ["a", ssrElement("i", {}, "x", false), "b"])).toBe("<p>a<i>x</i>b</p>");
+    expect(render("p", {}, [["a", "b"]])).toBe("<p>a<!--!$-->b</p>");
+    expect(
+      renderToString(() => [ssrElement("p", {}, "a", false), ssrElement("p", {}, "b", false)])
+    ).toBe("<p>a</p><p>b</p>");
+  });
 });
 
 // omit() and merge() results are walked as VIEWS — the underlying sources,

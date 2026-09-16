@@ -3923,6 +3923,12 @@ function pushEntry(resolved, kinds, s, kind) {
   }
   if (typeof s === "function") s = s();
   if (s == null) return;
+  // The common source is a plain object: one check, no view lookup.
+  if (!($PROXY in s)) {
+    resolved.push(s);
+    kinds.push(SOURCE_PLAIN);
+    return;
+  }
   const view = viewOf(s);
   if (view instanceof OmitView) {
     resolved.push(view);
@@ -3933,7 +3939,7 @@ function pushEntry(resolved, kinds, s, kind) {
     for (let j = 0; j < f.length; j++) pushEntry(resolved, kinds, f[j], k[j]);
   } else {
     resolved.push(s);
-    kinds.push($PROXY in s ? SOURCE_PROXY : SOURCE_PLAIN);
+    kinds.push(SOURCE_PROXY);
   }
 }
 
@@ -3965,12 +3971,26 @@ export function ssrElement(tag, props, children, needsId, skip) {
   // element — and nothing is asked of a store proxy per key but the read.
   // The common case, one plain object, allocates nothing here.
   let sources = null;
+  // The kind of every entry of `sources`: an array, one per entry, or — when
+  // they are all of one kind, the usual case — that kind itself, so the
+  // array form over plain objects and an omit over a merge walk the array
+  // they were handed and allocate no lists of their own.
   let kinds = null;
   let kind = SOURCE_PLAIN;
   if (Array.isArray(props)) {
-    sources = [];
-    kinds = [];
-    for (let i = 0; i < props.length; i++) pushEntry(sources, kinds, props[i], SOURCE_MEMO);
+    let i = 0;
+    for (; i < props.length; i++) {
+      const s = props[i];
+      if (s == null || typeof s === "function" || $PROXY in s) break;
+    }
+    if (i === props.length) {
+      sources = props;
+      kinds = SOURCE_PLAIN;
+    } else {
+      sources = [];
+      kinds = [];
+      for (let i = 0; i < props.length; i++) pushEntry(sources, kinds, props[i], SOURCE_MEMO);
+    }
   } else if (props == null) {
     // A nullish source (static or resolved) is an empty spread (#3297).
     props = {};
@@ -3987,7 +4007,7 @@ export function ssrElement(tag, props, children, needsId, skip) {
       const entries = view.entries;
       if (entries !== undefined) {
         sources = entries;
-        kinds = new Array(entries.length).fill(SOURCE_OMIT);
+        kinds = SOURCE_OMIT;
       } else {
         props = view;
         kind = SOURCE_OMIT;
@@ -4016,13 +4036,14 @@ export function ssrElement(tag, props, children, needsId, skip) {
   let keysOf = null;
   if (sources !== null) {
     keysOf = new Array(last + 1);
-    for (let s = 0; s <= last; s++) keysOf[s] = sourceKeys(sources[s], kinds[s]);
+    for (let s = 0; s <= last; s++)
+      keysOf[s] = sourceKeys(sources[s], typeof kinds === "number" ? kinds : kinds[s]);
   }
   for (let s = 0; s <= last; s++) {
     const keys = keysOf !== null ? keysOf[s] : sourceKeys(props, kind);
     if (sources !== null) {
       props = sources[s];
-      kind = kinds[s];
+      kind = typeof kinds === "number" ? kinds : kinds[s];
     }
     nextKey: for (let i = 0; i < keys.length; i++) {
       const prop = keys[i];
@@ -4105,6 +4126,22 @@ export function ssrElement(tag, props, children, needsId, skip) {
   // `/>` or the slash becomes part of the key's value.
   if (skipChildren) return { t: result + " />" };
   if (typeof children === "function") children = children();
+  // The content most elements end up with — one string (a text child, escaped
+  // above or by the compiler), a number, nothing, or one finished node — joins
+  // in place. That is exactly what the general path below produces for these
+  // shapes, minus its allocations: `resolveSSRNode` builds a `{ t, h, p }`
+  // result (an object and three arrays) to append one string to, and `ssr()`
+  // takes a template array and runs its hole loop to join it back. A spread
+  // element is serialized here on every render, so that was the largest
+  // single cost of the element path (profiled at a third of it on a
+  // text-content-heavy page). The text-adjacency marker state
+  // (`ssrTextTail`) is not touched: the parent resets it on this element's
+  // finished node either way.
+  const ct = typeof children;
+  if (ct === "string" || ct === "number") return { t: result + ">" + children + "</" + tag + ">" };
+  if (children == null || ct === "boolean") return { t: result + "></" + tag + ">" };
+  if (ct === "object" && !children.h && typeof children.t === "string")
+    return { t: result + ">" + children.t + "</" + tag + ">" };
   return ssr([result + ">", `</${tag}>`], resolveSSRNode(children, undefined, true));
 }
 export function ssrAttribute(key: string, value: any): string;
