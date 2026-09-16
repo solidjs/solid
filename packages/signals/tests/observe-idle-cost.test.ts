@@ -13,9 +13,19 @@
  * and the observe/prod ratio is what is capped. Both tiers see the same
  * machine load, and best-of-k picks the quiet run for each.
  */
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 type Tier = typeof import("../src/index.js");
+
+// The built artifacts — what apps actually resolve. Gitignored, so the test
+// skips when they haven't been built (run `pnpm build`); resolved paths rather
+// than literal specifiers so the build's type pass doesn't try to find them.
+const here = dirname(fileURLToPath(import.meta.url));
+const PROD = resolve(here, "../dist/prod/index.js");
+const OBSERVE = resolve(here, "../dist/observe/index.js");
 
 /**
  * A graph-heavy workload with no hooks installed: N chains of
@@ -54,10 +64,10 @@ function workload(tier: Tier, N: number, K: number): number {
   return ms;
 }
 
-describe("observe tier idle cost", () => {
+describe.skipIf(!existsSync(PROD) || !existsSync(OBSERVE))("observe tier idle cost", () => {
   test("no hooks installed: the observe artifact runs the same graph within the cap of prod", async () => {
-    const prod = (await import("../dist/prod/index.js")) as unknown as Tier;
-    const observe = (await import("../dist/observe/index.js")) as unknown as Tier;
+    const prod = (await import(PROD)) as Tier;
+    const observe = (await import(OBSERVE)) as Tier;
     expect((prod as any).OBSERVE).toBeUndefined();
     expect((observe as any).OBSERVE).toBeDefined();
 
@@ -69,9 +79,10 @@ describe("observe tier idle cost", () => {
     workload(prod, N, 2);
     workload(observe, N, 2);
     // Measured 2026-09-16 (M-series, five samples): 1.03–1.09 — the wiring
-    // is 3–9% on a graph that does nothing but cross it. The cap trips on a
-    // doubling of the wiring's cost, which is the regression this exists to
-    // catch. Noise: the suite runs this beside other files on worker
+    // is 3–9% on a graph that does nothing but cross it. The cap trips when
+    // the wiring costs ~3x what it does today (25%), which is the regression
+    // this exists to catch — a hook site that stopped being a null check.
+    // Noise: the suite runs this beside other files on worker
     // threads, so one tier can draw the busy slots; a round is best-of-k
     // interleaved, and a round over the cap is re-measured (a regression is
     // over the cap every round, contention is not).
