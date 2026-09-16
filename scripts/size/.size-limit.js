@@ -1175,6 +1175,10 @@ module.exports = [
     // the core walks it on solid-js's server owners (`ownerPath`,
     // `OBSERVE.exclude`). ~+40 B across the prod scenarios; the observe ones
     // moved by gzip noise or shrank.
+    // Reporter liveness reads this pass's deps; a dropped dep retires the reporter
+    // and wakes every parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16):
+    // 15,170 B before the #3496 rebase (+30 over its base); 0 B minified in
+    // the signals floor (24,578 flat).
     limit: "15.20 KB",
     modifyEsbuildConfig
   },
@@ -1280,7 +1284,10 @@ module.exports = [
     // ~+170 B; pay-for-use, the price of a boundary that can tell a monitor
     // what it caught. Scenarios without a boundary did not move (`render`'s
     // write of `onError` onto the root owner is the only prod-floor cost).
-    limit: "16.70 KB",
+    // Reporter liveness reads this pass's deps; a dropped dep retires the reporter
+    // and wakes every parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16):
+    // 16,730 B (+40 over base); 0 B minified in the signals floor (24,578 flat).
+    limit: "16.75 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
