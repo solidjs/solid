@@ -15,13 +15,11 @@ import {
   creationStamp,
   inServerComponentScope,
   viewOf,
-  OmitView,
   sourceKeys,
   sourceGet,
+  sourceOwners,
   SOURCE_PLAIN,
-  SOURCE_OMIT,
   SOURCE_PROXY,
-  SOURCE_MEMO,
   ssrScope as scope,
   ssrSanitizeError,
   reportServerError
@@ -3919,41 +3917,6 @@ export function ssrElement(
   skip?: (key: string) => boolean
 ): { t: string };
 
-// review with new ssr
-// One spread source into the resolved entry lists. A known plain /
-// omit-record / proxy entry (a merge's leaf) joins as is. Anything else — a
-// function (the array form's thunk, merge's memo), called once — is
-// classified: a merge() proxy contributes its leaves, an omit() proxy its
-// record, a store is walked through its traps, and nothing nullish
-// contributes at all (#3297).
-function pushEntry(resolved, kinds, s, kind) {
-  if (kind !== SOURCE_MEMO) {
-    resolved.push(s);
-    kinds.push(kind);
-    return;
-  }
-  if (typeof s === "function") s = s();
-  if (s == null) return;
-  // The common source is a plain object: one check, no view lookup.
-  if (!($PROXY in s)) {
-    resolved.push(s);
-    kinds.push(SOURCE_PLAIN);
-    return;
-  }
-  const view = viewOf(s);
-  if (view instanceof OmitView) {
-    resolved.push(view);
-    kinds.push(SOURCE_OMIT);
-  } else if (view !== undefined) {
-    const f = view.sources,
-      k = view.kinds;
-    for (let j = 0; j < f.length; j++) pushEntry(resolved, kinds, f[j], k[j]);
-  } else {
-    resolved.push(s);
-    kinds.push(SOURCE_PROXY);
-  }
-}
-
 export function ssrElement(tag, props, children, needsId, skip) {
   // The hydration key must be allocated before the props thunk runs: dynamic
   // props (`mergeProps(() => ...)`) create a memo, which consumes a child id.
@@ -3975,63 +3938,51 @@ export function ssrElement(tag, props, children, needsId, skip) {
   // hydration ids of its own — the client `spread` array form follows the
   // same rule. A nullish source is an empty source.
   //
-  // Sources are walked as ENTRIES (`sourceKeys`/`sourceGet`), each with its
-  // KIND (see `SourceKind`): a merge() proxy contributes its flattened
-  // sources and an omit() proxy its view record, so neither is enumerated
-  // through its traps — a descriptor trap per key, allocating, on every
-  // element — and nothing is asked of a store proxy per key but the read.
-  // The common case, one plain object, allocates nothing here.
+  // The common case — one plain object, or an array of them (the compiled
+  // form) — is walked as it was handed in: `Object.keys` per source, and "a
+  // later source owns this key" a lookup in its list. Nothing is allocated
+  // but the key lists.
+  //
+  // Anything else among the sources — a merge()/omit() view, a store, a
+  // thunk — is collected by ONE pass (`sourceOwners`) into two lists: every
+  // key in merged order with the object that owns it. A view is never
+  // enumerated through its traps (a descriptor trap per key, allocating, on
+  // every element) and never asked for its resolved table (worth building
+  // for a client spread that reruns, not for a pass that reads each key
+  // once and lets the view go): the pass walks its leaves through the
+  // merge/omit layers, and each prop below is one direct read of its owner —
+  // no `in` walk per key, no key list per leaf.
   let sources = null;
-  // The kind of every entry of `sources`: an array, one per entry, or — when
-  // they are all of one kind, the usual case — that kind itself, so the
-  // array form over plain objects and an omit over a merge walk the array
-  // they were handed and allocate no lists of their own.
-  let kinds = null;
   let kind = SOURCE_PLAIN;
+  let viewKeys = null;
+  let owners = null;
   if (Array.isArray(props)) {
     let i = 0;
     for (; i < props.length; i++) {
       const s = props[i];
       if (s == null || typeof s === "function" || $PROXY in s) break;
     }
-    if (i === props.length) {
-      sources = props;
-      kinds = SOURCE_PLAIN;
-    } else {
-      sources = [];
-      kinds = [];
-      for (let i = 0; i < props.length; i++) pushEntry(sources, kinds, props[i], SOURCE_MEMO);
+    if (i === props.length) sources = props;
+    else {
+      viewKeys = [];
+      owners = [];
+      for (let i = 0; i < props.length; i++) {
+        let s = props[i];
+        // A function source is a plain thunk, called once (see above); a
+        // nullish source contributes nothing (#3297).
+        if (typeof s === "function") s = s();
+        if (s != null) sourceOwners(s, viewKeys, owners);
+      }
     }
   } else if (props == null) {
     // A nullish source (static or resolved) is an empty spread (#3297).
     props = {};
-  } else {
-    // A view is walked as its ENTRIES, never through its resolved table: the
-    // table (key → owning leaf, every key of every leaf) is worth building
-    // for a client spread that reruns, but this pass reads each key once and
-    // the view is gone after it — and asking for the table would build one
-    // per view where the walk below allocates nothing but the key lists.
-    // An omit over a merge is its filtered leaf entries, an omit over one
-    // object is one entry.
-    const view = viewOf(props);
-    if (view instanceof OmitView) {
-      const entries = view.entries;
-      if (entries !== undefined) {
-        sources = entries;
-        kinds = SOURCE_OMIT;
-      } else {
-        props = view;
-        kind = SOURCE_OMIT;
-      }
-    } else if (view !== undefined) {
-      // Flattened entries take the array walk; a function among them is
-      // merge's memo, resolved here (the keys are allocated, see above).
-      sources = [];
-      kinds = [];
-      const f = view.sources,
-        k = view.kinds;
-      for (let i = 0; i < f.length; i++) pushEntry(sources, kinds, f[i], k[i]);
-    } else if ($PROXY in props) kind = SOURCE_PROXY;
+  } else if ($PROXY in props) {
+    if (viewOf(props) !== undefined) {
+      viewKeys = [];
+      owners = [];
+      sourceOwners(props, viewKeys, owners);
+    } else kind = SOURCE_PROXY;
   }
   const skipChildren = VOID_ELEMENTS.test(tag);
   // Each emitted attribute carries its own leading space (the hydration key
@@ -4047,18 +3998,17 @@ export function ssrElement(tag, props, children, needsId, skip) {
   let keysOf = null;
   if (sources !== null) {
     keysOf = new Array(last + 1);
-    for (let s = 0; s <= last; s++)
-      keysOf[s] = sourceKeys(sources[s], typeof kinds === "number" ? kinds : kinds[s]);
+    for (let s = 0; s <= last; s++) keysOf[s] = Object.keys(sources[s]);
   }
   for (let s = 0; s <= last; s++) {
-    const keys = keysOf !== null ? keysOf[s] : sourceKeys(props, kind);
-    if (sources !== null) {
-      props = sources[s];
-      kind = typeof kinds === "number" ? kinds : kinds[s];
-    }
+    const keys = owners !== null ? viewKeys : keysOf !== null ? keysOf[s] : sourceKeys(props, kind);
+    if (sources !== null) props = sources[s];
     nextKey: for (let i = 0; i < keys.length; i++) {
       const prop = keys[i];
       if (typeof prop !== "string" || (skip !== undefined && skip(prop))) continue;
+      // A view's key is read from the leaf that owns it (kind stays PLAIN:
+      // a plain leaf, or a store proxy read through its trap as `[]`).
+      if (owners !== null) props = owners[i];
       // A later source that has the key owns it; this source's getter stays
       // unread.
       for (let j = s + 1; j <= last; j++) {

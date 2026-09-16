@@ -24,6 +24,8 @@ import {
   SOURCE_OMIT,
   SOURCE_PROXY,
   SOURCE_MEMO,
+  SOURCE_MERGE,
+  sourceOwners,
   reconcile,
   snapshot,
   type Store
@@ -803,7 +805,7 @@ describe("view descriptors", () => {
     expect(typeof Object.getOwnPropertyDescriptor(view, "b")!.get).toBe("function");
     expect(Object.getOwnPropertyDescriptor(view, "c")).toBeUndefined();
   });
-  test("kind survives omit → merge → omit → merge, and the layers collapse to leaf views", () => {
+  test("kind survives omit → merge → omit → merge: one record per layer, nested", () => {
     const user = {
       class: "btn",
       get label() {
@@ -817,14 +819,26 @@ describe("view descriptors", () => {
     const l3 = merge({ as: "button", role: "button" }, l2);
     const l4 = omit(l3, "as");
     const l5 = merge(l4, { extra: 1 });
-    // every layer is one deep: leaf views over the original objects
-    const leaves = mergeSources(l5)!;
-    expect(leaves.length).toBe(4);
-    for (const leaf of leaves.slice(0, 3)) expect(leaf).toBeInstanceOf(OmitView);
-    // l3's statics, l1's defaults, the user's props — in merge order
-    expect((leaves[0] as OmitView).hidden).toEqual(["as"]);
-    expect((leaves[2] as OmitView).source).toBe(user);
-    expect((leaves[2] as OmitView).hidden).toEqual(["type", "as"]);
+    // An omit over a merge is ONE record holding the merge's record, and a
+    // merge over it carries that record as one entry: the layers nest, and
+    // nothing is copied per leaf per layer.
+    const top = mergeSources(l5)!;
+    expect(top.length).toBe(2);
+    const o4 = top[0] as OmitView;
+    expect(o4).toBeInstanceOf(OmitView);
+    expect(o4.kind).toBe(SOURCE_MERGE);
+    expect(o4.hidden).toEqual(["as"]);
+    const m3 = o4.source as MergeView;
+    expect(m3).toBeInstanceOf(MergeView);
+    expect(m3).toBe(viewOf(l3));
+    expect(m3.kinds).toEqual([SOURCE_PLAIN, SOURCE_OMIT]);
+    const o2 = m3.sources[1] as OmitView;
+    expect(o2.kind).toBe(SOURCE_MERGE);
+    expect(o2.hidden).toEqual(["type"]);
+    expect(o2.source).toBe(viewOf(l1));
+    expect((o2.source as MergeView).sources[1]).toBe(user);
+    // An omit's own $SOURCES never answers the merge's unfiltered sources.
+    expect(mergeSources(l4)).toBeUndefined();
     // and the truth reaches the top
     expect(Object.getOwnPropertyDescriptor(l5, "class")!.value).toBe("btn");
     expect(typeof Object.getOwnPropertyDescriptor(l5, "label")!.get).toBe("function");
@@ -832,6 +846,32 @@ describe("view descriptors", () => {
     expect(Object.getOwnPropertyDescriptor(l5, "as")).toBeUndefined();
     expect(Object.getOwnPropertyDescriptor(l5, "role")!.value).toBe("button");
     expect(Object.keys(l5).sort()).toEqual(["class", "extra", "label", "role"]);
+    // The consumers' helpers see through the nesting as one filtered entry,
+    // in merged order (a key at the position of its LAST leaf).
+    expect(sourceKeys(o4, SOURCE_OMIT)).toEqual(["role", "class", "label"]);
+    expect(sourceHas(o4, SOURCE_OMIT, "as")).toBe(false);
+    expect(sourceHas(o4, SOURCE_OMIT, "type")).toBe(false);
+    expect(sourceHas(o4, SOURCE_OMIT, "label")).toBe(true);
+    expect(sourceGet(o4, SOURCE_OMIT, "as")).toBeUndefined();
+    expect(sourceGet(o4, SOURCE_OMIT, "role")).toBe("button");
+    expect(sourceGet(o4, SOURCE_OMIT, "class")).toBe("btn");
+    // A filter applies to its own layer's contribution: `as` hidden by l4
+    // does not hide l5's own sources, and l3's statics are not filtered by l2.
+    const l6: any = merge(l4, { as: "span" });
+    expect(l6.as).toBe("span");
+    expect(Object.keys(l6)).toEqual(["role", "class", "label", "as"]);
+    const l7: any = omit(merge({ type: "x" }, l2), "class");
+    expect(l7.type).toBe("x");
+    expect(l7.class).toBeUndefined();
+    // One pass gives every key with the leaf that owns it.
+    const keys: PropertyKey[] = [],
+      owners: any[] = [];
+    sourceOwners(l5, keys, owners);
+    expect(keys).toEqual(["role", "class", "label", "extra"]);
+    expect(owners[0]).toBe(m3.sources[0]);
+    expect(owners[1]).toBe(user);
+    expect(owners[2]).toBe(user);
+    expect(owners[3]).toBe(top[1]);
   });
   // A store-shaped proxy that logs every trap it is asked. `$PROXY in`,
   // `$TARGET` and `$PROXY` are a store's fast paths; anything else — an
@@ -936,18 +976,22 @@ describe("view descriptors", () => {
       SOURCE_OMIT,
       SOURCE_MEMO
     ]);
-    // An omit records its source's kind, and over a merge one entry per leaf.
+    // An omit records its source's kind; over a merge, the merge's record.
     expect((viewOf(omit(store, "s")) as OmitView).kind).toBe(SOURCE_PROXY);
     expect((viewOf(omit(plain, "p")) as OmitView).kind).toBe(SOURCE_PLAIN);
     const overProxy: any = omit(merged, "p");
     const over = viewOf(overProxy) as OmitView;
-    expect(over.kind).toBe(SOURCE_PROXY);
-    expect(over.entries!.map(e => e.kind)).toEqual([
+    expect(over.kind).toBe(SOURCE_MERGE);
+    expect(over.source).toBe(view);
+    // A merge over it carries the one record; an omit over it folds.
+    expect((viewOf(merge({ x: 1 }, overProxy)) as MergeView).kinds).toEqual([
       SOURCE_PLAIN,
-      SOURCE_PROXY,
-      SOURCE_PLAIN,
-      SOURCE_MEMO
+      SOURCE_OMIT
     ]);
+    const folded = viewOf(omit(overProxy, "o")) as OmitView;
+    expect(folded.kind).toBe(SOURCE_MERGE);
+    expect(folded.source).toBe(view);
+    expect(folded.hidden).toEqual(["p", "o"]);
     expect(overProxy.p).toBeUndefined();
     expect(overProxy.s).toBe(1);
     expect(overProxy.o).toBe(1);
@@ -981,15 +1025,20 @@ describe("view descriptors", () => {
       expect("type" in rest).toBe(false);
       expect(Reflect.getOwnPropertyDescriptor(rest, "title")!.get).toBeTypeOf("function");
     };
-    expectSame(); // 8 trap reads on the merge (two of them through `rest`), 4 on the omit
-    expect(mergedView.table).toBe(8); // the slot counts the reads until it is decided
+    // 6 trap reads on the merge, 4 on the omit. A read through `rest` is the
+    // omit's: it reaches the merge's record by function call, not through
+    // the merge's traps, and only the view that was asked counts.
+    expectSame();
+    expect(mergedView.table).toBe(6); // the slot counts the reads until it is decided
     expect(restView.table).toBe(4);
+    expectSame();
+    expect(mergedView.table).toBe(12);
+    expect(restView.table).toBe(8);
     // …and once the reads have paid for a table (16), it is built and every
     // trap answers from it with the same results.
     expectSame();
     expect(mergedView.table).toBeInstanceOf(Map);
-    expect(restView.table).toBe(8);
-    expectSame();
+    expect(restView.table).toBe(12);
     expectSame();
     expect(restView.table).toBeInstanceOf(Map);
     expectSame();
@@ -998,6 +1047,15 @@ describe("view descriptors", () => {
     expect((viewOf(fresh) as MergeView).table).toBe(0);
     expect(Object.keys(fresh)).toEqual(["a", "b"]);
     expect((viewOf(fresh) as MergeView).table).toBeInstanceOf(Map);
+    // …for the view that asked only: an omit over a merge collects its table
+    // in one pass over the merge's leaves, and the merge builds none.
+    const inner: any = merge({ a: 1 }, { b: 2 }, omit({ c: 3, d: 4 }, "d"));
+    const outer: any = omit(inner, "a");
+    expect(Object.keys(outer)).toEqual(["b", "c"]);
+    expect((viewOf(outer) as OmitView).table).toBeInstanceOf(Map);
+    expect((viewOf(inner) as MergeView).table).toBe(0);
+    expect(outer.c).toBe(3);
+    expect(outer.d).toBeUndefined();
     // An omit over one object never builds one: its read is direct.
     const plainRest: any = omit(user, "class");
     for (let i = 0; i < 40; i++) expect(plainRest.as).toBe("a");
