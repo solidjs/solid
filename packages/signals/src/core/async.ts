@@ -1,6 +1,7 @@
 import {
   CONFIG_CHILD_COMPANIONS,
   CONFIG_AUTO_DISPOSE,
+  CONFIG_DERIVED_OVERRIDE,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_SYNC,
   EFFECT_TRACKED,
@@ -12,7 +13,8 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  unwrapOverride
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
@@ -500,7 +502,14 @@ export function handleAsync<T>(
         return;
       }
       if (wasUninitialized) landStatus(el, true);
-    } else if (el._x?._overrideValue !== undefined) {
+    } else if (
+      el._x?._overrideValue !== undefined &&
+      !(lane && el._config & CONFIG_DERIVED_OVERRIDE)
+    ) {
+      // A derived override's landing UNDER its lane is the lane's own work
+      // (the branch below); demoted — its source superseded (A18) — the
+      // landing is the truth the correction asked for, and holds and
+      // supersedes here like the sync twin (recompute). Otherwise:
       // Optimistic node — resting OR covered by an active override — holds
       // through the shared pending-node path, exactly like a plain async memo,
       // so the commit clears STATUS_UNINITIALIZED (#2806) and elevation to
@@ -539,11 +548,15 @@ export function handleAsync<T>(
     } else if (lane) {
       // Route through lane's effect queue for independent flushing
       const isEffect = (el as any)._type;
-      const prevValue = el._value;
+      const prevValue = hasActiveOverride(el) ? unwrapOverride(el._x!._overrideValue) : el._value;
       const equals = el._equals;
       try {
         if ((!isEffect && wasUninitialized) || !equals || !equals(value, prevValue)) {
-          el._value = value;
+          // Lanes stage (#3479): a memo's landing under its lane is a derived
+          // override, as its sync pass's result is (recompute) — `_value`
+          // stays the committed truth for readers off the lane.
+          if (isEffect) el._value = value;
+          else GlobalQueue._laneOverride!(el, value, lane);
           el._time = clock;
           // The latest() shadow write gives latest() effects independent lanes; the
           // _pendingSignal update is a no-op repeat of the clearStatus() call above
@@ -930,8 +943,15 @@ export function notifyStatus(
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   const isSource = pendingSource === el;
+  // An optimistic node (a WRITTEN override slot) pending derivatively is a
+  // boundary: its override is the answer, pending stops here (A17). A
+  // derived override (#3479) is a previous speculative answer on a plain
+  // member — pending flows through it as through any memo.
   const isOptimisticBoundary =
-    status === STATUS_PENDING && el._x?._overrideValue !== undefined && !isSource;
+    status === STATUS_PENDING &&
+    el._x?._overrideValue !== undefined &&
+    !(el._config & CONFIG_DERIVED_OVERRIDE) &&
+    !isSource;
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {

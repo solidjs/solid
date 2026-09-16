@@ -4,7 +4,7 @@ import {
   type InteractionRef,
   type OriginRef
 } from "./attribution-hooks.js";
-import { $REFRESH, NOT_PENDING } from "./constants.js";
+import { $REFRESH, CONFIG_DERIVED_OVERRIDE, NOT_PENDING } from "./constants.js";
 import {
   anyExcluded,
   emitDiagnostic,
@@ -2101,9 +2101,14 @@ const holdStates = new WeakMap<Transition, HoldState>();
 let activeHold: HoldState | null = null;
 let holdLog: HoldEvent[] = [];
 
-/** Companions are optimistic nodes too; `_parentSource` marks them. */
+/** Companions are optimistic nodes too; `_parentSource` marks them. So is a
+ * memo carrying a DERIVED override (lanes stage, #3479) — a lane pass's
+ * result, not a write anyone made: neither is an acknowledgement. */
 function isCompanion(node: Signal<any> | Computed<any>): boolean {
-  return !!node._x && node._x._parentSource !== undefined;
+  return (
+    (!!node._x && node._x._parentSource !== undefined) ||
+    (node._config & CONFIG_DERIVED_OVERRIDE) !== 0
+  );
 }
 
 const HOLD_CENSUS_CAP = 10_000;

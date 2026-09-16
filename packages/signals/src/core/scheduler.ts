@@ -695,7 +695,14 @@ export class GlobalQueue extends Queue {
    * staged truth, unless the reader is a stale (render) reader of another
    * transaction — then the displayed override, as it keeps a foreign
    * transaction's committed value over its staged write. */
-  static _supersededRead: ((el: Signal<any> | Computed<any>) => unknown) | null = null;
+  /** A tracked read of an active override: the lane outside-view rule
+   * (#3460) and the A18 supersession selection (#3331) — see optimistic.ts. */
+  static _overrideRead: ((el: Computed<any>, c: Computed<any>) => unknown) | null = null;
+  /** A lane pass's publish for a memo (#3479, lanes stage): the speculative
+   * result becomes a DERIVED override, `_value` stays committed — see
+   * optimistic.ts laneOverride. Set with the engine, which a lane implies. */
+  static _laneOverride: ((el: Computed<any>, value: unknown, lane: OptimisticLane) => void) | null =
+    null;
   /** Verdict-layer recompute in progress (companion creation, latest()/
    * isPending() pulls): never born held — see core.ts enterStagedRead. */
   static _verdictPull = false;
@@ -767,6 +774,8 @@ export class GlobalQueue extends Queue {
         const isComplete = transitionComplete(activeTransition);
         if (!isComplete) {
           const stashedTransition = activeTransition!;
+          // Parked: the unchanged passes' inputs are held; their tails stay (A30).
+          heldTrims.length = 0;
           // When the parking batch IS the transition, all of its writes commit
           // only with it — every zombie recompute they queued would run against
           // a world the zombie never displays (zombies render mainline until
@@ -1179,7 +1188,18 @@ export function setPatchCommitHook(fn: (batch: Transition) => void): void {
  * frame no timeline contains. */
 const heldRevealed: Signal<any>[] = [];
 
+/** Unchanged passes with a stale dependency tail, waiting on this flush's
+ * verdict (A30, #3469). A pass that changed nothing replaced nothing either —
+ * and cannot know at its own tail whether the flush that ran it will park:
+ * parked, its inputs are held and the committed frame still derives from the
+ * tail (`b() ? b() : a()` computed `1` from the held `b`, equal to the `1` it
+ * had from `a` — with `a` trimmed, the mainline `a = 2` never reached it).
+ * Trimmed when the flush commits; dropped with a park, the tail stays linked
+ * until a committing pass trims it (one spurious recompute at most). */
+export const heldTrims: Computed<any>[] = [];
+
 function commitPendingNodes() {
+  while (heldTrims.length) trimStaleDeps(heldTrims.pop()!);
   const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
     const node = pendingNodes[i];
@@ -1476,8 +1496,28 @@ function runQueue(queue: QueueCallback[], type: number): void {
   for (let i = 0; i < queue.length; i++) queue[i](type);
 }
 
-function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): boolean {
-  if (reporter._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) return false;
+function reporterBlocksSource(
+  reporter: Computed<any>,
+  source: Computed<any>,
+  verdict?: Transition
+): boolean {
+  const flags = reporter._flags;
+  if (flags & REACTIVE_DISPOSED) return false;
+  // A zombie renders until the commit that disposes it (#3463): while its
+  // removal is staged in a live transaction it is still on screen, and what
+  // it displays must stay consistent with the frame — a held `Show`'s
+  // `Details: 0` beside the lane's `Value: 1` otherwise. Its say is moot for
+  // the verdict of the transaction that stages the removal (`verdict`): done,
+  // and the commit disposes it; not done, and it stays parked regardless. A
+  // zombie whose removal commits this flush (owner's pass not held) is dead.
+  // The owner is stamped when the flush parks; held in this flush, its
+  // staging transaction is the active one.
+  if (flags & REACTIVE_ZOMBIE) {
+    let p: Computed<any> | null = reporter;
+    while (p && p._flags & REACTIVE_ZOMBIE) p = p._parent as Computed<any> | null;
+    let t = p && (p._transition || (p._config & CONFIG_HELD_CHILDREN ? activeTransition : null));
+    if (!t || (t = currentTransition(t))._done === true || t === verdict) return false;
+  }
   // Fallback-caught async holds nothing. A collecting loading boundary
   // consumes the notification, so a reader under a fallback never registers —
   // but a reader registered while its boundary showed content stays
@@ -1511,13 +1551,23 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
  * gets — without it the lane held on the dead reporter's registration until
  * the flight it no longer observed landed (#3426).
  */
-export function sourceObserved(transition: Transition, source: Computed<any>): boolean {
+export function sourceObserved(
+  transition: Transition,
+  source: Computed<any>,
+  verdict?: Transition
+): boolean {
   const reporters = transition._asyncReporters.get(source);
+  let kept = false;
   for (const reporter of reporters ?? []) {
-    if (reporterBlocksSource(reporter, source)) return true;
-    reporters!.delete(reporter);
+    if (reporterBlocksSource(reporter, source, verdict)) return true;
+    // A zombie the verdict passes over is kept, not pruned (#3463): moot for
+    // this verdict, it still holds a lane's reveal while the transaction
+    // stays parked on something else.
+    if (verdict && reporter._flags & REACTIVE_ZOMBIE) kept = true;
+    else reporters!.delete(reporter);
   }
-  return transition._asyncReporters.delete(source) && false;
+  if (!kept) transition._asyncReporters.delete(source);
+  return false;
 }
 
 function transitionComplete(transition: Transition): boolean {
@@ -1543,7 +1593,7 @@ function transitionComplete(transition: Transition): boolean {
     // (enterWaiting). Judged complete instead, a re-entry between the two (a
     // repeated write to a held signal) committed the held writes beside the
     // reader's stale frame.
-    if (sourceObserved(transition, source) && source._x?._pendingSources?.size) {
+    if (sourceObserved(transition, source, transition) && source._x?._pendingSources?.size) {
       done = false;
       break;
     }

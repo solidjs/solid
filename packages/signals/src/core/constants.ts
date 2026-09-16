@@ -163,6 +163,14 @@ export const CONFIG_INPUTS_PUBLISHED = 1 << 21;
  * a write is promoted at that recompute's end: readers in the same block see
  * it. Cleared when the next flush begins; set only on that rare path. */
 export const CONFIG_PROMOTED = 1 << 22;
+/** The node's active override is a DERIVED one: a lane pass published its
+ * speculative result into the override slot instead of `_value` (lanes
+ * stage — an optimistic derivation is an override, #3479). Its truth is not
+ * `_value` but a recompute from its inputs' truth, so the body-end
+ * supersession (`endOptimism`) and the authoritative-flight blockage
+ * (`transitionBlocked`) skip it; the revert drops the override and re-derives
+ * it (`resolveOptimisticNodes`). Cleared with the override. */
+export const CONFIG_DERIVED_OVERRIDE = 1 << 23;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

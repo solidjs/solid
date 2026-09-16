@@ -321,11 +321,27 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (`unflushedStaged`) instead of `_running`: inline, they cost ~140 B of
     // setSignal bytecode and 10–20% on the write-loop benches (+156 B here).
     // Measured at 24,478 rebased over #3464–#3471 (`next` 23,750 → 24,478).
+    // CONSCIOUS BUMP (2026-09-15): five hold-consistency seams (#3456 #3458
+    // #3460 #3463 #3469), all core-retained: recompute's re-park sweep over
+    // the sources a pass stopped carrying; `heldFromStale` notifying a first
+    // observer's pending up its queue chain; `reporterBlocksSource` walking a
+    // zombie's owner chain to the transaction staging its removal (+ the
+    // `verdict` argument through `sourceObserved`); `heldTrims` deferring an
+    // unchanged pass's dep trim to the flush verdict; and the one
+    // read()'s override arm folded to one engine hook (`_overrideRead`,
+    // absorbing `_supersededRead` and carrying the lane outside-view rule,
+    // whose body lives in lanes.ts and sheds with the engine). Measured at
+    // 24,836 (24,478 → 24,836, +358; 24,873 before the fold).
     // A pending reporter recovering without its flight landing wakes its
     // parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16): +100 B
     // (24,478 -> 24,578), `wasPending` and the wokenTransitions site at
     // recompute's tail.
-    expect(minifiedBytes).toBeLessThan(24_700);
+    // Lanes stage (#3479 review, 2026-09-16): +139 B core-retained — recompute's
+    // publish arm routing an optimistic-dirty memo through `_laneOverride`, its
+    // override test admitting a derived one, and the derived-override posture
+    // branch (every pass over a live lane member is the lane's pass, fuzzer
+    // latest-1 #2481). Measured at 25,075 over #3488's 24,936.
+    expect(minifiedBytes).toBeLessThan(25_200);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

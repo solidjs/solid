@@ -258,7 +258,24 @@ module.exports = [
     // companions join it), the override arm's flush gate; the write-path arms are cold
     // helpers and the read sites test one module flag, keeping the write loop at
     // parity. +728 B minified in the in-package floor (23,752 -> 24,480).
-    limit: "9.15 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15; #3456 #3458 #3460 #3463 #3469):
+    // measured at 9,266 B (+164 B on A28's 9,102). All core-retained: recompute's
+    // re-park sweep over the sources a pass stopped carrying; `heldFromStale`
+    // notifying a first observer's pending up its queue chain; `reporterBlocksSource`
+    // walking a zombie's owner chain to the transaction staging its removal (+ the
+    // `verdict` argument through `sourceObserved`); `heldTrims` deferring an unchanged
+    // pass's dep trim to the flush verdict; and read()'s override arm folded to one
+    // engine hook (`_overrideRead`, absorbing `_supersededRead` and carrying the lane
+    // outside-view rule, whose body sheds with the engine). +358 B minified in the
+    // in-package floor (24,478 -> 24,836). Golf measured: terser source compressed
+    // WORSE under brotli (9,253 -> 9,301); the hook fold is the one that held.
+    // Lanes stage (#3479 review, 2026-09-15): measured at 9,298 B (+32 B; 9,292 with
+    // recompute's derived-override posture branch, 2026-09-16 — noise). The
+    // recompute publish arm routes an optimistic-dirty memo through the
+    // `_laneOverride` engine hook and its override test admits a derived one;
+    // the rest (laneOverride, the derived arms in the verdict, lane and status
+    // modules) sheds with the engine.
+    limit: "9.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -501,7 +518,9 @@ module.exports = [
     // A pending reporter recovering without its flight landing wakes its parked
     // transaction (fuzzer #3446 P1, spec O3, 2026-09-16): measured at 16,201 B
     // (+1 over the cap); +100 B minified in the signals floor (24,478 -> 24,578).
-    limit: "16.25 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 16,343 B; the signals
+    // core delta, see the core floor note.
+    limit: "16.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -629,7 +648,15 @@ module.exports = [
     // (core floor 8820 -> 8832, +createStore 15743 -> 15780, both in cap).
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 11,639 B
     // against `next` (+339 B); the signals core delta, see the core floor note.
-    limit: "11.70 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 11,793 B; the signals
+    // core delta, see the core floor note.
+    // Lanes stage (#3479 review, 2026-09-15): measured at 11,959 B (+166 B). A lane
+    // pass publishes a memo's speculative result into the override slot
+    // (`laneOverride`), and the override lifecycle learns the derived kind:
+    // promote-on-revert, skipped by the body-end supersession and the
+    // authoritative-blockage census, merged through and suspended on in lanes,
+    // pending flowing through it in status. Retained here by `latest()`.
+    limit: "12.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -720,7 +747,13 @@ module.exports = [
     // bytes from the core floor note, nothing app-side.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 11,829 B
     // against `next` (+179 B); the signals core delta, see the core floor note.
-    limit: "11.90 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 11,974 B; the signals
+    // core delta, see the core floor note.
+    // Lanes stage (#3479 review, 2026-09-16): 12.05 -> 12.15 KB, measured at
+    // 12,075 B rebased over #3488 (its +100 B minified reporter wake, in cap on
+    // `next` by 1 B, plus this PR's +139 B core-retained arms — see the
+    // treeshake ceiling note); the signals core delta, nothing app-side.
+    limit: "12.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -835,7 +868,13 @@ module.exports = [
     // bytes from the core floor note, nothing app-side.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 19,367 B
     // against `next` (+267 B); the signals core delta, see the core floor note.
-    limit: "19.40 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 19,534 B; the signals
+    // core delta, see the core floor note.
+    // Lanes stage (#3479 review, 2026-09-16): 19.60 -> 19.70 KB, measured at
+    // 19,606 B (+72 brotli on ~+40 B minified: recompute's derived-override
+    // posture branch, fuzzer latest-1 #2481). Brotli noise: the same bytes
+    // read -6 on the core floor and +16 on isPending/latest.
+    limit: "19.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -1006,7 +1045,11 @@ module.exports = [
     // consumed the room under.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 29,280 B
     // against `next` (+330 B); the signals core delta, see the core floor note.
-    limit: "29.35 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 29,501 B; the signals
+    // core delta, see the core floor note.
+    // Lanes stage (#3479 review, 2026-09-15): measured at 29,657 B (+156 B); the
+    // signals optimistic-engine delta, see the isPending/latest note.
+    limit: "29.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -1095,7 +1138,9 @@ module.exports = [
     // -62 B) — the new scheduler export shifts brotli layout, not a shrink.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 14,747 B
     // against `next` (+247 B); the signals core delta, see the core floor note.
-    limit: "14.80 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 14,917 B; the signals
+    // core delta, see the core floor note.
+    limit: "15.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -1191,7 +1236,9 @@ module.exports = [
     // did not move, and the frames prod scenario below folds its emitters.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 16311 B
     // on top of #3472 (+233 B); the signals core delta, see the core floor note.
-    limit: "16.40 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 16,453 B; the signals
+    // core delta, see the core floor note.
+    limit: "16.55 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1302,7 +1349,9 @@ module.exports = [
     // recompute's causes trace back to, else the ambient frame.
     // A28 — writes visible at flush, read-side (2026-09-15): measured at 27909 B
     // on top of #3472 (+286 B); the signals core delta, see the core floor note.
-    limit: "28.00 KB",
+    // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 28,098 B; the signals
+    // core delta, see the core floor note.
+    limit: "28.20 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

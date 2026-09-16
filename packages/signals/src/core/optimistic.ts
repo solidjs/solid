@@ -25,7 +25,9 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
   CONFIG_AUTHORITATIVE_OBSERVED,
+  CONFIG_DERIVED_OVERRIDE,
   CONFIG_HAS_LANE,
+  CONFIG_OPTIMISTIC,
   CONFIG_OVERRIDE_SUPERSEDED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
@@ -39,6 +41,7 @@ import {
   getOrCreateLane,
   hasActiveOverride,
   laneHeld,
+  readsHeldCommitted,
   resolveLane,
   resolveTransition,
   signalLanes,
@@ -47,6 +50,7 @@ import {
 import {
   activeTransition,
   clock,
+  currentTransition,
   GlobalQueue,
   globalQueue,
   insertSubs,
@@ -113,7 +117,8 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   ext(el)._optimisticLane = lane;
   // A fresh override re-masks: whatever truth is staged, this write is the
   // value for the graph again until the source answers it (#3331).
-  el._config = (el._config | CONFIG_HAS_LANE) & ~CONFIG_OVERRIDE_SUPERSEDED;
+  el._config =
+    (el._config | CONFIG_HAS_LANE) & ~(CONFIG_OVERRIDE_SUPERSEDED | CONFIG_DERIVED_OVERRIDE);
 
   // Literal undefined must not land raw: the slot doubles as the optimistic
   // brand, and erasing it makes the write invisible and routes follow-up
@@ -134,14 +139,66 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
 }
 
 /**
+ * Lanes stage (#3479): a lane pass's publish for a memo. An optimistic
+ * derivation is an override — the speculative result lives in the override
+ * slot, `_value` stays the committed truth. The whole optimistic frame is then
+ * in one place: the lane's readers and untracked reads see it (A17), a render
+ * effect off the held lane sees the committed frame whole (readsHeldCommitted,
+ * #3460) — the source's shadow AND its derivations — where a speculative
+ * `_value` beside a committed shadow tore it. The node joins the
+ * transaction's optimistic nodes on its first speculative publish; the revert
+ * drops the override and re-derives it from the truth (a derived override has
+ * no truth of its own — see resolveOptimisticNodes, endOptimism).
+ */
+function laneOverride(el: Computed<any>, value: unknown, lane: OptimisticLane): void {
+  // The wake-only channel (#3009, see recomputeLane): a plain write to a
+  // latest()-tracked source rides a companion-sourced lane with no
+  // transaction on either side only to wake the verdict companions. Nothing
+  // is speculative — the pass commits directly, as any plain write does.
+  lane = findLane(lane);
+  if (!lane._transition && !activeTransition && lane._source._x?._parentSource !== undefined) {
+    el._value = value;
+    return;
+  }
+  if (!hasActiveOverride(el)) {
+    // It reverts with the lane's transaction (a landing runs outside any
+    // flush, where the ambient batch would revert it at its own end); an
+    // orphan lane's falls to the batch, adopted with it (initTransition) as a
+    // write's is. No `_overrideOwner`: a derived override is a plain member,
+    // its transaction its lane's (resolveTransition), and it merges lanes
+    // through itself as any shared reader does (assignOrMergeLane). No
+    // provenance stamp either: not an intent, any truth supersedes it.
+    (lane._transition
+      ? currentTransition(lane._transition)
+      : globalQueue._batch
+    )._optimisticNodes.push(el);
+  }
+  // A lane pass's output is a derivation — also over a WRITTEN guess it
+  // corrects (a `createOptimistic(fn)` re-derived from fresh upstream data):
+  // the guess is gone, the slot holds fn's answer, and the revert promotes it
+  // rather than dropping to a stale `_value` and re-asking downstream (the
+  // next user write re-arms the guess: optimisticWrite clears the bit). No
+  // `_overrideTime` stamp: that marks a user WRITE unflushed until the flush
+  // that carries it (A28) and shields it from same-tick supersession — a pass's
+  // result is neither (a pulled ownerless memo publishes outside any flush).
+  // A fresh lane frame ends a supersession in force: the pass just dropped
+  // the staged truth it pointed at (recompute, INV-11 corollary) — left set,
+  // the flag served a `_value` never committed (fuzzer latest-1 #2481).
+  el._config = (el._config | CONFIG_DERIVED_OVERRIDE) & ~CONFIG_OVERRIDE_SUPERSEDED;
+  el._x!._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
+}
+
+/**
  * transitionComplete's override blockage: a settling transition stays open
  * while one of its optimistic nodes holds an active override that is still
- * pending on real (non-affects-sentinel) async.
+ * pending on real (non-affects-sentinel) async. A derived override's flight is
+ * the lane's own work, never authoritative — it does not hold the settle.
  */
 function transitionBlocked(transition: Transition): boolean {
   for (let i = 0; i < transition._optimisticNodes.length; i++) {
     const node = transition._optimisticNodes[i];
     if (
+      !(node._config & CONFIG_DERIVED_OVERRIDE) &&
       hasActiveOverride(node) &&
       "_statusFlags" in node &&
       (node as Computed<any>)._statusFlags & STATUS_PENDING &&
@@ -167,14 +224,31 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
     if (!((node as any)._statusFlags & STATUS_PENDING))
       (node as any)._statusFlags &= ~STATUS_UNINITIALIZED;
     const prevOverride = node._x?._overrideValue;
-    ext(node)._overrideValue = NOT_PENDING;
+    // A derived override (lanes stage, #3479) has no truth of its own: the
+    // slot disarms — the memo is plain again — and the override PROMOTES to
+    // `_value`. Not superseded, nothing it derives from told it otherwise
+    // (a source override that reverts to a differing truth dirties it just
+    // above — sources join this list before their derivations — and its
+    // recompute then replaces the promotion), so by the graph's invariant
+    // the override IS what a recompute from the truth yields. Re-deriving
+    // instead re-asked an async member's flight and held the transaction on
+    // it — a waterfall after the reveal.
+    const derived = node._config & CONFIG_DERIVED_OVERRIDE;
+    ext(node)._overrideValue =
+      derived && !(node._config & CONFIG_OPTIMISTIC) ? undefined : NOT_PENDING;
     // A superseded override's subscribers already re-derived from the truth
     // when it arrived (#3331) — the drop changes nothing they read. Everyone
     // else learns of the correction here: this drop IS their notification.
     const superseded = (node._config & CONFIG_OVERRIDE_SUPERSEDED) !== 0;
-    node._config &= ~CONFIG_OVERRIDE_SUPERSEDED;
-    if (!superseded && prevOverride !== NOT_PENDING && node._value !== unwrapOverride(prevOverride))
-      insertSubs(node, true);
+    node._config &= ~(CONFIG_OVERRIDE_SUPERSEDED | CONFIG_DERIVED_OVERRIDE);
+    if (
+      !superseded &&
+      prevOverride !== NOT_PENDING &&
+      node._value !== unwrapOverride(prevOverride)
+    ) {
+      if (derived) node._value = unwrapOverride(prevOverride);
+      else insertSubs(node, true);
+    }
     node._transition = null;
     if (node._x !== null) node._x._overrideOwner = null;
   }
@@ -305,7 +379,7 @@ function endOptimism(transition: Transition): boolean {
     return false;
   for (const source of transition._asyncReporters.keys())
     if (
-      sourceObserved(transition, source) &&
+      sourceObserved(transition, source, transition) &&
       source._x?._pendingSources?.has(source) &&
       !resolveLane(source)
     )
@@ -315,7 +389,8 @@ function endOptimism(transition: Transition): boolean {
     if (
       !hasActiveOverride(node) ||
       node._x!._parentSource ||
-      node._config & CONFIG_OVERRIDE_SUPERSEDED ||
+      // A derived override re-derives when its source's is superseded.
+      node._config & (CONFIG_OVERRIDE_SUPERSEDED | CONFIG_DERIVED_OVERRIDE) ||
       (node as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
     )
       continue;
@@ -337,7 +412,23 @@ function endOptimism(transition: Transition): boolean {
  * has left) — or the displayed override for a stale (render) reader of some
  * OTHER transaction, the same visibility a foreign transaction's staged
  * write has. */
-function supersededRead(el: OptimisticNode): unknown {
+/**
+ * A tracked read of an active override (read()'s override arm). Lanes mirror
+ * transitions (#3460): a render effect OFF the override's held lane — re-run
+ * by a sync write, or mounted mid-hold — sees the committed value, as a stale
+ * reader of a held transaction does, and publishes now; the lane's release
+ * re-runs it (readsHeldCommitted). The lane defers the override's own readers'
+ * runs, so the committed value is what is on screen — the override is the
+ * visible value only once the lane has revealed (or, demoted at body-end,
+ * A18). Otherwise the override displays, unless the node's own source
+ * answered with a DIFFERENT value (A18 supersession, #3331): the optimism is
+ * over for the graph — a tracked reader sees the staged truth — while the
+ * override remains the DISPLAYED value for untracked reads (and for a stale
+ * reader of some other transaction).
+ */
+function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
+  if (stale && readsHeldCommitted(el as Computed<any>, c)) return el._value;
+  if (!(el._config & CONFIG_OVERRIDE_SUPERSEDED)) return unwrapOverride(el._x?._overrideValue);
   // The owning transaction: `_overrideOwner` (#2912), not the stamp — an
   // override written directly inside an action never passes the adoption
   // loop that stamps `_transition`, and a body-end supersession (#3427)
@@ -432,11 +523,16 @@ function laneSuspends(owner: OptimisticNode): boolean {
   // this is only reachable under a lane, which implies the engine.
   if ((owner as Computed<unknown>)._statusFlags & STATUS_UNINITIALIZED) return true;
   // Per-lane suspension: only throw if in same lane as pending async
-  // AND the node doesn't have an active override (overrides are the visible value,
-  // downstream in the lane should read the override, not throw)
+  // AND the node doesn't have an active WRITTEN override (overrides are the
+  // visible value, downstream in the lane should read the override, not
+  // throw). A derived override (#3479) is a previous speculative answer, not
+  // an intent: the re-ask pending behind it suspends like any lane async.
   const pendingLane = (owner as any)._x?._optimisticLane as OptimisticLane | undefined;
   if (!pendingLane) return false;
-  return findLane(pendingLane) === findLane(currentOptimisticLane!) && !hasActiveOverride(owner);
+  return (
+    findLane(pendingLane) === findLane(currentOptimisticLane!) &&
+    (!hasActiveOverride(owner) || (owner._config & CONFIG_DERIVED_OVERRIDE) !== 0)
+  );
 }
 
 /**
@@ -602,7 +698,8 @@ export function installOptimisticEngine(): void {
   GlobalQueue._runLaneEffects = runLaneEffects;
   GlobalQueue._supersedeOverride = supersedeOverride;
   GlobalQueue._endOptimism = endOptimism;
-  GlobalQueue._supersededRead = supersededRead;
+  GlobalQueue._overrideRead = overrideRead;
+  GlobalQueue._laneOverride = laneOverride;
   GlobalQueue._landOnOverride = landOnOverride;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
