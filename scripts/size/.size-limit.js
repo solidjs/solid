@@ -935,12 +935,11 @@ module.exports = [
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
     // measured at 20,054 B rebased over #3507, against `next`'s 20,044 (+10 B).
-    // Error hook: where thrown, apart from where met (2026-09-17): 19.85 ->
-    // 19.90 KB, measured at 19,890 B (+41 B over a baseline that sat 1 B
-    // under its cap). `reportClientError` takes the thrower the status
-    // wrapper already names and fills `boundaryPath` beside `ownerPath`;
-    // this scenario renders <Errored>, so it carries the hook module. The
-    // other scenarios moved within noise.
+    // Error hook: where thrown, apart from where met (2026-09-17): measured
+    // at 20,098 B rebased over #3515, against `next`'s 20,054 (+44 B).
+    // `reportClientError` takes the thrower the status wrapper already names
+    // and fills `boundaryPath` beside `ownerPath`; this scenario renders
+    // <Errored>, so it carries the hook module.
     limit: "20.10 KB",
     modifyEsbuildConfig
   },
@@ -1135,7 +1134,9 @@ module.exports = [
     // measured at 30,107 B rebased over #3513 (+66 B); the solid-js createRoot /
     // resume-window claim gate, see the hydrating (no stores) note. 0 B in the
     // signals floor.
-    limit: "30.15 KB",
+    // Error hook thrower/boundary paths (2026-09-17): 30.15 -> 30.25 KB,
+    // measured at 30,203 B rebased over #3515, against `next`'s 30,130 (+73 B).
+    limit: "30.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -1361,7 +1362,9 @@ module.exports = [
     // One `unflushed` for signal and store (spec O4, 2026-09-16): 16,770 B (+20 over
     // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
     // flush; +56 B minified in the signals floor (25,193 -> 25,249).
-    limit: "16.80 KB",
+    // Error hook thrower/boundary paths (2026-09-17): 16.80 -> 16.85 KB,
+    // measured at 16,804 B rebased over #3515, against `next`'s 16,752 (+52 B).
+    limit: "16.85 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
