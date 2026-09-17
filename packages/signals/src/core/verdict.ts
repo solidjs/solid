@@ -311,7 +311,16 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
     // classification survives the landing (asyncWrite) and dies with the
     // commit (commitPendingNode) — verdict-quiet through the reveal, like
     // the loading window above (#3178).
-    if (!(comp._statusFlags & STATUS_UNINITIALIZED) && !comp._x?._reask) return true;
+    // A staged value equal to the committed one is no proposal (A34, #3494): the
+    // observable value IS final (A19). The coalesced `setShow(false);
+    // setShow(true)` read pending through the flush that carried it — and,
+    // stamped into a hold that flush opened, until the hold settled.
+    if (
+      !(comp._statusFlags & STATUS_UNINITIALIZED) &&
+      !comp._x?._reask &&
+      (!el._equals || !el._equals(el._value as any, staged as any))
+    )
+      return true;
   }
   return newQuestionInFlight(comp);
 }

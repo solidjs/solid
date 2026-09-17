@@ -358,6 +358,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // 25,338 -> 25,426. The additive half; the twins it makes deletable
     // (overrideRead's wrapper, nodeValue, the verdict re-derivations) are the
     // deletion half — see docs/DESIGN-CONSOLIDATION.md §0.
+    // A write is a proposal (A34, #3494, 2026-09-17): +175 B core-retained —
+    // `batchJoins` (setSignal's deferred entry for a held node, drained at
+    // flush start; 71 B), initTransition's no-proposal drop for an unstamped
+    // signal staged at its committed value (64 B), notifyStatus's pending-mark
+    // skip over links outside the pass's validated prefix (`_gen`, A30; 24 B),
+    // and reporterBlocksSource following a dep's `_pendingSources` one hop
+    // (16 B). Measured at 25,424.
     expect(minifiedBytes).toBeLessThan(25_500);
   });
 

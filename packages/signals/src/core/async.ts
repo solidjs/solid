@@ -1003,6 +1003,18 @@ export function notifyStatus(
     return;
   }
   forEachDependent(el, (sub, link) => {
+    // A pending mark rides only the links this pass made (A30, #3494 review;
+    // fuzzer latest-1 #2141). Past `_depsTail` lie the committed frame's —
+    // kept by A30 so a WRITE to them still reaches the node — but a source going
+    // pending there is a flight the node's next frame never reads: marked, the
+    // node registered as its reporter and held its transaction on a fetch it
+    // had stopped asking for (a hide joined to a parked action, A34; the
+    // action's truth re-asked the memo behind the closed gate). Clears and
+    // errors still ride every link. Mid-pass the tail is where the pass has
+    // read to: a dep it has yet to reach registers through its own read. A
+    // link inside the prefix carries the pass's generation (`link()`), so the
+    // test is O(1).
+    if (status === STATUS_PENDING && link._gen !== sub._depGen) return;
     sub._time = clock;
     if (
       (status === STATUS_PENDING &&
