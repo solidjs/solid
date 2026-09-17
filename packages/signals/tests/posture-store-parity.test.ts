@@ -33,6 +33,9 @@
  *      write; #3521 first cut).
  * S7 — (fixed) an optimistic override survives its key becoming unobserved
  *      (the slot release defers to the flush that resolves the override).
+ * S8 — (fixed, 3b step 6c) a derivation's untracked read of a SUPERSEDED
+ *      store node derives from the landed truth (A18), not the override —
+ *      nodeValue delegates to core's one slow selection, `serve`.
  * Discovery for S4–S7: the matrix's `memoUntracked` / `effectUntracked`
  * reader kinds (an untracked read inside a derivation), added with S5.
  *
@@ -473,5 +476,67 @@ describe("S7 — optimistic override, the only reader gated away: the override i
     expect(s.n).toBe(0);
     // the slot map no longer holds a node for `n`
     expect(((s as any)[$TARGET].n ?? {}).n).toBeUndefined();
+  });
+});
+
+/** S8 (fixed, 3b step 6c): A18 supersession for a store node read UNTRACKED
+ * inside a derivation. A derived optimistic store's own truth landed (2)
+ * while an action's edit (3) is displayed: the signal serves a deriving
+ * reader the staged truth and holds it (A18: truth in the graph now, on
+ * screen at commit); the store's untracked node path served the memo the
+ * OVERRIDE and let it publish 3 — nodeValue had its own override arm without
+ * the supersession routing core read() has (overrideRead). nodeValue now
+ * delegates to `serve`, the one slow selection, and inherits the arm. */
+describe("S8 — a derivation's UNTRACKED read of a superseded store node derives from the truth (A18) — signal vs store", () => {
+  it("store: memo → render effect holds, then publishes the landed truth at settle", async () => {
+    const [value, setValue] = createSignal(0);
+    const fetches: Array<() => void> = [];
+    let s!: { n: number };
+    let set!: (fn: (d: { n: number }) => void) => void;
+    createRoot(() => {
+      [s, set] = createOptimisticStore<{ n: number }>(
+        () => {
+          const v = value();
+          return new Promise<{ n: number }>(r => fetches.push(() => r({ n: v * 2 })));
+        },
+        { n: -1 }
+      );
+      // an initialized downstream flight keeps the action live after its truth lands
+      const downstream = createMemo(() => {
+        const n = s.n;
+        return new Promise<string>(r => flights.push(() => r(`${n}!`)));
+      });
+      createRenderEffect(downstream, () => {});
+    });
+    const flights: Array<() => void> = [];
+    flush();
+    fetches.shift()!(); // initial truth {n: 0}
+    await settle();
+    flights.shift()!();
+    await settle();
+    action(function* () {
+      setValue(1);
+      set(d => {
+        d.n = 3;
+      });
+      yield new Promise<void>(res => flights.push(res as () => void));
+    })();
+    flush();
+    fetches.shift()!(); // own truth lands {n: 2} ≠ 3
+    await settle();
+    expect(s.n).toBe(3); // A18 (c): the override stays displayed for an untracked mainline read
+    const log: number[] = [];
+    createRoot(() => {
+      const m = createMemo(() => untrack(() => s.n));
+      createRenderEffect(m, v => {
+        log.push(v);
+      });
+    });
+    flush();
+    expect(log).toEqual([]); // held with the action: derives from the truth, not the override
+    flights.splice(0).forEach(f => f());
+    await settle();
+    await settle();
+    expect(log).toEqual([2]);
   });
 });

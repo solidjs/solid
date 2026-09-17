@@ -38,10 +38,10 @@ import {
   stale,
   hasActiveOverride,
   visibleOverride,
-  readerSeesCommitted,
   recordStaleReplay,
   enterStagedRead,
   ownsHold,
+  serve,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -1840,33 +1840,23 @@ export function authoritativeServe(): boolean {
  * FORCE sentinels never surface (they only bump subscribers of accessor
  * keys, which are served by the trap, not the node). */
 function nodeValue(node: Signal<any>, backing: any): any {
-  // latest() sees the in-flight parked value like an owner-context reader
-  // does (#3075) — signal/memo parity for store-node-backed keys.
-  // Authoritative-view reads (until()'s predicate) skip the override arm
-  // only: staged pending values are authoritative, overrides are the
-  // caller's optimism.
-  const v =
-    !authoritativeServe() && visibleOverride(node)
+  // Store-only tunnels, ahead of Rule 1: truth authors (authoritativeServe —
+  // the projection derive's draft, the write-override continuation) see
+  // staged truth and never an override; latest() reaching this untracked
+  // path for a store key sees the in-flight parked value like an
+  // owner-context reader does (#3075), the visible override first.
+  let v: any;
+  if (authoritativeServe()) v = node._pendingValue !== NOT_PENDING ? node._pendingValue : backing;
+  else if (latestReadActive)
+    v = visibleOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
-      : node._pendingValue !== NOT_PENDING &&
-          // Store-only tunnels first: latest() reaches this untracked path for
-          // store keys (#3075) and truth authors (authoritativeServe: the
-          // projection derive's draft, write-override) see staged truth
-          // unconditionally. Then Rule 1's committed-vs-staged arm — the
-          // same readerSeesCommitted core read() serves tracked reads by
-          // (owner context, children-forbidden, stale-of-foreign, HELD truth,
-          // lanes) — with core's context selection (a root reads as its
-          // parent computed).
-          (latestReadActive ||
-            authoritativeServe() ||
-            // A deriving reader served the staged value enters its
-            // transaction (A29) as core read() does on the same arm: the
-            // pass is the hold's, its result held with it — an untracked read
-            // inside a mainline memo must not publish the unrevealed frame.
-            (!readerSeesCommitted(node, readerContext(), (node as any)._firewall || node, false) &&
-              (enterStagedRead(node), true)))
+      : node._pendingValue !== NOT_PENDING
         ? node._pendingValue
         : backing;
+  // Otherwise the one slow selection core read() uses (serve): override,
+  // lane gate, A28, readerSeesCommitted / A29 — with the BACKING as the
+  // committed value (single-home rule, O6).
+  else v = serve(node, readerContext(), (node as any)._firewall || node, backing);
   return v === (FORCE as any) ? backing : v;
 }
 

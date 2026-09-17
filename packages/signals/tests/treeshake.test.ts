@@ -350,7 +350,15 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // stale-of-foreign clause, the lane arm and the store's backing holds
     // (+44 B minified, -4 B brotli: the function is not inlined by esbuild).
     // 25,249 -> 25,338.
-    expect(minifiedBytes).toBeLessThan(25_400);
+    // serve() — Rule 1's one slow implementation (move 3b step 6c, 2026-09-17):
+    // read()'s slow tail extracted with the committed value as a parameter so the
+    // store's untracked node path selects through the same function (its
+    // backing as committed, O6). +88 B: the wrapper, the parameter, and the
+    // auto-dispose sweep guard that preserves the inline arm's early return.
+    // 25,338 -> 25,426. The additive half; the twins it makes deletable
+    // (overrideRead's wrapper, nodeValue, the verdict re-derivations) are the
+    // deletion half — see docs/DESIGN-CONSOLIDATION.md §0.
+    expect(minifiedBytes).toBeLessThan(25_500);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
