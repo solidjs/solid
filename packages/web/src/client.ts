@@ -1118,8 +1118,8 @@ export function installHydrationRuntime() {
     // hydration, dropping server text-hole separators.
     claimInitial(parent, multi, initial) {
       if (isHydrating(parent)) {
-        if (!multi && initial === undefined && parent) initial = [...parent.childNodes];
-        if (Array.isArray(initial)) stripTextSeparators(initial);
+        if (!multi && initial === undefined && parent) initial = claimChildNodes(parent);
+        else if (Array.isArray(initial)) stripTextSeparators(initial);
       }
       return initial;
     },
@@ -1151,7 +1151,7 @@ export function installHydrationRuntime() {
           nodes.unshift(node);
           node = node.previousSibling;
         }
-      } else nodes = [...parent.childNodes];
+      } else return claimChildNodes(parent);
       return stripTextSeparators(nodes);
     },
     // eventHandler(): replayed server events are deduped against the live
@@ -1180,18 +1180,47 @@ function stripTextSeparators(nodes) {
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i],
       t = node.nodeType;
-    if (t === 8) {
-      const v = node.nodeValue;
-      if (v === "!$") {
-        node.remove();
-        continue;
-      }
-      if (v.startsWith("pl-")) continue;
-    } else if (t === 1 && node.localName === "template" && node.id.startsWith("pl-")) continue;
+    if (t === 8 && node.nodeValue === "!$") {
+      node.remove();
+      continue;
+    }
+    if (isPlaceholderScaffolding(node, t)) continue;
     nodes[j++] = node;
   }
   nodes.length = j;
   return nodes;
+}
+
+// The claim array for a parent's children: one indexed pass over the live
+// childNodes with the separators dropped as it copies. This runs for every
+// insert() during hydration, so it avoids `[...parent.childNodes]` (the
+// iterator protocol over a live NodeList) followed by a second compacting
+// pass. Removing a `<!--!$-->` shifts the live list, so the index holds.
+function claimChildNodes(parent) {
+  const live = parent.childNodes;
+  const out = [];
+  for (let i = 0, n = live.length; i < n; i++) {
+    const node = live[i],
+      t = node.nodeType;
+    if (t === 8 && node.nodeValue === "!$") {
+      node.remove();
+      i--;
+      n--;
+      continue;
+    }
+    if (isPlaceholderScaffolding(node, t)) continue;
+    out.push(node);
+  }
+  return out;
+}
+
+// A pending boundary's placeholder scaffolding — `<template id="pl-X">` and
+// its `<!--pl-X-->` end marker — is excluded from claim arrays but kept in
+// the DOM (see stripTextSeparators).
+function isPlaceholderScaffolding(node, t) {
+  return t === 8
+    ? node.nodeValue.startsWith("pl-")
+    : t === 1 && node.localName === "template" && node.id.startsWith("pl-");
 }
 
 /**
@@ -2738,6 +2767,20 @@ function cleanChildren(parent, current, marker, replacement) {
 
 function gatherHydratable(element, root) {
   const templates = element.querySelectorAll(`*[_hk]`);
+  // The ambient sweep claims only what this hydration root itself walks.
+  // Frame regions ("data-fid" — the frame runtime's element brand, an
+  // importless duplicate like FRAME_ID_ATTR in frame-client/frame-sink)
+  // are another layer's property: their fills claim through scoped
+  // registries on their own schedule (a lazy route module may adopt long
+  // after this root completes), so collecting them here only sets up the
+  // completion sweep to report legitimately-late claims as unclaimed.
+  // Whether the root has frames is one question about the page, not one per
+  // keyed node: find them once and test containment against the list, rather
+  // than `closest("[data-fid]")` from every node — an ancestor walk to the
+  // document root for each element, paid in full on pages with no frames.
+  const frames = root ? null : element.querySelectorAll("[data-fid]");
+  const frameCount = frames ? frames.length : 0;
+  const registry = sharedConfig.registry;
   for (let i = 0; i < templates.length; i++) {
     const node = templates[i];
     const key = node.getAttribute("_hk");
@@ -2747,18 +2790,19 @@ function gatherHydratable(element, root) {
       // Keys are namespaced by their producer chain, so a nested frame's
       // content can never match a foreign prefix.
       if (!key.startsWith(root)) continue;
-    } else {
-      // The ambient sweep claims only what this hydration root itself walks.
-      // Frame regions ("data-fid" — the frame runtime's element brand, an
-      // importless duplicate like FRAME_ID_ATTR in frame-client/frame-sink)
-      // are another layer's property: their fills claim through scoped
-      // registries on their own schedule (a lazy route module may adopt long
-      // after this root completes), so collecting them here only sets up the
-      // completion sweep to report legitimately-late claims as unclaimed.
-      const frame = node.closest("[data-fid]");
-      if (frame && frame !== element && element.contains(frame)) continue;
+    } else if (frameCount !== 0) {
+      // `contains` is inclusive: a node that is itself a frame is skipped too,
+      // as `closest` (which starts at the node) did before.
+      let inFrame = false;
+      for (let j = 0; j < frameCount; j++) {
+        if (frames[j].contains(node)) {
+          inFrame = true;
+          break;
+        }
+      }
+      if (inFrame) continue;
     }
-    if (!sharedConfig.registry.has(key)) sharedConfig.registry.set(key, node);
+    if (!registry.has(key)) registry.set(key, node);
   }
 } /** Hydration-walk primitive; not for hand-written code. @internal */
 export function getHydrationKey(): string | undefined;

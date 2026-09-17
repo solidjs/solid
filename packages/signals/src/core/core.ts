@@ -213,10 +213,15 @@ function releaseSubtree(owner: Owner): void {
 export function clearSnapshots(): void {
   if (snapshotSources) {
     for (const source of snapshotSources) {
-      delete source._x?._snapshotValue;
+      // The extension is a fixed-shape object with `_snapshotValue`
+      // pre-initialized to undefined (see ext()), and every reader tests
+      // `!== undefined` — assign, don't `delete`: deleting a field pushes the
+      // object to dictionary mode for every later read of every field.
+      const x = source._x;
+      if (x != null) x._snapshotValue = undefined;
       // StoreNode targets share one pre-initialized hidden class (see
-      // createStoreProxy) — assign undefined instead of deleting, and only
-      // when present so signal-node sources don't grow the field.
+      // createStoreProxy) — same rule, and only when present so signal-node
+      // sources don't grow the field.
       if (source[STORE_SNAPSHOT_PROPS] !== undefined) source[STORE_SNAPSHOT_PROPS] = undefined;
     }
     snapshotSources = null;

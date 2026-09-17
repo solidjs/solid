@@ -536,7 +536,10 @@ module.exports = [
     // the O5 fix, measured at 16,493 B against `next`'s 16,481 (+12 brotli for
     // `_companionChildren?.delete(n)` in unlinkFirewallChild). The 16.50 KB cap
     // is unchanged; core floor and isPending/latest scenarios are unchanged.
-    limit: "16.50 KB",
+    // Hydration claim-path trim (#3513, 2026-09-17): measured at 16,517 B against
+    // current `next`'s 16,495 (+22). The fixed-shape `_snapshotValue` cleanup
+    // replaces `delete` with assignment; the pure core floor shrinks by 1 B.
+    limit: "16.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -913,7 +916,10 @@ module.exports = [
     // the core walks it on solid-js's server owners (`ownerPath`,
     // `OBSERVE.exclude`). ~+40 B across the prod scenarios; the observe ones
     // moved by gzip noise or shrank.
-    limit: "19.85 KB",
+    // Hydration claim-path trim (#3513, 2026-09-17): measured at 19,931 B against
+    // current `next`'s 19,849 (+82). One indexed childNodes claim pass replaces
+    // iterator-copy + compaction; frame ancestry is queried once per root.
+    limit: "19.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -1100,7 +1106,10 @@ module.exports = [
     // A projection's leaf companions die with it; latest() of a dead leaf creates
     // none (spec O5, 2026-09-16): 29,953 B (+43 over the cap); +104 B minified in
     // owner.ts (core floor), the shadow retirement lives in verdict.ts.
-    limit: "30.00 KB",
+    // Hydration claim-path trim (#3513, 2026-09-17): measured at 30,041 B against
+    // current `next`'s 29,985 (+56). Same one-pass claim/frame-query trade as the
+    // no-store hydration scenario; the store engine itself is unchanged.
+    limit: "30.05 KB",
     modifyEsbuildConfig
   },
   {
