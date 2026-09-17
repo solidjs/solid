@@ -3,10 +3,13 @@
  * visibility-oracle-posture.test.ts over the store oracle's states
  * (visibility-oracle-store.states.ts) beside the signal states.
  *
- * S1 — VIOLATION (signal side), pinned it.fails: adopted, unflushed. Same-tick
- *      adoption is by design (spec O1); A28 still says nothing is visible
- *      before the flush. The store leaf answers latest 0 / isPending false
- *      inside the adopting action's body; the signal answers 1 / true.
+ * S1 — adopted, unflushed (spec O4, fixed): same-tick adoption is by design
+ *      (spec O1); A28 still says nothing is visible before the flush. The
+ *      store leaf answered latest 0 / isPending false inside the adopting
+ *      action's body; the signal answered 1 / true. Both now answer by one
+ *      `unflushed`: an adopted-before-any-flush staging is marked
+ *      (ADOPTED_UNFLUSHED) — latest() serves the committed value, the
+ *      verdict sees nothing staged — until the carrying flush.
  * S2 — OBSERVED, both sides agree: a memo + render effect created inside
  *      loading-boundary content over a held value publishes the held value
  *      (the in-flush form of spec O2 — creation under a transaction escapes;
@@ -40,11 +43,12 @@ import {
 const never = () => new Promise<never>(() => {});
 
 describe("S1 — adopted, unflushed: verdict channels inside the adopting action (A28 (1)/(2)) — signal vs store", () => {
-  // Adoption stamps the signal with the transaction, and `unflushedValue`
-  // reads a stamped node with no stash as "flushed, held" — so latest()
-  // serves the staged 1 and isPending answers true for a write no flush has
-  // carried. The store leaf's selection (nodeValue / serveDataKey) does not
-  // take that path and answers by A28. The store is right.
+  // Was: adoption stamped the signal with the transaction, and
+  // `unflushedValue` read a stamped node with no stash as "flushed, held" —
+  // latest() served the staged 1 and isPending answered true for a write no
+  // flush had carried; the store leaf's own selection happened to answer by
+  // A28. Now initTransition's adoption outside a flush marks the node
+  // ADOPTED_UNFLUSHED and both channels answer the same way for both.
   it("store leaf: latest / isPending inside the adopting action see nothing before the flush", () => {
     const [s, setS] = createStore({ n: 0 });
     setS(d => {
@@ -57,19 +61,16 @@ describe("S1 — adopted, unflushed: verdict channels inside the adopting action
     })();
     expect(seen).toEqual([0, false]);
   });
-  it.fails(
-    "signal: latest / isPending inside the adopting action see nothing before the flush (A28) — VIOLATION: 1 / true",
-    () => {
-      const [x, setX] = createSignal(0);
-      setX(1);
-      let seen: [number, boolean] | undefined;
-      action(function* () {
-        seen = [latest(x), isPending(x)];
-        yield never();
-      })();
-      expect(seen).toEqual([0, false]);
-    }
-  );
+  it("signal: latest / isPending inside the adopting action see nothing before the flush (A28)", () => {
+    const [x, setX] = createSignal(0);
+    setX(1);
+    let seen: [number, boolean] | undefined;
+    action(function* () {
+      seen = [latest(x), isPending(x)];
+      yield never();
+    })();
+    expect(seen).toEqual([0, false]);
+  });
 });
 
 describe("S2 — creation in boundary content over a held value publishes it (OBSERVED, spec O2 in-flush form; signal and store agree)", () => {

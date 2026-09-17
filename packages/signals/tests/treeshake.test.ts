@@ -341,7 +341,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // override test admitting a derived one, and the derived-override posture
     // branch (every pass over a live lane member is the lane's pass, fuzzer
     // latest-1 #2481). Measured at 25,075 over #3488's 24,936.
-    expect(minifiedBytes).toBeLessThan(25_200);
+    // One `unflushed` for signal and store (spec O4, 2026-09-16): a staging
+    // adopted before any flush is marked CONFIG_ADOPTED_UNFLUSHED at adoption
+    // and cleared by the carrying flush; +56 B (25,193 -> 25,249).
+    expect(minifiedBytes).toBeLessThan(25_300);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

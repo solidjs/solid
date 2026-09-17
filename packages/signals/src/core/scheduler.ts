@@ -1,4 +1,5 @@
 import {
+  CONFIG_ADOPTED_UNFLUSHED,
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_HELD_TRUTH,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -982,9 +983,14 @@ export class GlobalQueue extends Queue {
       // must not entangle unrelated writes to it; the same rule holds one hop
       // downstream: propagation never queues pended subscribers as pending
       // nodes, see propagateAffectsMark, #2893.
+      // Adopted outside a flush: the staging is still unflushed — the stamp
+      // must not make it read as held-and-carried (CONFIG_ADOPTED_UNFLUSHED;
+      // the carrying flush clears it in reassignPendingTransition).
+      const adopted = this._running ? 0 : CONFIG_ADOPTED_UNFLUSHED;
       for (let i = 0; i < batch._pendingNodes.length; i++) {
         const node = batch._pendingNodes[i];
         node._transition = activeTransition;
+        node._config |= adopted;
         activeTransition._pendingNodes.push(node);
       }
       for (let i = 0; i < batch._optimisticNodes.length; i++) {
@@ -1364,6 +1370,7 @@ export function shiftAffectsMarks(delta: 1 | -1): void {
 function reassignPendingTransition(pendingNodes: Signal<any>[]) {
   for (let i = 0; i < pendingNodes.length; i++) {
     pendingNodes[i]._transition = activeTransition;
+    pendingNodes[i]._config &= ~CONFIG_ADOPTED_UNFLUSHED; // this flush carried it
   }
 }
 
