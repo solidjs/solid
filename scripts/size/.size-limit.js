@@ -284,7 +284,17 @@ module.exports = [
     // One `unflushed` for signal and store (spec O4, 2026-09-16): 9,418 B (+18 over
     // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
     // flush; +56 B minified in the signals floor (25,193 -> 25,249).
-    limit: "9.45 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B.
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 9,489 B (+39 over the rebased cap).
+    limit: "9.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -544,7 +554,19 @@ module.exports = [
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
     // measured at 16,509 B rebased over #3507, against `next`'s 16,517 (-8 B).
-    limit: "16.55 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B. +55 B store (S7, an optimistic override survives its key becoming
+    // unobserved), +123 / +130 B store (S4 / S5 fixes at the backing and the
+    // untracked node paths).
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 16,610 B (+60 over the rebased cap).
+    limit: "16.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -686,7 +708,17 @@ module.exports = [
     // One `unflushed` for signal and store (spec O4, 2026-09-16): 12,124 B (+24 over
     // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
     // flush; +56 B minified in the signals floor (25,193 -> 25,249).
-    limit: "12.15 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B.
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 12,188 B (+38 over the rebased cap).
+    limit: "12.20 KB",
     modifyEsbuildConfig
   },
   {
@@ -786,7 +818,17 @@ module.exports = [
     // One `unflushed` for signal and store (spec O4, 2026-09-16): 12,200 B (+50 over
     // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
     // flush; +56 B minified in the signals floor (25,193 -> 25,249).
-    limit: "12.25 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B.
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 12,274 B (+24 over the rebased cap).
+    limit: "12.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -940,7 +982,17 @@ module.exports = [
     // `reportClientError` takes the thrower the status wrapper already names
     // and fills `boundaryPath` beside `ownerPath`; this scenario renders
     // <Errored>, so it carries the hook module.
-    limit: "20.10 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B.
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 20,148 B (+48 over the rebased cap).
+    limit: "20.20 KB",
     modifyEsbuildConfig
   },
   {
@@ -1136,7 +1188,19 @@ module.exports = [
     // signals floor.
     // Error hook thrower/boundary paths (2026-09-17): 30.15 -> 30.25 KB,
     // measured at 30,203 B rebased over #3515, against `next`'s 30,130 (+73 B).
-    limit: "30.25 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B. +55 B store (S7, an optimistic override survives its key becoming
+    // unobserved), +123 / +130 B store (S4 / S5 fixes at the backing and the
+    // untracked node paths).
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 30,296 B (+46 over the rebased cap).
+    limit: "30.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -1251,7 +1315,17 @@ module.exports = [
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
     // measured at 15,251 B rebased over #3507, against `next`'s 15,238 (+13 B).
-    limit: "15.30 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B.
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 15,342 B (+42 over the rebased cap).
+    limit: "15.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -1500,7 +1574,19 @@ module.exports = [
     // measured at 27,256 B rebased over #3507, against `next`'s 27,196 (+60 B).
     // The source change is in the signals core; this scenario's attribution
     // modules only alter the compressor layout.
-    limit: "27.30 KB",
+    // Move 3b, one implementation per rule (#3523, 2026-09-17), rebased over
+    // #3518/#3522: readerSeesCommitted / visibleOverride (step 1, merged as
+    // #3515), the store's node reads through it (step 2), recordStaleReplay
+    // (step 3), A29 at the store's untracked paths (step 4), S7, one ownership
+    // relation ownsHold (6b) and serve() — Rule 1's one slow selection (6c).
+    // Core minified: +31 (replay helper) +1 (enterStagedRead null node) +44
+    // (ownsHold, not inlined) +88 (serve wrapper/parameter/guard) = +164 B. +55 B store (S7, an optimistic override survives its key becoming
+    // unobserved), +123 / +130 B store (S4 / S5 fixes at the backing and the
+    // untracked node paths).
+    // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
+    // S6 ruled and deferred); every paired matrix state row-identical.
+    // Measured at 27,335 B (+35 over the rebased cap).
+    limit: "27.40 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
