@@ -19,6 +19,16 @@
  * S3 — INV-4 after disposing a projection mid-refetch: its own file,
  *      tests/inv4-projection-dispose-shadow.test.ts (the live actions S1/S2
  *      leave behind would mask the quiescence check here). Spec O5.
+ * S4 — (fixed, 3b steps 2–3) a stale reader's UNTRACKED read of a held store
+ *      key replays at the commit as the signal's does — node, backing, and
+ *      adoption-hold paths (recordStaleReplay).
+ * S5 — (fixed, 3b step 4) a mainline derivation's UNTRACKED read of a held
+ *      store key is born held (A29) as the signal's is — the store's untracked
+ *      paths served the pending value without entering the transaction.
+ * S6, S7 — DIVERGENCES recorded at their current values, not ruled (see the
+ *      block comment above them).
+ * Discovery for S4–S7: the matrix's `memoUntracked` / `effectUntracked`
+ * reader kinds (an untracked read inside a derivation), added with S5.
  *
  * (A first cut also reported the projection's seed leaking as a value inside
  * boundary content, and `isPending` false / override invisible behind a
@@ -29,8 +39,11 @@
 import { describe, expect, it } from "vitest";
 import {
   action,
+  createEffect,
   createLoadingBoundary,
   createMemo,
+  createOptimistic,
+  createOptimisticStore,
   createRenderEffect,
   createRoot,
   createSignal,
@@ -259,4 +272,180 @@ describe("S4 — a stale reader's untracked read of a foreign hold replays at th
       expect(r.log).toEqual([0, 0, 1]);
     });
   }
+});
+
+/** A deriving reader (memo, user effect) created MAINLINE whose UNTRACKED
+ * read is of a value held by a live action: the pass is served the staged
+ * value and enters the transaction — born held (A29) — so nothing is
+ * published until the action commits. The signal did this (core read()
+ * enters on the same arm that serves the staged value; `context` persists
+ * under untrack). The store's untracked paths (nodeValue, the backing's
+ * pendingBackingVisible, the adoption-hold view) served the pending value
+ * WITHOUT entering: a mainline memo published the action's unrevealed write
+ * to the screen while the same read of a signal was held. */
+type HeldShape = "signal" | "store+node" | "store" | "store reconcile" | "store reconcile+node";
+function heldShape(shape: HeldShape) {
+  if (shape === "signal") {
+    const [x, setX] = createSignal(0);
+    return { read: x, write: () => setX(1) };
+  }
+  const [s, setS] = createStore({ n: 0 });
+  if (shape.endsWith("+node")) {
+    createRoot(() =>
+      createRenderEffect(
+        () => s.n,
+        () => {}
+      )
+    );
+    flush();
+  }
+  return {
+    read: () => s.n,
+    write: () =>
+      shape.startsWith("store reconcile")
+        ? setS(reconcile({ n: 1 }))
+        : setS(d => {
+            d.n = 1;
+          })
+  };
+}
+describe("S5 — a mainline derivation's UNTRACKED read of a held value is born held (A29) — signal vs store", () => {
+  for (const shape of [
+    "signal",
+    "store+node",
+    "store",
+    "store reconcile",
+    "store reconcile+node"
+  ] as HeldShape[]) {
+    it(`${shape}: memo → render effect publishes nothing until the action commits`, async () => {
+      const { read, write } = heldShape(shape);
+      let release!: () => void;
+      action(function* () {
+        write();
+        yield new Promise<void>(res => (release = res));
+      })();
+      flush();
+      const log: number[] = [];
+      const [u, setU] = createSignal(0);
+      createRoot(() => {
+        const m = createMemo(() => {
+          u();
+          return untrack(read);
+        });
+        createRenderEffect(m, v => {
+          log.push(v);
+        });
+      });
+      flush();
+      setU(1); // a re-run off the hold is held too
+      flush();
+      expect(log).toEqual([]);
+      release();
+      await settle();
+      expect(log).toEqual([1]);
+    });
+    it(`${shape}: user effect runs once, after the commit`, async () => {
+      const { read, write } = heldShape(shape);
+      let release!: () => void;
+      action(function* () {
+        write();
+        yield new Promise<void>(res => (release = res));
+      })();
+      flush();
+      const log: number[] = [];
+      createRoot(() => {
+        createEffect(
+          () => untrack(read),
+          v => {
+            log.push(v);
+          }
+        );
+      });
+      flush();
+      expect(log).toEqual([]);
+      release();
+      await settle();
+      expect(log).toEqual([1]);
+    });
+  }
+});
+
+/** DIVERGENCES the 7-reader matrix shows and this file only RECORDS (both
+ * sides pinned at their current value; not ruled — flip the store or the
+ * signal when the maintainer rules):
+ *
+ * S6 — staged, ambient (a write before any flush), reader created INSIDE a
+ *      foreign action (which adopts the write, spec O1): the signal's memo →
+ *      render effect publishes the committed 0 (A28 / #3510: adopted before
+ *      any flush = unflushed, served committed); the store's publishes the
+ *      pending 1 (pendingBackingVisible: owner context → pending backing).
+ *      The verdict channels already agree (S1); the derivation reads do not.
+ * S7 — optimistic store, override active, the only reader gated away: the
+ *      signal's x() still reads the override 5 while the action is live
+ *      (A17); the store's s.n reads 0 — the override is invisible to an
+ *      untracked read once no reader observes the key.
+ */
+describe("S6 — DIVERGENCE (recorded): staged-ambient write read by a derivation created inside a foreign action", () => {
+  function publishedInsideForeignAction(read: () => number) {
+    const log: number[] = [];
+    action(function* () {
+      createRoot(() => {
+        const m = createMemo(read);
+        createRenderEffect(m, v => {
+          log.push(v);
+        });
+      });
+      yield never();
+    })();
+    flush();
+    return log;
+  }
+  it("signal: publishes the committed 0", () => {
+    const [x, setX] = createSignal(0);
+    setX(1);
+    expect(publishedInsideForeignAction(x)).toEqual([0]);
+  });
+  it("store: publishes the pending 1", () => {
+    const [s, setS] = createStore({ n: 0 });
+    setS(d => {
+      d.n = 1;
+    });
+    expect(publishedInsideForeignAction(() => s.n)).toEqual([1]);
+  });
+});
+
+describe("S7 — DIVERGENCE (recorded): optimistic override, the only reader gated away", () => {
+  function gateAway(read: () => number) {
+    const [show, setShow] = createSignal(true);
+    createRoot(() => {
+      createRenderEffect(
+        () => (show() ? read() : "gated"),
+        () => {}
+      );
+    });
+    flush();
+    setShow(false);
+    flush();
+    return read();
+  }
+  it("signal: x() still reads the override while the action is live", () => {
+    const [x, setX] = createOptimistic(0);
+    action(function* () {
+      setX(5);
+      yield never();
+    })();
+    flush();
+    expect(gateAway(x)).toBe(5);
+  });
+  it("store: s.n reads the committed 0 once nothing observes the key", () => {
+    const [s, setS] = createOptimisticStore({ n: 0 });
+    action(function* () {
+      setS(d => {
+        d.n = 5;
+      });
+      yield never();
+    })();
+    flush();
+    expect(gateAway(() => s.n)).toBe(0);
+  });
 });

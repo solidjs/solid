@@ -48,7 +48,8 @@ import {
   flush,
   isPending,
   latest,
-  NotReadyError
+  NotReadyError,
+  untrack
 } from "../src/index.js";
 import {
   HELD,
@@ -99,7 +100,20 @@ const POSTURES = [
   "gatedAway"
 ] as const;
 type Posture = (typeof POSTURES)[number];
-const READERS = ["untracked", "memo", "effect", "latest", "isPending"] as const;
+// memoUntracked / effectUntracked: the derivation reads x() under untrack() —
+// still that pass's read (context persists under untrack), so the value
+// selection is the reader's, without a subscription. The kind that found the
+// store's untracked paths publishing a held frame a signal is born held on
+// (posture-store-parity S5) and skipping the stale reader's replay (S4).
+const READERS = [
+  "untracked",
+  "memo",
+  "memoUntracked",
+  "effect",
+  "effectUntracked",
+  "latest",
+  "isPending"
+] as const;
 type Reader = (typeof READERS)[number];
 
 const classify = (fn: () => unknown): Cell => {
@@ -211,6 +225,7 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
   let passValue: Cell | undefined;
   const log: Cell[] = [];
   const pass: Cell[] = [];
+  const rd = reader.endsWith("Untracked") ? () => untrack(x) : x;
   const { y } = enter(posture, () => {
     switch (reader) {
       case "untracked":
@@ -222,13 +237,14 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
       case "isPending":
         served = classify(() => isPending(x));
         break;
-      case "memo": {
+      case "memo":
+      case "memoUntracked": {
         const d = createRoot(d => {
           const m = createMemo(() => {
             if (gated && !show()) return "gated";
             let v: Cell;
             try {
-              v = x();
+              v = rd();
             } catch (e) {
               pass.push(
                 e instanceof NotReadyError
@@ -248,14 +264,15 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
         disposers.push(d);
         break;
       }
-      case "effect": {
+      case "effect":
+      case "effectUntracked": {
         const d = createRoot(d => {
           createRenderEffect(
             () => {
               if (gated && !show()) return "gated";
               let v: Cell;
               try {
-                v = x();
+                v = rd();
               } catch (e) {
                 pass.push(
                   e instanceof NotReadyError
@@ -282,7 +299,7 @@ async function cell(state: State, posture: Posture, reader: Reader): Promise<Row
     perturb(); // the write the reader's hold is about, made while it observes
     gflush();
   }
-  if (reader === "memo" || reader === "effect") {
+  if (reader !== "untracked" && reader !== "latest" && reader !== "isPending") {
     served = log.length ? log[log.length - 1] : HELD;
     passValue = pass.length ? pass[pass.length - 1] : HELD;
   }
