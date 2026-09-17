@@ -281,7 +281,10 @@ module.exports = [
     // A projection's leaf companions die with it; latest() of a dead leaf creates
     // none (spec O5, 2026-09-16): 9,393 B (+13 over the cap); +104 B minified in
     // owner.ts (core floor), the shadow retirement lives in verdict.ts.
-    limit: "9.40 KB",
+    // One `unflushed` for signal and store (spec O4, 2026-09-16): 9,418 B (+18 over
+    // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
+    // flush; +56 B minified in the signals floor (25,193 -> 25,249).
+    limit: "9.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -672,7 +675,10 @@ module.exports = [
     // A projection's leaf companions die with it; latest() of a dead leaf creates
     // none (spec O5, 2026-09-16): 12,074 B (+24 over the cap); +104 B minified in
     // owner.ts (core floor), the shadow retirement lives in verdict.ts.
-    limit: "12.10 KB",
+    // One `unflushed` for signal and store (spec O4, 2026-09-16): 12,124 B (+24 over
+    // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
+    // flush; +56 B minified in the signals floor (25,193 -> 25,249).
+    limit: "12.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -769,7 +775,10 @@ module.exports = [
     // 12,075 B rebased over #3488 (its +100 B minified reporter wake, in cap on
     // `next` by 1 B, plus this PR's +139 B core-retained arms — see the
     // treeshake ceiling note); the signals core delta, nothing app-side.
-    limit: "12.15 KB",
+    // One `unflushed` for signal and store (spec O4, 2026-09-16): 12,200 B (+50 over
+    // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
+    // flush; +56 B minified in the signals floor (25,193 -> 25,249).
+    limit: "12.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -1309,7 +1318,10 @@ module.exports = [
     // Reporter liveness reads this pass's deps; a dropped dep retires the reporter
     // and wakes every parked transaction (fuzzer #3446 P1, spec O3, 2026-09-16):
     // 16,730 B (+40 over base); 0 B minified in the signals floor (24,578 flat).
-    limit: "16.75 KB",
+    // One `unflushed` for signal and store (spec O4, 2026-09-16): 16,770 B (+20 over
+    // the cap); CONFIG_ADOPTED_UNFLUSHED set at adoption, cleared by the carrying
+    // flush; +56 B minified in the signals floor (25,193 -> 25,249).
+    limit: "16.80 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
