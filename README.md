@@ -60,7 +60,7 @@ function Counter() {
 
   return (() => {
     const _el$ = _tmpl$();
-    _el$.$$click = () => setCount(c => c + 1);
+    _el$._$$click = () => setCount(c => c + 1);
     insert(_el$, doubled);
     return _el$;
   })();

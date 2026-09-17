@@ -56,9 +56,9 @@ const view = ({ item }) => {
       _el$5 = _el$3.nextSibling,
       _el$6 = _el$5.firstChild;
     _$insert(_el$2, itemId);
-    _el$4.$$click = e => select(item, e);
+    _el$4._$$click = e => select(item, e);
     _$insert(_el$4, () => item.label);
-    _el$6.$$click = e => del(item, e);
+    _el$6._$$click = e => del(item, e);
     _$effect(
       () => selected(),
       _v$ => _$className(_el$, itemId === _v$ ? "danger" : "")

@@ -58,7 +58,7 @@ _$effect(() => {
 });
 const multiValues = _el$4;
 var _el$5 = _tmpl$3();
-_el$5.$$click = () => mount(_tmpl$7());
+_el$5._$$click = () => mount(_tmpl$7());
 const handlerValue = _el$5;
 var _el$6 = _tmpl$2();
 _$ref(() => {
