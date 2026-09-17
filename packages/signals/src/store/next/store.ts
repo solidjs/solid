@@ -156,6 +156,7 @@ function TargetShape(this: any) {
   this.wk = undefined;
   this.hv = undefined;
   this.ht = undefined;
+  this.uf = undefined;
 }
 TargetShape.prototype = Object.prototype;
 
@@ -196,6 +197,7 @@ function createTarget(
   t.del = null;
   t.hv = null;
   t.ht = null;
+  t.uf = -1;
   t.px = new Proxy(t, traps);
   // Legacy interop: shared machinery (affects walks, wrap dedupe) reads the
   // proxy off looked-up targets as a field.
@@ -788,7 +790,7 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
     queueFold(target);
     // A28 stamp, once per draft open (not per write — ensurePB runs on every
     // trap write of the draft).
-    if (!globalQueue._running && getOwner() === null) unflushedPBs.set(target, clock);
+    if (!globalQueue._running && getOwner() === null) target.uf = clock;
   }
   return pb;
 }
@@ -923,18 +925,18 @@ function queueFold(target: StoreNextTarget): void {
  * Refreshed on every write; resolved through currentTransition at drain
  * (transitions merge — same rule as heldMaskView). */
 const foldBatches = new WeakMap<StoreNextTarget, Transition>();
-/** A28 for backings — the tick (`clock`) a target's pending backing was opened
- * OUTSIDE a flush by a write from outside any owner (core's promoted-write
- * exemption, A28 (4): a write inside a computation is visible to the rest of
- * its block). `clock` advances after every flush, so "stamped this tick, no
- * flush running" is a write no flush has carried: owner-context readers see
- * the committed container and re-run in the carrying flush (markLateLinker),
- * as core serve() treats an unflushed node (unflushedValue). */
-// A Map, not a WeakMap: a WeakMap.set per fresh target (identity hash +
-// ephemeron) cost 15–30% on the write floor; entries leave at the drain.
-const unflushedPBs = new Map<StoreNextTarget, number>();
+/** A28 for backings — `target.uf` is the tick (`clock`) the pending backing
+ * was opened OUTSIDE a flush by a write from outside any owner (core's
+ * promoted-write exemption, A28 (4): a write inside a computation is visible
+ * to the rest of its block). `clock` advances after every flush, so "stamped
+ * this tick, no flush running" is a write no flush has carried: owner-context
+ * readers see the committed container and re-run in the carrying flush
+ * (markLateLinker), as core serve() treats an unflushed node (unflushedValue).
+ * A field, not a side table: a WeakMap.set per draft open cost 7–19% on the
+ * store write floor (identity hash + ephemeron) and a Map with set/delete
+ * churn per commit 7–9% (CodSpeed on #3526). */
 function unflushedBacking(target: StoreNextTarget): boolean {
-  return !globalQueue._running && unflushedPBs.get(target) === clock;
+  return !globalQueue._running && target.uf === clock;
 }
 
 /** Parked truth-staged pending backings (#3164 fold): a tentative draft that
@@ -1047,7 +1049,6 @@ function drainFolds(): void {
         }
         foldBatches.delete(t);
       }
-      unflushedPBs.delete(t);
       // Setter path: nodes were setSignal'd at setter exit (write-time
       // notification — transitions/holds ride core machinery). Commit the
       // backing only for keys whose nodes have committed; a still-pending

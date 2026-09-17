@@ -580,7 +580,13 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "16.70 KB",
+    // A28 at the store backing (S6, store follows signal, #3526, 2026-09-17,
+    // rebased over #3519): a write staged outside a flush by imperative code is
+    // invisible to owner-context readers until the carrying flush; a node born
+    // in that window stages it (one stageKey); the stamp is a target field
+    // (`uf`) after a WeakMap and a Map both cost 7–19% on the write floor.
+    // Measured at 16,766 B.
+    limit: "16.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1242,7 +1248,13 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "30.35 KB",
+    // A28 at the store backing (S6, store follows signal, #3526, 2026-09-17,
+    // rebased over #3519): a write staged outside a flush by imperative code is
+    // invisible to owner-context readers until the carrying flush; a node born
+    // in that window stages it (one stageKey); the stamp is a target field
+    // (`uf`) after a WeakMap and a Map both cost 7–19% on the write floor.
+    // Measured at 30,374 B.
+    limit: "30.40 KB",
     modifyEsbuildConfig
   },
   {

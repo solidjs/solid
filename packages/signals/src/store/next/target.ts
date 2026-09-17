@@ -81,8 +81,13 @@ export interface StoreNextTarget {
    * (empirically at counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap
    * field read then becomes a hash lookup (~15% uibench, tree suites
    * worst). Future write-side state MUST ride an extension object, not new
-   * named fields. */
+   * named fields. (Re-measured 2026-09-17 on Node 26 / V8 14: array and
+   * object targets stay fast-properties at 25–28 named+symbol props, so `uf`
+   * below was added as a field; CodSpeed's array benches are the guard.) */
   wk: Set<PropertyKey> | null;
+  /** A28 at the backing: the `clock` tick the pending backing was opened
+   * outside a flush by imperative code (-1 = never). See unflushedBacking. */
+  uf: number;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
