@@ -919,13 +919,13 @@ module.exports = [
     // Hydration claim-path trim (#3513, 2026-09-17): measured at 19,931 B against
     // current `next`'s 19,849 (+82). One indexed childNodes claim pass replaces
     // iterator-copy + compaction; frame ancestry is queried once per root.
-    // Hydration writes land as client renders (#3504, 2026-09-17): 19.85 -> 19.95 KB,
-    // measured at 19,933 B (~+85 B). solid-js's createRoot gains the hydration
-    // slot indirection the other primitives have plus a hydrating body that
-    // marks the snapshot root; a resume window records its boundary owner and
-    // `sharedConfig.isClaiming` walks `_parent` to it; @solidjs/web's
-    // isHydrating consults it. 0 B in the signals floor.
-    limit: "19.95 KB",
+    // Hydration writes land as client renders (#3504, 2026-09-17): 19.95 -> 20.05 KB,
+    // measured at 20,044 B rebased over #3513 (+113 B). solid-js's createRoot
+    // gains the hydration slot indirection the other primitives have plus a
+    // hydrating body that marks the snapshot root; a resume window records its
+    // boundary owner and `sharedConfig.isClaiming` walks `_parent` to it;
+    // @solidjs/web's isHydrating consults it. 0 B in the signals floor.
+    limit: "20.05 KB",
     modifyEsbuildConfig
   },
   {
@@ -1115,10 +1115,11 @@ module.exports = [
     // Hydration claim-path trim (#3513, 2026-09-17): measured at 30,041 B against
     // current `next`'s 29,985 (+56). Same one-pass claim/frame-query trade as the
     // no-store hydration scenario; the store engine itself is unchanged.
-    // Hydration writes land as client renders (#3504, 2026-09-17): 30.00 -> 30.10 KB,
-    // measured at 30,063 B (~+130 B); the solid-js createRoot / resume-window
-    // claim gate, see the hydrating (no stores) note. 0 B in the signals floor.
-    limit: "30.10 KB",
+    // Hydration writes land as client renders (#3504, 2026-09-17): 30.05 -> 30.15 KB,
+    // measured at 30,107 B rebased over #3513 (+66 B); the solid-js createRoot /
+    // resume-window claim gate, see the hydrating (no stores) note. 0 B in the
+    // signals floor.
+    limit: "30.15 KB",
     modifyEsbuildConfig
   },
   {
