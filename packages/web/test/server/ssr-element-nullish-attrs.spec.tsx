@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  */
 import { describe, expect, test } from "vitest";
-import { renderToString, ssrElement, Dynamic } from "@solidjs/web";
+import { renderToString, ssrElement, dynamic } from "@solidjs/web";
 
 // Regression (#3382): ssrElement checked `style` and `class` before the
 // nullish early-out, so a spread whose style/class resolved to undefined
@@ -16,12 +16,13 @@ describe("ssrElement nullish style/class (#3382)", () => {
     expect(html).toBe("<button></button>");
   });
 
-  test("through a spread and through Dynamic", () => {
+  test("through a spread and through a dynamic() tag", () => {
     const props = { style: undefined, class: undefined, "data-x": "1" };
+    const Button = dynamic(() => "button");
     expect(renderToString(() => <button {...props} />)).toMatch(
       /^<button( _hk=\w+)? data-x="1"><\/button>$/
     );
-    expect(renderToString(() => <Dynamic component="button" {...props} />)).toMatch(
+    expect(renderToString(() => <Button {...props} />)).toMatch(
       /^<button( _hk=\w+)? data-x="1"><\/button>$/
     );
   });

@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  */
 import { describe, expect, test } from "vitest";
-import { renderToString, ssrElement, Dynamic } from "@solidjs/web";
+import { renderToString, ssrElement, dynamic } from "@solidjs/web";
 import { createMemo, createComponent } from "solid-js";
 import type { JSX } from "@solidjs/web";
 
@@ -26,11 +26,12 @@ describe("SSR text separators (#3383)", () => {
     expect(strip(html)).toBe("<ul><li>1</li><li>2</li><li>3</li></ul>");
   });
 
-  test("Dynamic instances in a list get no separator", () => {
+  test("dynamic() tag instances in a list get no separator", () => {
+    const Span = dynamic(() => "span");
     const html = renderToString(() => (
       <div>
         {[1, 2].map(i => (
-          <Dynamic component="span">{i}</Dynamic>
+          <Span>{i}</Span>
         ))}
       </div>
     ));
