@@ -37,7 +37,7 @@ import {
   setSignal,
   unflushed,
   unflushedCompanions,
-  unflushedOverride,
+  visibleOverride,
   unflushedValue,
   setStrictRead,
   stale,
@@ -292,8 +292,7 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   if (
     el._config & CONFIG_OVERRIDE_SUPERSEDED &&
     el._pendingValue === NOT_PENDING &&
-    hasActiveOverride(el) &&
-    !unflushedOverride(el)
+    visibleOverride(el)
   )
     return !el._equals || !el._equals(el._value as any, unwrapOverride(el._x?._overrideValue));
   // A28 (2): an unflushed write is not yet observable — the verdict answers
@@ -306,7 +305,7 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
     // non-final"; an override is one (a node whose first landing was held
     // by a reveal it never got to commit, then superseded under its
     // override, read false here).
-    if (hasActiveOverride(el) && !unflushedOverride(el))
+    if (visibleOverride(el))
       return !el._equals || !el._equals(staged as any, unwrapOverride(el._x?._overrideValue));
     // A quiet re-ask's held landing still answers the same question: the
     // classification survives the landing (asyncWrite) and dies with the
@@ -503,9 +502,7 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   const prevPending = latestReadActive;
   setLatestReadActive(false);
   const visibleValue = (
-    hasActiveOverride(el) && !unflushedOverride(el)
-      ? unwrapOverride(el._x?._overrideValue)
-      : el._value
+    visibleOverride(el) ? unwrapOverride(el._x?._overrideValue) : el._value
   ) as T;
   // A28: an unflushed write is not the staged value latest() serves. The
   // shadow was written at the source's write to mirror it (A8) — consult it
