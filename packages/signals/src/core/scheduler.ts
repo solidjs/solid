@@ -430,6 +430,14 @@ export function wakeParked(): void {
   for (const t of transitions) wokenTransitions.includes(t) || wokenTransitions.push(t);
   schedule();
 }
+/** Transactions a mainline tick has PROPOSED against (A34, #3494): a write to a
+ * node one of them holds — the same value or another — is a second proposal
+ * on a contested node, and the tick reveals with the hold ("both are
+ * suggesting a value; if one finished before the other that would be odd").
+ * Entered at the next flush's start, where the ambient batch is adopted;
+ * never from the write itself, which left `activeTransition` set across the
+ * caller's block and made creation after the write the transaction's (A29). */
+export const batchJoins: Transition[] = [];
 
 /**
  * Permanently halts the reactive system. Called when a user error escapes
@@ -748,6 +756,7 @@ export class GlobalQueue extends Queue {
       this._queues[1].length === 0 &&
       this._children.length === 0 &&
       !wokenTransitions.length &&
+      !batchJoins.length && // a join must drain in its own tick (#3519 review)
       canUseSimpleSyncFlush(this)
     ) {
       this._running = true;
@@ -775,6 +784,10 @@ export class GlobalQueue extends Queue {
     this._running = true;
     resyncUnflushedCompanions(); // A28, see above
     try {
+      // The tick proposed against a hold (#3494): adopt its batch into it.
+      // Inside the try: the adoption runs user comparators (the no-proposal
+      // drop), and a throw there must not leave `_running` set.
+      while (batchJoins.length) this.initTransition(batchJoins.pop());
       if (__DEV__) devCheckFlushStart();
       // Before runHeap for the same reason as the fast drain above; late
       // subscribers (an effect reading a swept memo this flush) revive it,
@@ -997,6 +1010,38 @@ export class GlobalQueue extends Queue {
       const adopted = this._running ? 0 : CONFIG_ADOPTED_UNFLUSHED;
       for (let i = 0; i < batch._pendingNodes.length; i++) {
         const node = batch._pendingNodes[i];
+        // A tick that nets to the committed value proposed nothing (A34, #3494):
+        // `setShow(false); setShow(true)` beside a write that opens a hold
+        // left `show` staged at its own value, stamped, pending to the
+        // verdict, and its next mainline write held by a flight it never
+        // derived from. Unstage it here — its subscribers were walked at the
+        // write and re-derive the same value. Writes only: a signal's staging
+        // is always one, a computed's only under REACTIVE_MANUAL_WRITE
+        // (`createSignal(fn)`'s setter, #3519 review) — otherwise it is its
+        // pass's result, which may equal an uninitialized `undefined` (a
+        // born-held first pass). `_equals: false` opts out. The unstaging is
+        // the commit's own path (commitPendingNode with nothing staged): the
+        // manual-write flag, companions and the rest are cleaned up as a
+        // commit would, and the node is stamped nowhere. Unstamped
+        // only: a node already a transaction's — arriving here as a parked
+        // batch folds into a merge — carries a FLUSHED proposal a later
+        // rewrite brought back to the committed value; it is held, not
+        // proposal-free. Dropped, it kept the dead stamp, and the next write
+        // to it queued under the merged transaction a value the commit then
+        // skipped as another's (fuzzer latest-2 #1470, S3).
+        if (
+          node._transition === null &&
+          node._pendingValue !== NOT_PENDING &&
+          (!(node as Computed<any>)._fn ||
+            ((node as Computed<any>)._flags & REACTIVE_MANUAL_WRITE &&
+              !((node as Computed<any>)._statusFlags & STATUS_UNINITIALIZED))) &&
+          node._equals &&
+          node._equals(node._value, node._pendingValue)
+        ) {
+          node._pendingValue = NOT_PENDING;
+          commitPendingNode(node);
+          continue;
+        }
         node._transition = activeTransition;
         node._config |= adopted;
         activeTransition._pendingNodes.push(node);
@@ -1550,7 +1595,6 @@ function reporterBlocksSource(
   // boundary consumes the flight, the hold is over (A33, ruled 2026-09-12, #3375).
   for (let q: IQueue | null = reporter._queue; q; q = q._parent)
     if (q._collectionType! & STATUS_PENDING && !q._initialized) return false;
-  if (reporter._x?._pendingSources?.has(source)) return true;
   // "Still derives from the source" is a question about THIS pass's reads:
   // the deps up to `_depsTail`. Past it lie the committed frame's — kept
   // linked by A30 until the commit trims them (a staged pass, an errored
@@ -1560,6 +1604,10 @@ function reporterBlocksSource(
   // kept it (spec O3, same-flush form; fuzzer #3446 P1 cases 21/79). A
   // trimmed list ends at `_depsTail`, so the bound is free there; a pass
   // that read nothing has a null tail and derives from nothing.
+  // The registration is trusted: a pending mark rides only this pass's links
+  // (notifyStatus skips the kept tail), so a registered reporter read the
+  // source, or threw on it.
+  if (reporter._x?._pendingSources?.has(source)) return true;
   const tail = reporter._depsTail;
   for (
     let dep = tail === null ? null : reporter._deps;
@@ -1568,7 +1616,18 @@ function reporterBlocksSource(
   ) {
     let current = dep._dep as Signal<any> | Computed<any> | undefined;
     while (current) {
-      if (current === source || (current as any)._firewall === source) return true;
+      // Or through a memo pending on the flight (#3494): a stale reader
+      // served a held memo's committed value never turned pending itself, so
+      // its only trace of the flight is the memo between them — `copy` of
+      // `details`. Judged dead, its transaction released `count=1` beside
+      // the `Copy: 0` it displays. `_pendingSources` is transitive, so one
+      // hop covers any depth.
+      if (
+        current === source ||
+        (current as any)._firewall === source ||
+        current._x?._pendingSources?.has(source)
+      )
+        return true;
       current = current._x?._parentSource;
     }
   }

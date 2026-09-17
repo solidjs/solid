@@ -193,12 +193,17 @@ function laneOverride(el: Computed<any>, value: unknown, lane: OptimisticLane): 
  * while one of its optimistic nodes holds an active override that is still
  * pending on real (non-affects-sentinel) async. A derived override's flight is
  * the lane's own work, never authoritative — it does not hold the settle.
+ * Neither is a companion's (#3494): the `latest()` shadow backfilled under the
+ * owner's transaction (A28 (3)) is an observation of the flight, and a
+ * mainline `latest(details)` after the flight's last reader unmounted held the
+ * released write until the orphaned request landed.
  */
 function transitionBlocked(transition: Transition): boolean {
   for (let i = 0; i < transition._optimisticNodes.length; i++) {
     const node = transition._optimisticNodes[i];
     if (
       !(node._config & CONFIG_DERIVED_OVERRIDE) &&
+      node._x?._parentSource === undefined &&
       hasActiveOverride(node) &&
       "_statusFlags" in node &&
       (node as Computed<any>)._statusFlags & STATUS_PENDING &&

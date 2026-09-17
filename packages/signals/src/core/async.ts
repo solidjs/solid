@@ -1004,6 +1004,30 @@ export function notifyStatus(
   }
   forEachDependent(el, (sub, link) => {
     sub._time = clock;
+    // A pending mark on a kept-tail link re-derives the subscriber instead of
+    // marking it (A30, #3494 review; fuzzer latest-1 #2141; #3519 review).
+    // Past `_depsTail` lie the committed frame's deps, kept by A30 because
+    // that frame still derives from them while the pass that dropped them is
+    // held (staged, or unchanged and parked). A source going pending there is
+    // a question for the node's NEXT pass, not a fact about its current one:
+    // marked, the node was registered as the flight's reporter and its holder
+    // entangled with the flight (the A15 arm below) on a dep the held frame
+    // never reads — an orphaned fetch held the truth (a hide joined to a
+    // parked action, A34), and a manual flight nobody awaited held a gated
+    // reader hidden forever (fuzzer branches-1 #1105). Skipped, the committed
+    // frame published stale beside its new inputs (`query=1` beside a
+    // `selected` derived from `remote(0)`). Re-derived, the pass decides: it
+    // reads the dep and registers through its own read, or reads a held input
+    // and enters that transaction (A29), or reads neither and is done. Clears
+    // and errors still ride every link. A link inside the prefix carries the
+    // pass's generation (`link()`), so the test is O(1); mid-pass the prefix
+    // is what the pass has read so far, and the heap refuses a recomputing
+    // node — a dep it has yet to reach registers through its own read.
+    if (status === STATUS_PENDING && link._gen !== sub._depGen) {
+      enqueueSub(sub);
+      schedule();
+      return;
+    }
     if (
       (status === STATUS_PENDING &&
         pendingSource &&

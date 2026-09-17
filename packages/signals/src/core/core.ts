@@ -97,6 +97,7 @@ import {
   globalQueue,
   GlobalQueue,
   insertSubs,
+  batchJoins,
   projectionWriteActive,
   queuePendingNode,
   heldTrims,
@@ -2253,14 +2254,22 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     throw new Error(ownedScopeWriteMessage(context));
   }
 
-  // A write to a held node inside a flush joins the hold (the round's other
-  // work is the transaction's). From mainline it does not: the node is
-  // already the transaction's (stamped, in its pending list) and the rewrite
-  // commits with it; entering here left activeTransition set for the rest of
-  // the caller's block, so a memo created after the write — and the whole
-  // next flush — became the transaction's instead of mainline's (A28, A29).
-  if (el._transition && activeTransition !== el._transition && globalQueue._running)
-    globalQueue.initTransition(el._transition);
+  // A write to a held node is a second proposal on a contested node (A34, #3494):
+  // the writer's tick reveals with the hold, the same value or another. Inside
+  // a flush the round enters now; from mainline the entry waits for the next
+  // flush's start (batchJoins) — entering here left activeTransition set for
+  // the rest of the caller's block, so a memo created after the write became
+  // the transaction's instead of mainline's (A28, A29). Before the equality
+  // gate below: repeating the held value proposes it too — and that repeat
+  // leaves through the gate, so the join schedules its own flush here; left
+  // for the next flush to find, it adopted an unrelated tick (#3519 review).
+  if (el._transition && activeTransition !== el._transition) {
+    if (globalQueue._running) globalQueue.initTransition(el._transition);
+    else {
+      batchJoins.push(el._transition); // dupes: a bare return in initTransition
+      schedule();
+    }
+  }
 
   // The optimistic write path lives with the engine: only optimisticSignal /
   // optimisticComputed callers and optimistic store nodes carry an
