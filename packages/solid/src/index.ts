@@ -5,7 +5,6 @@ export {
   affects,
   createOwner,
   createReaction,
-  createRoot,
   createTrackedEffect,
   deep,
   flatten,
@@ -99,6 +98,7 @@ export type { ArrayElement, Element } from "./types.js";
 export {
   sharedConfig,
   enableHydration,
+  createRoot,
   createErrorBoundary,
   createLoadingBoundary,
   createRevealOrder,

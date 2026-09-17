@@ -2327,6 +2327,12 @@ export function runHydrationEvents() {
 // Internal Functions
 function isHydrating(node) {
   if (!sharedConfig.hydrating) return false;
+  // A streamed boundary's resume window claims only the subtree under that
+  // boundary; the rest of the page hydrated in the root pass. A render the
+  // window forces outside it — the resumed content's onSettled writing a
+  // signal above the boundary, revealing a <Show> there (#3504) — is a
+  // client render: fresh nodes, live inserts, no registry lookup.
+  if (sharedConfig.isClaiming && !sharedConfig.isClaiming()) return false;
   if (!node || node.isConnected) return true;
   // Connectivity tells claimed SSR nodes apart from fresh template clones,
   // but a claimed tree isn't always IN the document: a frame adoption whose

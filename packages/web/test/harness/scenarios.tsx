@@ -24,6 +24,8 @@
 import {
   createSignal,
   createMemo,
+  createEffect,
+  onSettled,
   createProjection,
   createStore,
   Show,
@@ -1836,6 +1838,89 @@ function polymorphicChainApp(form: keyof typeof forms) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// #3504: a user-tier effect (onSettled / createEffect) fires during
+// hydration's synchronous pass and writes a signal that reveals a <Show>
+// branch the server never rendered. The write lands after the claim pass, so
+// the branch is created as fresh client DOM — not claimed against the
+// registry (a key miss: a detached subtree plus a dev warning). The toast
+// function reaches the page through a module slot; the issue used a context,
+// which changes nothing about the write's timing.
+let addToast: (t: string) => void = () => {};
+function ToasterProvider(props: { children: any }) {
+  const [toasts, setToasts] = createSignal<string[]>([]);
+  addToast = t => setToasts(prev => [t, ...prev]);
+  return (
+    <>
+      <Show when={toasts().length}>
+        <div class="toast">{toasts()[0]}</div>
+      </Show>
+      {props.children}
+    </>
+  );
+}
+function SettledToastPage() {
+  onSettled(() => {
+    addToast("toast!");
+  });
+  return <main>Hello</main>;
+}
+function EffectToastPage() {
+  createEffect(
+    () => 1,
+    () => {
+      addToast("toast!");
+    }
+  );
+  return <main>Hello</main>;
+}
+function OnSettledWriteShow() {
+  return (
+    <ToasterProvider>
+      <SettledToastPage />
+    </ToasterProvider>
+  );
+}
+function OnSettledWriteShowLoading() {
+  return (
+    <ToasterProvider>
+      <Loading fallback={<main>Loading…</main>}>
+        <SettledToastPage />
+      </Loading>
+    </ToasterProvider>
+  );
+}
+// Streamed shape: the page suspends on the server, so the shell carries the
+// boundary fallback and the route content arrives as a late fragment. The
+// route's onSettled then fires inside the boundary's resume window, after
+// the root pass released its snapshot scope.
+function StreamedToastPage() {
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "Hello";
+  });
+  onSettled(() => {
+    addToast("toast!");
+  });
+  return <main>{data()}</main>;
+}
+function OnSettledWriteShowStreamed() {
+  return (
+    <ToasterProvider>
+      <Loading fallback={<main>Loading…</main>}>
+        <StreamedToastPage />
+      </Loading>
+    </ToasterProvider>
+  );
+}
+function EffectWriteShow() {
+  return (
+    <ToasterProvider>
+      <EffectToastPage />
+    </ToasterProvider>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -2525,5 +2610,34 @@ export const scenarios: Scenario[] = [
     update: () => setStaticLabel("two"),
     expectedTextAfterUpdate: "twotwotwo",
     stableSelector: "div, a, i, b"
+  },
+  {
+    name: "onsettled-write-show",
+    App: OnSettledWriteShow,
+    expectedText: "toast!Hello",
+    serverText: "Hello",
+    stableSelector: "main"
+  },
+  {
+    name: "onsettled-write-show-loading",
+    App: OnSettledWriteShowLoading,
+    expectedText: "toast!Hello",
+    serverText: "Hello",
+    stableSelector: "main"
+  },
+  {
+    name: "effect-write-show",
+    App: EffectWriteShow,
+    expectedText: "toast!Hello",
+    serverText: "Hello",
+    stableSelector: "main"
+  },
+  {
+    name: "onsettled-write-show-streamed",
+    App: OnSettledWriteShowStreamed,
+    async: true,
+    expectedText: "toast!Hello",
+    serverText: "Hello",
+    stableSelector: "main"
   }
 ];
