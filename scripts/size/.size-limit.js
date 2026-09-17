@@ -529,6 +529,10 @@ module.exports = [
     // A projection's leaf companions die with it; latest() of a dead leaf creates
     // none (spec O5, 2026-09-16): 16,481 B (+31 over the cap); +104 B minified in
     // owner.ts (core floor), the shadow retirement lives in verdict.ts.
+    // Released leaves leave the companion set (#3503, 2026-09-16): rebased over
+    // the O5 fix, measured at 16,493 B against `next`'s 16,481 (+12 brotli for
+    // `_companionChildren?.delete(n)` in unlinkFirewallChild). The 16.50 KB cap
+    // is unchanged; core floor and isPending/latest scenarios are unchanged.
     limit: "16.50 KB",
     modifyEsbuildConfig
   },

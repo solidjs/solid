@@ -102,9 +102,10 @@ const suppressedProbes: Map<Signal<any> | Computed<any>, Set<Computed<any>>> = n
  * the one-load gate at the call sites). The snap then iterates exactly the
  * children someone asked verdicts of — O(companions) — never the full
  * `_child` chain, which carries one node per materialized leaf (the
- * O(all-leaves-ever-read)-per-update pathology). Entries are permanent like
- * the companions themselves; a store with no leaf-level isPending()/latest()
- * reads never allocates the set or pays the walk. */
+ * O(all-leaves-ever-read)-per-update pathology). Entries live as long as the
+ * store addresses the leaf — the unobserved sweep's `unlinkFirewallChild`
+ * drops them (#3503); a store with no leaf-level isPending()/latest() reads
+ * never allocates the set or pays the walk. */
 function markFirewallChildCompanions(el: Signal<any> | Computed<any>): void {
   const fw = (el as FirewallSignal<any>)._firewall;
   if (!fw) return;

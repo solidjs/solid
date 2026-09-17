@@ -81,7 +81,7 @@ import {
   warnStrictReadUntracked
 } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { devTrackHeldPending } from "./invariants.js";
+import { devTrackHeldPending, devUntrackCompanionOwner } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import type { Transition } from "./scheduler.js";
 import {
@@ -1291,9 +1291,10 @@ function linkFirewallChild(firewall: Computed<unknown>, s: FirewallSignal<unknow
 /** Release a firewall child the store no longer addresses (unobserved sweep
  * dropped it from its target's cache): unlink it from the chain so the
  * projection stops retaining it and its last value. The node keeps its own
- * `_nextChild` so a walk that is mid-chain on it still terminates. Nodes in
- * `_companionChildren` stay there — companions are permanent by contract
- * and snap through that set, not the chain. */
+ * `_nextChild` so a walk that is mid-chain on it still terminates. It also
+ * leaves `_companionChildren` (#3503): the companions themselves are
+ * permanent on the node, but the node is unreachable through the store, so
+ * the set would only retain it and its last value. */
 export function unlinkFirewallChild(node: Signal<any>): void {
   const n = node as FirewallSignal<any>;
   const fw = n._firewall;
@@ -1304,6 +1305,12 @@ export function unlinkFirewallChild(node: Signal<any>): void {
   else if (fw._x!._child === n) fw._x!._child = next;
   if (next !== null) next._prevChild = prev;
   n._prevChild = null;
+  // #3503: the companion set is the last projection-side reference to a
+  // released leaf; leaving it there kept the leaf and its last value alive
+  // for the projection's lifetime after every latest()/isPending() reader
+  // was disposed.
+  fw._x!._companionChildren?.delete(n);
+  if (__DEV__) devUntrackCompanionOwner(n);
 }
 
 export function slotSignal<T>(
