@@ -457,4 +457,88 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       ).toEqual([]);
     });
   });
+
+  // ---- the attribution engine's folds ----
+  //
+  // `costs()` and `feedback()` are named exports whose modules register their
+  // accounting with the engine on evaluation. That only pays for itself if a
+  // consumer that never imports them ships neither the tables nor the
+  // registration — which rests on the package's `sideEffects: false`: a
+  // bundler drops a module none of whose exports are used, registration
+  // included. `moduleSideEffects: false` is that flag's Rollup spelling for
+  // a fixture that aliases the files directly instead of resolving the
+  // package.
+  const ATTR_SRC = join(SRC, "attribution.ts");
+  const ATTR_DIST = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../dist/observe/attribution.js"
+  );
+
+  async function bundleAttribution(code: string, entryFile: string): Promise<string[]> {
+    const dir = mkdtempSync(join(tmpdir(), "solid-treeshake-attr-"));
+    tempDirs.push(dir);
+    const entry = join(dir, "entry.ts");
+    writeFileSync(entry, code);
+    const result = (await build({
+      configFile: false,
+      logLevel: "silent",
+      define: { __DEV__: "false", __OBSERVE__: "true", __TEST__: "false" },
+      resolve: { alias: { attr: entryFile } },
+      build: {
+        write: false,
+        minify: false,
+        target: "esnext",
+        lib: { entry, formats: ["es"], fileName: "out" },
+        rollupOptions: { treeshake: { moduleSideEffects: false } }
+      }
+    })) as Rollup.RollupOutput[];
+    const chunk = result[0].output[0];
+    const root = dirname(dirname(entryFile)) + "/";
+    return Object.entries(chunk.modules)
+      .filter(([, mod]) => mod.renderedLength > 0)
+      .map(([id]) => id.replace(root, ""));
+  }
+
+  const RECORDS_CONSUMER = `
+    import { attribution } from "attr";
+    attribution.enable({ log: false });
+    attribution.subscribe(e => console.log(e.nodeName));
+    export const holds = attribution.holds;
+  `;
+  const FEEDBACK_CONSUMER = `
+    import { attribution, feedback } from "attr";
+    attribution.enable({ log: false });
+    export const tables = () => feedback();
+  `;
+  const FOLDS = ["attribution-costs", "attribution-feedback", "attribution-queries"];
+
+  describe("attribution engine: folds are pay-for-use", () => {
+    it("a records-only consumer ships the engine and none of the folds (src)", async () => {
+      const retained = await bundleAttribution(RECORDS_CONSUMER, ATTR_SRC);
+      expect(retainedFrom(retained, ["core/attribution.ts"])).toEqual(["core/attribution.ts"]);
+      expect(retainedFrom(retained, FOLDS)).toEqual([]);
+    });
+
+    it("importing feedback ships the feedback fold and nothing else (src)", async () => {
+      const retained = await bundleAttribution(FEEDBACK_CONSUMER, ATTR_SRC);
+      expect(retainedFrom(retained, FOLDS)).toEqual(["attribution-feedback"]);
+    });
+
+    it.skipIf(!existsSync(ATTR_DIST))(
+      "a records-only consumer ships none of the folds (dist/observe)",
+      async () => {
+        const retained = await bundleAttribution(RECORDS_CONSUMER, ATTR_DIST);
+        expect(retainedFrom(retained, ["core/attribution.js"])).toEqual(["core/attribution.js"]);
+        expect(retainedFrom(retained, FOLDS)).toEqual([]);
+      }
+    );
+
+    it.skipIf(!existsSync(ATTR_DIST))(
+      "importing feedback ships the feedback fold (dist/observe)",
+      async () => {
+        const retained = await bundleAttribution(FEEDBACK_CONSUMER, ATTR_DIST);
+        expect(retainedFrom(retained, FOLDS)).toEqual(["attribution-feedback"]);
+      }
+    );
+  });
 });

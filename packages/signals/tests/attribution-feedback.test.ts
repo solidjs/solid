@@ -10,7 +10,7 @@
  * work beside time held. Every hold counts, at any duration.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, feedback } from "../src/attribution.js";
 import {
   action,
   createLoadingBoundary,
@@ -96,7 +96,7 @@ function pagedFeed(name = "posts") {
 describe("feedback()", () => {
   it("starts empty and counts every hold, not only the ones past the verdict thresholds", async () => {
     arm();
-    expect(attribution.feedback()).toEqual({
+    expect(feedback()).toEqual({
       sources: [],
       interactions: [],
       navigations: [],
@@ -108,12 +108,12 @@ describe("feedback()", () => {
     flush();
     await feed.load("a"); // initial load: no root write, never a hold
 
-    expect(attribution.feedback().sources).toEqual([]);
+    expect(feedback().sources).toEqual([]);
     feed.setPage(2);
     flush();
     await feed.load("b");
 
-    const { sources } = attribution.feedback();
+    const { sources } = feedback();
     expect(sources).toHaveLength(1);
     expect(sources[0]).toMatchObject({
       sources: ["posts"],
@@ -163,7 +163,7 @@ describe("feedback()", () => {
     flush();
     await feed.load("d");
 
-    const [row] = attribution.feedback().sources;
+    const [row] = feedback().sources;
     expect(row).toMatchObject({ sources: ["posts"], holds: 3, silent: 1 });
     expect(row.acknowledgedBy).toEqual([{ by: "isPending:posts", holds: 2 }]);
     expect(row.silentMs).toBeLessThan(row.heldMs);
@@ -189,7 +189,7 @@ describe("feedback()", () => {
     flush();
     await feed.load("b");
 
-    const [row] = attribution.feedback().sources;
+    const [row] = feedback().sources;
     expect(row).toMatchObject({ holds: 1, silent: 0, latestOnly: 1 });
     expect(row.acknowledgedBy).toEqual([{ by: "latest:postsPage", holds: 1 }]);
   });
@@ -215,7 +215,7 @@ describe("feedback()", () => {
     flush();
     await feed.load("d");
 
-    const { sources, interactions } = attribution.feedback();
+    const { sources, interactions } = feedback();
     expect(sources[0].interactions).toEqual([
       { interaction: 'click on button#next "Next →"', holds: 2 },
       { interaction: 'keydown on input#search ""', holds: 1 }
@@ -251,7 +251,7 @@ describe("feedback()", () => {
     OBSERVE!.attribution.withInteraction({ type: "click", target: "button#b" }, () => setN(2));
     flush();
 
-    const { sources, interactions } = attribution.feedback();
+    const { sources, interactions } = feedback();
     expect(sources).toEqual([]);
     expect(interactions).toHaveLength(2);
     // Rows are ranked by measured time (heldMs + selfMs); ten trivial runs
@@ -327,7 +327,7 @@ describe("feedback()", () => {
     await done;
     await until(() => title() === "saved", "the action to commit");
 
-    const { sources } = attribution.feedback();
+    const { sources } = feedback();
     const keys = sources.map(s => s.sources.join("+"));
     expect(keys).toContain("comments+posts");
     expect(keys).toContain("");
@@ -345,10 +345,10 @@ describe("feedback()", () => {
     feed.setPage(2);
     flush();
     await feed.load("b");
-    expect(attribution.feedback().sources).toHaveLength(1);
+    expect(feedback().sources).toHaveLength(1);
     attribution.disable();
     arm();
-    expect(attribution.feedback()).toEqual({
+    expect(feedback()).toEqual({
       sources: [],
       interactions: [],
       navigations: [],
@@ -383,7 +383,7 @@ describe("feedback()", () => {
     feed.setPage(2);
     flush();
     await feed.load("b");
-    const [row] = attribution.feedback().sources;
+    const [row] = feedback().sources;
     expect(row).toMatchObject({ holds: 1, silent: 0, long: 1 });
     // One write: the tail is the whole hold.
     const [hold] = attribution.holds();
@@ -408,7 +408,7 @@ describe("feedback()", () => {
     feed.setPage(2);
     flush();
     await feed.load("b");
-    expect(attribution.feedback().sources[0]).toMatchObject({
+    expect(feedback().sources[0]).toMatchObject({
       holds: 1,
       long: 0,
       longMs: 0
@@ -421,7 +421,7 @@ describe("feedback()", () => {
     createRoot(() => feed.reading());
     flush();
     await feed.load("a");
-    expect(attribution.feedback().flights).toEqual([
+    expect(feedback().flights).toEqual([
       {
         source: "posts",
         flights: 1,
@@ -437,7 +437,7 @@ describe("feedback()", () => {
     feed.setPage(3);
     flush();
     await feed.load("c");
-    const [row] = attribution.feedback().flights;
+    const [row] = feedback().flights;
     expect(row).toMatchObject({ source: "posts", flights: 3, landed: 2, abandoned: 1 });
     expect(row.worstMs).toBeGreaterThan(0);
     expect(row.landedMs).toBeGreaterThanOrEqual(row.worstMs);
@@ -462,12 +462,12 @@ describe("feedback()", () => {
     });
     flush();
     expect(shown).toEqual(["loading…"]);
-    let [row] = attribution.feedback().fallbacks;
+    let [row] = feedback().fallbacks;
     expect(row).toMatchObject({ boundary: "boundary", shows: 1, shownMs: 0, flashes: 0 });
     await wait(20);
     feed.resolve("a");
     await until(() => shown.includes("a-p1"), "content");
-    [row] = attribution.feedback().fallbacks;
+    [row] = feedback().fallbacks;
     expect(row.shows).toBe(1);
     expect(row.shownMs).toBeGreaterThanOrEqual(15);
     expect(row.worstMs).toBe(row.shownMs);

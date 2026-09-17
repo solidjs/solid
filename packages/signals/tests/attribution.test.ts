@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, costs, formatRerun, subscriptions, why } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
@@ -182,7 +182,7 @@ describe("why-did-this-run attribution", () => {
     setN(2);
     flush();
 
-    const runs = attribution.why(doubled);
+    const runs = why(doubled);
     expect(runs.length).toBeGreaterThanOrEqual(1);
     expect(runs.every(e => e.nodeName === "doubled")).toBe(true);
   });
@@ -203,7 +203,7 @@ describe("why-did-this-run attribution", () => {
     setN(2);
     flush();
 
-    const text = attribution.format(events.find(e => e.nodeName === "title-effect")!);
+    const text = formatRerun(events.find(e => e.nodeName === "title-effect")!);
     expect(text).toContain('effect "title-effect" ran');
     expect(text).toContain('memo "label" changed');
     expect(text).toContain('signal "notifications" write');
@@ -231,7 +231,7 @@ describe("why-did-this-run attribution", () => {
     expect(run.depsAdded).toEqual(["b"]);
     expect(run.depsRemoved).toEqual(["a"]);
     expect(run.depCount).toBe(2); // flag + b
-    expect(attribution.format(run)).toContain('deps changed: +"b" -"a" (2 total)');
+    expect(formatRerun(run)).toContain('deps changed: +"b" -"a" (2 total)');
 
     // A run with an unchanged dep set reports no diff.
     setFlag(true);
@@ -240,7 +240,7 @@ describe("why-did-this-run attribution", () => {
     flush();
     const last = events.filter(e => e.nodeName === "branchy").at(-1)!;
     expect(last.depsAdded).toEqual(["b"]);
-    expect(attribution.subscriptions(OBSERVE!.subjectOf(run)!)).toEqual(["flag", "b"]);
+    expect(subscriptions(OBSERVE!.subjectOf(run)!)).toEqual(["flag", "b"]);
   });
 
   it("re-run records are serializable: nodeId names the scope, subjectOf hands back the node", () => {
@@ -279,9 +279,9 @@ describe("why-did-this-run attribution", () => {
     const node = OBSERVE!.subjectOf(doubles[0]);
     expect(node).toBeDefined();
     expect(OBSERVE!.subjectOf(doubles[1])).toBe(node);
-    expect(attribution.subscriptions(node!)).toEqual(["a"]);
-    expect(attribution.why(double)).toEqual(doubles);
-    expect(attribution.why(node)).toEqual(doubles);
+    expect(subscriptions(node!)).toEqual(["a"]);
+    expect(why(double)).toEqual(doubles);
+    expect(why(node)).toEqual(doubles);
     // A copy that left the process has no subject.
     expect(OBSERVE!.subjectOf(JSON.parse(JSON.stringify(doubles[0])))).toBeUndefined();
   });
@@ -461,7 +461,7 @@ describe("why-did-this-run attribution", () => {
     expect(memoRun.changed).toBe(true);
     expect(effectRun.selfMs).toBeLessThan(memoRun.selfMs);
 
-    const { scopes, writes } = attribution.costs();
+    const { scopes, writes } = costs();
     expect(scopes[0].name).toBe("slow-memo"); // ranked by self-time
     expect(scopes[0].selfMs).toBeGreaterThanOrEqual(5);
     expect(scopes[0].wastedMs).toBe(0); // value changed — not waste
@@ -498,7 +498,7 @@ describe("why-did-this-run attribution", () => {
     setN(2); // memo re-runs, produces the same value — pure waste
     flush();
 
-    const { scopes } = attribution.costs();
+    const { scopes } = costs();
     const wasteful = scopes.find(s => s.name === "wasteful")!;
     expect(wasteful.wastedMs).toBeGreaterThanOrEqual(4);
     expect(wasteful.wastedMs).toBe(wasteful.selfMs);
@@ -529,7 +529,7 @@ describe("why-did-this-run attribution", () => {
     const [wasted, real] = events.filter(e => e.nodeName === "row-class");
     expect(wasted.changed).toBe(false);
     expect(real.changed).toBe(true);
-    const { scopes } = attribution.costs();
+    const { scopes } = costs();
     const scope = scopes.find(s => s.name === "row-class")!;
     expect(scope.wastedMs).toBeGreaterThanOrEqual(0);
     expect(scope.wastedMs).toBe(wasted.selfMs);
@@ -556,7 +556,7 @@ describe("why-did-this-run attribution", () => {
 
     const run = events.find(e => e.nodeName === "void-effect")!;
     expect(run.changed).toBe(true);
-    const { scopes } = attribution.costs();
+    const { scopes } = costs();
     expect(scopes.find(s => s.name === "void-effect")!.wastedMs).toBe(0);
   });
 
@@ -621,7 +621,7 @@ describe("why-did-this-run attribution", () => {
     // Every run under the optimistic write is tagged as overlay work.
     for (const run of runs) expect(run.phase).not.toBe("plain");
 
-    const { scopes } = attribution.costs();
+    const { scopes } = costs();
     const scope = scopes.find(s => s.name === "opt-effect")!;
     expect(scope.overlayMs).toBeGreaterThan(0);
     expect(scope.wastedMs).toBe(0); // overlay runs are never waste

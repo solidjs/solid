@@ -1,6 +1,7 @@
 import type { DiagnosticEvent } from "@solidjs/signals";
 import type {
-  Attribution,
+  AttributionCostTables,
+  AttributionFeedbackTables,
   ChangeOrigin,
   HoldEvent,
   RerunEvent
@@ -27,8 +28,9 @@ export type {
   FlightStats,
   FallbackStats
 } from "@solidjs/signals/attribution";
-export type AttributionCosts = ReturnType<Attribution["costs"]>;
-export type AttributionFeedback = ReturnType<Attribution["feedback"]>;
+/** The fold tables as `costs()` / `feedback()` return them — named exports of the engine's entry. */
+export type AttributionCosts = AttributionCostTables;
+export type AttributionFeedback = AttributionFeedbackTables;
 
 /**
  * A re-run as the artifact stores it. The engine's `RerunEvent` is

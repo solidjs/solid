@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 type Tier = { DEV: unknown; OBSERVE: unknown };
-type Engine = { attribution: any };
+type Engine = { attribution: any; costs: () => any; feedback: () => any };
 
 function expectObserveLive(mod: Tier) {
   const observe = mod.OBSERVE as any;
@@ -95,10 +95,10 @@ function expectEngineInert(engine: Engine) {
   const { attribution } = engine;
   expect(() => attribution.enable()).not.toThrow();
   expect(attribution.history()).toEqual([]);
-  expect(attribution.costs()).toEqual({ scopes: [], writes: [] });
+  expect(engine.costs()).toEqual({ scopes: [], writes: [] });
   expect(attribution.holds()).toEqual([]);
   expect(attribution.navigations()).toEqual([]);
-  expect(attribution.feedback()).toEqual({
+  expect(engine.feedback()).toEqual({
     sources: [],
     interactions: [],
     navigations: [],

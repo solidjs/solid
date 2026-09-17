@@ -8,6 +8,7 @@
  * real engine's interface so the two cannot drift.
  */
 import type { Attribution } from "./core/attribution.js";
+import type * as Engine from "./attribution.js";
 
 const EMPTY: readonly never[] = Object.freeze([]);
 const noop = () => {};
@@ -17,43 +18,54 @@ export const attribution: Attribution = {
   disable: noop,
   subscribe: () => noop,
   history: () => EMPTY,
-  why: () => [],
-  subscriptions: () => [],
-  costs: () => ({ scopes: [], writes: [] }),
   waterfalls: () => EMPTY,
   holds: () => EMPTY,
   navigations: () => EMPTY,
   interactions: () => EMPTY,
-  feedback: () => ({ sources: [], interactions: [], navigations: [], flights: [], fallbacks: [] }),
-  markFlight: noop,
-  format: () => "",
-  formatOrigin: () => ""
+  markFlight: noop
 };
+
+// The named surface, inert: every fold empty, every query empty, every
+// formatter blank. Typed against the real entry's exports so the two cannot
+// drift.
+export const costs: typeof Engine.costs = () => ({ scopes: [], writes: [] });
+export const feedback: typeof Engine.feedback = () => ({
+  sources: [],
+  interactions: [],
+  navigations: [],
+  flights: [],
+  fallbacks: []
+});
+export const why: typeof Engine.why = () => [];
+export const subscriptions: typeof Engine.subscriptions = () => [];
+export const formatRerun: typeof Engine.formatRerun = () => "";
+export const formatOrigin: typeof Engine.formatOrigin = () => "";
 
 export type {
   Acknowledgement,
   Attribution,
-  AttributionFeedbackTables,
   AttributionOptions,
   AttributionRecords,
   AttributionRecordType,
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
-  FallbackStats,
-  FeedbackInteraction,
-  FeedbackNavigation,
-  FeedbackSource,
   FlightLink,
-  FlightStats,
   HeldWrite,
   HoldEvent,
   InteractionEvent,
   NavigationEvent,
   NavigationHop,
   RerunEvent,
-  ScopeCost,
-  WaterfallRecord,
-  WriteCost
+  WaterfallRecord
 } from "./core/attribution.js";
+export type { AttributionCostTables, ScopeCost, WriteCost } from "./core/attribution-costs.js";
+export type {
+  AttributionFeedbackTables,
+  FallbackStats,
+  FeedbackInteraction,
+  FeedbackNavigation,
+  FeedbackSource,
+  FlightStats
+} from "./core/attribution-feedback.js";
 export type { InteractionRef, NavigationRef, OriginRef } from "./core/attribution-hooks.js";

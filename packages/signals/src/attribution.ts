@@ -10,31 +10,39 @@
  * `attribution.prod.ts`, an inert engine with the same surface, so app code
  * can import it unconditionally.
  */
-export { attribution } from "./core/attribution.js";
+export { attribution, formatOrigin, formatRerun } from "./core/attribution.js";
+// The folds and point queries are named exports, not methods of `attribution`:
+// each fold registers its accounting with the engine when its module is
+// evaluated, so a records-only consumer that never imports `costs`/`feedback`
+// ships neither the tables nor the work of filling them.
+export { costs } from "./core/attribution-costs.js";
+export { feedback } from "./core/attribution-feedback.js";
+export { subscriptions, why } from "./core/attribution-queries.js";
 export type {
   Acknowledgement,
   Attribution,
-  AttributionFeedbackTables,
   AttributionOptions,
   AttributionRecords,
   AttributionRecordType,
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
-  FallbackStats,
-  FeedbackInteraction,
-  FeedbackNavigation,
-  FeedbackSource,
   FlightLink,
-  FlightStats,
   HeldWrite,
   HoldEvent,
   InteractionEvent,
   NavigationEvent,
   NavigationHop,
   RerunEvent,
-  ScopeCost,
-  WaterfallRecord,
-  WriteCost
+  WaterfallRecord
 } from "./core/attribution.js";
+export type { AttributionCostTables, ScopeCost, WriteCost } from "./core/attribution-costs.js";
+export type {
+  AttributionFeedbackTables,
+  FallbackStats,
+  FeedbackInteraction,
+  FeedbackNavigation,
+  FeedbackSource,
+  FlightStats
+} from "./core/attribution-feedback.js";
 export type { InteractionRef, NavigationRef, OriginRef } from "./core/attribution-hooks.js";

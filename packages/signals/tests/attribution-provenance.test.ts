@@ -10,7 +10,7 @@
  * re-runs, holds — can be keyed by what the user did.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, formatRerun } from "../src/attribution.js";
 import {
   action,
   createEffect,
@@ -65,7 +65,7 @@ describe("write provenance", () => {
     flush();
     const cause = rootCause(runs, "reader");
     expect(cause.origin).toEqual({ kind: "external" });
-    expect(attribution.format(runs.at(-1)!)).not.toContain("—");
+    expect(formatRerun(runs.at(-1)!)).not.toContain("—");
   });
 
   it("stamps writes inside withInteraction with the interaction", () => {
@@ -85,8 +85,8 @@ describe("write provenance", () => {
     expect(cause.origin!.at).toBeGreaterThanOrEqual(before);
     const run = runs.at(-1)!;
     expect(run.interaction).toBe(cause.origin);
-    expect(attribution.format(run)).toContain(`n" write (#`);
-    expect(attribution.format(run)).toContain(`— click on button#next "Next →"`);
+    expect(formatRerun(run)).toContain(`n" write (#`);
+    expect(formatRerun(run)).toContain(`— click on button#next "Next →"`);
   });
 
   it("stamps an effect's writes with the effect, under the interaction that caused its run", () => {
@@ -112,7 +112,7 @@ describe("write provenance", () => {
       name: "sync",
       interaction: { kind: "interaction", name: "click" }
     });
-    expect(attribution.format(runs.at(-1)!)).toContain(
+    expect(formatRerun(runs.at(-1)!)).toContain(
       `— effect "sync" (under click on button#next "Next →")`
     );
     // The reader's run traces to the click through the relay.

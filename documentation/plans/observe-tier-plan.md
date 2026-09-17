@@ -216,7 +216,19 @@ _Status (2026-09-16)._ Landed, in three pieces:
   session it served. In-process exporters keep doing `timeOrigin + at`
   themselves (RFC 08 documents the contract).
 
-**Engine diet — measured, not done.** Ranking the engine's functions by
+**Engine diet — measured, then done (2026-09-16, second PR).** The fold
+surface is named exports: `costs()`, `feedback()`, `why()`,
+`subscriptions()`, `formatRerun()`, `formatOrigin()` from
+`@solidjs/signals/attribution`; `attribution` keeps `enable`/`disable`/
+`subscribe`/`markFlight` and the ring buffers. Each fold module registers its
+accumulators with an internal fold seam (`registerFold`: rerun, hold,
+navigation, flightStart, flightLanded, fallback, reset) when evaluated, so
+under the package's `sideEffects: false` a records-only consumer ships neither
+the tables nor the work of filling them. Measured: the attribution scenario
+27,192 B, −1,150 B brotli; cap ratcheted to 27.25 KB. The formatters stayed
+in the engine — `log: true` prints through them and they are ~0.5 KB — so the
+diet is the folds. Tree-shake tests in `treeshake.test.ts` pin it from src and
+from `dist/observe`. The measurement that led here: Ranking the engine's functions by
 minified weight (esbuild, per top-level declaration): the console face
 (`formatRerun`/`formatCause`/`logRerun`) is ~1.7 KB minified, ~0.45 KB gz —
 4% of the engine's 11.7 KB gz — and `formatOrigin` another ~0.15 KB gz, which

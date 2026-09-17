@@ -8,7 +8,7 @@
  * computations — while the app around it is reported exactly as before.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, costs } from "../src/attribution.js";
 import {
   createEffect,
   createRoot,
@@ -157,7 +157,7 @@ describe("OBSERVE.exclude", () => {
     flush();
     const names = attribution.history().map(r => r.nodeName);
     expect(names).toEqual(["app"]);
-    expect(attribution.costs().scopes.map(s => s.name)).toEqual(["app"]);
+    expect(costs().scopes.map(s => s.name)).toEqual(["app"]);
     const [click] = attribution.interactions();
     expect(click.runs).toBe(1);
   });

@@ -1434,7 +1434,14 @@ module.exports = [
     // A projection's leaf companions die with it; latest() of a dead leaf creates
     // none (spec O5, 2026-09-16): 28,392 B (+22 over the cap); +104 B minified in
     // owner.ts (core floor), the shadow retirement lives in verdict.ts.
-    limit: "28.40 KB",
+    // Engine folds split out (rebased 2026-09-16): 28.40 -> 27.25 KB, measured
+    // at 27,169 B against `next`'s 28,392 (-1,223 B). `costs()`, `feedback()`,
+    // `why()`, and `subscriptions()` are named exports whose modules register
+    // with the engine's fold seam on import; this scenario is a records
+    // consumer (enable, subscribe, formatRerun) and ships none of them. The
+    // formatters stay in the engine because the `log` option prints through
+    // them. Ratcheted down to pin the reduction.
+    limit: "27.25 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

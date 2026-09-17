@@ -4,7 +4,7 @@ import {
   type InteractionRef,
   type OriginRef
 } from "./attribution-hooks.js";
-import { $REFRESH, CONFIG_DERIVED_OVERRIDE, NOT_PENDING } from "./constants.js";
+import { CONFIG_DERIVED_OVERRIDE, NOT_PENDING } from "./constants.js";
 import {
   anyExcluded,
   emitDiagnostic,
@@ -13,8 +13,7 @@ import {
   isSuppressed,
   ownerPath,
   recordSubject,
-  reportDiagnostic,
-  subjectOf
+  reportDiagnostic
 } from "./dev.js";
 import type { Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
@@ -359,7 +358,8 @@ function clearListeners(): void {
   for (const type in recordListeners) recordListeners[type as AttributionRecordType].clear();
 }
 
-const now: () => number =
+/** @internal The engine's clock: `performance.now()` where it exists. */
+export const now: () => number =
   typeof performance !== "undefined" ? () => performance.now() : () => Date.now();
 
 // Per-recompute frames: recomputes nest (pulls, child creation inside a
@@ -382,68 +382,40 @@ interface RunFrame {
 }
 const frames: RunFrame[] = [];
 
-// Cost aggregates, reset on enable()/disable().
-export interface ScopeCost {
-  name: string;
-  kind: "effect" | "memo";
-  runs: number;
-  selfMs: number;
-  /**
-   * Self-time of PLAIN, non-held runs that produced an unchanged value —
-   * the recoverable number. Overlay runs (optimistic/transition) are never
-   * counted here: an optimistic recompute landing back on the committed
-   * value is the mechanism working, not waste.
-   */
-  wastedMs: number;
-  /** Self-time spent in optimistic/transition (overlay) runs. */
-  overlayMs: number;
+/**
+ * @internal The fold tables' seam. The engine emits records; the tables that
+ * fold them — `costs()` (scopes and writes), `feedback()` (sources,
+ * interactions, navigations, flights, fallbacks) — live in their own modules
+ * and register here when imported, so a consumer that only subscribes to
+ * records never ships them. Each hook fires at the moment the engine has the
+ * fact; `reset` on `enable()`/`disable()`. With nothing registered every
+ * site is one empty loop.
+ */
+export interface FoldHooks {
+  rerun?(el: Computed<any>, event: RerunEvent): void;
+  hold?(event: HoldEvent): void;
+  navigation?(event: NavigationEvent): void;
+  /** A flight started; `abandoned` when it superseded one still in the air. */
+  flightStart?(el: Computed<any>, abandoned: boolean): void;
+  flightLanded?(el: Computed<any>, ms: number): void;
+  fallback?(boundary: object, tree: Computed<any> | undefined, shown: boolean): void;
+  reset?(): void;
 }
-export interface WriteCost {
-  /** Root cause name (a signal write, async landing, or refresh target). */
-  name: string;
-  /** Number of downstream re-runs this root triggered. */
-  runs: number;
-  /** Summed self-time of every downstream re-run it caused. */
-  downstreamMs: number;
+const folds: FoldHooks[] = [];
+/** @internal */
+export function registerFold(hooks: FoldHooks): void {
+  folds.push(hooks);
 }
-const scopeCosts = new Map<Computed<any>, ScopeCost>();
-const writeCosts = new Map<string, WriteCost>();
 
-function rootsOf(causes: ChangeRecord[], out: Set<string>): void {
+/** @internal Root cause names of a cause chain — the writes/landings/refreshes the chain bottoms out in. */
+export function rootsOf(causes: ChangeRecord[], out: Set<string>): void {
   for (const c of causes) {
     if (c.kind === "derived" && c.causes && c.causes.length > 0) rootsOf(c.causes, out);
     else out.add(c.name);
   }
 }
 
-function recordCosts(el: Computed<any>, event: RerunEvent): void {
-  let scope = scopeCosts.get(el);
-  if (scope === undefined) {
-    scope = {
-      name: event.nodeName,
-      kind: event.nodeKind,
-      runs: 0,
-      selfMs: 0,
-      wastedMs: 0,
-      overlayMs: 0
-    };
-    scopeCosts.set(el, scope);
-  }
-  scope.runs++;
-  scope.selfMs += event.selfMs;
-  if (event.phase !== "plain") scope.overlayMs += event.selfMs;
-  else if (!event.changed && !event.held) scope.wastedMs += event.selfMs;
-  const roots = new Set<string>();
-  rootsOf(event.causes, roots);
-  for (const name of roots) {
-    let write = writeCosts.get(name);
-    if (write === undefined) writeCosts.set(name, (write = { name, runs: 0, downstreamMs: 0 }));
-    write.runs++;
-    write.downstreamMs += event.selfMs;
-  }
-}
-
-function nodeName(node: Signal<any> | Computed<any>): string {
+export function nodeName(node: Signal<any> | Computed<any>): string {
   return (node as AttributedNode & { _name?: string })._name ?? "anonymous";
 }
 
@@ -1066,8 +1038,7 @@ function recordRerun(
   recordSubject(event, el);
   history.push(event);
   if (history.length > options.historyLimit) history.shift();
-  recordCosts(el, event);
-  recordFeedbackRun(event);
+  for (const f of folds) f.rerun?.(el, event);
   noteInteractionRun(interaction, timing.selfMs, false);
   if (event.nodeKind === "effect") checkEffectCycle(el, causes);
   checkRelayTear(el, causes, prevCauses);
@@ -1131,6 +1102,16 @@ function logRerun(event: RerunEvent): void {
   console.groupEnd();
 }
 
+/**
+ * The engine: turn it on, subscribe to its records, read its ring buffers.
+ * The folds over those records — `costs()`, `feedback()` — and the point
+ * queries — `why()`, `subscriptions()` — and the formatters —
+ * `formatRerun()`, `formatOrigin()` — are named exports of
+ * `@solidjs/signals/attribution` rather than methods here, so a consumer
+ * that only wants records (a production adapter) does not ship the tables a
+ * console or an agent reads; importing a fold is what turns its accounting
+ * on.
+ */
 export interface Attribution {
   enable(opts?: AttributionOptions): void;
   disable(): void;
@@ -1147,16 +1128,6 @@ export interface Attribution {
     listener: (record: AttributionRecords[K]) => void
   ): () => void;
   history(): readonly RerunEvent[];
-  /** Re-run history for one node — pass a memo/effect accessor or raw node. */
-  why(target: unknown): RerunEvent[];
-  /** Current dependency names of one scope — the devtools subscription view. */
-  subscriptions(target: unknown): string[];
-  /**
-   * Aggregated cost tables since enable(): `scopes` ranked by self-time
-   * (with `wastedMs` = time spent on unchanged-value runs), `writes` ranked
-   * by total downstream re-run time each root write caused.
-   */
-  costs(): { scopes: ScopeCost[]; writes: WriteCost[] };
   /**
    * Every graph-provable sequential flight chain observed since enable()
    * (ring-buffered like history()). Facts, not verdicts: chains are recorded
@@ -1192,21 +1163,6 @@ export interface Attribution {
    */
   interactions(): readonly InteractionEvent[];
   /**
-   * What the user waited on, folded from holds() and the interaction on each
-   * re-run: `sources` ranks async sources by the silent time writes spent
-   * held behind them (with which affordances answered, how often, and which
-   * interactions were held); `interactions` ranks user events by the total
-   * time they cost — re-run work caused (long-flush hazard) beside time held
-   * (silent-hold hazard). Facts at every duration; SILENT_HOLD is the
-   * thresholded verdict. Three more tables round out the picture:
-   * `navigations` ranks routes by the time spent held navigating to them
-   * (folded from navigations()), `flights` counts each async source's
-   * flights and how many were abandoned before landing (the re-ask storm),
-   * and `fallbacks` measures how long each loading boundary showed its
-   * fallback and how often that was a flash.
-   */
-  feedback(): AttributionFeedbackTables;
-  /**
    * Cooperative preload declaration: stamp a flight object (promise or async
    * iterable) with its true kickoff time BEFORE the reactive graph sees it.
    * A route preloader or query cache calls this on the promise it hands out
@@ -1218,8 +1174,6 @@ export interface Attribution {
    * later enable()).
    */
   markFlight(flight: object, startedAt?: number): void;
-  format: typeof formatRerun;
-  formatOrigin: typeof formatOrigin;
 }
 
 /**
@@ -1904,9 +1858,7 @@ function trackFlightStart(el: Computed<any>, flight: object): void {
   if (origin === at) flightOrigins.set(flight, at);
   // Census: a flight still in the air when the node starts another was
   // superseded — its answer will be discarded.
-  const stats = flightBucket(el);
-  stats.flights++;
-  if (liveFlights.has(el)) stats.abandoned++;
+  for (const f of folds) f.flightStart?.(el, liveFlights.has(el));
   // Nearest enclosing frame with causes: create runs carry null (a node born
   // inside a parent's recompute inherits the parent's causality — the
   // boundary-reveal case, and the lazy sibling whose first pull is gated
@@ -1945,10 +1897,7 @@ function finalizeFlight(el: Computed<any>): void {
   liveFlights.delete(el);
   const landedAt = now();
   const ms = landedAt - flight.origin;
-  const stats = flightBucket(el);
-  stats.landed++;
-  stats.landedMs += ms;
-  if (ms > stats.worstMs) stats.worstMs = ms;
+  for (const f of folds) f.flightLanded?.(el, ms);
   const record = (el as AttributedNode)._devChange;
   // Only a stamp this landing produced may carry the measurement — a stale
   // async record from a previous landing must not be re-labeled.
@@ -2337,13 +2286,14 @@ function trackHoldSettled(t: Transition): void {
   emitRecord("hold", event);
   settleNavigations(t, event);
   settleInteractionsHeld(t, event);
-  recordFeedbackHold(event);
+  for (const f of folds) f.hold?.(event);
   if (isSilentHold(event)) checkSilentHold(event, subject!);
   else checkLongHold(event, subject!);
 }
 
 /** `isLongHold` — the tail outlasted `longHolds.infoMs`. */
-function isLongHold(event: HoldEvent): boolean {
+/** @internal */
+export function isLongHold(event: HoldEvent): boolean {
   const cfg = options.longHolds;
   return cfg !== false && cfg !== undefined && event.tailMs >= cfg.infoMs;
 }
@@ -2722,7 +2672,7 @@ function settleNavigation(
   event.settledMs = now() - event.at;
   event.outcome = outcome;
   if (hold !== undefined) event.hold = hold;
-  recordFeedbackNavigation(event);
+  for (const f of folds) f.navigation?.(event);
   emitRecord("navigation", event);
   // The interaction that performed it may have been waiting only on this.
   const under = openInteractionOf(event.interaction);
@@ -2943,370 +2893,9 @@ function navigationData(origin: ChangeOrigin): Record<string, unknown> {
   return data;
 }
 
-// --- Feedback tables ----------------------------------------------------------
-//
-// costs() ranks scopes and writes by the time they burn; feedback() ranks what
-// the USER waited on, folded from records the engine already keeps — the
-// HoldEvents and the interaction on each RerunEvent — with no measurement of
-// its own. Two views of one question, "what did the click cost the person who
-// clicked": per async source, how often writes were held behind it, for how
-// long, and whether the screen said anything meanwhile; per interaction, the
-// synchronous re-run work it caused (the long-flush hazard) beside the time
-// its writes spent held (the silent-hold hazard) — the two INP failure modes
-// as columns of one row. Facts, not verdicts: every hold counts, not only the
-// ones past SILENT_HOLD's thresholds, so a source acknowledged on one screen
-// and silent on another shows up as exactly that.
-
-export interface FeedbackSource {
-  /** The async nodes the holds waited on; empty when an action alone kept them open. */
-  sources: string[];
-  holds: number;
-  /** Summed wait across the holds (ms). */
-  heldMs: number;
-  worstMs: number;
-  /** Holds with no acknowledgment at all — the SILENT_HOLD signature, at any duration. */
-  silent: number;
-  silentMs: number;
-  /** Holds whose only acknowledgment was a `latest()` shadow: the input showed, nothing said "loading". */
-  latestOnly: number;
-  /**
-   * Holds whose quiescent tail (last write to join → commit) reached
-   * `longHolds.infoMs`, acknowledged or not — the LONG_HOLD signature at the
-   * table level. The affordance is not the whole answer there: a fallback
-   * (`Loading` keyed with `on`), a preload, a cache, or a faster source is.
-   * `longMs` sums the tails.
-   */
-  long: number;
-  longMs: number;
-  /** Which affordances answered, and in how many holds — ranked. */
-  acknowledgedBy: { by: string; holds: number }[];
-  /** Interactions whose writes were held here, ranked by holds. */
-  interactions: { interaction: string; holds: number }[];
-  /** Distinct root writes that were held. */
-  writes: string[];
-  /** Holds an action opened or joined. */
-  actions: number;
-}
-
-export interface FeedbackInteraction {
-  /** `click on button#next "Next →"` — type and target; repeated dispatches fold together. */
-  interaction: string;
-  /** Distinct dispatches seen (by dispatch time). */
-  dispatches: number;
-  /** Re-runs traced back to this interaction, and their summed self-time. */
-  runs: number;
-  selfMs: number;
-  /** The most re-run self-time a single dispatch caused — the long-flush hazard. */
-  worstDispatchMs: number;
-  /** Holds this interaction's writes waited in — the silent-hold hazard. */
-  holds: number;
-  heldMs: number;
-  silentMs: number;
-  worstHoldMs: number;
-}
-
-/** Per async source: how many flights it started, and how many it threw away. */
-export interface FlightStats {
-  source: string;
-  /** Flights registered (a recompute that produced a new promise/iterable). */
-  flights: number;
-  /** Flights that landed (whether or not the value changed). */
-  landed: number;
-  /**
-   * Flights superseded by a newer one before landing — the search-as-you-type
-   * signature when large: every keystroke asked, most answers were discarded.
-   * A debounced/equality-gated derivation between input and fetch is the repair.
-   */
-  abandoned: number;
-  /** Summed and worst wall time of landed flights (ms). */
-  landedMs: number;
-  worstMs: number;
-}
-
-/** Per loading boundary: how long, and how briefly, it showed its fallback. */
-export interface FallbackStats {
-  /** The boundary's owner path (`<App> › <Feed>`), or `boundary` when unnamed. */
-  boundary: string;
-  /** Times the fallback was shown. */
-  shows: number;
-  /** Summed and worst fallback duration (ms) across completed shows. */
-  shownMs: number;
-  worstMs: number;
-  /**
-   * Shows shorter than the flash window (default 150ms): a spinner that
-   * appeared and vanished — the other end of the SILENT_HOLD spectrum, too
-   * much feedback for too little wait. A preload, a cache, or lifting the
-   * fetch above the boundary removes the flash.
-   */
-  flashes: number;
-}
-
-/**
- * Per route: what navigating to it cost, folded from settled
- * `NavigationEvent`s — the route-level view a router integration used to
- * have to build itself, from the runtime's own facts.
- */
-export interface FeedbackNavigation {
-  /** The route pattern (`/users/:id`), or the concrete `to` when the router gave no pattern. */
-  name: string;
-  navigations: number;
-  /** Summed and worst request-to-settle time (ms) across settled navigations. */
-  settledMs: number;
-  worstMs: number;
-  /** Navigations whose writes waited in a hold, and the time they waited. */
-  held: number;
-  heldMs: number;
-  /** Held navigations the screen acknowledged nothing for — the SILENT_HOLD signature. */
-  silent: number;
-  /** Navigations overwritten by a later one before they landed. */
-  superseded: number;
-  /** Navigations a redirect sent elsewhere on the way (keyed by where they ended up). */
-  redirected: number;
-}
-
-interface SourceBucket {
-  row: FeedbackSource;
-  acks: Map<string, number>;
-  interactions: Map<string, number>;
-  writes: Set<string>;
-}
-interface InteractionBucket {
-  row: FeedbackInteraction;
-  /** Self-time per dispatch, keyed by dispatch time. */
-  dispatches: Map<number, number>;
-}
-const feedbackSources = new Map<string, SourceBucket>();
-const feedbackInteractions = new Map<string, InteractionBucket>();
-const feedbackNavigations = new Map<string, FeedbackNavigation>();
-const flightStats = new Map<Computed<any>, FlightStats>();
-interface FallbackBucket {
-  row: FallbackStats;
-  /** Start of the show currently on screen, or null. */
-  shownAt: number | null;
-}
-const fallbackStats = new Map<object, FallbackBucket>();
-const FALLBACK_FLASH_MS = 150;
-
-function flightBucket(el: Computed<any>): FlightStats {
-  let row = flightStats.get(el);
-  if (row === undefined) {
-    row = { source: nodeName(el), flights: 0, landed: 0, abandoned: 0, landedMs: 0, worstMs: 0 };
-    flightStats.set(el, row);
-  }
-  return row;
-}
-
-function trackFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void {
-  let bucket = fallbackStats.get(boundary);
-  if (bucket === undefined) {
-    bucket = {
-      row: { boundary: "boundary", shows: 0, shownMs: 0, worstMs: 0, flashes: 0 },
-      shownAt: null
-    };
-    fallbackStats.set(boundary, bucket);
-  }
-  // The first show can fire before the subtree exists; name on first sight.
-  if (bucket.row.boundary === "boundary" && tree !== undefined) {
-    const path = ownerPath(tree);
-    if (path !== undefined) bucket.row.boundary = path.join(" › ");
-  }
-  if (shown) {
-    if (bucket.shownAt === null) {
-      bucket.shownAt = now();
-      bucket.row.shows++;
-    }
-    return;
-  }
-  if (bucket.shownAt === null) return;
-  const ms = now() - bucket.shownAt;
-  bucket.shownAt = null;
-  bucket.row.shownMs += ms;
-  if (ms > bucket.row.worstMs) bucket.row.worstMs = ms;
-  if (ms < FALLBACK_FLASH_MS) bucket.row.flashes++;
-}
-
-/** No affordance answered and nothing painted while held. */
-function isSilentHold(event: HoldEvent): boolean {
+/** @internal No affordance answered and nothing painted while held. */
+export function isSilentHold(event: HoldEvent): boolean {
   return event.paintedDuringHold === 0 && event.acknowledgements.length === 0;
-}
-
-function interactionBucket(interaction: ChangeOrigin): InteractionBucket {
-  const key = formatOrigin(interaction);
-  let bucket = feedbackInteractions.get(key);
-  if (bucket === undefined) {
-    bucket = {
-      row: {
-        interaction: key,
-        dispatches: 0,
-        runs: 0,
-        selfMs: 0,
-        worstDispatchMs: 0,
-        holds: 0,
-        heldMs: 0,
-        silentMs: 0,
-        worstHoldMs: 0
-      },
-      dispatches: new Map()
-    };
-    feedbackInteractions.set(key, bucket);
-  }
-  const at = interaction.at ?? 0;
-  if (!bucket.dispatches.has(at)) {
-    bucket.dispatches.set(at, 0);
-    bucket.row.dispatches++;
-  }
-  return bucket;
-}
-
-function recordFeedbackRun(event: RerunEvent): void {
-  if (event.interaction === undefined) return;
-  const bucket = interactionBucket(event.interaction);
-  bucket.row.runs++;
-  bucket.row.selfMs += event.selfMs;
-  const at = event.interaction.at ?? 0;
-  const dispatchMs = bucket.dispatches.get(at)! + event.selfMs;
-  bucket.dispatches.set(at, dispatchMs);
-  if (dispatchMs > bucket.row.worstDispatchMs) bucket.row.worstDispatchMs = dispatchMs;
-}
-
-function recordFeedbackHold(event: HoldEvent): void {
-  const sources = [...event.blockers].sort();
-  const key = sources.join("\u0000");
-  let bucket = feedbackSources.get(key);
-  if (bucket === undefined) {
-    bucket = {
-      row: {
-        sources,
-        holds: 0,
-        heldMs: 0,
-        worstMs: 0,
-        silent: 0,
-        silentMs: 0,
-        latestOnly: 0,
-        long: 0,
-        longMs: 0,
-        acknowledgedBy: [],
-        interactions: [],
-        writes: [],
-        actions: 0
-      },
-      acks: new Map(),
-      interactions: new Map(),
-      writes: new Set()
-    };
-    feedbackSources.set(key, bucket);
-  }
-  const row = bucket.row;
-  const silent = isSilentHold(event);
-  row.holds++;
-  row.heldMs += event.holdMs;
-  if (event.holdMs > row.worstMs) row.worstMs = event.holdMs;
-  if (silent) {
-    row.silent++;
-    row.silentMs += event.holdMs;
-  } else if (
-    event.acknowledgements.length > 0 &&
-    event.acknowledgements.every(a => a.kind === "latest")
-  )
-    row.latestOnly++;
-  if (isLongHold(event)) {
-    row.long++;
-    row.longMs += event.tailMs;
-  }
-  if (event.action) row.actions++;
-  for (const a of event.acknowledgements) {
-    const by = `${a.kind}:${a.source}`;
-    bucket.acks.set(by, (bucket.acks.get(by) ?? 0) + 1);
-  }
-  for (const w of event.heldWrites) bucket.writes.add(w.name);
-  if (event.interaction !== undefined) {
-    const key = formatOrigin(event.interaction);
-    bucket.interactions.set(key, (bucket.interactions.get(key) ?? 0) + 1);
-    const ib = interactionBucket(event.interaction);
-    ib.row.holds++;
-    ib.row.heldMs += event.holdMs;
-    if (silent) ib.row.silentMs += event.holdMs;
-    if (event.holdMs > ib.row.worstHoldMs) ib.row.worstHoldMs = event.holdMs;
-  }
-}
-
-function recordFeedbackNavigation(event: NavigationEvent): void {
-  const name = event.name ?? event.to;
-  if (name === undefined) return;
-  let row = feedbackNavigations.get(name);
-  if (row === undefined) {
-    row = {
-      name,
-      navigations: 0,
-      settledMs: 0,
-      worstMs: 0,
-      held: 0,
-      heldMs: 0,
-      silent: 0,
-      superseded: 0,
-      redirected: 0
-    };
-    feedbackNavigations.set(name, row);
-  }
-  row.navigations++;
-  if (event.redirects !== undefined) row.redirected++;
-  if (event.outcome === "superseded") {
-    row.superseded++;
-    return;
-  }
-  const ms = event.settledMs!;
-  row.settledMs += ms;
-  if (ms > row.worstMs) row.worstMs = ms;
-  if (event.outcome === "held") {
-    row.held++;
-    row.heldMs += event.hold?.holdMs ?? ms;
-    if (event.hold !== undefined && isSilentHold(event.hold)) row.silent++;
-  }
-}
-
-function rankedCounts<K extends string>(
-  counts: Map<string, number>,
-  key: K
-): ({ [P in K]: string } & { holds: number })[] {
-  return [...counts]
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, holds]) => ({ [key]: name, holds }) as { [P in K]: string } & { holds: number });
-}
-
-export interface AttributionFeedbackTables {
-  sources: FeedbackSource[];
-  interactions: FeedbackInteraction[];
-  /** Routes ranked by the time spent held navigating to them, then by total settle time. */
-  navigations: FeedbackNavigation[];
-  /** Async sources ranked by abandoned flights, then by flights. */
-  flights: FlightStats[];
-  /** Loading boundaries ranked by flashes, then by time shown. */
-  fallbacks: FallbackStats[];
-}
-
-function feedbackTables(): AttributionFeedbackTables {
-  const navigations = [...feedbackNavigations.values()]
-    .map(row => ({ ...row }))
-    .sort((a, b) => b.heldMs - a.heldMs || b.settledMs - a.settledMs);
-  const flights = [...flightStats.values()]
-    .map(row => ({ ...row }))
-    .sort((a, b) => b.abandoned - a.abandoned || b.flights - a.flights);
-  const fallbacks = [...fallbackStats.values()]
-    .map(bucket => ({ ...bucket.row }))
-    .sort((a, b) => b.flashes - a.flashes || b.shownMs - a.shownMs);
-  const sources = [...feedbackSources.values()]
-    .map(bucket => ({
-      ...bucket.row,
-      acknowledgedBy: rankedCounts(bucket.acks, "by"),
-      interactions: rankedCounts(bucket.interactions, "interaction"),
-      writes: [...bucket.writes]
-    }))
-    .sort((a, b) => b.silentMs - a.silentMs || b.heldMs - a.heldMs);
-  // Ranked by the total time the user spent on it: held plus synchronous work.
-  const interactions = [...feedbackInteractions.values()]
-    .map(bucket => ({ ...bucket.row }))
-    .sort((a, b) => b.heldMs + b.selfMs - (a.heldMs + a.selfMs));
-  return { sources, interactions, navigations, flights, fallbacks };
 }
 
 // The engine's implementation of the core's dev hook points. Installed by
@@ -3482,7 +3071,7 @@ const engineHooks: AttributionHooks = {
     checkListIdentity(el, removed, created, newLen, keyed);
   },
   boundaryFallback(boundary, tree, shown) {
-    trackFallback(boundary, tree, shown);
+    for (const f of folds) f.fallback?.(boundary, tree, shown);
   },
   currentOrigin() {
     return ambientOrigin();
@@ -3494,14 +3083,9 @@ export const attribution: Attribution = {
     options = { ...defaultOptions, ...opts };
     attributionActive = true;
     frames.length = 0;
-    scopeCosts.clear();
-    writeCosts.clear();
     waterfallLog = [];
     holdLog = [];
     activeHold = null;
-    feedbackSources.clear();
-    feedbackInteractions.clear();
-    feedbackNavigations.clear();
     navigationLog = [];
     openNavs.clear();
     interactionLog = [];
@@ -3510,12 +3094,11 @@ export const attribution: Attribution = {
     reportedCycles.clear();
     relays.clear();
     immutableReported.clear();
-    flightStats.clear();
-    fallbackStats.clear();
     originFrames.length = 0;
     interactionStack.length = 0;
     currentInteraction = null;
     hotCauses.clear();
+    for (const f of folds) f.reset?.();
     setAttributionHooks(engineHooks);
   },
   disable() {
@@ -3523,14 +3106,9 @@ export const attribution: Attribution = {
     clearListeners();
     history = [];
     frames.length = 0;
-    scopeCosts.clear();
-    writeCosts.clear();
     waterfallLog = [];
     holdLog = [];
     activeHold = null;
-    feedbackSources.clear();
-    feedbackInteractions.clear();
-    feedbackNavigations.clear();
     navigationLog = [];
     openNavs.clear();
     interactionLog = [];
@@ -3539,12 +3117,11 @@ export const attribution: Attribution = {
     reportedCycles.clear();
     relays.clear();
     immutableReported.clear();
-    flightStats.clear();
-    fallbackStats.clear();
     originFrames.length = 0;
     interactionStack.length = 0;
     currentInteraction = null;
     hotCauses.clear();
+    for (const f of folds) f.reset?.();
     setAttributionHooks(null);
   },
   subscribe(
@@ -3562,22 +3139,6 @@ export const attribution: Attribution = {
   history() {
     return history;
   },
-  why(target: unknown) {
-    const node = ((target as Record<symbol, unknown>)?.[$REFRESH] ?? target) as Computed<unknown>;
-    return history.filter(event => subjectOf(event) === node);
-  },
-  subscriptions(target: unknown) {
-    const node = ((target as Record<symbol, unknown>)?.[$REFRESH] ?? target) as Computed<any>;
-    const names: string[] = [];
-    for (let l = node?._deps ?? null; l !== null; l = l._nextDep) names.push(nodeName(l._dep));
-    return names;
-  },
-  costs() {
-    return {
-      scopes: [...scopeCosts.values()].sort((a, b) => b.selfMs - a.selfMs),
-      writes: [...writeCosts.values()].sort((a, b) => b.downstreamMs - a.downstreamMs)
-    };
-  },
   waterfalls() {
     return waterfallLog;
   },
@@ -3590,15 +3151,10 @@ export const attribution: Attribution = {
   interactions() {
     return interactionLog;
   },
-  feedback() {
-    return feedbackTables();
-  },
   markFlight(flight: object, startedAt: number = now()) {
     // Earliest wins: re-marking (a cache re-serving the same promise) must
     // not move the origin later.
     const existing = flightOrigins.get(flight);
     if (existing === undefined || startedAt < existing) flightOrigins.set(flight, startedAt);
-  },
-  format: formatRerun,
-  formatOrigin
+  }
 };
