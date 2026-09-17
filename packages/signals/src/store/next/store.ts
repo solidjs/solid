@@ -28,7 +28,8 @@ import {
   unwrapOverride,
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_HELD_TRUTH,
-  CONFIG_OPTIMISTIC
+  CONFIG_OPTIMISTIC,
+  CONFIG_ADOPTED_UNFLUSHED
 } from "../../core/constants.js";
 import {
   context,
@@ -41,6 +42,7 @@ import {
   visibleOverride,
   recordStaleReplay,
   enterStagedRead,
+  markLateLinker,
   ownsHold,
   serve,
   prepareComputed,
@@ -58,10 +60,12 @@ import {
 } from "../../core/core.js";
 import {
   activeTransition,
+  clock,
   currentTransition,
   deferSlotRelease,
   globalQueue,
   insertSubs,
+  queuePendingNode,
   type Transition
 } from "../../core/scheduler.js";
 import { devTrackHeldPending } from "../../core/invariants.js";
@@ -343,7 +347,7 @@ export function getNode(
     // (the declaration walk could only cover nodes existing then).
     if (key !== $AFFECTS && affectsScopesLive()) inheritAffectsMarks(created, target.v, key);
     if (held !== null)
-      stageHeldKey(
+      stageKey(
         created,
         fold !== null
           ? target.del !== null && target.del.has(key)
@@ -351,6 +355,19 @@ export function getNode(
             : (target.pb as any)[key]
           : (target.v as any)[key],
         held
+      );
+    // Third kind (A28 at the backing): born in the UNFLUSHED window of an
+    // ambient fold — a setter ran outside a flush, no flush has carried it,
+    // and the key had no node to take the write at setter exit. `current` is
+    // the committed value (readSource served it under unflushedBacking);
+    // stage the pending backing's value so the carrying flush commits it
+    // through the node and the reader served committed (and marked late
+    // linker) finds the write there.
+    else if (target.pb !== null && unflushedBacking(target) && plainFold(target))
+      stageKey(
+        created,
+        target.del !== null && target.del.has(key) ? undefined : (target.pb as any)[key],
+        null
       );
     nodes[key] = node;
     target.nc++;
@@ -399,8 +416,11 @@ function liveFoldTransition(target: StoreNextTarget): Transition | null {
  * heldTruthMasked — neither is a plain staged write to mirror. Chained
  * backings serve the inner store's live value, never a node value. */
 function heldFoldTransition(target: StoreNextTarget): Transition | null {
-  if (target.ch || target.fam?.opt === true || inDraft(target)) return null;
-  return liveFoldTransition(target);
+  return plainFold(target) ? liveFoldTransition(target) : null;
+}
+/** A backing whose staged writes a node can mirror (see heldFoldTransition). */
+function plainFold(target: StoreNextTarget): boolean {
+  return !target.ch && target.fam?.opt !== true && !inDraft(target);
 }
 
 /**
@@ -426,11 +446,25 @@ function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
   return true;
 }
 
-function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
+function stageKey(node: Signal<any>, nv: any, txn: Transition | null): void {
   if (slotNodeEquals.call(node, node._value, nv)) return;
   node._pendingValue = nv;
-  node._transition = txn;
-  txn._pendingNodes.push(node);
+  if (txn !== null) {
+    // A hold's staging: transition-stamped, in its pending list — no
+    // parked-flush pass will stamp it (runFolded's shape).
+    node._transition = txn;
+    txn._pendingNodes.push(node);
+  } else {
+    // The unflushed window of an ambient fold (A28): core's ambient staging
+    // — queued for the carrying flush to commit through the node, adopted
+    // before any flush if a transaction body is running (initTransition's
+    // mark for a node that existed at the write).
+    if (activeTransition !== null) {
+      node._transition = activeTransition;
+      node._config |= CONFIG_ADOPTED_UNFLUSHED;
+    }
+    queuePendingNode(node);
+  }
   if (__DEV__) devTrackHeldPending(node);
 }
 
@@ -693,6 +727,7 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
     pb = target.pb = null;
   }
   if (activeTransition !== null) foldBatches.set(target, activeTransition);
+  if (!globalQueue._running && getOwner() === null) unflushedPBs.set(target, clock);
   if (pb === null) {
     // Prototype-chain overlay (#3044): plain-data non-array containers open
     // drafts in O(1) — own keys are the writes, reads fall through to
@@ -886,6 +921,17 @@ function queueFold(target: StoreNextTarget): void {
  * Refreshed on every write; resolved through currentTransition at drain
  * (transitions merge — same rule as heldMaskView). */
 const foldBatches = new WeakMap<StoreNextTarget, Transition>();
+/** A28 for backings — the tick (`clock`) a target's pending backing was opened
+ * OUTSIDE a flush by a write from outside any owner (core's promoted-write
+ * exemption, A28 (4): a write inside a computation is visible to the rest of
+ * its block). `clock` advances after every flush, so "stamped this tick, no
+ * flush running" is a write no flush has carried: owner-context readers see
+ * the committed container and re-run in the carrying flush (markLateLinker),
+ * as core serve() treats an unflushed node (unflushedValue). */
+const unflushedPBs = new WeakMap<StoreNextTarget, number>();
+function unflushedBacking(target: StoreNextTarget): boolean {
+  return !globalQueue._running && unflushedPBs.get(target) === clock;
+}
 
 /** Parked truth-staged pending backings (#3164 fold): a tentative draft that
  * opens while a folded landing's backing is live moves the staged container
@@ -1711,7 +1757,11 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
     if (speculative) return txn === null || ownsHold(txn);
     return target.fam !== null && c === null && !foldHeld(target) && txn === null;
   }
-  return holdVisible(liveFoldTransition(target), c);
+  const txn = liveFoldTransition(target);
+  // A28: an ambient staging no flush has carried is not yet visible — the
+  // committed container, and the pass runs again in the carrying flush.
+  if (txn === null && unflushedBacking(target)) return (markLateLinker(c), false);
+  return holdVisible(txn, c);
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing

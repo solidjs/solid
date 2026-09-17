@@ -25,12 +25,10 @@
  * S5 — (fixed, 3b step 4) a mainline derivation's UNTRACKED read of a held
  *      store key is born held (A29) as the signal's is — the store's untracked
  *      paths served the pending value without entering the transaction.
- * S6 — RULED (2026-09-17, "store rules follow signal rules"), fix DEFERRED:
- *      A28 at the backing. Pinned at the store's CURRENT value below so the
- *      divergence stays visible; the fix is the store half of `serve`
- *      (DESIGN-CONSOLIDATION move 3b step 6) — done at the twin it costs
- *      +400 B minified (a node born in the unflushed window must stage the
- *      write; #3521 first cut).
+ * S6 — (fixed) A28 at the backing: a write staged outside a flush by
+ *      imperative code is invisible to owner-context readers until the flush
+ *      that carries it, as a signal's is; a node born in that window stages
+ *      the write (one stageKey for holds and the unflushed window).
  * S7 — (fixed) an optimistic override survives its key becoming unobserved
  *      (the slot release defers to the flush that resolves the override).
  * S8 — (fixed, 3b step 6c) a derivation's untracked read of a SUPERSEDED
@@ -380,17 +378,19 @@ describe("S5 — a mainline derivation's UNTRACKED read of a held value is born 
   }
 });
 
-/** S6 — DIVERGENCE, ruled, fix deferred. Staged, ambient (a write before
- * any flush), reader created INSIDE a foreign action (which adopts the
- * write, spec O1): the signal's memo → render effect publishes the committed
- * 0 (A28 / #3510: adopted before any flush = unflushed, served committed);
- * the store's publishes the pending 1 (pendingBackingVisible: owner context
- * → pending backing). The verdict channels already agree (S1); the
- * derivation reads do not. Ruling: the store follows the signal (0). The
- * store side is pinned at its CURRENT value so the divergence stays visible
- * until the store's value selection shares core's (`serve`, move 3b step 6);
- * flip it to `[0]` then. */
-describe("S6 — DIVERGENCE (ruled: store follows signal; fix deferred to `serve`): staged-ambient write read by a derivation created inside a foreign action", () => {
+/** S6 (fixed): A28 at the backing. A write staged outside a flush is not
+ * visible to any reader until the flush that carries it (core serve() serves
+ * an unflushed node's committed value and re-runs the reader in the carrying
+ * flush — unflushedValue / markLateLinker). The store's backing selection
+ * served the pending backing to every owner-context reader at once; a
+ * derivation created inside a foreign action (which adopts the write, O1)
+ * published the unflushed 1 where the signal published 0. The backing now
+ * carries the rule (unflushedBacking: the target stamped `clock` when a
+ * draft opens outside a flush from outside any owner — A28 (4)'s promoted-
+ * write exemption), and a node born in that window stages the pending value
+ * (stageKey with no transaction) so the carrying flush commits it through
+ * the node and the late-linked reader finds it there. */
+describe("S6 — a write before any flush, read by a derivation created inside a foreign action (A28) — signal vs store", () => {
   function publishedInsideForeignAction(read: () => number) {
     const log: number[] = [];
     action(function* () {
@@ -410,12 +410,12 @@ describe("S6 — DIVERGENCE (ruled: store follows signal; fix deferred to `serve
     setX(1);
     expect(publishedInsideForeignAction(x)).toEqual([0]);
   });
-  it("store: publishes the pending 1 (CURRENT; rule says 0)", () => {
+  it("store: publishes the committed 0, as the signal does", () => {
     const [s, setS] = createStore({ n: 0 });
     setS(d => {
       d.n = 1;
     });
-    expect(publishedInsideForeignAction(() => s.n)).toEqual([1]);
+    expect(publishedInsideForeignAction(() => s.n)).toEqual([0]);
   });
 });
 
