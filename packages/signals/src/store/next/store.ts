@@ -32,6 +32,7 @@ import {
 } from "../../core/constants.js";
 import {
   context,
+  devGuardStoreSetterResult,
   devGuardStoreSetterWrite,
   isEqual,
   latestReadActive,
@@ -2310,8 +2311,10 @@ export type SetStoreNextFunction<T> = (fn: (draft: T) => T | void) => void;
 
 /** Low-level setter primitive: opens write mode on a next proxy, runs `fn`,
  * emits write-time notifications at outermost exit, applies returned
- * replacements as adoptions. `guard=false` skips the owned-scope dev guard —
- * projection recomputes legitimately write from inside their computed. */
+ * replacements as adoptions. `guard=false` skips the dev guards (owned-scope
+ * write, thenable result) — projection recomputes legitimately write from
+ * inside their computed, and their async derive is handled by the recompute,
+ * not returned through here. */
 export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreNextTarget = (proxy as any)[$TARGET];
@@ -2337,6 +2340,9 @@ export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard =
       for (const t of touched) notifyWrites(t);
     }
   }
+  // After the sync writes have notified (they were real, like an effect's
+  // side effects before its invalid-cleanup throw) and before adoption.
+  if (__DEV__ && guard) devGuardStoreSetterResult(result);
   if (result !== undefined && result !== proxy && isWrappable(result)) {
     // Returned replacement: on an optimistic family (outside authoritative
     // writes) the replacement is itself an optimistic edit — diff it against

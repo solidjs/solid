@@ -142,6 +142,10 @@ export const REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE =
 export const REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE =
   "[REACTIVE_WRITE_IN_OWNED_SCOPE] Calling refresh() inside an owned scope (component, computation) is not allowed. " +
   "Move the invalidation outside pure computation.";
+export const ASYNC_STORE_SETTER_MESSAGE =
+  "[ASYNC_STORE_SETTER] Store setter callback returned a Promise. A store setter is a synchronous transaction: " +
+  "the draft closes when the callback returns, so writes after an `await` are lost. " +
+  "Move the await into an action() and call the setter from there.";
 
 export let tracking = false;
 /** @internal verdict-module glue */
@@ -2109,6 +2113,34 @@ export function devGuardStoreSetterWrite(): void {
     // the owner name reaches the THROWN message too, not just the
     // diagnostics channel apps don't subscribe to by default (#3157)
     throw new Error(ownedScopeWriteMessage(context));
+  }
+}
+
+/**
+ * Store setter result guard: the callback's return has one meaning — a
+ * replacement root to adopt — and a thenable can never be that. It is the
+ * signature of `setStore(async d => …)` (or a sync arrow whose helper is
+ * async): only the writes before the first `await` were in the transaction;
+ * the rest land on a closed draft and vanish. Setters are synchronous
+ * transactions; async orchestration is `action()`'s job. Store-specific —
+ * a signal may legitimately hold a promise, so its setter has no such rule.
+ */
+export function devGuardStoreSetterResult(result: unknown): void {
+  if (!__DEV__ || result == null) return;
+  if (
+    (typeof result === "object" || typeof result === "function") &&
+    typeof (result as PromiseLike<unknown>).then === "function"
+  ) {
+    emitDiagnostic({
+      code: "ASYNC_STORE_SETTER",
+      kind: "write",
+      severity: "error",
+      message: ASYNC_STORE_SETTER_MESSAGE,
+      ownerId: context?.id,
+      ownerName: (context as any)?._name,
+      data: { operation: "setStore" }
+    });
+    throw new Error(ASYNC_STORE_SETTER_MESSAGE);
   }
 }
 
