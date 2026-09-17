@@ -57,6 +57,7 @@ import {
 import {
   activeTransition,
   currentTransition,
+  deferSlotRelease,
   globalQueue,
   insertSubs,
   type Transition
@@ -252,6 +253,11 @@ const slotNodeEquals = function (this: any, a: any, b: any): boolean {
 setSlotUnobserved((node: any): void => {
   // A live affects() mark keeps the node addressable (sweep parity).
   if (node._x?._affectsCount) return;
+  // An active override or a staged write is state only the node holds (an
+  // optimistic signal keeps its override whether or not anything reads it —
+  // store parity, posture-store-parity S7): defer the release to the flush
+  // that resolves it (the scheduler's transient-node sweep).
+  if (hasActiveOverride(node) || node._pendingValue !== NOT_PENDING) return deferSlotRelease(node);
   const t: StoreNextTarget = node._host;
   const key: PropertyKey = node._key;
   if (t.n && t.n[key as any] === node) {

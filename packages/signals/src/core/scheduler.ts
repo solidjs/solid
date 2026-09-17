@@ -122,11 +122,19 @@ export let _hitUnhandledAsync = false;
 // pending render effect — N async siblings at mount used to produce N copies.
 let _reportedUnhandledAsync = false;
 
-// Store property nodes that were created solely to carry a pending write (no
-// subscribers at write time). Swept after each flush that commits pending
-// values — any still without subs get disposed via their `_unobserved` hook,
-// releasing the slot in the parent store's node map.
+// Store property nodes whose last subscriber left while they carried state
+// the backing cannot reconstruct — an optimistic override (overrides live on
+// nodes, over a clone the setter discards) or a staged write. Releasing the
+// slot then would drop the override: an optimistic store key read `0` the
+// moment its only reader gated away while the action was live (S7). Swept
+// after each flush — a node still without subs whose override and staging
+// have resolved is released through the slot hook; one that regained a
+// subscriber leaves the set.
 const transientStoreNodes = new Set<Signal<any>>();
+/** Slot hook's deferral: release this node when its carried state resolves. */
+export function deferSlotRelease(node: Signal<any>): void {
+  transientStoreNodes.add(node);
+}
 
 function canUseSimpleSyncFlush(queue: GlobalQueue): boolean {
   const batch = queue._batch;

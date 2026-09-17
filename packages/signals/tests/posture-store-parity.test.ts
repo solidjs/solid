@@ -25,8 +25,14 @@
  * S5 — (fixed, 3b step 4) a mainline derivation's UNTRACKED read of a held
  *      store key is born held (A29) as the signal's is — the store's untracked
  *      paths served the pending value without entering the transaction.
- * S6, S7 — DIVERGENCES recorded at their current values, not ruled (see the
- *      block comment above them).
+ * S6 — RULED (2026-09-17, "store rules follow signal rules"), fix DEFERRED:
+ *      A28 at the backing. Pinned at the store's CURRENT value below so the
+ *      divergence stays visible; the fix is the store half of `serve`
+ *      (DESIGN-CONSOLIDATION move 3b step 6) — done at the twin it costs
+ *      +400 B minified (a node born in the unflushed window must stage the
+ *      write; #3521 first cut).
+ * S7 — (fixed) an optimistic override survives its key becoming unobserved
+ *      (the slot release defers to the flush that resolves the override).
  * Discovery for S4–S7: the matrix's `memoUntracked` / `effectUntracked`
  * reader kinds (an untracked read inside a derivation), added with S5.
  *
@@ -54,6 +60,7 @@ import {
   reconcile,
   untrack
 } from "../src/index.js";
+import { $TARGET } from "../src/store/store.js";
 
 const never = () => new Promise<never>(() => {});
 
@@ -370,22 +377,17 @@ describe("S5 — a mainline derivation's UNTRACKED read of a held value is born 
   }
 });
 
-/** DIVERGENCES the 7-reader matrix shows and this file only RECORDS (both
- * sides pinned at their current value; not ruled — flip the store or the
- * signal when the maintainer rules):
- *
- * S6 — staged, ambient (a write before any flush), reader created INSIDE a
- *      foreign action (which adopts the write, spec O1): the signal's memo →
- *      render effect publishes the committed 0 (A28 / #3510: adopted before
- *      any flush = unflushed, served committed); the store's publishes the
- *      pending 1 (pendingBackingVisible: owner context → pending backing).
- *      The verdict channels already agree (S1); the derivation reads do not.
- * S7 — optimistic store, override active, the only reader gated away: the
- *      signal's x() still reads the override 5 while the action is live
- *      (A17); the store's s.n reads 0 — the override is invisible to an
- *      untracked read once no reader observes the key.
- */
-describe("S6 — DIVERGENCE (recorded): staged-ambient write read by a derivation created inside a foreign action", () => {
+/** S6 — DIVERGENCE, ruled, fix deferred. Staged, ambient (a write before
+ * any flush), reader created INSIDE a foreign action (which adopts the
+ * write, spec O1): the signal's memo → render effect publishes the committed
+ * 0 (A28 / #3510: adopted before any flush = unflushed, served committed);
+ * the store's publishes the pending 1 (pendingBackingVisible: owner context
+ * → pending backing). The verdict channels already agree (S1); the
+ * derivation reads do not. Ruling: the store follows the signal (0). The
+ * store side is pinned at its CURRENT value so the divergence stays visible
+ * until the store's value selection shares core's (`serve`, move 3b step 6);
+ * flip it to `[0]` then. */
+describe("S6 — DIVERGENCE (ruled: store follows signal; fix deferred to `serve`): staged-ambient write read by a derivation created inside a foreign action", () => {
   function publishedInsideForeignAction(read: () => number) {
     const log: number[] = [];
     action(function* () {
@@ -405,7 +407,7 @@ describe("S6 — DIVERGENCE (recorded): staged-ambient write read by a derivatio
     setX(1);
     expect(publishedInsideForeignAction(x)).toEqual([0]);
   });
-  it("store: publishes the pending 1", () => {
+  it("store: publishes the pending 1 (CURRENT; rule says 0)", () => {
     const [s, setS] = createStore({ n: 0 });
     setS(d => {
       d.n = 1;
@@ -414,7 +416,14 @@ describe("S6 — DIVERGENCE (recorded): staged-ambient write read by a derivatio
   });
 });
 
-describe("S7 — DIVERGENCE (recorded): optimistic override, the only reader gated away", () => {
+/** S7 (fixed): the slot hook released a node the moment its last subscriber
+ * left — with the override on it (overrides live on nodes, over a clone the
+ * setter discards), so `s.n` read the committed 0 while the action was live.
+ * A node carrying an override or a staged write now defers its release to
+ * the flush that resolves it (deferSlotRelease / sweepTransientStoreNodes),
+ * as an optimistic signal keeps its override whether or not anything reads
+ * it. */
+describe("S7 — optimistic override, the only reader gated away: the override is still the value (A17) — signal vs store", () => {
   function gateAway(read: () => number) {
     const [show, setShow] = createSignal(true);
     createRoot(() => {
@@ -437,7 +446,7 @@ describe("S7 — DIVERGENCE (recorded): optimistic override, the only reader gat
     flush();
     expect(gateAway(x)).toBe(5);
   });
-  it("store: s.n reads the committed 0 once nothing observes the key", () => {
+  it("store: s.n still reads the override once nothing observes the key", () => {
     const [s, setS] = createOptimisticStore({ n: 0 });
     action(function* () {
       setS(d => {
@@ -446,6 +455,23 @@ describe("S7 — DIVERGENCE (recorded): optimistic override, the only reader gat
       yield never();
     })();
     flush();
-    expect(gateAway(() => s.n)).toBe(0);
+    expect(gateAway(() => s.n)).toBe(5);
+  });
+  it("store: the node deferred for its override is released once the action settles", async () => {
+    const [s, setS] = createOptimisticStore({ n: 0 });
+    let release!: () => void;
+    action(function* () {
+      setS(d => {
+        d.n = 5;
+      });
+      yield new Promise<void>(res => (release = res));
+    })();
+    flush();
+    expect(gateAway(() => s.n)).toBe(5);
+    release();
+    await settle();
+    expect(s.n).toBe(0);
+    // the slot map no longer holds a node for `n`
+    expect(((s as any)[$TARGET].n ?? {}).n).toBeUndefined();
   });
 });
