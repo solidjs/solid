@@ -543,8 +543,7 @@ module.exports = [
     // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
-    // measured at 16,509 B against `next`'s 16,495 — compressor layout, the
-    // deltas across the ten scenarios run -19…+45 B in both directions.
+    // measured at 16,509 B rebased over #3507, against `next`'s 16,517 (-8 B).
     limit: "16.55 KB",
     modifyEsbuildConfig
   },
@@ -935,9 +934,8 @@ module.exports = [
     // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
-    // measured at 19,894 B against `next`'s 19,849 — compressor layout, the
-    // deltas across the ten scenarios run -19…+45 B in both directions.
-    limit: "20.05 KB",
+    // measured at 20,054 B rebased over #3507, against `next`'s 20,044 (+10 B).
+    limit: "20.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -1245,8 +1243,7 @@ module.exports = [
     // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
-    // measured at 15,271 B against `next`'s 15,243 — compressor layout, the
-    // deltas across the ten scenarios run -19…+45 B in both directions.
+    // measured at 15,251 B rebased over #3507, against `next`'s 15,238 (+13 B).
     limit: "15.30 KB",
     modifyEsbuildConfig
   },
@@ -1490,7 +1487,11 @@ module.exports = [
     // consumer (enable, subscribe, formatRerun) and ships none of them. The
     // formatters stay in the engine because the `log` option prints through
     // them. Ratcheted down to pin the reduction.
-    limit: "27.25 KB",
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // measured at 27,256 B rebased over #3507, against `next`'s 27,196 (+60 B).
+    // The source change is in the signals core; this scenario's attribution
+    // modules only alter the compressor layout.
+    limit: "27.30 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
