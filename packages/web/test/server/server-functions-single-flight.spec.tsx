@@ -26,11 +26,16 @@ import type {
   SingleFlightPayload
 } from "@solidjs/web/server-functions/server";
 import {
+  GET,
+  REDIRECT_HEADER,
+  REVALIDATE_HEADER,
   configureServerFunctionsClient,
   createServerReference,
+  decodeRedirectHeaderValue,
   subscribeFlightData as subscribeFlightDataClient
 } from "@solidjs/web/server-functions/client";
 import type { FlightDataConsumer } from "@solidjs/web/server-functions/client";
+import { redirect, reload, respond } from "@solidjs/web";
 
 // The event-scope fallback the handler uses is the AsyncLocalStorage that
 // @solidjs/web/storage's provideRequestEvent parks on the global under the
@@ -412,6 +417,146 @@ describe("single-flight client bridge (built client bundle)", () => {
       });
     } finally {
       configureServerFunctionsClient({ prepareRequest: null as any });
+      unsubscribe();
+      restore();
+    }
+  });
+
+  // Integration metadata — the redirect carrier, X-Revalidate — is
+  // envelope-level: it says what the mutation did to every cache on the
+  // page. The consumers own applying it, so it reaches them whether or not
+  // the server folded any data alongside.
+
+  it("a redirect the server folded no data for still reaches the consumer", async () => {
+    // No collector at all — a page whose only single-flight participant is
+    // the router. Before, this response passed through to the caller as a
+    // raw Response and the redirect was silently dropped by anything that
+    // did not wrap the call.
+    registerServerFunction("sf-bridge-meta-redirect-0", async () => redirect("/after"));
+    const restore = connectTransport();
+    const seen: any[] = [];
+    const unsubscribe = subscribeFlightDataClient((data, context) => {
+      seen.push({ data, response: context.response });
+    });
+    try {
+      const result = await createServerReference("sf-bridge-meta-redirect-0")();
+      // a body-less helper response encodes `null` as its value: the
+      // navigation is the consumer's, the caller gets nothing
+      expect(result).toBeNull();
+      expect(seen).toHaveLength(1);
+      expect(seen[0].data).toBeUndefined();
+      expect(seen[0].response.headers.has(SINGLE_FLIGHT_HEADER)).toBe(false);
+      expect(decodeRedirectHeaderValue(seen[0].response.headers.get(REDIRECT_HEADER))).toEqual({
+        status: 302,
+        url: "http://localhost/after"
+      });
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
+  it("revalidation keys reach every registered consumer, folded or not", async () => {
+    // Only the unnamed source folds; the named cache gets no slice but the
+    // keys concern it all the same — it is the one holding stale entries.
+    registerServerFunction("sf-bridge-meta-reload-0", async () =>
+      reload({ revalidate: ["todos", "stats"] })
+    );
+    const restore = connectTransport({ collectFlightData: () => ({ fromRouter: true }) });
+    const routerSeen: any[] = [];
+    const querySeen: any[] = [];
+    const unsubscribeRouter = subscribeFlightDataClient((data, context) => {
+      routerSeen.push({ data, keys: context.response.headers.get(REVALIDATE_HEADER) });
+    });
+    const unsubscribeQuery = subscribeFlightDataClient("sq", (data, context) => {
+      querySeen.push({ data, keys: context.response.headers.get(REVALIDATE_HEADER) });
+    });
+    try {
+      const result = await createServerReference("sf-bridge-meta-reload-0")();
+      expect(result).toBeNull();
+      expect(routerSeen).toEqual([{ data: { fromRouter: true }, keys: "todos,stats" }]);
+      expect(querySeen).toEqual([{ data: undefined, keys: "todos,stats" }]);
+    } finally {
+      unsubscribeRouter();
+      unsubscribeQuery();
+      restore();
+    }
+  });
+
+  it("respond(value, { revalidate }) resolves the value and delivers the keys", async () => {
+    registerServerFunction("sf-bridge-meta-respond-0", async () =>
+      respond({ id: 7 }, { status: 201, revalidate: "todos" })
+    );
+    const restore = connectTransport();
+    const consumer = vi.fn();
+    const unsubscribe = subscribeFlightDataClient(consumer);
+    try {
+      const result = await createServerReference("sf-bridge-meta-respond-0")();
+      expect(result).toEqual({ id: 7 });
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(consumer.mock.calls[0][0]).toBeUndefined();
+      expect(consumer.mock.calls[0][1].response.status).toBe(201);
+      expect(consumer.mock.calls[0][1].response.headers.get(REVALIDATE_HEADER)).toBe("todos");
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
+  it("a thrown redirect resolves through the consumer instead of rejecting", async () => {
+    registerServerFunction("sf-bridge-meta-thrown-0", async () => {
+      throw redirect("/login");
+    });
+    const restore = connectTransport();
+    const consumer = vi.fn();
+    const unsubscribe = subscribeFlightDataClient(consumer);
+    try {
+      await expect(createServerReference("sf-bridge-meta-thrown-0")()).resolves.toBeNull();
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(
+        decodeRedirectHeaderValue(consumer.mock.calls[0][1].response.headers.get(REDIRECT_HEADER))
+      ).toMatchObject({ url: "http://localhost/login" });
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
+  it("a plain value with consumers registered and nothing folded delivers nothing", async () => {
+    // No metadata, no fold: there is nothing for a consumer to apply, and
+    // the value resolves exactly as it would without any registration.
+    registerServerFunction("sf-bridge-meta-plain-0", async () => "plain");
+    const restore = connectTransport();
+    const consumer = vi.fn();
+    const unsubscribe = subscribeFlightDataClient(consumer);
+    try {
+      expect(await createServerReference("sf-bridge-meta-plain-0")()).toBe("plain");
+      expect(consumer).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
+  it("a read answering a redirect still passes through whole", async () => {
+    // Reads are the reading integration's business: a `query` that hits a
+    // redirect holds the read across the navigation, and a consumer firing
+    // `revalidate` mid-read would loop. Same rule as the request leg —
+    // flight delivery is mutation policy.
+    serverGET(
+      createServerSideReference(
+        registerServerReference("sf-bridge-meta-read-0", async () => redirect("/elsewhere"))
+      )
+    );
+    const restore = connectTransport();
+    const consumer = vi.fn();
+    const unsubscribe = subscribeFlightDataClient(consumer);
+    try {
+      const response = await GET(createServerReference("sf-bridge-meta-read-0"))();
+      expect(response).toBeInstanceOf(Response);
+      expect((response as unknown as Response).headers.has(REDIRECT_HEADER)).toBe(true);
+      expect(consumer).not.toHaveBeenCalled();
+    } finally {
       unsubscribe();
       restore();
     }

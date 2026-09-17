@@ -455,6 +455,14 @@ function parseRetryAfter(header) {
   return undefined;
 }
 
+// A call is a read when it is GET-encoded (a cacheable url) or declared one
+// with `read: true` (a POST-shaped read: live sources, say — streams have no
+// envelope story). Flight hooks and the consumer delivery that mirrors them
+// are mutation policy, so both halves of the transport decide on this.
+function isReadCall(options) {
+  return !!options.read || (!!options.method && options.method.toUpperCase() === "GET");
+}
+
 async function createRequest(base, id, options, meta) {
   const headers = { ...options.headers };
   // A GET-encoded call's identity is its url, and nothing else: caches key
@@ -463,20 +471,17 @@ async function createRequest(base, id, options, meta) {
   // header of the transport's own (#3406) — the scripted-caller signal is
   // the data address (#3094), and cross-wire correlation is the trace
   // context's job.
-  const read = options.method && options.method.toUpperCase() === "GET";
+  //
   // Subscribing to flight data IS the single-flight opt-in: with consumers
   // registered the transport asks the server for collection on every
   // mutation call; a consumer-less app never asks the server to do
   // collection work. The header value is the registered source ids — the
   // server runs only the collectors the client can consume; the unnamed
   // registration rides under its reserved id "true" (see
-  // getFlightDataSourceIds).
-  // GET-encoded calls are reads (cacheable URLs) and stay plain — folding
-  // per-request flight data into them would defeat caching. `read: true`
-  // marks a POST-shaped call as a read the same way (e.g. live sources:
-  // streams have no envelope story and flight hooks are mutation policy).
+  // getFlightDataSourceIds). Reads stay plain — folding per-request flight
+  // data into a cacheable url would defeat caching.
   const flightSources = getFlightDataSourceIds();
-  if (flightSources.length > 0 && !options.read && !read) {
+  if (flightSources.length > 0 && !isReadCall(options)) {
     headers[SINGLE_FLIGHT_HEADER] = flightSources.join(",");
   }
   let init = {
@@ -702,55 +707,78 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // nothing.
   const failed = response.headers.has(ERROR_HEADER);
 
-  // Single-flight responses: with a registered consumer the transport owns
-  // the unwrap — the standardized `{ value, data }` body is decoded, the
-  // data is delivered (with the response as envelope context: redirect
-  // location, revalidation keys, status), and `value` returns to the
-  // caller as if the call were plain. The response header names the folded
-  // sources; `data` is the keyed envelope and each slice goes to its
-  // source's consumer (the unnamed one subscribes under the reserved id
-  // "true"). Error semantics mirror the passthrough path below: responses
-  // carrying integration metadata (the redirect carrier/X-Revalidate) are
-  // control flow for the consumer to interpret, bare error-tagged ones
-  // throw the value.
-  if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
-    const folded = response.headers.get(SINGLE_FLIGHT_HEADER).split(",");
-    const consumers = folded
-      .map(source => [source, getFlightDataConsumer(source)])
-      .filter(([, consumer]) => consumer);
-    if (consumers.length > 0) {
+  // Mutation responses with registered flight consumers: the transport owns
+  // the unwrap, and the consumers own what the response MEANS beyond its
+  // value. Two things reach them, on one delivery:
+  //
+  // - Folded data: the standardized `{ value, data }` body is decoded and
+  //   each slice of the keyed envelope goes to its source's consumer (the
+  //   unnamed one subscribes under the reserved id "true"); the response
+  //   header names the folded sources.
+  // - Integration metadata — the redirect carrier and `X-Revalidate` keys —
+  //   is envelope-level: it describes what the mutation did to every cache
+  //   on the page (navigate here, these keys went stale), not a slice of
+  //   data for one of them. So a response carrying it is delivered to EVERY
+  //   registered consumer, folded or not, its slice `undefined` where the
+  //   server folded none for it. An integration that subscribed applies
+  //   redirects and revalidation without wrapping the call, and a redirect
+  //   the server collected no data for — a cross-origin target, a declined
+  //   or failing collector, no hook registered at all — still navigates
+  //   instead of landing on the caller as a raw `Response`.
+  //
+  // `value` returns to the caller as if the call were plain. Reads stay
+  // out of this: a GET (or `read: true`) response is the caller's data, and
+  // a read path that answers a redirect is the reading integration's to
+  // interpret in place (holding the read across the navigation, say), so
+  // it passes through whole below. Error semantics mirror that passthrough:
+  // metadata-bearing responses are control flow for the consumers, bare
+  // error-tagged ones throw the value.
+  const registered = isReadCall(options) ? [] : getFlightDataSourceIds();
+  if (registered.length > 0) {
+    const folded = response.headers.has(SINGLE_FLIGHT_HEADER)
+      ? response.headers.get(SINGLE_FLIGHT_HEADER).split(",")
+      : [];
+    const metadata =
+      response.headers.has(REDIRECT_HEADER) || response.headers.has(REVALIDATE_HEADER);
+    if (metadata || folded.length > 0) {
       // Decoded from the response ITSELF: the transport owns this body, the
       // consumers' contract says it arrives consumed (`FlightDataContext`),
       // and a clone would tee the whole envelope into a branch nobody reads
-      // (#3244).
-      const payload = response.body
+      // (#3244). Only a folded response carries the envelope; a metadata
+      // response the server folded nothing into is the plain value.
+      const decoded = response.body
         ? await extractBody(response, getServerFunctionsCodec())
         : undefined;
-      // Sequential, awaited delivery: caches are seeded before the caller
-      // sees the value, whichever source they subscribe through.
-      for (const [source, consumer] of consumers) {
-        await consumer(payload.data[source], { response });
+      const enveloped = folded.length > 0 && decoded !== undefined;
+      const value = enveloped ? decoded.value : decoded;
+      const data = enveloped ? decoded.data : undefined;
+      // Sequential, awaited delivery in registration order: caches are
+      // seeded before the caller sees the value, whichever source they
+      // subscribe through.
+      for (const source of registered) {
+        if (!metadata && !folded.includes(source)) continue;
+        // Looked up per delivery: an awaited consumer may unsubscribe
+        // another (a provider tearing down under a navigation).
+        const consumer = getFlightDataConsumer(source);
+        if (consumer) await consumer(data ? data[source] : undefined, { response });
       }
-      if (
-        failed &&
-        !response.headers.has(REDIRECT_HEADER) &&
-        !response.headers.has(REVALIDATE_HEADER)
-      ) {
-        throw serverFunctionFailure(response, payload.value);
+      if (failed && !metadata) {
+        throw serverFunctionFailure(response, value);
       }
-      return payload.value;
+      return value;
     }
   }
 
-  // Responses the caller's integration needs to see whole (redirects,
-  // revalidation, single-flight payloads without a registered consumer)
-  // pass through untouched — the integration decodes the body itself with
-  // `decodeResponse`. The runtime's redirects ride REDIRECT_HEADER (#3102;
-  // an authored `Location` on a forwarding status like 201 is data, not
-  // control flow, and decodes normally). A real 3xx status is a peer's
-  // control flow: fetch follows the followable set before the transport
-  // sees it, so one only arrives where something opted out of following —
-  // except 304, which is the answer to a conditional read, not navigation.
+  // Responses the caller's integration needs to see whole — redirects,
+  // revalidation and single-flight payloads on a read or with no consumer
+  // registered — pass through untouched; the integration decodes the body
+  // itself with `decodeResponse`. The runtime's redirects ride
+  // REDIRECT_HEADER (#3102; an authored `Location` on a forwarding status
+  // like 201 is data, not control flow, and decodes normally). A real 3xx
+  // status is a peer's control flow: fetch follows the followable set
+  // before the transport sees it, so one only arrives where something
+  // opted out of following — except 304, which is the answer to a
+  // conditional read, not navigation.
   if (
     response.headers.has(REDIRECT_HEADER) ||
     response.headers.has(REVALIDATE_HEADER) ||

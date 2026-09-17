@@ -26,7 +26,14 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createRequestEvent, getRequestEvent, redirect } from "@solidjs/web";
+import {
+  REVALIDATE_ALL,
+  createRequestEvent,
+  getRequestEvent,
+  redirect,
+  reload,
+  respond
+} from "@solidjs/web";
 import {
   SINGLE_FLIGHT_HEADER,
   foldSetCookies,
@@ -190,6 +197,29 @@ describe("the invalidation scope", () => {
 
     const bare = await collect(post("digest-nokeys", { referer: "https://app.example/cart" }));
     expect(bare.revalidateKeys).toBeUndefined();
+  });
+
+  it("delivers the empty and the all declarations as declared", async () => {
+    // Three declarations, three scopes, each distinguishable by the hook:
+    // absent (above), empty — nothing — and REVALIDATE_ALL — everything.
+    registerServerFunction("digest-empty", async () => reload({ revalidate: [] }));
+    registerServerFunction("digest-all", async () => reload({ revalidate: REVALIDATE_ALL }));
+
+    const empty = await collect(post("digest-empty", { referer: "https://app.example/cart" }));
+    expect(empty.revalidateKeys).toEqual([""]);
+
+    const all = await collect(post("digest-all", { referer: "https://app.example/cart" }));
+    expect(all.revalidateKeys).toEqual(["*"]);
+  });
+
+  it("the helpers refuse the all key beside named keys", () => {
+    // "everything and also these" is a mistake, not a scope — refused at
+    // the helper, inside the function body, so it lands on the ordinary
+    // error path with a legible message.
+    expect(() => reload({ revalidate: ["*", "orders"] })).toThrow(/stands alone/);
+    expect(() => redirect("/", { revalidate: ["orders", "*"] })).toThrow(/stands alone/);
+    expect(() => respond(1, { revalidate: ["*"] })).not.toThrow();
+    expect(reload({ revalidate: "*" }).headers.get("X-Revalidate")).toBe("*");
   });
 });
 

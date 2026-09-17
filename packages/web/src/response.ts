@@ -125,8 +125,27 @@ export function isSafeError(value: unknown): value is Error {
  */
 export const REVALIDATE_HEADER = "X-Revalidate";
 
+/**
+ * The reserved `revalidate` key meaning every entry, in every cache: the
+ * host-independent spelling of "all" (as `Clear-Site-Data: "*"` spells it),
+ * for authors who mean it rather than a host's default. Stands alone —
+ * naming it beside other keys is refused, since "everything and also
+ * these" is a mistake, not a scope.
+ */
+export const REVALIDATE_ALL = "*";
+
 /** `ResponseInit` accepted by the response helpers, plus `revalidate`. */
 export interface ResponseHelperInit extends ResponseInit {
+  /**
+   * The cache keys the mutation invalidated, sent as the `X-Revalidate`
+   * header for the client's integrations to apply. Three declarations, three
+   * scopes: omitted sends no header — the host's default (Solid Router
+   * revalidates everything after an action; a router without that
+   * convention reloads only what it owns); an empty list sends an empty
+   * header — nothing, explicitly; `REVALIDATE_ALL` (`"*"`) — every entry,
+   * whatever the host's default. How named keys are matched (prefixes,
+   * namespaces) is each integration's business.
+   */
   revalidate?: string | string[];
 }
 
@@ -168,7 +187,14 @@ function initWithRevalidate(init: number | ResponseHelperInit = {}) {
     headers = new Headers(responseInit.headers);
   }
   if (revalidate !== undefined) {
-    const keys = revalidate.toString();
+    const list = Array.isArray(revalidate) ? revalidate : [revalidate];
+    if (list.length > 1 && list.includes(REVALIDATE_ALL)) {
+      throw new TypeError(
+        `revalidate names "${REVALIDATE_ALL}" alongside other keys; "${REVALIDATE_ALL}" already ` +
+          `means every entry and stands alone — pass revalidate: "${REVALIDATE_ALL}" or the named keys.`
+      );
+    }
+    const keys = list.join(",");
     if (keys.length > RESPONSE_HEADER_VALUE_LIMIT) {
       throw new TypeError(
         `revalidate names ${keys.length} characters of cache keys; past ` +
