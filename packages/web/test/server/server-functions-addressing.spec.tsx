@@ -23,16 +23,18 @@ import {
   GET as serverGET,
   createServerReference as createServerSideReference,
   handleServerFunctionRequest,
-  parseServerFunctionUrl as parseServerFunctionUrlServer,
+  parseServerFunctionActionUrl as parseServerFunctionActionUrlServer,
   registerServerFunction,
   registerServerReference,
+  serverFunctionActionUrl as serverFunctionActionUrlServer,
   serverFunctionUrl as serverFunctionUrlServer
 } from "@solidjs/web/server-functions/server";
 import {
   GET,
   configureServerFunctionsClient,
   createServerReference,
-  parseServerFunctionUrl,
+  parseServerFunctionActionUrl,
+  serverFunctionActionUrl,
   serverFunctionUrl,
   subscribeFlightData
 } from "@solidjs/web/server-functions/client";
@@ -131,6 +133,67 @@ describe("server-function addressing (#3070, built bundles)", () => {
     expect(sent(write)).toEqual(["content-type", "x-server-function-format"]);
   });
 
+  it("serverFunctionUrl(fn, ...args) is the url the GET transport requests — a preload of it matches the call (#3440)", async () => {
+    // The reporter rendered `<link rel="preload" as="fetch">` for a GET()
+    // read and needed the url the later call would match. The form-post
+    // address (`fn.url`) is not it — the call goes to the data address, in
+    // the transport's own encoding — so the helper builds the url the way
+    // the transport does, from the reference, which is the only thing that
+    // knows the call is a GET.
+    const serverRead = serverGET(
+      createServerSideReference(
+        registerServerReference("addr-url-fn-0", async (story?: string) => story ?? "none")
+      )
+    );
+    const getStory = GET(createServerReference("addr-url-fn-0"));
+    const argless = serverFunctionUrl(getStory);
+    const bound = serverFunctionUrl(getStory, "story-7");
+    expect(argless).toBe("/_server/data/addr-url-fn-0");
+    expect(bound).toBe("/_server/data/addr-url-fn-0?args=%5B%22story-7%22%5D");
+    // distinct from the form-post address, on purpose (#3094)
+    expect(getStory.url).toBe("/_server/addr-url-fn-0");
+    expect(serverFunctionActionUrl(getStory, "story-7")).toBe(
+      "/_server/addr-url-fn-0?args=%5B%22story-7%22%5D"
+    );
+    // the server entry answers the same, for a component rendering the link
+    // during SSR (the server reference carries the GET brand too)
+    expect(serverFunctionUrlServer(serverRead, "story-7")).toBe(bound);
+
+    const seen: Request[] = [];
+    const restore = connectTransport(seen);
+    try {
+      expect(await getStory()).toBe("none");
+      expect(await getStory("story-7")).toBe("story-7");
+    } finally {
+      restore();
+    }
+    // byte-for-byte what the transport requested, so a preload cache keyed
+    // on the url is hit by the call
+    expect(seen.map(request => request.url.slice("http://localhost".length))).toEqual([
+      argless,
+      bound
+    ]);
+  });
+
+  it("serverFunctionUrl refuses a url the transport would not request", () => {
+    // default transport: a POST, not described by its url
+    const write = createServerReference("addr-url-fn-1");
+    expect(() => serverFunctionUrl(write)).toThrow(
+      /not a declared read[\s\S]*GET\(fn\)[\s\S]*invoke/
+    );
+    // arguments the transport would codec-encode (asynchronously)
+    const read = GET(createServerReference("addr-url-fn-2"));
+    expect(() => serverFunctionUrl(read, new Date())).toThrow(/JSON-safe/);
+    // a url past the GET length cap — the call falls back to POST
+    expect(() => serverFunctionUrl(read, "x".repeat(2100))).toThrow(/dispatches over POST/);
+    // and just under it renders
+    expect(serverFunctionUrl(read, "x".repeat(1900))).toMatch(
+      /^\/_server\/data\/addr-url-fn-2\?args=/
+    );
+    // not a reference at all
+    expect(() => serverFunctionUrl((() => {}) as any)).toThrow(/server function reference/);
+  });
+
   it("addresses a POST call by path, with nothing in the query", async () => {
     registerServerFunction("addr-post-0", async (word: string) => word.toUpperCase());
     const seen: Request[] = [];
@@ -199,7 +262,7 @@ describe("server-function addressing (#3070, built bundles)", () => {
     body.set("title", "Async Solid");
     // what a rendered `<form action>` for a bound action posts, with no client
     // runtime on the other end: the outcome rides the no-JS redirect
-    const response = await unscripted(serverFunctionUrl("addr-bound-0", ["story-7"]), {
+    const response = await unscripted(serverFunctionActionUrl("addr-bound-0", "story-7"), {
       method: "POST",
       body,
       headers: { referer: "http://localhost/stories" }
@@ -210,23 +273,23 @@ describe("server-function addressing (#3070, built bundles)", () => {
   });
 
   it("builds and reads back the urls integrations compose", async () => {
-    expect(serverFunctionUrl("addr-url-0")).toBe("/_server/addr-url-0");
-    expect(serverFunctionUrl("addr-url-0", ["story-7"])).toBe(
+    expect(serverFunctionActionUrl("addr-url-0")).toBe("/_server/addr-url-0");
+    expect(serverFunctionActionUrl("addr-url-0", "story-7")).toBe(
       "/_server/addr-url-0?args=%5B%22story-7%22%5D"
     );
-    expect(parseServerFunctionUrl("/_server/addr-url-0?args=%5B%22story-7%22%5D")).toBe(
+    expect(parseServerFunctionActionUrl("/_server/addr-url-0?args=%5B%22story-7%22%5D")).toBe(
       "addr-url-0"
     );
     // the data address reads back to the same id — telemetry reading the
     // transport's own requests resolves them like rendered urls
-    expect(parseServerFunctionUrl("/_server/data/addr-url-0")).toBe("addr-url-0");
-    expect(parseServerFunctionUrl("/somewhere/else")).toBeNull();
+    expect(parseServerFunctionActionUrl("/_server/data/addr-url-0")).toBe("addr-url-0");
+    expect(parseServerFunctionActionUrl("/somewhere/else")).toBeNull();
     // the server entry ships the same pair, so isomorphic integration code
     // resolves on either side
-    expect(serverFunctionUrlServer("addr-url-0", ["story-7"])).toBe(
+    expect(serverFunctionActionUrlServer("addr-url-0", "story-7")).toBe(
       "/_server/addr-url-0?args=%5B%22story-7%22%5D"
     );
-    expect(parseServerFunctionUrlServer("/_server/addr-url-0")).toBe("addr-url-0");
+    expect(parseServerFunctionActionUrlServer("/_server/addr-url-0")).toBe("addr-url-0");
   });
 
   it("hands an unscripted read its own query as one URLSearchParams", async () => {
@@ -260,8 +323,8 @@ describe("server-function addressing (#3070, built bundles)", () => {
   it("keeps the address well-formed when the endpoint carries a trailing slash", () => {
     try {
       configureServerFunctionsClient({ endpoint: "/rpc/" });
-      expect(serverFunctionUrl("addr-mount-0")).toBe("/rpc/addr-mount-0");
-      expect(parseServerFunctionUrl("/rpc/addr-mount-0")).toBe("addr-mount-0");
+      expect(serverFunctionActionUrl("addr-mount-0")).toBe("/rpc/addr-mount-0");
+      expect(parseServerFunctionActionUrl("/rpc/addr-mount-0")).toBe("addr-mount-0");
     } finally {
       configureServerFunctionsClient({ endpoint: "/_server" });
     }
@@ -269,7 +332,7 @@ describe("server-function addressing (#3070, built bundles)", () => {
 
   it("round-trips an id through characters the path has to encode", async () => {
     registerServerFunction("addr#dev-name", async () => "ok");
-    const response = await unscripted(serverFunctionUrl("addr#dev-name"), { method: "POST" });
+    const response = await unscripted(serverFunctionActionUrl("addr#dev-name"), { method: "POST" });
     expect(await response.text()).toBe("ok");
   });
 
@@ -370,7 +433,7 @@ describe("server-function addressing (#3070, built bundles)", () => {
   });
 
   it("refuses to render bound arguments JSON cannot carry", () => {
-    expect(() => serverFunctionUrl("addr-bound-1", [new Date()])).toThrow(/JSON-safe/);
+    expect(() => serverFunctionActionUrl("addr-bound-1", new Date())).toThrow(/JSON-safe/);
   });
 
   it("does not fold an encoded path or control character onto the plain id", async () => {

@@ -36,6 +36,7 @@
 // RPC seam live in registry.js, the flash cookie's isomorphic half beside
 // the cookie codec in ../cookies.js. Re-exported here so every existing
 // import site of the shared wire layer keeps working.
+import { getServerFunctionMetadata, isServerFunction } from "./registry.js";
 export {
   LIVE_SOURCE,
   SERVER_FUNCTION_INVOKE,
@@ -106,7 +107,12 @@ export interface ServerFunction<A extends readonly any[] = any[], T = any> {
   (...args: A): Promise<T>;
   /** The build-stable function id (stable across the client and server builds). */
   readonly id: string;
-  /** URL invoking this function directly over HTTP (form `action`s, raw fetches). */
+  /**
+   * The plain-HTTP address of this function — what a `<form action>` posts
+   * to without the runtime (the integration behind `action={fn}` reads it).
+   * Not where the reference's own call goes: that is `serverFunctionUrl(fn,
+   * ...args)`, for a `GET()` reference — the url to preload or fetch.
+   */
   readonly url: string;
 }
 
@@ -514,6 +520,98 @@ export function parseServerFunctionAddress(pathname, endpoint) {
     // an id segment whose percent-encoding does not decode is not an address
     return null;
   }
+}
+
+/**
+ * The longest url a `GET()` call goes out as. Longer, the call dispatches
+ * over POST instead — a cache miss rather than a 414 from whichever proxy in
+ * the chain draws the line first — so no url describes it (`serverFunctionUrl`
+ * refuses to render one).
+ * @internal
+ */
+export const MAX_GET_URL_LENGTH = 2000;
+
+/** The id a url helper was handed: a reference's, or the id itself. */
+function urlTargetId(target, helper) {
+  if (typeof target === "string") return target;
+  if (isServerFunction(target) && typeof target.id === "string") return target.id;
+  throw new Error(`${helper} expects a server function reference (or its id).`);
+}
+
+/**
+ * Body of both entries' `serverFunctionActionUrl`: the plain-HTTP address of
+ * a function, `<endpoint>/<id>[?args=...]`.
+ * @internal
+ */
+export function serverFunctionActionUrlFor(
+  endpoint: string,
+  target: ServerFunction | string,
+  boundArgs: readonly unknown[]
+): string;
+
+export function serverFunctionActionUrlFor(endpoint, target, boundArgs) {
+  const address = serverFunctionAddress(endpoint, urlTargetId(target, "serverFunctionActionUrl"));
+  if (!boundArgs.length) return address;
+  if (!isJSONSafe(boundArgs)) {
+    throw new Error(
+      "Bound arguments in an action url must be JSON-safe: the server reads them the way it " +
+        "reads a form post's, and that convention has no codec. Pass the value through the " +
+        "function's body, or call the reference instead of rendering a url for it."
+    );
+  }
+  return `${address}?args=${encodeURIComponent(JSON.stringify(boundArgs))}`;
+}
+
+/**
+ * Body of both entries' `serverFunctionUrl`: the url a `GET()` reference's
+ * own call requests, `<endpoint>/data/<id>[?args=...]`, built the way the
+ * transport builds it (JSON arguments in `args`; see `GET`'s client half)
+ * so a fetch of it is the call. Refuses — rather than answering with an
+ * address nothing would request — when the reference is not a declared
+ * read (the default transport POSTs, and a POST is not described by its
+ * url), when the arguments need the codec (the transport encodes those
+ * asynchronously, and a url rendered as a value cannot wait), and when the
+ * url would be long enough for the call to fall back to POST.
+ * @internal
+ */
+export function serverFunctionUrlFor(
+  endpoint: string,
+  fn: ServerFunction,
+  args: readonly unknown[]
+): string;
+
+export function serverFunctionUrlFor(endpoint, fn, args) {
+  if (!isServerFunction(fn) || typeof fn.id !== "string") {
+    throw new Error("serverFunctionUrl expects a server function reference.");
+  }
+  const metadata = getServerFunctionMetadata(fn);
+  if (!metadata || metadata.method !== "GET") {
+    throw new Error(
+      `serverFunctionUrl: "${fn.id}" is not a declared read. A call over the default ` +
+        "transport is a POST — its arguments travel in the body, so no url describes it. " +
+        "Declare the function with GET(fn) for a cacheable read that has a url, or start " +
+        'the call itself: invoke(fn, { priority: "low" }, ...args).'
+    );
+  }
+  const address = serverFunctionDataAddress(endpoint, fn.id);
+  if (!args.length) return address;
+  if (!isJSONSafe(args)) {
+    throw new Error(
+      "Arguments in a server function url must be JSON-safe: the transport encodes anything " +
+        "else through the codec asynchronously, and a url rendered as a value cannot wait for " +
+        "it. Pass JSON-safe arguments, or call the reference instead of rendering a url for it."
+    );
+  }
+  const url = `${address}?args=${encodeURIComponent(JSON.stringify(args))}`;
+  const length = new URL(url, globalThis.location?.href || "http://localhost").href.length;
+  if (length > MAX_GET_URL_LENGTH) {
+    throw new Error(
+      `serverFunctionUrl: the url for "${fn.id}" with these arguments is ${length} characters; ` +
+        `past ${MAX_GET_URL_LENGTH} the call dispatches over POST (a cache miss rather than a ` +
+        "414), so no url describes it. Shorten the arguments, or call the reference instead."
+    );
+  }
+  return url;
 }
 
 /**
