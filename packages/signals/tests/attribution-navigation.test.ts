@@ -12,7 +12,7 @@
  * the frame is the whole contract.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, feedback, formatOrigin, formatRerun } from "../src/attribution.js";
 import {
   action,
   createEffect,
@@ -122,7 +122,7 @@ describe("withOrigin — navigation provenance", () => {
     expect(origin.at).toBeGreaterThanOrEqual(before);
     // Downstream facts still key by the interaction that paid for it.
     expect(run.interaction).toBe(origin.interaction);
-    const text = attribution.format(run);
+    const text = formatRerun(run);
     expect(text).toContain(`— navigation to /users/:id (/users/42) (under click on a.nav "Alice")`);
   });
 
@@ -142,7 +142,7 @@ describe("withOrigin — navigation provenance", () => {
     expect(run.causes[0].origin!.interaction).toBeUndefined();
     expect(run.interaction).toBeUndefined();
     // Pattern equal to the concrete path: no redundant parenthetical.
-    expect(attribution.formatOrigin(run.causes[0].origin!)).toBe("navigation to /login");
+    expect(formatOrigin(run.causes[0].origin!)).toBe("navigation to /login");
   });
 
   it("inherits the interaction of an action step it runs in, after the click is long gone", async () => {
@@ -394,7 +394,7 @@ describe("navigations() — one settled record per frame", () => {
     app.resolve("b");
     await until(() => app.shown.includes("b@/users/3"), "the last page to land");
 
-    const [row] = attribution.feedback().navigations;
+    const [row] = feedback().navigations;
     expect(row).toMatchObject({
       name: "/users/:id",
       navigations: 3,
@@ -439,14 +439,12 @@ describe("navigations() — one settled record per frame", () => {
     // hold's verdict and the feedback row all read the refined name.
     const run = runs.filter(r => r.nodeName === "page").at(-1)!;
     expect(run.causes[0].origin).toBe(nav.origin);
-    expect(attribution.formatOrigin(nav.origin)).toBe(
-      "navigation to /admin/users/:id (/admin/users/42)"
-    );
+    expect(formatOrigin(nav.origin)).toBe("navigation to /admin/users/:id (/admin/users/42)");
     expect(silent[0].message).toContain("(navigation to /admin/users/:id (/admin/users/42))");
     expect(silent[0].data).toMatchObject({
       navigation: { name: "/admin/users/:id", params: { id: "42" } }
     });
-    expect(attribution.feedback().navigations[0].name).toBe("/admin/users/:id");
+    expect(feedback().navigations[0].name).toBe("/admin/users/:id");
   });
 
   it("clears its records on disable() and enable()", () => {
@@ -461,7 +459,7 @@ describe("navigations() — one settled record per frame", () => {
     expect(attribution.navigations()).toEqual([]);
     arm();
     expect(attribution.navigations()).toEqual([]);
-    expect(attribution.feedback().navigations).toEqual([]);
+    expect(feedback().navigations).toEqual([]);
   });
 });
 
@@ -515,15 +513,13 @@ describe("redirects — one navigation, several destinations", () => {
     const [hold] = attribution.holds();
     expect(nav.hold).toBe(hold);
     expect(hold.origin).toBe(nav.origin);
-    expect(attribution.formatOrigin(nav.origin)).toBe(
-      "navigation to /login (redirected from /users/42)"
-    );
+    expect(formatOrigin(nav.origin)).toBe("navigation to /login (redirected from /users/42)");
     expect(silent).toHaveLength(1);
     expect(silent[0].message).toContain(
       `[SILENT_HOLD] click on a.nav "Alice" (navigation to /login (redirected from /users/42)) wrote "location"`
     );
     expect(silent[0].data).toMatchObject({ navigation: { name: "/login", to: "/login" } });
-    expect(attribution.feedback().navigations).toEqual([
+    expect(feedback().navigations).toEqual([
       expect.objectContaining({
         name: "/login",
         navigations: 1,
@@ -557,7 +553,7 @@ describe("redirects — one navigation, several destinations", () => {
     expect(attribution.navigations()).toHaveLength(1);
     expect(nav).toMatchObject({ name: "/sso", writes: 3, outcome: "held" });
     expect(nav.redirects!.map(h => h.to)).toEqual(["/users/42", "/login"]);
-    expect(attribution.formatOrigin(nav.origin)).toBe(
+    expect(formatOrigin(nav.origin)).toBe(
       "navigation to /sso (/sso?next=%2Flogin, redirected from /users/42 → /login)"
     );
   });
@@ -607,7 +603,7 @@ describe("redirects — one navigation, several destinations", () => {
     const [nav] = attribution.navigations();
     expect(nav).toMatchObject({ name: "/login", writes: 1, outcome: "committed" });
     expect(nav.redirects).toBeUndefined();
-    expect(attribution.feedback().navigations[0].redirected).toBe(0);
+    expect(feedback().navigations[0].redirected).toBe(0);
   });
 });
 
@@ -647,9 +643,9 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     const [hold] = attribution.holds();
     expect(hold.acknowledgements).toEqual([]);
     expect(silent).toHaveLength(1);
-    const [source] = attribution.feedback().sources;
+    const [source] = feedback().sources;
     expect(source).toMatchObject({ holds: 1, silent: 1, latestOnly: 0 });
-    expect(attribution.feedback().navigations[0]).toMatchObject({ held: 1, silent: 1 });
+    expect(feedback().navigations[0]).toMatchObject({ held: 1, silent: 1 });
   });
 
   it("is acknowledged once the app renders the router's pending state", async () => {
@@ -671,7 +667,7 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
       expect.objectContaining({ kind: "isPending", source: "location" })
     );
     expect(silent).toHaveLength(0);
-    expect(attribution.feedback().navigations[0]).toMatchObject({ held: 1, silent: 0 });
+    expect(feedback().navigations[0]).toMatchObject({ held: 1, silent: 0 });
   });
 });
 

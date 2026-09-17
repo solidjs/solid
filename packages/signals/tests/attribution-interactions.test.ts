@@ -11,7 +11,7 @@
  * that something finished.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, feedback } from "../src/attribution.js";
 import type {
   HoldEvent,
   InteractionEvent,
@@ -263,8 +263,8 @@ describe("InteractionEvent", () => {
     flush();
     expect(interactions()).toHaveLength(2);
     expect(attribution.interactions()).toHaveLength(2);
-    expect(attribution.feedback().interactions).toHaveLength(1);
-    expect(attribution.feedback().interactions[0].dispatches).toBe(2);
+    expect(feedback().interactions).toHaveLength(1);
+    expect(feedback().interactions[0].dispatches).toBe(2);
   });
 });
 

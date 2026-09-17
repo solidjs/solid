@@ -9,7 +9,7 @@
  * vite plugin inject it) and call `installDiagnosticsBridge()`.
  */
 import { OBSERVE, flush } from "@solidjs/signals";
-import { attribution as engine } from "@solidjs/signals/attribution";
+import { attribution as engine, costs, feedback } from "@solidjs/signals/attribution";
 import { captureRecords, type RecordsCapture } from "./records.js";
 import type {
   AttributionCosts,
@@ -125,9 +125,9 @@ export function installDiagnosticsBridge(
       if (active.useAttribution) {
         attribution = {
           reruns: [...engine.history()],
-          costs: engine.costs(),
+          costs: costs(),
           holds: [...engine.holds()],
-          feedback: engine.feedback()
+          feedback: feedback()
         };
         engine.disable();
       }
@@ -151,7 +151,7 @@ export function installDiagnosticsBridge(
     },
     costs() {
       requireAttributionSession("costs");
-      return toSerializable(engine.costs());
+      return toSerializable(costs());
     },
     holds() {
       requireAttributionSession("holds");
@@ -159,7 +159,7 @@ export function installDiagnosticsBridge(
     },
     feedback() {
       requireAttributionSession("feedback");
-      return toSerializable(engine.feedback());
+      return toSerializable(feedback());
     }
   };
 

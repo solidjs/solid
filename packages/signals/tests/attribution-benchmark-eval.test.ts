@@ -9,7 +9,7 @@
  * one render effect per row binding.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, costs } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
@@ -85,14 +85,14 @@ describe("JSFB select-row (naive: every row reads the selected signal)", () => {
     expect(reruns).toHaveLength(2000);
     const unchanged = reruns.filter(r => !r.changed).length;
     expect(unchanged).toBeGreaterThanOrEqual(1996);
-    const { scopes } = attribution.costs();
+    const { scopes } = costs();
     const wastedTotal = scopes
       .filter(s => s.name.endsWith(".class"))
       .reduce((sum, s) => sum + s.wastedMs, 0);
     expect(wastedTotal).toBeGreaterThan(0);
 
     // The write-cost table ranks selectedId as the top root cause.
-    const { writes } = attribution.costs();
+    const { writes } = costs();
     expect(writes[0].name).toBe("selectedId");
     expect(writes[0].runs).toBe(2000);
 

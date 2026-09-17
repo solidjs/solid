@@ -395,10 +395,14 @@ that keeps taking input (typing) is judged by each wait, not by the sum.
 `feedback().sources[].long`/`longMs` counts these at the table level,
 acknowledged or not.
 
-### Where to start: `attribution.feedback()`
+### Where to start: `feedback()`
 
 Before chasing individual `SILENT_HOLD` events, read the ranked tables — the
-same fold over holds and re-runs that `costs()` is over scopes and writes:
+same fold over holds and re-runs that `costs()` is over scopes and writes.
+Both are named exports (`import { feedback, costs } from "solid-js/attribution"`),
+not methods of `attribution`: importing one is what turns its accounting on,
+so a records-only consumer never ships the tables. A captured artifact has
+them as `artifact.attribution.feedback` / `.costs` already.
 
 - `sources` — one row per set of async sources that held writes, ranked by
   silent time. `holds`, `heldMs`, `worstMs`, `silent`/`silentMs`,

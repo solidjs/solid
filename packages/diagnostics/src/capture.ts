@@ -1,5 +1,6 @@
 import { OBSERVE, flush } from "@solidjs/signals";
-import { attribution as engine } from "@solidjs/signals/attribution";
+// The folds are named exports: importing them is what turns their accounting on.
+import { attribution as engine, costs, feedback } from "@solidjs/signals/attribution";
 import { ARTIFACT_FORMAT_VERSION } from "./artifact.js";
 import { captureRecords } from "./records.js";
 import type { AttributionOptions, DiagnosticsArtifact } from "./types.js";
@@ -70,9 +71,9 @@ export async function captureArtifact<T>(
     if (useAttribution) {
       attribution = {
         reruns: [...engine.history()],
-        costs: engine.costs(),
+        costs: costs(),
         holds: [...engine.holds()],
-        feedback: engine.feedback()
+        feedback: feedback()
       };
       engine.disable();
     }

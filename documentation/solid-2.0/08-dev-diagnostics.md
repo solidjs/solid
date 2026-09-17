@@ -799,17 +799,27 @@ attribution.enable({
 });
 
 attribution.history();          // ring buffer of RerunEvents
-attribution.why(someMemo);      // re-run history for one node
-attribution.subscriptions(fn);  // current dep names of one scope
-attribution.costs();            // { scopes, writes } ranked cost tables
 attribution.waterfalls();       // graph-provable sequential flight chains
 attribution.holds();            // every hold, acknowledged or not
 attribution.navigations();      // every declared navigation, settled or not (below)
 attribution.interactions();     // every user interaction, settled or not (below)
-attribution.feedback();         // responsiveness tables (below)
 attribution.subscribe(fn);      // live RerunEvent feed — same as subscribe("rerun", fn)
 attribution.subscribe("interaction" | "hold" | "navigation", fn); // each record as it settles
 attribution.disable();
+
+// The folds over those records, the point queries and the formatters are
+// NAMED EXPORTS, not methods: a fold's module registers its accounting with
+// the engine when it is imported, so a consumer that only subscribes to
+// records (a production adapter) never ships the tables a console or an
+// agent reads — importing `costs` or `feedback` is what turns them on.
+import { costs, feedback, why, subscriptions, formatRerun, formatOrigin } from "solid-js/attribution";
+
+costs();                        // { scopes, writes } ranked cost tables (since enable())
+feedback();                     // responsiveness tables (below)
+why(someMemo);                  // re-run history for one node
+subscriptions(fn);              // current dep names of one scope
+formatRerun(event);             // the console line for one RerunEvent
+formatOrigin(origin);           // `click on button#next "Next →"` — a ChangeOrigin as a name
 
 // Callable anytime (even while disabled): preloaders/caches declare the true
 // kickoff of promises they hand out, so dependents that pick them up later
