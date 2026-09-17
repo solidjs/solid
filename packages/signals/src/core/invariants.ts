@@ -73,6 +73,14 @@ export function devTrackCompanionOwner(node: AnyNode): void {
   companionOwners.add(node);
 }
 
+/** #3503: a firewall child the store released (unobserved sweep) leaves the
+ * registry with it — the runtime drops it from `_companionChildren` so the
+ * projection stops retaining it; the test-only set must not either. */
+export function devUntrackCompanionOwner(node: AnyNode): void {
+  if (!__TEST__) return;
+  companionOwners.delete(node);
+}
+
 export function devTrackOptimistic(node: AnyNode): void {
   if (!__TEST__) return;
   optimisticNodes.add(node);
