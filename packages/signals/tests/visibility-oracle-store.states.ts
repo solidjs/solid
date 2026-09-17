@@ -320,5 +320,144 @@ export const STATES: State[] = [
       isPending: rule(false, "A16 / A19 exception (1): loading, not pending"),
       authoritative: rule(NOT_READY, "A17 carve-out: nothing landed")
     }
-  }
+  },
+  // ── structural reads ──────────────────────────────────────────────────────
+  // The same states read for STRUCTURE — `in`, Object.keys, a descriptor —
+  // instead of a value. Structure rides presence nodes (getHasNode) and the
+  // key-set node, not value slots: every rule above must hold for them too
+  // (the review of #3523 found an optimistic add lost to committed structure
+  // the moment its only structural observer left — a cell no value state
+  // could show). One state per structural channel.
+  ...(
+    [
+      ["in", (s: any) => "k" in s],
+      ["Object.keys", (s: any) => Object.keys(s).includes("k")],
+      ["descriptor", (s: any) => Object.getOwnPropertyDescriptor(s, "k") !== undefined]
+    ] as Array<[string, (s: any) => boolean]>
+  ).flatMap(([label, probe]): State[] => [
+    {
+      name: `plain store, structure via ${label}: key added under a live action (setStore inside action, yield forever)`,
+      build(installStale) {
+        const [s, set] = createStore<Record<string, number>>({});
+        const x = () => probe(s);
+        installStale(x);
+        action(function* () {
+          set(d => {
+            d.k = 1;
+          });
+          yield never();
+        })();
+        flush();
+        return { x, dispose() {} };
+      },
+      expect: {
+        untracked: rule(false, "A19 (i) / CS-R33: committed structure while the add is held"),
+        derivesFrom: rule(
+          true,
+          "A29: a tracked pass served the staged structure derives from the transaction's world"
+        ),
+        published: rule(HELD, "A29 (born held)"),
+        preexisting: rule(HELD, "A19 (i)"),
+        staleForeign: rule(
+          false,
+          "A15 / A26: a stale reader of a parallel transaction shows committed structure"
+        ),
+        childrenForbidden: rule(false, "A32"),
+        latest: violation(
+          true,
+          false,
+          "A11 for structure: latest() sees the parked VALUE of `s.n` (#3075) but not the parked STRUCTURE — the has-node / key-set / descriptor channels have no latest() tunnel (structural oracle, 2026-09-17)"
+        ),
+        isPending:
+          label === "descriptor"
+            ? violation(
+                true,
+                false,
+                "the descriptor trap reads no node, so an isPending() probe over it witnesses nothing (structural oracle, 2026-09-17)"
+              )
+            : rule(true, "A19 (i) / CS-R33: a held add pends the key"),
+        authoritative: rule(true, "A17 carve-out: staged structure is authoritative")
+      }
+    },
+    {
+      name: `optimistic store, structure via ${label}: key added inside a live action (override)`,
+      build(installStale) {
+        const [s, set] = createOptimisticStore<Record<string, number>>({});
+        const x = () => probe(s);
+        installStale(x);
+        action(function* () {
+          set(d => {
+            d.k = 5;
+          });
+          yield never();
+        })();
+        flush();
+        return { x, dispose() {} };
+      },
+      expect: {
+        untracked: rule(true, "A17 / OS: the optimistic add is the displayed structure"),
+        derivesFrom: rule(true, "A17"),
+        published: observed(
+          true,
+          "as for the value slot: a fresh mainline memo's publish-or-hold is not stated"
+        ),
+        preexisting:
+          label === "descriptor"
+            ? violation(
+                true,
+                HELD,
+                "the descriptor trap subscribes to nothing: a pre-existing render effect inspecting the key through getOwnPropertyDescriptor never re-runs for the optimistic add (structural oracle, 2026-09-17)"
+              )
+            : rule(true, "A17: no downstream async, nothing to wait for"),
+        staleForeign: rule(true, "A17"),
+        childrenForbidden: rule(true, "A32: the override is the frame"),
+        latest: rule(true, "A17 / OL-R11"),
+        isPending: rule(false, "A24 (3) / OS-R37: optimistic writes are verdict-inert"),
+        authoritative: rule(
+          false,
+          "A17 carve-out / authoritativeServe(): never the caller's optimism"
+        )
+      }
+    },
+    {
+      name: `optimistic store, structure via ${label}: key deleted inside a live action (override)`,
+      build(installStale) {
+        const [s, set] = createOptimisticStore<Record<string, number>>({ k: 1 });
+        const x = () => probe(s);
+        installStale(x);
+        action(function* () {
+          set(d => {
+            delete d.k;
+          });
+          yield never();
+        })();
+        flush();
+        return { x, dispose() {} };
+      },
+      expect: {
+        untracked: rule(false, "A17 / OS: the optimistic delete is the displayed structure"),
+        derivesFrom: rule(false, "A17"),
+        published: observed(
+          false,
+          "as for the value slot: a fresh mainline memo's publish-or-hold is not stated"
+        ),
+        preexisting:
+          label === "descriptor"
+            ? violation(
+                false,
+                HELD,
+                "the descriptor trap subscribes to nothing: a pre-existing render effect inspecting the key through getOwnPropertyDescriptor never re-runs for the optimistic delete (structural oracle, 2026-09-17)"
+              )
+            : rule(false, "A17: no downstream async, nothing to wait for"),
+        staleForeign: rule(false, "A17"),
+        childrenForbidden: rule(false, "A32: the override is the frame"),
+        latest: rule(false, "A17 / OL-R11"),
+        isPending: rule(false, "A24 (3) / OS-R37: optimistic writes are verdict-inert"),
+        authoritative: rule(
+          true,
+          "A17 carve-out / authoritativeServe(): never the caller's optimism"
+        )
+      }
+    }
+  ])
 ];

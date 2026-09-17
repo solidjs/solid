@@ -39,6 +39,10 @@ import {
   stale,
   hasActiveOverride,
   visibleOverride,
+  recordStaleReplay,
+  enterStagedRead,
+  ownsHold,
+  serve,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -55,6 +59,7 @@ import {
 import {
   activeTransition,
   currentTransition,
+  deferSlotRelease,
   globalQueue,
   insertSubs,
   type Transition
@@ -67,7 +72,7 @@ import {
   setProjectionWriteActive,
   setStoreCommitHook
 } from "../../core/scheduler.js";
-import type { Owner, Signal } from "../../core/types.js";
+import type { Computed, Owner, Signal } from "../../core/types.js";
 import { pendingCheckActive, strictRead } from "../../core/core.js";
 import {
   DEV,
@@ -250,6 +255,11 @@ const slotNodeEquals = function (this: any, a: any, b: any): boolean {
 setSlotUnobserved((node: any): void => {
   // A live affects() mark keeps the node addressable (sweep parity).
   if (node._x?._affectsCount) return;
+  // An active override or a staged write is state only the node holds (an
+  // optimistic signal keeps its override whether or not anything reads it —
+  // store parity, posture-store-parity S7): defer the release to the flush
+  // that resolves it (the scheduler's transient-node sweep).
+  if (hasActiveOverride(node) || node._pendingValue !== NOT_PENDING) return deferSlotRelease(node);
   const t: StoreNextTarget = node._host;
   const key: PropertyKey = node._key;
   if (t.n && t.n[key as any] === node) {
@@ -394,31 +404,26 @@ function heldFoldTransition(target: StoreNextTarget): Transition | null {
 }
 
 /**
- * Core read()'s committed-visibility clause, at the backing (#3336):
- * `(stale && el._transition !== null) ? _value : _pendingValue`. While a live
- * transaction holds the pending backing, a stale (render) reader — and a
- * reader with no owner at all — sees committed, through every channel: an
- * untracked read in the effect, `in`, `Object.keys`, `deep()`/`snapshot()`.
- * The node path already answers this way; without the backing twin the same
- * effect read `0` through `a.count` and `1` through `untrack(() => a.count)`
- * or `"added" in a`. Speculation stays visible to non-stale owner-context
- * readers and to the peek from inside one; a pending backing with no
- * transaction (a same-tick plain write) is unaffected.
+ * Rule 1 at the backing, the hold half (core serve()'s stale-of-foreign and
+ * A29 arms, for a container instead of a node): given the transaction
+ * holding what a reader `c` (a pass; callers serve context-free readers the
+ * committed container themselves) is about to be served, is the STAGED
+ * container its to see? Its own hold, or none — yes. A foreign hold — a
+ * stale pass (render effect) keeps the committed frame and is recorded for
+ * replay at the hold's commit (recordStaleReplay, A15 / A26); a deriving
+ * pass takes the staged world and enters the transaction (enterStagedRead,
+ * A29). Shared by both hold kinds: a setter's fold (committed `v`, staged
+ * `pb`, the write-time stamp) and an adoption under a transaction
+ * (committed = the held view `hv`, staged = the adopted `v`, #3074).
  */
-function heldFromReader(target: StoreNextTarget): boolean {
-  if (!stale && inOwnerContext()) return false;
-  const txn = liveFoldTransition(target);
-  return txn !== null && foreignHold(txn);
-}
-
-/** Core read()'s `activeTransition !== el._transition`: a hold belongs to a
- * FOREIGN transaction unless the flush running now is that transaction's —
- * its own stale readers (a render effect recomputing in it, whose run the
- * commit applies) see the staged world. */
-function foreignHold(txn: Transition): boolean {
-  return (
-    activeTransition === null || currentTransition(activeTransition) !== currentTransition(txn)
-  );
+function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
+  if (txn === null || ownsHold(txn)) return true;
+  if (stale) {
+    recordStaleReplay(txn, c);
+    return false;
+  }
+  enterStagedRead(null, txn);
+  return true;
 }
 
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
@@ -473,6 +478,13 @@ export function getHasNode(
         equals: isEqual,
         unobserved() {
           if ((created as any)._x?._affectsCount) return;
+          // The structural twin of the value slot's rule (setSlotUnobserved,
+          // S7): an optimistic add/delete lives on this presence node as its
+          // override — releasing it with the override on would let `in`,
+          // `Object.keys` and descriptors fall back to committed structure
+          // while the action is live. Defer to the flush that resolves it.
+          if (hasActiveOverride(created) || created._pendingValue !== NOT_PENDING)
+            return deferSlotRelease(created);
           if (target.h && target.h[key] === created) {
             delete target.h[key];
             unlinkFirewallChild(created);
@@ -1614,23 +1626,12 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
  * computed (#2687 — untracked reads inside mapArray Roots see in-flight
  * values mid-flush). CHILDREN_FORBIDDEN execution scopes (createTrackedEffect
  * / onSettled callbacks) get COMMITTED visibility (#3006), same as core. */
-function inOwnerContext(): boolean {
+/** Core read()'s reader: the current computation, a root reading as its
+ * parent computed (`context` persists under untrack — an untracked read
+ * inside an effect is still that effect's read). */
+function readerContext(): Computed<any> | null {
   const c: any = getOwner();
-  if (c === null) return false;
-  const eff = c._root ? c._parentComputed : c;
-  return eff != null && !(eff._config & CONFIG_CHILDREN_FORBIDDEN);
-}
-
-/** CHILDREN_FORBIDDEN execution scope (createTrackedEffect / onSettled
- * callbacks). Distinct from context-free: these scopes get committed
- * visibility even against a projection's authoritative-elect pending
- * backing (#3082) — parity with signals, where core read() serves
- * committed to them regardless of staged writes. */
-function inForbiddenScope(): boolean {
-  const c: any = getOwner();
-  if (c === null) return false;
-  const eff = c._root ? c._parentComputed : c;
-  return eff != null && !!(eff._config & CONFIG_CHILDREN_FORBIDDEN);
+  return c === null ? null : c._root ? (c._parentComputed ?? null) : c;
 }
 
 /** A pending fold is transition-held when any written node's parked value is
@@ -1652,22 +1653,23 @@ function foldHeld(target: StoreNextTarget): boolean {
 }
 
 function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
-  // Held view first (#3074): an adoption staged under a live hold serves the
-  // pre-hold committed backing to committed-visibility readers. Speculative
-  // readers — drafts, write-override, owner-context computeds recomputing
-  // inside the transaction, and latest() reads — see the adopted backing.
-  if (
-    target.ht !== null &&
-    !latestReadActive &&
-    !inDraft(target) &&
-    !getWriteOverride() &&
-    // A stale (render) reader of a FOREIGN transaction's hold is a
-    // committed-visibility reader whatever its owner context (#3336).
-    (!inOwnerContext() ||
-      (stale && target.ht !== PLAIN_HOLD && foreignHold(currentTransition(target.ht))))
-  ) {
+  // Adoption hold first (#3074): an adoption staged under a live transaction
+  // (or a latest()-pull, PLAIN_HOLD) serves the pre-hold committed view to
+  // committed-visibility readers — context-free and children-forbidden ones,
+  // and stale passes off a foreign hold. Drafts, write-override and latest()
+  // see the adopted backing.
+  const ht = target.ht;
+  if (ht !== null && !latestReadActive && !inDraft(target) && !getWriteOverride()) {
     const hv = heldMaskView(target);
-    if (hv !== null) return hv;
+    if (hv !== null) {
+      const c = readerContext();
+      if (
+        c === null ||
+        c._config & CONFIG_CHILDREN_FORBIDDEN ||
+        !holdVisible(ht === PLAIN_HOLD ? null : currentTransition(ht as Transition), c)
+      )
+        return hv;
+    }
   }
   return pendingBackingVisible(target, false) ? target.pb! : target.v;
 }
@@ -1688,32 +1690,28 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
  * divergence from context-free per-key reads) — but never through a hold:
  * held truth stays masked exactly as it is for per-key readers. */
 function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): boolean {
-  return (
-    target.pb !== null &&
-    (inDraft(target) ||
-      getWriteOverride() ||
-      // Owner-context (and speculative-peek) readers see the pending
-      // backing — EXCEPT held truth on an optimistic family (#3164 fold):
-      // a live pb on an opt family outside the draft/write-override windows
-      // is a staged landing (tentative drafts never outlive their setter),
-      // and only the authoritative postures and latest() see it (the
-      // backing-level twin of core read()'s A17-for-held-truth arm;
-      // ordinary readers keep committed until the transaction's reveal).
-      // Stale readers and owner-less peeks of a TRANSACTION-held backing see
-      // committed, as core read() serves them (#3336, heldFromReader).
-      ((speculative || inOwnerContext()) && !heldTruthMasked(target) && !heldFromReader(target)) ||
-      // A projection's pending backing is authoritative-elect: serve it to
-      // context-free readers too UNLESS a transition is holding the node
-      // commits (downstream async hold — stale committed is the contract)
-      // or the reader is a CHILDREN_FORBIDDEN scope, which never observes
-      // its own unsettled write (#3082, signal parity per #3006).
-      // (The write-time stamp covers keys with no node, #3336.)
-      (target.fam !== null &&
-        !heldTruthMasked(target) &&
-        !foldHeld(target) &&
-        liveFoldTransition(target) === null &&
-        !inForbiddenScope()))
-  );
+  if (target.pb === null) return false;
+  // The writer's own channels compose on the pending backing regardless.
+  if (inDraft(target) || getWriteOverride()) return true;
+  // HELD truth on an optimistic family (#3164 fold) is masked from ordinary
+  // readers until the transaction's reveal (the backing-level twin of core
+  // serve()'s CONFIG_HELD_TRUTH arm; authoritative postures and latest()
+  // tunnel through inside heldTruthMasked).
+  if (heldTruthMasked(target)) return false;
+  const c = readerContext();
+  if (c === null || c._config & CONFIG_CHILDREN_FORBIDDEN) {
+    // No pass, or a children-forbidden one: the committed frame (A32) —
+    // except the speculative peek (deep()/snapshot()), which sees ordinary
+    // pending staging but never through a live foreign hold, and a
+    // projection's pending backing, authoritative-elect for context-free
+    // readers UNLESS a transition holds the node commits (downstream async
+    // hold — stale committed is the contract; the write-time stamp covers
+    // keys with no node, #3336) or the scope is children-forbidden (#3082).
+    const txn = liveFoldTransition(target);
+    if (speculative) return txn === null || ownsHold(txn);
+    return target.fam !== null && c === null && !foldHeld(target) && txn === null;
+  }
+  return holdVisible(liveFoldTransition(target), c);
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing
@@ -1791,31 +1789,23 @@ export function authoritativeServe(): boolean {
  * FORCE sentinels never surface (they only bump subscribers of accessor
  * keys, which are served by the trap, not the node). */
 function nodeValue(node: Signal<any>, backing: any): any {
-  // latest() sees the in-flight parked value like an owner-context reader
-  // does (#3075) — signal/memo parity for store-node-backed keys.
-  // Authoritative-view reads (until()'s predicate) skip the override arm
-  // only: staged pending values are authoritative, overrides are the
-  // caller's optimism.
-  const v =
-    !authoritativeServe() && visibleOverride(node)
+  // Store-only tunnels, ahead of Rule 1: truth authors (authoritativeServe —
+  // the projection derive's draft, the write-override continuation) see
+  // staged truth and never an override; latest() reaching this untracked
+  // path for a store key sees the in-flight parked value like an
+  // owner-context reader does (#3075), the visible override first.
+  let v: any;
+  if (authoritativeServe()) v = node._pendingValue !== NOT_PENDING ? node._pendingValue : backing;
+  else if (latestReadActive)
+    v = visibleOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
-      : node._pendingValue !== NOT_PENDING &&
-          (latestReadActive ||
-            // Owner-context pending visibility — except HELD truth (#3164,
-            // see CONFIG_HELD_TRUTH: fold-staged or entangle-stolen
-            // confirming truth), which only authoritative/latest readers
-            // see (core read()'s A17-for-held-truth twin; ordinary readers
-            // keep committed until the transaction's reveal — latest() is
-            // exempted by the leading arm above).
-            // — and core read()'s stale-reader clause: a render effect's
-            // untracked read of a FOREIGN transaction's write sees committed
-            // (#3336; the tracked read reaches core read() and already does).
-            (((inOwnerContext() &&
-              !(stale && node._transition !== null && foreignHold(node._transition))) ||
-              authoritativeServe()) &&
-              !(node._config & CONFIG_HELD_TRUTH && !authoritativeServe())))
+      : node._pendingValue !== NOT_PENDING
         ? node._pendingValue
         : backing;
+  // Otherwise the one slow selection core read() uses (serve): override,
+  // lane gate, A28, readerSeesCommitted / A29 — with the BACKING as the
+  // committed value (single-home rule, O6).
+  else v = serve(node, readerContext(), (node as any)._firewall || node, backing);
   return v === (FORCE as any) ? backing : v;
 }
 

@@ -344,7 +344,21 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // One `unflushed` for signal and store (spec O4, 2026-09-16): a staging
     // adopted before any flush is marked CONFIG_ADOPTED_UNFLUSHED at adoption
     // and cleared by the carrying flush; +56 B (25,193 -> 25,249).
-    expect(minifiedBytes).toBeLessThan(25_300);
+    // Move 3b, 2026-09-17: shared read predicates (+13 B, readerSeesCommitted),
+    // the stale-reader replay helper recordStaleReplay (+31 B), enterStagedRead's
+    // null-node form (+1 B), and one ownership relation ownsHold for the
+    // stale-of-foreign clause, the lane arm and the store's backing holds
+    // (+44 B minified, -4 B brotli: the function is not inlined by esbuild).
+    // 25,249 -> 25,338.
+    // serve() — Rule 1's one slow implementation (move 3b step 6c, 2026-09-17):
+    // read()'s slow tail extracted with the committed value as a parameter so the
+    // store's untracked node path selects through the same function (its
+    // backing as committed, O6). +88 B: the wrapper, the parameter, and the
+    // auto-dispose sweep guard that preserves the inline arm's early return.
+    // 25,338 -> 25,426. The additive half; the twins it makes deletable
+    // (overrideRead's wrapper, nodeValue, the verdict re-derivations) are the
+    // deletion half — see docs/DESIGN-CONSOLIDATION.md §0.
+    expect(minifiedBytes).toBeLessThan(25_500);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

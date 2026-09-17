@@ -4,7 +4,7 @@ import {
   NOT_PENDING,
   REACTIVE_DISPOSED
 } from "./constants.js";
-import { currentOptimisticLane, ext, hasActiveOverride } from "./core.js";
+import { currentOptimisticLane, ext, hasActiveOverride, ownsHold } from "./core.js";
 export { hasActiveOverride };
 import { enqueueSub } from "./heap.js";
 import {
@@ -144,14 +144,21 @@ export function laneHeld(lane: OptimisticLane): boolean {
 export function readsHeldCommitted(owner: Computed<any>, c: Computed<any>): boolean {
   const lane = resolveLane(owner);
   if (!lane || !laneHeld(lane)) return false;
-  const t = activeTransition && resolveTransition(owner);
-  if (
-    (t && currentTransition(t) === currentTransition(activeTransition!)) ||
-    (currentOptimisticLane !== null && findLane(currentOptimisticLane) === lane)
-  )
-    return false;
+  if (ownsLane(lane, owner)) return false;
   lane._effectQueues[0].push(() => c._flags & REACTIVE_DISPOSED || enqueueSub(c));
   return true;
+}
+
+/** The ownership relation for a lane hold (core `ownsHold`, §6 ruling 2): the
+ * running pass owns `lane`'s hold if it runs under the transition that owns
+ * the lane (the node's, resolved through override ownership and merges) or
+ * inside the lane itself. */
+export function ownsLane(lane: OptimisticLane, owner: Computed<any>): boolean {
+  if (activeTransition !== null) {
+    const t = resolveTransition(owner);
+    if (t && ownsHold(t)) return true;
+  }
+  return currentOptimisticLane !== null && findLane(currentOptimisticLane) === lane;
 }
 
 /**

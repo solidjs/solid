@@ -1566,12 +1566,40 @@ export function installAuthoritativeRead(): void {
  * also pending on an upstream re-ask blocks through that flight until it
  * lands, and its landing re-runs the reader into the normal path.
  */
-function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
-  const t = el._transition;
-  if (t === null || t === activeTransition) return false;
-  const txn = currentTransition(t);
+/** The replay half of the stale-of-foreign clause (A15 / A26): a stale reader
+ * served the committed value because `txn` holds what it read re-runs at
+ * txn's commit, when the value it was denied becomes the frame — unless its
+ * own last value already came from that transaction. One registration for
+ * the node path (heldFromStale) and the store's backing paths, which have
+ * no node to carry the hold (heldFromReader, the adoption hold view). */
+export function recordStaleReplay(txn: Transition, c: Computed<any>): void {
   const vt: Transition | null | undefined = (c as any)._valueTransition;
   if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
+}
+
+/**
+ * The ownership relation (DESIGN-CONSOLIDATION §6, ruled 2026-09-17): is
+ * `hold` part of the running pass's world? A plain reader's world is the
+ * transaction it runs under, through merges. A lane reader's world is its
+ * lane AND the transition that owns the lane — the one asymmetry between a
+ * lane and a separate transaction (a lane sees what lands from its parent as
+ * its own; a separate transaction would wait for the parent to settle) —
+ * see `ownsLane` in lanes.ts, built on this. One relation for the
+ * stale-of-foreign clause (heldFromStale), the lane arm (readsHeldCommitted)
+ * and the store's backing holds (foreignHold); `serve` has no lane arm of
+ * its own, the lane's extra visibility lives here.
+ */
+export function ownsHold(hold: Transition): boolean {
+  return (
+    activeTransition !== null && currentTransition(hold) === currentTransition(activeTransition)
+  );
+}
+
+function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
+  const t = el._transition;
+  if (t === null || ownsHold(t)) return false;
+  const txn = currentTransition(t);
+  recordStaleReplay(txn, c);
   const reporters = txn._asyncReporters.get(el as Computed<any>);
   if (reporters) reporters.add(c);
   else if ((el as Computed<any>)._statusFlags & STATUS_PENDING)
@@ -1601,16 +1629,18 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
 let stagedEntry: Transition | null = null;
 
 export function enterStagedRead(
-  el: Signal<any> | Computed<any>,
-  t: Transition | null | undefined = el._transition
+  el: Signal<any> | Computed<any> | null,
+  t: Transition | null | undefined = el!._transition
 ): void {
   if (!t || t === activeTransition || pendingCheckActive) return;
   // A companion (the latest() shadow, the isPending() verdict signal) is the
   // engine's mirror of the flushed world — reading it, or being it, is an
   // observation, not a derivation from the hold: latest(x) never enters x's
   // transaction, and the shadow's own pass never enters either (it would
-  // flip activeTransition under the reader that pulled it).
-  if (el._x?._parentSource || (context as Computed<any> | null)?._x?._parentSource) return;
+  // flip activeTransition under the reader that pulled it). (`el` is null for
+  // a store backing served under a hold — no node, the transaction is the
+  // fold's.)
+  if (el?._x?._parentSource || (context as Computed<any> | null)?._x?._parentSource) return;
   // Verdict machinery (GlobalQueue._verdictPull: companion creation and the
   // latest()/isPending() pulls — the latest() shadow is created before it is
   // marked optimistic, so the bit alone cannot tell) and optimistic nodes
@@ -1640,7 +1670,7 @@ export function enterStagedRead(
  * node's COMMITTED value? One implementation of the rule the fast paths
  * (readNodeFast, read's fast block) carry as their trivial ternary and that
  * every slow site — read's tail, the store's backing selection, the lane and
- * verdict arms — used to restate by hand (DESIGN-CONSOLIDATION, move 3b). In order:
+ * verdict arms — used to restate by hand (docs/DESIGN-CONSOLIDATION.md, move 3b). In order:
  * - no reader at all (an untracked read) — the committed frame;
  * - a reader under an optimistic lane the engine says reads committed
  *   (laneReadsCommitted: another lane's hold, #3460);
@@ -1706,7 +1736,7 @@ export function unflushed(el: Signal<any> | Computed<any>): boolean {
  * in-computation writes) and engine companions (the isPending() verdict
  * signal, the latest() shadow: the system's own writes, made at the source's
  * write to mirror it, installing eagerly — A28, A8). */
-export function unflushedValue(el: Signal<any> | Computed<any>): unknown {
+export function unflushedValue(el: Signal<any> | Computed<any>, committed = el._value): unknown {
   if (
     globalQueue._running ||
     el._pendingValue === NOT_PENDING ||
@@ -1716,9 +1746,9 @@ export function unflushedValue(el: Signal<any> | Computed<any>): unknown {
     return NOT_PENDING;
   // Ambient, or adopted by a transaction before any flush carried the staging
   // (CONFIG_ADOPTED_UNFLUSHED): nothing flushed is staged — the committed
-  // value answers. A held node: unflushed only if rewritten since the last
-  // flush (stash).
-  if (el._transition === null || el._config & CONFIG_ADOPTED_UNFLUSHED) return el._value;
+  // value answers (the caller's notion of committed: a store node's backing).
+  // A held node: unflushed only if rewritten since the last flush (stash).
+  if (el._transition === null || el._config & CONFIG_ADOPTED_UNFLUSHED) return committed;
   return el._x === null ? NOT_PENDING : el._x._flushedStaged;
 }
 /** Held nodes rewritten since the last flush (setSignal); the flush clears
@@ -1745,7 +1775,7 @@ export function hasActiveOverride(el: Signal<any> | Computed<any>): boolean {
  * an optimistic write is a write; until its flush no reader sees it). One
  * implementation for read()'s override arm, the verdict channels
  * (latestRead, computePendingState) and the store's selection
- * (DESIGN-CONSOLIDATION, move 3b). */
+ * (docs/DESIGN-CONSOLIDATION.md, move 3b). */
 export function visibleOverride(el: Signal<any> | Computed<any>): boolean {
   return hasActiveOverride(el) && !unflushedOverride(el);
 }
@@ -1997,6 +2027,53 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       nodeName: (owner as any)?._name
     });
 
+  const value = serve(el, c as Computed<any> | null, owner, el._value) as T;
+  if (
+    !c &&
+    owner === el &&
+    typeof computed._fn === "function" &&
+    el._config & CONFIG_AUTO_DISPOSE &&
+    !(owner._statusFlags & STATUS_PENDING) &&
+    !el._subs &&
+    // An untracked read served a visible override returned before this
+    // sweep registration when the arm was inline; keep that.
+    !visibleOverride(el)
+  ) {
+    // Deferred, not inline (#3078): an inline unobserved() here made untracked
+    // reads destructive — dispose on this read, full revival recompute on the
+    // next — so consecutive reads could answer differently with no write in
+    // between (the revival samples the ambient transition/lane context).
+    // The sweep at flush finalization re-validates and reclaims; schedule()
+    // guarantees that flush happens even if nothing else is queued.
+    dormantNodes.add(el as Computed<unknown>);
+    schedule();
+  }
+  return value;
+}
+
+/**
+ * Rule 1, the one slow implementation (DESIGN-CONSOLIDATION move 3b, step
+ * 6c): the value a reader `c` (null = untracked, no pass) is served from
+ * `el`, whose committed value is `committed` — the node's own `_value` for
+ * a signal or memo, the BACKING for a store property node (single-home rule,
+ * O6: committed truth lives in the backing and a node's `_value` is never
+ * served for one). Called by read()'s slow tail and by the store's untracked
+ * node path (nodeValue); the fast paths (readNodeFast, read's fast block)
+ * keep their trivial ternary by design (perf, see the doc). Arms, in order:
+ * - the override (A17), routed through the engine for a tracked reader under
+ *   a lane or a supersession (A18), an authoritative reader marked instead;
+ * - the lane entanglement gate (committed, recorded for replay);
+ * - a node born held has nothing for an untracked reader (A19 exception 1);
+ * - an unflushed write serves committed and re-runs the reader in the
+ *   carrying flush (A28);
+ * - readerSeesCommitted, else the staged value and the transaction (A29).
+ */
+export function serve(
+  el: Signal<any> | Computed<any>,
+  c: Computed<any> | null,
+  owner: Signal<any> | Computed<any>,
+  committed: unknown
+): unknown {
   if (hasActiveOverride(el)) {
     // A17: the override IS the value for every reader — except an authoritative
     // reader (until()'s predicate carries CONFIG_AUTHORITATIVE_READ): it must
@@ -2019,8 +2096,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       // tracked reader the staged truth (A18 supersession, #3331). Untracked
       // reads display the override.
       if (c && el._config & (CONFIG_HAS_LANE | CONFIG_OVERRIDE_SUPERSEDED))
-        return GlobalQueue._overrideRead!(el as Computed<any>, c as Computed<any>) as T;
-      return unwrapOverride<T>(el._x?._overrideValue);
+        return GlobalQueue._overrideRead!(el as Computed<any>, c);
+      return unwrapOverride(el._x?._overrideValue);
     }
     el._config |= CONFIG_AUTHORITATIVE_OBSERVED;
   }
@@ -2036,9 +2113,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     currentOptimisticLane !== null &&
     activeTransition !== null &&
     c !== null &&
-    GlobalQueue._gatedRead!(el as Signal<any>, owner, c as Computed<any>)
+    GlobalQueue._gatedRead!(el as Signal<any>, owner, c)
   ) {
-    return el._value as T;
+    return committed;
   }
 
   // In optimistic lane context, return _value for optimistic/lane-assigned signals
@@ -2055,35 +2132,18 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     el._pendingValue !== NOT_PENDING &&
     ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) !== 0;
   if (noCommitted && !c) throw new NotReadyError(null);
-  const u = c && unflushedStaged ? unflushedValue(el) : NOT_PENDING;
+  const u = c && unflushedStaged ? unflushedValue(el, committed) : NOT_PENDING;
   if (u !== NOT_PENDING) {
-    markLateLinker(c as Computed<any>);
+    markLateLinker(c!);
     if (pendingCheckActive) GlobalQueue._recordFresh!(el, u);
-    return u as T;
+    return u;
   }
-  const value = readerSeesCommitted(el, c as Computed<any> | null, owner, noCommitted)
-    ? el._value
-    : (enterStagedRead(el), el._pendingValue as T);
+  const value = readerSeesCommitted(el, c, owner, noCommitted)
+    ? committed
+    : (enterStagedRead(el), el._pendingValue);
   // Record that this isPending() probe observed the fresh pending value, so
   // the probe doesn't pair "pending" with the new value (#2831).
   if (pendingCheckActive) GlobalQueue._recordFresh!(el, value);
-  if (
-    !c &&
-    owner === el &&
-    typeof computed._fn === "function" &&
-    el._config & CONFIG_AUTO_DISPOSE &&
-    !(owner._statusFlags & STATUS_PENDING) &&
-    !el._subs
-  ) {
-    // Deferred, not inline (#3078): an inline unobserved() here made untracked
-    // reads destructive — dispose on this read, full revival recompute on the
-    // next — so consecutive reads could answer differently with no write in
-    // between (the revival samples the ambient transition/lane context).
-    // The sweep at flush finalization re-validates and reclaims; schedule()
-    // guarantees that flush happens even if nothing else is queued.
-    dormantNodes.add(el as Computed<unknown>);
-    schedule();
-  }
   return value;
 }
 
