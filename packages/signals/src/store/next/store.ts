@@ -727,7 +727,6 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
     pb = target.pb = null;
   }
   if (activeTransition !== null) foldBatches.set(target, activeTransition);
-  if (!globalQueue._running && getOwner() === null) unflushedPBs.set(target, clock);
   if (pb === null) {
     // Prototype-chain overlay (#3044): plain-data non-array containers open
     // drafts in O(1) — own keys are the writes, reads fall through to
@@ -787,6 +786,9 @@ function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
       }
     }
     queueFold(target);
+    // A28 stamp, once per draft open (not per write — ensurePB runs on every
+    // trap write of the draft).
+    if (!globalQueue._running && getOwner() === null) unflushedPBs.set(target, clock);
   }
   return pb;
 }
@@ -928,7 +930,9 @@ const foldBatches = new WeakMap<StoreNextTarget, Transition>();
  * flush running" is a write no flush has carried: owner-context readers see
  * the committed container and re-run in the carrying flush (markLateLinker),
  * as core serve() treats an unflushed node (unflushedValue). */
-const unflushedPBs = new WeakMap<StoreNextTarget, number>();
+// A Map, not a WeakMap: a WeakMap.set per fresh target (identity hash +
+// ephemeron) cost 15–30% on the write floor; entries leave at the drain.
+const unflushedPBs = new Map<StoreNextTarget, number>();
 function unflushedBacking(target: StoreNextTarget): boolean {
   return !globalQueue._running && unflushedPBs.get(target) === clock;
 }
@@ -1043,6 +1047,7 @@ function drainFolds(): void {
         }
         foldBatches.delete(t);
       }
+      unflushedPBs.delete(t);
       // Setter path: nodes were setSignal'd at setter exit (write-time
       // notification — transitions/holds ride core machinery). Commit the
       // backing only for keys whose nodes have committed; a still-pending
