@@ -96,10 +96,11 @@ describe("SSR_RENDER_ERROR_CONTAINED (wiring)", () => {
     expect((event.data!.error as Error).message).toBe("bad render");
     // The server `createComponent` labels its owner (`<Name>`), the same
     // field and walk as the client — and, as on the client, the compiled
-    // `<Errored>` is a component call too, so the boundary that caught the
-    // error is the innermost label (the finding is the boundary's, raised
-    // from its owner; the failed `<Bad>` owner is already gone).
-    expect(event.ownerPath).toEqual(["<App>", "<Errored>"]);
+    // `<Errored>` is a component call too. The finding locates where the
+    // error was THROWN (the owner scope it escaped, stamped as it did) and
+    // names the boundary that met it in `data.boundaryPath`.
+    expect(event.ownerPath).toEqual(["<App>", "<Errored>", "<Bad>"]);
+    expect(event.data!.boundaryPath).toEqual(["<App>", "<Errored>"]);
     // Wiring in the dev tier: the channel got it AND the console face
     // reported it once, with the location — a developer sees the contained
     // error `renderToStream`'s `onError` never hears. (The observe tier
@@ -132,7 +133,8 @@ describe("SSR_RENDER_ERROR_CONTAINED (wiring)", () => {
     expect(events.every(e => e.data!.handling === "client")).toBe(true);
     expect(events[0].message).toContain("the fragment rejected and the client re-renders it");
     expect(events[0].message).toContain("late-boom");
-    expect(events[0].ownerPath).toEqual(["<App>", "<Loading>"]);
+    expect(events[0].ownerPath).toEqual(["<App>", "<Loading>", "<Child>"]);
+    expect(events[0].data!.boundaryPath).toEqual(["<App>", "<Loading>"]);
     expect(typeof events[0].data!.boundary).toBe("string");
   });
 

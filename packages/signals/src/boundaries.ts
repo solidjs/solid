@@ -373,9 +373,12 @@ export class CollectionQueue extends Queue {
           setSignal(this._error!, caught);
           // The client error hook: this boundary renders its fallback for
           // it — the one road a rendered failure took that no global handler
-          // ever saw. Once per error object; a `reset()` re-collecting the
-          // same failure says nothing new.
-          reportClientError(caught, this._owner);
+          // ever saw. `source` is the computation that threw (the status
+          // wrapper's, made at the first landing and kept downstream), so the
+          // hook hears where it broke as well as where it was met. Once per
+          // error object; a `reset()` re-collecting the same failure says
+          // nothing new.
+          reportClientError(caught, this._owner, source);
         }
       }
     }

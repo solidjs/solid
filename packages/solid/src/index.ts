@@ -151,7 +151,10 @@ export interface ServerErrorSite {
   kind: "render" | "server-function";
   handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
   boundary?: string;
+  /** Where the error was thrown — labels root-first up the owner chain it escaped. */
   ownerPath?: string[];
+  /** Where it was met — the labels up the chain of the boundary named by `boundary`. */
+  boundaryPath?: string[];
   functionId?: string;
   direct?: boolean;
   /** The request event, when the caller has it in hand; else read from the request scope. */

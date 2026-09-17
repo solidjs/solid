@@ -43,10 +43,13 @@ describe("render's onError", () => {
     const [fail, setFail] = createSignal(false);
     function Widget() {
       // A reactive read: the component body runs once, the memo re-throws.
-      const text = createMemo(() => {
-        if (fail()) throw boom;
-        return "content";
-      });
+      const text = createMemo(
+        () => {
+          if (fail()) throw boom;
+          return "content";
+        },
+        { name: "text" }
+      );
       return <p>{text()}</p>;
     }
     function App() {
@@ -70,8 +73,17 @@ describe("render's onError", () => {
     expect(container.textContent).toBe("fallback");
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
-    // The dev tier labels component owners; the boundary's is the innermost.
-    expect(calls[0].context.ownerPath).toEqual(["<App>", "<Errored>"]);
+    // Where it broke: the memo that threw, under its component (the
+    // compiler's inner memos ride along by their default name); where it
+    // was met: the boundary. The dev tier labels component owners.
+    expect(calls[0].context.ownerPath).toEqual([
+      "<App>",
+      "<Errored>",
+      "computed",
+      "<Widget>",
+      "text"
+    ]);
+    expect(calls[0].context.boundaryPath).toEqual(["<App>", "<Errored>"]);
   });
 
   test("the root's hook wins over the ambient one; a root without one reports ambiently", () => {

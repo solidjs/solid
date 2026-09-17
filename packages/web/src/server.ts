@@ -5082,10 +5082,12 @@ export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") 
  * the body threw; `channel`: a rejection or throw escaping through the
  * result graph (a promise, an iterable, a stream) with the head already
  * committed. `boundary` is the hydration id the boundary records and
- * findings use; `ownerPath` the component labels root-first, when the
- * compiler emitted them; `functionId`/`direct` name the server function and
- * whether it was an in-process call during SSR; `event` the request, when
- * the failure happened inside one.
+ * findings use; `ownerPath` is where the error was THROWN — the component
+ * labels root-first up the owner chain it escaped, when the compiler emitted
+ * them — and `boundaryPath` where it was MET, the same labels up the
+ * boundary's chain (what broke, and what the user saw); `functionId`/`direct`
+ * name the server function and whether it was an in-process call during
+ * SSR; `event` the request, when the failure happened inside one.
  */
 export interface ServerErrorContext extends Omit<ServerErrorSite, "event"> {
   event?: RequestEvent;

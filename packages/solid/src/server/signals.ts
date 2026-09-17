@@ -295,9 +295,30 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   currentOwner = owner as unknown as SSROwner | null;
   try {
     return fn();
+  } catch (error) {
+    stampThrower(error, owner);
+    throw error;
   } finally {
     currentOwner = prev;
   }
+}
+
+/**
+ * Where an error was THROWN, for the server error hook and the findings: the
+ * innermost owner whose scope it escaped — stamped at the first owner scope
+ * it crosses (component bodies and effects run through `runWithOwner`, a
+ * memo's pull through its inlined twin), kept as it propagates to the
+ * boundary that meets it. Object errors only; a `NotReadyError` is the
+ * engine's own signal, not a failure.
+ */
+const throwers = new WeakMap<object, Owner>();
+function stampThrower(error: unknown, owner: Owner | null): void {
+  if (owner === null || !isObject(error) || error instanceof NotReadyError) return;
+  if (!throwers.has(error)) throwers.set(error, owner);
+}
+/** @internal The owner `error` was stamped as thrown under, if it crossed one. */
+export function throwerOf(error: unknown): Owner | undefined {
+  return isObject(error) ? throwers.get(error) : undefined;
 }
 
 export function getOwner(): Owner | null {
@@ -1085,6 +1106,7 @@ function createSyncMemo<T>(
       return value;
     } catch (err) {
       if (err instanceof NotReadyError) throw err; // don't latch — engine re-pulls
+      stampThrower(err, owner);
       error = err;
       errored = true;
       cached = true;
@@ -2720,7 +2742,14 @@ export interface ServerErrorSite {
   kind: "render" | "server-function";
   handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
   boundary?: string;
+  /**
+   * Where the error was THROWN: component labels root-first up the owner
+   * chain it escaped (the observe and dev builds label owners). The
+   * boundary's chain when the thrower is unknown.
+   */
   ownerPath?: string[];
+  /** Where it was MET: the labels up the chain of the boundary named by `boundary`. */
+  boundaryPath?: string[];
   functionId?: string;
   direct?: boolean;
   /** The request event, when the caller has it in hand; else read from the request scope. */
@@ -2783,10 +2812,13 @@ export function reportServerError(
   const target = hook ?? (ctx && ctx.errorPolicy) ?? ambientServerErrorHook();
   if (target === undefined) return { mapped: false };
   const context: ServerErrorSite = { ...site };
-  if (context.ownerPath === undefined && subject) {
-    const path = ownerLabels(subject);
+  const boundary = subject ? ownerLabels(subject) : undefined;
+  if (context.ownerPath === undefined) {
+    const thrower = throwerOf(value);
+    const path = (thrower !== undefined ? ownerLabels(thrower) : undefined) ?? boundary;
     if (path !== undefined) context.ownerPath = path;
   }
+  if (context.boundaryPath === undefined && boundary !== undefined) context.boundaryPath = boundary;
   if (context.event === undefined) {
     const event = currentRequestEvent();
     if (event !== undefined) context.event = event;
@@ -2990,9 +3022,15 @@ export function createErrorBoundary<T, U>(
         kind: "ssr",
         severity: "error",
         message: `[SSR_RENDER_ERROR_CONTAINED] Render error caught by <Errored>: ${text}`,
-        data: { handling: "fallback", boundary: owner.id, error: err }
+        data: {
+          handling: "fallback",
+          boundary: owner.id,
+          boundaryPath: ownerLabels(owner),
+          error: err
+        }
       },
-      owner
+      // Located where it was THROWN, the boundary that met it in `data`.
+      throwerOf(err) ?? owner
     );
   };
   // The finding first, with the original; then the one value the client may
