@@ -39,6 +39,7 @@ import {
   hasActiveOverride,
   visibleOverride,
   readerSeesCommitted,
+  recordStaleReplay,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -408,7 +409,19 @@ function heldFoldTransition(target: StoreNextTarget): Transition | null {
 function heldFromReader(target: StoreNextTarget): boolean {
   if (!stale && inOwnerContext()) return false;
   const txn = liveFoldTransition(target);
-  return txn !== null && foreignHold(txn);
+  return txn !== null && foreignHold(txn) && (staleReplay(txn), true);
+}
+
+/** The replay half of the clause (core recordStaleReplay): the stale reader
+ * just denied the held value re-runs at the hold's commit. Without it the
+ * node path replayed (heldFromStale) and the backing paths did not — an
+ * effect's untracked read of a key with no node stayed on the pre-action
+ * value after the action settled (posture-store-parity S4). Only a reader in
+ * context has a pass to replay; a children-forbidden reader sees the frame
+ * and never the graph (A32). */
+function staleReplay(txn: Transition): void {
+  const c = readerContext();
+  if (c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) recordStaleReplay(txn, c);
 }
 
 /** Core read()'s `activeTransition !== el._transition`: a hold belongs to a
@@ -1673,7 +1686,13 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
       (stale && target.ht !== PLAIN_HOLD && foreignHold(currentTransition(target.ht))))
   ) {
     const hv = heldMaskView(target);
-    if (hv !== null) return hv;
+    if (hv !== null) {
+      // The reader denied the adopted view replays at the adoption's commit
+      // (the replay half of the clause; a latest()-pull PLAIN_HOLD is not a
+      // transaction and has no commit).
+      if (target.ht !== PLAIN_HOLD) staleReplay(currentTransition(target.ht as Transition));
+      return hv;
+    }
   }
   return pendingBackingVisible(target, false) ? target.pb! : target.v;
 }

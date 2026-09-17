@@ -1562,12 +1562,22 @@ export function installAuthoritativeRead(): void {
  * also pending on an upstream re-ask blocks through that flight until it
  * lands, and its landing re-runs the reader into the normal path.
  */
+/** The replay half of the stale-of-foreign clause (A15 / A26): a stale reader
+ * served the committed value because `txn` holds what it read re-runs at
+ * txn's commit, when the value it was denied becomes the frame — unless its
+ * own last value already came from that transaction. One registration for
+ * the node path (heldFromStale) and the store's backing paths, which have
+ * no node to carry the hold (heldFromReader, the adoption hold view). */
+export function recordStaleReplay(txn: Transition, c: Computed<any>): void {
+  const vt: Transition | null | undefined = (c as any)._valueTransition;
+  if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
+}
+
 function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
   const t = el._transition;
   if (t === null || t === activeTransition) return false;
   const txn = currentTransition(t);
-  const vt: Transition | null | undefined = (c as any)._valueTransition;
-  if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
+  recordStaleReplay(txn, c);
   const reporters = txn._asyncReporters.get(el as Computed<any>);
   if (reporters) reporters.add(c);
   else if ((el as Computed<any>)._statusFlags & STATUS_PENDING)
