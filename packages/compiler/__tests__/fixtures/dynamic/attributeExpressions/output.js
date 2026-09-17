@@ -94,7 +94,7 @@ _$spread(_el$2, [
 				"margin-right": "40px"
 			};
 		},
-		get ["class"]() {
+		get "class"() {
 			return ["base", {
 				dynamic: dynamic(),
 				selected
@@ -505,7 +505,7 @@ _$spread(_el$101, { ...propsSpread }, false);
 const template81 = _el$101;
 var _el$102 = _tmpl$4();
 _$spread(_el$102, [propsSpread, {
-	get ["data-dynamic"]() {
+	get "data-dynamic"() {
 		return color();
 	},
 	"data-static": /* @static */ color()
@@ -513,7 +513,7 @@ _$spread(_el$102, [propsSpread, {
 const template82 = _el$102;
 var _el$103 = _tmpl$4();
 _$spread(_el$103, [{ ...propsSpread }, {
-	get ["data-dynamic"]() {
+	get "data-dynamic"() {
 		return color();
 	},
 	"data-static": /* @static */ color()
@@ -525,7 +525,7 @@ _$spread(_el$104, [
 	propsSpread2,
 	{ ...propsSpread3 },
 	{
-		get ["data-dynamic"]() {
+		get "data-dynamic"() {
 			return color();
 		},
 		"data-static": /* @static */ color()

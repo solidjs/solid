@@ -217,8 +217,10 @@ pub(crate) fn object_getter_property_with_statements<'a>(
         None,
         Some(body),
     );
-    // Babel: `t.objectMethod("get", id, [], body, !t.isValidIdentifier(key))` —
-    // non-identifier getter keys are computed (`get ["hyphen-ated"]()`).
+    // Never computed. A non-identifier key is a string literal
+    // (`get "hyphen-ated"()`), the same property as `get ["hyphen-ated"]()`
+    // but on V8's object-literal boilerplate path; a computed key drops the
+    // whole literal to per-property runtime definition (#3511).
     ast.object_property_kind_object_property(
         span,
         PropertyKind::Get,
@@ -226,7 +228,7 @@ pub(crate) fn object_getter_property_with_statements<'a>(
         value,
         false,
         false,
-        !is_valid_babel_identifier(name),
+        false,
     )
 }
 

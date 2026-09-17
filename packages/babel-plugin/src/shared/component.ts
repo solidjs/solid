@@ -284,13 +284,19 @@ export default function transformComponent(
             ) {
               const expr = transformCondition(attribute.get("value").get("expression"), true);
 
+              // Getter keys are never computed: `id` is an identifier or a
+              // string literal (`get "aria-label"()`), the same property as
+              // `get ["aria-label"]()` but on V8's object-literal boilerplate
+              // path — a computed key drops the whole literal to per-property
+              // runtime definition (#3511). Same at every getter site below
+              // and in dom/ssr/universal element.ts.
               runningObject.push(
                 t.objectMethod(
                   "get",
                   id,
                   [],
                   t.blockStatement([t.returnStatement(expr.body)]),
-                  !t.isValidIdentifier(key)
+                  false
                 )
               );
             } else if (
@@ -303,7 +309,7 @@ export default function transformComponent(
                 ? callee.body
                 : t.blockStatement([t.returnStatement(callee.body)]);
 
-              runningObject.push(t.objectMethod("get", id, [], body, !t.isValidIdentifier(key)));
+              runningObject.push(t.objectMethod("get", id, [], body, false));
             } else {
               runningObject.push(
                 t.objectMethod(
@@ -311,7 +317,7 @@ export default function transformComponent(
                   id,
                   [],
                   t.blockStatement([t.returnStatement(value.expression as t.Expression)]),
-                  !t.isValidIdentifier(key)
+                  false
                 )
               );
             }

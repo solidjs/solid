@@ -1038,7 +1038,7 @@ function createElement(
                 id,
                 [],
                 t.blockStatement([t.returnStatement(expression)]),
-                !t.isValidIdentifier(key)
+                false // never computed; see shared/component.ts (#3511)
               )
             );
           } else runningObject.push(t.objectProperty(id, expression));

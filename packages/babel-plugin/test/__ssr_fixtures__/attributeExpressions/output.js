@@ -116,7 +116,7 @@ const template = _$ssrElement(
             "margin-right": "40px"
           };
         },
-        get ["class"]() {
+        get class() {
           return [
             "base",
             {
@@ -446,7 +446,7 @@ const template82 = _$ssrElement(
   [
     propsSpread,
     {
-      get ["data-dynamic"]() {
+      get "data-dynamic"() {
         return color();
       },
       "data-static": color()
@@ -460,7 +460,7 @@ const template83 = _$ssrElement(
   [
     propsSpread,
     {
-      get ["data-dynamic"]() {
+      get "data-dynamic"() {
         return color();
       },
       "data-static": color()
@@ -476,7 +476,7 @@ const template84 = _$ssrElement(
     propsSpread2,
     propsSpread3,
     {
-      get ["data-dynamic"]() {
+      get "data-dynamic"() {
         return color();
       },
       "data-static": color()

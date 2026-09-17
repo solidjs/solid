@@ -121,7 +121,7 @@ _$spread(
           "margin-right": "40px"
         };
       },
-      get ["class"]() {
+      get class() {
         return [
           "base",
           {
@@ -603,7 +603,7 @@ _$spread(
   [
     propsSpread,
     {
-      get ["data-dynamic"]() {
+      get "data-dynamic"() {
         return color();
       },
       "data-static": /* @static */ color()
@@ -620,7 +620,7 @@ _$spread(
       ...propsSpread
     },
     {
-      get ["data-dynamic"]() {
+      get "data-dynamic"() {
         return color();
       },
       "data-static": /* @static */ color()
@@ -641,7 +641,7 @@ _$spread(
       ...propsSpread3
     },
     {
-      get ["data-dynamic"]() {
+      get "data-dynamic"() {
         return color();
       },
       "data-static": /* @static */ color()

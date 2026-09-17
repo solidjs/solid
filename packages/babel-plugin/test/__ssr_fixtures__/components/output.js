@@ -94,7 +94,7 @@ const template2 = Child({
   },
   stale: state.data,
   handleClick: clickHandler,
-  get ["hyphen-ated"]() {
+  get "hyphen-ated"() {
     return state.data;
   },
   ref: el => (e = el)
@@ -269,7 +269,7 @@ const Template18 = Pre({
 });
 const Template19 = Component(_$mergeProps(() => s.dynamic()));
 const Template20 = Component({
-  get ["class"]() {
+  get class() {
     return prop.red ? "red" : "green";
   }
 });
