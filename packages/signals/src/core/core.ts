@@ -2038,15 +2038,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 /**
  * Store-rewrite setter guard: the rewrite parks writes in a pending backing
  * (no setSignal at write time), so the owned-scope write protection must
- * fire at the setter entry instead. Mirrors setSignal's guard condition
+ * fire at the setter entry instead. Exactly setSignal's guard condition
  * minus the node-specific exemptions (ownedWrite/firewall), which don't
- * apply to plain store setters.
+ * apply to plain store setters. Roots are NOT exempt (#3500): a root body is
+ * tree construction — every dev component body, every context Provider, the
+ * top of `render()`, and the whole SSR pass run directly under one — and a
+ * write there re-runs what already read the old value (or on the server,
+ * can't). Same rule as setSignal, which never exempted roots.
  */
 export function devGuardStoreSetterWrite(): void {
   if (!__DEV__) return;
-  // Roots are not owned computation scopes — setters inside createRoot bodies
-  // are legal (legacy parity; the guard targets computed/effect bodies).
-  if (context && !(context as any)._root && !(context._config & CONFIG_CHILDREN_FORBIDDEN)) {
+  if (context && !(context._config & CONFIG_CHILDREN_FORBIDDEN)) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",

@@ -18,85 +18,81 @@ type Row = { id: string; qty: number; meta?: { tag: string } };
 // the walk reads through to the inner record's key-set and deep witness — the
 // $TRACK trap's rule (#2864 / R21) applied to deep().
 describe("deep() over a chained optimistic view (#3323)", () => {
+  // The graph lives in a root; the writes below run OUTSIDE it — a write in
+  // a root body is a write in an owned scope (#3500).
   function setup() {
-    const [base, setBase] = createStore<Row[]>([{ id: "a", qty: 1, meta: { tag: "x" } }]);
-    const [view, setView] = createOptimisticStore<Row[]>(base);
-    flush();
-    const runs = { row: 0, root: 0, key: 0 };
-    const row = view[0];
-    createEffect(
-      () => deep(row),
-      () => void runs.row++
-    );
-    createEffect(
-      () => deep(view),
-      () => void runs.root++
-    );
-    createEffect(
-      () => row.qty,
-      () => void runs.key++
-    );
-    flush();
-    const first = { ...runs };
-    const delta = () => ({
-      row: runs.row - first.row,
-      root: runs.root - first.root,
-      key: runs.key - first.key
+    return createRoot(() => {
+      const [base, setBase] = createStore<Row[]>([{ id: "a", qty: 1, meta: { tag: "x" } }]);
+      const [view, setView] = createOptimisticStore<Row[]>(base);
+      flush();
+      const runs = { row: 0, root: 0, key: 0 };
+      const row = view[0];
+      createEffect(
+        () => deep(row),
+        () => void runs.row++
+      );
+      createEffect(
+        () => deep(view),
+        () => void runs.root++
+      );
+      createEffect(
+        () => row.qty,
+        () => void runs.key++
+      );
+      flush();
+      const first = { ...runs };
+      const delta = () => ({
+        row: runs.row - first.row,
+        root: runs.root - first.root,
+        key: runs.key - first.key
+      });
+      return { base, setBase, view, setView, row, runs, delta };
     });
-    return { base, setBase, view, setView, row, runs, delta };
   }
 
   it("wakes deep(view[0]) and deep(view) on an authoritative base write", () => {
-    createRoot(() => {
-      const { setBase, view, delta } = setup();
-      setBase(d => {
-        d[0].qty = 2;
-      });
-      flush();
-      expect(view[0].qty).toBe(2);
-      expect(delta()).toEqual({ row: 1, root: 1, key: 1 });
+    const { setBase, view, delta } = setup();
+    setBase(d => {
+      d[0].qty = 2;
     });
+    flush();
+    expect(view[0].qty).toBe(2);
+    expect(delta()).toEqual({ row: 1, root: 1, key: 1 });
   });
 
   it("wakes on a nested base write the per-key effect does not see", () => {
-    createRoot(() => {
-      const { setBase, view, delta } = setup();
-      setBase(d => {
-        d[0].meta!.tag = "y";
-      });
-      flush();
-      expect(view[0].meta!.tag).toBe("y");
-      expect(delta()).toEqual({ row: 1, root: 1, key: 0 });
+    const { setBase, view, delta } = setup();
+    setBase(d => {
+      d[0].meta!.tag = "y";
     });
+    flush();
+    expect(view[0].meta!.tag).toBe("y");
+    expect(delta()).toEqual({ row: 1, root: 1, key: 0 });
   });
 
   it("wakes deep(view) on a base structural change", () => {
-    createRoot(() => {
-      const { setBase, view, delta } = setup();
-      setBase(d => {
-        d.push({ id: "b", qty: 5 });
-      });
-      flush();
-      expect(view.length).toBe(2);
-      expect(delta().root).toBe(1);
+    const { setBase, view, delta } = setup();
+    setBase(d => {
+      d.push({ id: "b", qty: 5 });
     });
+    flush();
+    expect(view.length).toBe(2);
+    expect(delta().root).toBe(1);
   });
 
   it("re-walk after a base push subscribes the new row", () => {
-    createRoot(() => {
-      const { setBase, view, runs } = setup();
-      setBase(d => {
-        d.push({ id: "b", qty: 5 });
-      });
-      flush();
-      const before = runs.root;
-      setBase(d => {
-        d[1].qty = 6;
-      });
-      flush();
-      expect(view[1].qty).toBe(6);
-      expect(runs.root - before).toBe(1);
+    const { setBase, view, runs } = setup();
+    setBase(d => {
+      d.push({ id: "b", qty: 5 });
     });
+    flush();
+    const before = runs.root;
+    setBase(d => {
+      d[1].qty = 6;
+    });
+    flush();
+    expect(view[1].qty).toBe(6);
+    expect(runs.root - before).toBe(1);
   });
 
   it("does not create a second view target for a row the walk reaches", () => {
@@ -123,30 +119,26 @@ describe("deep() over a chained optimistic view (#3323)", () => {
     });
   });
 
-  it("still wakes on the view's own optimistic write (and its revert)", async () => {
-    await createRoot(async () => {
-      const { setView, view, runs } = setup();
-      const before = runs.row;
-      setView(d => {
-        d[0].qty = 9;
-      });
-      flush();
-      // Outside an action the optimistic write applies and reverts in this
-      // flush; the row witness fires for both.
-      expect(runs.row - before).toBeGreaterThanOrEqual(1);
+  it("still wakes on the view's own optimistic write (and its revert)", () => {
+    const { setView, runs } = setup();
+    const before = runs.row;
+    setView(d => {
+      d[0].qty = 9;
     });
+    flush();
+    // Outside an action the optimistic write applies and reverts in this
+    // flush; the row witness fires for both.
+    expect(runs.row - before).toBeGreaterThanOrEqual(1);
   });
 
   it("deep(view) also wakes on the view's optimistic structural write", () => {
-    createRoot(() => {
-      const { setView, view, runs } = setup();
-      const before = runs.root;
-      setView(d => {
-        d.push({ id: "opt", qty: 0 });
-      });
-      flush();
-      expect(runs.root - before).toBeGreaterThanOrEqual(1);
+    const { setView, runs } = setup();
+    const before = runs.root;
+    setView(d => {
+      d.push({ id: "opt", qty: 0 });
     });
+    flush();
+    expect(runs.root - before).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -30,8 +30,15 @@ type Row = { id: number; selected: boolean; children: Child[] };
 
 const seed = (): Row[] => [{ id: 1, selected: true, children: [{ id: 11, selected: true }] }];
 
-function run<T>(body: () => T): T {
-  return createRoot(() => body());
+/** Builds the store in a root and materializes its tree; returns the handles.
+ * The writes under test run OUTSIDE the root — a write in a root body is a
+ * write in an owned scope (#3500). */
+function make<T extends readonly unknown[]>(create: () => T): T {
+  return createRoot(() => {
+    const handles = create();
+    untrack(() => deep(handles[0]));
+    return handles;
+  });
 }
 
 const read = (store: any) => JSON.parse(JSON.stringify(snapshot(untrack(() => deep(store)))));
@@ -43,94 +50,83 @@ describe("#3271: ancestor write after descendant write in one draft", () => {
     "derived store": () => createStore(() => seed(), [] as Row[])
   } as const;
 
-  for (const [name, make] of Object.entries(makers)) {
+  for (const [name, maker] of Object.entries(makers)) {
     for (const order of orders) {
       it(`${name}, ${order}: both writes commit`, () => {
-        run(() => {
-          const [store, setStore] = make();
-          untrack(() => deep(store)); // materialize the tree
-          setStore(prev => {
-            const row = prev[0];
-            if (order === "descendant-first") {
-              row.children[0].selected = false;
-              row.selected = false;
-            } else {
-              row.selected = false;
-              row.children[0].selected = false;
-            }
-          });
-          flush();
-          expect(read(store)).toEqual([
-            { id: 1, selected: false, children: [{ id: 11, selected: false }] }
-          ]);
+        const [store, setStore] = make(maker);
+        setStore(prev => {
+          const row = prev[0];
+          if (order === "descendant-first") {
+            row.children[0].selected = false;
+            row.selected = false;
+          } else {
+            row.selected = false;
+            row.children[0].selected = false;
+          }
         });
+        flush();
+        expect(read(store)).toEqual([
+          { id: 1, selected: false, children: [{ id: 11, selected: false }] }
+        ]);
       });
     }
   }
 
   it("three levels, leaf-to-root write order: every level commits", () => {
-    run(() => {
-      const [store, setStore] = createStore(
+    const [store, setStore] = make(() =>
+      createStore(
         () => ({ label: "root", mid: { label: "mid", leaf: { label: "leaf" } } }),
         {} as { label: string; mid: { label: string; leaf: { label: string } } }
-      );
-      untrack(() => deep(store));
-      setStore(prev => {
-        prev.mid.leaf.label = "leaf2";
-        prev.mid.label = "mid2";
-        prev.label = "root2";
-      });
-      flush();
-      expect(read(store)).toEqual({
-        label: "root2",
-        mid: { label: "mid2", leaf: { label: "leaf2" } }
-      });
+      )
+    );
+    setStore(prev => {
+      prev.mid.leaf.label = "leaf2";
+      prev.mid.label = "mid2";
+      prev.label = "root2";
+    });
+    flush();
+    expect(read(store)).toEqual({
+      label: "root2",
+      mid: { label: "mid2", leaf: { label: "leaf2" } }
     });
   });
 
   it("ancestor DELETE after descendant write commits (wk delete arm)", () => {
-    run(() => {
-      const [store, setStore] = createStore(
+    const [store, setStore] = make(() =>
+      createStore(
         () => ({ keep: { n: 1 }, drop: 1 }) as { keep: { n: number }; drop?: number },
         {} as { keep: { n: number }; drop?: number }
-      );
-      untrack(() => deep(store));
-      setStore(prev => {
-        prev.keep.n = 2;
-        delete prev.drop;
-      });
-      flush();
-      expect(read(store)).toEqual({ keep: { n: 2 } });
+      )
+    );
+    setStore(prev => {
+      prev.keep.n = 2;
+      delete prev.drop;
     });
+    flush();
+    expect(read(store)).toEqual({ keep: { n: 2 } });
   });
 
   it("array length write after descendant write commits (WK_ALL value-diff arm)", () => {
-    run(() => {
-      const [store, setStore] = createStore(() => seed(), [] as Row[]);
-      untrack(() => deep(store));
-      setStore(prev => {
-        prev[0].selected = false; // descendant folds first, privatizes the array
-        prev.length = 0; // length write on the privatized ancestor (WK_ALL)
-      });
-      flush();
-      expect(read(store)).toEqual([]);
+    const [store, setStore] = make(() => createStore(() => seed(), [] as Row[]));
+    setStore(prev => {
+      prev[0].selected = false; // descendant folds first, privatizes the array
+      prev.length = 0; // length write on the privatized ancestor (WK_ALL)
     });
+    flush();
+    expect(read(store)).toEqual([]);
   });
 
   it("array push after descendant write keeps both (index + length keys)", () => {
-    run(() => {
-      const [store, setStore] = createStore(() => seed(), [] as Row[]);
-      untrack(() => deep(store));
-      setStore(prev => {
-        prev[0].selected = false;
-        prev.push({ id: 2, selected: true, children: [] });
-      });
-      flush();
-      expect(read(store)).toEqual([
-        { id: 1, selected: false, children: [{ id: 11, selected: true }] },
-        { id: 2, selected: true, children: [] }
-      ]);
+    const [store, setStore] = make(() => createStore(() => seed(), [] as Row[]));
+    setStore(prev => {
+      prev[0].selected = false;
+      prev.push({ id: 2, selected: true, children: [] });
     });
+    flush();
+    expect(read(store)).toEqual([
+      { id: 1, selected: false, children: [{ id: 11, selected: true }] },
+      { id: 2, selected: true, children: [] }
+    ]);
   });
 
   // Adapted from PR #3278 (javascript-unsafe): three writes across sibling
@@ -157,8 +153,8 @@ describe("#3271: ancestor write after descendant write in one draft", () => {
       [2, 1, 0]
     ];
     for (const order of orders) {
-      run(() => {
-        const [store, setStore] = createStore(
+      const [store, setStore] = make(() =>
+        createStore(
           () => [
             {
               id: 1,
@@ -168,33 +164,31 @@ describe("#3271: ancestor write after descendant write in one draft", () => {
             }
           ],
           [] as WideRow[]
-        );
-        untrack(() => deep(store));
-        setStore(rows => {
-          for (const index of order) operations[index](rows[0]);
-        });
-        flush();
-        expect(read(store), `order ${order.join(",")}`).toEqual([
-          {
-            id: 1,
-            selected: false,
-            children: [{ id: 11, selected: false }],
-            metadata: { active: false }
-          }
-        ]);
+        )
+      );
+      setStore(rows => {
+        for (const index of order) operations[index](rows[0]);
       });
+      flush();
+      expect(read(store), `order ${order.join(",")}`).toEqual([
+        {
+          id: 1,
+          selected: false,
+          children: [{ id: 11, selected: false }],
+          metadata: { active: false }
+        }
+      ]);
     }
   });
 
   it("createProjection: descendant-first write order commits both", () => {
-    run(() => {
-      const store = createProjection(() => ({ rows: seed() }), {} as { rows: Row[] });
-      untrack(() => deep(store));
-      // Writable projections take writes through the draft of a store setter
-      // sibling; here we pin the same fold machinery through the derived
-      // createStore form above — this case guards the read-only projection
-      // still materializing correctly beside those folds.
-      expect(read(store).rows[0].selected).toBe(true);
-    });
+    const [store] = make(
+      () => [createProjection(() => ({ rows: seed() }), {} as { rows: Row[] })] as const
+    );
+    // Writable projections take writes through the draft of a store setter
+    // sibling; here we pin the same fold machinery through the derived
+    // createStore form above — this case guards the read-only projection
+    // still materializing correctly beside those folds.
+    expect(read(store).rows[0].selected).toBe(true);
   });
 });

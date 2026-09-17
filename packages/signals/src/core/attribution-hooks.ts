@@ -1,6 +1,6 @@
 import type { ChangeOrigin } from "./attribution.js";
 import type { Transition } from "./scheduler.js";
-import type { Computed, Signal } from "./types.js";
+import type { Computed, Owner, Signal } from "./types.js";
 
 /**
  * Observe-tier hook points for the reactive core.
@@ -136,14 +136,18 @@ export interface AttributionHooks {
    * `prevTotal` leaves in the old one. Containers above 64 leaves are not
    * announced. Fired per written key from the write channel's notify. The
    * engine decides whether the replacement was a spread-copy worth a
-   * diagnostic.
+   * diagnostic. `owner` is the owner the store root was created under
+   * (undefined when unrecorded): the finding is about the store, not about
+   * whoever wrote it, so an `OBSERVE.exclude`d panel's store stays silent
+   * however its writes arrive.
    */
   storeReplaced(
     path: string,
     isArray: boolean,
     total: number,
     unchanged: number,
-    prevTotal: number
+    prevTotal: number,
+    owner: Owner | null | undefined
   ): void;
   /**
    * A `mapArray` update both disposed and created rows: `removed` are the

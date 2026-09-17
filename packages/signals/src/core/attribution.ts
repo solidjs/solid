@@ -16,7 +16,7 @@ import {
   reportDiagnostic
 } from "./dev.js";
 import type { Transition } from "./scheduler.js";
-import type { Computed, Signal } from "./types.js";
+import type { Computed, Owner, Signal } from "./types.js";
 
 /**
  * "Why did this run" attribution — the engine behind
@@ -1644,7 +1644,8 @@ function checkImmutableUpdate(
   isArray: boolean,
   total: number,
   same: number,
-  prevTotal: number
+  prevTotal: number,
+  owner: Owner | null | undefined
 ): void {
   if (immutableReported.has(path) || total < 2) return;
   // Push/filter/splice copies change the length by a little; a wholesale
@@ -1665,16 +1666,23 @@ function checkImmutableUpdate(
     `tracks ${isArray ? "items" : "leaves"}; a new container makes every reader of "${path}" ` +
     `re-run for the ${changed === 1 ? "one that" : "few that"} moved. Instead, ${repair}. For ` +
     `data arriving from outside (a fetch result), merge it with reconcile(data, key)(${path}).`;
-  const entry = emitDiagnostic({
-    code: "IMMUTABLE_UPDATE_IN_STORE",
-    kind: "perf",
-    severity: "warn",
-    message,
-    nodeName: path,
-    data: { path, shape, total, unchanged: same, changed }
-  });
-  // Paths are not unique across stores: a write under an excluded owner
-  // (an adapter's own "store.list") must not spend the app's once-per-path slot.
+  // The subject is the store's own owner, not the writer's context: the
+  // finding is about the store, and its writes legitimately arrive from
+  // outside the graph (an event handler, an adapter). Falls back to the
+  // ambient context (emitDiagnostic's default) when the store recorded none.
+  const entry = emitDiagnostic(
+    {
+      code: "IMMUTABLE_UPDATE_IN_STORE",
+      kind: "perf",
+      severity: "warn",
+      message,
+      nodeName: path,
+      data: { path, shape, total, unchanged: same, changed }
+    },
+    owner
+  );
+  // Paths are not unique across stores: an excluded owner's store (an
+  // adapter's own "store.list") must not spend the app's once-per-path slot.
   if (isSuppressed(entry)) return;
   immutableReported.add(path);
   reportDiagnostic(entry);
@@ -3064,8 +3072,8 @@ const engineHooks: AttributionHooks = {
   transitionMerged(target, outgoing) {
     trackHoldMerge(target, outgoing);
   },
-  storeReplaced(path, isArray, total, unchanged, prevTotal) {
-    checkImmutableUpdate(path, isArray, total, unchanged, prevTotal);
+  storeReplaced(path, isArray, total, unchanged, prevTotal, owner) {
+    checkImmutableUpdate(path, isArray, total, unchanged, prevTotal, owner);
   },
   listChurn(el, removed, created, newLen, keyed) {
     checkListIdentity(el, removed, created, newLen, keyed);

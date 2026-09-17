@@ -320,9 +320,12 @@ export interface Observe {
    * subtree are neither delivered nor reported (the entry is still built, so
    * a site that throws its message still throws), and the attribution engine
    * records no runs for its computations. Mark the root as it is created
-   * (`createRoot(() => { OBSERVE.exclude(getOwner()!); … })`) and perform
-   * writes from outside the graph under it (`runWithOwner`), so the writer's
-   * context is excluded too. Irrevocable for the owner's lifetime.
+   * (`createRoot(() => { OBSERVE.exclude(getOwner()!); … })`); the signals
+   * and stores created under it are excluded subjects wherever their writes
+   * come from (a click handler, an adapter callback), so writes need no
+   * `runWithOwner` — and must not use one: a write under an owner is a write
+   * in an owned scope (REACTIVE_WRITE_IN_OWNED_SCOPE). Irrevocable for the
+   * owner's lifetime.
    */
   exclude(owner: Owner): void;
   /** Whether `subject` sits under an excluded owner (itself included). */

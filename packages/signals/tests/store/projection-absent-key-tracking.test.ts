@@ -17,11 +17,14 @@ import {
  * be per-target (inDraft): only the written store's own draft reads skip
  * linking.
  */
+// Each graph is built inside a root that hands its setter out; the write that
+// drives the assertion runs OUTSIDE the root — a write in a root body is a
+// write in an owned scope (#3500).
 describe("projection derives subscribe to external absent keys (#3037)", () => {
   it("re-runs when an absent external key materializes", () => {
-    createRoot(() => {
+    let runs = 0;
+    const { setSource, width } = createRoot(() => {
       const [source, setSource] = createStore<{ measured?: { width: number } }>({});
-      let runs = 0;
       const proj = createProjection<{ width: number | null }>(
         draft => {
           runs++;
@@ -34,18 +37,20 @@ describe("projection derives subscribe to external absent keys (#3037)", () => {
       const width = createMemo(() => proj.width);
       expect(width()).toBe(null);
       expect(runs).toBe(1);
-
-      setSource(d => {
-        d.measured = { width: 42 };
-      });
-      flush();
-      expect(width()).toBe(42);
-      expect(runs).toBe(2);
+      return { setSource, width };
     });
+
+    setSource(d => {
+      d.measured = { width: 42 };
+    });
+    flush();
+    expect(width()).toBe(42);
+    expect(runs).toBe(2);
   });
 
   it("re-runs when another projection's store materializes the key (nested shape)", () => {
-    createRoot(() => {
+    let runs = 0;
+    const { setTrigger, w } = createRoot(() => {
       const [trigger, setTrigger] = createStore<{ ready: boolean }>({ ready: false });
       // Upstream projection: publishes `bounds` only once ready — the key is
       // absent before that, like unmeasured node rows.
@@ -55,7 +60,6 @@ describe("projection derives subscribe to external absent keys (#3037)", () => {
       }, {});
       // Downstream projection derives FROM the upstream store: its first
       // derive reads the absent `bounds` while its own setter scope is open.
-      let runs = 0;
       const edges = createProjection<{ w: number | null }>(
         draft => {
           runs++;
@@ -66,18 +70,20 @@ describe("projection derives subscribe to external absent keys (#3037)", () => {
       const w = createMemo(() => edges.w);
       expect(w()).toBe(null);
       expect(runs).toBe(1);
-
-      setTrigger(d => {
-        d.ready = true;
-      });
-      flush();
-      expect(w()).toBe(7);
-      expect(runs).toBeGreaterThanOrEqual(2);
+      return { setTrigger, w };
     });
+
+    setTrigger(d => {
+      d.ready = true;
+    });
+    flush();
+    expect(w()).toBe(7);
+    expect(runs).toBeGreaterThanOrEqual(2);
   });
 
   it("tracks external accessor keys read mid-derive", () => {
-    createRoot(() => {
+    let runs = 0;
+    const { setDep, value } = createRoot(() => {
       const [dep, setDep] = createStore({ base: 1 });
       const sourceRaw = {
         get doubled() {
@@ -85,7 +91,6 @@ describe("projection derives subscribe to external absent keys (#3037)", () => {
         }
       };
       const [source] = createStore(sourceRaw);
-      let runs = 0;
       const proj = createProjection<{ value: number }>(
         draft => {
           runs++;
@@ -96,19 +101,20 @@ describe("projection derives subscribe to external absent keys (#3037)", () => {
       const value = createMemo(() => proj.value);
       expect(value()).toBe(2);
       expect(runs).toBe(1);
-
-      setDep(d => {
-        d.base = 5;
-      });
-      flush();
-      expect(value()).toBe(10);
-      expect(runs).toBe(2);
+      return { setDep, value };
     });
+
+    setDep(d => {
+      d.base = 5;
+    });
+    flush();
+    expect(value()).toBe(10);
+    expect(runs).toBe(2);
   });
 
   it("own-draft absent-key reads still do not self-subscribe", () => {
-    createRoot(() => {
-      let runs = 0;
+    let runs = 0;
+    const setSource = createRoot(() => {
       const [source, setSource] = createStore({ tick: 0 });
       const proj = createProjection<{ tick: number; late?: number }>(
         draft => {
@@ -125,15 +131,16 @@ describe("projection derives subscribe to external absent keys (#3037)", () => {
         () => proj.late,
         () => {}
       );
-      flush();
-      const after = runs;
-      // A self-subscription would make the write above re-dirty the derive
-      // every pass; a single external tick must produce exactly one re-run.
-      setSource(d => {
-        d.tick = 1;
-      });
-      flush();
-      expect(runs).toBe(after + 1);
+      return setSource;
     });
+    flush();
+    const after = runs;
+    // A self-subscription would make the write above re-dirty the derive
+    // every pass; a single external tick must produce exactly one re-run.
+    setSource(d => {
+      d.tick = 1;
+    });
+    flush();
+    expect(runs).toBe(after + 1);
   });
 });

@@ -82,21 +82,21 @@ describe("OBSERVE.exclude", () => {
     expect(console.warn).toHaveBeenCalledTimes(1);
   });
 
-  it("silences an engine finding about the panel's own store when the write runs under its owner", () => {
+  it("silences an engine finding about the panel's own store wherever the write comes from", () => {
     const seen = arm();
-    const { owner, result: setEvents } = excludedRoot(() => {
+    const { result: setEvents } = excludedRoot(() => {
       const [, setEvents] = createStore<{ list: { id: number }[] }>({
         list: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
       });
       return setEvents;
     });
     // The spread-copy habit the census flags — performed as an adapter would,
-    // from outside the graph but under its own owner.
-    runWithOwner(owner, () =>
-      setEvents(s => {
-        s.list = [{ id: 0 }, ...s.list];
-      })
-    );
+    // from outside the graph with no owner. The finding's subject is the
+    // store's own owner, not the writer's context (a write under the panel's
+    // root would be a write in an owned scope — #3500).
+    setEvents(s => {
+      s.list = [{ id: 0 }, ...s.list];
+    });
     flush();
     expect(seen.filter(e => e.code === "IMMUTABLE_UPDATE_IN_STORE")).toHaveLength(0);
     // The same write from the app is reported.
@@ -114,7 +114,7 @@ describe("OBSERVE.exclude", () => {
     arm();
     const delivered: unknown[] = [];
     attribution.subscribe("interaction", e => delivered.push(e));
-    const { owner, result: setPanel } = excludedRoot(() => {
+    const { result: setPanel } = excludedRoot(() => {
       const [panel, setPanel] = createStore<{ items: number[] }>({ items: [] });
       // The panel renders its list, so the store has live nodes to write.
       createEffect(
@@ -126,9 +126,10 @@ describe("OBSERVE.exclude", () => {
     });
     flush();
     // The panel's own "clear" button: a real DOM click the runtime stamps,
-    // whose handler writes nothing but the panel's store.
+    // whose handler writes nothing but the panel's store. The store's nodes
+    // carry the panel's owner; the handler itself runs with none.
     OBSERVE!.attribution.withInteraction({ type: "click", target: "button" }, () =>
-      runWithOwner(owner, () => setPanel(s => void s.items.push(1)))
+      setPanel(s => void s.items.push(1))
     );
     flush();
     expect(attribution.interactions()).toHaveLength(0);
@@ -138,7 +139,7 @@ describe("OBSERVE.exclude", () => {
     // panel write not counted among its writes.
     const [, setApp] = createSignal(0, { name: "app" });
     OBSERVE!.attribution.withInteraction({ type: "click" }, () => {
-      runWithOwner(owner, () => setPanel(s => void s.items.push(2)));
+      setPanel(s => void s.items.push(2));
       setApp(1);
     });
     flush();
