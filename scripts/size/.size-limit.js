@@ -935,6 +935,12 @@ module.exports = [
     // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
     // measured at 20,054 B rebased over #3507, against `next`'s 20,044 (+10 B).
+    // Error hook: where thrown, apart from where met (2026-09-17): 19.85 ->
+    // 19.90 KB, measured at 19,890 B (+41 B over a baseline that sat 1 B
+    // under its cap). `reportClientError` takes the thrower the status
+    // wrapper already names and fills `boundaryPath` beside `ownerPath`;
+    // this scenario renders <Errored>, so it carries the hook module. The
+    // other scenarios moved within noise.
     limit: "20.10 KB",
     modifyEsbuildConfig
   },

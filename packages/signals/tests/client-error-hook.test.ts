@@ -41,10 +41,13 @@ function boundaryOver(fail: () => boolean, boom: () => unknown) {
   let result: unknown;
   let reset!: () => void;
   createRoot(() => {
-    const memo = createMemo(() => {
-      if (fail()) throw boom();
-      return "content";
-    });
+    const memo = createMemo(
+      () => {
+        if (fail()) throw boom();
+        return "content";
+      },
+      { name: "view" }
+    );
     const b = createErrorBoundary(
       () => memo(),
       (_err, r) => {
@@ -76,7 +79,9 @@ describe("caught", () => {
     expect(view.value()).toBe("fallback");
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
-    expect(calls[0].context).toEqual({});
+    // Where it was thrown: the memo, by name. No labelled owner above it,
+    // so no boundary path either.
+    expect(calls[0].context).toEqual({ ownerPath: ["view"] });
   });
 
   it("a reset that recomputes the same failure says nothing new; a different error is a new report", () => {
@@ -145,7 +150,10 @@ describe("caught", () => {
     flush();
     expect(result).toBe("fallback");
     expect(calls).toHaveLength(1);
-    expect(calls[0].context.ownerPath).toEqual(["<App>"]);
+    // Thrown inside the boundary's own computation under <App>; met by the
+    // boundary, whose chain is <App>.
+    expect(calls[0].context.ownerPath).toEqual(["<App>", "computed"]);
+    expect(calls[0].context.boundaryPath).toEqual(["<App>"]);
   });
 });
 

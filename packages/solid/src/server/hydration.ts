@@ -10,7 +10,8 @@ import {
   setContext,
   runWithBoundaryErrorContext,
   RevealGroupContext,
-  reportServerError
+  reportServerError,
+  throwerOf
 } from "./signals.js";
 import { OBSERVE, ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
@@ -224,9 +225,11 @@ function ssrLoadingBoundary(
             ? `— the fragment rejected and the client re-renders it: `
             : `— no boundary could contain it, the request failed: `) +
           errorText(err),
-        data: { handling, boundary: id, error: err }
+        data: { handling, boundary: id, boundaryPath: ownerPath(o), error: err }
       },
-      o
+      // Located where it was THROWN (the owner it escaped), the boundary that
+      // met it in `data` — the same two facts the server error hook carries.
+      throwerOf(err) ?? o
     );
   };
   let serializeBuffer: [string, any, boolean?][] = [];

@@ -296,7 +296,10 @@ describe("the other outcomes", () => {
       const findings = capture.events.filter(e => e.code === "SSR_RENDER_ERROR_CONTAINED");
       expect(findings.length).toBeGreaterThanOrEqual(1);
       expect(findings[0].data!.boundary).toBe(event.id);
-      expect(findings[0].ownerPath).toEqual(event.ownerPath);
+      // The record is the boundary's; the finding locates the throw (the
+      // component under it) and names the boundary's own path in `data`.
+      expect(findings[0].data!.boundaryPath).toEqual(event.ownerPath);
+      expect(findings[0].ownerPath).toEqual([...event.ownerPath!, "<Bad>"]);
     } finally {
       capture.stop();
       error.mockRestore();

@@ -27,8 +27,20 @@ import type { Owner } from "./types.js";
  * boundary carries none of this.
  */
 export interface ClientErrorContext {
-  /** Component labels root-first, when the runtime keeps owner names. */
+  /**
+   * Where the error was THROWN: labels root-first up the owner chain of the
+   * computation that threw — component labels and named primitives — when
+   * the runtime keeps owner names (the observe and dev artifacts). The
+   * boundary's own chain when the thrower is unknown (a value thrown
+   * outside any computation).
+   */
   ownerPath?: string[];
+  /**
+   * Where the error was MET: the same labels up the chain of the `<Errored>`
+   * that rendered its fallback for it — what the user saw, as against
+   * `ownerPath`, which is what broke.
+   */
+  boundaryPath?: string[];
 }
 export type ClientErrorHook = (error: unknown, context: ClientErrorContext) => void;
 
@@ -81,12 +93,18 @@ function labels(owner: Owner | null | undefined): string[] | undefined {
 }
 
 /**
- * Tells the client error hook about `error`, caught by a boundary in
- * `owner`'s tree — once per error object. A throwing hook is reported on the
- * console and otherwise ignored — a monitor must never take the app down.
+ * Tells the client error hook about `error`, caught by the boundary whose
+ * owner is `owner`, thrown by `thrower` (the computation the engine's status
+ * wrapper named; unknown for a value that never crossed one) — once per
+ * error object. A throwing hook is reported on the console and otherwise
+ * ignored — a monitor must never take the app down.
  * @internal
  */
-export function reportClientError(error: unknown, owner: Owner | null | undefined): void {
+export function reportClientError(
+  error: unknown,
+  owner: Owner | null | undefined,
+  thrower?: Owner | null
+): void {
   const isObject = error !== null && (typeof error === "object" || typeof error === "function");
   if (isObject) {
     if (reported.has(error as object)) return;
@@ -95,8 +113,10 @@ export function reportClientError(error: unknown, owner: Owner | null | undefine
   const hook = hookFor(owner);
   if (hook === undefined) return;
   const context: ClientErrorContext = {};
-  const path = labels(owner);
+  const boundary = labels(owner);
+  const path = labels(thrower) ?? boundary;
   if (path !== undefined) context.ownerPath = path;
+  if (boundary !== undefined) context.boundaryPath = boundary;
   try {
     hook(error, context);
   } catch (hookError) {

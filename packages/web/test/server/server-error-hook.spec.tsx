@@ -128,10 +128,12 @@ describe("<Errored> during SSR", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
+    // Thrown in <Bad>, met by the <Errored>: both facts, apart.
     expect(calls[0].context).toMatchObject({
       kind: "render",
       handling: "fallback",
-      ownerPath: ["<App>", "<Errored>"]
+      ownerPath: ["<App>", "<Errored>", "<Bad>"],
+      boundaryPath: ["<App>", "<Errored>"]
     });
     expect(typeof calls[0].context.boundary).toBe("string");
     expect(calls[0].context.event).toMatchObject({ locals: {} });
@@ -222,10 +224,12 @@ describe("<Loading> fragments and the failed request", () => {
     const html = await stream(() => <App />);
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
+    // Thrown by the async source in <Child>, met by the <Loading> that ships it.
     expect(calls[0].context).toMatchObject({
       kind: "render",
       handling: "client",
-      ownerPath: ["<App>", "<Loading>"]
+      ownerPath: ["<App>", "<Loading>", "<Child>"],
+      boundaryPath: ["<App>", "<Loading>"]
     });
     expect(typeof calls[0].context.boundary).toBe("string");
     // The fragment's `_fr` rejection carries the mapping — the boundary
