@@ -448,10 +448,13 @@ function sameLogicalSlot(target: StoreNextTarget, a: any, b: any): boolean {
 const storeOwners: WeakMap<StoreNextTarget, Owner | null> | null = __OBSERVE__
   ? new WeakMap()
   : null;
-function stampNodeOwner(created: Signal<any>, target: StoreNextTarget): void {
+function storeRootOwner(target: StoreNextTarget): Owner | null | undefined {
   let root = target;
   while (root.u !== null) root = root.u;
-  (created as any)._owner = storeOwners!.get(root) ?? null;
+  return storeOwners!.get(root);
+}
+function stampNodeOwner(created: Signal<any>, target: StoreNextTarget): void {
+  (created as any)._owner = storeRootOwner(target) ?? null;
 }
 
 export function getHasNode(
@@ -1113,6 +1116,7 @@ function reportReplacedContainers(
 ): void {
   const keys = writtenKeys ?? Reflect.ownKeys(pb);
   const isArray = Array.isArray(pb);
+  const owner = storeRootOwner(t);
   for (const key of keys) {
     if ((isArray && key === "length") || key === $OWNER) continue;
     if (t.del !== null && t.del.has(key)) continue;
@@ -1150,7 +1154,8 @@ function reportReplacedContainers(
       isArr,
       total,
       unchanged,
-      isArr ? (ov as unknown[]).length : Object.keys(ov).length
+      isArr ? (ov as unknown[]).length : Object.keys(ov).length,
+      owner
     );
   }
 }
