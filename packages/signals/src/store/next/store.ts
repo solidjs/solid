@@ -403,52 +403,26 @@ function heldFoldTransition(target: StoreNextTarget): Transition | null {
 }
 
 /**
- * Core read()'s committed-visibility clause, at the backing (#3336):
- * `(stale && el._transition !== null) ? _value : _pendingValue`. While a live
- * transaction holds the pending backing, a stale (render) reader — and a
- * reader with no owner at all — sees committed, through every channel: an
- * untracked read in the effect, `in`, `Object.keys`, `deep()`/`snapshot()`.
- * The node path already answers this way; without the backing twin the same
- * effect read `0` through `a.count` and `1` through `untrack(() => a.count)`
- * or `"added" in a`. Speculation stays visible to non-stale owner-context
- * readers and to the peek from inside one; a pending backing with no
- * transaction (a same-tick plain write) is unaffected.
+ * Rule 1 at the backing, the hold half (core serve()'s stale-of-foreign and
+ * A29 arms, for a container instead of a node): given the transaction
+ * holding what a reader `c` (a pass; callers serve context-free readers the
+ * committed container themselves) is about to be served, is the STAGED
+ * container its to see? Its own hold, or none — yes. A foreign hold — a
+ * stale pass (render effect) keeps the committed frame and is recorded for
+ * replay at the hold's commit (recordStaleReplay, A15 / A26); a deriving
+ * pass takes the staged world and enters the transaction (enterStagedRead,
+ * A29). Shared by both hold kinds: a setter's fold (committed `v`, staged
+ * `pb`, the write-time stamp) and an adoption under a transaction
+ * (committed = the held view `hv`, staged = the adopted `v`, #3074).
  */
-function heldFromReader(target: StoreNextTarget): boolean {
-  if (!stale && inOwnerContext()) return false;
-  const txn = liveFoldTransition(target);
-  return txn !== null && foreignHold(txn) && (staleReplay(txn), true);
-}
-
-/** The replay half of the clause (core recordStaleReplay): the stale reader
- * just denied the held value re-runs at the hold's commit. Without it the
- * node path replayed (heldFromStale) and the backing paths did not — an
- * effect's untracked read of a key with no node stayed on the pre-action
- * value after the action settled (posture-store-parity S4). Only a reader in
- * context has a pass to replay; a children-forbidden reader sees the frame
- * and never the graph (A32). */
-function staleReplay(txn: Transition): void {
-  const c = readerContext();
-  if (c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) recordStaleReplay(txn, c);
-}
-
-/** The other half of serving a held backing: a deriving reader (a pass in
- * owner context) served the pending backing a live transaction holds
- * derives from that transaction's world and enters it (A29, core
- * enterStagedRead on the same arm) — its result is held with the fold, not
- * published into the mainline frame. Without it a mainline memo's untracked
- * read of a held key (`untrack(() => s.n)`, `deep(s)`) published the
- * unrevealed value while the same read of a signal was born held. */
-function enterHeldBacking(target: StoreNextTarget, txn = liveFoldTransition(target)): void {
-  if (txn !== null && readerContext() !== null) enterStagedRead(null, txn);
-}
-
-/** Core read()'s `activeTransition !== el._transition`: a hold belongs to a
- * FOREIGN transaction unless the flush running now is that transaction's —
- * its own stale readers (a render effect recomputing in it, whose run the
- * commit applies) see the staged world. */
-function foreignHold(txn: Transition): boolean {
-  return !ownsHold(txn);
+function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
+  if (txn === null || ownsHold(txn)) return true;
+  if (stale) {
+    recordStaleReplay(txn, c);
+    return false;
+  }
+  enterStagedRead(null, txn);
+  return true;
 }
 
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
@@ -1652,23 +1626,6 @@ function readerContext(): Computed<any> | null {
   return c === null ? null : c._root ? (c._parentComputed ?? null) : c;
 }
 
-function inOwnerContext(): boolean {
-  const eff = readerContext();
-  return eff !== null && !(eff._config & CONFIG_CHILDREN_FORBIDDEN);
-}
-
-/** CHILDREN_FORBIDDEN execution scope (createTrackedEffect / onSettled
- * callbacks). Distinct from context-free: these scopes get committed
- * visibility even against a projection's authoritative-elect pending
- * backing (#3082) — parity with signals, where core read() serves
- * committed to them regardless of staged writes. */
-function inForbiddenScope(): boolean {
-  const c: any = getOwner();
-  if (c === null) return false;
-  const eff = c._root ? c._parentComputed : c;
-  return eff != null && !!(eff._config & CONFIG_CHILDREN_FORBIDDEN);
-}
-
 /** A pending fold is transition-held when any written node's parked value is
  * stamped by a live transition (a plain batch parking — the lazy-recompute
  * read case — has no transition stamp and serves fresh). */
@@ -1688,32 +1645,23 @@ function foldHeld(target: StoreNextTarget): boolean {
 }
 
 function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
-  // Held view first (#3074): an adoption staged under a live hold serves the
-  // pre-hold committed backing to committed-visibility readers. Speculative
-  // readers — drafts, write-override, owner-context computeds recomputing
-  // inside the transaction, and latest() reads — see the adopted backing.
-  if (
-    target.ht !== null &&
-    !latestReadActive &&
-    !inDraft(target) &&
-    !getWriteOverride() &&
-    // A stale (render) reader of a FOREIGN transaction's hold is a
-    // committed-visibility reader whatever its owner context (#3336).
-    (!inOwnerContext() ||
-      (stale && target.ht !== PLAIN_HOLD && foreignHold(currentTransition(target.ht))))
-  ) {
+  // Adoption hold first (#3074): an adoption staged under a live transaction
+  // (or a latest()-pull, PLAIN_HOLD) serves the pre-hold committed view to
+  // committed-visibility readers — context-free and children-forbidden ones,
+  // and stale passes off a foreign hold. Drafts, write-override and latest()
+  // see the adopted backing.
+  const ht = target.ht;
+  if (ht !== null && !latestReadActive && !inDraft(target) && !getWriteOverride()) {
     const hv = heldMaskView(target);
     if (hv !== null) {
-      // The reader denied the adopted view replays at the adoption's commit
-      // (the replay half of the clause; a latest()-pull PLAIN_HOLD is not a
-      // transaction and has no commit).
-      if (target.ht !== PLAIN_HOLD) staleReplay(currentTransition(target.ht as Transition));
-      return hv;
+      const c = readerContext();
+      if (
+        c === null ||
+        c._config & CONFIG_CHILDREN_FORBIDDEN ||
+        !holdVisible(ht === PLAIN_HOLD ? null : currentTransition(ht as Transition), c)
+      )
+        return hv;
     }
-  } else if (target.ht !== null && !latestReadActive && !inDraft(target) && !getWriteOverride()) {
-    // An owner-context deriving reader served the ADOPTED view under a live
-    // adoption hold derives from the adoption's transaction (A29).
-    enterHeldBacking(target, heldAdoptionTransition(target));
   }
   return pendingBackingVisible(target, false) ? target.pb! : target.v;
 }
@@ -1734,35 +1682,28 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
  * divergence from context-free per-key reads) — but never through a hold:
  * held truth stays masked exactly as it is for per-key readers. */
 function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): boolean {
-  return (
-    target.pb !== null &&
-    (inDraft(target) ||
-      getWriteOverride() ||
-      // Owner-context (and speculative-peek) readers see the pending
-      // backing — EXCEPT held truth on an optimistic family (#3164 fold):
-      // a live pb on an opt family outside the draft/write-override windows
-      // is a staged landing (tentative drafts never outlive their setter),
-      // and only the authoritative postures and latest() see it (the
-      // backing-level twin of core read()'s A17-for-held-truth arm;
-      // ordinary readers keep committed until the transaction's reveal).
-      // Stale readers and owner-less peeks of a TRANSACTION-held backing see
-      // committed, as core read() serves them (#3336, heldFromReader).
-      ((speculative || inOwnerContext()) &&
-        !heldTruthMasked(target) &&
-        !heldFromReader(target) &&
-        (enterHeldBacking(target), true)) ||
-      // A projection's pending backing is authoritative-elect: serve it to
-      // context-free readers too UNLESS a transition is holding the node
-      // commits (downstream async hold — stale committed is the contract)
-      // or the reader is a CHILDREN_FORBIDDEN scope, which never observes
-      // its own unsettled write (#3082, signal parity per #3006).
-      // (The write-time stamp covers keys with no node, #3336.)
-      (target.fam !== null &&
-        !heldTruthMasked(target) &&
-        !foldHeld(target) &&
-        liveFoldTransition(target) === null &&
-        !inForbiddenScope()))
-  );
+  if (target.pb === null) return false;
+  // The writer's own channels compose on the pending backing regardless.
+  if (inDraft(target) || getWriteOverride()) return true;
+  // HELD truth on an optimistic family (#3164 fold) is masked from ordinary
+  // readers until the transaction's reveal (the backing-level twin of core
+  // serve()'s CONFIG_HELD_TRUTH arm; authoritative postures and latest()
+  // tunnel through inside heldTruthMasked).
+  if (heldTruthMasked(target)) return false;
+  const c = readerContext();
+  if (c === null || c._config & CONFIG_CHILDREN_FORBIDDEN) {
+    // No pass, or a children-forbidden one: the committed frame (A32) —
+    // except the speculative peek (deep()/snapshot()), which sees ordinary
+    // pending staging but never through a live foreign hold, and a
+    // projection's pending backing, authoritative-elect for context-free
+    // readers UNLESS a transition holds the node commits (downstream async
+    // hold — stale committed is the contract; the write-time stamp covers
+    // keys with no node, #3336) or the scope is children-forbidden (#3082).
+    const txn = liveFoldTransition(target);
+    if (speculative) return txn === null || ownsHold(txn);
+    return target.fam !== null && c === null && !foldHeld(target) && txn === null;
+  }
+  return holdVisible(liveFoldTransition(target), c);
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing
