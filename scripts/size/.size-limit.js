@@ -294,7 +294,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 9,489 B (+39 over the rebased cap).
-    limit: "9.50 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 9,543 B against
+    // `next`'s 9,489 (+54 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "9.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -566,7 +573,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 16,610 B (+60 over the rebased cap).
-    limit: "16.65 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 16,645 B against
+    // `next`'s 16,574 (+71 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "16.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -718,7 +732,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 12,188 B (+38 over the rebased cap).
-    limit: "12.20 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 12,285 B against
+    // `next`'s 12,188 (+97 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "12.35 KB",
     modifyEsbuildConfig
   },
   {
@@ -828,7 +849,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 12,274 B (+24 over the rebased cap).
-    limit: "12.30 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 12,351 B against
+    // `next`'s 12,274 (+77 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "12.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -992,7 +1020,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 20,148 B (+48 over the rebased cap).
-    limit: "20.20 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 20,208 B against
+    // `next`'s 20,148 (+60 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "20.25 KB",
     modifyEsbuildConfig
   },
   {
@@ -1200,6 +1235,13 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 30,296 B (+46 over the rebased cap).
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 30,303 B against
+    // `next`'s 30,219 (+84 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
     limit: "30.35 KB",
     modifyEsbuildConfig
   },
@@ -1325,7 +1367,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 15,342 B (+42 over the rebased cap).
-    limit: "15.40 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 15,461 B against
+    // `next`'s 15,342 (+119 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "15.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -1438,7 +1487,14 @@ module.exports = [
     // flush; +56 B minified in the signals floor (25,193 -> 25,249).
     // Error hook thrower/boundary paths (2026-09-17): 16.80 -> 16.85 KB,
     // measured at 16,804 B rebased over #3515, against `next`'s 16,752 (+52 B).
-    limit: "16.85 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 16,937 B against
+    // `next`'s 16,846 (+91 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "17.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1586,7 +1642,14 @@ module.exports = [
     // Five store/signal divergences fixed (posture-store-parity S4, S5, S7, S8;
     // S6 ruled and deferred); every paired matrix state row-identical.
     // Measured at 27,335 B (+35 over the rebased cap).
-    limit: "27.40 KB",
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): 27,426 B against
+    // `next`'s 27,335 (+91 B). Core-retained: `batchJoins` (a held node's
+    // mainline write records the join and schedules; drained inside flush's
+    // try, the fast sync path defers to it), the adoption loop's no-proposal
+    // drop (signals and writable memos, through commitPendingNode), a
+    // kept-tail pending mark re-deriving its subscriber (A30), and
+    // reporterBlocksSource following `_pendingSources` one hop.
+    limit: "27.50 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

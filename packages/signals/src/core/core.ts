@@ -2260,10 +2260,15 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // flush's start (batchJoins) — entering here left activeTransition set for
   // the rest of the caller's block, so a memo created after the write became
   // the transaction's instead of mainline's (A28, A29). Before the equality
-  // gate below: repeating the held value proposes it too.
+  // gate below: repeating the held value proposes it too — and that repeat
+  // leaves through the gate, so the join schedules its own flush here; left
+  // for the next flush to find, it adopted an unrelated tick (#3519 review).
   if (el._transition && activeTransition !== el._transition) {
     if (globalQueue._running) globalQueue.initTransition(el._transition);
-    else batchJoins.push(el._transition); // dupes: a bare return in initTransition
+    else {
+      batchJoins.push(el._transition); // dupes: a bare return in initTransition
+      schedule();
+    }
   }
 
   // The optimistic write path lives with the engine: only optimisticSignal /

@@ -756,6 +756,7 @@ export class GlobalQueue extends Queue {
       this._queues[1].length === 0 &&
       this._children.length === 0 &&
       !wokenTransitions.length &&
+      !batchJoins.length && // a join must drain in its own tick (#3519 review)
       canUseSimpleSyncFlush(this)
     ) {
       this._running = true;
@@ -782,9 +783,11 @@ export class GlobalQueue extends Queue {
     }
     this._running = true;
     resyncUnflushedCompanions(); // A28, see above
-    // The tick proposed against a hold (#3494): adopt its batch into it.
-    while (batchJoins.length) this.initTransition(batchJoins.pop());
     try {
+      // The tick proposed against a hold (#3494): adopt its batch into it.
+      // Inside the try: the adoption runs user comparators (the no-proposal
+      // drop), and a throw there must not leave `_running` set.
+      while (batchJoins.length) this.initTransition(batchJoins.pop());
       if (__DEV__) devCheckFlushStart();
       // Before runHeap for the same reason as the fast drain above; late
       // subscribers (an effect reading a swept memo this flush) revive it,
@@ -1012,9 +1015,14 @@ export class GlobalQueue extends Queue {
         // left `show` staged at its own value, stamped, pending to the
         // verdict, and its next mainline write held by a flight it never
         // derived from. Unstage it here — its subscribers were walked at the
-        // write and re-derive the same value. Signals only: a computed's
-        // staging is its pass's result (a born-held first pass may equal an
-        // uninitialized `undefined`), and `_equals: false` opts out. Unstamped
+        // write and re-derive the same value. Writes only: a signal's staging
+        // is always one, a computed's only under REACTIVE_MANUAL_WRITE
+        // (`createSignal(fn)`'s setter, #3519 review) — otherwise it is its
+        // pass's result, which may equal an uninitialized `undefined` (a
+        // born-held first pass). `_equals: false` opts out. The unstaging is
+        // the commit's own path (commitPendingNode with nothing staged): the
+        // manual-write flag, companions and the rest are cleaned up as a
+        // commit would, and the node is stamped nowhere. Unstamped
         // only: a node already a transaction's — arriving here as a parked
         // batch folds into a merge — carries a FLUSHED proposal a later
         // rewrite brought back to the committed value; it is held, not
@@ -1024,11 +1032,14 @@ export class GlobalQueue extends Queue {
         if (
           node._transition === null &&
           node._pendingValue !== NOT_PENDING &&
-          !(node as Computed<any>)._fn &&
+          (!(node as Computed<any>)._fn ||
+            ((node as Computed<any>)._flags & REACTIVE_MANUAL_WRITE &&
+              !((node as Computed<any>)._statusFlags & STATUS_UNINITIALIZED))) &&
           node._equals &&
           node._equals(node._value, node._pendingValue)
         ) {
           node._pendingValue = NOT_PENDING;
+          commitPendingNode(node);
           continue;
         }
         node._transition = activeTransition;

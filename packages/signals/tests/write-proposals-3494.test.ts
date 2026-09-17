@@ -446,3 +446,139 @@ describe("A34 — a write is a proposal (#3494)", () => {
     expect(shown()).toEqual(["Latest: 0", "Latest: 1", "Latest: 0"]);
   });
 });
+
+// #3519 review. Three holes in the first cut, each pinned before its fix.
+describe("A34 — review (#3519)", () => {
+  // The kept tail IS the committed frame's dependency list (A30). A flight on
+  // one of those deps makes the committed frame non-final — the frame that a
+  // mainline (or any OTHER transaction's) commit would publish beside its
+  // new inputs. The pending mark may be skipped only when the mark's
+  // transaction is the one holding the subscriber's replacement frame: that
+  // frame does not read the dep, and it is what that commit publishes.
+  it("a kept-tail dep going pending under another transaction holds the committed frame", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let setQuery!: (v: number) => void;
+    let switchMode!: () => unknown;
+    let selected!: () => number;
+    createRoot(() => {
+      const [query, sq] = createSignal(0);
+      const [mode, setMode] = createSignal(false);
+      setQuery = sq;
+      const remote = createMemo(() => delay(1000, query()));
+      selected = createMemo(() => (mode() ? 0 : remote()));
+      switchMode = action(function* () {
+        setMode(true);
+        yield delay(10_000);
+      });
+      text(() => `${query()} ${selected()}`, log, when);
+    });
+    flush();
+    await advanceTo(1000);
+    // A held pass switches `selected` to the constant 0 — unchanged, so its
+    // tail (remote) stays linked — and parks with the action.
+    switchMode();
+    await settle();
+    await advanceTo(1500);
+    // Mainline: a new flight on `remote`. The committed `selected` derives
+    // from remote=0; publishing `1 0` would be a torn frame.
+    setQuery(1);
+    await settle();
+    await advanceTo(2000);
+    expect(frames(log, when)).toEqual(["1000: 0 0"]);
+    // The mark rode the kept link, `selected` re-derived, read the held
+    // `mode` and entered the action's transaction (A29): the tick is held.
+    // `selected` itself is not pending (A19): its observable value is 0 and
+    // stays 0 — the held frame is the constant, and the committed one only
+    // ever re-derives under a commit that publishes the held frame instead.
+    expect(isPending(selected)).toBe(false);
+    await advanceTo(3000);
+    // The flight landed; the tick is still held (the action runs to 11000).
+    expect(frames(log, when)).toEqual(["1000: 0 0"]);
+    await advanceTo(12_000);
+    expect(frames(log, when)).toEqual(["1000: 0 0", "11000: 1 0"]);
+  });
+
+  // A same-value write to a held node records the join, then leaves through
+  // setSignal's equality gate. Without a schedule the join outlived its tick
+  // and the next unrelated flush drained it — adopting that tick's work into
+  // a hold it never touched.
+  it("a lone same-value write to a held node does not capture the next unrelated tick", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let setB!: (v: number) => void;
+    let setC!: (v: number) => void;
+    createRoot(() => {
+      const [b, sb] = createSignal(0);
+      const [c, sc] = createSignal(0);
+      setB = sb;
+      setC = sc;
+      const obs = createMemo(() => delay(1000, b()));
+      text(() => `Obs: ${obs()}`, log, when);
+      text(() => `C: ${c()}`, log, when);
+    });
+    flush();
+    await advanceTo(1000);
+    setB(1);
+    await settle();
+    await advanceTo(1500);
+    setB(1); // the repeat: a proposal, and the tick's only write
+    await settle();
+    await advanceTo(1600);
+    setC(1); // an unrelated tick
+    await settle();
+    expect(frames(log, when)).toEqual(["0: C: 0", "1000: Obs: 0", "1600: C: 1"]);
+    await advanceTo(3000);
+    expect(frames(log, when)).toEqual(["0: C: 0", "1000: Obs: 0", "1600: C: 1", "2000: Obs: 1"]);
+  });
+
+  // A34 (2) for the memo form: `createSignal(fn)`'s setter stages through
+  // setSignal too, and a manual write back to the committed value is as much
+  // "no proposal" as a signal's.
+  it("a writable memo written back to its committed value proposes nothing", async () => {
+    reset();
+    const log: string[] = [];
+    const when: number[] = [];
+    let setCount!: (v: number) => void;
+    let setShow!: (v: boolean) => void;
+    let show!: () => boolean;
+    createRoot(() => {
+      const [count, sc] = createSignal(0);
+      const [base] = createSignal(true);
+      const [sh, ss] = createSignal(() => base());
+      setCount = sc;
+      setShow = ss;
+      show = sh;
+      const data = createMemo(() => delay(2000, count()));
+      text(() => `Data: ${data()}`, log, when);
+      text(() => `Show: ${show()}`, log, when);
+    });
+    flush();
+    await advanceTo(2000);
+    setShow(false);
+    setShow(true);
+    setCount(1);
+    await settle();
+    expect(isPending(show)).toBe(false);
+    expect(show()).toBe(true);
+    await advanceTo(2500);
+    setShow(false);
+    await settle();
+    expect(show()).toBe(false);
+    await advanceTo(6000);
+    // The hide is mainline (the point of the drop) — and the `Show` effect had
+    // computed under `count`'s born-held transaction at 2000 (it sits above
+    // the memo, so it ran after `data` pended), so it is a contested effect
+    // (#3322): the reveal at 4000 re-derives it against the committed world.
+    // Same value, one redundant run; the signal form above computes below the
+    // transaction's birth and is never contested. Not this rule's business.
+    expect(frames(log, when)).toEqual([
+      "0: Show: true",
+      "2000: Data: 0",
+      "2500: Show: false",
+      "4000: Data: 1 | Show: false"
+    ]);
+  });
+});

@@ -358,14 +358,15 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // 25,338 -> 25,426. The additive half; the twins it makes deletable
     // (overrideRead's wrapper, nodeValue, the verdict re-derivations) are the
     // deletion half — see docs/DESIGN-CONSOLIDATION.md §0.
-    // A write is a proposal (A34, #3494, 2026-09-17): +175 B core-retained —
-    // `batchJoins` (setSignal's deferred entry for a held node, drained at
-    // flush start; 71 B), initTransition's no-proposal drop for an unstamped
-    // signal staged at its committed value (64 B), notifyStatus's pending-mark
-    // skip over links outside the pass's validated prefix (`_gen`, A30; 24 B),
-    // and reporterBlocksSource following a dep's `_pendingSources` one hop
-    // (16 B). Measured at 25,424.
-    expect(minifiedBytes).toBeLessThan(25_500);
+    // A write is a proposal (A34, #3494 / #3519 review, 2026-09-17): +234 B
+    // core-retained (25,426 -> 25,660 over move 3b) — `batchJoins` (setSignal records a
+    // held node's join and schedules; drained inside flush's try; the fast
+    // sync path defers while one waits), initTransition's no-proposal drop
+    // for an unstamped signal or writable memo staged at its committed value
+    // (through commitPendingNode), notifyStatus re-deriving a subscriber
+    // instead of marking it over a kept-tail link (`_gen`, A30), and
+    // reporterBlocksSource following a dep's `_pendingSources` one hop.
+    expect(minifiedBytes).toBeLessThan(25_750);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
