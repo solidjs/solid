@@ -75,7 +75,7 @@ describe("the flash url is the unbound function base", () => {
       qty: form.get("qty")
     }));
 
-    // what serverFunctionUrl(id, ["news"]) renders into the form's action:
+    // what serverFunctionActionUrl(fn, "news") renders into the form's action:
     // the bound arguments ride the `?args=` query
     const response = await handleServerFunctionRequest(
       formPost(

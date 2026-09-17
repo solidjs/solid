@@ -48,7 +48,9 @@ import {
   isServerFunction,
   parseServerFunctionAddress,
   provideServerFunctionRPC,
+  serverFunctionActionUrlFor,
   serverFunctionAddress,
+  serverFunctionUrlFor,
   createChunk,
   encodeErrorTrailer,
   withMeta
@@ -3124,40 +3126,57 @@ export function sanitizeServerError(value) {
     );
   return new Error(GENERIC_SERVER_ERROR_MESSAGE);
 } /**
- * Builds the url a reference is called at, for integrations composing action
- * urls the runtime did not render — a router turning a bound action into a
- * `<form action>` for the no-JS path. `boundArgs` must be JSON-safe: the
- * server reads them the way it reads a form post's, and that convention has
- * no codec. Resolved against the configured endpoint, so a caller does not
- * have to know where the handler is mounted. Present on both entries so
- * isomorphic `@solidjs/web/server-functions` imports resolve.
+ * The url a `GET()` reference's own call requests — the address to preload
+ * (`<link rel="preload" as="fetch">`), prefetch, or fetch by hand — built the
+ * way the client transport builds it, so a fetch of it IS the call.
+ * Arguments ride the query as they do on the wire (`?args=`, JSON) and must
+ * be JSON-safe. Defined for declared reads only: a default-transport
+ * reference POSTs, and a POST is not described by its url — this throws with
+ * a pointer, as it does for a url long enough that the call would fall back
+ * to POST. Present on both entries so a component rendering a preload link
+ * during SSR resolves the same import as on the client; see the client
+ * entry's docstring for the full contract.
  */
-export function serverFunctionUrl(id: string, boundArgs?: readonly unknown[]): string;
+export function serverFunctionUrl<A extends readonly unknown[]>(
+  fn: ServerFunction<A, any>,
+  ...args: A
+): string;
 
-/** Builds the url a reference is called at: `<endpoint>/<id>[?args=...]`. */
-export function serverFunctionUrl(id, boundArgs) {
-  const address = serverFunctionAddress(config.endpoint, id);
-  if (!boundArgs || !boundArgs.length) return address;
-  if (!isJSONSafe(boundArgs)) {
-    throw new Error(
-      "Bound arguments in an action url must be JSON-safe: the server reads them the way it " +
-        "reads a form post's, and that convention has no codec. Pass the value through the " +
-        "function's body, or call the reference instead of rendering a url for it."
-    );
-  }
-  return `${address}?args=${encodeURIComponent(JSON.stringify(boundArgs))}`;
+/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]`. */
+export function serverFunctionUrl(fn, ...args) {
+  return serverFunctionUrlFor(config.endpoint, fn, args);
 } /**
- * Reads the function id back out of a server-rendered action url — the
- * deconstruction half of `serverFunctionUrl`, for an integration that meets an
- * action url before the module that declared it has loaded (a router
- * synthesizing an invocation for a server component's form). Answers `null`
- * when the url is not an address. Present on both entries so isomorphic
+ * Builds the plain-HTTP address of a function — what a `<form action>` posts
+ * to without the runtime — for integrations composing action urls the
+ * runtime did not render: a router turning a bound action into a form
+ * action for the no-JS path. Takes the reference, or its id for an
+ * integration that has only that. `boundArgs` must be JSON-safe: the server
+ * reads them the way it reads a form post's, and that convention has no
+ * codec. Resolved against the configured endpoint. Without bound arguments
+ * this is `fn.url`; where the reference's own call goes is
+ * `serverFunctionUrl`. Present on both entries so isomorphic
  * `@solidjs/web/server-functions` imports resolve.
  */
-export function parseServerFunctionUrl(url: string): string | null;
+export function serverFunctionActionUrl(
+  fn: ServerFunction | string,
+  ...boundArgs: readonly unknown[]
+): string;
+
+/** The plain-HTTP address of a function: `<endpoint>/<id>[?args=...]`. */
+export function serverFunctionActionUrl(fn, ...boundArgs) {
+  return serverFunctionActionUrlFor(config.endpoint, fn, boundArgs);
+} /**
+ * Reads the function id back out of a server-rendered action url — the
+ * deconstruction half of `serverFunctionActionUrl`, for an integration that
+ * meets an action url before the module that declared it has loaded (a
+ * router synthesizing an invocation for a server component's form). Answers
+ * `null` when the url is not an address. Present on both entries so
+ * isomorphic `@solidjs/web/server-functions` imports resolve.
+ */
+export function parseServerFunctionActionUrl(url: string): string | null;
 
 /** Reads the function id back out of a server-rendered action url. */
-export function parseServerFunctionUrl(url) {
+export function parseServerFunctionActionUrl(url) {
   const parsed = parseServerFunctionAddress(
     new URL(url, "http://localhost").pathname,
     config.endpoint
