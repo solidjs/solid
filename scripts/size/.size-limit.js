@@ -278,7 +278,10 @@ module.exports = [
     // Reporter-liveness fix rebased over `_parent` mangling (#3495 + #3496,
     // 2026-09-16): measured at 9,379 B. The signals floor is unchanged
     // minified; the combined property names shift brotli layout.
-    limit: "9.38 KB",
+    // A projection's leaf companions die with it; latest() of a dead leaf creates
+    // none (spec O5, 2026-09-16): 9,393 B (+13 over the cap); +104 B minified in
+    // owner.ts (core floor), the shadow retirement lives in verdict.ts.
+    limit: "9.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -523,7 +526,10 @@ module.exports = [
     // (+1 over the cap); +100 B minified in the signals floor (24,478 -> 24,578).
     // Hold-consistency batch 2 (#3479, 2026-09-15): measured at 16,343 B; the signals
     // core delta, see the core floor note.
-    limit: "16.45 KB",
+    // A projection's leaf companions die with it; latest() of a dead leaf creates
+    // none (spec O5, 2026-09-16): 16,481 B (+31 over the cap); +104 B minified in
+    // owner.ts (core floor), the shadow retirement lives in verdict.ts.
+    limit: "16.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -659,7 +665,10 @@ module.exports = [
     // promote-on-revert, skipped by the body-end supersession and the
     // authoritative-blockage census, merged through and suspended on in lanes,
     // pending flowing through it in status. Retained here by `latest()`.
-    limit: "12.05 KB",
+    // A projection's leaf companions die with it; latest() of a dead leaf creates
+    // none (spec O5, 2026-09-16): 12,074 B (+24 over the cap); +104 B minified in
+    // owner.ts (core floor), the shadow retirement lives in verdict.ts.
+    limit: "12.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -1075,7 +1084,10 @@ module.exports = [
     // write of `onError` onto the root owner is the only prod-floor cost).
     // Reporter-liveness fix rebased over `_parent` mangling (#3495 + #3496,
     // 2026-09-16): measured at 29,903 B; combined brotli layout drift.
-    limit: "29.91 KB",
+    // A projection's leaf companions die with it; latest() of a dead leaf creates
+    // none (spec O5, 2026-09-16): 29,953 B (+43 over the cap); +104 B minified in
+    // owner.ts (core floor), the shadow retirement lives in verdict.ts.
+    limit: "30.00 KB",
     modifyEsbuildConfig
   },
   {
@@ -1415,7 +1427,10 @@ module.exports = [
     // write of `onError` onto the root owner is the only prod-floor cost).
     // Reporter-liveness fix rebased over `_parent` mangling (#3495 + #3496,
     // 2026-09-16): measured at 28,363 B; combined brotli layout drift.
-    limit: "28.37 KB",
+    // A projection's leaf companions die with it; latest() of a dead leaf creates
+    // none (spec O5, 2026-09-16): 28,392 B (+22 over the cap); +104 B minified in
+    // owner.ts (core floor), the shadow retirement lives in verdict.ts.
+    limit: "28.40 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -46,6 +46,7 @@ import {
 } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
+import { dispose } from "./owner.js";
 import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
 import {
@@ -409,6 +410,18 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
   }
   const shadow = owner._x?._latestValueComputed;
   if (shadow && !(shadow._flags & REACTIVE_DISPOSED)) {
+    // A leaf whose firewall is disposed (the projection's teardown snaps its
+    // companion-bearing leaves): the shadow's compute reads through a
+    // disposed, possibly still-pending projection and would sit
+    // NotReady/uninitialized forever — never derived, its backfilled override
+    // dropped at the settle — against a leaf whose committed value differs
+    // (INV-4 at the next quiescence; spec O5). It dies with its source;
+    // getLatestValueComputed treats a disposed shadow as absent, so a later
+    // read recreates it from the committed view.
+    if ((owner as FirewallSignal<any>)._firewall?._flags & REACTIVE_DISPOSED) {
+      dispose(shadow);
+      return;
+    }
     if (
       (shadow._x?._overrideValue === undefined || shadow._x?._overrideValue === NOT_PENDING) &&
       shadow._pendingValue === NOT_PENDING &&
@@ -477,6 +490,12 @@ function uninitializedSource(el: Signal<any> | Computed<any>): boolean {
 }
 
 function latestRead<T>(el: Signal<T> | Computed<T>): T {
+  // A leaf of a DISPOSED projection has no flushed world left to mirror: a
+  // shadow created for it now would read through the dead firewall, sit
+  // NotReady/uninitialized forever, and no teardown would ever retire it (the
+  // firewall's already ran — spec O5). Serve the committed value; create
+  // nothing. (A read of a disposed node freezes at its last commit, #3024.)
+  if ((el as FirewallSignal<T>)._firewall?._flags & REACTIVE_DISPOSED) return el._value as T;
   const pendingComputed = getLatestValueComputed(el);
   const prevPending = latestReadActive;
   setLatestReadActive(false);

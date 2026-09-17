@@ -1,5 +1,6 @@
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_CHILD_COMPANIONS,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -79,6 +80,13 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // false, and notifies subscribers still watching the companion.
     const n = node as Computed<unknown>;
     if (n._x?._pendingSignal || n._x?._latestValueComputed) GlobalQueue._snapCompanions!(n);
+    // A firewall's leaves have no lifecycle of their own, so a companion on
+    // one of them outlives its source the same way (INV-9's rationale). The
+    // firewall knows which leaves carry companions (CONFIG_CHILD_COMPANIONS,
+    // #3038): snap them with it — the snap retires a shadow whose firewall is
+    // disposed (spec O5).
+    if (n._config & CONFIG_CHILD_COMPANIONS)
+      n._x!._companionChildren!.forEach(GlobalQueue._snapCompanions! as (leaf: unknown) => void);
     // A pending reader parked in a transaction may be the only thing holding
     // it (#3372): its death is a completion event the transaction must be
     // re-judged for, and nothing else re-enters a parked transaction.

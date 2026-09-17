@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+A projection's leaf companions die with the projection. Disposing a store whose async source was mid-refetch left the `latest()` shadow of a leaf orphaned: never derived (its compute read through the projection in flight, the backfilled override stood in), its override dropped at the settle, NotReady forever against a leaf whose committed value differed — the `__TEST__` quiescence invariant INV-4 at the next flush. Externally coherent, but a companion outliving its source. The firewall's teardown now snaps the companions of its companion-bearing leaves (the shadow is retired; a later read recreates it from the committed view), and `latest()` of a leaf whose firewall is already disposed serves the committed value without creating a shadow — a boundary's content re-running after the teardown had recreated one that nothing would retire. Surfaced once #3495 stopped leaking parked transactions, which had masked every quiescence check in the posture matrix; all 621 matrix cells now run with zero invariant violations.
