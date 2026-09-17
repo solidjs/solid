@@ -37,7 +37,7 @@ import {
   type StoreSetter,
   type RevealOrder,
   createOwner,
-  createRoot,
+  createRoot as coreRoot,
   getContext,
   setContext,
   type Context
@@ -172,6 +172,18 @@ type SharedConfig = {
    * @internal
    */
   onHydrationEnd?: (callback: () => void) => void;
+  /**
+   * Whether a render under the current owner is part of the claim in
+   * progress. The root pass claims everything; a streamed boundary's resume
+   * window claims only the subtree under that boundary. A write landing in
+   * the window (the resumed content's `onSettled` reaching a signal above
+   * the boundary, #3504) re-renders an already-hydrated region: that render
+   * is a client render — fresh nodes, live inserts — not a claim against the
+   * registry. Assigned by enableHydration(); absent means "claiming".
+   *
+   * @internal
+   */
+  isClaiming?: () => boolean;
 };
 
 /**
@@ -204,6 +216,19 @@ let _hydrationEndCallbacks: (() => void)[] | null = null;
 let _pendingBoundaries = 0;
 let _hydrationDone = false;
 let _snapshotRootOwner: Owner | null = null;
+// The boundary owner whose resume window is open (null during a root pass,
+// which claims everything). Reached as `sharedConfig.isClaiming`.
+let _claimOwner: Owner | null = null;
+
+function isClaiming(): boolean {
+  if (!_claimOwner) return true;
+  let owner: Owner | null = getOwner();
+  while (owner) {
+    if (owner === _claimOwner) return true;
+    owner = owner._parent;
+  }
+  return false;
+}
 
 function markTopLevelSnapshotScope() {
   if (_snapshotRootOwner) return;
@@ -267,6 +292,7 @@ let _doneValue = false;
 // (no hydrate() import), the hydrated* functions and their dependencies
 // (MockPromise, subFetch) are eliminated by the bundler.
 
+let _createRoot: Function | undefined;
 let _createMemo: Function | undefined;
 let _createSignal: Function | undefined;
 let _createErrorBoundary: Function | undefined;
@@ -899,7 +925,7 @@ export function materializeContainerTrace(marker: {
     // below): materialization runs at arg-read inside a reader's render
     // scope, and a version signal owned by that reader would be disposed by
     // its re-render while the memoized store lives on.
-    return createRoot(() => {
+    return coreRoot(() => {
       const [version, setVersion] = coreSignal(0);
       // Subscribe before creating the projection: the buffered replay runs
       // synchronously inside on(), filling the queue the first compute
@@ -958,7 +984,7 @@ export function materializeContainerTrace(marker: {
   // surfaces as an unhandled error in dev. The root is never disposed —
   // the projection settles itself when the trace ends and is collected
   // with the store.
-  return createRoot(() =>
+  return coreRoot(() =>
     createProjection(
       (draft: any) => ({
         [Symbol.asyncIterator]() {
@@ -1168,6 +1194,29 @@ function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?
   return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
 }
 
+// --- Hydration-aware root ---
+
+// A hydrating root is the snapshot scope from its first child on. The scope
+// used to be marked lazily, by the first hydration-aware primitive created
+// under it — so a control-flow memo made before that (Show's condition, on
+// the core createMemo) sat outside it, and a user-tier write during the
+// hydration pass (onSettled, createEffect) cascaded through it live: the
+// branch it revealed claimed fresh templates against the registry, missed,
+// and rendered detached (#3504). Marking at the root makes the scope
+// creation-order independent: every write during the pass is held and
+// replays at release, once the claim pass is over.
+function hydratedCreateRoot(init: Function, options?: { id?: string; transparent?: boolean }) {
+  return coreRoot(
+    sharedConfig.hydrating
+      ? dispose => {
+          markTopLevelSnapshotScope();
+          return init(dispose);
+        }
+      : (init as any),
+    options
+  );
+}
+
 // --- Hydration-aware effect implementations ---
 
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
@@ -1271,6 +1320,7 @@ function lazyHydrationLookup<T>(
 }
 
 export function enableHydration() {
+  _createRoot = hydratedCreateRoot;
   _createMemo = hydratedCreateMemo;
   _createSignal = hydratedCreateSignal;
   _createErrorBoundary = hydratedCreateErrorBoundary;
@@ -1292,6 +1342,7 @@ export function enableHydration() {
   // the exact CSR behavior onHydrationEnd itself had.
   sharedConfig.isHydrationInProgress = isHydrationInProgress;
   sharedConfig.onHydrationEnd = onHydrationEnd;
+  sharedConfig.isClaiming = isClaiming;
 
   // Take ownership of streamed-fragment reveals (see the fragment ledger).
   // The header script creates `_$HY` before any module runs, so the hook is
@@ -1760,6 +1811,27 @@ export const createOptimisticStore: {
 }) as any;
 
 /**
+ * Creates a non-tracked owner scope that doesn't auto-dispose. Pass `id`
+ * to seed hydration ids for the tree it owns.
+ *
+ * ```ts
+ * const dispose = createRoot(dispose => {
+ *   // ...
+ *   return dispose;
+ * });
+ * ```
+ *
+ * **Hydration:** a root created during hydration marks itself as the
+ * snapshot scope, so writes landing during the hydration pass are held
+ * until the pass completes (the mark used to depend on which primitive
+ * ran first under it).
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
+ */
+export const createRoot: typeof coreRoot = ((...args: any[]) =>
+  (_createRoot || coreRoot)(...args)) as typeof coreRoot;
+
+/**
  * Creates a reactive computation that runs during the render phase as
  * DOM elements are created and updated but not necessarily connected.
  *
@@ -1886,6 +1958,7 @@ function resumeBoundaryHydration(
   // synchronous resume window; without a capture the live globals apply.
   const prevRegistry = sharedConfig.registry;
   const prevGather = sharedConfig.gather;
+  const prevClaim = _claimOwner;
   if (scope) {
     sharedConfig.registry = scope.registry;
     sharedConfig.gather = scope.gather;
@@ -1896,14 +1969,21 @@ function resumeBoundaryHydration(
     if (shouldHydrate) {
       markSnapshotScope(o);
       _snapshotRootOwner = o;
+      // The window claims this boundary's subtree only: the rest of the
+      // tree hydrated in the root pass, and a re-render it takes during the
+      // window (a write from the resumed content's user effects) is a
+      // client render (#3504).
+      _claimOwner = o;
     }
     set();
     flush();
     if (shouldHydrate) _snapshotRootOwner = null;
     _hydratingValue = false;
+    _claimOwner = prevClaim;
     if (shouldHydrate) releaseSnapshotScope(o);
     flush();
   } finally {
+    _claimOwner = prevClaim;
     if (scope) {
       sharedConfig.registry = prevRegistry;
       sharedConfig.gather = prevGather;
