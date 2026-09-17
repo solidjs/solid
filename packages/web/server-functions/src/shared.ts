@@ -90,11 +90,14 @@ export interface FlightDataContext {
 /**
  * Consumer receiving single-flight data on the client: `data` is the
  * integration-produced payload (opaque to the protocol), `context` carries
- * the envelope metadata. Async consumers are awaited before the function
- * value is returned to the caller, so caches are seeded first.
+ * the envelope metadata. `data` is `undefined` when the response carried
+ * integration metadata (a redirect, revalidation keys) but the server
+ * folded no slice for this source — the consumer still runs, to apply the
+ * metadata. Async consumers are awaited before the function value is
+ * returned to the caller, so caches are seeded first.
  */
 export type FlightDataConsumer<D = unknown> = (
-  data: D,
+  data: D | undefined,
   context: FlightDataContext
 ) => void | Promise<void>;
 
@@ -284,6 +287,16 @@ export function assertFlightSource(source) {
  * `value` to the caller as if the call were plain. What to do with the
  * data (seed caches, navigate, ...) is entirely the consumer's business.
  *
+ * Integration metadata is delivered whether or not data was folded: a
+ * mutation response carrying the redirect carrier or `X-Revalidate` keys
+ * (`redirect()`, `reload()`, `respond(value, { revalidate })`) reaches
+ * every registered consumer, its `data` `undefined` where the server
+ * folded no slice for that source. Subscribing is therefore the whole
+ * opt-in for an integration that owns navigation or a cache: it applies
+ * redirects and revalidation from the consumer, without wrapping the
+ * call, and a redirect the server collected no data for (a cross-origin
+ * target, no collector registered) still navigates.
+ *
  * The one-argument form registers the unnamed consumer — the integration
  * that owns data production (a router), riding the keyed envelope under
  * the reserved id "true". The two-argument form
@@ -296,8 +309,8 @@ export function assertFlightSource(source) {
  * One active consumer per source — a later registration replaces the
  * current one; returns an unsubscribe function. With no consumers
  * registered, no header is sent and the server does no collection work;
- * responses an integration opted in manually still pass through to the
- * caller whole, exactly like other integration responses.
+ * metadata-bearing responses, and ones an integration opted in manually,
+ * pass through to the caller whole for the integration to decode itself.
  */
 export function subscribeFlightData<D = unknown>(consumer: FlightDataConsumer<D>): () => void;
 export function subscribeFlightData<D = unknown>(

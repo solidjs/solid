@@ -1,0 +1,7 @@
+---
+"@solidjs/web": patch
+---
+
+Server-function flight consumers now receive every mutation response that carries integration metadata — the redirect carrier or `X-Revalidate` keys (`redirect()`, `reload()`, `respond(value, { revalidate })`) — whether or not the server folded data alongside it. Metadata is envelope-level (it names what the mutation did to every cache on the page), so it reaches each registered consumer with `data` set to `undefined` where no slice was collected for that source, and the call resolves with the plain value. An integration that subscribes a consumer therefore owns redirects and revalidation without wrapping the call, and a redirect the server could collect no data for (a cross-origin target, no collector registered) navigates instead of landing on the caller as a raw `Response`. Reads (GET or `read: true`) keep the whole-response passthrough; `FlightDataConsumer`'s `data` parameter is typed `D | undefined` accordingly.
+
+`revalidate` gains a reserved all-keys spelling: `REVALIDATE_ALL` (`"*"`), the host-independent way to declare that every cache entry went stale, distinct from omitting `revalidate` (the host's default — Solid Router revalidates everything after an action, a router without that convention reloads only what it owns) and from an empty list (nothing). The helpers refuse `"*"` beside named keys; `ServerFunctionOutcome.revalidateKeys` delivers it to collectors as declared.
