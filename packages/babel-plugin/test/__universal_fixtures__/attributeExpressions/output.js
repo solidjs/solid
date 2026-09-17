@@ -48,7 +48,7 @@ _$spread(
           "margin-right": "40px"
         };
       },
-      get ["class"]() {
+      get class() {
         return [
           "base",
           {

@@ -33,7 +33,7 @@ _$spread(_el$2, [results, {
 			"margin-right": "40px"
 		};
 	},
-	get ["class"]() {
+	get "class"() {
 		return ["base", {
 			dynamic: dynamic(),
 			selected

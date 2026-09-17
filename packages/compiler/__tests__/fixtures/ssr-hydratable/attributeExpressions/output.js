@@ -201,7 +201,7 @@ const template = _$ssrElement("div", [
 					"margin-right": "40px"
 				};
 			},
-			get ["class"]() {
+			get "class"() {
 				return ["base", {
 					dynamic: dynamic(),
 					selected
@@ -481,13 +481,13 @@ const propsSpread = {
 const template80 = _$ssrElement("div", propsSpread, undefined, true);
 const template81 = _$ssrElement("div", propsSpread, undefined, true);
 const template82 = _$ssrElement("div", [propsSpread, {
-	get ["data-dynamic"]() {
+	get "data-dynamic"() {
 		return color();
 	},
 	"data-static": /* @static */ color()
 }], undefined, true);
 const template83 = _$ssrElement("div", [propsSpread, {
-	get ["data-dynamic"]() {
+	get "data-dynamic"() {
 		return color();
 	},
 	"data-static": /* @static */ color()
@@ -497,7 +497,7 @@ const template84 = _$ssrElement("div", [
 	propsSpread2,
 	propsSpread3,
 	{
-		get ["data-dynamic"]() {
+		get "data-dynamic"() {
 			return color();
 		},
 		"data-static": /* @static */ color()
@@ -557,7 +557,7 @@ function MyVideo() {
 // #2959: conditional attribute merged into a spread stays a bare expression
 // (parity with the dom generate — neither side allocates a hydration id).
 const template97 = _$ssrElement("svg", [spread, {
-	get ["stroke-width"]() {
+	get "stroke-width"() {
 		return cond() ? width() : 2;
 	},
 	get fill() {

@@ -454,7 +454,7 @@ function processSpreads(
             id,
             [],
             t.blockStatement([t.returnStatement(expr.body)]),
-            !t.isValidIdentifier(key)
+            false // never computed; see shared/component.ts (#3511)
           )
         );
       } else {

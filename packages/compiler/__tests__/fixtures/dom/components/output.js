@@ -91,7 +91,7 @@ const template2 = _$createComponent(Child, {
 	},
 	stale: /*@static*/ state.data,
 	handleClick: clickHandler,
-	get ["hyphen-ated"]() {
+	get "hyphen-ated"() {
 		return state.data;
 	},
 	ref: (el) => e = el
@@ -231,7 +231,7 @@ const Template18 = _$createComponent(Pre, { get children() {
 const Template19 = _$createComponent(Component, _$mergeProps(() => {
 	return s.dynamic();
 }));
-const Template20 = _$createComponent(Component, { get ["class"]() {
+const Template20 = _$createComponent(Component, { get "class"() {
 	return prop.red ? "red" : "green";
 } });
 const template21 = _$createComponent(Component, _$mergeProps(() => {

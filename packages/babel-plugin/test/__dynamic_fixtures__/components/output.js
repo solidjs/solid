@@ -118,7 +118,7 @@ const template2 = _$createComponent(Child, {
   },
   stale: state.data,
   handleClick: clickHandler,
-  get ["hyphen-ated"]() {
+  get "hyphen-ated"() {
     return state.data;
   },
   ref: el => (e = el)

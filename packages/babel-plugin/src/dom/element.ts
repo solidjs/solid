@@ -1668,7 +1668,7 @@ function processSpreads(
             id,
             [],
             t.blockStatement([t.returnStatement(expression as babelTypes.Expression)]),
-            !t.isValidIdentifier(normalized)
+            false // never computed; see shared/component.ts (#3511)
           )
         );
       } else {
