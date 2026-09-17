@@ -50,6 +50,33 @@ button.onclick = () => refresh(user);
 const [ref, setRef] = createSignal(null, { ownedWrite: true });
 ```
 
+#### `ASYNC_STORE_SETTER`
+
+**Message:** "Store setter callback returned a Promise. A store setter is a synchronous transaction: the draft closes when the callback returns, so writes after an `await` are lost. Move the await into an action() and call the setter from there."
+
+A store setter is a synchronous transaction — open the draft, apply the writes, commit and notify once at exit. The callback's return has one meaning, a replacement root to adopt, and a Promise can never be that. An `async` callback (or a sync one whose helper is async) commits only the writes before its first `await`; the rest land on a closed draft and vanish. Dev throws at the setter, after the sync writes have committed. Every store family with a user setter is covered (`createStore`, `createOptimisticStore`, the derived store's manual setter); a derived store's own async compute function is the recompute's business and is not flagged. Store-specific: a signal may legitimately hold a promise, so `setSignal` has no such rule.
+
+```js
+// Throws in dev — only `d.n = 1` was in the transaction
+setStore(async d => {
+  d.n = 1;
+  await save(d.n);
+  d.n = 2; // closed draft: lost
+});
+
+// Fix: orchestrate the async in an action, write synchronously inside it
+const bump = action(async function* () {
+  setStore(d => {
+    d.n = 1;
+  });
+  await save(1);
+  yield;
+  setStore(d => {
+    d.n = 2;
+  });
+});
+```
+
 #### `PENDING_ASYNC_UNTRACKED_READ`
 
 **Message:** "Reading a pending async value directly in [context]. Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
@@ -717,6 +744,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | Code                               | Severity  | Category       | Trigger                                                                                                                    |
 | ---------------------------------- | --------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error     | write          | Reactive write/invalidation inside component/computation                                                                   |
+| `ASYNC_STORE_SETTER`               | error     | write          | Store setter callback returned a Promise (setters are synchronous transactions)                                            |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error     | async          | Reading pending async outside tracking scope                                                                               |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn      | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                           |
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error     | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                 |
@@ -861,7 +889,7 @@ createRoot(() => {
 
 **Records and clocks.** Everything the engine hands out — `RerunEvent`, `InteractionEvent`, `HoldEvent`, `NavigationEvent` — is a record with an absolute `at` on the `performance.now()` clock (`RerunEvent.at` the run's start, `HoldEvent.at` the start of the wait, `NavigationEvent.at`/`InteractionEvent.at` the request/dispatch) plus durations from it (`holdMs`, `settledMs`, `selfMs`). Epoch time for an exporter is `performance.timeOrigin + at` (milliseconds). Without cross-origin isolation the browser quantizes `performance.now()` to 100µs, so a single run's `selfMs` is often `0`; the per-interaction `settledMs` is the wall-clock number to report. Records are serializable as emitted: none carries a live graph reference — a re-run names its scope by `nodeId` (the engine's per-node id, stable across the scope's runs in the process, distinct between scopes; in-process consumers get the node back through `OBSERVE.subjectOf(event)`) — while the frame objects that join records (`origin`, `interaction`) are the same object across records in-process, so join by identity there and by `ChangeOrigin.run`/`at`/`name` once they have left it. `subscribe(type, listener)` delivers each record synchronously at the moment it is complete (a re-run at recompute end; an interaction, hold or navigation when it settles), bottom-up: a hold before the navigation it held, before the interaction that performed it. A listener runs inside the engine and must not write signals; hand work off to a microtask.
 
-**Excluding the observer.** `OBSERVE.exclude(owner)` marks an owner subtree as the observer's own: diagnostics whose subject sits under it are built (a throwing site still throws) but never delivered or printed, and the attribution engine records no run for its computations, charges none of them to an interaction, counts no write to its signals or stores toward an interaction, and does not spend a once-per-key slot (`IMMUTABLE_UPDATE_IN_STORE`'s per-path memory) on them. An interaction whose writes all went to excluded subjects, with none of the app's work run — a click on the observer's own panel — is not recorded at all. Mark the root as it is created (a store's nodes take the owner the store was created under, recorded only once the engine is enabled — enable before creating the panel's stores), and make writes from outside the graph under it (`runWithOwner(owner, () => setPanel(…))`) so the writer's context is excluded too. `OBSERVE.isExcluded(subject)` answers the question for any owner or node.
+**Excluding the observer.** `OBSERVE.exclude(owner)` marks an owner subtree as the observer's own: diagnostics whose subject sits under it are built (a throwing site still throws) but never delivered or printed, and the attribution engine records no run for its computations, charges none of them to an interaction, counts no write to its signals or stores toward an interaction, and does not spend a once-per-key slot (`IMMUTABLE_UPDATE_IN_STORE`'s per-path memory) on them. An interaction whose writes all went to excluded subjects, with none of the app's work run — a click on the observer's own panel — is not recorded at all. Mark the root as it is created (a store's nodes take the owner the store was created under, recorded only once the engine is enabled — enable before creating the panel's stores). The signals and stores created under it are excluded subjects wherever their writes come from — a click handler, an adapter callback — so writes need no `runWithOwner`, and must not use one: a write under an owner is a write in an owned scope (`REACTIVE_WRITE_IN_OWNED_SCOPE`). `OBSERVE.isExcluded(subject)` answers the question for any owner or node.
 
 **Values in records — the PII surface.** Records name things (owner paths, `name` options, store paths, route patterns, function ids) and are otherwise numbers, kinds and outcomes; a handful of fields carry _user data_, and an exporter that leaves the process owns scrubbing them (vendors already have the control surface — `beforeSend`, `sendDefaultPii` — and the runtime keeps producing them because they are what makes dev output readable). The complete list: `ChangeRecord.prev`/`value` and `HeldWrite.prev`/`value` — previews of the written values (`preview()`: strings quoted and cut at 40 characters, numbers/booleans verbatim, everything else a type tag such as `Array(12)` or `[Object]`), so the string case is the one to drop or hash unless opted in; `ChangeOrigin.target` (and `InteractionRef.target`) — the element hit, `tag#id "text"` with up to 30 characters of `textContent` for anything that is not an `input`/`textarea`/`select`, so a label but also whatever a `<td>` said; `ChangeOrigin.to`/`from`/`params` and `NavigationEvent.to`/`from`/`params` (`NavigationHop` too) — concrete paths and the values a route pattern bound (`/users/42`, `{ id: "42" }`), while `name` is the pattern; `DiagnosticEvent.message` and `data` for the responsiveness findings (`SILENT_HOLD`, `LONG_HOLD`) — the verdict sentence names the interaction (`click on button#next "Next →"`) and the navigation it was under (concrete `to`/`from`/`params`), and `data.interaction.target` / `data.navigation` carry the same fields structured; no finding quotes a value preview. `data.error` on the server error findings (`SSR_RENDER_ERROR_CONTAINED`, `SSR_ERROR_SANITIZED`, `SERVER_FN_ERROR_SANITIZED`) — the error **as thrown**, message and own properties, deliberately unsanitized: the wire got the generic message so the observer could see the real one, which means a driver's connection string or a query lands here, and an exporter treats it as it treats any captured exception. Dev-only checks may put the offending value on `data` (`PRELOAD_DESCRIPTOR_INVALID`'s `data.value`, `HEAD_TAG_INVALID`'s `data.detail`) — dev tier, never exported. Everything else is safe by construction: `RerunEvent` has names and numbers only; the runtimes' records (`"call"`, `"invocation"`, `"boundary"`, `"frame"`) never put arguments, results, thrown values, requests or responses on the record — those ride the `live` argument beside it, in-process only — and carry ids, methods, addresses, statuses and timings; `ownerPath` is component and primitive names. `stacks: true` adds first-party frames to `ChangeRecord.stack` (file paths, not values) and is a dev affordance to leave off in production.
 

@@ -79,6 +79,16 @@ component body or a computation. Pure scopes must not cause state changes.
 Move the write to an event handler or effect phase. If the write is genuinely
 intentional initialization, pass the `ownedWrite` option on the setter call.
 
+### ASYNC_STORE_SETTER
+
+A store setter callback returned a Promise — `setStore(async d => …)`, or a
+sync arrow whose helper is async. A store setter is a synchronous
+transaction: the draft closes when the callback returns, so only the writes
+before the first `await` were in it; the rest are lost. Move the async
+orchestration into an `action()` and call the setter synchronously from
+inside it (`yield` to re-enter the transaction after an `await`). Signals
+are not subject to this rule — a signal may hold a promise as its value.
+
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
 An action was invoked during a component body or computation. Actions are
