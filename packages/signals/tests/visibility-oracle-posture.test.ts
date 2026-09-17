@@ -341,13 +341,6 @@ describe("visibility oracle — posture matrix (discovery)", () => {
     for (const posture of POSTURES)
       for (const reader of READERS) {
         if (posture === "gatedAway" && reader !== "memo" && reader !== "effect") continue; // a gate needs a tracked reader
-        // INV-4 (spec O5, pinned it.fails in posture-store-parity.test.ts): a
-        // projection leaf's latest() shadow is stale on the flush right after
-        // its root is disposed. Under __TEST__ the runtime's own scheduled
-        // flush throws and the scheduler is left mid-flush, poisoning every
-        // later cell. Excluded until fixed; the pin names the bug.
-        if (posture === "gatedAway" && state.name.startsWith("derived store (projection)"))
-          continue;
         it(`${state.name} × ${posture} × ${reader}`, async () => {
           rows.push(await cell(state, posture, reader));
           expect(true).toBe(true);
