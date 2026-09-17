@@ -479,6 +479,53 @@ describe("S7 — optimistic override, the only reader gated away: the override i
   });
 });
 
+/** S7, the structural half (review of #3523): an optimistic add or delete
+ * lives on the key's PRESENCE node (`target.h`, getHasNode) as its override.
+ * Its unobserved callback released the node the moment the last structural
+ * observer left — with the override on it — so `in`, `Object.keys` and
+ * descriptors fell back to committed structure while the action was live.
+ * The presence node now defers its release like the value slot does. */
+describe("S7 (structural) — optimistic add/delete survives the only structural observer gating away", () => {
+  for (const kind of ["add", "delete"] as const) {
+    it(`optimistic ${kind}: in / Object.keys / descriptor keep the optimistic structure while live; settle restores committed and releases the presence node`, async () => {
+      const [s, setS] = createOptimisticStore<Record<string, number>>(
+        kind === "add" ? {} : { k: 1 }
+      );
+      const [show, setShow] = createSignal(true);
+      createRoot(() => {
+        createRenderEffect(
+          () => (show() ? "k" in s : "gated"),
+          () => {}
+        );
+      });
+      flush();
+      let release!: () => void;
+      action(function* () {
+        setS(d => {
+          if (kind === "add") d.k = 5;
+          else delete d.k;
+        });
+        yield new Promise<void>(res => (release = res));
+      })();
+      flush();
+      const live = kind === "add";
+      const structure = () => [
+        "k" in s,
+        Object.keys(s).includes("k"),
+        Object.getOwnPropertyDescriptor(s, "k") !== undefined
+      ];
+      expect(structure()).toEqual([live, live, live]);
+      setShow(false); // the only structural observer gates away
+      flush();
+      expect(structure()).toEqual([live, live, live]);
+      release();
+      await settle();
+      expect(structure()).toEqual([!live, !live, !live]);
+      expect(((s as any)[$TARGET].h ?? {}).k).toBeUndefined();
+    });
+  }
+});
+
 /** S8 (fixed, 3b step 6c): A18 supersession for a store node read UNTRACKED
  * inside a derivation. A derived optimistic store's own truth landed (2)
  * while an action's edit (3) is displayed: the signal serves a deriving

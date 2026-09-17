@@ -477,6 +477,13 @@ export function getHasNode(
         equals: isEqual,
         unobserved() {
           if ((created as any)._x?._affectsCount) return;
+          // The structural twin of the value slot's rule (setSlotUnobserved,
+          // S7): an optimistic add/delete lives on this presence node as its
+          // override — releasing it with the override on would let `in`,
+          // `Object.keys` and descriptors fall back to committed structure
+          // while the action is live. Defer to the flush that resolves it.
+          if (hasActiveOverride(created) || created._pendingValue !== NOT_PENDING)
+            return deferSlotRelease(created);
           if (target.h && target.h[key] === created) {
             delete target.h[key];
             unlinkFirewallChild(created);
