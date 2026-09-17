@@ -42,14 +42,14 @@ impl<'a> AstDomTransform<'a, '_> {
                     let mut statements = vec![self.delegated_assignment_statement(
                         span,
                         element_id,
-                        &format!("$${event_name}"),
+                        &format!("_$${event_name}"),
                         bound,
                     )];
                     if let Some(data) = data {
                         statements.push(self.delegated_assignment_statement(
                             span,
                             element_id,
-                            &format!("$${event_name}Data"),
+                            &format!("_$${event_name}Data"),
                             data,
                         ));
                     }
@@ -61,7 +61,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 return vec![self.delegated_assignment_statement(
                     span,
                     element_id,
-                    &format!("$${event_name}"),
+                    &format!("_$${event_name}"),
                     handler,
                 )];
             }

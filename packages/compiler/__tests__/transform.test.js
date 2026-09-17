@@ -325,7 +325,7 @@ describe("@solidjs/compiler transform", () => {
     });
 
     expect(result.code).not.toContain("_$delegateEvents");
-    expect(result.code).not.toContain("$$click");
+    expect(result.code).not.toContain("_$$click");
     expect(result.code).toContain('_el$.addEventListener("click",');
   });
 
@@ -337,7 +337,7 @@ describe("@solidjs/compiler transform", () => {
     });
 
     expect(result.code).toContain('import { delegateEvents as _$delegateEvents } from "r-dom";');
-    expect(result.code).toContain("_el$.$$change =");
+    expect(result.code).toContain("_el$._$$change =");
     expect(result.code).toContain('_$delegateEvents(["change"]);');
   });
 
@@ -713,7 +713,7 @@ describe("@solidjs/compiler transform", () => {
     });
 
     expect(result.code).toContain('import { delegateEvents as _$delegateEvents } from "r-dom";');
-    expect(result.code).toContain("_el$.$$click =");
+    expect(result.code).toContain("_el$._$$click =");
     expect(result.code).toContain("increment();");
     expect(result.code).toContain('_$delegateEvents(["click"]);');
   });

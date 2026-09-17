@@ -16,9 +16,9 @@ _el$2.addEventListener("change", () => console.log("bound"));
 _el$3.addEventListener("change", (e) => {
 	return ((id) => console.log("bound", id))(id, e);
 });
-_el$4.$$click = () => console.log("delegated");
-_el$5.$$click = (id) => console.log("delegated", id);
-_el$5.$$clickData = rowId;
+_el$4._$$click = () => console.log("delegated");
+_el$5._$$click = (id) => console.log("delegated", id);
+_el$5._$$clickData = rowId;
 _$runHydrationEvents();
 const template = _el$;
 _$delegateEvents(["click"]);

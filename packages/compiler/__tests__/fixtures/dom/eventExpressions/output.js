@@ -28,11 +28,11 @@ _el$3.addEventListener("change", (e) => {
 _$addEvent(_el$4, "change", handler);
 _el$5.addEventListener("change", handler);
 _el$6.addEventListener("change", hoisted1);
-_el$7.$$click = () => console.log("delegated");
-_el$8.$$click = (id) => console.log("delegated", id);
-_el$8.$$clickData = rowId;
+_el$7._$$click = () => console.log("delegated");
+_el$8._$$click = (id) => console.log("delegated", id);
+_el$8._$$clickData = rowId;
 _$addEvent(_el$9, "click", handler, true);
-_el$10.$$click = handler;
-_el$11.$$click = hoisted2;
+_el$10._$$click = handler;
+_el$11._$$click = hoisted2;
 const template = _el$;
 _$delegateEvents(["click"]);

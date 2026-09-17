@@ -1059,7 +1059,7 @@ function transformAttributes(
                   t.expressionStatement(
                     t.assignmentExpression(
                       "=",
-                      t.memberExpression(elem, t.identifier(`$$${ev}Data`)),
+                      t.memberExpression(elem, t.identifier(`_$$${ev}Data`)),
                       handler.elements[1] as babelTypes.Expression
                     )
                   )
@@ -1070,7 +1070,7 @@ function transformAttributes(
                 t.expressionStatement(
                   t.assignmentExpression(
                     "=",
-                    t.memberExpression(elem, t.identifier(`$$${ev}`)),
+                    t.memberExpression(elem, t.identifier(`_$$${ev}`)),
                     handler
                   )
                 )
@@ -1080,7 +1080,7 @@ function transformAttributes(
                 t.expressionStatement(
                   t.assignmentExpression(
                     "=",
-                    t.memberExpression(elem, t.identifier(`$$${ev}`)),
+                    t.memberExpression(elem, t.identifier(`_$$${ev}`)),
                     handler
                   )
                 )

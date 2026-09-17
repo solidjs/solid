@@ -60,7 +60,7 @@ _$effect(() => {
 });
 const multiValues = _el$4;
 var _el$5 = _$getNextElement(_tmpl$3);
-_el$5.$$click = () => mount(_$getNextElement(_tmpl$7));
+_el$5._$$click = () => mount(_$getNextElement(_tmpl$7));
 _$runHydrationEvents();
 const handlerValue = _el$5;
 var _el$6 = _$getNextElement(_tmpl$2);

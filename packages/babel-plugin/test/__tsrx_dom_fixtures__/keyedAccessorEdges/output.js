@@ -20,7 +20,7 @@ export function Rows({ rows }) {
         var _el$2 = _tmpl$2(),
           _el$3 = _el$2.firstChild,
           _el$4 = _el$3.nextSibling;
-        _el$2.$$click = () => preserve("local", 0);
+        _el$2._$$click = () => preserve("local", 0);
         _$insert(_el$2, () => row().name, _el$3);
         _$insert(_el$2, index, _el$4);
         _$effect(

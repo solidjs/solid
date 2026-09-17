@@ -191,6 +191,32 @@ export {
   DelegatedEvents
 } from "./constants.js";
 
+// === Delegated-event wire contract ===
+//
+// Everything below is read off the DOM and the event object by whichever
+// Solid runtime happens to be listening, so it is shared state between every
+// Solid copy on a page: two bundles of the same major nested in each other,
+// or a future major nested in this one. It is frozen. Changing any of it
+// means choosing a new EVENT_KEY prefix so the runtimes stop seeing each
+// other's handlers, not a new shape under the old one.
+//
+// - `node[EVENT_KEY + type]` is the delegated handler: a function or an
+//   object with `handleEvent`. `node[EVENT_KEY + type + "Data"]` is the
+//   optional bound data; when defined the handler is called `(data, e)`,
+//   otherwise `(e)`. Skipped while `node.disabled`.
+// - `e[$$EVENT_OWNER]` marks an event a root has already walked: the owner
+//   node, or `true` for an unscoped container. A listener that sees a mark
+//   skips unless the mark is a descendant of its own container, in which
+//   case it resumes from the marked node's parent.
+// - The walk climbs `_$host || parentNode || host`, stops on `cancelBubble`,
+//   and stops at the listener's own boundary or its direct child.
+//
+// v1 (`solid-js@1`) used `$$` + type for the key and delegated from
+// `document`, so its listener saw every element on the page and fired any
+// matching key it found. The prefix here is deliberately not `$$` so a v1
+// copy on the same page (an older widget, a devtools panel) cannot find
+// these handlers, and this runtime cannot find v1's.
+const EVENT_KEY = "_$$";
 const $$EVENT_OWNER = "_$SOLID_EVENT_OWNER";
 const $$EVENT_TUPLE = Symbol();
 const hasOwn = Object.prototype.hasOwnProperty;
@@ -724,7 +750,7 @@ export function addEvent(
 
 export function addEvent(node, name, handler, delegate) {
   if (delegate) {
-    const key = `$$${name}`;
+    const key = EVENT_KEY + name;
     let data;
     if (Array.isArray(handler)) {
       data = handler[1];
@@ -2460,7 +2486,7 @@ function eventHandler(e, container, state) {
   e[$$EVENT_OWNER] = owner || true;
 
   let node = resumeNode || e.target;
-  const key = `$$${e.type}`;
+  const key = EVENT_KEY + e.type;
   const oriTarget = e.target;
   const boundary = owner || container || e.currentTarget;
   const retarget = value =>

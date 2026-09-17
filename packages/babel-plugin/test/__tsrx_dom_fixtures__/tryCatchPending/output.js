@@ -17,7 +17,7 @@ export const App = () =>
           _el$3 = _el$2.firstChild,
           _el$4 = _el$2.nextSibling;
         _$insert(_el$2, () => e().message, null);
-        _el$4.$$click = () => reset();
+        _el$4._$$click = () => reset();
         return _el$;
       })(),
     get children() {
