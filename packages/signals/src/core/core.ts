@@ -1573,9 +1573,27 @@ export function recordStaleReplay(txn: Transition, c: Computed<any>): void {
   if (vt == null || currentTransition(vt) !== txn) txn._gatedSubs.add(c);
 }
 
+/**
+ * The ownership relation (DESIGN-CONSOLIDATION §6, ruled 2026-09-17): is
+ * `hold` part of the running pass's world? A plain reader's world is the
+ * transaction it runs under, through merges. A lane reader's world is its
+ * lane AND the transition that owns the lane — the one asymmetry between a
+ * lane and a separate transaction (a lane sees what lands from its parent as
+ * its own; a separate transaction would wait for the parent to settle) —
+ * see `ownsLane` in lanes.ts, built on this. One relation for the
+ * stale-of-foreign clause (heldFromStale), the lane arm (readsHeldCommitted)
+ * and the store's backing holds (foreignHold); `serve` has no lane arm of
+ * its own, the lane's extra visibility lives here.
+ */
+export function ownsHold(hold: Transition): boolean {
+  return (
+    activeTransition !== null && currentTransition(hold) === currentTransition(activeTransition)
+  );
+}
+
 function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
   const t = el._transition;
-  if (t === null || t === activeTransition) return false;
+  if (t === null || ownsHold(t)) return false;
   const txn = currentTransition(t);
   recordStaleReplay(txn, c);
   const reporters = txn._asyncReporters.get(el as Computed<any>);

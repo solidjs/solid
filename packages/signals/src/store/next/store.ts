@@ -41,6 +41,7 @@ import {
   readerSeesCommitted,
   recordStaleReplay,
   enterStagedRead,
+  ownsHold,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -447,9 +448,7 @@ function enterHeldBacking(target: StoreNextTarget, txn = liveFoldTransition(targ
  * its own stale readers (a render effect recomputing in it, whose run the
  * commit applies) see the staged world. */
 function foreignHold(txn: Transition): boolean {
-  return (
-    activeTransition === null || currentTransition(activeTransition) !== currentTransition(txn)
-  );
+  return !ownsHold(txn);
 }
 
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
