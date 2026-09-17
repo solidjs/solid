@@ -536,7 +536,13 @@ module.exports = [
     // the O5 fix, measured at 16,493 B against `next`'s 16,481 (+12 brotli for
     // `_companionChildren?.delete(n)` in unlinkFirewallChild). The 16.50 KB cap
     // is unchanged; core floor and isPending/latest scenarios are unchanged.
-    limit: "16.50 KB",
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
+    // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
+    // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
+    // measured at 16,509 B against `next`'s 16,495 — compressor layout, the
+    // deltas across the ten scenarios run -19…+45 B in both directions.
+    limit: "16.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -913,7 +919,13 @@ module.exports = [
     // the core walks it on solid-js's server owners (`ownerPath`,
     // `OBSERVE.exclude`). ~+40 B across the prod scenarios; the observe ones
     // moved by gzip noise or shrank.
-    limit: "19.85 KB",
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
+    // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
+    // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
+    // measured at 19,894 B against `next`'s 19,849 — compressor layout, the
+    // deltas across the ten scenarios run -19…+45 B in both directions.
+    limit: "19.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -1210,7 +1222,13 @@ module.exports = [
     // 15,170 B before the #3496 rebase (+30 over its base); 0 B minified in
     // the signals floor (24,578 flat). Combined with `_parent` mangling:
     // 15,250 B; cap ratcheted to the measured output.
-    limit: "15.25 KB",
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
+    // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
+    // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
+    // measured at 15,271 B against `next`'s 15,243 — compressor layout, the
+    // deltas across the ten scenarios run -19…+45 B in both directions.
+    limit: "15.30 KB",
     modifyEsbuildConfig
   },
   {
