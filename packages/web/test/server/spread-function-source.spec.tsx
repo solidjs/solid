@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  */
 import { describe, expect, test } from "vitest";
-import { renderToString, Dynamic, mergeProps, ssrElement } from "@solidjs/web";
+import { renderToString, dynamic, mergeProps, ssrElement } from "@solidjs/web";
 import { createSignal } from "solid-js";
 
 // Regression (#2815): SSR dropped props whose spread source is a function.
@@ -72,9 +72,10 @@ describe("SSR spread with function source (#2815)", () => {
     expect(renderToString(() => ssrElement("input", () => null, undefined, false))).toMatch(bare);
   });
 
-  test("Dynamic routes spreads through mergeProps", () => {
+  test("a dynamic() tag routes spreads through mergeProps", () => {
     const props = { "data-x": "1", id: "y" };
-    const html = renderToString(() => <Dynamic component="div" {...props} />);
+    const Div = dynamic(() => "div");
+    const html = renderToString(() => <Div {...props} />);
     expect(html).toContain('data-x="1"');
     expect(html).toContain('id="y"');
   });

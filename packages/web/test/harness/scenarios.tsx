@@ -36,7 +36,6 @@ import {
 } from "solid-js";
 import {
   Portal,
-  Dynamic,
   dynamic,
   httpStatus,
   httpHeader,
@@ -1711,13 +1710,14 @@ function MemoElementList() {
 }
 
 let setSepDynSuffix!: (v: string) => void;
+const SepLi = dynamic(() => "li");
 function DynamicElementList() {
   const [suffix, set] = createSignal("");
   setSepDynSuffix = set;
   return (
     <ul>
       {[1, 2, 3].map(i => (
-        <Dynamic component="li">{`${i}${suffix()}`}</Dynamic>
+        <SepLi>{`${i}${suffix()}`}</SepLi>
       ))}
     </ul>
   );

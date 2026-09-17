@@ -11,7 +11,7 @@ import {
   Repeat,
   Switch,
   Match,
-  Dynamic,
+  dynamic,
   escape
 } from "@solidjs/web";
 import { createMemo } from "solid-js";
@@ -42,6 +42,8 @@ function asyncValue<T>(value: T, ms = 5): Promise<T> {
 describe("SSR escaping of values a function yields", () => {
   test("string produced by a flow-control memo is escaped (the report)", () => {
     const Text = () => XSS;
+    const DynText = dynamic(() => Text);
+    const DynThunk = dynamic(() => (() => () => XSS) as any);
     const cases: Array<[string, () => any]> = [
       [
         "direct component",
@@ -52,10 +54,10 @@ describe("SSR escaping of values a function yields", () => {
         )
       ],
       [
-        "Dynamic component",
+        "dynamic() component",
         () => (
           <div>
-            <Dynamic component={Text} />
+            <DynText />
           </div>
         )
       ],
@@ -155,7 +157,7 @@ describe("SSR escaping of values a function yields", () => {
         "component returning a thunk",
         () => (
           <div>
-            <Dynamic component={(() => () => XSS) as any} />
+            <DynThunk />
           </div>
         )
       ]
@@ -167,10 +169,11 @@ describe("SSR escaping of values a function yields", () => {
 
   test("arrays a memo yields are escaped item-wise, nodes untouched", () => {
     const Rows = () => [XSS, <b>{XSS}</b>, 7, null, XSS];
+    const DynRows = dynamic(() => Rows);
     const html = stripKeys(
       renderToString(() => (
         <div>
-          <Dynamic component={Rows} />
+          <DynRows />
         </div>
       ))
     );
@@ -189,6 +192,9 @@ describe("no double escaping", () => {
   test("template holes inside flow controls escape exactly once", () => {
     const s = "<b>&</b>";
     const once = "&lt;b>&amp;&lt;/b>";
+    const DynFragment = dynamic(() => () => [s, <p>{s}</p>]);
+    const DynPassthrough = dynamic(() => (p: any) => p.children);
+    const DynParagraph = dynamic(() => (p: any) => <p>{p.children}</p>);
     const cases: Array<[string, () => any]> = [
       [
         "element in Show",
@@ -229,7 +235,7 @@ describe("no double escaping", () => {
         "For rows with nested For",
         () => <For each={[[s]]}>{row => <For each={row}>{v => v}</For>}</For>
       ],
-      ["fragment from component", () => <Dynamic component={() => [s, <p>{s}</p>]} />],
+      ["fragment from component", () => <DynFragment />],
       [
         "attribute in Show",
         () => (
@@ -256,13 +262,13 @@ describe("no double escaping", () => {
           </Loading>
         )
       ],
-      ["passthrough component", () => <Dynamic component={(p: any) => p.children}>{s}</Dynamic>],
+      ["passthrough component", () => <DynPassthrough>{s}</DynPassthrough>],
       [
         "passthrough component around Show",
         () => (
-          <Dynamic component={(p: any) => <p>{p.children}</p>}>
+          <DynParagraph>
             <Show when={true}>{s}</Show>
-          </Dynamic>
+          </DynParagraph>
         )
       ]
     ];
