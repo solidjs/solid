@@ -539,6 +539,12 @@ module.exports = [
     // Hydration claim-path trim (#3513, 2026-09-17): measured at 16,517 B against
     // current `next`'s 16,495 (+22). The fixed-shape `_snapshotValue` cleanup
     // replaces `delete` with assignment; the pure core floor shrinks by 1 B.
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
+    // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
+    // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
+    // measured at 16,509 B against `next`'s 16,495 — compressor layout, the
+    // deltas across the ten scenarios run -19…+45 B in both directions.
     limit: "16.55 KB",
     modifyEsbuildConfig
   },
@@ -925,6 +931,12 @@ module.exports = [
     // hydrating body that marks the snapshot root; a resume window records its
     // boundary owner and `sharedConfig.isClaiming` walks `_parent` to it;
     // @solidjs/web's isHydrating consults it. 0 B in the signals floor.
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
+    // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
+    // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
+    // measured at 19,894 B against `next`'s 19,849 — compressor layout, the
+    // deltas across the ten scenarios run -19…+45 B in both directions.
     limit: "20.05 KB",
     modifyEsbuildConfig
   },
@@ -1229,7 +1241,13 @@ module.exports = [
     // 15,170 B before the #3496 rebase (+30 over its base); 0 B minified in
     // the signals floor (24,578 flat). Combined with `_parent` mangling:
     // 15,250 B; cap ratcheted to the measured output.
-    limit: "15.25 KB",
+    // Shared read predicates (DESIGN-CONSOLIDATION move 3b step 1, 2026-09-17):
+    // readerSeesCommitted / visibleOverride / one hasActiveOverride. Minified
+    // signals: core +13 B, +createStore -38 B, full bundle -72 B; brotli on the
+    // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
+    // measured at 15,271 B against `next`'s 15,243 — compressor layout, the
+    // deltas across the ten scenarios run -19…+45 B in both directions.
+    limit: "15.30 KB",
     modifyEsbuildConfig
   },
   {

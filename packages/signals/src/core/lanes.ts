@@ -4,7 +4,8 @@ import {
   NOT_PENDING,
   REACTIVE_DISPOSED
 } from "./constants.js";
-import { currentOptimisticLane, ext } from "./core.js";
+import { currentOptimisticLane, ext, hasActiveOverride } from "./core.js";
+export { hasActiveOverride };
 import { enqueueSub } from "./heap.js";
 import {
   activeTransition,
@@ -199,14 +200,6 @@ export function resolveTransition(el: Signal<any> | Computed<any>): Transition |
     if (el._x !== null) el._x._overrideOwner = null;
   }
   return resolveLane(el)?._transition ?? el._transition;
-}
-
-/**
- * Check if a node has an active optimistic override.
- */
-export function hasActiveOverride(el: Signal<any> | Computed<any>): boolean {
-  const x = el._x;
-  return x !== null && x._overrideValue !== undefined && x._overrideValue !== NOT_PENDING;
 }
 
 /**

@@ -1631,6 +1631,50 @@ export function enterStagedRead(
   globalQueue.initTransition(t);
 }
 
+/**
+ * Rule 1 (value selection), the full arm: does this reader see a STAGED
+ * node's COMMITTED value? One implementation of the rule the fast paths
+ * (readNodeFast, read's fast block) carry as their trivial ternary and that
+ * every slow site — read's tail, the store's backing selection, the lane and
+ * verdict arms — used to restate by hand (DESIGN-CONSOLIDATION, move 3b). In order:
+ * - no reader at all (an untracked read) — the committed frame;
+ * - a reader under an optimistic lane the engine says reads committed
+ *   (laneReadsCommitted: another lane's hold, #3460);
+ * - nothing staged;
+ * - a children-forbidden reader (createTrackedEffect / onSettled: the frame,
+ *   never the graph — A32);
+ * - a stale reader (render effect) of a FOREIGN transaction's staged write —
+ *   committed, no entanglement (heldFromStale registers the replay; a node
+ *   born held has no committed frame to fall back to, `noCommitted`);
+ * - A17 for HELD truth (#3164, CONFIG_HELD_TRUTH): staged confirming truth —
+ *   fold-staged onto an armed family, or entangle-stolen by an awaited
+ *   until() — is masked from ordinary readers until its transaction's
+ *   reveal, the retaining transaction's own speculative recomputes included
+ *   (partial override coverage would otherwise compose override + staged
+ *   truth into a state no timeline contains). Authoritative readers
+ *   (until()'s predicate) and latest() see the staged truth — the tunnel that
+ *   keeps the hold deadlock-free.
+ * False means the reader derives from the staged value and enters its
+ * transaction (enterStagedRead, A29).
+ */
+export function readerSeesCommitted(
+  el: Signal<any> | Computed<any>,
+  c: Computed<any> | null,
+  owner: Signal<any> | Computed<any>,
+  noCommitted: boolean
+): boolean {
+  return !!(
+    !c ||
+    (currentOptimisticLane !== null && GlobalQueue._laneReadsCommitted!(el, owner, c)) ||
+    el._pendingValue === NOT_PENDING ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN ||
+    (stale && !noCommitted && heldFromStale(el, c)) ||
+    (el._config & CONFIG_HELD_TRUTH &&
+      !latestReadActive &&
+      !(c._config & CONFIG_AUTHORITATIVE_READ))
+  );
+}
+
 /** A28 — set when a node is staged (queuePendingNode) or a held node rewritten
  * (stashHeldRewrite) OUTSIDE a flush; cleared when the next flush begins. The
  * read sites test this one module boolean instead of `globalQueue._running`:
@@ -1684,6 +1728,22 @@ const promotedWrites: Array<Signal<any> | Computed<any>> = [];
 export function unflushedOverride(el: Signal<any> | Computed<any>): boolean {
   // Companions are optimistic signals written by the engine (see unflushed).
   return !globalQueue._running && el._x?._overrideTime === clock && !el._x?._parentSource;
+}
+/** Active optimistic override on an armed node (an armed slot idles at
+ * NOT_PENDING; undefined = unarmed plain node). The writer's own channels —
+ * the draft, `in`/keys inside the setter — compose on this regardless of
+ * flush state. */
+export function hasActiveOverride(el: Signal<any> | Computed<any>): boolean {
+  const x = el._x;
+  return x !== null && x._overrideValue !== undefined && x._overrideValue !== NOT_PENDING;
+}
+/** The override a READER sees: installed, and carried by a flush (A28 (5) —
+ * an optimistic write is a write; until its flush no reader sees it). One
+ * implementation for read()'s override arm, the verdict channels
+ * (latestRead, computePendingState) and the store's selection
+ * (DESIGN-CONSOLIDATION, move 3b). */
+export function visibleOverride(el: Signal<any> | Computed<any>): boolean {
+  return hasActiveOverride(el) && !unflushedOverride(el);
 }
 /** A derivation served the committed value because of an unflushed write
  * (A28) must run again in the flush that carries it — the late-linker case
@@ -1933,7 +1993,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       nodeName: (owner as any)?._name
     });
 
-  if (el._x?._overrideValue !== undefined && el._x?._overrideValue !== NOT_PENDING) {
+  if (hasActiveOverride(el)) {
     // A17: the override IS the value for every reader — except an authoritative
     // reader (until()'s predicate carries CONFIG_AUTHORITATIVE_READ): it must
     // observe independently-arriving truth, and serving it the caller's own
@@ -1997,26 +2057,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (pendingCheckActive) GlobalQueue._recordFresh!(el, u);
     return u as T;
   }
-  const value =
-    !c ||
-    (currentOptimisticLane !== null &&
-      GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
-    el._pendingValue === NOT_PENDING ||
-    c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && !noCommitted && heldFromStale(el, c as Computed<any>)) ||
-    // A17 for HELD truth (#3164, see CONFIG_HELD_TRUTH): staged confirming
-    // truth — fold-staged onto an armed family, or entangle-stolen by an
-    // awaited until() — is masked from ordinary readers until its
-    // transaction's reveal; the retaining transaction's own speculative
-    // recomputes included (partial override coverage would otherwise
-    // compose override + staged truth into a state no timeline contains).
-    // Authoritative readers (until()'s predicate) and latest() see the
-    // staged truth — the tunnel that keeps the hold deadlock-free.
-    (el._config & CONFIG_HELD_TRUTH &&
-      !latestReadActive &&
-      !((c as Computed<any>)._config & CONFIG_AUTHORITATIVE_READ))
-      ? el._value
-      : (enterStagedRead(el), el._pendingValue as T);
+  const value = readerSeesCommitted(el, c as Computed<any> | null, owner, noCommitted)
+    ? el._value
+    : (enterStagedRead(el), el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
   // the probe doesn't pair "pending" with the new value (#2831).
   if (pendingCheckActive) GlobalQueue._recordFresh!(el, value);

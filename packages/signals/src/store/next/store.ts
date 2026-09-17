@@ -36,7 +36,8 @@ import {
   isEqual,
   latestReadActive,
   stale,
-  unflushedOverride,
+  hasActiveOverride,
+  visibleOverride,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -1757,18 +1758,7 @@ export function runAuthoritative<T>(fn: () => T): T {
   }
 }
 
-/** Active optimistic override on an armed node (armed slot idles at
- * NOT_PENDING; undefined = unarmed plain node). */
-export function hasActiveOverride(node: Signal<any>): boolean {
-  return node._x?._overrideValue !== undefined && node._x?._overrideValue !== NOT_PENDING;
-}
-/** The override a READER sees: installed, and carried by a flush (A28 (5) —
- * an optimistic write is a write; until its flush no reader sees it). The
- * writer's own channels (the draft, `in`/keys inside the setter) compose on
- * the installed override regardless — they use hasActiveOverride. */
-export function visibleOverride(node: Signal<any>): boolean {
-  return hasActiveOverride(node) && !unflushedOverride(node);
-}
+export { hasActiveOverride, visibleOverride };
 
 /** The reading computation is until()'s authoritative-view predicate — same
  * source of truth as core read()'s A17 carve-out (`context`, which persists
@@ -1806,7 +1796,7 @@ function nodeValue(node: Signal<any>, backing: any): any {
   // only: staged pending values are authoritative, overrides are the
   // caller's optimism.
   const v =
-    !authoritativeServe() && hasActiveOverride(node) && !unflushedOverride(node)
+    !authoritativeServe() && visibleOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
       : node._pendingValue !== NOT_PENDING &&
           (latestReadActive ||
