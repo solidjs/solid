@@ -1130,7 +1130,12 @@ module.exports = [
     // as the signal path always was (core recordStaleReplay, shared with
     // heldFromStale). +31 B minified core, +123 B minified store (the fix,
     // posture-store-parity S4); measured at 30,034 B.
-    limit: "30.05 KB",
+    // A29 at the store's untracked paths (move 3b step 4, 2026-09-17): a
+    // deriving reader served a held store value enters the transaction as it
+    // does for a signal (nodeValue, pendingBackingVisible, the adoption-hold
+    // view call enterStagedRead). +1 B minified core, +130 B minified store
+    // (the fix, posture-store-parity S5); measured at 30,104 B.
+    limit: "30.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -1489,7 +1494,12 @@ module.exports = [
     // consumer (enable, subscribe, formatRerun) and ships none of them. The
     // formatters stay in the engine because the `log` option prints through
     // them. Ratcheted down to pin the reduction.
-    limit: "27.25 KB",
+    // A29 at the store's untracked paths (move 3b step 4, 2026-09-17): a
+    // deriving reader served a held store value enters the transaction as it
+    // does for a signal (nodeValue, pendingBackingVisible, the adoption-hold
+    // view call enterStagedRead). +1 B minified core, +130 B minified store
+    // (the fix, posture-store-parity S5); measured at 27,262 B.
+    limit: "27.30 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

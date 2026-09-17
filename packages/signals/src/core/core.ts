@@ -1602,16 +1602,18 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
 let stagedEntry: Transition | null = null;
 
 export function enterStagedRead(
-  el: Signal<any> | Computed<any>,
-  t: Transition | null | undefined = el._transition
+  el: Signal<any> | Computed<any> | null,
+  t: Transition | null | undefined = el!._transition
 ): void {
   if (!t || t === activeTransition || pendingCheckActive) return;
   // A companion (the latest() shadow, the isPending() verdict signal) is the
   // engine's mirror of the flushed world — reading it, or being it, is an
   // observation, not a derivation from the hold: latest(x) never enters x's
   // transaction, and the shadow's own pass never enters either (it would
-  // flip activeTransition under the reader that pulled it).
-  if (el._x?._parentSource || (context as Computed<any> | null)?._x?._parentSource) return;
+  // flip activeTransition under the reader that pulled it). (`el` is null for
+  // a store backing served under a hold — no node, the transaction is the
+  // fold's.)
+  if (el?._x?._parentSource || (context as Computed<any> | null)?._x?._parentSource) return;
   // Verdict machinery (GlobalQueue._verdictPull: companion creation and the
   // latest()/isPending() pulls — the latest() shadow is created before it is
   // marked optimistic, so the bit alone cannot tell) and optimistic nodes
@@ -1641,7 +1643,7 @@ export function enterStagedRead(
  * node's COMMITTED value? One implementation of the rule the fast paths
  * (readNodeFast, read's fast block) carry as their trivial ternary and that
  * every slow site — read's tail, the store's backing selection, the lane and
- * verdict arms — used to restate by hand (DESIGN-CONSOLIDATION, move 3b). In order:
+ * verdict arms — used to restate by hand (docs/DESIGN-CONSOLIDATION.md, move 3b). In order:
  * - no reader at all (an untracked read) — the committed frame;
  * - a reader under an optimistic lane the engine says reads committed
  *   (laneReadsCommitted: another lane's hold, #3460);
@@ -1746,7 +1748,7 @@ export function hasActiveOverride(el: Signal<any> | Computed<any>): boolean {
  * an optimistic write is a write; until its flush no reader sees it). One
  * implementation for read()'s override arm, the verdict channels
  * (latestRead, computePendingState) and the store's selection
- * (DESIGN-CONSOLIDATION, move 3b). */
+ * (docs/DESIGN-CONSOLIDATION.md, move 3b). */
 export function visibleOverride(el: Signal<any> | Computed<any>): boolean {
   return hasActiveOverride(el) && !unflushedOverride(el);
 }

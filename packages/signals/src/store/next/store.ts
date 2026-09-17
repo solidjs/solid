@@ -40,6 +40,7 @@ import {
   visibleOverride,
   readerSeesCommitted,
   recordStaleReplay,
+  enterStagedRead,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -422,6 +423,17 @@ function heldFromReader(target: StoreNextTarget): boolean {
 function staleReplay(txn: Transition): void {
   const c = readerContext();
   if (c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) recordStaleReplay(txn, c);
+}
+
+/** The other half of serving a held backing: a deriving reader (a pass in
+ * owner context) served the pending backing a live transaction holds
+ * derives from that transaction's world and enters it (A29, core
+ * enterStagedRead on the same arm) — its result is held with the fold, not
+ * published into the mainline frame. Without it a mainline memo's untracked
+ * read of a held key (`untrack(() => s.n)`, `deep(s)`) published the
+ * unrevealed value while the same read of a signal was born held. */
+function enterHeldBacking(target: StoreNextTarget, txn = liveFoldTransition(target)): void {
+  if (txn !== null && readerContext() !== null) enterStagedRead(null, txn);
 }
 
 /** Core read()'s `activeTransition !== el._transition`: a hold belongs to a
@@ -1688,6 +1700,10 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
       if (target.ht !== PLAIN_HOLD) staleReplay(currentTransition(target.ht as Transition));
       return hv;
     }
+  } else if (target.ht !== null && !latestReadActive && !inDraft(target) && !getWriteOverride()) {
+    // An owner-context deriving reader served the ADOPTED view under a live
+    // adoption hold derives from the adoption's transaction (A29).
+    enterHeldBacking(target, heldAdoptionTransition(target));
   }
   return pendingBackingVisible(target, false) ? target.pb! : target.v;
 }
@@ -1721,7 +1737,10 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
       // ordinary readers keep committed until the transaction's reveal).
       // Stale readers and owner-less peeks of a TRANSACTION-held backing see
       // committed, as core read() serves them (#3336, heldFromReader).
-      ((speculative || inOwnerContext()) && !heldTruthMasked(target) && !heldFromReader(target)) ||
+      ((speculative || inOwnerContext()) &&
+        !heldTruthMasked(target) &&
+        !heldFromReader(target) &&
+        (enterHeldBacking(target), true)) ||
       // A projection's pending backing is authoritative-elect: serve it to
       // context-free readers too UNLESS a transition is holding the node
       // commits (downstream async hold — stale committed is the contract)
@@ -1830,7 +1849,12 @@ function nodeValue(node: Signal<any>, backing: any): any {
           // parent computed).
           (latestReadActive ||
             authoritativeServe() ||
-            !readerSeesCommitted(node, readerContext(), (node as any)._firewall || node, false))
+            // A deriving reader served the staged value enters its
+            // transaction (A29) as core read() does on the same arm: the
+            // pass is the hold's, its result held with it — an untracked read
+            // inside a mainline memo must not publish the unrevealed frame.
+            (!readerSeesCommitted(node, readerContext(), (node as any)._firewall || node, false) &&
+              (enterStagedRead(node), true)))
         ? node._pendingValue
         : backing;
   return v === (FORCE as any) ? backing : v;
