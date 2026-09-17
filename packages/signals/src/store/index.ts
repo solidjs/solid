@@ -28,7 +28,9 @@ export {
   SOURCE_PLAIN,
   SOURCE_OMIT,
   SOURCE_PROXY,
-  SOURCE_MEMO
+  SOURCE_MEMO,
+  SOURCE_MERGE,
+  sourceOwners
 } from "./utils.js";
 export type { SourceKind } from "./utils.js";
 

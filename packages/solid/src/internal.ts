@@ -36,12 +36,14 @@ export {
   sourceKeys,
   sourceHas,
   sourceGet,
+  sourceOwners,
   hasStaticKeys,
   resolvedTable,
   SOURCE_PLAIN,
   SOURCE_OMIT,
   SOURCE_PROXY,
   SOURCE_MEMO,
+  SOURCE_MERGE,
   type SourceKind
 } from "@solidjs/signals";
 
