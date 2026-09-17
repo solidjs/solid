@@ -28,6 +28,7 @@ import {
   CONFIG_DERIVED_OVERRIDE,
   CONFIG_OVERRIDE_SUPERSEDED,
   CONFIG_OWNED_WRITE,
+  CONFIG_ADOPTED_UNFLUSHED,
   CONFIG_PROMOTED,
   CONFIG_SLOT_NODE,
   CONFIG_SYNC,
@@ -1660,8 +1661,11 @@ export function unflushedValue(el: Signal<any> | Computed<any>): unknown {
     el._x?._parentSource
   )
     return NOT_PENDING;
-  if (el._transition === null) return el._value;
-  // A held node: unflushed only if rewritten since the last flush (stash).
+  // Ambient, or adopted by a transaction before any flush carried the staging
+  // (CONFIG_ADOPTED_UNFLUSHED): nothing flushed is staged — the committed
+  // value answers. A held node: unflushed only if rewritten since the last
+  // flush (stash).
+  if (el._transition === null || el._config & CONFIG_ADOPTED_UNFLUSHED) return el._value;
   return el._x === null ? NOT_PENDING : el._x._flushedStaged;
 }
 /** Held nodes rewritten since the last flush (setSignal); the flush clears

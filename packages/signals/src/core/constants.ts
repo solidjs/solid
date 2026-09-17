@@ -163,6 +163,14 @@ export const CONFIG_INPUTS_PUBLISHED = 1 << 21;
  * a write is promoted at that recompute's end: readers in the same block see
  * it. Cleared when the next flush begins; set only on that rare path. */
 export const CONFIG_PROMOTED = 1 << 22;
+/** A28 for same-tick adoption: the node was staged outside a flush and then
+ * adopted by a transaction (initTransition) before any flush carried the
+ * staging — the stamp says "held", but nothing flushed is staged for it, so
+ * on no channel is the write visible yet: `latest()` answers the committed
+ * value, the verdict sees nothing pending (as the store's leaves already did
+ * through their own selection). Cleared when the carrying flush re-stamps the
+ * transaction's pending nodes (reassignPendingTransition). */
+export const CONFIG_ADOPTED_UNFLUSHED = 1 << 24;
 /** The node's active override is a DERIVED one: a lane pass published its
  * speculative result into the override slot instead of `_value` (lanes
  * stage — an optimistic derivation is an override, #3479). Its truth is not

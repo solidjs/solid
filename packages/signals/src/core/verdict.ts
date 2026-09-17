@@ -4,6 +4,7 @@
  * never import isPending/latest never pay for any of it.
  */
 import {
+  CONFIG_ADOPTED_UNFLUSHED,
   CONFIG_CHILD_COMPANIONS,
   NOT_PENDING,
   unwrapOverride,
@@ -170,11 +171,12 @@ function joinUnflushedResync(el: Signal<any> | Computed<any>): void {
  * flushed world, so the channels answer for the value the last flush left
  * staged (a held node's stash) or for nothing (NOT_PENDING). */
 function flushedStaged(el: Signal<any> | Computed<any>): unknown {
-  return unflushed(el)
-    ? el._transition === null
-      ? NOT_PENDING
-      : el._x!._flushedStaged
-    : el._pendingValue;
+  if (!unflushed(el)) return el._pendingValue;
+  // Ambient, or adopted before any flush (CONFIG_ADOPTED_UNFLUSHED): nothing
+  // a flush carried is staged for it. A held rewrite: the stash.
+  return el._transition === null || el._config & CONFIG_ADOPTED_UNFLUSHED
+    ? NOT_PENDING
+    : el._x!._flushedStaged;
 }
 
 function collectPendingSources(el: Signal<any> | Computed<any>): void {
