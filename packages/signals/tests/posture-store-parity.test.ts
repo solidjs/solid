@@ -37,7 +37,8 @@ import {
   createStore,
   flush,
   isPending,
-  latest
+  latest,
+  untrack
 } from "../src/index.js";
 
 const never = () => new Promise<never>(() => {});
@@ -119,5 +120,113 @@ describe("S2 — creation in boundary content over a held value publishes it (OB
     expect(s.n).toBe(0);
     expect(behindFallback(() => s.n)).toEqual([1]);
     expect(s.n).toBe(0);
+  });
+});
+
+/** A render effect (stale reader) whose UNTRACKED read is of a value held by
+ * a foreign action: it is served committed (A15 / A26) and — because the
+ * commit will change what it read — is recorded for replay at that commit
+ * (core heldFromStale, the `_gatedSubs` contract). The signal side always
+ * did this; the store's node path restated the stale-of-foreign clause
+ * without the registration (nodeValue's `foreignHold` twin), so the effect
+ * showed the committed value after the action settled, permanently. Both
+ * paths now go through one readerSeesCommitted. */
+function untrackedStaleReplay(read: () => number, hold: () => void, release: () => void) {
+  const [u, setU] = createSignal(0);
+  const log: number[] = [];
+  createRoot(() => {
+    createRenderEffect(
+      () => {
+        u();
+        return untrack(read);
+      },
+      v => {
+        log.push(v);
+      }
+    );
+  });
+  flush();
+  hold();
+  flush();
+  setU(1); // the stale reader re-runs off the hold: committed
+  flush();
+  const held = [...log];
+  release();
+  return { held, log };
+}
+const settle = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+};
+
+describe("S4 — a stale reader's untracked read of a foreign hold replays at the hold's commit (A15 / A26 replay contract) — signal vs store", () => {
+  it("signal: committed while held, the new value after the action settles", async () => {
+    const [x, setX] = createSignal(0);
+    let release!: () => void;
+    const r = untrackedStaleReplay(
+      x,
+      () =>
+        action(function* () {
+          setX(1);
+          yield new Promise<void>(res => (release = res));
+        })(),
+      () => release()
+    );
+    expect(r.held).toEqual([0, 0]);
+    await settle();
+    expect(r.log).toEqual([0, 0, 1]);
+  });
+  it("store leaf with a node: committed while held, the new value after the action settles", async () => {
+    const [s, setS] = createStore({ n: 0 });
+    // A tracked reader materializes the node for `n`; the untracked read
+    // then serves through it (nodeValue).
+    createRoot(() =>
+      createRenderEffect(
+        () => s.n,
+        () => {}
+      )
+    );
+    flush();
+    let release!: () => void;
+    const r = untrackedStaleReplay(
+      () => s.n,
+      () =>
+        action(function* () {
+          setS(d => {
+            d.n = 1;
+          });
+          yield new Promise<void>(res => (release = res));
+        })(),
+      () => release()
+    );
+    expect(r.held).toEqual([0, 0]);
+    await settle();
+    expect(r.log).toEqual([0, 0, 1]);
+  });
+  // The backing twin (pendingBackingVisible / heldFromReader) serves the key
+  // with no node the same committed value but has no node to record the
+  // reader on — the effect never replays. Rule 1's backing-level form is an
+  // open item of DESIGN-CONSOLIDATION move 3b (step 3).
+  it.fails("store leaf WITHOUT a node: the same replay (backing twin gap)", async () => {
+    const [s, setS] = createStore({ n: 0 });
+    let release!: () => void;
+    const r = untrackedStaleReplay(
+      () => s.n,
+      () =>
+        action(function* () {
+          setS(d => {
+            d.n = 1;
+          });
+          yield new Promise<void>(res => (release = res));
+        })(),
+      () => release()
+    );
+    expect(r.held).toEqual([0, 0]);
+    await settle();
+    expect(r.log).toEqual([0, 0, 1]);
   });
 });

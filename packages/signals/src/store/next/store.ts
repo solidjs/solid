@@ -38,6 +38,7 @@ import {
   stale,
   hasActiveOverride,
   visibleOverride,
+  readerSeesCommitted,
   prepareComputed,
   read as readNode,
   READ_SLOW,
@@ -66,7 +67,7 @@ import {
   setProjectionWriteActive,
   setStoreCommitHook
 } from "../../core/scheduler.js";
-import type { Owner, Signal } from "../../core/types.js";
+import type { Computed, Owner, Signal } from "../../core/types.js";
 import { pendingCheckActive, strictRead } from "../../core/core.js";
 import {
   DEV,
@@ -1613,11 +1614,17 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
  * computed (#2687 — untracked reads inside mapArray Roots see in-flight
  * values mid-flush). CHILDREN_FORBIDDEN execution scopes (createTrackedEffect
  * / onSettled callbacks) get COMMITTED visibility (#3006), same as core. */
-function inOwnerContext(): boolean {
+/** Core read()'s reader: the current computation, a root reading as its
+ * parent computed (`context` persists under untrack — an untracked read
+ * inside an effect is still that effect's read). */
+function readerContext(): Computed<any> | null {
   const c: any = getOwner();
-  if (c === null) return false;
-  const eff = c._root ? c._parentComputed : c;
-  return eff != null && !(eff._config & CONFIG_CHILDREN_FORBIDDEN);
+  return c === null ? null : c._root ? (c._parentComputed ?? null) : c;
+}
+
+function inOwnerContext(): boolean {
+  const eff = readerContext();
+  return eff !== null && !(eff._config & CONFIG_CHILDREN_FORBIDDEN);
 }
 
 /** CHILDREN_FORBIDDEN execution scope (createTrackedEffect / onSettled
@@ -1799,20 +1806,17 @@ function nodeValue(node: Signal<any>, backing: any): any {
     !authoritativeServe() && visibleOverride(node)
       ? unwrapOverride(node._x?._overrideValue)
       : node._pendingValue !== NOT_PENDING &&
+          // Store-only tunnels first: latest() reaches this untracked path for
+          // store keys (#3075) and truth authors (authoritativeServe: the
+          // projection derive's draft, write-override) see staged truth
+          // unconditionally. Then Rule 1's committed-vs-staged arm — the
+          // same readerSeesCommitted core read() serves tracked reads by
+          // (owner context, children-forbidden, stale-of-foreign, HELD truth,
+          // lanes) — with core's context selection (a root reads as its
+          // parent computed).
           (latestReadActive ||
-            // Owner-context pending visibility — except HELD truth (#3164,
-            // see CONFIG_HELD_TRUTH: fold-staged or entangle-stolen
-            // confirming truth), which only authoritative/latest readers
-            // see (core read()'s A17-for-held-truth twin; ordinary readers
-            // keep committed until the transaction's reveal — latest() is
-            // exempted by the leading arm above).
-            // — and core read()'s stale-reader clause: a render effect's
-            // untracked read of a FOREIGN transaction's write sees committed
-            // (#3336; the tracked read reaches core read() and already does).
-            (((inOwnerContext() &&
-              !(stale && node._transition !== null && foreignHold(node._transition))) ||
-              authoritativeServe()) &&
-              !(node._config & CONFIG_HELD_TRUTH && !authoritativeServe())))
+            authoritativeServe() ||
+            !readerSeesCommitted(node, readerContext(), (node as any)._firewall || node, false))
         ? node._pendingValue
         : backing;
   return v === (FORCE as any) ? backing : v;
