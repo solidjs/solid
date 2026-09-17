@@ -542,7 +542,13 @@ module.exports = [
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
     // measured at 16,509 B against `next`'s 16,495 — compressor layout, the
     // deltas across the ten scenarios run -19…+45 B in both directions.
-    limit: "16.55 KB",
+    // Stale-reader replay at the backing (move 3b step 3, 2026-09-17): a
+    // render effect's untracked read of a store key held by a foreign action
+    // — no node, or an adoption hold — is recorded for replay at the commit
+    // as the signal path always was (core recordStaleReplay, shared with
+    // heldFromStale). +31 B minified core, +123 B minified store (the fix,
+    // posture-store-parity S4); measured at 16,580 B.
+    limit: "16.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -925,7 +931,13 @@ module.exports = [
     // pure-signals fixtures -4 / -29 / -5 B. This scenario's esbuild bundle
     // measured at 19,894 B against `next`'s 19,849 — compressor layout, the
     // deltas across the ten scenarios run -19…+45 B in both directions.
-    limit: "19.90 KB",
+    // Stale-reader replay at the backing (move 3b step 3, 2026-09-17): a
+    // render effect's untracked read of a store key held by a foreign action
+    // — no node, or an adoption hold — is recorded for replay at the commit
+    // as the signal path always was (core recordStaleReplay, shared with
+    // heldFromStale). +31 B minified core, +123 B minified store (the fix,
+    // posture-store-parity S4); measured at 19,902 B.
+    limit: "19.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -1112,7 +1124,13 @@ module.exports = [
     // A projection's leaf companions die with it; latest() of a dead leaf creates
     // none (spec O5, 2026-09-16): 29,953 B (+43 over the cap); +104 B minified in
     // owner.ts (core floor), the shadow retirement lives in verdict.ts.
-    limit: "30.00 KB",
+    // Stale-reader replay at the backing (move 3b step 3, 2026-09-17): a
+    // render effect's untracked read of a store key held by a foreign action
+    // — no node, or an adoption hold — is recorded for replay at the commit
+    // as the signal path always was (core recordStaleReplay, shared with
+    // heldFromStale). +31 B minified core, +123 B minified store (the fix,
+    // posture-store-parity S4); measured at 30,034 B.
+    limit: "30.05 KB",
     modifyEsbuildConfig
   },
   {

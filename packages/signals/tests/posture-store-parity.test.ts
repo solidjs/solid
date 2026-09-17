@@ -38,6 +38,7 @@ import {
   flush,
   isPending,
   latest,
+  reconcile,
   untrack
 } from "../src/index.js";
 
@@ -208,10 +209,9 @@ describe("S4 — a stale reader's untracked read of a foreign hold replays at th
     expect(r.log).toEqual([0, 0, 1]);
   });
   // The backing twin (pendingBackingVisible / heldFromReader) serves the key
-  // with no node the same committed value but has no node to record the
-  // reader on — the effect never replays. Rule 1's backing-level form is an
-  // open item of DESIGN-CONSOLIDATION move 3b (step 3).
-  it.fails("store leaf WITHOUT a node: the same replay (backing twin gap)", async () => {
+  // with no node the same committed value; it records the reader on the
+  // holding transaction directly (staleReplay → core recordStaleReplay).
+  it("store leaf WITHOUT a node: the same replay (backing twin)", async () => {
     const [s, setS] = createStore({ n: 0 });
     let release!: () => void;
     const r = untrackedStaleReplay(
@@ -229,4 +229,34 @@ describe("S4 — a stale reader's untracked read of a foreign hold replays at th
     await settle();
     expect(r.log).toEqual([0, 0, 1]);
   });
+  // The other hold kind: an adoption (reconcile inside an action) holds at
+  // the backing (`ht`, #3074) — the held view is served to the stale reader
+  // by readSource, and the same replay is recorded there.
+  for (const withNode of [false, true]) {
+    it(`store reconcile held by a live action, ${withNode ? "with" : "without"} a node: the same replay`, async () => {
+      const [s, setS] = createStore({ n: 0 });
+      if (withNode) {
+        createRoot(() =>
+          createRenderEffect(
+            () => s.n,
+            () => {}
+          )
+        );
+        flush();
+      }
+      let release!: () => void;
+      const r = untrackedStaleReplay(
+        () => s.n,
+        () =>
+          action(function* () {
+            setS(reconcile({ n: 1 }));
+            yield new Promise<void>(res => (release = res));
+          })(),
+        () => release()
+      );
+      expect(r.held).toEqual([0, 0]);
+      await settle();
+      expect(r.log).toEqual([0, 0, 1]);
+    });
+  }
 });
