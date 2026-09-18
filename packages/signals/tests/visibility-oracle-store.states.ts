@@ -368,14 +368,7 @@ export const STATES: State[] = [
           false,
           "A11 for structure: latest() sees the parked VALUE of `s.n` (#3075) but not the parked STRUCTURE — the has-node / key-set / descriptor channels have no latest() tunnel (structural oracle, 2026-09-17)"
         ),
-        isPending:
-          label === "descriptor"
-            ? violation(
-                true,
-                false,
-                "the descriptor trap reads no node, so an isPending() probe over it witnesses nothing (structural oracle, 2026-09-17)"
-              )
-            : rule(true, "A19 (i) / CS-R33: a held add pends the key"),
+        isPending: rule(true, "A19 (i) / CS-R33: a held add pends the key"),
         authoritative: rule(true, "A17 carve-out: staged structure is authoritative")
       }
     },
@@ -401,14 +394,7 @@ export const STATES: State[] = [
           true,
           "as for the value slot: a fresh mainline memo's publish-or-hold is not stated"
         ),
-        preexisting:
-          label === "descriptor"
-            ? violation(
-                true,
-                HELD,
-                "the descriptor trap subscribes to nothing: a pre-existing render effect inspecting the key through getOwnPropertyDescriptor never re-runs for the optimistic add (structural oracle, 2026-09-17)"
-              )
-            : rule(true, "A17: no downstream async, nothing to wait for"),
+        preexisting: rule(true, "A17: no downstream async, nothing to wait for"),
         staleForeign: rule(true, "A17"),
         childrenForbidden: rule(true, "A32: the override is the frame"),
         latest: rule(true, "A17 / OL-R11"),
@@ -441,14 +427,7 @@ export const STATES: State[] = [
           false,
           "as for the value slot: a fresh mainline memo's publish-or-hold is not stated"
         ),
-        preexisting:
-          label === "descriptor"
-            ? violation(
-                false,
-                HELD,
-                "the descriptor trap subscribes to nothing: a pre-existing render effect inspecting the key through getOwnPropertyDescriptor never re-runs for the optimistic delete (structural oracle, 2026-09-17)"
-              )
-            : rule(false, "A17: no downstream async, nothing to wait for"),
+        preexisting: rule(false, "A17: no downstream async, nothing to wait for"),
         staleForeign: rule(false, "A17"),
         childrenForbidden: rule(false, "A32: the override is the frame"),
         latest: rule(false, "A17 / OL-R11"),
