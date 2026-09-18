@@ -53,6 +53,7 @@ import {
   REACTIVE_REASK,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
+  REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
@@ -320,7 +321,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   context = el;
   el._depsTail = null;
   el._depGen++;
-  el._flags = REACTIVE_RECOMPUTING_DEPS;
+  // REACTIVE_ZOMBIE is position, not scheduling state: it says the node sits
+  // on its owner's `_pendingFirstChild` chain, and `disposeChildren` keys its
+  // parent-chain splice off it. A zombie reruns for mainline writes until the
+  // commit that disposes it (#3463), so the per-pass wipe here — and in the
+  // finally below and in updateIfNecessary — must carry it (#3543): a
+  // de-flagged zombie spliced itself out of the LIVE chain at disposal,
+  // orphaning the owner's current child, which stayed subscribed forever.
+  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
   el._time = clock;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
@@ -488,7 +496,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (markNode(c) in read()) marks the running node as part of ordinary
     // bookkeeping, and those marks are correctly discarded here.
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
-    el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
+    el._flags = (el._flags & REACTIVE_ZOMBIE) | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
   }
   // The cast re-widens: TS narrowed `stagedEntry` to `null` at the reset
@@ -871,7 +879,9 @@ function updateIfNecessary(el: Computed<unknown>): void {
     recompute(el);
   }
 
-  el._flags = el._flags & (REACTIVE_SNAPSHOT_STALE | REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT);
+  el._flags =
+    el._flags &
+    (REACTIVE_SNAPSHOT_STALE | REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT | REACTIVE_ZOMBIE);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
