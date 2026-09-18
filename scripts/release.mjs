@@ -103,13 +103,13 @@ run("node", ["scripts/verify-release-artifacts.mjs"]);
 // suite could see) — a release candidate that breaks the flagship adapter
 // must fail here, not on npm.
 //
-// The gate swaps in the workspace *runtime* but compiles the adapter with the
-// fixture's published compiler, so a release that changes the compiled-output
-// contract (rc.9: delegated events moved to the `_$$<type>` key) cannot pass
-// until that compiler is itself on npm — circular. SKIP_SOLID_QUERY_GATE names
-// the one version allowed through without it, so the skip expires with that
-// release; the follow-up is for the gate to pack the workspace compiler
-// alongside the core (#3534).
+// The gate packs this tree's compiler (@solidjs/compiler with the binding
+// built above, @solidjs/babel-plugin) alongside the core, so compiled output
+// and runtime are always the same release (#3534). A failure here is the
+// adapter disagreeing with this release's semantics. SKIP_SOLID_QUERY_GATE is
+// the emergency valve: it names the ONE version allowed through without the
+// gate, so a skip expires with that release and must be set deliberately in
+// release.yml — never left on.
 const coreVersion = JSON.parse(
   fs.readFileSync(new URL("../packages/solid/package.json", import.meta.url), "utf8")
 ).version;

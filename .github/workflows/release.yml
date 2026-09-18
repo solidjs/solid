@@ -40,7 +40,8 @@ jobs:
       # The workspace resolves @solidjs/compiler locally, so everything that
       # loads it through @solidjs/vite-plugin (the examples built by
       # release.mjs's `pnpm run build` included) needs the binding built —
-      # the root build script skips the Rust build.
+      # the root build script skips the Rust build. The TanStack Solid Query
+      # gate also hands this binding to the compiler it packs (#3534).
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -60,11 +61,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # rc.9 moves delegated events to the `_$$<type>` key; the solid-query
-          # fixture's published compiler still emits `$$<type>`, so the gate
-          # cannot pass until rc.9 itself ships (see scripts/release.mjs).
-          # Expires with this version — leave it until the fixture is bumped.
-          SKIP_SOLID_QUERY_GATE: 2.0.0-rc.9
+          # Emergency valve for the TanStack Solid Query gate: set to the exact
+          # version being released to let that ONE release through without it
+          # (see scripts/release.mjs). Self-expiring; remove after the release.
+          # SKIP_SOLID_QUERY_GATE: 2.0.0-rc.N
 
   # Installs the just-published packages from the real registry into a temp
   # project and exercises them (dist-tags, native compiler binary, runtime).
