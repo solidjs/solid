@@ -664,14 +664,22 @@ function wrapFirstYield(iterable: any, activate: () => void) {
  * the engine's pull for the next one is the handoff.
  *
  * Why a stream and not the thenable itself: the handoff must run only once
- * the answer has actually LANDED in the store. The engine drops a landing
- * whose flight was superseded or whose node was dirtied by a newer write
- * (asyncWrite's guards), and it only pulls a stream's next step after the
- * previous one committed — so `onLanded` fires from that pull exactly when
- * the landing applied, and never for a stale flight. A rejection is the
- * adopted answer (rule 3): the engine settles the error and pulls nothing
- * more, and `onRejected` only marks authority transferred so the next
- * non-handoff run (refresh(), a dependency change) runs the client source.
+ * the answer has actually LANDED in the store. This relies on the engine's
+ * flight contract — latest-run-wins supersession (PJ-R26 in the signals
+ * RULES-INDEX; flight-identity cancellation, #3122): `handleAsync` pulls a
+ * stream's next step only from the previous step's commit (`asyncWrite`'s
+ * continuation, `iterateOrRelease`), and it drops a landing whose flight is
+ * no longer the node's `_inFlight` or whose node a newer write dirtied
+ * (`asyncWrite`'s guards; a recompute nulls `_inFlight` and fires the flight
+ * teardown first). So the second `next()` pull is the landed-and-committed
+ * signal: `onLanded` fires exactly when the landing applied, and never for a
+ * superseded flight — a dependency change that re-ran the store before the
+ * landing (rule 4) leaves this stream orphaned and silent. A rejection is
+ * the adopted answer (rule 3): the engine settles the error and pulls
+ * nothing more, and `onRejected` only marks authority transferred so the
+ * next non-handoff run (refresh(), a dependency change) runs the client
+ * source. An orphaned stream's rejection reaches `onRejected` too, but the
+ * engine drops the error (same guard) and the store is already live.
  */
 function adoptedAnswerStream(thenable: any, onLanded: () => void, onRejected: () => void) {
   let pulled = false;
@@ -1225,14 +1233,24 @@ function hydrateStoreLikeFn(
     // 3. A rejected server answer is the adopted answer. It transfers
     //    authority without a handoff run, so the error stays visible until a
     //    non-handoff run replaces it.
+    // 4. A dependency change before the answer lands supersedes it. Like any
+    //    new pending change, it cancels the incoming server answer: the store
+    //    goes live on that run — genuinely new work, not a handoff, so its
+    //    first yield commits — and the abandoned flight's landing or
+    //    rejection is dropped by the engine (PJ-R26) and flips nothing.
     const id = peekNextChildId(getOwner()!);
     // Nothing serialized: no answer to wait for and nothing for a first
     // yield to duplicate — the client is authoritative from its first run.
     if (!sharedConfig.has!(id)) return coreFn(fn, initialValue, options);
     const initP = sharedConfig.load!(id);
     const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
-    const flip = () => setHydrated(true);
     let live = false;
+    // A late flip — a queued microtask, or a landing the engine kept for a
+    // flight this store has since abandoned — must not run a live store again.
+    const flip = () => {
+      if (!live) setHydrated(true);
+    };
+    let adopted = false;
     let creating = true;
     let landedOnCreate = false;
     const result = coreFn(
@@ -1245,14 +1263,22 @@ function hydrateStoreLikeFn(
           const r = fn(proxy);
           return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
         }
-        // Adoption. Re-entered only by a NotReady retry of the trace or a
-        // dependency change before the answer lands — the answer stays the
-        // server's (the same ref), so re-adopting is right; a stale flight's
-        // landing is dropped by the engine and never flips.
+        if (adopted) {
+          // Rule 4. The gate is down, so this is not the handoff; an adoption
+          // already returned, so it is not a NotReady retry of the trace
+          // either — a dependency changed. The recompute already released
+          // the adopted flight (recompute nulls `_inFlight` and fires the
+          // flight teardown), so the server's late landing is dropped and
+          // its second pull — the flip — never comes.
+          live = true;
+          return fn(draft);
+        }
+        // Adoption. Re-entered only by a NotReady retry of the trace (the
+        // pending sibling settled; nothing was adopted yet, so adopt now).
         subFetch(fn, draft);
-        let adopted: any;
+        let answer: any;
         try {
-          adopted = readHydratedValue(initP, () => {}, options);
+          answer = readHydratedValue(initP, () => {}, options);
         } catch (e) {
           // The trace above completed, so this is the settled rejection —
           // the adopted answer (rule 3). (A NotReady from the trace is a
@@ -1260,15 +1286,16 @@ function hydrateStoreLikeFn(
           live = true;
           throw e;
         }
-        if (adopted != null && typeof adopted.then === "function")
-          return adoptedAnswerStream(adopted, flip, () => (live = true));
+        adopted = true;
+        if (answer != null && typeof answer.then === "function")
+          return adoptedAnswerStream(answer, flip, () => (live = true));
         // Settled, landing synchronously in this run. The creation run flips
         // right after construction (below, outside the compute — as the gate
         // always has); a retry run is inside a flush, where the flip must
         // not be a self-write, so it follows on a microtask.
         if (creating) landedOnCreate = true;
         else queueMicrotask(flip);
-        return adopted;
+        return answer;
       },
       initialValue,
       options

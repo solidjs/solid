@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 // ssrSource "hybrid" store handoff (#3498). Server is truth; the client's
 // run during hydration is a trace whose first yield duplicates what the
-// server serialized. Three rules govern the handoff from the adopted server
+// server serialized. Four rules govern the handoff from the adopted server
 // answer to the live client source:
 //
 // 1. The handoff waits for the first server answer to LAND — synchronous when
@@ -11,6 +11,10 @@
 //    (dependency change, refresh()) commit their first yield normally.
 // 3. A rejected server answer is the adopted answer: the store surfaces the
 //    error until a later, non-handoff run replaces it.
+// 4. A dependency change before the pending answer lands supersedes it: the
+//    client takes over on that run (its first yield commits — not a
+//    handoff), and the abandoned server flight's landing or rejection is
+//    dropped.
 //
 // Harness notes: `stopHydration()` ends the synchronous claim pass (the
 // snapshot scope releases, as `hydrate()` does at the end of its pass). With
@@ -595,6 +599,181 @@ describe("hybrid store handoff — rule 3: a rejected server answer is the adopt
       await refresh(state);
       await tick();
       expect(state.count).toBe(2);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("hybrid store handoff — rule 4: a dependency change before the landing supersedes the server answer", () => {
+  afterEach(stopHydration);
+
+  // The source counts its runs: the adopt trace pulls the generator once
+  // (run 1), so any run past the takeover is an extra run.
+  function counted(version: () => number) {
+    let runs = 0;
+    const source = async function* (draft: Counter) {
+      runs++;
+      draft.count = version();
+      yield;
+    };
+    return { source, runs: () => runs };
+  }
+
+  for (const [name, create] of families) {
+    test(`${name}: the client takes over on the change, its first yield commits, and the late landing is ignored`, async () => {
+      const server = deferred<Counter>();
+      startHydration({ t0: server.promise });
+      const [version, setVersion] = createSignal(1);
+      const { source, runs } = counted(version);
+      let dispose!: () => void;
+      const [state] = createRoot(
+        d => {
+          dispose = d;
+          return create<Counter>(source, { count: 0 }, { ssrSource: "hybrid" });
+        },
+        { id: "t" }
+      );
+      try {
+        flush();
+        expect(() => state.count).toThrow(NotReadyError);
+        expect(runs()).toBe(1);
+        stopHydration();
+        await tick();
+        expect(() => state.count).toThrow(NotReadyError);
+        // (a) A dependency changes while the server answer is still pending:
+        // the client is authoritative from this run, and it is not a handoff
+        // — its first yield commits.
+        setVersion(2);
+        await tick();
+        expect(state.count).toBe(2);
+        expect(runs()).toBe(2);
+        // (b) The abandoned server answer lands: dropped, no run, no flip.
+        server.resolve({ count: 5 });
+        await tick();
+        expect(state.count).toBe(2);
+        expect(runs()).toBe(2);
+        await tick();
+        expect(state.count).toBe(2);
+        expect(runs()).toBe(2);
+        // Live: a later change runs the client source as usual.
+        setVersion(3);
+        await tick();
+        expect(state.count).toBe(3);
+        expect(runs()).toBe(3);
+      } finally {
+        dispose();
+      }
+    });
+  }
+
+  test("the abandoned server flight's rejection is dropped: no error surfaces", async () => {
+    const server = deferred<Counter>();
+    startHydration({ t0: server.promise });
+    const [version, setVersion] = createSignal(1);
+    const { source, runs } = counted(version);
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(source, { count: 0 }, { ssrSource: "hybrid" });
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      stopHydration();
+      await tick();
+      expect(() => state.count).toThrow(NotReadyError);
+      setVersion(2);
+      await tick();
+      expect(state.count).toBe(2);
+      // (c) The superseded flight rejects: not the store's answer any more.
+      server.reject(new Error("server failed"));
+      await tick();
+      expect(state.count).toBe(2);
+      expect(runs()).toBe(2);
+      await tick();
+      expect(state.count).toBe(2);
+      expect(runs()).toBe(2);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("under seedLoadingValue: the client takes over from commit #0 and the late landing is ignored", async () => {
+    const server = deferred<Counter>();
+    startHydration({ t0: server.promise });
+    const [version, setVersion] = createSignal(1);
+    const { source, runs } = counted(version);
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          source,
+          { count: 0 },
+          { ssrSource: "hybrid", seedLoadingValue: true }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      expect(state.count).toBe(0);
+      stopHydration();
+      await tick();
+      expect(state.count).toBe(0);
+      expect(runs()).toBe(1);
+      // (d) The dependency change supersedes the pending placeholder's answer.
+      setVersion(2);
+      await tick();
+      expect(state.count).toBe(2);
+      expect(runs()).toBe(2);
+      server.resolve({ count: 5 });
+      await tick();
+      expect(state.count).toBe(2);
+      expect(runs()).toBe(2);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("a settled answer deferred by the loading window is superseded the same way", async () => {
+    // The settled ref's landing is deferred past the claim walk (a pending
+    // flight from the engine's view); a change before that microtask wins.
+    const settled: any = Promise.resolve({ count: 5 });
+    settled.s = 1;
+    settled.v = { count: 5 };
+    startHydration({ t0: settled });
+    const [version, setVersion] = createSignal(1);
+    const { source, runs } = counted(version);
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          source,
+          { count: 0 },
+          { ssrSource: "hybrid", seedLoadingValue: true }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      expect(state.count).toBe(0);
+      expect(runs()).toBe(1);
+      stopHydration();
+      // The pass has ended but the deferred landing's microtask has not run.
+      setVersion(2);
+      flush();
+      await tick();
+      expect(state.count).toBe(2);
+      expect(runs()).toBe(2);
+      await tick();
+      expect(state.count).toBe(2);
+      expect(runs()).toBe(2);
     } finally {
       dispose();
     }
