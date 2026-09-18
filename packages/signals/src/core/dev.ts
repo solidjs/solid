@@ -307,7 +307,7 @@ export interface Observe {
    * Records are serializable and never carry the node — a diagnostic event
    * names its subject by `ownerPath`/`nodeName`, a re-run record by
    * `nodeId` — so consumers that run in-process (devtools, the console
-   * reporter, `attribution.subscriptions(OBSERVE.subjectOf(run))`) look the
+   * reporter, `subscriptions(OBSERVE.subjectOf(run))`) look the
    * node up here. Answers for `DiagnosticEvent`s and the attribution
    * engine's `RerunEvent`s; `undefined` for anything else, and for a record
    * that has left the process and come back.
