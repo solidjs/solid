@@ -1,5 +1,24 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- 8d6de07: Native elements with several spread sources compile to the runtimes' array form instead of a `mergeProps()` call, in DOM and SSR output: `<div id="x" {...a} {...b}>` becomes `spread(el, [{ id: "x" }, a, b], …)` on the client and `ssrElement("div", [{ id: "x" }, a, b], …)` on the server. The runtimes read the sources directly — later sources win per key, only the winning source is read — with no merge proxy to build and walk, and a reactive spread is a plain thunk called inside the tracking scope, so it mints no memo and consumes no hydration id on either side (the hydratable SSR `() => mergeProps(…)` wrapper is gone for the same reason). A lone spread still passes straight through (#3105). Requires `@solidjs/web` with the `spread`/`ssrElement` array forms (#3418, #3419).
+- 6d2bdeb: Move delegated event handlers off the `$$<type>` element key Solid 1 uses.
+
+  Solid 1 delegates from `document` and fires any `$$click`/`$$input`/… it finds while walking up from the target, so a 1.x runtime on the same page — an older embedded widget, a devtools panel built on 1.x — ran every delegated handler in a 2.x app a second time. Compiled output and the runtime now stamp `_$$<type>` / `_$$<type>Data` instead; neither version can see the other's handlers, in either nesting direction.
+
+  The key, the `_$SOLID_EVENT_OWNER` mark, and the walk rules are documented in `client.ts` as the delegated-event wire contract shared by every Solid copy on a page. Anything reading `el.$$click` directly must switch to `el._$$click`.
+
+- 246eeeb: Emit non-identifier getter keys in compiled props literals as string literals (`get "aria-label"() {}`) instead of computed keys (`get ["aria-label"]() {}`). Same property, but a computed key drops the whole object literal off V8's boilerplate path into per-property runtime definition; on a seven-getter props literal the computed form costs ~45% more to build. Applies to every getter site in both compilers: component props, dynamic element attributes (DOM, SSR, universal).
+- 63560a1: `componentNames` now applies to SSR output. Under the option both compilers keep the `createComponent` call they otherwise inline to `Comp(props)` and pass the source tag name — `createComponent(Comp, props, "Comp")` — so the server runtime's observe/dev `createComponent` labels the owner and a server finding's `ownerPath` reads `<App> › <Page>` like the client's. Without the option (prod builds) SSR output is unchanged. `@solidjs/vite-plugin` already passes the option for its dev and observe postures, so app server builds pick this up with no config change.
+
+  Fixes `ssrScope` under transparent owners: the virtual hole scope swapped the current owner's id counter, but content inside a hole resolves ids by walking past transparent owners, so with one in between (the server-component scope owner; now the labelled component owner) the hole's content took ids from the enclosing counter and disagreed with the client. The scope now swaps the nearest id-bearing owner.
+
+- 350f65f: TSRX: `@for … index/key` items and `@catch` errors pass through to `For` / `Errored` as the accessors Solid hands out; the compilers no longer rewrite reads of those bindings into calls (#3474). Author `item()`, `i()` (under a custom key), and `err()` exactly as in JSX. A destructuring pattern in one of those positions is rejected with a diagnostic, since there is nothing to destructure — the default keyed `@for` item is still a raw value and still destructures. `projectTsrxForTypecheck` emits the same `(item, i) =>` / `(err, reset) =>` arrows `@tsrx/solid` does, so the two typecheck projections now agree.
+- 1643d2a: The universal renderer's `spread()` follows the `@solidjs/web` contract (#3388): `ref` folds into the props effect and is re-applied only when its identity changes (refs run with no owner, so nothing they create is disposed by the fold); children keep their own owned `insert` — that effect owns the child subtree — but a plain object whose `children` is a data property inserts the value with no effect at all. Three reactive nodes become two when children flow through the spread, one when they don't. `spread` also resolves a lone function source inside its own tracking scopes and accepts an array of sources — `spread(node, [a, b], skipChildren)` — the union of their keys with later sources winning, only the winning source read, function sources called inline with no merge and no memo. Both compilers' universal output uses it: a lone spread passes straight through (reactive included, no more `mergeProps(() => …)`), and several sources compile to the array instead of a `mergeProps()` call.
+
 ## 2.0.0-rc.8
 
 ### Patch Changes

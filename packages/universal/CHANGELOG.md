@@ -1,5 +1,82 @@
 # @solidjs/universal
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- b298154: Move the runtimes' seams off the `solid-js` surface and behind `solid-js/internal`
+
+  `merge()`/`omit()` returning lazy views (#3454) gave `spread()` and
+  `ssrElement()` a protocol for reading props leaf by leaf instead of trapping
+  through the proxy per key. Because `@solidjs/web` and `@solidjs/universal`
+  depend on `solid-js` alone — never on `@solidjs/signals` directly, so an app
+  holds exactly one reactive engine — every piece of that protocol went out
+  through `solid-js`'s main export: eleven names, `mergeSources` before them in
+  #3325, on the public surface with no marking. None of it is API.
+
+  The protocol (`viewOf`, `mergeView`/`omitView`, `MergeView`/`OmitView`,
+  `sourceKeys`/`sourceHas`/`sourceGet`, `hasStaticKeys`, `resolvedTable`, the
+  `SOURCE_*` kinds, `SourceKind`) now lives on a `solid-js/internal` subpath,
+  along with the server-scope seams that were already `@internal` in JSDoc and
+  consumed only by `@solidjs/web` (`ssrHandleError`, `ssrScope`,
+  `runInServerComponentScope`, `inServerComponentScope`, `creationStamp`,
+  `getProjectionTrace`, `materializeContainerTrace`). The names stay exported
+  from the main entries at runtime, so the subpath shares one module state and
+  the single-engine guarantee is untouched; `stripInternal` keeps them out of
+  the generated declarations, so TypeScript no longer offers or types them.
+  `internal-surface.spec.ts` pins the boundary in both directions.
+
+  Also dropped from the entries: `storeIsShallow`, `storeHasFamily`,
+  `storeHasOptimisticFamily` (leftovers of the gutted patch channel),
+  `storePath` and `$REFRESH` (referenced only by `@solidjs/signals`'s own
+  internals), and `NoHydrateContext` (`@internal`, used only by `solid-js`'s
+  server code). Nothing in the repo consumed them.
+
+  No runtime behavior change. `merge`, `omit`, and the rest of the reactive
+  surface are unaffected.
+
+- 899c2c4: `merge()` and `omit()` are always lazy views, and props consumers read their leaves
+
+  `omit(props, ...keys)` returns a live view of `props` for every input — a plain object included — instead of copying it with a `getOwnPropertyDescriptor` + `defineProperty` per prop. A predicate form hides keys by rule without enumerating first: `omit(props, k => k[0] === "$")`. `merge()` no longer builds an eager copy when its sources are plain objects: under `Proxy` it always returns an O(1) view over the flattened sources (a single non-function source is returned as is).
+
+  The two compose flat. An `omit()` over a `merge()` carries one filtered view per flattened merge source, a `merge()` over an `omit()` takes the view record as a leaf, and nested omits fold their filters into one record. A component chain of `merge(defaults) → omit(consumed) → merge(statics) → omit("as")` — the shape headless-UI libraries render every element through — collapses to leaf views over the original objects, each with its accumulated filter, with no proxy layer left between the outermost spread and the author's props. `merge()` keeps the omitted keys hidden by construction (#3014) rather than by treating the omit as opaque. Construction cost drops 3–7× at depth 1–7; the SSR polymorphic-chain bench (#3448) runs ~2.4× faster.
+
+  Reads stay cheap: a view over plain objects resolves a key → owning-leaf table once, on first read, and every `get`/`has`/descriptor is one lookup after that. `spread()` (DOM and universal) and `ssrElement()` read the leaves directly — never through the proxies' traps — and walk that table when there is one, so an effect rerun costs one read per key, as it did over the copy. Both proxies use a class target and one shared handler (no per-instance closures).
+
+  A view over a store asks the store nothing but the read. Each source's kind (plain object, omit record, proxy, memo) is decided once, when the view is built, and carried beside it — every brand check on a Proxy is a trap (`instanceof` is a `getPrototypeOf` trap, as expensive as a store read), and store detection goes through `$TARGET`, a symbol the store's `get` trap answers on its fast path, never its generic tracked-read path. `merge(defaults, store)` constructs ~30% faster than the copy did and reads ~15% faster; `omit(store)` reads at parity.
+
+  The views tell the truth: `Object.getOwnPropertyDescriptor(view, key)` reports a data descriptor only when the key is a data property of a plain leaf (the compiler's encoding of a static prop) and an accessor for a getter, a store key, or a memo source. Together with the new internal `hasStaticKeys()`, `spread()` now skips the children effect for static children behind `omit`/`merge` layers (#3388 through views).
+
+  Behavior changes:
+  - Writes to a `merge()` or `omit()` result are no-ops (they already were for the proxy forms). A caller that needs its own object copies it (`{ ...merged }`), and the copy carries no sources (#3384). `@solidjs/html` now collects its own props and spreads into one `merge()` at the end instead of assigning onto the result.
+  - A data property on a source is read live through the view rather than snapshotted at `merge()`/`omit()` time.
+  - Key order of a merged view is the merged order — every key at the position of the last source that carries it — matching `ssrElement`'s array form.
+  - Sources are treated as own-keyed; a key added to a plain source after merging is not seen (the copy did not see it either).
+  - Enumerating a view through its traps (`for…in`, `Object.keys`, `{ ...view }`) costs a trap per key, as any proxy does; the internal consumers avoid it. Environments without `Proxy` keep the copy paths.
+
+  Internal helpers for consumers, exported from `solid-js`: `viewOf(o)`, `mergeView(o)`, `omitView(o)`, `sourceKeys(entry, kind)`, `sourceHas(entry, kind, key)`, `sourceGet(entry, kind, key)`, `hasStaticKeys(o)`, `resolvedTable(o)`, the `SOURCE_*` kinds.
+
+- 1643d2a: The universal renderer's `spread()` follows the `@solidjs/web` contract (#3388): `ref` folds into the props effect and is re-applied only when its identity changes (refs run with no owner, so nothing they create is disposed by the fold); children keep their own owned `insert` — that effect owns the child subtree — but a plain object whose `children` is a data property inserts the value with no effect at all. Three reactive nodes become two when children flow through the spread, one when they don't. `spread` also resolves a lone function source inside its own tracking scopes and accepts an array of sources — `spread(node, [a, b], skipChildren)` — the union of their keys with later sources winning, only the winning source read, function sources called inline with no merge and no memo. Both compilers' universal output uses it: a lone spread passes straight through (reactive included, no more `mergeProps(() => …)`), and several sources compile to the array instead of a `mergeProps()` call.
+- Updated dependencies [8bf04ea]
+- Updated dependencies [d826cd3]
+- Updated dependencies [cc0396b]
+- Updated dependencies [53280e7]
+- Updated dependencies [3154ed6]
+- Updated dependencies [b298154]
+- Updated dependencies [899c2c4]
+- Updated dependencies [3ae9e92]
+- Updated dependencies [328580f]
+- Updated dependencies [61a114c]
+- Updated dependencies [0d8347a]
+- Updated dependencies [7623ce1]
+- Updated dependencies [56858e7]
+- Updated dependencies [af94f67]
+- Updated dependencies [e87d694]
+- Updated dependencies [5426ffb]
+- Updated dependencies [63560a1]
+- Updated dependencies [34287d8]
+  - solid-js@2.0.0-rc.9
+
 ## 2.0.0-rc.8
 
 ### Patch Changes

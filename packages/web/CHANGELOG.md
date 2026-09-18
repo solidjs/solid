@@ -1,5 +1,251 @@
 # @solidjs/web
 
+## 2.0.0-rc.9
+
+### Patch Changes
+
+- d826cd3: The client error hook — `configureClientErrors({ onError })` from `solid-js`, and `render`/`hydrate`'s `onError` option in `@solidjs/web`: the prod-tier seam through which an app, or an error monitor, hears the one failure nothing else can see — an `<Errored>` / `createErrorBoundary` collected it and renders its fallback. The twin of the server's `configureServerErrors`. An uncaught error is not this hook's: the halt (`REACTIVITY_HALTED`) hands its cause to the platform's `reportError`, the channel every monitor already listens on.
+
+  Once per error object (a `reset()` re-collecting the same failure says nothing new; a primitive is reported per sight); `ownerPath` carries the component labels where the runtime keeps owner names; no return — the client has no wire to map for; a throwing hook is reported and ignored. A root's own hook wins over the ambient one for failures under it.
+
+  Pay-for-use: the hook machinery (`core/error-hooks.ts`) is retained by `createErrorBoundary` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner under the registered `ROOT_ERROR_HOOK` symbol (defined in the scheduler), so `render` retains nothing for an app that passes none. Core floor unchanged; apps with a boundary +~200 B.
+
+  **The server surface consolidates on the same name.** `onError` on `renderToStream`/`renderToString` and on `handleServerFunctionRequest` _is_ the server error hook (`(error, context) => wire | void`); `onServerError` is removed. A one-argument `onError` written for the old shape keeps working and now hears every handled failure — filter on `context.handling === "failed"` for the request-failing ones alone. New `handling: "serialize"` for a hydration value that would not serialize (what seroval's `onError` reported, for a render that passed one). With no hook anywhere, a failure that fails the request still reaches `console.error`.
+
+- 6d2bdeb: Move delegated event handlers off the `$$<type>` element key Solid 1 uses.
+
+  Solid 1 delegates from `document` and fires any `$$click`/`$$input`/… it finds while walking up from the target, so a 1.x runtime on the same page — an older embedded widget, a devtools panel built on 1.x — ran every delegated handler in a 2.x app a second time. Compiled output and the runtime now stamp `_$$<type>` / `_$$<type>Data` instead; neither version can see the other's handlers, in either nesting direction.
+
+  The key, the `_$SOLID_EVENT_OWNER` mark, and the walk rules are documented in `client.ts` as the delegated-event wire contract shared by every Solid copy on a page. Anything reading `el.$$click` directly must switch to `el._$$click`.
+
+- 17b0bda: Deprecate `<Dynamic>` in favor of `dynamic()`
+
+  `<Dynamic component={…}>` is the same primitive as `dynamic()` with a worse shape: the tag travels in the props bag, so every instance merges `component` in at the call site, `omit`s it back out inside, and builds a fresh `dynamic()` factory (with its memo) because a JSX wrapper has nowhere to hoist one. Polymorphic-component libraries end up omitting `as`, handing the tag to `<Dynamic>`, which merges it back in under `component` to omit it again. `dynamic()` has none of that for one extra line:
+
+  ```tsx
+  // before
+  <Dynamic component={multiline() ? RichTextEditor : "input"} value={value()} />;
+
+  // after — hoist per component instance, or per module for a constant tag
+  const Field = dynamic(() => (multiline() ? RichTextEditor : "input"));
+  <Field value={value()} />;
+  ```
+
+  `Dynamic` and `DynamicProps` are marked `@deprecated` (editors strike them through; no runtime warning). They remain available in 2.0 — the RCs are past public API removals — but new code should use `dynamic()`. The migration guide and control-flow RFC are updated accordingly.
+
+- 1af28a1: Call `runHydrationEvents()` after `dynamic()` spreads props onto a string tag, so events the hydration script queued for a `<Dynamic>` element are replayed instead of being dropped until `_$HY.done`.
+- d2a36f5: `dynamic(source, { static })` and `isStatic(o, key)`
+
+  `dynamic()` pays for a factory memo plus a per-instance memo so the source can
+  change. A great many call sites never change: a runtime `styled()` that always
+  renders `"li"`, and — the case this exists for — a polymorphic component whose
+  `as` arrived as a literal. The compiler encodes `as="button"` at a call site as
+  a data property and `as={isLink() ? "a" : "button"}` as a getter, so which one
+  the caller wrote is readable at runtime.
+
+  `isStatic(o, key)` reads it: one descriptor lookup, no read of the value,
+  nothing tracked, looking through `merge()`/`omit()` views to the leaf that owns
+  the key. Data property or absent-from-a-fixed-key-set is static; a getter, a
+  store key, or a memo-backed `merge()` source is not.
+
+  `dynamic(source, { static: true })` then says the source cannot change: it is
+  called once, untracked, at `dynamic()` time, and each instance renders the
+  result with no computation of its own — a tag goes to the compiled element path
+  (create or claim, spread), a component is called directly. No owner is created
+  on either side, so hydration ids stay aligned between server and client. A
+  static source may not return a promise.
+
+  ```tsx
+  function Polymorphic(props) {
+    const Tag = dynamic(() => props.as, { static: isStatic(props, "as") });
+    return <Tag {...omit(props, "as")} />;
+  }
+  ```
+
+  `as` stays public and reactive; the literal case stops paying for it. Note the
+  two paths produce DIFFERENT hydration ids (the memo path's element sits one
+  owner deeper), which is fine because `isStatic` reads the same descriptors on
+  both sides — but it is why the classification must be per instance rather than
+  per component.
+
+- c452850: `dynamic()` / `Dynamic` with a tag-name source honor an `xmlns` prop when creating the element (#3386)
+
+  The compiler resolves a tag's namespace from its parent at build time; the `dynamic()` runtime path creates the element before it has a parent, so a tag that exists in both HTML and SVG (`a`, `script`, `style`, `title`) was always created as an HTML element — `<svg><Link href=…/></svg>` with `Link = dynamic(() => "a")` produced an HTML anchor inside the SVG tree. The instance can now say which one it means with the same attribute compiled JSX uses for the same purpose: `<Link xmlns="http://www.w3.org/2000/svg" href=…/>`. Like `is`, `xmlns` is read once, untracked, at creation (the DOM can't re-namespace a node) and then applied as an ordinary attribute, so a client-rendered element carries the same attribute the server serializes. Without `xmlns` the namespace is still inferred from the tag name. Hydration is unaffected: it claims the parser-namespaced node.
+
+  Types: `xmlns` is now accepted on the four tags that exist in both HTML and SVG (`a`, `script`, `style`, `title`) in addition to the SVG/MathML attribute sets that already had it — those are the only tags where the attribute changes what gets created, and the compiler has honored `<a xmlns=…>` on them all along. Unambiguous HTML tags (`div`, `span`, …) still reject it. `dynamic()`'s tag-name components inherit it through their intrinsic attribute types. Also syncs `@solidjs/h`'s generated JSX types.
+
+- 53280e7: The error hooks and `SSR_RENDER_ERROR_CONTAINED` tell where an error was thrown apart from where it was met.
+
+  `ownerPath` on `ClientErrorContext` and `ServerErrorContext` is now where the error was **thrown**: the labels root-first up the owner chain of the computation that threw — the component that broke — falling back to the boundary's chain when the throw crossed nothing the runtime could name. A new `boundaryPath` is where it was **met**: the same labels up the chain of the `<Errored>` that rendered its fallback (client and server) or the `<Loading>` that shipped the rejection (server, `handling: "client"`). Before, `ownerPath` was the boundary's on both sides, so every component under one boundary grouped into one path. On the client the engine's status wrapper already named the thrower (`StatusError.source`); on the server the owner scopes stamp it as the error escapes. The `SSR_RENDER_ERROR_CONTAINED` finding follows: `ownerPath` locates the throw, `data.boundary` / `data.boundaryPath` the boundary.
+
+- 5b31076: `ssrElement` no longer emits `style=""` / `class=""` for nullish values; they are omitted like every other attribute, matching the client. Skipped props also leave no stray whitespace in the opening tag (#3382).
+- 084e621: SSR emits the `<!--!$-->` text separator only between items that resolve to text. Adjacent memos and components that yield elements — every `Dynamic`, `Show`, or wrapper-library instance in a list — no longer carry a separator and a comment node each. Text that becomes adjacent through a nested array or a dropped nullish item is now separated, so it hydrates into distinct text nodes (#3383).
+- a429b44: Server-function flight consumers now receive every mutation response that carries integration metadata — the redirect carrier or `X-Revalidate` keys (`redirect()`, `reload()`, `respond(value, { revalidate })`) — whether or not the server folded data alongside it. Metadata is envelope-level (it names what the mutation did to every cache on the page), so it reaches each registered consumer with `data` set to `undefined` where no slice was collected for that source, and the call resolves with the plain value. An integration that subscribes a consumer therefore owns redirects and revalidation without wrapping the call, and a redirect the server could collect no data for (a cross-origin target, no collector registered) navigates instead of landing on the caller as a raw `Response`. Reads (GET or `read: true`) keep the whole-response passthrough; `FlightDataConsumer`'s `data` parameter is typed `D | undefined` accordingly.
+
+  `revalidate` gains a reserved all-keys spelling: `REVALIDATE_ALL` (`"*"`), the host-independent way to declare that every cache entry went stale, distinct from omitting `revalidate` (the host's default — Solid Router revalidates everything after an action, a router without that convention reloads only what it owns) and from an empty list (nothing). The helpers refuse `"*"` beside named keys; `ServerFunctionOutcome.revalidateKeys` delivers it to collectors as declared.
+
+- 549f482: Trim per-node work on the hydration claim path. `gatherHydratable` asks once whether the root contains frame regions and tests containment against that list, instead of walking every keyed node's ancestor chain with `closest("[data-fid]")`; `insert()` builds a parent's claim array in one indexed pass over `childNodes` that drops separators as it copies, instead of an iterator spread followed by a compacting pass; and `clearSnapshots` assigns `undefined` to the extension's `_snapshotValue` rather than `delete`-ing it, which pushed every hydrated source's extension object into dictionary mode.
+- 3154ed6: A signal written from `onSettled` or `createEffect` during hydration no longer strands the DOM it reveals (#3504). Two halves: a root created while hydrating marks the hydration snapshot scope itself, so a write during the root pass is held until the pass completes and then replays — previously the scope was marked lazily by the first hydration-aware primitive, so a `<Show>` condition created before that sat outside it and the write cascaded mid-claim. And a streamed boundary's resume window now claims only the subtree under that boundary: a write from the resumed content that reaches a signal above it (a route's `onSettled` adding a toast to a provider) re-renders that already-hydrated region as a client render — fresh nodes, live inserts — instead of claiming against the server registry, missing with a "Hydration key miss" warning, and rendering detached.
+- b298154: Move the runtimes' seams off the `solid-js` surface and behind `solid-js/internal`
+
+  `merge()`/`omit()` returning lazy views (#3454) gave `spread()` and
+  `ssrElement()` a protocol for reading props leaf by leaf instead of trapping
+  through the proxy per key. Because `@solidjs/web` and `@solidjs/universal`
+  depend on `solid-js` alone — never on `@solidjs/signals` directly, so an app
+  holds exactly one reactive engine — every piece of that protocol went out
+  through `solid-js`'s main export: eleven names, `mergeSources` before them in
+  #3325, on the public surface with no marking. None of it is API.
+
+  The protocol (`viewOf`, `mergeView`/`omitView`, `MergeView`/`OmitView`,
+  `sourceKeys`/`sourceHas`/`sourceGet`, `hasStaticKeys`, `resolvedTable`, the
+  `SOURCE_*` kinds, `SourceKind`) now lives on a `solid-js/internal` subpath,
+  along with the server-scope seams that were already `@internal` in JSDoc and
+  consumed only by `@solidjs/web` (`ssrHandleError`, `ssrScope`,
+  `runInServerComponentScope`, `inServerComponentScope`, `creationStamp`,
+  `getProjectionTrace`, `materializeContainerTrace`). The names stay exported
+  from the main entries at runtime, so the subpath shares one module state and
+  the single-engine guarantee is untouched; `stripInternal` keeps them out of
+  the generated declarations, so TypeScript no longer offers or types them.
+  `internal-surface.spec.ts` pins the boundary in both directions.
+
+  Also dropped from the entries: `storeIsShallow`, `storeHasFamily`,
+  `storeHasOptimisticFamily` (leftovers of the gutted patch channel),
+  `storePath` and `$REFRESH` (referenced only by `@solidjs/signals`'s own
+  internals), and `NoHydrateContext` (`@internal`, used only by `solid-js`'s
+  server code). Nothing in the repo consumed them.
+
+  No runtime behavior change. `merge`, `omit`, and the rest of the reactive
+  surface are unaffected.
+
+- 899c2c4: `merge()` and `omit()` are always lazy views, and props consumers read their leaves
+
+  `omit(props, ...keys)` returns a live view of `props` for every input — a plain object included — instead of copying it with a `getOwnPropertyDescriptor` + `defineProperty` per prop. A predicate form hides keys by rule without enumerating first: `omit(props, k => k[0] === "$")`. `merge()` no longer builds an eager copy when its sources are plain objects: under `Proxy` it always returns an O(1) view over the flattened sources (a single non-function source is returned as is).
+
+  The two compose flat. An `omit()` over a `merge()` carries one filtered view per flattened merge source, a `merge()` over an `omit()` takes the view record as a leaf, and nested omits fold their filters into one record. A component chain of `merge(defaults) → omit(consumed) → merge(statics) → omit("as")` — the shape headless-UI libraries render every element through — collapses to leaf views over the original objects, each with its accumulated filter, with no proxy layer left between the outermost spread and the author's props. `merge()` keeps the omitted keys hidden by construction (#3014) rather than by treating the omit as opaque. Construction cost drops 3–7× at depth 1–7; the SSR polymorphic-chain bench (#3448) runs ~2.4× faster.
+
+  Reads stay cheap: a view over plain objects resolves a key → owning-leaf table once, on first read, and every `get`/`has`/descriptor is one lookup after that. `spread()` (DOM and universal) and `ssrElement()` read the leaves directly — never through the proxies' traps — and walk that table when there is one, so an effect rerun costs one read per key, as it did over the copy. Both proxies use a class target and one shared handler (no per-instance closures).
+
+  A view over a store asks the store nothing but the read. Each source's kind (plain object, omit record, proxy, memo) is decided once, when the view is built, and carried beside it — every brand check on a Proxy is a trap (`instanceof` is a `getPrototypeOf` trap, as expensive as a store read), and store detection goes through `$TARGET`, a symbol the store's `get` trap answers on its fast path, never its generic tracked-read path. `merge(defaults, store)` constructs ~30% faster than the copy did and reads ~15% faster; `omit(store)` reads at parity.
+
+  The views tell the truth: `Object.getOwnPropertyDescriptor(view, key)` reports a data descriptor only when the key is a data property of a plain leaf (the compiler's encoding of a static prop) and an accessor for a getter, a store key, or a memo source. Together with the new internal `hasStaticKeys()`, `spread()` now skips the children effect for static children behind `omit`/`merge` layers (#3388 through views).
+
+  Behavior changes:
+  - Writes to a `merge()` or `omit()` result are no-ops (they already were for the proxy forms). A caller that needs its own object copies it (`{ ...merged }`), and the copy carries no sources (#3384). `@solidjs/html` now collects its own props and spreads into one `merge()` at the end instead of assigning onto the result.
+  - A data property on a source is read live through the view rather than snapshotted at `merge()`/`omit()` time.
+  - Key order of a merged view is the merged order — every key at the position of the last source that carries it — matching `ssrElement`'s array form.
+  - Sources are treated as own-keyed; a key added to a plain source after merging is not seen (the copy did not see it either).
+  - Enumerating a view through its traps (`for…in`, `Object.keys`, `{ ...view }`) costs a trap per key, as any proxy does; the internal consumers avoid it. Environments without `Proxy` keep the copy paths.
+
+  Internal helpers for consumers, exported from `solid-js`: `viewOf(o)`, `mergeView(o)`, `omitView(o)`, `sourceKeys(entry, kind)`, `sourceHas(entry, kind, key)`, `sourceGet(entry, kind, key)`, `hasStaticKeys(o)`, `resolvedTable(o)`, the `SOURCE_*` kinds.
+
+- 3ae9e92: `OBSERVE.records` — one records channel on both platforms (observe/dev tiers); frame records from both ends; the client `"call"` record; `observeServerFunctionCalls` removed
+  - **`@solidjs/signals`**: `OBSERVE.records` — `subscribe(type, listener)`, `observed(type)`, `emit(type, event, live)` — the channel every runtime record rides, created once per process and registered on `globalThis` under `Symbol.for("@solidjs/signals/observe/records")` so a second copy of the core (a bundled server build instrumented through `--import`) and wire layers bundled without a framework import reach the same listener sets. Listeners are snapshotted per emit; a throwing listener is reported and the rest run. Types: `Records`, `RecordTypes` (extends `HostRecordTypes`; both declared empty, for the runtimes to augment — one augmenter per interface), `RecordType`, `RecordEvent`, `RecordLive`, `RecordListener`. Folds out of prod. New **`OBSERVE.attribution.currentOrigin()`** (and the `currentOrigin` hook on `AttributionHooks`): the provenance a root write performed now would be stamped with — the interaction whose handler is running, the navigation/effect/action frame open, or inside a recompute the origin of the change that caused it — as the engine's own `ChangeOrigin` object, `undefined` when external or with no engine; for a runtime stamping a record of its own. The installed hooks are also registered on `globalThis` under `Symbol.for("@solidjs/signals/observe/attribution")`, the same reach-without-an-import the channel has.
+  - **`solid-js`**: the `"boundary"` record moves from `OBSERVE.server.records` to `OBSERVE.records` (augmenting the core's `RecordTypes`). `OBSERVE.server` keeps only the `trace` slot; `ServerRecords` is gone.
+  - **`@solidjs/web`**: the `"invocation"` and `"frame"` records move to `OBSERVE.records` (augmenting `HostRecordTypes` through `solid-js`). New **`"call"` record** (`CallEvent`, `CallLive`, `CallListener`): one per server-function call made from the browser, at the caller's settle — `{ id, at, durationMs, method: "GET" | "POST", outcome, status?, origin?, deferred? }` with `{ args, response?, result? | error? }` beside it; joins the server's `"invocation"` by `id`, and — through `origin`, the engine's own interaction/navigation object read at dispatch via `currentOrigin()` — the attribution engine's `InteractionEvent` / `NavigationEvent` / `HoldEvent` by identity, so an observer files the call under the click that made it without a time join. The **`"frame"` record now has a client half**: `FrameEvent` is `FrameProducedEvent | FrameAppliedEvent`, discriminated by `side`, same census on both; the client half (`applyFrameResponse`, one per stream in a response) adds `address` (the `as` remap) and `outcome: "truncated"` for a body that ended before `complete`, with `live.response`. Server census fix: `regions` counts `html` chunks addressed to a child frame id (the former count read a chunk type that does not exist), and `shellMs` is set by the stream's own shell only. The emitters and their wrappers fold out of the prod client artifacts behind the observe literal (prod `applyFrameResponse` and the server-function dispatch are the pre-existing functions, no extra frame or promise hop). The server-functions and frames **client** entries gain `observe` and `development` builds and export conditions (`server-functions/dist/client.{observe,dev}.js`, `frames/dist/client.observe.js`); the server-functions client is now built with its flags replaced in every tier (before, `_SOLID_DEV_` there was an unreplaced truthy string).
+  - **Removed**: `observeServerFunctionCalls` and the `ServerFunctionCall` / `ServerFunctionRequestCall` / `ServerFunctionResponseCall` types, from both server-function entries. Subscribe to `OBSERVE.records` `"call"` (client) or `"invocation"` (server) instead.
+  - **`@solidjs/diagnostics`** (format v6): `artifact.server` is replaced by `artifact.records: { boundary, invocation, frame, call }` — always present, captured on both platforms including the browser bridge; types `BoundaryRecord`, `InvocationRecord`, `FrameRecord` (`FrameProducedRecord | FrameAppliedRecord`), `CallRecord` (with `origin?: ChangeOrigin`), `ArtifactRecords` replace the `Server*Record` / `ArtifactServer` names. JSONL: one line per record with `type` naming its table; the meta line's `boundaryCount`/`invocationCount`/`frameCount` become `recordCounts: { boundary, invocation, frame, call }`.
+
+- 328580f: `omit()` over a `merge()` is one record that holds the merge's record, not one leaf view per merge source
+
+  An omit over a merge used to flatten at construction: one `OmitView` plus one combined hidden-key list per flattened leaf, and the next `merge()` copied those entries into its own arrays. On a component chain of defaults + omit + spread (Kobalte-shaped: `merge(omit(merge(omit(props))))`, four layers) that was ~19 records and as many list copies per element — the largest allocation of the render. The omit now holds the `MergeView` record itself (a new source kind, `SOURCE_MERGE`) and is one record however many leaves the merge has; a later `merge()` carries it as one entry, and a later `omit()` folds into it. Nothing is read through a proxy trap along the way: the entry helpers (`sourceKeys`/`sourceHas`/`sourceGet`, `hasStaticKeys`, descriptors, the resolved table) recurse into the record by function call.
+  - Reads through the nesting are one walk per read (a nested entry answers presence and value together), and a nested record counts no reads of its own toward the table threshold — the view that was asked decides for the whole tree, and its table is collected in one pass over the leaves rather than one table per layer.
+  - New `@internal` `sourceOwners(source, keys, owners)`: every key of a props source — a plain object, a store, or a merge/omit view — appended in merged order with the object that owns it, in one pass, later sources moving a key to the end. `ssrElement` collects any spread that is not plain objects only (a view, a store, the array form with one among them) this way, so each attribute is one direct read of its owner — no `in` walk per key through the layers, no key list per leaf, no table, and no per-entry classification (`pushEntry` is gone).
+  - An omit's `$SOURCES` never answers anything now (previously its filtered leaf views); consumers reach the record through `viewOf` and walk it as one filtered entry.
+
+  Measured against `next` (interleaved, min of N, quiet machine): the tier-1 polymorphic-chain SSR harness allocates 12% less per row (14.6 → 12.8 KB) and is 2–6% faster across the interpreter, Sparkplug, Maglev and TurboFan tiers; the props-chain microbench builds 6–65% faster and builds+consumes 7–31% faster by depth and tier; the omit/merge micro-suite is flat or better in every shape. On the yak-bench SSR lanes with every yak piece on Solid primitives: +7% geomean, +20–36% on the component-composition cases (`polymorphic-chain`, `tabs`, `multifile-composition`), which brings those to parity with yak's hand-rolled runtime.
+
+- da6ed76: SSR: fold the text-separator entry wrappers back into `tryResolveString` and `resolveSSRNode`. #3394 split each walker into an entry function that reset the separator state and a recursive body; the bodies are too large for V8 to inline, so every template hole paid an extra call. The recursion now passes a `nested` flag instead — one function each, same output — recovering the ~2% SSR throughput that split cost on element-heavy pages (up to 7% where holes are dense).
+- 5f688a6: GET-encoded server function calls no longer send the `X-Server-Function-Instance` header (#3406). A `<link rel="preload" as="fetch">` is reused only by a fetch that matches it exactly, headers included, so the per-call header made browsers fetch every preloaded read twice. A read's identity is now its url alone; the instance id keeps riding the POST transport, where it still names the call to the handler's hooks as `context.instance` (null for reads, as for no-JS callers). `prepareRequest` validation adapts: on a GET call the method the transport set stands sentinel for a returned init that dropped the original.
+- c66130d: Remove the `X-Server-Function-Instance` header from the server-function wire protocol. Since #3094 it decided nothing: the answer shape is the address (`/data/` for the scripted transport, bare for plain HTTP), no-JS gating is the address plus a form post, and #3416 had already dropped it from GET reads so preloads could match. What remained was a per-call id the handler copied into `context.instance` for `transformResult` / `transformFlightResult`, which nothing consumed; cross-wire correlation is the trace context's job (`traceparent`, #3402). Breaking, nominally: `context.instance` is gone from the hook contexts, and `INSTANCE_HEADER` is no longer exported from `@solidjs/web/server-functions/{client,server}`. A legacy header on an incoming request is ignored, as it already was. The `prepareRequest` validation (#3174) now uses the transport's method as its sentinel on every call shape, so a hook returning a fresh `{ headers }` instead of spreading is still refused before dispatch. Client-side `observeServerFunctionCalls` events keep their local `instance` id for pairing a request with its response.
+- 36db287: `renderToString` now disposes its reactive root synchronously before returning instead of via `setTimeout`, so a synchronous loop of renders no longer retains every graph until the next macrotask (#3385). The request event's response head is committed right before that dispose — the same head-freeze point an awaited `renderToStream` already uses — so `httpStatus`/`httpHeader` declarations still reach `createSSRResponse`. A render that throws leaves the head uncommitted and retracts its declarations as before.
+- 61a114c: Server boundary records on `OBSERVE.server.records` (observe/dev tiers)
+  - New `"boundary"` record: one per `<Loading>` boundary that waited during a server render, delivered when it settles — `{ id, at, durationMs, heldMs, passes, outcome: "settled" | "fallback" | "client" | "error", streamed, revealGroup?, ownerPath? }`, with the thrown error beside it. `id` pairs it with `SSR_RENDER_ERROR_CONTAINED`; `passes` counts render passes (a sequential chain reads as `3+`); under a `<Reveal>` group the record waits for the group's swap so `heldMs` measures how long finished content was held for its siblings. No clock is read without a listener, and the emitter folds out of prod.
+  - The server records channel is `OBSERVE.server.records.subscribe(type, listener)` — the server twin of `OBSERVE.attribution.subscribe(type, …)`. `OBSERVE.server.invocations` (unreleased) is renamed onto it: `subscribe("invocation", …)`. The `InvocationChannel` type is gone; `ServerRecords` is the channel's interface.
+  - Types now layer one augmenter per interface: `@solidjs/signals` declares `ServerObserve` empty; `solid-js` augments it with `records: ServerRecords` and `trace: ServerTrace`, declaring both; `@solidjs/web` augments those two through `"solid-js"`. `TraceSlot` in `@solidjs/web` is now an alias of `solid-js`'s `ServerTrace`. (Two augmentations of one re-exported interface through different module aliases merge order-dependently in TypeScript — one set was silently lost.)
+  - `@solidjs/signals` exports `ownerPath(subject)` — the root-first component-label walk its diagnostics already make — so a record's `ownerPath` and the finding it pairs with come from the one walk.
+
+- 0d8347a: Server records reach the diagnostics artifact and the dev checks (server-dev-build-plan P4)
+  - `@solidjs/diagnostics` artifact format **v5**: `artifact.server: { boundaries, invocations } | null` folds `OBSERVE.server.records` when the scenario runs under the server runtime — `captureArtifact(() => renderToStream(…))` — one row per `<Loading>` boundary that waited and per server-function execution; `null` for client captures and the browser bridge. New exported types `ArtifactServer`, `ServerBoundaryRecord`, `ServerInvocationRecord` (mirrors of the runtime's `BoundaryEvent`/`InvocationEvent`; the package still depends on `@solidjs/signals` alone). JSONL egress adds `boundary` and `invocation` lines and the header counts.
+  - `InvocationEvent.boundary`: a direct server-function call made during a `<Loading>` boundary's render pass carries that boundary's hydration id, the `"boundary"` record's `id` — the join between a boundary's wait and the calls under it.
+  - Two dev checks derived from the boundary facts in `ssrLoadingBoundary`: `ASYNC_WATERFALL` with `data.side: "server"` (`passes - 1` sequential flights; 2 → `info`, structured only; 3+ → console `warn`) and a new code `SSR_CLIENT_CONTENT_MASKED` (`warn`, `ssr`) for client-only content that surfaced only after a real server wait — the server's work discarded, the fallback shown for the wait. Dev tier only; the boundary clock now runs in dev without a listener.
+  - `solid-js`'s server `emitFinding` keeps `info` findings off the console (structured channel only), matching the core.
+
+- 7623ce1: Server diagnostics on `OBSERVE.diagnostics`; `OBSERVE.server` owned by `solid-js`'s server entry
+
+  The server runtime now reports on the same structured channel as the client. **Findings** — facts about a render, present in observe and dev builds — `SSR_RENDER_ERROR_CONTAINED` (a render error a boundary routed; `data.handling` is `fallback`, `client`, or `failed` — the structured face of what `renderToStream`'s `onError` receives, on the process-wide channel), `SSR_SUBTREE_ABANDONED` (a failed fragment's pending descendants discarded), `SSR_STREAM_ABANDONED` (consumer cancelled or sink failed mid-render), `LATE_HEADER_WRITE` (recorded beside the existing dev throw / prod log), `SERVER_FN_ERROR_SANITIZED` (the original error the production wire replaced), and `FRAME_MARKER_CORRUPTED` from the frames client. **Checks** — dev-only guidance — convert every server `console.warn` to a code: `SERVER_WRITE`, `REVEAL_IN_RENDER_TO_STRING`, `LAZY_ASSET_UNMAPPED`, `PRELOAD_DESCRIPTOR_INVALID`, `HEAD_TAG_INVALID`, `BEHAVIOR_CLAIM_DROPPED`, and `UNRECOGNIZED_INSERT_VALUE` (now one code and a `render` kind on both platforms); `ASYNC_OUTSIDE_LOADING_BOUNDARY` on the server records with `data.side: "server"` before it throws. Server components are labelled for `ownerPath` (`createComponent` runs the body under a transparent `<Name>` owner in observe/dev — no hydration id consumed), so `in <App> › <Page>` reads the same on both sides, and the server entry installs the same repair-guide console footer as the client. Prod artifacts carry none of it; `DiagnosticKind` gains `ssr`, `head`, `render`.
+
+  `OBSERVE.server`'s objects (the invocation listener set, the trace-provider slot) are now created by `solid-js`'s server entry, once per process under `Symbol.for("solid-js/observe/server")` on `globalThis`, rather than by `@solidjs/web`'s module init: an observer's `init()` that imports only `solid-js` can subscribe and `provide` before the web runtime has loaded, and a host that bundles the runtime into its server build and instruments through a `--import`ed module finds one listener set and one provider across both copies. The core keeps `server: {}`; the client pays nothing.
+
+- 56858e7: The server error hook — `configureServerErrors({ onError })` from `@solidjs/web`, `onServerError` on `renderToStream`/`renderToString` and on `handleServerFunctionRequest`: the prod-tier seam through which a server integration hears every failure the runtime handles and may say what the client receives instead (sentry-integration-plan C6, #3468 part 3).
+
+  Until now a production build reported only the failure that fails a request (`renderToStream`'s `onError`); an `<Errored>` fallback rendered, a `<Loading>` fragment rejected and re-rendered by the client, and a server-function throw sanitized onto the wire were observe-tier findings only. The hook is called **once per error object, at first sight**, with where the failure was met — `kind: "render"` (`fallback` / `client` / `failed`, with the boundary's hydration id and the component labels when compiled in) or `kind: "server-function"` (`thrown` / `channel`, with `functionId` and `direct` for an in-process call during SSR) — and the request event. Its return is the **wire value**: rendered into the fallback, serialized for hydration, sent as the RPC error; `undefined` keeps the default policy (generic outside dev, fidelity in dev); ignored for `failed`. A direct server-function call that throws during SSR is reported once as the function's failure, and the boundary that contains it reuses the verdict. Two tiers as `wrapInvocation` has: ambient (registered on `globalThis` under `Symbol.for("solid-js/server/errors")`, shared by a bundled build and an `--import`ed module) and per request, the latter winning. A throwing hook is reported and treated as silent. The hook fires in every tier; `onError` keeps its meaning.
+
+  Internals: `solid-js`'s server entry owns the verdict engine (`reportServerError` / `ssrSanitizeError` through `solid-js/internal`, one cache per error object); the SSR context gains `errorPolicy` and `flushed`; the `_fr` rejection reads its verdict at delivery. A rejected async source's own serialized rejection is encoded in the rejection's microtask, ahead of the boundary, and carries the default policy's value — the mapping reaches the boundary's record, which the hydrating client renders from; no tick is added to the error path. `SSR_ERROR_SANITIZED` carries `data.wire`.
+
+- 537faea: `serverFunctionUrl(fn, ...args)` is now the url a `GET()` reference's own call requests — `<endpoint>/data/<id>[?args=…]`, built the way the transport builds it, so a `<link rel="preload" as="fetch">` of it (or a prefetch, a service-worker warm, a fetch by hand) matches the later call in every cache that keys on the url (#3440). It takes the reference, like the rest of the surface, because only the reference knows the call is a GET and how its arguments encode; it throws with a pointer for a reference on the default transport (a POST is not described by its url — `invoke(fn, { priority: "low" }, ...args)` starts such a call early), for arguments that need the codec, and for a url past the length at which the call falls back to POST.
+
+  The form-post address the function used to build — what a `<form action>` posts to without the runtime, also `fn.url` — is now `serverFunctionActionUrl(fn | id, ...boundArgs)`, with `parseServerFunctionActionUrl(url)` as its inverse (formerly `parseServerFunctionUrl`). The id form remains for the integration that has only an id, reconstructing a callable before the declaring module has loaded. Rendered form actions and `fn.url` are unchanged.
+
+- af94f67: Server observe surface: `OBSERVE.server` and the invocation channel
+
+  `OBSERVE` gains a `server` slot — an augmentable `ServerObserve` interface declared empty in `@solidjs/signals` (re-exported by `solid-js`), typed and emitted into by `@solidjs/web`'s server runtime, so server-side observability consumers subscribe on the one `OBSERVE` object they already know from the client. The first channel is `OBSERVE.server.invocations`: `subscribe("invocation", (event, live) => …)` delivers one `{ id, direct, at, durationMs, outcome, deferred? }` record per server-function execution — HTTP dispatch and direct SSR calls alike — when it settles, with the request event, `request`, `args`, and the result or the error as thrown beside it. Observers, not policy: any number of listeners, none able to alter the call; `wrapInvocation` remains the single policy hook.
+
+  `@solidjs/web` now publishes observe-tier server artifacts (`dist/server.observe.js`, `server-functions/dist/server.observe.js`, `frames/dist/server.observe.js`) under the `observe` export condition, alongside the existing dev/prod pairs. The surface and every emit site fold out of the prod artifacts.
+
+- 042b540: Trace context: `getTraceContext()`, W3C `traceparent` on the exchange, and the `OBSERVE.server.trace` provider slot
+
+  The server runtime now reads the W3C Trace Context half of the HTTP exchange once per request — continuing an incoming `traceparent` (with `tracestate`/`baggage` beside it) or originating a trace when none came in — and exposes it through `getTraceContext()` from `@solidjs/web`: `{ traceId, spanId, parentId?, sampled?, state?, baggage?, entries }`, one object per request (direct SSR-time server-function calls included), the render's own for a render outside a request scope, `undefined` outside both and on the client. Application code forwards a trace downstream with `entries.traceparent`. This is core HTTP behavior in every build tier.
+
+  The trace is also handed down to the browser: `entries` are emitted as `Server-Timing` metrics (`traceparent;desc="00-…"`) when the response head commits — `createSSRResponse`, `commitEventResponse` (now also for an event without a response stub, such as the server-function handler's default event), and `commitResponseStub` (which accepts the owning `event` in its options) — and as `<meta name="…" content="…">` tags in the HTML shell head, delivered wherever the head content goes (`</head>` splice, `onHead`). A `Server-Timing` name the application already wrote is respected; `Server-Timing` now folds entry by entry when a stub and a response/`responseInit` both carry one. The browser is told only when something is recording the trace — the incoming `traceparent` was sampled, or a provider answered — never for a trace the runtime originated alone or an unsampled upstream one (what load balancers and meshes stamp on every request), so an app with no APM sees zero wire change.
+
+  In observe/dev builds, `OBSERVE.server.trace.provide(provider)` installs a single global provider whose answer merges over the derivation (fields replace, `entries` merge by name) — how an APM's server SDK contributes its active span and vendor entries (`sentry-trace`/`baggage`) once, with no per-request entry point into the host.
+
+- 7f6332a: `spread()` creates fewer reactive nodes per element (#3388): `ref` folds into the attribute effect and is re-applied only when its identity changes (refs run with no owner, so nothing they create is disposed by the fold); children keep their own owned `insert` — that effect owns the child subtree, and merging it would rebuild the children on every attribute change — but a plain object whose `children` is a data property inserts the value with no effect at all. Three nodes become two when children flow through the spread, one when they don't. `spread` also accepts an array of sources with an optional `skip` predicate — `spread(el, [a, b], skipChildren, skip)` — the union of own keys with later sources winning, only the winning source read, function sources called inline with no memo (and so no hydration id), matching the server `ssrElement` array form.
+- a732d2b: `ssrElement` serializes the common element shapes without the general resolver's allocations
+  - Children that are one string, a number, nothing, or one finished node now join the open and close tags in place. The general path — `resolveSSRNode` into a fresh `{ t, h, p }` result (an object and three arrays), then `ssr()` over a template array — is taken only for arrays and pending nodes, which need it. Output is unchanged; on a text-content-heavy page this was the single largest cost of a spread element.
+  - The array-sources form over plain objects, and an omit over a merge, walk the array they were handed: the resolved `sources`/`kinds` lists (and the `fill(SOURCE_OMIT)` list) are built only when entries differ in kind. A plain source in `pushEntry` is classified with one `$PROXY in` check instead of two.
+
+  On yak's element-dense SSR cases (`dyn-translate`, `dyn-fair`, `dyn-inline`) this is +15–21% throughput and −27% bytes allocated per instance, closing the gap to the hand-written writer from 1.76× to 1.46×; `multifile-composition`/`tabs` +3–6%.
+
+- 40977c9: `ssrElement` accepts an array of prop sources and an optional `skip` predicate: `ssrElement(tag, [a, b, c], children, needsId, skip)`. The array form serializes straight from the sources with the exact output of `ssrElement(tag, merge(a, b, c), ...)` — later sources win per key, attributes land in merged order, only the winning source's getter is read (once), and `skip(key)` drops a key from every source without reading it — so libraries and compilers spreading several sources no longer have to build an intermediate merged object that is walked once and discarded. The array (or a thunk yielding it) is resolved after the hydration key is taken; a function source is a plain thunk called once that creates no memo and consumes no hydration ids. Nullish sources are empty. The single-object form is unchanged.
+- 34287d8: SSR render failures reach the client sanitized (#3468): the wire policy the server-function handler has applied since #3113/#3116 now covers every SSR road a failure takes — the error an `<Errored>` serializes for hydration, a rejected async source serialized into the stream, a `<Loading>` fragment's `_fr` rejection, a frame stream's error chunks (the fragment's, a live hole's, the root's). Outside the dev build a plain thrown value is replaced with a generic `Error` (`"Internal Server Error"`); `message`, `cause` and own properties stay on the server. A `"use server"` function called in-process during SSR never touches the RPC wire, so before this the production page load shipped what that wire withholds.
+  - **`solid-js`** (server): `<Errored>` sanitizes _before_ rendering its fallback and serializes the same replacement, so fallback markup and the hydration record agree. A fallback printing `err().message` shows the generic message in production, as for a server-function failure. `markSafeError` (`Symbol.for("solid.SafeError")`) passes through with own properties; an Error reached as a _value_ is data and passes as written (#3113's ruling). One replacement per original, however many roads it takes. New finding `SSR_ERROR_SANITIZED` (`info`, observe + dev; `data.error` the original), beside `SSR_RENDER_ERROR_CONTAINED` which carries the failure itself. `ssrSanitizeError` is exposed to the runtimes through `solid-js/internal`. Server findings now carry their `ownerPath` in the **observe** artifact too — the core's walk reads `_parent` under its own build's property mangling and found nothing on a server owner there, so the server entry locates its findings itself.
+  - **`@solidjs/web`** (server): the hydration serialize funnel guards every channel it writes (a promise's rejection, an async iterable's thrown step); a fragment's terminal error reaches the `_fr` rejection and a transport sink's error chunk sanitized while the abandonment ledger keeps the original; the frame sink's root error chunk and the live-hole/live-attribute error chunks carry the replacement's message.
+  - **`@solidjs/signals`**: the `SSR_ERROR_SANITIZED` code.
+
+  The dev/prod line is the build variant: the `development` server artifacts keep full fidelity; production and observe sanitize.
+
+- 48f007e: `renderToStream` completes when a nested `<Loading>` settles before its parent fragment fails (#3478). A settled nested fragment parks its markup on the pending parent to be spliced in on resolve; when the parent then rejected, the splice ran over an undefined value, threw out of the fragment's resolver before `<key>_fr` could reject, and the response waited on it forever. The error path now drops the parked children — the client re-renders the whole subtree off the outer rejection — and the failure is reported once.
+- 7f5f902: `merge()`/`omit()` views build their resolved key table on enumeration or once reads have paid for it, not on the first read; `ssrElement` walks a view's entries instead of asking for its table
+
+  A `merge()`/`omit()` view over plain objects keeps a resolved table — every key mapped to the leaf that owns it — so a client `spread` rerunning its effect, or `Object.keys`/`{...props}`, is one lookup per key. Since the views became lazy (#3454) that table was built by the **first** per-key trap read as well. On the server that is the wrong trade: a component reads its merged props a few times, the element serializes them once, and the view is discarded, so a Kobalte-shaped component chain (`Dialog.Trigger` → `Button.Root` → `Polymorphic`) paid for a table per layer per element. Profiled under `renderToString`, a third of the time was in the table code (`mergeTable`, `tableSet`, `omitTable`) and the garbage it produced, plus `Array.prototype.concat` combining omit filters.
+  - **Signals:** a per-key `get`/`has`/`getOwnPropertyDescriptor` answers by a source walk (last source first, one `in` each) until the view has been read 16 times — the break-even between a build (~60 ns per key of every leaf) and a walk (~20 ns per source) — and then builds the table as before, so a long-lived client view read on every reactive rerun is one lookup per read from its first few updates on. Enumeration (`ownKeys`, or a consumer asking `resolvedTable`) builds it outright, unchanged. An omit over one object never builds one. The read count lives in the table slot until it is decided, so a view carries no extra field. Combined omit filters are copied with `slice` + `push` instead of `concat` (2–3× cheaper once optimized, and — unlike a hand-written loop — no more expensive than the builtin in the interpreter and baseline tiers, which is what an instruction-count benchmark under Valgrind mostly runs).
+  - **Web (SSR):** `ssrElement` no longer prefers a view's resolved table; it walks the view's entries the way it already walked the array form — an omit over a merge as its filtered leaf entries — so serializing an element builds no table at all. Attribute order is the same merged order (a key at the position of the last source that carries it).
+
+  Same-process A/B on the tier-1 `polymorphic-chain` SSR bench (200 rows, `renderToString`): the chain form goes from 8.2× the compiled floor to 5.8×, chain-static from 7.7× to 5.6× (−27% wall-clock). At the signals layer the props-chain bench improves 5–17% on build, 6–14% on build+consume, and steady-state per-key reads on a prebuilt view are unchanged (the table is in use). The only slower band is a view read 16–20 times and never enumerated (+4–17% at depth 1–3, faster at depth 7), which is the transition the threshold is designed around.
+
+  Tests: the table is undecided after a handful of reads on both a merge and an omit-over-merge, built after the 16th with identical answers before and after; enumeration builds it on a fresh view; a plain omit never builds one; a store-leaf view settles to "none" and keeps walking. SSR: a spread over an omit-over-merge and over a bare merge serializes the merged order and builds no table.
+
+- Updated dependencies [8bf04ea]
+- Updated dependencies [d826cd3]
+- Updated dependencies [cc0396b]
+- Updated dependencies [53280e7]
+- Updated dependencies [3154ed6]
+- Updated dependencies [b298154]
+- Updated dependencies [899c2c4]
+- Updated dependencies [3ae9e92]
+- Updated dependencies [328580f]
+- Updated dependencies [61a114c]
+- Updated dependencies [0d8347a]
+- Updated dependencies [7623ce1]
+- Updated dependencies [56858e7]
+- Updated dependencies [af94f67]
+- Updated dependencies [e87d694]
+- Updated dependencies [5426ffb]
+- Updated dependencies [63560a1]
+- Updated dependencies [34287d8]
+  - solid-js@2.0.0-rc.9
+
 ## 2.0.0-rc.8
 
 ### Patch Changes
