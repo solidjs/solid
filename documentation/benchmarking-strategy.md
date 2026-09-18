@@ -378,6 +378,97 @@ Some gaps are not optimization targets. From the 2026-05 investigation:
 - **σ-band, not point estimates.** Single-run "improvements" that fall
   inside the σ band of the baseline are not improvements.
 
+## Octane board workflow
+
+The cross-framework source of truth since 2026-08 is Octane's benchmark
+board run from our fork, with Solid linked to a local `next` build. The
+campaign that built this and what it found is the
+[Store / List Delivery Lane](./performance-experiments.md#store--list-delivery-lane-2026-08-16--2026-09-18-the-octane-board)
+in the journal. The mechanics:
+
+**Where.** Fork `ryansolid/octane`, branch `solid-rc8-fixtures-rebase`
+(upstream `main` + our Solid fixture commits; rebase it when upstream
+moves — the Solid fixtures are ours alone, upstream still pins
+2.0-beta.20). Local checkout `~/Development/octane-fork`. A second
+checkout, `~/Development/octane`, holds the pre-September experiment
+scaffolding and the older results directories.
+
+**Linking `next`.** Keep a worktree of this repo on `origin/next`
+(`~/Development/solid-next-bench`), `pnpm install`, `pnpm build` in
+`packages/compiler` (native binary, needs cargo), then
+`pnpm turbo run build --filter=@solidjs/signals --filter=solid-js
+--filter=@solidjs/web --filter=@solidjs/babel-plugin --filter=@solidjs/compiler`.
+In the fork's `pnpm-workspace.yaml` `overrides:` block, point `solid-js`,
+`@solidjs/web`, `@solidjs/signals`, `@solidjs/compiler` and
+`@solidjs/babel-plugin` at `link:../solid-next-bench/packages/<name>`,
+then `pnpm install --no-frozen-lockfile`. `@solidjs/vite-plugin` stays
+npm and picks the linked compiler up through the override — verify with
+`readlink -f node_modules/.pnpm/@solidjs+vite-plugin*/node_modules/@solidjs/compiler`.
+**Keep the override and the lockfile it produces uncommitted**; the
+fixture branch must install from the published rc for anyone else.
+
+**Running.** From the fork root:
+
+```bash
+env -u PLAYWRIGHT_BROWSERS_PATH node benchmarks/bench.mjs \
+  --results-dir=benchmarks/results-<label> <suites…>
+```
+
+The 26-suite board used on 2026-09-17: js-framework js-framework-reorder
+dbmon todomvc chat-stream svg-dashboard signal-favoring effectful-list
+list-clear memo-wall store-selector-fanout scaling-curves spa-navigation
+recursive-context external-store-fanout controlled-form event-delegation
+application-composition suspense-recovery scheduler-responsiveness
+hydration-interactivity lifecycle-memory ssr-throughput streaming-ssr
+bundle-size uibench. ~45–60 minutes on an idle machine. `bench.mjs`
+builds every fixture and boots the preview servers itself; each suite
+runs its correctness gates before timing, so a fixture change that breaks
+the DOM contract fails the suite rather than posting numbers. Exit code 1
+means _some_ gate failed — read the tail of the log; on 2026-09-17 the
+failures were Octane's own targets.
+
+Then `node benchmarks/board-compare.mjs <dirA> <dirB> [labelA labelB]`
+for the two-sided geomean board (timed ops only). For a single suite,
+`node benchmarks/<suite>/run.mjs <iterations>` with
+`TARGETS='[{"name":"solid","url":"http://localhost:<port>/"}]'` against a
+`pnpm --filter <fixture> preview` you started yourself.
+
+**Gotchas, each learned the hard way:**
+
+- `PLAYWRIGHT_BROWSERS_PATH` is set in the agent environment to a sandbox
+  cache; unset it or Chromium "doesn't exist".
+- Long runs and preview servers must be tool-managed background tasks
+  (block-until 0). `nohup … &` from a tool shell dies with the shell —
+  silently, a minute in, leaving orphaned preview servers on their ports.
+- Eight samples is the default; on sub-5 ms ops the median is bimodal
+  under the harness's `gc()` + 40 ms idle protocol. Read `min` beside
+  the median. Any single-op ratio over 2× is "rerun in isolation" until
+  it reproduces — todomvc `add100` read 4.3× on the board and 1.2× on a
+  quiet machine.
+- `board-compare` uses timed ops. Do not hand-roll a geomean over "all
+  ops": the result JSONs also carry structural gate counters
+  (`nodes_deep`, `comments_*`, `text_*`) that look like numbers.
+- Octane's own fixtures can regress or fail their gates between upstream
+  releases (0.2.13 did both). When the Solid/Octane ratio moves, check
+  Octane's _absolute_ times against the previous run before believing it.
+- The bundle-size suite's app/framework split is meaningless under local
+  links (framework shows ~700 B); totals are fine.
+- `signal-favoring` swings between runs by design (one text node);
+  ignore single-run ratios.
+- Fixture authoring rules (textContent, read-once structural props,
+  ternary over per-row `<Show>`, `onSettled`, `dynamic()`, signal shape for
+  snapshot ingestion) are in the journal section; a "gap" is authoring
+  until the fixture has been read.
+
+**Profiling a single op.** Build the fixture unminified
+(`npx vite build --minify false --outDir dist-prof`), serve it, and drive
+the op from a Playwright script with CDP `Profiler` (self-time by
+function) and `HeapProfiler.startSampling` (allocation by function);
+interleave the A and B pages in one browser for paired comparison. The
+2026-09-18 todomvc scripts (`todo-prof.mjs`, `todo-var.mjs`,
+`todo-alloc.mjs`, `todo-ab.mjs`) are the template; they lived in `/tmp`
+and should be re-created next to the harness if this becomes routine.
+
 ## Cross-references
 
 - Running journal of probes, findings, and reverts:
