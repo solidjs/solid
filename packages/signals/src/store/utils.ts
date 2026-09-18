@@ -248,8 +248,10 @@ export function hasStaticKeys(o: any): boolean {
  * a literal at the call site (`as="button"`) as a data property and an
  * expression (`as={isLink() ? "a" : "button"}`) as a getter, so a component
  * library reads the caller's own static/dynamic classification of a prop at
- * runtime — identically on server and client, the compiled shape being the
- * same on both — and can take a no-computation path for the literal:
+ * runtime — identically on server and client, the compiler emitting the same
+ * own DESCRIPTORS on both (the object behind them may differ: the server
+ * builds props as a plain-prototype instance with shared getters) — and can
+ * take a no-computation path for the literal:
  *
  * ```tsx
  * const Tag = dynamic(() => props.as, { static: isStatic(props, "as") });
@@ -943,6 +945,14 @@ export function mergeSources(o: any): any[] | undefined {
  * Use this in component bodies to merge defaults / overrides without losing
  * Solid's per-property tracking.
  *
+ * Reading props, here and anywhere: a prop's getter is defined only for a
+ * read through its own object (`props.x`, `{ ...props }`, `Reflect.get`,
+ * these views). Forwarding its descriptor onto another object and reading it
+ * there is not supported — the compiler's server-side props keep their state
+ * on the instance, so the getter needs its object as receiver. A copy that
+ * must stay live defines its own getter that reads through the source, as
+ * the no-Proxy paths of merge() and omit() do.
+ *
  * @example
  * ```tsx
  * function Button(_props: { label: string; type?: string; disabled?: boolean }) {
@@ -1143,9 +1153,21 @@ export function omit(props: any, ...keys: any[]): any {
   for (const propName of propNames) {
     if (!isHiddenKey(propName)) {
       const desc = Object.getOwnPropertyDescriptor(props, propName)!;
-      !desc.get && !desc.set && desc.enumerable && desc.writable && desc.configurable
-        ? (result[propName] = desc.value)
-        : Object.defineProperty(result, propName, desc);
+      if (!desc.get && !desc.set && desc.enumerable && desc.writable && desc.configurable) {
+        result[propName] = desc.value;
+      } else if (desc.get || desc.set) {
+        // An accessor is re-homed with its source as receiver, never copied
+        // as-is: a props getter is only defined for a read THROUGH its own
+        // object (the compiler's server props keep their state on the
+        // instance, so a forwarded descriptor read on the copy throws). Same
+        // rule as merge()'s copy path above.
+        Object.defineProperty(result, propName, {
+          enumerable: desc.enumerable,
+          configurable: true,
+          get: desc.get && desc.get.bind(props),
+          set: desc.set && desc.set.bind(props)
+        });
+      } else Object.defineProperty(result, propName, desc);
     }
   }
   return result as any;
