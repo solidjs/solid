@@ -1127,7 +1127,7 @@ export namespace JSX {
     /** Serialized (JSON) history state pushed alongside the navigation. */
     state?: FunctionMaybe<string | RemoveAttribute>;
     /** Suppress scroll restoration/reset after the navigation. */
-    noScroll?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    noscroll?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     /** Replace the current history entry instead of pushing a new one. */
     replace?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     /** Route preload intent; `"false"` disables the integration's default eager preload. */
