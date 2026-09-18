@@ -595,13 +595,14 @@ describe("declared reads from a listed origin (#3538)", () => {
     // the shared-cache entries the GET helper exists for (#3071) stay
     // whole. `csrf: true` and `csrf: {}` are "no matcher" too.
     const { read } = declareRead("cors-declared-read-plain");
+    const shapes: Record<string, string>[] = [
+      { "Sec-Fetch-Site": "same-origin" },
+      {},
+      { Origin: APP, "Sec-Fetch-Site": "cross-site" }
+    ];
 
     for (const csrf of [undefined, true, {}, { allowCredentials: true }] as const) {
-      for (const headers of [
-        { "Sec-Fetch-Site": "same-origin" },
-        {},
-        { Origin: APP, "Sec-Fetch-Site": "cross-site" }
-      ]) {
+      for (const headers of shapes) {
         const response = await handleServerFunctionRequest(read(headers), {
           csrf: csrf as any,
           provideEvent
