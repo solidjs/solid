@@ -383,11 +383,17 @@ describe("a held lane from the outside", () => {
     setShow(false);
     await settle();
     await advanceTo(12000);
+    // At 5000 the action's body is done and the only pending reader is the
+    // zombie itself — its refetch of `count=0` is moot for the verdict of the
+    // transaction that disposes it, so the removal commits at once. (This
+    // frame read 6000 while a zombie's rerun dropped REACTIVE_ZOMBIE, #3543:
+    // the 4000 rerun made `Details` a live reader that held the commit for a
+    // fetch nothing would display.)
     expect(frames(log, when)).toEqual([
       "0: Show: true | Value: 0",
       "1000: Details: 0",
       "4000: Details: 1 | Value: 1",
-      "6000: Details gone | Show: false | Value: 0"
+      "5000: Details gone | Show: false | Value: 0"
     ]);
   });
 
