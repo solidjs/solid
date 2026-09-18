@@ -310,7 +310,16 @@ describe("the other outcomes", () => {
 describe("<Reveal> groups: heldMs", () => {
   test("order=together: the early boundary's record waits for the reveal and measures the hold", async () => {
     const seen = records();
+    const aDone = deferred<void>();
     const b = deferred<string>();
+    function SlotA() {
+      const data = createMemo(async () => {
+        await delay(5);
+        aDone.resolve();
+        return "A";
+      });
+      return <div>{data()}</div>;
+    }
     function SlotB() {
       const data = createMemo(async () => b.promise);
       return <div>{data()}</div>;
@@ -319,7 +328,7 @@ describe("<Reveal> groups: heldMs", () => {
       return (
         <Reveal order="together">
           <Loading fallback={<i>a</i>}>
-            <Slow ms={5} value="A" />
+            <SlotA />
           </Loading>
           <Loading fallback={<i>b</i>}>
             <SlotB />
@@ -329,6 +338,10 @@ describe("<Reveal> groups: heldMs", () => {
     }
     const done = stream(() => <App />);
     // A has settled; the group holds its swap for B — and holds its record.
+    // The hold is measured from A's settle, so B is released a fixed 40 ms
+    // AFTER A settled (not after the stream started): the lower bound below
+    // is the timer's, not a race between two timers on a loaded runner.
+    await aDone.promise;
     await delay(40);
     expect(seen).toHaveLength(0);
     b.resolve("B");
@@ -344,11 +357,13 @@ describe("<Reveal> groups: heldMs", () => {
     expect(a.event.revealGroup).toBeDefined();
     expect(bRec.event.revealGroup).toBe(a.event.revealGroup);
     // A finished early and sat behind B: the hold is the gap, not zero; its
-    // own duration is still discover → settle, unchanged by the hold.
-    expect(a.event.durationMs).toBeLessThan(35);
-    expect(a.event.heldMs).toBeGreaterThanOrEqual(30);
+    // own duration is still discover → settle, unchanged by the hold. A
+    // timer never fires early, so the ≥ bounds are deterministic; the only
+    // wall-clock upper bound left is B's un-held reveal.
+    expect(a.event.durationMs).toBeLessThan(a.event.heldMs);
+    expect(a.event.heldMs).toBeGreaterThanOrEqual(35);
     // B was the one everyone waited for: it revealed as it settled.
-    expect(bRec.event.durationMs).toBeGreaterThanOrEqual(35);
+    expect(bRec.event.durationMs).toBeGreaterThanOrEqual(40);
     expect(bRec.event.heldMs).toBeLessThan(10);
     expect(a.event.outcome).toBe("settled");
     expect(bRec.event.outcome).toBe("settled");
@@ -380,10 +395,24 @@ describe("<Reveal> groups: heldMs", () => {
     const seen = records();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
+      const aFailed = deferred<void>();
       function Bad() {
         const data = createMemo(async () => {
           await delay(5);
+          aFailed.resolve();
           throw new Error("A failed");
+        });
+        return <div>{data()}</div>;
+      }
+      // B settles a fixed 30 ms after A has failed, so A's hold behind the
+      // group is bounded below by that timer — not by two independent timers
+      // racing (a 5 ms and a 20 ms timer on a loaded CI runner measured a
+      // 7 ms hold against a 10 ms floor).
+      function SlotB() {
+        const data = createMemo(async () => {
+          await aFailed.promise;
+          await delay(30);
+          return "B";
         });
         return <div>{data()}</div>;
       }
@@ -394,7 +423,7 @@ describe("<Reveal> groups: heldMs", () => {
               <Bad />
             </Loading>
             <Loading fallback={<i>b</i>}>
-              <Slow ms={20} value="B" />
+              <SlotB />
             </Loading>
           </Reveal>
         );
@@ -403,7 +432,7 @@ describe("<Reveal> groups: heldMs", () => {
       expect(seen).toHaveLength(2);
       const failed = seen.find(r => r.event.outcome === "error")!;
       expect((failed.live.error as Error).message).toBe("A failed");
-      expect(failed.event.heldMs).toBeGreaterThanOrEqual(10);
+      expect(failed.event.heldMs).toBeGreaterThanOrEqual(25);
       expect(seen.find(r => r.event.outcome === "settled")).toBeDefined();
     } finally {
       error.mockRestore();
