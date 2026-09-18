@@ -53,6 +53,7 @@ import {
   REACTIVE_REASK,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
+  REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
@@ -320,7 +321,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   context = el;
   el._depsTail = null;
   el._depGen++;
-  el._flags = REACTIVE_RECOMPUTING_DEPS;
+  // REACTIVE_ZOMBIE survives every `_flags` rewrite (#3543): a zombie that
+  // re-runs while its owner's commit waits is still on the owner's
+  // `_pendingFirstChild`, and disposal, heap routing and the verdict all key
+  // off the flag. Dropped, its dispose spliced the owner's live chain.
+  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
   el._time = clock;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
@@ -488,7 +493,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (markNode(c) in read()) marks the running node as part of ordinary
     // bookkeeping, and those marks are correctly discarded here.
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
-    el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
+    el._flags = el._flags & (create ? REACTIVE_SNAPSHOT_STALE : REACTIVE_ZOMBIE);
     context = oldcontext;
   }
   // The cast re-widens: TS narrowed `stagedEntry` to `null` at the reset
@@ -871,7 +876,9 @@ function updateIfNecessary(el: Computed<unknown>): void {
     recompute(el);
   }
 
-  el._flags = el._flags & (REACTIVE_SNAPSHOT_STALE | REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT);
+  el._flags =
+    el._flags &
+    (REACTIVE_SNAPSHOT_STALE | REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT | REACTIVE_ZOMBIE);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;

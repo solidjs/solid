@@ -344,6 +344,10 @@ describe("a held lane from the outside", () => {
   // cannot commit while the action runs, so it stays on screen. It was treated
   // as dead for the hold and the lane revealed `Value: 1` beside its `Details:
   // 0`. A zombie blocks unless the judgment IS the commit that disposes it.
+  // The action's end (5000) is that judgment: the refetch its `setCount(0)`
+  // starts has no reader but the zombie, so the removal commits there. (The
+  // pin read 6000 while a zombie's re-run dropped REACTIVE_ZOMBIE and it was
+  // judged as a live reader, #3543.)
   it("#3463 a reader whose removal is staged keeps holding the lane while it is visible", async () => {
     reset();
     const log: string[] = [];
@@ -387,7 +391,7 @@ describe("a held lane from the outside", () => {
       "0: Show: true | Value: 0",
       "1000: Details: 0",
       "4000: Details: 1 | Value: 1",
-      "6000: Details gone | Show: false | Value: 0"
+      "5000: Details gone | Show: false | Value: 0"
     ]);
   });
 
