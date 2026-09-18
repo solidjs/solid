@@ -226,7 +226,13 @@ export namespace JSX {
   // end event handlers
 
   export type ClassValue =
-    string | number | boolean | null | undefined | Record<string, boolean> | ClassValue[];
+    | string
+    | number
+    | boolean
+    | null
+    | undefined
+    | Record<string, boolean>
+    | ClassValue[];
 
   const SERIALIZABLE: unique symbol;
   interface SerializableAttributeValue {
@@ -744,7 +750,8 @@ export namespace JSX {
     onCompositionStart?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onCompositionUpdate?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onContentVisibilityAutoStateChange?:
-      EventHandlerUnion<T, ContentVisibilityAutoStateChangeEvent> | undefined;
+      | EventHandlerUnion<T, ContentVisibilityAutoStateChangeEvent>
+      | undefined;
     onContextLost?: EventHandlerUnion<T, Event> | undefined;
     onContextMenu?: EventHandlerUnion<T, PointerEvent> | undefined;
     onContextRestored?: EventHandlerUnion<T, Event> | undefined;

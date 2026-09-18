@@ -226,7 +226,13 @@ export namespace JSX {
   // end event handlers
 
   export type ClassValue =
-    string | number | boolean | null | undefined | Record<string, boolean> | ClassValue[];
+    | string
+    | number
+    | boolean
+    | null
+    | undefined
+    | Record<string, boolean>
+    | ClassValue[];
 
   const SERIALIZABLE: unique symbol;
   interface SerializableAttributeValue {
@@ -377,7 +383,13 @@ export namespace JSX {
      * elements.
      */
     "aria-current"?:
-      EnumeratedPseudoBoolean | "page" | "step" | "location" | "date" | "time" | RemoveAttribute;
+      | EnumeratedPseudoBoolean
+      | "page"
+      | "step"
+      | "location"
+      | "date"
+      | "time"
+      | RemoveAttribute;
     /**
      * Identifies the element (or elements) that describes the object.
      *
@@ -438,7 +450,13 @@ export namespace JSX {
      * that can be triggered by an element.
      */
     "aria-haspopup"?:
-      EnumeratedPseudoBoolean | "menu" | "listbox" | "tree" | "grid" | "dialog" | RemoveAttribute;
+      | EnumeratedPseudoBoolean
+      | "menu"
+      | "listbox"
+      | "tree"
+      | "grid"
+      | "dialog"
+      | RemoveAttribute;
     /**
      * Indicates whether the element is exposed to an accessibility API.
      *
@@ -736,7 +754,8 @@ export namespace JSX {
     onCompositionStart?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onCompositionUpdate?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onContentVisibilityAutoStateChange?:
-      EventHandlerUnion<T, ContentVisibilityAutoStateChangeEvent> | undefined;
+      | EventHandlerUnion<T, ContentVisibilityAutoStateChangeEvent>
+      | undefined;
     onContextLost?: EventHandlerUnion<T, Event> | undefined;
     onContextMenu?: EventHandlerUnion<T, PointerEvent> | undefined;
     onContextRestored?: EventHandlerUnion<T, Event> | undefined;
@@ -936,7 +955,14 @@ export namespace JSX {
     dir?: HTMLDir | RemoveAttribute;
     draggable?: EnumeratedPseudoBoolean | RemoveAttribute;
     enterkeyhint?:
-      "enter" | "done" | "go" | "next" | "previous" | "search" | "send" | RemoveAttribute;
+      | "enter"
+      | "done"
+      | "go"
+      | "next"
+      | "previous"
+      | "search"
+      | "send"
+      | RemoveAttribute;
     exportparts?: string | RemoveAttribute;
     hidden?: EnumeratedAcceptsEmpty | "hidden" | "until-found" | RemoveAttribute;
     inert?: BooleanAttribute | RemoveAttribute;
@@ -2095,20 +2121,37 @@ export namespace JSX {
       | "inherit"
       | RemoveAttribute;
     "shape-rendering"?:
-      "auto" | "optimizeSpeed" | "crispEdges" | "geometricPrecision" | "inherit" | RemoveAttribute;
+      | "auto"
+      | "optimizeSpeed"
+      | "crispEdges"
+      | "geometricPrecision"
+      | "inherit"
+      | RemoveAttribute;
     "stop-color"?: string | RemoveAttribute;
     "stop-opacity"?: number | string | "inherit" | RemoveAttribute;
     "stroke-dasharray"?: string | RemoveAttribute;
     "stroke-dashoffset"?: number | string | RemoveAttribute;
     "stroke-linecap"?: "butt" | "round" | "square" | "inherit" | RemoveAttribute;
     "stroke-linejoin"?:
-      "arcs" | "bevel" | "miter" | "miter-clip" | "round" | "inherit" | RemoveAttribute;
+      | "arcs"
+      | "bevel"
+      | "miter"
+      | "miter-clip"
+      | "round"
+      | "inherit"
+      | RemoveAttribute;
     "stroke-miterlimit"?: number | string | "inherit" | RemoveAttribute;
     "stroke-opacity"?: number | string | "inherit" | RemoveAttribute;
     "stroke-width"?: number | string | RemoveAttribute;
     "text-anchor"?: "start" | "middle" | "end" | "inherit" | RemoveAttribute;
     "text-decoration"?:
-      "none" | "underline" | "overline" | "line-through" | "blink" | "inherit" | RemoveAttribute;
+      | "none"
+      | "underline"
+      | "overline"
+      | "line-through"
+      | "blink"
+      | "inherit"
+      | RemoveAttribute;
     "text-rendering"?:
       | "auto"
       | "optimizeSpeed"
