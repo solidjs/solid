@@ -22,6 +22,10 @@ export interface ProgramScopeData {
   imports?: Map<string, t.Identifier>;
   templates?: TemplateRecord[];
   events?: Set<string>;
+  /** SSR hoisted props shapes (ssr/props.ts), placed by postprocess. */
+  hoistedProps?: t.Statement[];
+  /** Props literals marked for it in this file; 0 skips the pass. */
+  propsSites?: number;
 }
 
 export interface TsrxStyleResult {

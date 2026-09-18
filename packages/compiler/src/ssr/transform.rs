@@ -91,6 +91,16 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// Bare `var` names hoisted to program top for expression-position
     /// temp assignments (Babel's `path.scope.push`).
     hoisted_var_names: std::vec::Vec<String>,
+    /// Span starts of component elements whose props literals are candidates
+    /// for the hoisted shape (ssr/props.rs); `None` when the option is off.
+    props_sites: Option<std::collections::HashSet<u32>>,
+    /// Span starts of the module-level `_self$` capture IIFEs (see
+    /// `JsxTransform::note_module_capture_iife`); transparent to the pass.
+    pub(crate) module_capture_iifes: std::collections::HashSet<u32>,
+    /// Inside a class field initializer (see `lower_class_field_value`).
+    pub(crate) in_class_field: bool,
+    /// Module-level shapes `hoist_props` produced, placed by `prepend_helpers`.
+    hoisted_props: std::vec::Vec<Statement<'a>>,
     /// Declaration statements to insert before the statement currently being
     /// processed (Babel's `getStatementParent().insertBefore`).
     pending_statements: std::vec::Vec<Statement<'a>>,
@@ -241,6 +251,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             statement_depth: 0,
             templates: std::vec::Vec::new(),
             hoisted_var_names: std::vec::Vec::new(),
+            props_sites: None,
+            module_capture_iifes: std::collections::HashSet::new(),
+            in_class_field: false,
+            hoisted_props: std::vec::Vec::new(),
             pending_statements: std::vec::Vec::new(),
             statement_jsx_spans: std::vec::Vec::new(),
             component_child_depth: 0,
@@ -452,6 +466,29 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
     }
 
+    /// Opts the component props literals in for the hoisted shape
+    /// (`hoistProps`, default on); call before `visit_program`.
+    pub(crate) fn enable_hoist_props(&mut self) {
+        self.props_sites = Some(std::collections::HashSet::new());
+    }
+
+    /// Rewrites the marked props literals (ssr/props.rs) after the transform
+    /// and before `prepend_helpers`, which places the resulting shapes.
+    pub(crate) fn hoist_props(&mut self, program: &mut Program<'a>, dev: bool) {
+        let Some(sites) = self.props_sites.take() else {
+            return;
+        };
+        let hoisted = crate::ssr::props::hoist_props(
+            self.allocator,
+            program,
+            &sites,
+            &self.module_capture_iifes,
+            &self.bindings.taken_names,
+            dev,
+        );
+        self.hoisted_props = hoisted;
+    }
+
     pub(crate) fn prepend_helpers(&mut self, program: &mut Program<'a>) {
         if !self.uses_ssr
             && !self.uses_ssr_hydration_key
@@ -465,6 +502,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             && !self.uses_apply_ref
             && self.templates.is_empty()
             && self.hoisted_var_names.is_empty()
+            && self.hoisted_props.is_empty()
             && self.built_in_imports.is_empty()
         {
             return;
@@ -548,6 +586,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 init,
             ));
         }
+        // SSR hoisted props shapes after the templates they reference (Babel
+        // unshifts them right after its templates).
+        statements.extend(std::mem::take(&mut self.hoisted_props));
         if self.uses_ssr_select_values {
             // `_$ssrSelectValues();` — arms the runtime's select-value
             // resolution pass (only modules that bind a select value, or
@@ -864,6 +905,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
 
     fn lower_component(&mut self, element: &JSXElement<'a>) -> Result<Expression<'a>> {
         let root_tag = self.jsx_root_span == Some(element.span);
+        // Every props literal this call emits carries the element's span; the
+        // hoisted-shape pass finds them by it once every body is final.
+        if let Some(sites) = &mut self.props_sites {
+            sites.insert(element.span.start);
+        }
         let component = component_callee_expression(self, &element.opening_element.name, root_tag)?;
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
@@ -3194,7 +3240,13 @@ impl<'a> AstSsrTransform<'a, '_> {
         }
 
         let mut value = value;
+        // A root inside the initializer wraps in a capture IIFE here as at
+        // module level, but Babel emits that IIFE too (no statement to insert
+        // the capture before), so it is a real function parent for the props
+        // pass — don't record it as transparent.
+        let was_in_class_field = std::mem::replace(&mut self.in_class_field, true);
         self.visit_expression(&mut value);
+        self.in_class_field = was_in_class_field;
         if let Some(capture) = self.take_this_capture_statement(span) {
             let mut statements = self.ast().vec();
             statements.push(capture);

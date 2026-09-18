@@ -56,6 +56,82 @@ var _tmpl$8 = [
 var _tmpl$9 = ["<span", ">1</span>"];
 var _tmpl$10 = ["<span", ">2</span>"];
 var _tmpl$11 = ["<span", ">3</span>"];
+var _m$ = Symbol(), _m$2 = Symbol();
+var _d$ = {
+	get() {
+		const content = this[_m$2];
+		var _v$8, _v$9;
+		return _v$8 = _$ssrHydrationKey(), _v$9 = _$escape(content), _$ssr(_tmpl$2, _v$8, _v$9);
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$(_p, _p2) {
+	this[_m$] = _p;
+	this[_m$2] = _p2;
+	this.ref = (r$) => {
+		const props = this[_m$];
+		var _ref$4 = props.ref;
+		typeof _ref$4 === "function" || Array.isArray(_ref$4) ? _$applyRef(_ref$4, r$) : props.ref = r$;
+	};
+	Object.defineProperty(this, "children", _d$);
+}
+_P$.prototype = Object.prototype;
+var _d$2 = {
+	get() {
+		return state.condition;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$2(_p3) {
+	Object.defineProperty(this, "when", _d$2);
+	this.children = _p3;
+}
+_P$2.prototype = Object.prototype;
+var _d$3 = {
+	get() {
+		const _self$ = this[_m$];
+		return _self$.data;
+	},
+	enumerable: true,
+	configurable: true
+}, _d$4 = {
+	get() {
+		const _self$ = this[_m$];
+		return _self$.content;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$3(_p4) {
+	this[_m$] = _p4;
+	Object.defineProperty(this, "prop", _d$3);
+	Object.defineProperty(this, "children", _d$4);
+}
+_P$3.prototype = Object.prototype;
+var _d$5 = {
+	get() {
+		const _self$ = this[_m$];
+		return _self$.something;
+	},
+	enumerable: true,
+	configurable: true
+}, _d$6 = {
+	get() {
+		const _self$ = this[_m$];
+		return Nested(new _P$3(_self$));
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$4(_p5, _p6) {
+	this[_m$] = _p5;
+	Object.defineProperty(this, "prop", _d$5);
+	this.onClick = _p6;
+	Object.defineProperty(this, "children", _d$6);
+}
+_P$4.prototype = Object.prototype;
 import { Show } from "somewhere";
 const Child = (props) => {
 	var _v$, _ref$, _v$2, _v$3, _ref$2, _v$4;
@@ -67,7 +143,7 @@ const Child = (props) => {
 	}), _$ssr(_tmpl$2, _v$3, _v$4))];
 };
 const template = (props) => {
-	var _v$6, _v$8, _v$9;
+	var _v$6;
 	let childRef;
 	const { content } = props;
 	var _v$5 = _$ssrHydrationKey(), _v$7 = _$escape(Child(_$mergeProps({ name: "John" }, props, {
@@ -79,15 +155,7 @@ const template = (props) => {
 		get children() {
 			return _v$6 = _$ssrHydrationKey(), _$ssr(_tmpl$3, _v$6);
 		}
-	}))), _v$10 = _$escape(Child(_$mergeProps({ name: "Jason" }, dynamicSpread, {
-		ref(r$) {
-			var _ref$4 = props.ref;
-			typeof _ref$4 === "function" || Array.isArray(_ref$4) ? _$applyRef(_ref$4, r$) : props.ref = r$;
-		},
-		get children() {
-			return _v$8 = _$ssrHydrationKey(), _v$9 = _$escape(content), _$ssr(_tmpl$2, _v$8, _v$9);
-		}
-	}))), _v$11 = (() => {
+	}))), _v$10 = _$escape(Child(_$mergeProps({ name: "Jason" }, dynamicSpread, new _P$(props, content)))), _v$11 = (() => {
 		var _ref$5 = props.consumerRef();
 		return _$escape(Context.Consumer({
 			ref(r$) {
@@ -142,12 +210,7 @@ const template6 = _$For({
 	get fallback() {
 		return Loading({});
 	},
-	children: (item) => Show({
-		get when() {
-			return state.condition;
-		},
-		children: item
-	})
+	children: (item) => Show(new _P$2(item))
 });
 const template7 = Child({ get children() {
 	return [(_v$16 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$16)), _$memo(() => {
@@ -167,22 +230,7 @@ const template12 = _$ssr(_tmpl$8, _v$31, _v$32, _v$33);
 class Template13 {
 	render() {
 		const _self$ = this;
-		Component({
-			get prop() {
-				return _self$.something;
-			},
-			onClick: () => _self$.shouldStay,
-			get children() {
-				return Nested({
-					get prop() {
-						return _self$.data;
-					},
-					get children() {
-						return _self$.content;
-					}
-				});
-			}
-		});
+		Component(new _P$4(_self$, () => _self$.shouldStay));
 	}
 }
 const Template14 = Component({ get children() {
