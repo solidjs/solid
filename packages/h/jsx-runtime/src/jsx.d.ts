@@ -226,13 +226,7 @@ export namespace JSX {
   // end event handlers
 
   export type ClassValue =
-    | string
-    | number
-    | boolean
-    | null
-    | undefined
-    | Record<string, boolean>
-    | ClassValue[];
+    string | number | boolean | null | undefined | Record<string, boolean> | ClassValue[];
 
   const SERIALIZABLE: unique symbol;
   interface SerializableAttributeValue {
@@ -750,8 +744,7 @@ export namespace JSX {
     onCompositionStart?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onCompositionUpdate?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onContentVisibilityAutoStateChange?:
-      | EventHandlerUnion<T, ContentVisibilityAutoStateChangeEvent>
-      | undefined;
+      EventHandlerUnion<T, ContentVisibilityAutoStateChangeEvent> | undefined;
     onContextLost?: EventHandlerUnion<T, Event> | undefined;
     onContextMenu?: EventHandlerUnion<T, PointerEvent> | undefined;
     onContextRestored?: EventHandlerUnion<T, Event> | undefined;
@@ -1126,7 +1119,7 @@ export namespace JSX {
     /** Serialized (JSON) history state pushed alongside the navigation. */
     state?: FunctionMaybe<string | RemoveAttribute>;
     /** Suppress scroll restoration/reset after the navigation. */
-    noScroll?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    noscroll?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     /** Replace the current history entry instead of pushing a new one. */
     replace?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     /** Route preload intent; `"false"` disables the integration's default eager preload. */
