@@ -65,6 +65,8 @@ async function loadRuntimeModule(code, generate) {
       path.join(repoRoot, "packages/web/src", generate === "ssr" ? "index.server.ts" : "index.ts")
     ],
     ["solid-js", path.join(repoRoot, "packages/solid/src/index.ts")],
+    // The web runtime reaches solid-js's seams through this subpath (#3470).
+    ["solid-js/internal", path.join(repoRoot, "packages/solid/src/internal.ts")],
     ["@solidjs/signals", path.join(repoRoot, "packages/signals/src/index.ts")]
   ]);
   const result = await build({
@@ -87,9 +89,12 @@ async function loadRuntimeModule(code, generate) {
       {
         name: "workspace-runtime-sources",
         setup(esbuild) {
-          esbuild.onResolve({ filter: /^(?:@solidjs\/web|solid-js|@solidjs\/signals)$/ }, args => ({
-            path: aliases.get(args.path)
-          }));
+          esbuild.onResolve(
+            { filter: /^(?:@solidjs\/web|solid-js(?:\/internal)?|@solidjs\/signals)$/ },
+            args => ({
+              path: aliases.get(args.path)
+            })
+          );
           esbuild.onLoad({ filter: /\.ts$/ }, args => {
             if (!workspaceSourceRoots.some(root => args.path.startsWith(root))) return;
             return {

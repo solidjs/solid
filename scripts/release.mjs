@@ -102,7 +102,22 @@ run("node", ["scripts/verify-release-artifacts.mjs"]);
 // shapes (rc.5 shipped a settle-walk regression that only the adapter's
 // suite could see) — a release candidate that breaks the flagship adapter
 // must fail here, not on npm.
-run("pnpm", ["--filter", "test-integration", "run", "test:solid-query"]);
+//
+// The gate swaps in the workspace *runtime* but compiles the adapter with the
+// fixture's published compiler, so a release that changes the compiled-output
+// contract (rc.9: delegated events moved to the `_$$<type>` key) cannot pass
+// until that compiler is itself on npm — circular. SKIP_SOLID_QUERY_GATE names
+// the one version allowed through without it, so the skip expires with that
+// release; the follow-up is for the gate to pack the workspace compiler
+// alongside the core (#3534).
+const coreVersion = JSON.parse(
+  fs.readFileSync(new URL("../packages/solid/package.json", import.meta.url), "utf8")
+).version;
+if (process.env.SKIP_SOLID_QUERY_GATE === coreVersion) {
+  console.log(`SKIP_SOLID_QUERY_GATE=${coreVersion}: skipping the TanStack Solid Query gate.`);
+} else {
+  run("pnpm", ["--filter", "test-integration", "run", "test:solid-query"]);
+}
 
 const compiler = JSON.parse(
   fs.readFileSync(new URL("../packages/compiler/package.json", import.meta.url), "utf8")
