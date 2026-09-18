@@ -580,7 +580,10 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "16.70 KB",
+    // The descriptor trap subscribes to the key's presence node and witnesses
+    // isPending()/affects() as `in` does (structural oracle, 2026-09-17):
+    // +3 B brotli over the cap, measured at 16,703 B.
+    limit: "16.75 KB",
     modifyEsbuildConfig
   },
   {

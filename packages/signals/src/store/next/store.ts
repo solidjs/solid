@@ -2178,7 +2178,25 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
   getOwnPropertyDescriptor(target, key) {
     if (key === $OWNER) return undefined;
-    const desc = visibleDescriptor(target, readSource(target), key);
+    // A descriptor read is a PRESENCE read: it subscribes to the key's
+    // presence node and witnesses affects()/isPending() exactly as `in` does
+    // (structural oracle, 2026-09-17 — the trap read no node before, so a
+    // render effect inspecting a key through getOwnPropertyDescriptor never
+    // re-ran for an optimistic add or delete, and an isPending() probe over
+    // it witnessed nothing). The value it reports rides the value node's
+    // view through visibleDescriptor.
+    if (pendingCheckActive) witnessAffectsMark(target as any, key);
+    if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
+    const src = readSource(target);
+    const desc = visibleDescriptor(target, src, key);
+    if (!inDraft(target) && getObserver() !== null) {
+      // The node is born from the source's presence (as `has` births it),
+      // not the override-adjusted answer.
+      let present = key in src;
+      if (present && target.del !== null && src === target.pb && target.del.has(key))
+        present = false;
+      readNode(getHasNode(target, key, present));
+    }
     if (desc === undefined) return undefined;
     // Array targets carry a real non-configurable `length` the proxy
     // invariant forces us to report faithfully; everything else reports
