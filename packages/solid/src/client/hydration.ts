@@ -589,8 +589,13 @@ function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";
 }
 
-function createShadowDraft(realDraft: any) {
-  const shadow = JSON.parse(JSON.stringify(realDraft));
+function createShadowDraft(realDraft: any, shallow?: boolean) {
+  // A shallow store's leaves are raw by contract: copy the root only (#3498).
+  const shadow = shallow
+    ? Array.isArray(realDraft)
+      ? realDraft.slice()
+      : { ...realDraft }
+    : JSON.parse(JSON.stringify(realDraft));
   let useShadow = true;
   return {
     proxy: new Proxy(shadow, {
@@ -747,7 +752,7 @@ function hydrateStoreFromAsyncIterable(
       // dependencies read before the first suspension are tracked. Writes go
       // to a shadow of the draft and are discarded — the server iterator is
       // authoritative and drives the real draft via the iterable below.
-      const { proxy } = createShadowDraft(draft);
+      const { proxy } = createShadowDraft(draft, options?.shallow);
       subFetch(fn, proxy);
       const process = (res: any) => {
         if (res.done) {
@@ -1169,7 +1174,7 @@ function hydrateStoreLikeFn(
               );
             return fn(draft);
           }
-          const { proxy, activate } = createShadowDraft(draft);
+          const { proxy, activate } = createShadowDraft(draft, options?.shallow);
           const r = fn(proxy);
           return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
         },

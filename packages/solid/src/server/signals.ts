@@ -1147,7 +1147,8 @@ export type PatchOp =
 export function createDeepProxy<T extends object>(
   target: T,
   patches: PatchOp[],
-  basePath: PropertyKey[] = []
+  basePath: PropertyKey[] = [],
+  shallow?: boolean
 ): T {
   const childProxies = new Map<PropertyKey, any>();
 
@@ -1191,7 +1192,7 @@ export function createDeepProxy<T extends object>(
       }
 
       const value = Reflect.get(obj, key, receiver);
-      if (value !== null && typeof value === "object" && typeof key !== "symbol") {
+      if (!shallow && value !== null && typeof value === "object" && typeof key !== "symbol") {
         if (!childProxies.has(key)) {
           childProxies.set(key, createDeepProxy(value, patches, [...basePath, key]));
         }
@@ -2046,17 +2047,29 @@ export function getProjectionTrace(value: unknown): ProjectionTrace | undefined 
   return typeof value === "object" && value !== null ? projectionTraces.get(value) : undefined;
 }
 
+// A detached copy of projection state — the root container alone for a
+// shallow store (its leaves are raw references by contract, #3498), the whole
+// tree otherwise. Twin of the client's `cloneState` (store/next/projection.ts).
+function cloneState<T extends object>(v: T, shallow?: boolean): T {
+  return shallow ? (Array.isArray(v) ? (v.slice() as T) : { ...v }) : JSON.parse(JSON.stringify(v));
+}
+
 // Settles-once projections (promise-driven retry, thenable derives, hybrid
 // iterables): the trace is one snapshot after settlement, then done — the
 // border analogue of "reads pass through once markReady runs". A rejection
 // propagates through the iterable so the consumer's read errors rather
 // than hanging.
-function registerSettledTrace(pending: object, ready: Promise<any>, state: object) {
+function registerSettledTrace(
+  pending: object,
+  ready: Promise<any>,
+  state: object,
+  shallow?: boolean
+) {
   projectionTraces.set(pending, {
     array: Array.isArray(state),
     subscribe: async function* () {
       await ready;
-      yield JSON.parse(JSON.stringify(state));
+      yield cloneState(state, shallow);
     }
   });
 }
@@ -2143,7 +2156,9 @@ export function createProjection<T extends object = {}>(
   const usesHybrid = (source: AsyncIterable<unknown>) =>
     ssrSource === "hybrid" || !!(source as any)[LIVE_SOURCE];
   const patches: PatchOp[] = [];
-  const draft = useProxy ? createDeepProxy(state as any, patches) : (state as any as T);
+  const draft = useProxy
+    ? createDeepProxy(state as any, patches, [], options?.shallow)
+    : (state as any as T);
   const takeFirst = (source: AsyncIterable<void | T>) =>
     Promise.resolve().then(() => {
       const iter = source[Symbol.asyncIterator]();
@@ -2171,7 +2186,7 @@ export function createProjection<T extends object = {}>(
   // declared first paint (#2988 ruling; the client's shadow draft enforces
   // the same line, and hydration claims against the plain seed).
   const seedLoading = !!options?.seedLoadingValue;
-  const frozenSeed = seedLoading ? (JSON.parse(JSON.stringify(state)) as T) : undefined;
+  const frozenSeed = seedLoading ? cloneState(state, options?.shallow) : undefined;
 
   const runProjection = () => {
     resetOwnerForRerun(owner);
@@ -2200,7 +2215,7 @@ export function createProjection<T extends object = {}>(
       markError,
       () => disposed
     );
-    registerSettledTrace(pending, deferred.promise, state);
+    registerSettledTrace(pending, deferred.promise, state, options?.shallow);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
@@ -2233,7 +2248,7 @@ export function createProjection<T extends object = {}>(
         markError,
         () => disposed
       );
-      registerSettledTrace(pending, deferred.promise, state);
+      registerSettledTrace(pending, deferred.promise, state, options?.shallow);
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
         ctx.serialize(owner.id, deferred.promise, options?.deferStream);
       return recordSlot(pending);
@@ -2279,7 +2294,7 @@ export function createProjection<T extends object = {}>(
           // `state` (for draft/patch correctness) but reads go through the frozen
           // copy. With seedLoadingValue the lock already sits at commit #0 — the
           // seed — so V1 must NOT retarget it (undefined keeps the read target).
-          markReady(seedLoading ? undefined : (JSON.parse(JSON.stringify(state)) as T));
+          markReady(seedLoading ? undefined : cloneState(state, options?.shallow));
           return undefined;
         },
         markError,
@@ -2335,7 +2350,7 @@ export function createProjection<T extends object = {}>(
         let cursor = log.length;
         consumers++;
         try {
-          yield JSON.parse(JSON.stringify(state)) as T;
+          yield cloneState(state, options?.shallow);
           while (true) {
             if (cursor < log.length) {
               yield log[cursor++];
@@ -2382,7 +2397,7 @@ export function createProjection<T extends object = {}>(
       markError,
       () => disposed
     );
-    registerSettledTrace(pending, deferred.promise, state);
+    registerSettledTrace(pending, deferred.promise, state, options?.shallow);
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, deferred.promise, options?.deferStream);
     return recordSlot(pending);

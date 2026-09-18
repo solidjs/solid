@@ -64,7 +64,8 @@ import type { StoreNextFamily } from "./target.js";
 function wrapDraft(
   inner: any,
   isActive?: () => boolean,
-  aroundWrite?: (op: () => void) => void
+  aroundWrite?: (op: () => void) => void,
+  shallow?: boolean
 ): any {
   const write = (op: () => void) => (aroundWrite ? aroundWrite(op) : op());
   const traps: ProxyHandler<any> = {
@@ -79,8 +80,9 @@ function wrapDraft(
         setWriteOverride(false);
         setProjectionWriteActive(was);
       }
-      if (prop === $TARGET) return value;
-      return typeof value === "object" && value !== null
+      // A shallow store's leaves are raw by contract (#3498): no draft proxy
+      // over them, so identity holds and a frozen leaf is never trapped.
+      return !shallow && typeof value === "object" && value !== null && prop !== $TARGET
         ? wrapDraft(value, isActive, aroundWrite)
         : value;
     },
@@ -236,6 +238,13 @@ export function createStoreDerivedNext<T extends object = {}>(
   ];
 }
 
+// A detached copy of projection state: the root container alone for a shallow
+// store — its leaves are raw references by contract and stay so (#3498) — the
+// whole tree otherwise.
+function cloneState<T extends object>(v: T, shallow: boolean): T {
+  return shallow ? (Array.isArray(v) ? (v.slice() as T) : { ...v }) : JSON.parse(JSON.stringify(v));
+}
+
 export function runProjectionComputedNext<T extends object>(
   wrappedStore: Store<T>,
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
@@ -244,19 +253,19 @@ export function runProjectionComputedNext<T extends object>(
   aroundDraftWrite?: (op: () => void) => void
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
+  const target = (wrappedStore as any)[$TARGET];
   let settled = false;
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the
   // seed so draft writes cannot tear through to readers (#2988). Every commit
   // point reconciles the shadow through the normal commit path.
-  const shadow = owner._loading
-    ? (JSON.parse(JSON.stringify((wrappedStore as any)[$TARGET][STORE_VALUE])) as T)
-    : null;
+  const shadow = owner._loading ? cloneState(target[STORE_VALUE] as T, target.s) : null;
   const draft = wrapDraft(
     wrappedStore,
     () => !settled || owner._x?._inFlight === result,
-    aroundDraftWrite
+    aroundDraftWrite,
+    target.s
   );
   storeSetterNext(
     draft,
@@ -267,8 +276,7 @@ export function runProjectionComputedNext<T extends object>(
         // Shadow run: commit a detached snapshot, never the shadow itself
         // (adoption takes the value by identity — handing it the live shadow
         // would fuse the draft to the observable store).
-        if (shadow && (v === undefined || v === (shadow as any)))
-          v = JSON.parse(JSON.stringify(shadow)) as T;
+        if (shadow && (v === undefined || v === (shadow as any))) v = cloneState(shadow, target.s);
         if (v === (s as any) || v === undefined) return;
         const write = () =>
           storeSetterNext(wrappedStore, st => reconcileNextState(v, st, key, true), false);
