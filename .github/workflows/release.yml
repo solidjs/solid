@@ -60,6 +60,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # rc.9 moves delegated events to the `_$$<type>` key; the solid-query
+          # fixture's published compiler still emits `$$<type>`, so the gate
+          # cannot pass until rc.9 itself ships (see scripts/release.mjs).
+          # Expires with this version — leave it until the fixture is bumped.
+          SKIP_SOLID_QUERY_GATE: 2.0.0-rc.9
 
   # Installs the just-published packages from the real registry into a temp
   # project and exercises them (dist-tags, native compiler binary, runtime).
