@@ -1463,6 +1463,33 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
 }
 
 /**
+ * Set while runtime bookkeeping evaluates a user accessor inside another
+ * node's pass (a loading boundary's `on` key, read from `notify` while the
+ * node that went pending is still recomputing). `context` is that node, but
+ * the read is nobody's: the value is compared, never derived from, so the
+ * untracked-pending re-run link (`read`, `!tracking`) must not be recorded on
+ * it — it made the key's source a dependency of an unrelated async memo
+ * (#3528: `isPending(m2)` through a memo in `on()` linked the memo into `m2`,
+ * a cycle that re-derived `m2` on every pending mark and never converged).
+ */
+export let spectating = false;
+
+/**
+ * Evaluates `fn` untracked and without recording a dependency for the
+ * untracked-pending re-run rule on the current `context`. For bookkeeping
+ * reads made mid-propagation on behalf of no node — see `spectating`.
+ */
+export function spectate<T>(fn: () => T): T {
+  const prev = spectating;
+  spectating = true;
+  try {
+    return untrack(fn);
+  } finally {
+    spectating = prev;
+  }
+}
+
+/**
  * Bring a computed to a readable state: lazy/disposed nodes are (re)computed;
  * an isPending() probe (`refresh`) additionally pulls the node fully up to
  * date so its status flags reflect the current graph.
@@ -1989,7 +2016,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       // lane (#3276); that check rides laneSuspends so floor bundles don't
       // pay for it.
       if (currentOptimisticLane === null || GlobalQueue._laneSuspends!(owner)) {
-        if (!tracking && el !== c) link(el, c as Computed<any>);
+        // An untracked read of a pending node still re-runs its reader when
+        // the node settles — unless nobody is reading (`spectating`, #3528)
+        // or the reader is the node itself.
+        if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
       }
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
