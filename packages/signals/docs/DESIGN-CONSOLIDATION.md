@@ -21,6 +21,35 @@
 
 **Bytes so far (minified), through #3523:** core **+164 B** (replay helper +31, null-node `enterStagedRead` +1, `ownsHold` +44, `serve` +88). Store **≈ +50 B net**: the fixes ≈ +370 (S4 +123, S5 +130, S7 +55, S7-structural +35, S8 +63), the refactors ≈ −320 (the backing twin on `holdVisible` alone −313). CodSpeed flat. The fixes cost bytes; the refactors gave some back only where a whole twin with a _distinct body_ disappeared (the store's six helpers) — near-duplicate arms inside one function compress against each other already, so folding them saves nothing in brotli (the `read()` fast-block probe: −128 minified, +31 brotli; reverted). Consolidation is ≈ byte-neutral and bug-finding; size beyond this comes from removing rules (§6 Loosening), not sites.
 
+## 0.1 Handoff (2026-09-18)
+
+Written so a fresh agent can pick this up without the chat that produced it.
+
+**How to run the gate** (§4), concretely:
+
+- Oracles + matrix: `cd packages/signals && VISIBILITY_POSTURE_REPORT=/tmp/posture.md VISIBILITY_ORACLE_REPORT=/tmp/oracle.md pnpm exec vitest run tests/visibility-oracle-posture.test.ts tests/visibility-oracle.test.ts tests/visibility-oracle-store.test.ts`. Generate once on `origin/next` (detached checkout, `pnpm --filter @solidjs/signals build` first), once on the branch, `diff`. The matrix is 1184 cells (9 store structural states × 7 reader kinds × 6 postures included); a zero-change PR must diff empty, a fix must move only the cells its pin names. The reports are not stored; regenerate the baseline.
+- Fuzzer: **#3446 is not merged.** It lives on that PR's branch; the campaign runs from a worktree that cherry-picks its one commit onto the branch under test: `git checkout -B fuzz/<x> <branch> && git cherry-pick <#3446 commit> && cd packages/signals && node tests/semantics/cli.mjs --seed 3289 --cases 1000 --shrink --out /tmp/fuzz-<x>`. Baseline on `next` since #3496: **994 pass / 0 fail / 6 policy**. It targets signals, not stores — store changes will not move it.
+- Size: `scripts/size` (`npx size-limit --json`) for the brotli scenarios; for minified deltas, bundle `packages/signals/src/index.ts` via vite lib mode + `transformWithEsbuild({ minify: true, mangleProps: /^_/ })` as `tests/treeshake.test.ts` does, on both refs. Brotli on the size-limit app scenarios moves ±50 B from layout alone; report both, ratchet with a note.
+- Perf: local wall-clock A/B is order-dependent noise (±10%). CodSpeed on the PR is the verdict. Anything on `readNodeFast` / `read`'s fast block / `setSignal` / `recompute` needs it.
+- Rules index: `node scripts/rules-index.mjs` regenerates `docs/RULES-INDEX.md` (prettier it); `--check` is what the test runs.
+
+**Where things live:** `fix/store-a28-backing` (S6, three stamp variants, kept, not merged); `~/Development/solid-fuzzer` (the fuzzer worktree, `fuzz/*` branches); this doc's §0 ledger for what each PR found and cost.
+
+**What remains, in the order I would take it:**
+
+| item                                                                                                    | kind                   | est.                                                       | note                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `latest()` over structure (`in` / `Object.keys` / descriptor of a held add)                             | pinned violation ×3    | small                                                      | a `latest()` tunnel for presence / key-set nodes; store-follows-signal                                                |
+| A30 deps trim — `commitPendingNode`, `runEffect`, `heldTrims`, `trimStaleDeps`                          | consolidation (Rule 3) | −100…−150 B                                                | four fixes landed here (#3410 #3438 #3461 #3469); one `trimDeps(node, frame)`                                         |
+| reporter wake — `disposeChildren`, `recompute` tail, boundary reset                                     | consolidation (Rule 2) | −40…−60 B                                                  | 3a's `retireReporter` was designed; only the predicate half merged                                                    |
+| `computePendingState` re-derivation of visibleOverride / unflushed / stale-foreign                      | consolidation          | −80…−120 B                                                 | a boolean, not a serve; may lose on brotli like the fast-block probe                                                  |
+| 3c cargo — `applyCargo` / `dropCargo` / `absorbCargo`; `heldTrims`, `heldRevealed` onto the transaction | structure              | ≈ 0 B                                                      | motivated now by §6 ruling 3 (a superseded lane's work becomes the parent's)                                          |
+| **store one-home** — a store value's committed truth on the node, not the backing                       | design decision        | −400 B twin + S6 free; allocation cost on the create floor | the remaining backing twin is the _container_ choice for `in` / keys / descriptors under a hold; only this removes it |
+| O2, stash-by-world                                                                                      | rulings                | —                                                          | §6                                                                                                                    |
+| loosening — `CONFIG_HELD_TRUTH` mask first, then `INPUTS_PUBLISHED`                                     | rule removal           | 400–600 B                                                  | the only size lever left that is not a design change; flip, run the matrix, see what tears                            |
+
+**What this month established** (so it is not re-argued): consolidation is ≈ byte-neutral (core +164 B, store ≈ +50 B net through #3523) and bug-finding (S4, S5, S7, S7-structural, S8 — none visible to the suite, oracles, matrix or fuzzer as they stood). Folding near-duplicate arms _inside_ one function does not save brotli (the compressor already deduplicates them); only deleting a twin with a distinct body does (the store's six helpers, −313 B). Fixing a rule at a twin that has no node costs 300–400 B each time (S6) — the argument for one-home, or for leaving such shapes pinned.
+
 ## 1. Why
 
 The last two months' async fixes are ~four rules, each fixed several times at different sites:
