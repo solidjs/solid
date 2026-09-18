@@ -7169,3 +7169,346 @@ walk of `el._deps` after `trimStaleDeps` at the end of the pass: with the
 stale tail cut, that list _is_ the pass's distinct sources, so the count is
 exact, costs a fraction of the reads that built it, keeps no module state
 and needs no save/restore around nested pulls.
+
+## Store / List Delivery Lane (2026-08-16 → 2026-09-18): the Octane board
+
+The campaign that followed the store rewrite. The goal was set on
+2026-08-17 and never changed: **geomean parity with Octane on Octane's own
+benchmark board**, measured on its operations, with the five scenarios that
+matter weighted as "signals over stores" — two dbmon shapes (shallow store,
+deep store) and three js-framework shapes (per-row signals, shallow store,
+deep store). "No perf regressions" was the only merge gate for every
+mechanism tried; correctness and performance were judged separately.
+
+This section is the hand-off. Everything below is sourced from a PR, a
+branch, a committed results directory, or a fixture in the Octane fork.
+Numbers with no source are marked as such.
+
+### Instruments
+
+- **The Octane board.** Fork `ryansolid/octane`, branch
+  `solid-rc8-fixtures-rebase` (upstream `octanejs/octane` `main` at
+  0.2.13 + the Solid fixture commits). Local checkout
+  `~/Development/octane-fork`. `benchmarks/bench.mjs` builds every fixture,
+  boots the preview servers, runs each suite's harness with its correctness
+  gates, and writes one JSON per suite to `--results-dir`.
+  `benchmarks/board-compare.mjs <dirA> <dirB>` prints the two-sided
+  geomean board (per-suite geomean of Solid/Octane and Solid/Vapor **timed**
+  ops, then the geomean across suites). Workflow, gotchas and the `next`
+  link recipe: [`benchmarking-strategy.md` → Octane board
+  workflow](./benchmarking-strategy.md#octane-board-workflow).
+- **Local dbmon A/B harness.** `~/Development/octane-dbmon-local` — dbmon
+  fixture variants (`solid`, `solid-shallow`, `solid-region`, `dbmon-coarse`,
+  `dbmon-unified`, `dbmon-static`, `vue-vapor`, …), `ab-dbmon.mjs`,
+  `interleave.mjs`, `battery.mjs`, per-phase profilers (`profile-mount`,
+  `profile-tick`, `profile-reorder`, `profile-unmount`), and
+  `baselines/2026-08-17-shipped-rebaseline.txt`. **Not under version
+  control** — the methodology for every dbmon number in this lane lives
+  only there. Should be committed somewhere before it is lost.
+- **Results directories** (in `~/Development/octane/benchmarks` and
+  `~/Development/octane-fork/benchmarks`): `results-next-sep9`,
+  `results-next-sep9-fixtures` (the 2026-09-09 board, `next` linked, before
+  and after the first fixture pass), `results-regions*`, `results-stack*`,
+  `results-3227*`, `results-classic-ctl*` (the patch/region/small-move era),
+  `results-next-sep17` (the 2026-09-17 board, `next` at `dd908fc12`, after
+  the second fixture pass). Also untracked.
+- **Solid's own UIbench entry.** `~/Development/solid-uibench` — the Solid 1
+  idiom ported to 2.0 (`createStore({})` + `setState(reconcile(v, 'id'))`).
+  See "uibench: reconcile vs signal" below for why that idiom is now the
+  wrong default for this workload.
+
+### Experiments, in order
+
+Each entry: hypothesis → where the code is → what was measured → verdict.
+
+**1. Stage 2 — store patch channel + patch-mode list driver** (#3079
+merged dormant; hardening rounds 6–10.14 in #3091, closed; removed in
+#3229). Hypothesis: stores can publish fine-grained _patches_ (per-key
+change records with static read manifests) so a list driver applies row
+updates without re-running row effects — "nodes as storage, transactions
+ride the core". Reached default-on behind the compiler's `patchDriver`
+option with `deliveryEffect` (an owner-less delivery node), transaction-
+scoped dedup, structural resync, held-window semantics, `UNDEF_ROW` /
+SameValueZero keys. Ten hardening rounds fixed a P1 or two each
+(INV-6 optimistic override surviving quiescence, mixed primitive/object
+key collisions, sparse holes, the patch channel tearing through an
+`until()` hold). Verdict (2026-09-02, RC.5 week): a second reviewer's
+structural critique — the channel's _visibility decisions_ were being made
+by hand at the driver, outside the graph, and every round moved them —
+was accepted; the maintainer pulled it from RC.5 rather than ship behind
+opt-in ("putting it behind opt-in doesn't matter"). Removed wholesale in
+#3229. Lesson recorded then: a parallel delivery mechanism has to inherit
+the graph's visibility rules, not re-derive them.
+
+**2. Regions — graph-native coarse delivery** (branch `region-delivery`,
+never a PR; fixtures `solid-region`, `solid-region-c` in the local dbmon
+harness). Hypothesis: replace the patch channel with ordinary graph nodes
+— one coarse effect per record ("region") that reads the record's deep
+witness (`dk`) and applies a diff at apply time; transactions and holds
+come for free because it _is_ the graph. Went through: a custom version
+node (`vn`) → replaced by the existing `dk` after a ~40% uibench classic-
+path regression; a generation owner for bulk teardown; fusing the selection
+binding into the region node (one node per row, two subscriptions) after
+`runlots` regressed from the extra node. Result: **matched the patch
+driver's numbers, not the "ceiling" prototype's** (which was later shown
+to be buggy). Verdict: the maintainer preferred it to the driver ("much
+happier with something like this if we aren't going to beat Octane
+anyway") but it was set aside for the unified-For question and never
+landed. Still the cleanest of the delivery experiments; the branch is
+intact.
+
+**3. Unified For — slot** (#3281, closed) **→ engine** (#3308, closed).
+Hypothesis: a keyed `<For>` that owns both row bookkeeping and DOM
+placement, bypassing `mapArray` + `reconcileArrays`, with a lazy "flat
+mode" for the common create/clear shapes. The slot form (opportunistic,
+falling back to classic) accumulated seam bugs — P0s: wiping preceding
+siblings, first-fill demote leaking rows; P1s: nested claims on mid-fill
+demote, hydration hole residue — and was rebuilt as an _engine_ in
+`@solidjs/signals` (`list.ts`) with a renderer-agnostic node layer,
+`mapArray` as the differential oracle, and universal-renderer support.
+The engine audit (#3308) still found nine P1s (marker-blind ownership,
+`g = -1` marks left by a throwing key fn, unstable array identity,
+detached rows on hydration mismatch, cached-key divergence, universal
+primitive nodes, extra hydration id). Perf: creation regressions on
+`jfb-shallow` fixed by widening flat mode; `clear` fixed with an N→0 batch
+path; `shuffle` regressed on CodSpeed and was left because browser
+numbers held. Verdict (maintainer, 2026-09): "we don't need to ship half
+measures"; and after the small-move episode, "complexity caught us every
+time" — every parallel list system paid its win back in coordination
+bugs. Unified For was always a jfb target, not a dbmon one; keep the
+branch, do not pursue another engine.
+
+**4. `mapArray` small-move fast path** (#3227, merged 2026-09-10, on
+`next`). Hypothesis: rotations, swaps and small displacements can skip the
+full keyed window rebuild. Split into `scanSmallMove` / `commitSmallMove`
+so the cold `replace` path only compiles the scan. Result: won the
+targeted reorders; the maintainer's later read was that it "made other
+ops slower" (Octane's own reorder cases are the ones that matter, and
+they are not ours to choose). Status: on `next`, not independently
+re-validated since the board moved to timed-op geomeans. Candidate for an
+A/B if list work resumes.
+
+**5. Coarse reads — `witness()` / deep-witness bubbling / under-witness
+identity** (#3275, open). Hypothesis: a row effect subscribes to a
+record's deep witness as one node instead of materializing per-leaf
+nodes; `bumpDeep` notifies witnessed ancestors; R18 pruning keeps proxy
+identity under a witness. Fixture `dbmon-coarse`. Result: cut the dbmon
+node count per row; not merged — the create floor mattered more and the
+mixed shape (coarse row + selection effect) re-added a node per row.
+Open; the deep-witness bubbling piece is the part most likely to be
+worth landing on its own.
+
+**6. Create-floor diets** (#3270 merged: slot-signal literals + first-read
+dedupe; #3367/#3368 merged: narrow store writes clone by spread, `$OWNER`
+stamping instead of weak-collection registration). Hypothesis: creation
+is where every board loses, and the store's per-leaf node was the biggest
+allocation. `slotSignal` became one pre-shaped literal (no options object,
+no equals/unobserved closures, no `NodeExtension`, no post-construction
+expandos); the `get` trap's first read stopped double-scanning accessors
+and populates the wrap cache once. Verdict: landed; the uibench "render"
+cases moved from behind to ahead of every other target in the 2026-09-17
+board — see below.
+
+**7. Props / spread / view perf** — the compiler and runtime work the
+profiles pointed at once creation was measured: `spread()` reads a
+`merge()` proxy through its sources (#3325), `readShallow()` for
+object-valued `style`/`class` (#3326, also a correctness fix — they were
+identity-reactive only), `merge`/`omit` as lazy views (#3454), view key
+tables on enumeration (#3475), `spread()` with fewer nodes (#3419),
+`omit` over a merge holding the record (#3497), `dynamic(source,
+{ static })` (#3471), hydration claim-path trims (#3513), and the merge
+regressions of #3401/#3403 (the shared-trap variant #3403 was retracted:
+IC pollution across source shapes). All merged except #3403. The next
+item in that line is #3511 (props literals with getters are
+dictionary-mode objects; own-accessor class emission), owned by a
+separate effort.
+
+### Fixture corrections — the rules
+
+Octane's Solid fixtures were written against 2.0-beta by Octane's
+authors. Two passes made them idiomatic Solid 2.0. **The first pass
+(2026-08-21, `e5f16b83d` in the fork) covered only js-framework, todomvc,
+chat-stream and dbmon**; the general "textContent pass" requested on
+2026-08-16 was not propagated to the other twelve fixtures until the
+second pass (2026-09-17, `e9828457e`). The rules, as applied everywhere:
+
+- A text-only element binds `textContent={…}`, not an insert expression.
+- Construction-time constants are read **once** into locals and passed as
+  locals (`const depth = props.depth; … <Node depth={depth - 1} />`).
+  Passed as `props.depth - 1` they compile to getters chaining through
+  every ancestor — O(depth) per leaf read. The compiler emits a local
+  constant expression as a _data_ prop (`depth: Ce`), which also keeps the
+  props object out of dictionary mode (#3511). spa-navigation went from
+  1.16× to 0.31× of Octane on this alone.
+- A condition that never changes is a ternary, not `<Show>`. A per-row
+  `<Show>` is a component call, a dictionary-mode props object and three
+  memos; a ternary is one memo. (Measured on todomvc: −520 B/row, time
+  within noise; the rule stands on allocation and on Vapor parity of
+  shape.)
+- Mount idiom is `onSettled`, not `createEffect(() => {}, fn)`.
+  `dynamic()` not the deprecated `<Dynamic>`; `<Loading fallback>` not the
+  raw `createLoadingBoundary`.
+- dbmon: `createStore(…, { shallow: true })`, rows keyed by id, accessor
+  rows, `textContent` cells. Deep `reconcile` on fresh row objects is the
+  documented worst case and not the idiom. todomvc: `visible` /
+  `remaining` are memos, per-todo field signals for mutation.
+- Not changed, flagged: portal-swarm and svg-dashboard hand-roll the
+  portal around a beta.14 `<Portal>` crash (likely fixed; Portal's marker
+  text nodes need a gate run); svg-dashboard's hand-rolled SVG `<a>` is a
+  real compile-time namespace limitation.
+
+### uibench: reconcile vs signal (2026-09-17)
+
+Octane added a uibench suite (96 desktop cases). Two findings.
+
+**Harness fairness.** Its Solid fixture `structuredClone`d the `before`
+and `after` endpoints _separately_ — destroying the object sharing
+UIbench builds in (unchanged subtrees are the same object) that every
+other framework receives intact — so Solid deep-diffed every leaf for a
+one-node move. Cloning the pair in one call keeps the sharing:
+**7.73× → 2.48×** of Octane (fork `31772fcc0`).
+
+**Authoring.** The Solid 1 idiom — reconcile each snapshot into a store,
+`<For>` by reference — pays a walk over every row per commit to produce
+per-leaf notifications this workload never uses. The Vapor/Octane shape
+in Solid — `createSignal(snapshot)`, `<For each={rows} keyed={r => r.id}>`,
+accessor rows, no store — is faster on **96/96 cases**:
+
+| shape                               | vs Octane |  vs Vapor |
+| ----------------------------------- | --------: | --------: |
+| store + `reconcile` (Solid 1 idiom) |     2.59× |     2.52× |
+| signal + keyed `<For>`              | **1.20×** | **1.16×** |
+| signal / reconcile                  | **0.46×** |           |
+
+Ruled 2026-09-17: the signal shape is the idiomatic uibench authoring and
+is the fork's `solid` target; the reconcile shape stays as
+`solid-reconcile` for the record. `reconcile` is the tool for state
+edited in place through a setter (the writes _are_ the diff), not for
+ingesting immutable snapshots (the snapshot _is_ the diff). The same
+question should be asked of `solid-uibench` (Solid's own entry) and the
+`reconcile-tree` Tier-1 bench. Where the signal shape still trails
+Octane, by op group (ms, geomean): one-item tree ops 0.021 vs 0.011
+(2.0×, at parity with Vapor); `table/removeAll` 0.082 vs 0.029 (2.9×);
+`tree/removeAll` 0.331 vs 0.179 (1.85×); table filter/sort ≈1.1–1.2×.
+Renders are the fastest of any target (tree render 0.56× Octane, 0.47×
+Vapor); `activate` (sparse in-row change) wins against both.
+
+### todomvc `add100`: a 4× that was noise (2026-09-18)
+
+The 2026-09-17 board showed Solid 4.3 ms vs Vapor 1.1 ms. On a quiet
+machine the real harness, 16 iterations, three runs: Solid 2.3–2.4 vs
+Vapor 1.5–2.5; interleaved A/B (40 samples) 1.80 vs 1.50; steady state
+with no idle between samples 1.4 vs 1.2. **The honest gap is ~1.2×.** The
+op is bimodal under the harness's `gc()` + 40 ms idle protocol — a 16-
+iteration run reproduced a 4.40 median with a 1.40 min. Cause: Solid
+allocates 246 KB per add100 vs Vapor's 142 KB (per-row `<Show>` 520 B,
+`createSignal` accessor/setter `bind` pairs 240 B, effect nodes, links),
+GC ≈10% of the run, and eight samples on a loaded machine. **Rule for
+reading the board: on sub-5 ms ops, read `min` beside the median, and
+treat any single-op ratio over 2× as "rerun in isolation" until it
+reproduces.**
+
+### The board
+
+`board-compare` (timed ops only), Solid/Octane and Solid/Vapor per-suite
+geomeans; lower = Solid faster. Sep 9 = `next` of that date with the
+first-pass fixtures; Sep 17 = `next` at `dd908fc12` (#3519) with the
+second-pass fixtures, Octane upstream at 0.2.13.
+
+| suite                  | vs Octane Sep 9 |     Sep 17 | vs Vapor Sep 9 |     Sep 17 |
+| ---------------------- | --------------: | ---------: | -------------: | ---------: |
+| js-framework           |           1.27× |      0.91× |          1.21× |      1.09× |
+| js-framework-reorder   |           1.71× |      0.81× |          0.75× |      0.49× |
+| dbmon                  |           2.43× |      1.04× |          2.32× |      1.21× |
+| todomvc                |           1.50× |      0.78× |          2.03× |      1.30× |
+| chat-stream            |           0.80× |      1.07× |          0.96× |      0.97× |
+| svg-dashboard          |           1.38× |      0.85× |              — |          — |
+| signal-favoring        |           0.74× |      0.63× |          1.06× |      2.47× |
+| effectful-list         |           0.66× |      0.47× |          0.86× |      0.67× |
+| memo-wall              |           1.12× |      0.20× |          1.07× |      0.99× |
+| store-selector-fanout  |           0.55× |      0.59× |          0.93× |      0.95× |
+| scaling-curves         |           0.96× |      0.83× |          0.95× |      1.11× |
+| spa-navigation         |           1.16× |      0.31× |          0.93× |      0.51× |
+| recursive-context      |           0.62× |      0.82× |          0.45× |      0.92× |
+| external-store-fanout  |           0.75× |      0.75× |          1.01× |      1.00× |
+| event-delegation       |           0.88× |      0.87× |          1.13× |      0.91× |
+| suspense-recovery      |           1.03× |      0.98× |          1.02× |      1.00× |
+| lifecycle-memory       |           0.61× |      0.61× |          1.00× |      1.00× |
+| streaming-ssr          |           1.62× |      1.29× |              — |          — |
+| uibench (signal shape) |               — |      1.20× |              — |      1.16× |
+| **overall geomean**    |      **1.011×** | **0.739×** |     **1.020×** | **0.981×** |
+
+(Overall rows are the 18/20 suites present in both runs; uibench is new.)
+
+Caveats that go with those numbers:
+
+- **Octane regressed in that run, or the environment did.** Its absolute
+  times got worse across most suites (memo-wall 4.2×, spa-navigation
+  1.75×, todomvc 1.58×, js-framework 1.36×, bundle 1.83× larger) and its
+  own harness gates failed on signal-favoring, spa-navigation and
+  hydration-interactivity with render-block counts at exactly 2× their
+  ceilings. Until that is explained, 0.739× flatters Solid; the Vapor
+  column is the safer read.
+- Solid's own absolute drift Sep 9 → Sep 17 was mostly neutral or better
+  (dbmon 0.42×, jfb-reorder 0.64×, memo-wall 0.78×, spa-nav 0.84×,
+  svg 0.87×); chat-stream and js-framework slowed by the same factor as
+  Vapor and Octane (harness/machine).
+- signal-favoring is known to swing between runs (a one-text-node update,
+  microseconds); ignore single-run ratios there.
+- Bundle: Solid 74 KB raw / 23.9 KB brotli vs Octane 151 / 43 KB on
+  js-framework. The app/framework split is meaningless under local links.
+
+### Standing rulings and lessons
+
+- Signals over stores; the five scenarios; geomean vs Octane on _its_
+  ops; "no perf regressions" as the gate; correctness and performance
+  judged separately.
+- Every parallel list/delivery mechanism (patch driver, regions, unified
+  For slot, unified For engine) paid back its win in coordination bugs.
+  Do not start another without a reason that was not true for those four.
+- Reconcile is for in-place edits, not snapshot ingestion.
+- Read the fixture before the runtime: three of the largest "gaps" this
+  campaign found (spa-navigation getter chains, uibench endpoint cloning,
+  uibench reconcile) were authoring, and one (todomvc 4×) was measurement.
+- Announce before benching; a full board is ~45–60 min on an idle
+  machine; start it as a tool-managed background task, never `nohup … &`
+  from a tool shell (the first Sep 17 attempt died silently a minute in).
+
+### Open targets, in order
+
+1. **Disposal.** Untouched all campaign; shows in uibench `removeAll`
+   (2.9× / 1.85×), jfb `clear` (24 vs 22), effectful-list `clear`
+   (1.4 vs 1.1). Owner teardown, `disposeChildren`, node unlink, the
+   companion/`_gatedSubs` cleanup the consolidation work added. Start with
+   an interleaved A/B of uibench `table/removeAll` and jfb `clear` on a
+   quiet machine, then CPU + allocation profile (scripts: the
+   `todo-*.mjs` pattern — CDP `Profiler` + `HeapProfiler.startSampling`
+   against unminified `vite build --minify false` fixtures).
+2. **uibench one-item keyed ops** — 2× Octane, parity with Vapor: the
+   keyed `<For>` insert/move path plus component creation for the
+   inserted node.
+3. **Create floor via #3511's client emission** (separate effort). Every
+   `<For>`/`<Show>`/`<Loading>` call site is a dictionary-mode props
+   object today; measure on uibench tree render, memo-wall,
+   recursive-context, todomvc add100 with `next` linked.
+4. **streaming-ssr `shell_staggered`** 1.1 ms vs 0.42 (2.6×) with equal
+   totals — first-flush latency under staggered async boundaries. The
+   whole 1.29× suite ratio is this op.
+5. **`Show` builds two memos where one suffices** when `children` is not a
+   narrowing function — `conditionValue` exists only for the narrowed
+   accessor. Zero-semantic-change, one memo + one subscription per
+   instance.
+6. chat-stream `streamFine`/`streamCoarse` ~2× Octane (Vapor ≈ us):
+   check the fixture first — every segment's text reads `doneOf(m)`, so a
+   tick fans out to all segments.
+
+### Related program: one implementation per rule
+
+Running in parallel and now merged: the semantic consolidation of the
+async/store visibility rules (`packages/signals/docs/DESIGN-CONSOLIDATION.md`;
+move 3a in #3496 and follow-ups, move 3b in #3515 + #3523 + #3525). Not a
+perf program, but it found five store/signal parity bugs by handing store
+code the shared predicates (S4, S5, S7 fixed; S6 ruled and deferred in
+#3526 at +402 B) and it added the `memoUntracked`/`effectUntracked`
+reader kinds to the 851-cell posture matrix. Relevant here because
+disposal and companion cleanup are the paths it touched most recently.
