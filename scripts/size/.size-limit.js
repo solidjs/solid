@@ -1035,7 +1035,17 @@ module.exports = [
     // root for a shallow store instead of JSON-cloning the tree
     // (createShadowDraft's `shallow` branch); it sits on the shared store
     // hydration adapter this bundle retains without the store engine.
-    limit: "20.3 KB",
+    // Hybrid handoff waits for the server answer (#3498, 2026-09-18): 20.3 ->
+    // 20.45 KB, measured at 20,389 B against `next`'s 20.23 KB (+~160 B). The
+    // hybrid store branch of hydrateStoreLikeFn: a pending serialized answer
+    // is handed to the engine as a two-step stream (adoptedAnswerStream) whose
+    // second pull — the engine's own continuation after the landing commits —
+    // flips the handoff, so the client takeover no longer supersedes the
+    // server flight; a `live` latch scopes the first-yield discard to that
+    // one handoff run and lets a rejected answer stand until refresh(). Same
+    // shared store hydration adapter as the entry above, retained here
+    // without the store engine.
+    limit: "20.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -1256,7 +1266,11 @@ module.exports = [
     // draft proxy over a raw leaf) and `cloneState` — the loading shadow and
     // its commit copy take the root alone for a shallow store. The deep path
     // is byte-identical in behavior; the bytes are the shallow branch.
-    limit: "30.5 KB",
+    // Hybrid handoff waits for the server answer (#3498, 2026-09-18): 30.5 ->
+    // 30.6 KB, measured at 30,527 B against `next`'s 30.41 KB (+~120 B); the
+    // same hydrateStoreLikeFn hybrid-branch change as the hydrating (no
+    // stores) note. 0 B in the signals floor.
+    limit: "30.6 KB",
     modifyEsbuildConfig
   },
   {
