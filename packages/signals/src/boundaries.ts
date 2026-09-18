@@ -1,4 +1,4 @@
-import { recompute, ext } from "./core/core.js";
+import { recompute, ext, spectate } from "./core/core.js";
 import { unwrapStatusError } from "./core/error.js";
 import {
   cleanup,
@@ -296,17 +296,23 @@ export class CollectionQueue extends Queue {
     if (!type || (read(this._disabled) && (!_revealUsed || read(this._collapsed)))) return;
     return super.run(type);
   }
+  /** The `on` key, or ON_INIT when it throws. Evaluated mid-propagation,
+   * inside the pending node's own pass: read as a spectator so the key's
+   * sources never become that node's dependencies (#3528). */
+  _readOn(): any {
+    return spectate(() => {
+      try {
+        return this._onFn!();
+      } catch {
+        return ON_INIT;
+      }
+    });
+  }
   notify(node: Effect<any>, type: number, flags: number, error?: any) {
     if (!(type & this._collectionType)) return super.notify(node, type, flags, error);
 
     if (this._initialized && this._onFn) {
-      const currentOn = untrack(() => {
-        try {
-          return this._onFn!();
-        } catch {
-          return ON_INIT;
-        }
-      });
+      const currentOn = this._readOn();
       if (currentOn !== this._prevOn) {
         this._prevOn = currentOn;
         this._initialized = false;
@@ -425,11 +431,10 @@ export class CollectionQueue extends Queue {
         if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
           attrHooks.boundaryFallback(this, this._tree, false);
         if (this._onFn) {
-          try {
-            this._prevOn = untrack(() => this._onFn!());
-          } catch {
-            /* value not yet committed — _prevOn stays stale, next notify will reset */
-          }
+          // A throw (value not yet committed) leaves _prevOn stale; the next
+          // notify then resets.
+          const on = this._readOn();
+          if (on !== ON_INIT) this._prevOn = on;
         }
       }
     }
