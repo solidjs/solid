@@ -859,7 +859,13 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "12.40 KB",
+    // Hybrid handoff rule 4 (#3498, 2026-09-18): 12.40 -> 12.45 KB, measured at
+    // 12,385 B against `next`'s 12,360 (+25 B). Layout drift only: this bundle
+    // retains none of the hybrid store branch (verified — the minified output
+    // is the same 34,727 B and differs only in which short names the minifier
+    // hands out); ratcheted so the 15 B of remaining headroom does not flake
+    // on Linux. 0 B in the signals floor.
+    limit: "12.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -1035,7 +1041,18 @@ module.exports = [
     // root for a shallow store instead of JSON-cloning the tree
     // (createShadowDraft's `shallow` branch); it sits on the shared store
     // hydration adapter this bundle retains without the store engine.
-    limit: "20.3 KB",
+    // Hybrid handoff waits for the server answer (#3498, 2026-09-18): 20.3 ->
+    // 20.5 KB, measured at 20,431 B against `next`'s 20.23 KB (+~200 B). The
+    // hybrid store branch of hydrateStoreLikeFn: a pending serialized answer
+    // is handed to the engine as a two-step stream (adoptedAnswerStream) whose
+    // second pull — the engine's own continuation after the landing commits —
+    // flips the handoff, so the client takeover no longer supersedes the
+    // server flight; a `live` latch scopes the first-yield discard to that
+    // one handoff run and lets a rejected answer stand until refresh(); an
+    // `adopted` latch and a live-guarded flip make a dependency change before
+    // the landing take over (rule 4, +42 B). Same shared store hydration
+    // adapter as the entry above, retained here without the store engine.
+    limit: "20.5 KB",
     modifyEsbuildConfig
   },
   {
@@ -1256,7 +1273,11 @@ module.exports = [
     // draft proxy over a raw leaf) and `cloneState` — the loading shadow and
     // its commit copy take the root alone for a shallow store. The deep path
     // is byte-identical in behavior; the bytes are the shallow branch.
-    limit: "30.5 KB",
+    // Hybrid handoff waits for the server answer (#3498, 2026-09-18): 30.5 ->
+    // 30.6 KB, measured at 30,545 B against `next`'s 30.41 KB (+~135 B, of
+    // which +18 B is rule 4); the same hydrateStoreLikeFn hybrid-branch change
+    // as the hydrating (no stores) note. 0 B in the signals floor.
+    limit: "30.6 KB",
     modifyEsbuildConfig
   },
   {

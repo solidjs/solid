@@ -657,6 +657,58 @@ function wrapFirstYield(iterable: any, activate: () => void) {
   };
 }
 
+/**
+ * A hybrid store's still-pending server answer, adopted as a ONE-yield stream
+ * (#3498). The hybrid contract is that the server consumes exactly one yield
+ * and the client continues the iteration — this is that first yield, and
+ * the engine's pull for the next one is the handoff.
+ *
+ * Why a stream and not the thenable itself: the handoff must run only once
+ * the answer has actually LANDED in the store. This relies on the engine's
+ * flight contract — latest-run-wins supersession (PJ-R26 in the signals
+ * RULES-INDEX; flight-identity cancellation, #3122): `handleAsync` pulls a
+ * stream's next step only from the previous step's commit (`asyncWrite`'s
+ * continuation, `iterateOrRelease`), and it drops a landing whose flight is
+ * no longer the node's `_inFlight` or whose node a newer write dirtied
+ * (`asyncWrite`'s guards; a recompute nulls `_inFlight` and fires the flight
+ * teardown first). So the second `next()` pull is the landed-and-committed
+ * signal: `onLanded` fires exactly when the landing applied, and never for a
+ * superseded flight — a dependency change that re-ran the store before the
+ * landing (rule 4) leaves this stream orphaned and silent. A rejection is
+ * the adopted answer (rule 3): the engine settles the error and pulls
+ * nothing more, and `onRejected` only marks authority transferred so the
+ * next non-handoff run (refresh(), a dependency change) runs the client
+ * source. An orphaned stream's rejection reaches `onRejected` too, but the
+ * engine drops the error (same guard) and the store is already live.
+ */
+function adoptedAnswerStream(thenable: any, onLanded: () => void, onRejected: () => void) {
+  let pulled = false;
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          if (pulled) {
+            onLanded();
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          pulled = true;
+          return {
+            then(res: any, rej: any) {
+              thenable.then(
+                (v: any) => res({ done: false, value: v }),
+                (e: any) => {
+                  onRejected();
+                  rej(e);
+                }
+              );
+            }
+          };
+        }
+      };
+    }
+  };
+}
+
 function hydrateSignalFromAsyncIterable(coreFn: Function, compute: any, options: any): any {
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
@@ -1029,10 +1081,11 @@ export function materializeContainerTrace(marker: {
 // --- Hydration-aware implementations ---
 
 // The shared pre-hydration gate lifecycle for the ssrSource branches
-// (signal/store × client/hybrid): create the node with a compute that
-// branches on the gate, then flip it — the flip's recompute is the node's
-// first real run. `ownedWrite` because the write happens inside the node's
-// own creation scope.
+// (signal × client/hybrid, store × client): create the node with a compute
+// that branches on the gate, then flip it — the flip's recompute is the
+// node's first real run. `ownedWrite` because the write happens inside the
+// node's own creation scope. (The hybrid STORE branch flips its own gate at
+// the adopted answer's landing instead — see hydrateStoreLikeFn, #3498.)
 function withHydrationGate(create: (hydrated: () => boolean) => any) {
   const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
   const result = create(hydrated);
@@ -1161,27 +1214,95 @@ function hydrateStoreLikeFn(
     );
   }
   if (ssrSource === "hybrid") {
-    return withHydrationGate(hydrated =>
-      coreFn(
-        (draft: any) => {
-          const o = getOwner()!;
-          if (!hydrated()) {
-            if (sharedConfig.has!(o.id!))
-              return readHydratedValue(
-                sharedConfig.load!(o.id!),
-                () => subFetch(fn, draft),
-                options
-              );
-            return fn(draft);
-          }
+    // Hybrid handoff (#3498). Server is truth: the store adopts the
+    // serialized answer, and the client source takes over from it in ONE
+    // handoff run whose first yield is discarded as the duplicate of what
+    // the server serialized. Three rules order that handoff:
+    //
+    // 1. It waits for the first server answer to LAND. Synchronous when the
+    //    serialized value is already settled (the flip below, as before);
+    //    when it is still pending — a loadingValue placeholder whose real
+    //    answer arrives later over the stream, or a settled ref the loading
+    //    window defers past the claim walk — the flip rides the landing
+    //    itself (adoptedAnswerStream). That answer is late, not stale:
+    //    flipping earlier let the takeover supersede the flight and lose it.
+    //    Never hydration end, and nothing here holds hydration open.
+    // 2. Only the handoff run is a duplicate. `live` marks authority
+    //    transferred; every later run (dependency change, refresh()) runs fn
+    //    on the real draft and commits its first yield normally.
+    // 3. A rejected server answer is the adopted answer. It transfers
+    //    authority without a handoff run, so the error stays visible until a
+    //    non-handoff run replaces it.
+    // 4. A dependency change before the answer lands supersedes it. Like any
+    //    new pending change, it cancels the incoming server answer: the store
+    //    goes live on that run — genuinely new work, not a handoff, so its
+    //    first yield commits — and the abandoned flight's landing or
+    //    rejection is dropped by the engine (PJ-R26) and flips nothing.
+    const id = peekNextChildId(getOwner()!);
+    // Nothing serialized: no answer to wait for and nothing for a first
+    // yield to duplicate — the client is authoritative from its first run.
+    if (!sharedConfig.has!(id)) return coreFn(fn, initialValue, options);
+    const initP = sharedConfig.load!(id);
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
+    let live = false;
+    // A late flip — a queued microtask, or a landing the engine kept for a
+    // flight this store has since abandoned — must not run a live store again.
+    const flip = () => {
+      if (!live) setHydrated(true);
+    };
+    let adopted = false;
+    let creating = true;
+    let landedOnCreate = false;
+    const result = coreFn(
+      (draft: any) => {
+        if (live) return fn(draft);
+        if (hydrated()) {
+          // The handoff run.
+          live = true;
           const { proxy, activate } = createShadowDraft(draft, options?.shallow);
           const r = fn(proxy);
           return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
-        },
-        initialValue,
-        options
-      )
+        }
+        if (adopted) {
+          // Rule 4. The gate is down, so this is not the handoff; an adoption
+          // already returned, so it is not a NotReady retry of the trace
+          // either — a dependency changed. The recompute already released
+          // the adopted flight (recompute nulls `_inFlight` and fires the
+          // flight teardown), so the server's late landing is dropped and
+          // its second pull — the flip — never comes.
+          live = true;
+          return fn(draft);
+        }
+        // Adoption. Re-entered only by a NotReady retry of the trace (the
+        // pending sibling settled; nothing was adopted yet, so adopt now).
+        subFetch(fn, draft);
+        let answer: any;
+        try {
+          answer = readHydratedValue(initP, () => {}, options);
+        } catch (e) {
+          // The trace above completed, so this is the settled rejection —
+          // the adopted answer (rule 3). (A NotReady from the trace is a
+          // retry of this same adoption and never reaches here.)
+          live = true;
+          throw e;
+        }
+        adopted = true;
+        if (answer != null && typeof answer.then === "function")
+          return adoptedAnswerStream(answer, flip, () => (live = true));
+        // Settled, landing synchronously in this run. The creation run flips
+        // right after construction (below, outside the compute — as the gate
+        // always has); a retry run is inside a flush, where the flip must
+        // not be a self-write, so it follows on a microtask.
+        if (creating) landedOnCreate = true;
+        else queueMicrotask(flip);
+        return answer;
+      },
+      initialValue,
+      options
     );
+    creating = false;
+    if (landedOnCreate) flip();
+    return result;
   }
   const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
