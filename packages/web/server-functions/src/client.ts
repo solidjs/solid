@@ -130,6 +130,19 @@ export interface ServerFunctionsClientConfig {
    * reference `url`s (e.g. form actions) and client fetches both derive
    * from it. Prefix it when the app serves from a base path
    * (e.g. `` `${BASE_URL}_server` ``).
+   *
+   * An absolute URL (`"https://api.example.com/_server"`) targets a handler
+   * on another origin — for a client-only build served from elsewhere: a
+   * static site, a browser extension, a WebView (`capacitor://localhost`)
+   * whose local server owns every path on its own hostname. The call is
+   * then cross-origin, and the server admits it only when its
+   * `configureServerFunctionsServer({ csrf: { origin } })` allowlist names
+   * the page's origin; it answers with the CORS headers the browser needs
+   * (`Access-Control-Allow-Origin`, the preflight, the protocol's headers
+   * exposed). Authenticate such a client with a bearer token through
+   * `prepareRequest` rather than cookies; cookies travel cross-site only
+   * with a `credentials: "include"` init, `SameSite=None; Secure` on the
+   * cookie, and `csrf.allowCredentials` on the server.
    * @default "/_server"
    */
   endpoint?: string;
@@ -154,9 +167,10 @@ export interface ServerFunctionsClientConfig {
    *
    * Forward `init` — the call's `signal` rides on it, and dropping it voids
    * both the caller's abort and the teardown a live source's `break`
-   * performs. Keep the call same-origin, since a cross-origin send is
-   * stamped `Sec-Fetch-Site: cross-site` and the handler's origin gate
-   * refuses it, and hand back what the peer answered, unread.
+   * performs. Keep the call on the configured `endpoint`'s origin: a send
+   * to any other is stamped `Sec-Fetch-Site: cross-site`, and the handler
+   * admits it only when its `csrf.origin` allowlist names the page's
+   * origin (see `endpoint`). Hand back what the peer answered, unread.
    *
    * A retrying wrapper may re-send a request that got NO response; it must
    * never replay one whose response ended. A response that dies mid-body may
