@@ -28,6 +28,7 @@ Status legend: **pass** (ordinary green guard) · **audit** (reported by
 | Address resolves to the function granted for that method | **pass** | n/a | n/a | n/a | n/a | `server-functions-addressing`, `server-functions-csrf`; #3237 **audit** |
 | `wrapInvocation` applies exactly once and cannot be bypassed | **pass** | **pass** | #3240 **audit** | **pass** | #3242 **audit** | `server-functions-invocation-wrap`, `server-functions-request-event-scope` |
 | A missing per-handler hook preserves configured policy | #3238 **audit** | #3238 **audit** | #3238 **audit** | n/a | #3238 **audit** | new focused spec required |
+| A cross-origin browser caller is admitted only by the `csrf.origin` allowlist, and then answered with CORS | **pass** | n/a | n/a | n/a | **pass** | `server-functions-cors-origin`, `server-functions-csrf`; #3538 **ruling** |
 | `provideEvent` establishes one request event per logical invocation | **pass** | #3246 **ruling** | #3246 **ruling** | **pass** | #3246 **ruling** | `server-functions-event-hook`, `server-functions-request-event-scope` |
 | `transformResult` observes the agreed success/failure surface | #3247 **ruling** | #3247 **ruling** | #3247 **ruling** | #3247 **ruling** | n/a | contract decision required |
 
@@ -165,6 +166,104 @@ record the pre-triage state and read as resolved per this section.
   a channel on a non-enumerable own DATA slot (`cause`) escaped the walk.
   Now descended; hidden accessors stay the codec's read per `47995412`'s
   ruling. Pinned in `server-functions-failure-sanitization`.
+
+## Ruling — cross-origin callers (#3538, 2026-09-18)
+
+`csrf.origin` reads as "these origins may call server functions", but the
+gate refused `Sec-Fetch-Site: cross-site` and `same-site` before the
+matcher was consulted, so a listed origin was refused by every current
+browser and WebView; the matcher only ever ran for clients sending no
+fetch metadata. Motivating case: a client-only build in a Capacitor
+WebView (`capacitor://localhost`) calling the server bundle on another
+host. Resolved as the maintainer proposed:
+
+1. **The allowlist decides cross-origin.** A `cross-site` or `same-site`
+   request carrying an `Origin` is admitted iff `csrf.origin` is configured
+   and the matcher answers `true` for that exact `Origin` (string, list, or
+   function; `matchesOrigin` keeps failing closed on any other return,
+   #3169). No matcher configured — today's default, `csrf: true`, or
+   `csrf: {}` — admits no cross-origin caller, even one whose `Origin`
+   equals the request's own (the browser said cross-site; the default
+   matcher is not an allowlist). `none` stays refused whatever is listed:
+   no page made that request. A cross-site request with no `Origin` stays
+   refused. `Origin: null` matches nothing an allowlist would name.
+   `same-origin` is untouched.
+2. **An admitted cross-origin caller gets the CORS answer on every
+   response** — results, thrown errors, refusals after admission (405,
+   413, 400, 500), and the labelled unknown-id 404 (#3110/#3136), which is
+   why the verdict is now READ before the id lookup while the refusal is
+   still ACTED on after it: the label exists for client-side recovery and
+   a cross-origin client reads it only through CORS. The answer is
+   `Access-Control-Allow-Origin` echoing the exact `Origin` (never `*`)
+   with `Vary: Origin`; `Access-Control-Expose-Headers` naming what the
+   response carries beyond the CORS safelist (the protocol's tags, an
+   integration's such as frames' stream header, an author's own —
+   `Set-Cookie` excluded, it can never be exposed); and
+   `Access-Control-Allow-Credentials: true` ONLY when
+   `csrf.allowCredentials` is set. An allowlist entry is not a
+   cookie-sharing decision; a cross-origin client should prefer
+   `prepareRequest` bearer tokens, and a cookie meant to travel needs
+   `SameSite=None; Secure` besides.
+3. **The preflight is answered for an admitted origin only.** `OPTIONS` +
+   `Access-Control-Request-Method` from a listed origin gets `204` with
+   `Allow-Methods: POST, GET, HEAD`, `Allow-Headers` echoing what the
+   preflight asked about (the page's bearer token as much as the
+   transport's `Content-Type`/format/single-flight headers; the origin is
+   what was trusted, and the actual request is gated when it arrives) or
+   the transport's set when it asked about none, `Max-Age: 600`, `Vary` on
+   the request headers it echoes, and the CORS answer above. It is answered
+   ahead of the id lookup — the question is whether the origin may send
+   this method here, and an unknown id's preflight failing would hide the
+   labelled 404. An unlisted origin's preflight lands on the same 403 as
+   before; a plain `OPTIONS` (no preflight header) lands on the 405 it
+   always got.
+4. **The same-origin path is byte-identical**, with one exception spelled
+   out in (5): a declared read gains `Vary: Origin` under a configured
+   matcher. No `Access-Control-*` header is emitted unless the verdict
+   admitted a cross-origin caller; a same-origin gated call answers
+   identically whether or not an allowlist (and `allowCredentials`) is
+   configured. The metadata-less road (older WebKit:
+   `Origin` without `Sec-Fetch-Site`) is decided by the matcher as before;
+   an admitted `Origin` that differs from the request's own is a
+   cross-origin caller by `Origin`'s definition and now gets the CORS
+   answer too. A same-origin browser behind a host-rewriting proxy can
+   land there with a listed public origin and receive an inert
+   `Allow-Origin`; accepted as harmless.
+5. **Declared reads.** The gate stays skipped for `GET`-declared reads
+   (#3114, #3071) — a read is never refused by this ruling. But a read is
+   answered TO A BROWSER, and a listed origin's page can read it only
+   through CORS, so when `csrf.origin` is configured and the matcher admits
+   a cross-origin `Origin`, the read carries `Allow-Origin`. Declared reads
+   are also the handler's one CACHEABLE answer, and a stored response is
+   served to whoever asks next; once an allowlist makes admission possible
+   the answer depends on the asking `Origin` (`Allow-Origin` for a listed
+   one, nothing for anyone else). So the rule is: **whenever a matcher is
+   configured, EVERY declared read carries `Vary: Origin`** — same-origin,
+   bare (no `Origin` at all), unlisted and admitted alike — while
+   `Allow-Origin` appears only on an admitted cross-origin answer. Varying
+   only the admitted answer would let a same-origin page warm a shared
+   cache with the header-less variant and have it served to the listed
+   origin next: CORS failures that depend on who asked first. With no
+   matcher (`undefined`, `csrf: true`, `csrf: {}`) admission is impossible,
+   the answer does not depend on `Origin`, and reads stay byte-identical to
+   before — no `Vary`, shared-cache entries whole. A read under
+   `protectDeclaredReads` is gated and already varies on all three proofs.
+   The matcher runs on a read only for a deployment that listed an origin,
+   and only when the read carries an `Origin`. No other exit needs the
+   rule: every gated answer already carries `Vary: Sec-Fetch-Site, Origin,
+   Referer`, and the ungated answers that are not declared reads — the
+   labelled unknown-id 404, the preflight — leave with `Cache-Control:
+   no-store`, so no shared cache stores a variant to misserve.
+
+Security posture: `Origin` is browser-enforced and a page cannot forge it,
+so admitting a listed origin is the trust decision the option always
+claimed. CSRF protection is for cookie-bearing browser users; a non-browser
+caller could always hit the endpoint with any headers, and that is
+unchanged. Default remains same-origin only. Pinned in
+`server-functions-cors-origin` (admission, refusals, CORS answer,
+preflight, credentials, declared reads, same-origin byte-identity) and
+`server-functions-csrf` (the decision matrix, updated: `same-site` is now
+decided by the allowlist rather than refused outright).
 
 ## Extraction and merge discipline
 

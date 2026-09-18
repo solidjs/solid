@@ -56,34 +56,65 @@ describe("server-function CSRF bridge", () => {
  * plausibly "fix" in the wrong direction, and today only two of them fail
  * a test if reversed:
  *
- * - `Sec-Fetch-Site` is authoritative WHEN PRESENT. A `same-site` call
- *   (a sibling subdomain) and a `none` call (address bar, bookmark) are
- *   refused outright — they never fall through to the trusted-origin
- *   matcher, so widening `origin` cannot re-admit them. Loosening
- *   `same-site` is the natural-looking repair for a broken subdomain
- *   deployment, and it would hand every subdomain a CSRF surface.
+ * - `Sec-Fetch-Site` is authoritative WHEN PRESENT. A `none` call (address
+ *   bar, bookmark) is refused outright — no page made it, so no allowlist
+ *   entry can speak for it. A `same-site` call (a sibling subdomain) and a
+ *   `cross-site` one are decided by the `origin` allowlist alone (#3538):
+ *   with none configured they are refused, and the default matcher is not
+ *   one — a browser saying cross-site while sending the request's own
+ *   origin is contradicting itself. So a subdomain deployment is repaired
+ *   by LISTING the subdomain, never by loosening `same-site` for everyone.
  * - Without `Sec-Fetch-Site`, `Origin` decides, then `Referer`; a matcher
  *   that answered `true` for a non-matching origin would fail open, and
  *   nothing currently notices.
  * - With no proof of origin at all, the request is refused unless the
  *   deployment has explicitly opted out.
+ *
+ * The CORS answer an admitted cross-origin caller receives is pinned in
+ * `server-functions-cors-origin`.
  */
 describe("the origin gate's decision matrix", () => {
-  for (const site of ["same-site", "none"]) {
-    it(`refuses a ${site} call even when the Origin is trusted`, async () => {
+  it("refuses a `none` call even when the Origin is trusted", async () => {
+    const fn = vi.fn(async () => "ok");
+    registerServerFunction("csrf-site-none", fn);
+
+    const response = await handleServerFunctionRequest(
+      request("csrf-site-none", {
+        "Sec-Fetch-Site": "none",
+        Origin: "https://app.example"
+      }),
+      { csrf: { origin: "https://app.example" }, provideEvent }
+    );
+
+    expect(response.status).toBe(403);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  for (const site of ["same-site", "cross-site"]) {
+    it(`lets the allowlist decide a ${site} call, and refuses it without one`, async () => {
       const fn = vi.fn(async () => "ok");
       registerServerFunction(`csrf-site-${site}`, fn);
+      const headers = { "Sec-Fetch-Site": site, Origin: "https://sibling.example" };
 
-      const response = await handleServerFunctionRequest(
-        request(`csrf-site-${site}`, {
-          "Sec-Fetch-Site": site,
-          Origin: "https://app.example"
-        }),
-        { csrf: { origin: "https://app.example" }, provideEvent }
+      const unconfigured = await handleServerFunctionRequest(
+        request(`csrf-site-${site}`, headers),
+        { provideEvent }
       );
+      expect(unconfigured.status).toBe(403);
 
-      expect(response.status).toBe(403);
+      const unlisted = await handleServerFunctionRequest(request(`csrf-site-${site}`, headers), {
+        csrf: { origin: "https://trusted.example" },
+        provideEvent
+      });
+      expect(unlisted.status).toBe(403);
       expect(fn).not.toHaveBeenCalled();
+
+      const listed = await handleServerFunctionRequest(request(`csrf-site-${site}`, headers), {
+        csrf: { origin: "https://sibling.example" },
+        provideEvent
+      });
+      expect(listed.status).toBe(200);
+      expect(fn).toHaveBeenCalledOnce();
     });
   }
 

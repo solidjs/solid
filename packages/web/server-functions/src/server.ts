@@ -233,13 +233,50 @@ export type ServerFunctionOriginMatcher =
 /** Same-origin validation options for server function requests. */
 export interface ServerFunctionCSRFOptions {
   /**
-   * Expected public origin. Defaults to the incoming request URL's origin.
-   * A function can validate origins dynamically for multi-tenant hosts.
+   * The origins allowed to call server functions: a single origin, a list,
+   * or a matcher `(origin, request) => boolean` (async allowed; anything
+   * but a literal `true` refuses, #3169) for multi-tenant hosts. Defaults
+   * to the incoming request URL's origin, which admits same-origin callers
+   * only.
+   *
+   * Listing an origin OTHER than the deployment's own is the opt-in for a
+   * cross-origin client — a static build in a WebView
+   * (`capacitor://localhost`), an embedded widget, a marketing site calling
+   * the app's API — whose `configureServerFunctionsClient({ endpoint })`
+   * names this handler's absolute URL. A `Sec-Fetch-Site: cross-site` (or
+   * `same-site`) request carrying a browser-set `Origin` is decided by this
+   * matcher, and an admitted cross-origin caller gets the CORS answer the
+   * browser needs to read the response: `Access-Control-Allow-Origin`
+   * echoing its exact `Origin` (with `Vary: Origin`), the protocol's
+   * response headers exposed, and the `OPTIONS` preflight answered for the
+   * transport's methods and headers. Without a configured matcher no
+   * cross-origin caller is admitted (#3538); `Sec-Fetch-Site: none` and a
+   * request carrying no `Origin` at all stay refused whatever is listed.
+   * Configuring a matcher also puts `Vary: Origin` on every `GET`-declared
+   * read (the one cacheable answer): its answer now depends on who asked,
+   * and a shared cache must not serve one caller's variant to another.
+   *
+   * The trust decision is the same one this option always claimed: a
+   * browser sets `Origin` and a page cannot forge it, so a listed origin's
+   * pages may call — with the user's cookies only if `allowCredentials`
+   * says so. A cross-origin client should prefer bearer tokens through the
+   * client's `prepareRequest`.
    */
   origin?: ServerFunctionOriginMatcher;
   /**
+   * Sends `Access-Control-Allow-Credentials: true` to an admitted
+   * cross-origin caller, letting a `credentials: "include"` fetch carry
+   * and receive cookies. Off by default so that listing an origin never
+   * silently turns on cookie sharing; a cookie that is meant to travel
+   * cross-site also needs `SameSite=None; Secure`. Has no effect on
+   * same-origin responses.
+   * @default false
+   */
+  allowCredentials?: boolean;
+  /**
    * Allows requests without `Sec-Fetch-Site`, `Origin`, or `Referer`.
-   * Cross-origin metadata is still rejected.
+   * Cross-origin metadata is still decided by `origin`: an unlisted origin
+   * stays refused.
    * @default false
    */
   allowRequestsWithoutOriginCheck?: boolean;
@@ -353,7 +390,9 @@ export interface ServerFunctionsServerConfig {
   /**
    * Same-origin protection for HTTP server function calls. Enabled by
    * default. Set to `false` only when another trusted layer protects the
-   * endpoint.
+   * endpoint. `{ origin }` lists the origins allowed to call — the opt-in
+   * for a cross-origin client, answered with CORS (see
+   * `ServerFunctionCSRFOptions`).
    */
   csrf?: boolean | ServerFunctionCSRFOptions;
   /**
@@ -3196,15 +3235,45 @@ async function matchesOrigin(origin, request, matcher) {
   return Array.isArray(matcher) ? matcher.includes(origin) : origin === matcher;
 }
 
+// The gate's verdict: `false` refuses; `true` admits with nothing to add
+// (the caller proved same-origin, or proved nothing and the deployment
+// opted out of proof); an origin string admits a CROSS-ORIGIN caller the
+// `origin` allowlist named, and is the exact value to echo back in
+// `Access-Control-Allow-Origin` — without it the browser that made the
+// call never lets the page read the answer.
 async function allowsServerFunctionRequest(request, options) {
   const fetchSite = request.headers.get("Sec-Fetch-Site");
   if (fetchSite === "same-origin") return true;
-  if (fetchSite === "same-site" || fetchSite === "cross-site" || fetchSite === "none") {
-    return false;
-  }
+  // Address bar, bookmark, a user-initiated navigation: no page made this
+  // request, so no allowlist entry can speak for it.
+  if (fetchSite === "none") return false;
 
   const origin = request.headers.get("Origin");
-  if (origin !== null) return matchesOrigin(origin, request, options.origin);
+  if (fetchSite === "same-site" || fetchSite === "cross-site") {
+    // The browser's own word that a page on ANOTHER origin made the call.
+    // Only an explicit allowlist can admit it (#3538): the default matcher
+    // compares against the request's own origin, and a browser that says
+    // cross-site while sending that origin is contradicting itself. The
+    // matcher used to be unreachable from here — refused before it was
+    // consulted — so `csrf.origin` had no effect on any current browser
+    // for the one case it reads as being for. `Origin` is what makes the
+    // decision safe to delegate: it is browser-set, a page cannot forge
+    // it, and its absence (an opaque `null` is not an absence — it is a
+    // caller declining to say) leaves nothing to match.
+    if (origin === null || options.origin === undefined) return false;
+    return (await matchesOrigin(origin, request, options.origin)) ? origin : false;
+  }
+
+  if (origin !== null) {
+    if (!(await matchesOrigin(origin, request, options.origin))) return false;
+    // No fetch metadata (older WebKit), so `Origin` decided. An Origin
+    // other than the request's own is a cross-origin caller by Origin's
+    // definition, and it needs the CORS answer as much as one that says
+    // so in `Sec-Fetch-Site`. (A same-origin browser behind a proxy that
+    // rewrites the host lands here too; the extra `Allow-Origin` is inert
+    // on a same-origin response.)
+    return origin === new URL(request.url).origin ? true : origin;
+  }
 
   const referer = request.headers.get("Referer");
   if (referer !== null) {
@@ -3220,29 +3289,127 @@ async function allowsServerFunctionRequest(request, options) {
 
 const CSRF_VARY = ["Sec-Fetch-Site", "Origin", "Referer"];
 
-function withCSRFVary(response) {
-  const current = response.headers.get("Vary");
-  if (current === "*") return response;
-
+// Adds the named fields to `Vary`, deduplicated case-insensitively; a `*`
+// already says everything and is left alone.
+function appendVary(headers, names) {
+  const current = headers.get("Vary");
+  if (current === "*") return;
   const values = current ? current.split(",").map(value => value.trim()) : [];
-  const names = new Set(values.map(value => value.toLowerCase()));
-  for (const value of CSRF_VARY) {
-    if (!names.has(value.toLowerCase())) values.push(value);
+  const seen = new Set(values.map(value => value.toLowerCase()));
+  for (const name of names) {
+    if (!seen.has(name.toLowerCase())) values.push(name);
   }
-  const vary = values.join(", ");
+  headers.set("Vary", values.join(", "));
+}
 
+// Applies `write` to the response's headers — onto a copy when they are
+// immutable (a raw fetch() Response passed through). `write` must be
+// re-runnable: an immutable Headers throws on its first mutation, so the
+// copy sees every write from the start.
+function withHeaders(response, write) {
   try {
-    response.headers.set("Vary", vary);
+    write(response.headers);
     return response;
   } catch {
     const headers = new Headers(response.headers);
-    headers.set("Vary", vary);
+    write(headers);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
       headers
     });
   }
+}
+
+function withCSRFVary(response) {
+  return withHeaders(response, headers => appendVary(headers, CSRF_VARY));
+}
+
+// The request headers the client transport sets on its own calls — what a
+// preflight that names none (a bare `Access-Control-Request-Method`) is
+// told it may send.
+const TRANSPORT_REQUEST_HEADERS = ["Content-Type", BODY_FORMAT_HEADER, SINGLE_FLIGHT_HEADER].join(
+  ", "
+);
+// How long a browser may reuse a preflight answer for one address. Each
+// function has an address of its own, so this is per function, and a
+// change to the allowlist is honoured within it (browsers cap the value
+// themselves — Chromium at two hours).
+const PREFLIGHT_MAX_AGE = "600";
+// Response headers a page may read across origins without being told
+// (Fetch's CORS-safelisted response-header names), so they need no
+// exposing — plus the ones it may never read, and this answer's own.
+const CORS_SAFELISTED_RESPONSE_HEADERS = new Set([
+  "cache-control",
+  "content-language",
+  "content-length",
+  "content-type",
+  "expires",
+  "last-modified",
+  "pragma"
+]);
+
+// The CORS answer for an admitted cross-origin caller (#3538), stamped on
+// EVERY response the handler sends it — results, refusals, the labelled
+// unknown-id 404 — because a browser lets the page read none of them
+// otherwise. `cors` is `null` for everyone else, and then this is the
+// identity: the same-origin path stays byte-identical.
+//
+// - `Access-Control-Allow-Origin` echoes the exact `Origin` the allowlist
+//   admitted, never `*` (a wildcard would also void the credentials answer),
+//   so the response varies by `Origin`.
+// - `Access-Control-Allow-Credentials` only when the deployment said so:
+//   an allowlist entry is not a cookie-sharing decision.
+// - `Access-Control-Expose-Headers` names what THIS response carries beyond
+//   the safelist: the protocol's tags (error, format, redirect,
+//   revalidation, single-flight, unknown-id), an integration's (frames'
+//   stream header), an author's own. The page may already read the body,
+//   so the headers are no more secret than it; `Set-Cookie` can never be
+//   exposed and is skipped.
+function withCORS(response, cors) {
+  if (cors === null) return response;
+  return withHeaders(response, headers => {
+    headers.set("Access-Control-Allow-Origin", cors.origin);
+    if (cors.credentials) headers.set("Access-Control-Allow-Credentials", "true");
+    const exposed = [];
+    for (const name of headers.keys()) {
+      if (
+        CORS_SAFELISTED_RESPONSE_HEADERS.has(name) ||
+        name === "set-cookie" ||
+        name === "vary" ||
+        name.startsWith("access-control-")
+      ) {
+        continue;
+      }
+      exposed.push(name);
+    }
+    if (exposed.length > 0) headers.set("Access-Control-Expose-Headers", exposed.join(", "));
+    appendVary(headers, ["Origin"]);
+  });
+}
+
+// The answer to a browser's preflight (`OPTIONS` + `Access-Control-Request-
+// Method`) from an admitted origin: the transport's methods, the headers the
+// preflight asked about (the page's own — a bearer token set through
+// `prepareRequest` — as much as the transport's; the ORIGIN is what was
+// trusted, and the request itself is still gated when it arrives), or the
+// transport's set when it asked about none. `Allow-Origin` and the
+// credentials answer are stamped by `withCORS` like everything else.
+function preflightResponse(request) {
+  const requested = request.headers.get("Access-Control-Request-Headers");
+  const response = new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Methods": "POST, GET, HEAD",
+      "Access-Control-Allow-Headers":
+        requested !== null && requested.trim() !== "" ? requested : TRANSPORT_REQUEST_HEADERS,
+      "Access-Control-Max-Age": PREFLIGHT_MAX_AGE,
+      "Cache-Control": "no-store"
+    }
+  });
+  // The answer depends on what was asked.
+  appendVary(response.headers, ["Access-Control-Request-Method", "Access-Control-Request-Headers"]);
+  return response;
 }
 
 function forbiddenResponse() {
@@ -3277,11 +3444,20 @@ function nativePromise(value) {
  *
  * Requests are same-origin by default. The handler accepts browser requests
  * proven by `Sec-Fetch-Site`, `Origin`, or `Referer`, and rejects requests
- * without usable metadata unless explicitly configured otherwise. GET/HEAD
- * requests to `GET`-declared functions skip this gate: they are reads by
- * contract, cross-site response READING is already blocked by same-origin
- * policy, and skipping it keeps the `Vary: Sec-Fetch-Site, Origin, Referer`
- * it would impose off the responses shared caches are meant to store.
+ * without usable metadata unless explicitly configured otherwise. A
+ * cross-origin browser call is admitted only when `csrf.origin` lists its
+ * `Origin`, and is then answered with CORS — `Access-Control-Allow-Origin`
+ * echoing that origin, the protocol's headers exposed, the `OPTIONS`
+ * preflight answered, credentials only when `csrf.allowCredentials` says so
+ * (#3538). GET/HEAD requests to `GET`-declared functions skip this gate:
+ * they are reads by contract, cross-site response READING is already
+ * blocked by same-origin policy, and skipping it keeps the
+ * `Vary: Sec-Fetch-Site, Origin, Referer` it would impose off the responses
+ * shared caches are meant to store. Once `csrf.origin` lists an origin,
+ * though, a read's answer depends on who asked — `Allow-Origin` for a
+ * listed caller, nothing for anyone else — so every declared read then
+ * carries `Vary: Origin` (and only that), or a shared cache would serve one
+ * caller's variant to the other.
  *
  * Every response leaves with `Cache-Control: no-store` unless the function
  * set its own cache policy (via `respond()` headers or a returned
@@ -3426,6 +3602,73 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const protectsRequest =
     csrf !== false &&
     (!declaredRead || (typeof csrf === "object" && csrf.protectDeclaredReads === true));
+  const csrfOptions = csrf === true ? {} : csrf;
+  // The gate's verdict (see `allowsServerFunctionRequest`): `false`
+  // refuses, `true` admits, an origin string admits a cross-origin caller
+  // the `csrf.origin` allowlist named — who then needs the CORS answer on
+  // EVERY response (#3538), the labelled unknown-id 404 below included: a
+  // browser lets the page read none of them otherwise, and the label's
+  // whole purpose is client-side recovery. So the verdict is read here,
+  // ahead of the lookup, and the refusal it may carry is ACTED on after it:
+  // #3136's ordering of answers — the label before the 403 — is kept. What
+  // moves is only the matcher call, which is user-authored and ran ahead
+  // of the lookup before #3136 as well.
+  let verdict = true;
+  // Declared reads are the one cacheable answer the handler gives, and a
+  // stored response is served to whoever asks next. Once an allowlist
+  // makes cross-origin admission POSSIBLE, a read's answer depends on the
+  // `Origin` that asked — `Allow-Origin` for a listed one, nothing for
+  // everyone else — so EVERY declared read then names that dependency with
+  // `Vary: Origin`, whether or not this request carried an `Origin` or was
+  // admitted. Varying only the admitted answer would let a same-origin
+  // page warm the cache with the header-less variant and have the shared
+  // cache serve it to the listed origin next: CORS failures that depend on
+  // who asked first. Without a matcher, admission is impossible, the answer
+  // does not depend on `Origin`, and reads stay byte-identical (no `Vary`)
+  // — the shared-cache entries the GET helper exists for (#3071) untouched.
+  let readVariesByOrigin = false;
+  if (protectsRequest) {
+    verdict = await allowsServerFunctionRequest(request, csrfOptions);
+  } else if (csrfOptions !== false && csrfOptions.origin !== undefined) {
+    // An ungated declared read (#3114) is still ANSWERED to a browser, and
+    // a listed origin's page can read that answer only through CORS. The
+    // verdict decides headers here, never dispatch: a refusal is dropped,
+    // and a same-origin or unlisted read is answered as before apart from
+    // the `Vary: Origin` above — no `Access-Control-*`. Only a deployment
+    // that listed an origin pays the matcher call, and only on a read
+    // carrying an `Origin`.
+    readVariesByOrigin = true;
+    const admitted = await allowsServerFunctionRequest(request, csrfOptions);
+    if (typeof admitted === "string") verdict = admitted;
+  }
+  const cors =
+    typeof verdict === "string"
+      ? { origin: verdict, credentials: csrfOptions.allowCredentials === true }
+      : null;
+  // Every exit leaves through here: transport hygiene, then the CORS
+  // answer for an admitted cross-origin caller (the identity for everyone
+  // else), then the read's `Origin` variance where an allowlist makes the
+  // answer depend on it (`withCORS` already named it for an admitted one).
+  const finish = response => {
+    const finalized = withCORS(finalizeTransportResponse(response, method), cors);
+    return readVariesByOrigin && cors === null
+      ? withHeaders(finalized, headers => appendVary(headers, ["Origin"]))
+      : finalized;
+  };
+  // A browser asks before it sends a cross-origin call with a body the
+  // transport's shape (`OPTIONS` + `Access-Control-Request-Method`). The
+  // question is whether the ORIGIN may send this method here, and the
+  // answer does not depend on the id — an unknown one is still answered,
+  // so the actual request can carry the labelled 404 to the client. Only
+  // an admitted origin gets an answer; anyone else lands on the refusal or
+  // the 405 a plain `OPTIONS` always got.
+  if (
+    cors !== null &&
+    method === "OPTIONS" &&
+    request.headers.has("Access-Control-Request-Method")
+  ) {
+    return finish(preflightResponse(request));
+  }
   // Labelled (#3110): the address is well-formed but its id is not part of
   // this deployment — the wire shape of version skew (a tab holding the
   // previous build's ids) or a genuinely removed function. Without the
@@ -3433,18 +3676,17 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // one recovery that works — reload onto the current build — cannot be
   // targeted.
   //
-  // Answered BEFORE the origin gate, deliberately (#3136). A removed id is
-  // not in METHODS, so it can no longer be recognised as a declared read
-  // and the gate fired on it — hiding the label behind a 403 from exactly
-  // the callers that carry no fetch metadata (a CDN revalidating a
-  // declared read, a monitor, a server-to-server client; Node's fetch
-  // sends none of the three headers the gate reads). Nothing is registered
-  // at an unknown id, so the gate has nothing there to protect, and the
-  // ids themselves are public by construction: the compiler emits them
-  // into the shipped client bundle. The lookup is a side-effect-free Map
-  // read, so nothing user-authored runs earlier than it did. The
-  // meaningless-path 404 below stays bare and stays gated: a mistyped
-  // route is not skew.
+  // Answered BEFORE the origin gate's refusal, deliberately (#3136). A
+  // removed id is not in METHODS, so it can no longer be recognised as a
+  // declared read and the gate fired on it — hiding the label behind a 403
+  // from exactly the callers that carry no fetch metadata (a CDN
+  // revalidating a declared read, a monitor, a server-to-server client;
+  // Node's fetch sends none of the three headers the gate reads). Nothing
+  // is registered at an unknown id, so the gate has nothing there to
+  // protect, and the ids themselves are public by construction: the
+  // compiler emits them into the shipped client bundle. The lookup is a
+  // side-effect-free Map read. The meaningless-path 404 below stays bare
+  // and stays gated: a mistyped route is not skew.
   let serverFunction;
   if (functionId) {
     try {
@@ -3452,21 +3694,20 @@ export async function handleServerFunctionRequest(request, options = {}) {
     } catch {
       // no Vary: the answer does not depend on origin proof, so it must
       // not fragment shared-cache entries on it
-      return finalizeTransportResponse(
+      return finish(
         new Response(DEV ? `Unknown server function: ${functionId}` : null, {
           status: 404,
           headers: { [UNKNOWN_HEADER]: "true" }
-        }),
-        method
+        })
       );
     }
   }
-  if (protectsRequest && !(await allowsServerFunctionRequest(request, csrf === true ? {} : csrf))) {
-    return finalizeTransportResponse(forbiddenResponse(), method);
+  if (verdict === false) {
+    return finish(forbiddenResponse());
   }
   if (!functionId) {
     const response = new Response(DEV ? "Server function not found" : null, { status: 404 });
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return finish(protectsRequest ? withCSRFVary(response) : response);
   }
 
   // Which of the two answer shapes this call gets — codec encodings for the
@@ -3497,7 +3738,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         headers: { Allow: declaresRead(functionId) ? "POST, GET, HEAD" : "POST" }
       }
     );
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return finish(protectsRequest ? withCSRFVary(response) : response);
   }
 
   // The argument payload is buffered and decoded before dispatch, so its
@@ -3514,7 +3755,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       DEV ? "Server function arguments exceed the configured bodySizeLimit" : null,
       { status: 413 }
     );
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return finish(protectsRequest ? withCSRFVary(response) : response);
   }
   if (method === "POST" && request.body !== null && bodySizeLimit !== Infinity) {
     // The one thing a declaration is good for: a CONFORMING one — digits,
@@ -3539,7 +3780,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
         { status: 413 }
       );
-      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+      return finish(protectsRequest ? withCSRFVary(response) : response);
     }
     let buffered;
     try {
@@ -3554,14 +3795,14 @@ export async function handleServerFunctionRequest(request, options = {}) {
       const response = new Response(DEV ? "Malformed server function arguments" : null, {
         status: 400
       });
-      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+      return finish(protectsRequest ? withCSRFVary(response) : response);
     }
     if (buffered === null) {
       const response = new Response(
         DEV ? "Server function request body exceeds the configured bodySizeLimit" : null,
         { status: 413 }
       );
-      return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+      return finish(protectsRequest ? withCSRFVary(response) : response);
     }
     request = withBufferedBody(request, buffered);
   }
@@ -3593,7 +3834,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     const response = scripted
       ? encodeResult(safe, headers, 500, codec, request.signal)
       : new Response(DEV ? message : null, { status: 500 });
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return finish(protectsRequest ? withCSRFVary(response) : response);
   }
   // Once an event exists, its response stub folds onto EVERY exit — the
   // refusals below included (#3159). A refusal that returned directly
@@ -3605,7 +3846,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // instrumentation, same as the dispatch tail.
   const refuseCommitted = raw => {
     const response = commitEventResponse(raw, event);
-    return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+    return finish(protectsRequest ? withCSRFVary(response) : response);
   };
   const provide = options.provideEvent || provideEvent;
   const scope = run => provide(event, run);
@@ -4017,7 +4258,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     enforceComposedHeaderInvariants(ownResponse(await dispatch())),
     event
   );
-  return finalizeTransportResponse(protectsRequest ? withCSRFVary(response) : response, method);
+  return finish(protectsRequest ? withCSRFVary(response) : response);
 }
 
 // A fresh Response around the same body: status, statusText and headers are
