@@ -39,6 +39,13 @@ export interface PluginConfig {
   validate: boolean;
   inlineStyles: boolean;
   serverComponents: boolean;
+  /** SSR only: emit each component's props literal with getters as a
+   * module-level constructor with shared getters (one hidden class per call
+   * site, no closure per getter per instance) instead of an object literal,
+   * which V8 builds in dictionary mode. Same own keys, order, descriptors
+   * and prototype; a getter is defined only for a read through its own
+   * object (#3511). `false` keeps the literal everywhere. */
+  hoistProps: boolean;
   renderers?: RendererConfig[];
 }
 
@@ -75,7 +82,8 @@ const config: PluginConfig = {
   memoWrapper: "memo",
   validate: true,
   inlineStyles: true,
-  serverComponents: false
+  serverComponents: false,
+  hoistProps: true
 };
 
 export default config;

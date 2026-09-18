@@ -41,6 +41,197 @@ var _tmpl$8 = [
 var _tmpl$9 = "<span>1</span>";
 var _tmpl$10 = "<span>2</span>";
 var _tmpl$11 = "<span>3</span>";
+var _m$ = Symbol(), _m$2 = Symbol();
+var _d$ = {
+	get() {
+		const content = this[_m$2];
+		var _v$4;
+		return _v$4 = _$escape(content), _$ssr(_tmpl$2, _v$4);
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$(_p, _p2) {
+	this[_m$] = _p;
+	this[_m$2] = _p2;
+	this.ref = (r$) => {
+		const props = this[_m$];
+		var _ref$4 = props.ref;
+		typeof _ref$4 === "function" || Array.isArray(_ref$4) ? _$applyRef(_ref$4, r$) : props.ref = r$;
+	};
+	Object.defineProperty(this, "children", _d$);
+}
+_P$.prototype = Object.prototype;
+var _d$2 = {
+	get() {
+		return state.condition;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$2(_p3) {
+	Object.defineProperty(this, "when", _d$2);
+	this.children = _p3;
+}
+_P$2.prototype = Object.prototype;
+var _d$3 = {
+	get() {
+		const _self$ = this[_m$];
+		return _self$.data;
+	},
+	enumerable: true,
+	configurable: true
+}, _d$4 = {
+	get() {
+		const _self$ = this[_m$];
+		return _self$.content;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$3(_p4) {
+	this[_m$] = _p4;
+	Object.defineProperty(this, "prop", _d$3);
+	Object.defineProperty(this, "children", _d$4);
+}
+_P$3.prototype = Object.prototype;
+var _d$5 = {
+	get() {
+		const _self$ = this[_m$];
+		return _self$.something;
+	},
+	enumerable: true,
+	configurable: true
+}, _d$6 = {
+	get() {
+		const _self$ = this[_m$];
+		return Nested(new _P$3(_self$));
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$4(_p5, _p6) {
+	this[_m$] = _p5;
+	Object.defineProperty(this, "prop", _d$5);
+	this.onClick = _p6;
+	Object.defineProperty(this, "children", _d$6);
+}
+_P$4.prototype = Object.prototype;
+var _d$7 = {
+	get() {
+		const _self$2 = this[_m$];
+		const foo = _self$2.value;
+		if ("key" in foo) {
+			return foo;
+		}
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$5(_p7) {
+	this[_m$] = _p7;
+	Object.defineProperty(this, "when", _d$7);
+}
+_P$5.prototype = Object.prototype;
+var _d$8 = {
+	get() {
+		const _self$3 = this[_m$];
+		return _self$3.method;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$6(_p8) {
+	this[_m$] = _p8;
+	Object.defineProperty(this, "method", _d$8);
+}
+_P$6.prototype = Object.prototype;
+var _d$9 = {
+	get() {
+		const _self$4 = this[_m$];
+		return _self$4.method;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$7(_p9) {
+	this[_m$] = _p9;
+	Object.defineProperty(this, "method", _d$9);
+}
+_P$7.prototype = Object.prototype;
+var _d$10 = {
+	get() {
+		const _self$5 = this[_m$];
+		return _self$5.method;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$8(_p0) {
+	this[_m$] = _p0;
+	Object.defineProperty(this, "method", _d$10);
+}
+_P$8.prototype = Object.prototype;
+var _d$11 = {
+	get() {
+		const _self$6 = this[_m$];
+		return _self$6.method;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$9(_p1) {
+	this[_m$] = _p1;
+	Object.defineProperty(this, "method", _d$11);
+}
+_P$9.prototype = Object.prototype;
+var _d$12 = {
+	get() {
+		const _self$7 = this[_m$];
+		return _self$7.method;
+	},
+	enumerable: true,
+	configurable: true
+}, _d$13 = {
+	get() {
+		const _self$7 = this[_m$];
+		return _self$7.another({});
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$10(_p10) {
+	this[_m$] = _p10;
+	Object.defineProperty(this, "method", _d$12);
+	Object.defineProperty(this, "comp", _d$13);
+}
+_P$10.prototype = Object.prototype;
+var _d$14 = {
+	get() {
+		const _self$8 = this[_m$];
+		return _self$8.method;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$11(_p11) {
+	this[_m$] = _p11;
+	Object.defineProperty(this, "method", _d$14);
+}
+_P$11.prototype = Object.prototype;
+var _d$15 = {
+	get() {
+		const _self$9 = this[_m$];
+		return _self$9.method;
+	},
+	enumerable: true,
+	configurable: true
+};
+function _P$12(_p12) {
+	this[_m$] = _p12;
+	Object.defineProperty(this, "method", _d$15);
+}
+_P$12.prototype = Object.prototype;
 import { Show, binding } from "somewhere";
 function refFn() {}
 const refConst = null;
@@ -54,7 +245,6 @@ const Child = (props) => {
 	}, _$ssr(_tmpl$2, _v$2))];
 };
 const template = (props) => {
-	var _v$4;
 	let childRef;
 	const { content } = props;
 	var _v$3 = _$escape(Child(_$mergeProps({ name: "John" }, props, {
@@ -66,15 +256,7 @@ const template = (props) => {
 		get children() {
 			return _$ssr(_tmpl$3);
 		}
-	}))), _v$5 = _$escape(Child(_$mergeProps({ name: "Jason" }, dynamicSpread, {
-		ref(r$) {
-			var _ref$4 = props.ref;
-			typeof _ref$4 === "function" || Array.isArray(_ref$4) ? _$applyRef(_ref$4, r$) : props.ref = r$;
-		},
-		get children() {
-			return _v$4 = _$escape(content), _$ssr(_tmpl$2, _v$4);
-		}
-	}))), _v$6 = (() => {
+	}))), _v$5 = _$escape(Child(_$mergeProps({ name: "Jason" }, dynamicSpread, new _P$(props, content)))), _v$6 = (() => {
 		var _ref$5 = props.consumerRef();
 		return _$escape(Context.Consumer({
 			ref(r$) {
@@ -128,12 +310,7 @@ const template6 = _$For({
 	get fallback() {
 		return Loading({});
 	},
-	children: (item) => Show({
-		get when() {
-			return state.condition;
-		},
-		children: item
-	})
+	children: (item) => Show(new _P$2(item))
 });
 const template7 = Child({ get children() {
 	return [_$ssr(_tmpl$5), _$memo(() => {
@@ -153,22 +330,7 @@ const template12 = _$ssr(_tmpl$8, _v$19, _v$20);
 class Template13 {
 	render() {
 		const _self$ = this;
-		Component({
-			get prop() {
-				return _self$.something;
-			},
-			onClick: () => _self$.shouldStay,
-			get children() {
-				return Nested({
-					get prop() {
-						return _self$.data;
-					},
-					get children() {
-						return _self$.content;
-					}
-				});
-			}
-		});
+		Component(new _P$4(_self$, () => _self$.shouldStay));
 	}
 }
 const Template14 = Component({ get children() {
@@ -236,62 +398,38 @@ const template27 = Component({ get when() {
 class Template28 {
 	render() {
 		const _self$2 = this;
-		return Component({ get when() {
-			const foo = _self$2.value;
-			if ("key" in foo) {
-				return foo;
-			}
-		} });
+		return Component(new _P$5(_self$2));
 	}
 }
 class Template29 extends ParentComponent {
 	constructor() {
 		super();
 		const _self$3 = this;
-		this.component({ get method() {
-			return _self$3.method;
-		} });
+		this.component(new _P$6(_self$3));
 	}
 	get get() {
 		const _self$4 = this;
-		this.component({ get method() {
-			return _self$4.method;
-		} });
+		this.component(new _P$7(_self$4));
 	}
 	set set(v) {
 		const _self$5 = this;
-		this.component({ get method() {
-			return _self$5.method;
-		} });
+		this.component(new _P$8(_self$5));
 	}
 	method() {
 		const _self$6 = this;
-		this.component({ get method() {
-			return _self$6.method;
-		} });
+		this.component(new _P$9(_self$6));
 	}
 	field = (() => {
 		const _self$7 = this;
-		return this.component({
-			get method() {
-				return _self$7.method;
-			},
-			get comp() {
-				return _self$7.another({});
-			}
-		});
+		return this.component(new _P$10(_self$7));
 	})();
 	fieldArrow = () => {
 		const _self$8 = this;
-		return this.component({ get method() {
-			return _self$8.method;
-		} });
+		return this.component(new _P$11(_self$8));
 	};
 	fieldFunction = function() {
 		const _self$9 = this;
-		this.component({ get method() {
-			return _self$9.method;
-		} });
+		this.component(new _P$12(_self$9));
 	};
 }
 const template30 = Comp({ ref: binding });
