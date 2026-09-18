@@ -1030,7 +1030,12 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "20.25 KB",
+    // Shallow store leaves stay raw (#3498, 2026-09-18): 20,260 B against
+    // `next`'s 20,208 (+52 B). The hydration replay shadow copies only the
+    // root for a shallow store instead of JSON-cloning the tree
+    // (createShadowDraft's `shallow` branch); it sits on the shared store
+    // hydration adapter this bundle retains without the store engine.
+    limit: "20.3 KB",
     modifyEsbuildConfig
   },
   {
@@ -1245,7 +1250,13 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "30.35 KB",
+    // Shallow store leaves stay raw (#3498, 2026-09-18): 30,469 B against
+    // `next`'s 30,303 (+166 B): the replay shadow's `shallow` branch above
+    // plus, in the projection engine, `wrapDraft`'s shallow short-circuit (no
+    // draft proxy over a raw leaf) and `cloneState` — the loading shadow and
+    // its commit copy take the root alone for a shallow store. The deep path
+    // is byte-identical in behavior; the bytes are the shallow branch.
+    limit: "30.5 KB",
     modifyEsbuildConfig
   },
   {
