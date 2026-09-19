@@ -18,8 +18,10 @@ use crate::shared::ast_builder::AstBuilder;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{BindingPattern, Expression, Program, Statement};
 use oxc_ast_visit::{Visit, VisitMut, walk, walk_mut};
+use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{ParseOptions, Parser};
 use oxc_semantic::{AstNode, Scoping, SemanticBuilder};
+use oxc_sourcemap::{SourceMap, SourceMapBuilder};
 use oxc_span::{GetSpan, SPAN, SourceType, Span};
 
 /// Mirrors the Babel implementation's message verbatim (it warns through
@@ -30,15 +32,17 @@ const DIRECT_EVAL_WARNING: &str = "server-functions: skipping dead-code eliminat
 /// source. Only bindings named in `orphans` (plus cascades) are eligible.
 /// Errors from intermediate parses are impossible for compiler output; they
 /// surface as a panic-free passthrough.
-pub(crate) fn remove_unused_variables(
+pub(crate) fn remove_unused_variables<'a>(
     code: String,
+    mut map: Option<SourceMap<'a>>,
+    filename: &str,
     source_type: SourceType,
     orphans: std::collections::HashSet<String>,
     dev: bool,
-) -> String {
+) -> (String, Option<SourceMap<'a>>) {
     let mut candidates = orphans;
     if candidates.is_empty() {
-        return code;
+        return (code, map);
     }
     {
         // A direct `eval(...)` call (identifier callee that resolves to
@@ -52,14 +56,14 @@ pub(crate) fn remove_unused_variables(
             })
             .parse();
         if crate::shared::parser::first_parser_error(parsed.diagnostics).is_some() {
-            return code;
+            return (code, map);
         }
         let semantic = SemanticBuilder::new().build(&parsed.program).semantic;
         if has_direct_eval(&parsed.program, semantic.scoping()) {
             if dev {
                 eprintln!("{DIRECT_EVAL_WARNING}");
             }
-            return code;
+            return (code, map);
         }
     }
 
@@ -73,12 +77,12 @@ pub(crate) fn remove_unused_variables(
             })
             .parse();
         if crate::shared::parser::first_parser_error(parsed.diagnostics).is_some() {
-            return code;
+            return (code, map);
         }
         let mut program = parsed.program;
         let removals = collect_removals(&program, &candidates);
         if removals.spans.is_empty() && removals.pattern_ids.is_empty() {
-            return code;
+            return (code, map);
         }
         let mut remover = Remover {
             spans: removals.spans,
@@ -92,10 +96,55 @@ pub(crate) fn remove_unused_variables(
         // for (e.g. a binding in a position that must stay) would otherwise
         // be re-requested forever.
         if !remover.changed {
-            return code;
+            return (code, map);
         }
-        code = oxc_codegen::Codegen::new().build(&program).code;
+        let build = Codegen::new()
+            .with_options(CodegenOptions {
+                source_map_path: map.as_ref().map(|_| filename.into()),
+                ..CodegenOptions::default()
+            })
+            .build(&program);
+        map = map
+            .zip(build.map)
+            .map(|(original, generated)| compose(&generated, &original));
+        code = build.code;
     }
+}
+
+/// Compose a DCE reprint through the preceding map. Keep source-less segments
+/// source-less instead of attributing generated code to a nearby input token.
+fn compose(generated: &SourceMap<'_>, original: &SourceMap<'_>) -> SourceMap<'static> {
+    let lookup = original.generate_lookup_table();
+    let mut builder = SourceMapBuilder::default();
+    for (source, content) in original.get_sources().zip(original.get_source_contents()) {
+        builder.add_source_and_content(source, content.unwrap_or_default());
+    }
+    if let Some(file) = generated.get_file() {
+        builder.set_file(file);
+    }
+    for token in generated.get_tokens() {
+        let traced = token.get_source_id().and_then(|_| {
+            original.lookup_token(&lookup, token.get_src_line(), token.get_src_col())
+        });
+        if let Some(traced) = traced.filter(|traced| traced.get_source_id().is_some()) {
+            let name = traced
+                .get_name_id()
+                .and_then(|id| original.get_name(id))
+                .or_else(|| token.get_name_id().and_then(|id| generated.get_name(id)))
+                .map(|name| builder.add_name(name));
+            builder.add_token(
+                token.get_dst_line(),
+                token.get_dst_col(),
+                traced.get_src_line(),
+                traced.get_src_col(),
+                traced.get_source_id(),
+                name,
+            );
+        } else {
+            builder.add_token(token.get_dst_line(), token.get_dst_col(), 0, 0, None, None);
+        }
+    }
+    builder.into_sourcemap().into_owned()
 }
 
 fn has_direct_eval(program: &Program<'_>, scoping: &Scoping) -> bool {
