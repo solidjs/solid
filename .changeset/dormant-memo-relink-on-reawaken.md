@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+A dormant lazy memo rejoins its owner's child chain when a read reawakens it (#3554). `unobserved()` splices an auto-dispose memo out of `parent._firstChild` when its last subscriber leaves, but the reawaken in `prepareComputed` only recomputed it, so the node ran live outside the chain with `_prevSibling === null` and a stale `_nextSibling`. Its next dormancy took the head branch of the splice and wrote that stale pointer into `parent._firstChild`, orphaning every sibling created after it: never disposed by the owner, still subscribed to their sources, still running after the root's `dispose()` (the dev-only `owner-chain-head` invariant from #3552 threw mid-flush instead). The reawaken now links the node back at the chain head before recomputing, so the owner's `dispose()` and reruns reach a reawakened memo again; a zombie is not relinked, because its splice was skipped and it still sits on the pending chain. The creation-time link in `createOwner` and `setupComputedNode` and the relink share one `linkChild` helper (core floor 25,671 -> 25,684 bytes).

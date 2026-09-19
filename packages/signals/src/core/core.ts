@@ -84,7 +84,7 @@ import {
 } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending, devUntrackCompanionOwner } from "./invariants.js";
-import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
+import { cleanup, disposeChildren, inheritId, linkChild, markDisposal } from "./owner.js";
 import type { IQueue, Transition } from "./scheduler.js";
 import {
   notifyEpoch,
@@ -1216,16 +1216,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
     });
     throw new Error(PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE);
   }
-  if (context) {
-    const lastChild = context._firstChild;
-    if (lastChild === null) {
-      context._firstChild = self;
-    } else {
-      self._nextSibling = lastChild;
-      lastChild._prevSibling = self;
-      context._firstChild = self;
-    }
-  }
+  if (context) linkChild(context, self);
   if (__DEV__) DEV.hooks.onOwner?.(self);
   if (parent) self._height = parent._height + 1;
   if (GlobalQueue._wireExternalSource !== null) GlobalQueue._wireExternalSource(self);
@@ -1549,7 +1540,11 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
     // pay-for-use contract. Owner-lifecycle nodes are dead: recomputing would
     // re-run user code in a torn-down tree (and discard manual writes on
     // derived-writable signals), so reads return the last committed value.
-    if (comp._config & CONFIG_AUTO_DISPOSE) recompute(comp as Computed<any>, true);
+    if (comp._config & CONFIG_AUTO_DISPOSE) {
+      // A zombie never left a chain: disposeChildren skipped its splice.
+      if (comp._parent !== null && !(comp._flags & REACTIVE_ZOMBIE)) linkChild(comp._parent, comp);
+      recompute(comp as Computed<any>, true);
+    }
   } else if (refresh) {
     updateIfNecessary(comp);
   }

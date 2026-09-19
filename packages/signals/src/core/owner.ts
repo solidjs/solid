@@ -165,6 +165,13 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   }
 }
 
+export function linkChild(parent: Owner, node: Owner): void {
+  const head = parent._firstChild;
+  node._nextSibling = head;
+  if (head !== null) head._prevSibling = node;
+  parent._firstChild = node;
+}
+
 function runDisposal(node: Owner, zombie?: boolean): void {
   let disposal = zombie ? node._x?._pendingDisposal : node._disposal;
   if (!disposal) return;
@@ -372,16 +379,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     });
     throw new Error(PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE);
   }
-  if (parent) {
-    const lastChild = parent._firstChild;
-    if (lastChild === null) {
-      parent._firstChild = owner;
-    } else {
-      owner._nextSibling = lastChild;
-      lastChild._prevSibling = owner;
-      parent._firstChild = owner;
-    }
-  }
+  if (parent) linkChild(parent, owner);
   if (__DEV__) DEV.hooks.onOwner?.(owner);
   return owner;
 }
