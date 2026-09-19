@@ -10,6 +10,7 @@ import {
   convertJSXIdentifier
 } from "./utils";
 import { transformNode, getCreateTemplate, thisTagIdentifiers } from "./transform";
+import { markPropsLiteral } from "../ssr/props";
 import type { PluginConfig } from "../config";
 import type { BabelPath, JSXNode, TransformResult } from "../types";
 
@@ -82,6 +83,13 @@ export default function transformComponent(
     runningObject: Array<t.ObjectProperty | t.ObjectMethod> = [],
     dynamicSpread = false,
     hasChildren = path.node.children.length > 0;
+  // Each props literal this call emits is a candidate for the SSR hoisted
+  // shape (ssr/props.ts), decided at Program exit once every body is final.
+  const propsLiteral = (properties: Array<t.ObjectProperty | t.ObjectMethod>) => {
+    const literal = t.objectExpression(properties);
+    markPropsLiteral(literal, path, config);
+    return literal;
+  };
 
   if (
     t.isIdentifier(tagId) &&
@@ -99,7 +107,7 @@ export default function transformComponent(
       const node = attribute.node;
       if (t.isJSXSpreadAttribute(node)) {
         if (runningObject.length) {
-          props.push(t.objectExpression(runningObject));
+          props.push(propsLiteral(runningObject));
           runningObject = [];
         }
         props.push(
@@ -345,7 +353,7 @@ export default function transformComponent(
       );
     } else runningObject.push(t.objectProperty(t.identifier("children"), childResult[0]));
   }
-  if (runningObject.length || !props.length) props.push(t.objectExpression(runningObject));
+  if (runningObject.length || !props.length) props.push(propsLiteral(runningObject));
 
   if (props.length > 1 || dynamicSpread) {
     props = [t.callExpression(registerImportMethod(path, "mergeProps"), props)];

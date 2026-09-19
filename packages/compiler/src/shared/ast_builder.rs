@@ -12,9 +12,7 @@ use oxc_span::Span;
 use oxc_str::{Ident, Str};
 use oxc_syntax::{
     number::NumberBase,
-    operator::{
-        AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator,
-    },
+    operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator},
 };
 
 #[derive(Clone, Copy)]
@@ -780,6 +778,43 @@ impl<'a> AstBuilder<'a> {
         lone_surrogates: bool,
     ) -> TemplateElement<'a> {
         TemplateElement::new_with_lone_surrogates(span, value, tail, lone_surrogates, &self.inner())
+    }
+
+    pub(crate) fn expression_new(
+        &self,
+        span: Span,
+        callee: Expression<'a>,
+        arguments: ArenaVec<'a, Argument<'a>>,
+    ) -> Expression<'a> {
+        Expression::new_new_expression(span, callee, None, arguments, &self.inner())
+    }
+
+    pub(crate) fn statement_throw(&self, span: Span, argument: Expression<'a>) -> Statement<'a> {
+        Statement::new_throw_statement(span, argument, &self.inner())
+    }
+
+    /// `function id(params) { body }` as a statement.
+    pub(crate) fn statement_function_declaration(
+        &self,
+        span: Span,
+        id: BindingIdentifier<'a>,
+        params: FormalParameters<'a>,
+        body: FunctionBody<'a>,
+    ) -> Statement<'a> {
+        Statement::new_function_declaration(
+            span,
+            FunctionType::FunctionDeclaration,
+            Some(id),
+            false,
+            false,
+            false,
+            None,
+            None,
+            ArenaBox::new_in(params, &self.inner()),
+            None,
+            Some(ArenaBox::new_in(body, &self.inner())),
+            &self.inner(),
+        )
     }
 
     pub(crate) fn void_0(&self, span: Span) -> Expression<'a> {

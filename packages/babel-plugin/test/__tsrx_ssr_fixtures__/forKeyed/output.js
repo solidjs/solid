@@ -4,23 +4,36 @@ import { For as _$For } from "r-server";
 var _tmpl$ = ["<ul>", "</ul>"],
   _tmpl$2 = "<li>No todos</li>",
   _tmpl$3 = ["<li>", ". ", "</li>"];
+var _d$ = {
+  get() {
+    return _$ssr(_tmpl$2);
+  },
+  enumerable: true,
+  configurable: true
+};
+function _P$(_p, _p2, _p3) {
+  this.each = _p;
+  this.keyed = _p2;
+  Object.defineProperty(this, "fallback", _d$);
+  this.children = _p3;
+}
+_P$.prototype = Object.prototype;
 export function TodoList({ items }) {
   var _v$ = _$escape(
-    _$For({
-      each: items,
-      keyed: item => item.id,
-      get fallback() {
-        return _$ssr(_tmpl$2);
-      },
-      children: (item, i) => {
-        var _v$2, _v$3;
-        return (
-          (_v$2 = () => _$escape(i()) + 1),
-          (_v$3 = () => _$escape(item().text)),
-          _$ssr(_tmpl$3, _v$2, _v$3)
-        );
-      }
-    })
+    _$For(
+      new _P$(
+        items,
+        item => item.id,
+        (item, i) => {
+          var _v$2, _v$3;
+          return (
+            (_v$2 = () => _$escape(i()) + 1),
+            (_v$3 = () => _$escape(item().text)),
+            _$ssr(_tmpl$3, _v$2, _v$3)
+          );
+        }
+      )
+    )
   );
   return _$ssr(_tmpl$, _v$);
 }

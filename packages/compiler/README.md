@@ -131,6 +131,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 - `builtIns` (default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`)
 - `requireImportSource`
 - `serverComponents`
+- `hoistProps` (default `true`; SSR only)
 - `renderers`
 
 ### Server function directives (experimental)
