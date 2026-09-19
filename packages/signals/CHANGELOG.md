@@ -1,5 +1,19 @@
 # @solidjs/signals
 
+## 2.0.0-rc.10
+
+### Patch Changes
+
+- ebc1b03: A zombie that recomputes stays a zombie (#3543). `recompute` and `updateIfNecessary` rewrote `_flags` wholesale and dropped `REACTIVE_ZOMBIE`, the flag that says a node sits on its owner's deferred-disposal chain. While any transaction was parked, the scheduler reruns zombies for mainline writes (#3463), so an owner that recreates a child each pass — a compiled `<Show when={a() && b()}>` condition — had its previous child rerun de-flagged; at the owner's commit `disposeChildren` then spliced that child out of the _live_ chain instead of the pending one, orphaning the current child. The orphan stayed subscribed and recomputing forever: one leaked node per update, until `HUGE_FAN_OUT`. The flag now survives every per-pass wipe.
+
+  A consequence pinned in `lane-outside-view.test.ts`: a zombie whose removal is staged by a transaction no longer holds that transaction's commit after it reruns — its say was always meant to be moot for the verdict that disposes it, and the extra hold was this bug.
+
+- f2bd662: `OBSERVE.subjectOf` JSDoc names the `subscriptions()` export of `solid-js/attribution` rather than the removed `attribution.subscriptions()` method
+- 756b1b3: `omit()`'s no-Proxy copy path re-homes accessors with the source as receiver instead of forwarding the descriptor, matching `merge()`'s copy path. A prop's getter is defined only for a read through its own object — the compiler's server-side props keep their state on the instance — so a copy that must stay live defines its own getter that reads through the source.
+- 27bb3fa: Dev-only owner-chain invariant on the disposal splice (#3543 follow-up). `disposeChildren` unlinks a self-disposing node from its parent's child chain by position: a node with no `_prevSibling` is written up as the chain's head. The only way that is false is a node flagged live that sits elsewhere — the #3543 shape, a zombie that lost `REACTIVE_ZOMBIE` — and the write then clobbers the head with a stale `_nextSibling`, orphaning every live child ahead of it. Dev builds now assert `parent._firstChild === node` at that write and report `[INVARIANT_VIOLATION] owner-chain-head` (thrown under `__TEST__`, `console.error` diagnostic in dev). The check is `__DEV__`-guarded and folds out of the prod and observe tiers (size unchanged).
+
+  Also pins the create-pass shape of #3543: a lazy memo zombified by its owner's rerun and first read from the owner's new pass goes through `recompute(comp, true)`, whose flag wipe must carry `REACTIVE_ZOMBIE` too.
+
 ## 2.0.0-rc.9
 
 ### Patch Changes

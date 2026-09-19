@@ -1,5 +1,14 @@
 # @solidjs/web
 
+## 2.0.0-rc.10
+
+### Patch Changes
+
+- ce17c29: Type the anchor's scroll opt-out as `noscroll`, not `noScroll` (solidjs/solid-router#605). The client-navigation contract on plain `<a>` elements is spelled lowercase — `link`, `state`, `replace`, `preload` — like every other HTML attribute in these types (`novalidate`, `autofocus`, `crossorigin`), and the router documents and reads the lowercase form (`a.hasAttribute("noscroll")`); `noScroll` was the one camelCase outlier, so the spelling the router README shows was a type error. Runtime is unchanged: `setAttribute` and the HTML parser already lowercase the name, so existing `<a noScroll>` markup keeps working and only needs the spelling updated to type-check.
+- bfc320c: Let the `csrf.origin` allowlist admit a cross-origin caller, and answer it with CORS (#3538). `configureServerFunctionsServer({ csrf: { origin } })` accepted a string, a list or a matcher, but the handler refused `Sec-Fetch-Site: cross-site` (and `same-site`) before consulting it, so an explicitly listed origin was refused by every current browser and WebView — a client-only build in a Capacitor WebView could not call server functions on another host at all. Now a cross-site request carrying a browser-set `Origin` is decided by the matcher: refused when none is configured (today's default) or when it does not answer `true`; `none` stays refused. An admitted cross-origin caller gets `Access-Control-Allow-Origin` echoing its exact `Origin` (with `Vary: Origin`), the protocol's response headers exposed, and the `OPTIONS` preflight answered for the transport's methods and headers — on every response, the labelled unknown-id 404 included. `Access-Control-Allow-Credentials: true` is sent only with the new `csrf.allowCredentials` option, so listing an origin never silently turns on cookie sharing. The same-origin path is byte-identical to before, with one exception: once a matcher is configured, every `GET`-declared read carries `Vary: Origin` — the read stays ungated and `Allow-Origin` appears only for a listed origin, but a declared read is cacheable and its answer now depends on who asked, so a shared cache must not serve a same-origin page's header-less variant to the listed origin. Without a matcher, reads carry no `Vary`, as before. The client's `endpoint` option now documents an absolute URL, with `csrf.origin` as the server-side allowlist that makes it work.
+- Updated dependencies [ae2bc9f]
+  - solid-js@2.0.0-rc.10
+
 ## 2.0.0-rc.9
 
 ### Patch Changes
