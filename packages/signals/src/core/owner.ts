@@ -167,6 +167,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
 
 export function linkChild(parent: Owner, node: Owner): void {
   const head = parent._firstChild;
+  node._prevSibling = null;
   node._nextSibling = head;
   if (head !== null) head._prevSibling = node;
   parent._firstChild = node;

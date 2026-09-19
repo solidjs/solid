@@ -1541,8 +1541,10 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
     // re-run user code in a torn-down tree (and discard manual writes on
     // derived-writable signals), so reads return the last committed value.
     if (comp._config & CONFIG_AUTO_DISPOSE) {
-      // A zombie never left a chain: disposeChildren skipped its splice.
-      if (comp._parent !== null && !(comp._flags & REACTIVE_ZOMBIE)) linkChild(comp._parent, comp);
+      const parent = comp._parent as Computed<unknown> | null;
+      // A zombie never left its chain (the splice was skipped); a dead owner's chain is never drained again.
+      if (parent !== null && !(comp._flags & REACTIVE_ZOMBIE || parent._flags & REACTIVE_DISPOSED))
+        linkChild(parent, comp);
       recompute(comp as Computed<any>, true);
     }
   } else if (refresh) {

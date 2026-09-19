@@ -85,3 +85,20 @@ it("a reawakened lazy memo dies with its owner", () => {
   expect(m1()).toBe(0);
   expect(runs.m1).toBe(evals);
 });
+
+it("a dormant lazy memo read after its owner's dispose stays off the dead chain", () => {
+  const { owner, m1, setRead, dispose } = setup();
+
+  setRead(false);
+  flush();
+  expect(chain(owner)).toEqual(["Y", "reader", "X"]);
+
+  dispose();
+  expect(chain(owner)).toEqual([]);
+
+  expect(m1()).toBe(0);
+  expect(chain(owner)).toEqual([]);
+  flush();
+  expect(m1()).toBe(0);
+  expect(chain(owner)).toEqual([]);
+});
