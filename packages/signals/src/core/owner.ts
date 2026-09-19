@@ -98,6 +98,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   if (self && (node as any)._fn && (node as Computed<unknown>)._x !== null)
     (node as Computed<unknown>)._x!._inFlight = null;
   let child = zombie ? ((node._x?._pendingFirstChild ?? null) as Owner | null) : node._firstChild;
+  if (!zombie) node._firstChild = null;
   while (child) {
     const nextChild = child._nextSibling;
     const n = child as Computed<unknown>;
@@ -118,15 +119,14 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // Owners, whose _flags is undefined), so no gate here.
     deleteFromHeap(n, queueFor(n));
     clearDeps(n);
+    // Detached first so a mid-drain link survives; the self-pointing prev keeps the splice off the head.
+    child._prevSibling = child;
     disposeChildren(child, true);
     child = nextChild;
   }
   if (zombie) {
     if (node._x !== null) node._x._pendingFirstChild = null;
-  } else {
-    node._firstChild = null;
-    node._childCount = 0;
-  }
+  } else node._childCount = 0;
   // O(1) splice out of parent's chain on individual dispose. Skipped during
   // batch dispose (parent already disposed) and zombie disposal (node sits on
   // parent's _pendingFirstChild). We leave node._nextSibling intact so outer

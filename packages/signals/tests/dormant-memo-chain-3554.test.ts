@@ -5,7 +5,8 @@ import {
   createRoot,
   createSignal,
   flush,
-  getOwner
+  getOwner,
+  onCleanup
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -101,4 +102,50 @@ it("a dormant lazy memo read after its owner's dispose stays off the dead chain"
   flush();
   expect(m1()).toBe(0);
   expect(chain(owner)).toEqual([]);
+});
+
+it("a lazy memo a cleanup reawakens while its owner's held children are torn down stays on the chain", () => {
+  let owner!: any;
+  let m1!: () => number;
+  let setTick!: (v: number) => void;
+  let gen = 0;
+  const dispose = createRoot(d => {
+    const [tick, _setTick] = createSignal(0);
+    setTick = _setTick;
+    const held = createMemo(
+      () => {
+        tick();
+        owner = getOwner()!;
+        const g = ++gen;
+        const m = createMemo(() => g, { lazy: true, name: "m" + g });
+        if (g === 1) m1 = m;
+        createRenderEffect(
+          () => {
+            onCleanup(() => m1());
+          },
+          () => {},
+          { name: "cleanup" + g }
+        );
+        return new Promise<number>(() => {});
+      },
+      { name: "held" }
+    );
+    createRenderEffect(held, () => {});
+    return d;
+  });
+  flush();
+  expect(chain(owner)).toEqual(["cleanup1", "m1"]);
+
+  m1();
+  flush();
+  expect(chain(owner)).toEqual(["cleanup1"]);
+
+  setTick(1);
+  flush();
+  expect(chain(owner)).toEqual(["cleanup2", "m2", "m1"]);
+
+  m1();
+  flush();
+  expect(chain(owner)).toEqual(["cleanup2", "m2"]);
+  dispose();
 });
