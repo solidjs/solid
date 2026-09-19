@@ -276,13 +276,17 @@ describe("navigations() — one settled record per frame", () => {
     expect(app.shown).toEqual(["alice@/users"]); // held: nothing painted
     const [nav] = attribution.navigations();
     expect(nav.outcome).toBeUndefined(); // still waiting on the page
+    // Bracket the wait on the engine's own clock: a 10ms timer can fire a
+    // hair under 10ms of `performance.now()`.
+    const armed = performance.now();
     await wait(10);
+    const waited = performance.now() - armed;
     app.resolve("alice");
     await until(() => app.shown.includes("alice@/users/42"), "the held page to land");
 
     expect(nav.outcome).toBe("held");
     expect(nav.hold).toBeDefined();
-    expect(nav.settledMs).toBeGreaterThanOrEqual(10);
+    expect(nav.settledMs).toBeGreaterThanOrEqual(waited);
     const [hold] = attribution.holds();
     expect(nav.hold).toBe(hold);
     // The hold names the navigation, and joins to it by identity.
@@ -390,7 +394,11 @@ describe("navigations() — one settled record per frame", () => {
       () => app.setLocation("/users/3")
     );
     flush();
+    // Bracket the wait on the engine's own clock: a 10ms timer can fire a
+    // hair under 10ms of `performance.now()`.
+    const armed = performance.now();
     await wait(10);
+    const waited = performance.now() - armed;
     app.resolve("b");
     await until(() => app.shown.includes("b@/users/3"), "the last page to land");
 
@@ -405,7 +413,7 @@ describe("navigations() — one settled record per frame", () => {
     // heldMs is the hold's own clock: it opened with the superseded
     // navigation's write and the surviving one inherited it, so it can run
     // longer than the survivor's own request-to-settle time.
-    expect(row.heldMs).toBeGreaterThanOrEqual(10);
+    expect(row.heldMs).toBeGreaterThanOrEqual(waited);
     expect(row.settledMs).toBeGreaterThan(0);
     expect(row.worstMs).toBeGreaterThan(0);
   });
@@ -478,6 +486,9 @@ describe("redirects — one navigation, several destinations", () => {
       OBSERVE!.attribution.withOrigin(NAV, () => app.setLocation("/users/42"))
     );
     flush();
+    // Bracket both waits on the engine's own clock: a 10ms timer can fire a
+    // hair under 10ms of `performance.now()`.
+    const armed = performance.now();
     await wait(10);
     // The guard behind /users/:id sends the user to /login — the click is long
     // gone, and the router knows only that a navigation is pending.
@@ -488,6 +499,7 @@ describe("redirects — one navigation, several destinations", () => {
     const [nav] = attribution.navigations();
     expect(nav.outcome).toBeUndefined();
     await wait(10);
+    const waited = performance.now() - armed;
     app.resolve("b");
     await until(() => app.shown.includes("b@/login"), "the redirect target to land");
 
@@ -508,7 +520,7 @@ describe("redirects — one navigation, several destinations", () => {
     // Timing runs from the user's request, not the hop.
     expect(nav.at).toBeGreaterThanOrEqual(before);
     expect(nav.at).toBeLessThan(hopAt);
-    expect(nav.settledMs).toBeGreaterThanOrEqual(20);
+    expect(nav.settledMs).toBeGreaterThanOrEqual(waited);
     // One hold, joined by identity, named by the whole chain.
     const [hold] = attribution.holds();
     expect(nav.hold).toBe(hold);

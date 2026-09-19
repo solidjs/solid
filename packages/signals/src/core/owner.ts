@@ -19,7 +19,7 @@ import {
   tracking,
   ext
 } from "./core.js";
-import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
+import { assertInvariant, clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
 import {
@@ -140,6 +140,16 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   ) {
     const prev = node._prevSibling;
     const next = node._nextSibling;
+    // A node with no predecessor must be the chain's head. The only way it
+    // is not: it was flagged live but sits elsewhere (#3543 — a zombie that
+    // lost REACTIVE_ZOMBIE), and the write below would clobber the head with
+    // a stale `_nextSibling`, orphaning every live child ahead of it.
+    if (__DEV__)
+      assertInvariant(
+        prev !== null || node._parent._firstChild === node,
+        "owner-chain-head",
+        "head node is not parent._firstChild — a node was spliced while flagged live but not in the chain (see #3543)"
+      );
     if (prev !== null) prev._nextSibling = next;
     else node._parent._firstChild = next;
     if (next !== null) next._prevSibling = prev;

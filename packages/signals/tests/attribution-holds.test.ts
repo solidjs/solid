@@ -36,7 +36,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+// Resolves with the time actually waited on the engine's clock
+// (`performance.now()`): a setTimeout(N) can fire a hair under N ms of it
+// (libuv timers are ms-granular), so wall-clock assertions compare against
+// this rather than N.
+const wait = (ms: number) =>
+  new Promise<number>(r => {
+    const start = performance.now();
+    setTimeout(() => r(performance.now() - start), ms);
+  });
 
 async function until(cond: () => boolean, what: string, timeout = 5000) {
   const start = Date.now();
@@ -116,7 +124,7 @@ describe("SILENT_HOLD", () => {
     feed.setPage(2);
     flush();
     expect(feed.shown).toEqual(["a-p1"]); // held: nothing painted
-    await wait(10);
+    const waited = await wait(10);
     feed.resolve("b");
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
@@ -141,7 +149,7 @@ describe("SILENT_HOLD", () => {
       paintedDuringHold: 0,
       action: false
     });
-    expect(holds[0].holdMs).toBeGreaterThanOrEqual(10);
+    expect(holds[0].holdMs).toBeGreaterThanOrEqual(waited);
     expect(holds[0].flushes).toBeGreaterThanOrEqual(1);
   });
 
@@ -578,20 +586,20 @@ describe("LONG_HOLD", () => {
       feed.setPage(2)
     );
     flush();
-    await wait(60);
+    const pause = await wait(60);
     OBSERVE!.attribution.withInteraction({ ...CLICK, at: performance.now() }, () =>
       feed.setPage(3)
     );
     flush();
-    await wait(10);
+    const tail = await wait(10);
     feed.resolve("c");
     await until(() => feed.shown.includes("c-p3"), "the final page to land");
 
     const [hold] = attribution.holds();
     // holdMs reaches back to the first parked flush even though "page" now
     // carries only the second click's record.
-    expect(hold.holdMs).toBeGreaterThanOrEqual(70);
-    expect(hold.tailMs).toBeGreaterThanOrEqual(10);
+    expect(hold.holdMs).toBeGreaterThanOrEqual(pause + tail);
+    expect(hold.tailMs).toBeGreaterThanOrEqual(tail);
     expect(hold.tailMs).toBeLessThan(hold.holdMs - 40);
     expect(longEvents).toHaveLength(1);
     expect(longEvents[0].message).toContain("after the last input");
@@ -652,10 +660,10 @@ describe("LONG_HOLD", () => {
     await until(() => feed.shown.includes("a-p1"), "initial load");
     feed.setPage(2);
     flush();
-    await wait(30);
+    const waited = await wait(30);
     feed.resolve("b");
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
     expect(longEvents).toHaveLength(0);
-    expect(attribution.holds()[0].tailMs).toBeGreaterThanOrEqual(30);
+    expect(attribution.holds()[0].tailMs).toBeGreaterThanOrEqual(waited);
   });
 });
