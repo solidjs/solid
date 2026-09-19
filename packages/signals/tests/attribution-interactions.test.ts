@@ -186,7 +186,11 @@ describe("InteractionEvent", () => {
     flush();
     expect(feed.shown).toEqual(["a-p1"]); // held
     expect(interactions()).toHaveLength(0);
+    // Bracket the wait on the engine's own clock: a 10ms timer can fire a
+    // hair under 10ms of `performance.now()`.
+    const armed = performance.now();
     await wait(10);
+    const waited = performance.now() - armed;
     feed.resolve("b");
     await until(() => feed.shown.includes("b-p2"), "the held page to land");
 
@@ -199,7 +203,7 @@ describe("InteractionEvent", () => {
     // The hold's clock starts at the click; the interaction settles at the commit.
     expect(hold.at).toBe(e.at);
     expect(e.settledMs).toBeGreaterThanOrEqual(hold.holdMs - 1);
-    expect(e.settledMs).toBeGreaterThanOrEqual(10);
+    expect(e.settledMs).toBeGreaterThanOrEqual(waited);
     // Bottom-up delivery: the hold before the interaction that waited on it.
     const order = delivered.filter(d => d.type !== "rerun").map(d => d.type);
     expect(order).toEqual(["hold", "interaction"]);
