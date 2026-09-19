@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["node", "tsrx"]
-node = ["dep:napi", "dep:napi-derive", "dep:oxc_sourcemap"]
+node = ["dep:napi", "dep:napi-derive"]
 # TSRX syntax frontend. `tsrx_parser_engine` (community oxc-tsrx project, pinned
 # rev) is the only TSRX grammar authority on the Rust side; it carries its own
 # git-pinned oxc (0.140) which coexists with our crates.io oxc — no oxc types

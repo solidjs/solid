@@ -177,27 +177,17 @@ pub fn transform_directives(
     let orphans = std::mem::take(&mut pass.orphans);
     drop(pass);
 
+    if needs_dce {
+        dce::remove_unused_variables(&mut program, &allocator, orphans, env == Env::Development);
+    }
     let build = Codegen::new()
         .with_options(CodegenOptions {
             source_map_path: options.source_map.unwrap_or(false).then(|| filename.into()),
             ..CodegenOptions::default()
         })
         .build(&program);
-    let (code, map) = if needs_dce {
-        // Each DCE reprint maps to its input. Compose those maps so callers
-        // always receive locations in the original module, not a reprint.
-        dce::remove_unused_variables(
-            build.code,
-            build.map,
-            filename,
-            source_type,
-            orphans,
-            env == Env::Development,
-        )
-    } else {
-        (build.code, build.map)
-    };
-    let map = map.map(|map| map.to_json_string());
+    let code = build.code;
+    let map = build.map.map(|map| map.to_json_string());
 
     Ok(TransformDirectivesResult {
         code,
