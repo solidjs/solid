@@ -18,6 +18,9 @@ use crate::shared::condition::{
 };
 
 pub(crate) trait ModeLower<'a>: ConditionBuilder<'a> {
+    /// Original source, used to identify comments on JSX empty expressions.
+    fn source(&self) -> &str;
+
     /// Whether `wrapConditionals` is enabled for this generate.
     fn wrap_conditionals_enabled(&self) -> bool;
 

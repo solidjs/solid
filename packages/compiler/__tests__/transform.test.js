@@ -3,6 +3,10 @@ const fs = require("fs");
 const path = require("path");
 
 const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin/test/__dom_fixtures__");
+const coveragePragmasFixture = path.resolve(
+  __dirname,
+  "../../babel-plugin/test/__shared_fixtures__/coveragePragmas/code.js"
+);
 
 function readFixture(name) {
   return fs.readFileSync(path.join(babelDomFixtures, name, "code.js"), "utf8");
@@ -87,6 +91,23 @@ describe("@solidjs/compiler transform", () => {
 
     expect(result.code).toContain('import { createComponent as _$createComponent } from "r-dom";');
     expect(result.code).toContain('_$createComponent(Child, { name: "Jake" });');
+  });
+
+  it.each([
+    ["dom", "istanbul"],
+    ["universal", "istanbul"],
+    ["ssr", "istanbul"],
+    ["dom", "c8"],
+    ["universal", "c8"],
+    ["ssr", "c8"]
+  ])("preserves a %s ignore comment in %s component children getters", (generate, tool) => {
+    const result = transform(fs.readFileSync(coveragePragmasFixture, "utf8"), {
+      filename: "coveragePragmas.jsx",
+      moduleName: "r-dom",
+      generate
+    });
+
+    expect(result.code).toMatch(new RegExp(`/\\* ${tool} ignore next \\*/\\s*get children\\(\\)`));
   });
 
   it("memoizes dynamic conditional component props by default", () => {
