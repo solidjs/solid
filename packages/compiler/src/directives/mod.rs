@@ -177,39 +177,17 @@ pub fn transform_directives(
     let orphans = std::mem::take(&mut pass.orphans);
     drop(pass);
 
-    let source_map = options.source_map.unwrap_or(false);
-    let codegen = |program: &oxc_ast::ast::Program<'_>| {
-        let build = Codegen::new()
-            .with_options(CodegenOptions {
-                source_map_path: source_map.then(|| std::path::PathBuf::from(filename)),
-                ..CodegenOptions::default()
-            })
-            .build(program);
-        (build.code, build.map.map(|map| map.to_json_string()))
-    };
-
-    let (build_code, build_map) = codegen(&program);
-    let (code, map) = if needs_dce {
-        // Babel's `removeUnusedVariables` fixpoint. This port re-parses
-        // printed output between passes, so when it runs the source map is
-        // regenerated relative to the pre-DCE output (a known limitation).
-        let cleaned =
-            dce::remove_unused_variables(build_code, source_type, orphans, env == Env::Development);
-        if source_map {
-            let allocator = Allocator::default();
-            let reparsed = Parser::new(&allocator, &cleaned, source_type)
-                .with_options(ParseOptions {
-                    preserve_parens: false,
-                    ..ParseOptions::default()
-                })
-                .parse();
-            codegen(&reparsed.program)
-        } else {
-            (cleaned, None)
-        }
-    } else {
-        (build_code, build_map)
-    };
+    if needs_dce {
+        dce::remove_unused_variables(&mut program, &allocator, orphans, env == Env::Development);
+    }
+    let build = Codegen::new()
+        .with_options(CodegenOptions {
+            source_map_path: options.source_map.unwrap_or(false).then(|| filename.into()),
+            ..CodegenOptions::default()
+        })
+        .build(&program);
+    let code = build.code;
+    let map = build.map.map(|map| map.to_json_string());
 
     Ok(TransformDirectivesResult {
         code,

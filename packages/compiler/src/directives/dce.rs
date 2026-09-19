@@ -8,93 +8,59 @@
 //! declaration the shake removes. Bindings that were already unreferenced
 //! before the transform are not candidates and survive untouched.
 //!
-//! Babel repeats scope-crawl + removal passes until a pass removes nothing.
-//! This port does the same but re-parses the printed output between passes so
-//! `oxc_semantic`'s reference counts stay exact against fresh spans. As a
-//! consequence the pass operates code-to-code rather than on the live AST;
-//! candidates are tracked by name, which survives reprints.
+//! Repeat semantic analysis and removal on the original AST until stable.
+//! Keeping original spans allows a single final codegen to map to authored code.
 
 use crate::shared::ast_builder::AstBuilder;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{BindingPattern, Expression, Program, Statement};
 use oxc_ast_visit::{Visit, VisitMut, walk, walk_mut};
-use oxc_parser::{ParseOptions, Parser};
 use oxc_semantic::{AstNode, Scoping, SemanticBuilder};
-use oxc_span::{GetSpan, SPAN, SourceType, Span};
+use oxc_span::SPAN;
+use oxc_syntax::{node::NodeId, symbol::SymbolId};
 
 /// Mirrors the Babel implementation's message verbatim (it warns through
 /// `console.warn`; this side uses stderr like the template validator).
 const DIRECT_EVAL_WARNING: &str = "server-functions: skipping dead-code elimination for this module because it contains a direct eval() call";
 
-/// Runs removal passes over `code` until a fixpoint, returning the final
-/// source. Only bindings named in `orphans` (plus cascades) are eligible.
-/// Errors from intermediate parses are impossible for compiler output; they
-/// surface as a panic-free passthrough.
-pub(crate) fn remove_unused_variables(
-    code: String,
-    source_type: SourceType,
+/// Remove orphan candidates and their cascades without discarding source spans.
+pub(crate) fn remove_unused_variables<'a>(
+    program: &mut Program<'a>,
+    allocator: &'a Allocator,
     orphans: std::collections::HashSet<String>,
     dev: bool,
-) -> String {
+) {
     let mut candidates = orphans;
     if candidates.is_empty() {
-        return code;
+        return;
     }
     {
-        // A direct `eval(...)` call (identifier callee that resolves to
-        // nothing local) can read any binding in scope, so reference counts
-        // are unreliable: skip the shake entirely.
-        let allocator = Allocator::default();
-        let parsed = Parser::new(&allocator, &code, source_type)
-            .with_options(ParseOptions {
-                preserve_parens: false,
-                ..ParseOptions::default()
-            })
-            .parse();
-        if crate::shared::parser::first_parser_error(parsed.diagnostics).is_some() {
-            return code;
-        }
-        let semantic = SemanticBuilder::new().build(&parsed.program).semantic;
-        if has_direct_eval(&parsed.program, semantic.scoping()) {
+        let semantic = SemanticBuilder::new().build(program).semantic;
+        if has_direct_eval(program, semantic.scoping()) {
             if dev {
                 eprintln!("{DIRECT_EVAL_WARNING}");
             }
-            return code;
+            return;
         }
     }
 
-    let mut code = code;
     loop {
-        let allocator = Allocator::default();
-        let parsed = Parser::new(&allocator, &code, source_type)
-            .with_options(ParseOptions {
-                preserve_parens: false,
-                ..ParseOptions::default()
-            })
-            .parse();
-        if crate::shared::parser::first_parser_error(parsed.diagnostics).is_some() {
-            return code;
-        }
-        let mut program = parsed.program;
-        let removals = collect_removals(&program, &candidates);
-        if removals.spans.is_empty() && removals.pattern_ids.is_empty() {
-            return code;
+        let removals = collect_removals(program, &candidates);
+        if removals.nodes.is_empty() && removals.pattern_ids.is_empty() {
+            return;
         }
         let mut remover = Remover {
-            spans: removals.spans,
+            nodes: removals.nodes,
             pattern_ids: removals.pattern_ids,
             candidates: &mut candidates,
-            builder: AstBuilder::new(&allocator),
+            builder: AstBuilder::new(allocator),
             changed: false,
         };
-        remover.visit_program(&mut program);
-        // Progress guard: a requested removal the remover has no handling
-        // for (e.g. a binding in a position that must stay) would otherwise
-        // be re-requested forever.
+        remover.visit_program(program);
+        // Stop if a requested removal has no supported mutation.
         if !remover.changed {
-            return code;
+            return;
         }
-        code = oxc_codegen::Codegen::new().build(&program).code;
     }
 }
 
@@ -142,13 +108,15 @@ impl<'b> Visit<'b> for ReferencedNames<'_> {
     }
 }
 
+// Semantic analysis assigns fresh IDs on each pass, including generated nodes
+// that share dummy spans. These IDs remain stable while the remover runs.
 struct Removals {
-    /// Spans of whole nodes to remove: declarators with identifier ids,
+    /// Node IDs of whole nodes to remove: declarators with identifier ids,
     /// import specifier locals, function/class declarations.
-    spans: std::collections::HashSet<Span>,
-    /// Spans of binding identifiers inside destructuring patterns, removed
+    nodes: std::collections::HashSet<NodeId>,
+    /// Symbol IDs of binding identifiers inside destructuring patterns, removed
     /// element-by-element (with cascade) rather than as whole declarators.
-    pattern_ids: std::collections::HashSet<Span>,
+    pattern_ids: std::collections::HashSet<SymbolId>,
 }
 
 /// Bindings with no remaining read references, restricted to the
@@ -170,7 +138,7 @@ fn collect_removals(
     let root_scope = scoping.root_scope_id();
 
     let mut removals = Removals {
-        spans: std::collections::HashSet::new(),
+        nodes: std::collections::HashSet::new(),
         pattern_ids: std::collections::HashSet::new(),
     };
     for symbol_id in scoping.symbol_ids() {
@@ -203,30 +171,30 @@ fn collect_removals(
                         nodes.parent_kind(declaration.id()),
                         oxc_ast::AstKind::ForInStatement(_) | oxc_ast::AstKind::ForOfStatement(_)
                     ) {
-                        removals.spans.insert(declarator.span());
+                        removals.nodes.insert(declarator.node_id.get());
                     }
                 } else {
                     // Destructured binding: remove just this element (the
-                    // symbol span is the binding identifier's span).
-                    removals.pattern_ids.insert(scoping.symbol_span(symbol_id));
+                    // symbol ID identifies the binding).
+                    removals.pattern_ids.insert(symbol_id);
                 }
             }
             oxc_ast::AstKind::ImportSpecifier(specifier) => {
-                removals.spans.insert(specifier.span());
+                removals.nodes.insert(specifier.node_id.get());
             }
             oxc_ast::AstKind::ImportDefaultSpecifier(specifier) => {
-                removals.spans.insert(specifier.span());
+                removals.nodes.insert(specifier.node_id.get());
             }
             oxc_ast::AstKind::ImportNamespaceSpecifier(specifier) => {
-                removals.spans.insert(specifier.span());
+                removals.nodes.insert(specifier.node_id.get());
             }
             // Function/class declarations (Babel binding kinds `hoisted` /
             // `let`). Params, catch params, and everything else stay.
             oxc_ast::AstKind::Function(function) if function.is_declaration() => {
-                removals.spans.insert(function.span());
+                removals.nodes.insert(function.node_id.get());
             }
             oxc_ast::AstKind::Class(class) if class.is_declaration() => {
-                removals.spans.insert(class.span());
+                removals.nodes.insert(class.node_id.get());
             }
             _ => {}
         }
@@ -316,8 +284,8 @@ fn collect_pattern_names(
 }
 
 struct Remover<'c, 'a> {
-    spans: std::collections::HashSet<Span>,
-    pattern_ids: std::collections::HashSet<Span>,
+    nodes: std::collections::HashSet<NodeId>,
+    pattern_ids: std::collections::HashSet<SymbolId>,
     /// Removed declarations cascade: names their subtrees referenced become
     /// candidates for the next fixpoint pass.
     candidates: &'c mut std::collections::HashSet<String>,
@@ -341,7 +309,10 @@ impl<'a> Remover<'_, 'a> {
     /// references from whatever it removes).
     fn prune_pattern(&mut self, pattern: &mut BindingPattern<'a>) -> bool {
         match pattern {
-            BindingPattern::BindingIdentifier(id) => self.pattern_ids.contains(&id.span),
+            BindingPattern::BindingIdentifier(id) => id
+                .symbol_id
+                .get()
+                .is_some_and(|id| self.pattern_ids.contains(&id)),
             BindingPattern::AssignmentPattern(assignment) => {
                 if self.prune_pattern(&mut assignment.left) {
                     self.collector().visit_expression(&assignment.right);
@@ -395,7 +366,7 @@ impl<'a> Remover<'_, 'a> {
         }
     }
 
-    /// Prunes removed declarators (whole spans and pattern surgery) out of a
+    /// Prunes removed declarators (whole nodes and pattern surgery) out of a
     /// declaration, wherever it appears — statement position, `for` init,
     /// single-statement bodies. Returns true when no declarators remain.
     fn prune_declaration(
@@ -405,7 +376,7 @@ impl<'a> Remover<'_, 'a> {
         let mut index = 0;
         while index < declaration.declarations.len() {
             let declarator = &mut declaration.declarations[index];
-            let remove = self.spans.contains(&declarator.span())
+            let remove = self.nodes.contains(&declarator.node_id.get())
                 || (!matches!(declarator.id, BindingPattern::BindingIdentifier(_))
                     && self.prune_pattern(&mut declarator.id));
             if remove {
@@ -450,58 +421,66 @@ impl<'a> VisitMut<'a> for Remover<'_, 'a> {
     fn visit_statements(&mut self, statements: &mut oxc_allocator::Vec<'a, Statement<'a>>) {
         let mut index = 0;
         while index < statements.len() {
-            let keep =
-                match &mut statements[index] {
-                    Statement::FunctionDeclaration(function)
-                        if self.spans.contains(&function.span()) =>
-                    {
-                        self.collector()
-                            .visit_function(function, oxc_syntax::scope::ScopeFlags::Function);
-                        false
-                    }
-                    Statement::ClassDeclaration(class) if self.spans.contains(&class.span()) => {
-                        self.collector().visit_class(class);
-                        false
-                    }
-                    // Babel's `VariableDeclaration` visitor drops emptied
-                    // declarations; an emptied labeled declaration goes with its
-                    // labels (removal hook).
-                    statement @ (Statement::VariableDeclaration(_)
-                    | Statement::LabeledStatement(_)) => !self.statement_fully_removed(statement),
-                    Statement::ImportDeclaration(import) => {
-                        let declaration_is_type = import.import_kind.is_type();
-                        if let Some(specifiers) = &mut import.specifiers {
-                            let had = specifiers.len();
-                            specifiers.retain(|specifier| !self.spans.contains(&specifier.span()));
-                            let pruned = specifiers.len() != had;
-                            if pruned {
-                                self.changed = true;
-                            }
-                            // A pruned import whose surviving specifiers are all
-                            // type-only imports no runtime binding, but the
-                            // declaration would still emit — and a bare module
-                            // edge to a server module is exactly the leak this
-                            // shake guards against. The Babel implementation
-                            // counts VALUE specifiers when deciding whole-
-                            // declaration removal (solid-start #2273); mirror
-                            // it: the declaration goes with its last value
-                            // specifier. Imports the shake never touched stay
-                            // untouched.
-                            let type_only = declaration_is_type
-                                || specifiers.iter().all(|specifier| {
-                                    matches!(
-                                        specifier,
-                                        oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s)
-                                            if s.import_kind.is_type()
-                                    )
-                                });
-                            !(had > 0 && (specifiers.is_empty() || (pruned && type_only)))
-                        } else {
-                            true
+            let keep = match &mut statements[index] {
+                Statement::FunctionDeclaration(function)
+                    if self.nodes.contains(&function.node_id.get()) =>
+                {
+                    self.collector()
+                        .visit_function(function, oxc_syntax::scope::ScopeFlags::Function);
+                    false
+                }
+                Statement::ClassDeclaration(class) if self.nodes.contains(&class.node_id.get()) => {
+                    self.collector().visit_class(class);
+                    false
+                }
+                // Babel's `VariableDeclaration` visitor drops emptied
+                // declarations; an emptied labeled declaration goes with its
+                // labels (removal hook).
+                statement
+                @ (Statement::VariableDeclaration(_) | Statement::LabeledStatement(_)) => {
+                    !self.statement_fully_removed(statement)
+                }
+                Statement::ImportDeclaration(import) => {
+                    let declaration_is_type = import.import_kind.is_type();
+                    if let Some(specifiers) = &mut import.specifiers {
+                        let had = specifiers.len();
+                        specifiers.retain(|specifier| {
+                                let node_id = match specifier {
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(node) => node.node_id.get(),
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(node) => node.node_id.get(),
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(node) => node.node_id.get(),
+                                };
+                                !self.nodes.contains(&node_id)
+                            });
+                        let pruned = specifiers.len() != had;
+                        if pruned {
+                            self.changed = true;
                         }
+                        // A pruned import whose surviving specifiers are all
+                        // type-only imports no runtime binding, but the
+                        // declaration would still emit — and a bare module
+                        // edge to a server module is exactly the leak this
+                        // shake guards against. The Babel implementation
+                        // counts VALUE specifiers when deciding whole-
+                        // declaration removal (solid-start #2273); mirror
+                        // it: the declaration goes with its last value
+                        // specifier. Imports the shake never touched stay
+                        // untouched.
+                        let type_only = declaration_is_type
+                            || specifiers.iter().all(|specifier| {
+                                matches!(
+                                    specifier,
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s)
+                                        if s.import_kind.is_type()
+                                )
+                            });
+                        !(had > 0 && (specifiers.is_empty() || (pruned && type_only)))
+                    } else {
+                        true
                     }
-                    _ => true,
-                };
+                }
+                _ => true,
+            };
             if keep {
                 index += 1;
             } else {
