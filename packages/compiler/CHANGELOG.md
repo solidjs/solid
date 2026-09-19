@@ -1,5 +1,11 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.10
+
+### Patch Changes
+
+- a5bd44a: Fix directive transform source maps to point to the original input by running dead-code elimination on the existing AST instead of printing and reparsing between passes.
+
 ## 2.0.0-rc.9
 
 ### Patch Changes
