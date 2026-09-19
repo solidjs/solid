@@ -13,6 +13,7 @@ export interface TemplateRecord {
   templateWithClosingTags?: string | t.Expression | t.ArrayExpression;
   isImportNode?: boolean;
   isWrapped?: boolean;
+  isMultiRoot?: boolean;
   renderer: RendererName;
   /** First registration site, so `validate` failures point at the JSX (#3099). */
   path?: NodePath;
@@ -76,6 +77,7 @@ export interface TransformResult {
   renderer?: RendererName;
   isImportNode?: boolean;
   isWrapped?: boolean;
+  isMultiRoot?: boolean;
   skipTemplate?: boolean;
   templateWithClosingTags?: string;
   children?: TransformResult[];

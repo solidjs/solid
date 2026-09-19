@@ -1,16 +1,20 @@
 use crate::error::Result;
 use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::{
-    AssignmentOperator, AssignmentTarget, Expression, JSXElement, JSXExpression, Statement,
+    AssignmentOperator, AssignmentTarget, Expression, JSXChild, JSXElement, JSXExpression,
+    Statement,
 };
 
 use crate::dom::attrs::CloseTagContext;
+use crate::dom::static_template::lower_static_native_template;
 use crate::dom::template::DomTemplateState;
+use crate::dom::template::TemplateHtml;
 use crate::shared::ast_builder::AstBuilder;
 use crate::shared::bindings::BindingTable;
 use crate::shared::component::lower_component_with_setup;
 use crate::shared::utils::{
     StaticValue, element_name, is_component_name, is_void_element, static_jsx_expression,
+    trim_jsx_text,
 };
 
 pub(crate) struct AstDomTransform<'a, 'source> {
@@ -189,6 +193,90 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             Ok(tag_name) => !elements.iter().any(|name| name == &tag_name),
             Err(_) => false,
         }
+    }
+
+    /// Combines a run of fully static native roots in a JSX fragment into a
+    /// single multi-root template clone. Hydration and effectful roots retain
+    /// their existing per-root lowering so node claiming and side-effect
+    /// order stay unchanged.
+    pub(crate) fn lower_static_fragment_run(
+        &mut self,
+        children: &[JSXChild<'a>],
+        start: usize,
+    ) -> Result<Option<(usize, Expression<'a>)>> {
+        if self.hydratable {
+            return Ok(None);
+        }
+
+        let mut html = String::new();
+        let mut closed = String::new();
+        let mut import_node = false;
+        let mut element_count = 0;
+        let mut consumed = 0;
+        let mut span = None;
+
+        for child in &children[start..] {
+            let element = match child {
+                JSXChild::Text(text) if trim_jsx_text(&text.value).is_empty() => {
+                    consumed += 1;
+                    continue;
+                }
+                JSXChild::ExpressionContainer(container)
+                    if matches!(container.expression, JSXExpression::EmptyExpression(_)) =>
+                {
+                    consumed += 1;
+                    continue;
+                }
+                JSXChild::Element(element) => element,
+                _ => break,
+            };
+            if self.is_foreign_element(element) || is_component_name(&element.opening_element.name)
+            {
+                break;
+            }
+            let tag_name = element_name(&element.opening_element.name)?;
+            if self.xml_wrapper_tag(element, &tag_name).is_some() {
+                break;
+            }
+            let Some(mut template) =
+                lower_static_native_template(self, element, CloseTagContext::root())?
+            else {
+                break;
+            };
+
+            if !is_void_element(&tag_name) {
+                let close = format!("</{tag_name}>");
+                if !template.html.ends_with(&close) {
+                    template.html.push_str(&close);
+                }
+            }
+            html.push_str(&template.html);
+            closed.push_str(&template.closed);
+            import_node = import_node || self.template_subtree_is_import_node(element);
+            span.get_or_insert(element.span);
+            element_count += 1;
+            consumed += 1;
+        }
+
+        if element_count < 2 {
+            return Ok(None);
+        }
+
+        // Babel allocates an element uid while transforming every root even
+        // when a static fast path later removes it from the output. Consume
+        // the same ids so following dynamic roots keep compiler parity.
+        for _ in 0..element_count {
+            self.next_element_id();
+        }
+
+        let span = span.expect("a multi-root run has a first element");
+        let flag = 4 | u8::from(import_node);
+        let template_id =
+            self.template_id_with_options(TemplateHtml { html, closed }, Some(flag), span);
+        Ok(Some((
+            consumed,
+            self.template_call(span, Some(&template_id)),
+        )))
     }
 
     pub(crate) fn lower_element(&mut self, element: &JSXElement<'a>) -> Result<Expression<'a>> {
@@ -670,4 +758,3 @@ impl AstDomTransform<'_, '_> {
         crate::shared::classify::Classify::new(&self.bindings, self.source, &self.static_marker)
     }
 }
-
