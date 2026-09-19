@@ -148,6 +148,50 @@ describe("merge/omit without Proxy", () => {
     expect(typeof Object.getOwnPropertyDescriptor(l4, "label")!.get).toBe("function");
   });
 
+  // The compiler's server props are built by a per-site constructor whose
+  // getters are SHARED across instances and read their state off `this`
+  // (#3511). Such a getter is defined only for a read through its own object;
+  // a descriptor forwarded onto the copy would throw on the first read. Both
+  // copy paths must re-home accessors with the source as receiver.
+  test("copies re-home accessors: a receiver-dependent props getter reads through its source", () => {
+    const $m = Symbol("m");
+    const [sig, setSig] = createSignal("a");
+    const desc = {
+      get(this: any) {
+        return this[$m].label();
+      },
+      enumerable: true,
+      configurable: true
+    };
+    function Props(this: any, m: any, as: string) {
+      this[$m] = m;
+      this.as = as;
+      Object.defineProperty(this, "label", desc);
+    }
+    Props.prototype = Object.prototype;
+    const props = new (Props as any)({ label: sig }, "a");
+    // the shape under test: reading the forwarded descriptor elsewhere throws
+    const forwarded = Object.defineProperty(
+      {},
+      "label",
+      Object.getOwnPropertyDescriptor(props, "label")!
+    );
+    expect(() => (forwarded as any).label).toThrow(TypeError);
+
+    const rest = omit(props, "as");
+    expect(Object.keys(rest)).toEqual(["label"]);
+    expect(rest.label).toBe("a");
+    const merged = merge({ role: "button" }, props) as any;
+    expect(merged.label).toBe("a");
+    setSig("b");
+    flush();
+    expect(rest.label).toBe("b");
+    expect(merged.label).toBe("b");
+    // still accessors on the copies (isStatic reads the KIND)
+    expect(typeof Object.getOwnPropertyDescriptor(rest, "label")!.get).toBe("function");
+    expect(typeof Object.getOwnPropertyDescriptor(merged, "label")!.get).toBe("function");
+  });
+
   test("LIMITATION: a function source needs Proxy — the copy path does not read through it", () => {
     // merge wraps the function in a memo and the copy walks the memo's own
     // keys, not the object it returns. Unchanged from before the views; a
