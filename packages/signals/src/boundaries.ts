@@ -31,7 +31,7 @@ import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { attrHooks } from "./core/attribution-hooks.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { enqueueSub } from "./core/heap.js";
-import { haltReactivity, schedule, transitions, wakeParked } from "./core/scheduler.js";
+import { haltReactivity, queueRearm, schedule, transitions, wakeParked } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
@@ -75,30 +75,42 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
 }
 
 /**
- * A loading boundary's `on` key (#3540): a tracked expression evaluated as
- * the condition memo of `<Show keyed when={key}>` wrapping the boundary would
- * be — a plain reader (born held over a held value, A29; staged with a
- * transaction it reads), created under `owner` while the owner's queue is
- * still the parent's, so it belongs to the parent boundary and not to this
- * one. Two status rules set it apart from a plain memo:
- * - Pending is not the parent's: a key that is not ready answers `ON_INIT`
- *   and counts as a change (the boundary shows its fallback, not an outer
- *   one). Propagation marks the node without a pass, so the channel scrubs
- *   the mark and re-derives it; the pass reads the source (linking to its
- *   landing) and catches.
- * - An error IS the parent's, as `when`'s would be: forwarded up the queue
- *   chain like a render effect's; uncaught, it halts (#2884).
+ * A boundary's `on` dependencies (#3540): `onFn` runs tracked, as a
+ * computation whose value is discarded — what it READS is the point. Every
+ * run after the first is a notification (a source it read was written, went
+ * pending, or landed; an optimistic write notifies like any other) and
+ * queues the boundary for re-arming at the flush's finalize (scheduler.ts
+ * `pendingRearms`: the re-arm must run mainline, not inside the pass that
+ * carried the notification). The value is never compared: a thunk that
+ * returns a fresh object per run but reads nothing reactive never re-arms,
+ * and one that returns the same constant re-arms whenever a read source
+ * changes. A zero-argument function is an accessor, tracked like any other.
+ *
+ * Created under `owner` while the owner's queue is still the parent's, so
+ * the node belongs to the parent boundary, not to this one — as the
+ * condition of a `<Show>` wrapping the boundary would. Two status rules set
+ * it apart from a plain memo:
+ * - Pending is not the parent's: a source of `on` that is not ready is a
+ *   notification for this boundary (it re-arms: the fallback shows here, not
+ *   in an outer boundary). Propagation marks the node without a pass, so the
+ *   channel scrubs the mark and re-derives it; the pass reads the source
+ *   (linking to its landing) and catches.
+ * - An error IS the parent's, as a wrapping `<Show>` condition's would be:
+ *   forwarded up the queue chain like a render effect's; uncaught, it halts
+ *   (#2884).
  */
-function keyComputed(owner: Owner, onFn: () => any): Computed<unknown> {
+function onNode(owner: Owner, queue: CollectionQueue, onFn: () => any): Computed<unknown> {
+  let mounted = false;
   const node = runWithOwner(owner, () =>
     computed<unknown>(
       () => {
         try {
-          return onFn();
+          onFn();
         } catch (e) {
-          if (e instanceof NotReadyError) return ON_INIT;
-          throw e;
+          if (!(e instanceof NotReadyError)) throw e;
         }
+        if (mounted) queueRearm(queue);
+        else mounted = true;
       },
       { lazy: true }
     )
@@ -141,7 +153,6 @@ function createBoundChildren<T>(
   });
 }
 
-const ON_INIT: unique symbol = Symbol();
 const RevealControllerContext = /* @__PURE__ */ createContext<RevealController | null>(null);
 let _revealUsed = false;
 
@@ -339,9 +350,6 @@ export class CollectionQueue extends Queue {
   _collapsed: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _revealController?: RevealController;
   _initialized: boolean = false;
-  /** The `on` key the boundary last keyed on (`ON_INIT`: none yet, or the
-   * key was not ready). Maintained by the boundary's output pass. */
-  _prevOn: any = ON_INIT;
   /** The boundary's owner — where a `caught` report locates itself, set before the children are built (a creation-time throw arrives before `_tree`). */
   _owner?: Owner;
   constructor(type: number) {
@@ -352,41 +360,65 @@ export class CollectionQueue extends Queue {
     if (!type || (read(this._disabled) && (!_revealUsed || read(this._collapsed)))) return;
     return super.run(type);
   }
-  /** The `on` key changed under a boundary that shows content: it is a fresh
-   * boundary now, as the one `<Show keyed when={key}>` would remount (#3540).
-   * Called from the boundary's output pass, so the fallback it selects lands
-   * where the key's change landed — with the write's commit for a committed
-   * key, ahead of it for `latest(x)`. Returns whether the fallback shows:
-   * the pass answers by it directly, not by reading `_disabled` back — the
-   * write just staged is served committed to a pass under a lane (the
-   * entanglement gate) and held to one under the transaction. */
-  _reset(): boolean {
-    this._initialized = false;
-    this._sources.clear();
-    // Readers forwarded while this boundary showed content are behind the
-    // fallback now: they stop blocking (`reporterBlocksSource`), and the
-    // transactions they were holding must be re-judged for it (A33, #3375).
-    // What those readers still wait on is this boundary's to wait on now:
-    // they never re-notify (status propagation dedupes on the reader's
-    // `_pendingSources`), so the reset collects it from their registrations
-    // — the one place a forwarded reader is recorded (INV-3) — or a sibling
-    // reader's flight that lands first reveals them stale (A33, #3459).
+  /** An `on` dependency notified (onNode → scheduler `pendingRearms`), and
+   * this is the flush's finalize: mainline, past any park, so what is
+   * written here is the frame's, not a transaction's (#3540). Re-arming
+   * means, for what the boundary currently shows:
+   * - content (a loading boundary that revealed, `_initialized`): the
+   *   boundary is fresh again — its fallback, if anything under it is still
+   *   pending; nothing at all otherwise (no fallback flash for a
+   *   notification that finds nothing to wait on). The children stay alive
+   *   behind the fallback (`_disabled` hides the output; nothing is
+   *   disposed or re-created) and reveal again when the pending lands.
+   * - its error fallback (an error boundary holding caught failures): the
+   *   failures are retried, exactly as the fallback's `reset()` would —
+   *   reset keys. The boundary reveals if the retry succeeds.
+   * - its loading fallback already: nothing to re-arm.
+   * A boundary disposed since the notification is skipped. */
+  _rearm(): void {
+    if (this._tree === undefined || this._tree._flags & REACTIVE_DISPOSED) return;
+    if (this._collectionType & STATUS_ERROR) {
+      if (this._sources.size) this._retry();
+      return;
+    }
+    if (!this._initialized) return;
+    // Readers forwarded while this boundary showed content are what it
+    // would wait on now. They never re-notify (status propagation dedupes on
+    // the reader's `_pendingSources`), so the re-arm collects it from their
+    // registrations — the one place a forwarded reader is recorded (INV-3)
+    // — or a sibling reader's flight that lands first reveals them stale
+    // (A33, #3459).
+    const sources = new Set<Computed<any>>();
     for (const t of transitions)
       for (const [source, reporters] of t._asyncReporters)
         for (const reporter of reporters)
           if (this._holds(reporter)) {
-            this._sources.add(source);
-            reporter._x?._pendingSources?.forEach(s => this._sources.add(s));
+            sources.add(source);
+            reporter._x?._pendingSources?.forEach(s => sources.add(s));
           }
-    const disabled = this._sources.size !== 0;
-    if (disabled) {
-      this._pending = true;
-      setSignal(this._disabled, true);
-      if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
-        attrHooks.boundaryFallback(this, this._tree, true);
-    }
+    if (!sources.size) return;
+    this._initialized = false;
+    this._sources = sources;
+    this._pending = true;
+    setSignal(this._disabled, true);
+    if (__OBSERVE__ && attrHooks !== null) attrHooks.boundaryFallback(this, this._tree, true);
+    // Those readers are behind the fallback now: they stop blocking
+    // (`reporterBlocksSource`), and the transactions they were holding must
+    // be re-judged for it (A33, #3375). A live action keeps its transaction
+    // parked regardless (transitionComplete): its batch commits when it
+    // settles, intact.
     wakeParked();
-    return disabled;
+  }
+  /** Retry the collected failures of an error boundary: recompute each
+   * source that threw, so the boundary can recover. */
+  _retry(): void {
+    for (const source of this._sources) {
+      // Non-computed sources (patch-channel registrations under plain
+      // owners) are not recomputable — their reset is the record's next
+      // transition re-applying the patch (re-audit 2, P1-4).
+      if ((source as any)._fn !== undefined) recompute(source);
+    }
+    schedule();
   }
   notify(node: Effect<any>, type: number, flags: number, error?: any) {
     if (!(type & this._collectionType)) return super.notify(node, type, flags, error);
@@ -519,10 +551,10 @@ function createCollectionBoundary<T>(
   queue._owner = owner;
   if (type === STATUS_ERROR)
     queue._error = signal<unknown>(undefined, { ownedWrite: true, _noSnapshot: true });
-  // The `on` key lives OUTSIDE the boundary, as the condition of a
-  // `<Show keyed when={key}>` wrapping it would: created before the owner's
-  // queue becomes this boundary's (keyComputed).
-  const onKey = onFn && keyComputed(owner, onFn);
+  // The `on` dependencies live OUTSIDE the boundary, as the condition of a
+  // `<Show>` wrapping it would: created before the owner's queue becomes
+  // this boundary's (onNode).
+  onFn && onNode(owner, queue, onFn);
   const tree = (queue._tree = createBoundChildren(owner, fn, queue, type) as BoundaryComputed<any>);
   // Prime source tracking so reveal registration sees pending sources. A
   // bookkeeping read (`spectate`): the mounting pass derives nothing from
@@ -549,21 +581,10 @@ function createCollectionBoundary<T>(
   return accessor<T>(
     computed(
       (): T => {
-        // The key is read first: a change under a boundary that shows content
-        // resets it here, in this pass, so the fallback lands as this pass's
-        // value does — with the key's change. (Nothing to reset while the
-        // fallback shows: a fresh boundary has nothing to preserve.)
-        let reset = false;
-        if (onKey) {
-          const key = read(onKey);
-          if (key !== queue._prevOn) {
-            queue._prevOn = key;
-            if (queue._initialized) reset = queue._reset();
-          }
-        }
-        // `_disabled` is read whatever the reset said: its clear (the sweep's,
-        // when the collected sources settle) is what re-runs this pass.
-        if (!read(queue._disabled) && !reset) {
+        // `_disabled` selects fallback or content: set by a collecting
+        // notification or a re-arm (`_rearm`), cleared by the sweep when the
+        // collected sources settle — each re-runs this pass.
+        if (!read(queue._disabled)) {
           const resolved = read(tree);
           if (!untrack(() => read(queue._disabled))) return ((queue._initialized = true), resolved);
         }
@@ -591,15 +612,18 @@ function createCollectionBoundary<T>(
  *
  * @param fn the tracked subtree
  * @param fallback the fallback shown while async reads in `fn` are unresolved
- * @param options `on` — a tracked expression whose value keys the boundary,
- *   as `<Show keyed when={key}>` wrapping it would (minus the remount of
- *   `fn`): while the key is unchanged, a boundary that already shows content
- *   keeps it through a refetch (the pending holds with the transaction);
- *   when it changes, the boundary is fresh again and shows `fallback` until
- *   the new content is ready. The change lands where the key's does:
- *   `on: () => id()` with the write's commit, `on: () => latest(id)` ahead
- *   of it — a placeholder for the next frame beside the current one. A key
- *   that is not ready counts as a change.
+ * @param options `on` — a dependency list: a tracked function whose reads
+ *   re-arm the boundary. Its return value is irrelevant (never compared);
+ *   what matters is what it reads. Without `on`, a boundary that has shown
+ *   content keeps it through a refetch (the pending holds with the
+ *   transaction). With `on`, a write to anything it reads makes the boundary
+ *   fresh again: if something under it is pending, it shows `fallback` now —
+ *   in the current frame, beside the content the write is still holding
+ *   elsewhere — until the new content is ready; if nothing is pending, the
+ *   notification is a no-op. Optimistic writes and a source going pending
+ *   notify like any other; `latest()` / `isPending()` inside `on` are plain
+ *   reads. The children are not re-created — they stay alive behind the
+ *   fallback.
  *
  * @example
  * ```tsx
@@ -629,6 +653,13 @@ export function createLoadingBoundary<T, U>(
  * App code should use `<Errored fallback={...}>` instead — reach for this only
  * when authoring custom boundary components.
  *
+ * @param options `on` — a dependency list, as for `createLoadingBoundary`: a
+ *   tracked function whose reads re-arm the boundary (its value is
+ *   irrelevant). While the boundary shows its error fallback, a write to
+ *   anything `on` reads retries the failed computations, exactly as the
+ *   fallback's `reset()` does — reset keys. With nothing caught, the
+ *   notification is a no-op.
+ *
  * @example
  * ```tsx
  * // Custom boundary that wraps the primitive and adds telemetry.
@@ -645,19 +676,15 @@ export function createLoadingBoundary<T, U>(
  */
 export function createErrorBoundary<T, U>(
   fn: () => T,
-  fallback: (error: Accessor<unknown>, reset: () => void) => U
+  fallback: (error: Accessor<unknown>, reset: () => void) => U,
+  options?: { on?: () => any }
 ): Accessor<T | U> {
-  return createCollectionBoundary<T | U>(STATUS_ERROR, fn, queue => {
-    return fallback(accessor(queue._error), () => {
-      for (const source of queue._sources) {
-        // Non-computed sources (patch-channel registrations under plain
-        // owners) are not recomputable — their reset is the record's next
-        // transition re-applying the patch (re-audit 2, P1-4).
-        if ((source as any)._fn !== undefined) recompute(source);
-      }
-      schedule();
-    });
-  });
+  return createCollectionBoundary<T | U>(
+    STATUS_ERROR,
+    fn,
+    queue => fallback(accessor(queue._error), () => queue._retry()),
+    options?.on
+  );
 }
 
 /**

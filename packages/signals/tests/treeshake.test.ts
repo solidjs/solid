@@ -374,7 +374,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (queue.notify with a NotReadyError) and restaging a re-pass instead of
     // re-queuing it, and `spectating` refusing the entry and the staged-only
     // value in enterStagedRead / serve (the boundary's priming read).
-    expect(minifiedBytes).toBeLessThan(25_900);
+    // `on` re-arms at the finalize (#3540, 2026-09-20): +58 B core-retained
+    // (25,829 -> 25,958) — the scheduler's `pendingRearms` set, `queueRearm`
+    // (the on-node's notification), `drainRearms` at the top of
+    // finalizePureQueue, and the simple-sync-flush gate on the set. The set
+    // is the scheduler's because the drain point is: the re-arm must run
+    // mainline, past the transaction park, which only the flush knows.
+    expect(minifiedBytes).toBeLessThan(26_000);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

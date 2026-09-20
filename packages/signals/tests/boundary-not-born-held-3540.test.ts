@@ -1,5 +1,5 @@
 /**
- * #3540 — born held (A29) exempts boundaries, and `on` is a key.
+ * #3540 — born held (A29) exempts boundaries, and `on` is a dependency list.
  *
  * A29's creation-time form ("born held") is right for a plain memo or effect
  * created while a transaction holds what it reads: published, its value would
@@ -10,10 +10,12 @@
  * with readers that have content to keep (a boundary already showing content
  * forwards the pending and holds like any reader).
  *
- * `on` is the same rule seen from outside: a tracked key evaluated as the
- * condition of a `<Show keyed when={key}>` wrapping the boundary would be,
- * minus the remount. A change resets the boundary where the change lands —
- * `on: count` with the write's commit, `on: () => latest(count)` ahead of it.
+ * `on` is the same rule seen from outside: a tracked function whose READS
+ * re-arm the boundary (its value is never compared). A write to a source it
+ * read makes a revealed boundary fresh again — its fallback shows in the
+ * current frame, beside whatever the write is still holding elsewhere — when
+ * something under it is pending; nothing happens when nothing is. The
+ * re-arm tests proper are in loading-on-rearm-3540.test.ts.
  *
  * Every observation below is made in an effect's EFFECT phase (the committed
  * frame), never in its compute phase (which sees the staged world).
@@ -297,11 +299,16 @@ function build(form: Form, key: Key) {
 const HELD = "1|1|1";
 const EARLY = "1|Loading A|1";
 
-describe("Loading `on` ≡ keyed Show around the boundary, minus the remount (#3540)", () => {
-  // Over `latest(count)` a new (or re-keyed) boundary shows its fallback ahead
-  // of the write; over `count()` the key lands with the write, so the frame
-  // holds. B — an initialized boundary without a key — forwards data's
-  // pending and holds the frame either way (A33).
+describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
+  // A keyed Show remounts on its condition's VALUE: over `latest(count)` the
+  // new boundary shows its fallback ahead of the write; over `count()` the
+  // key lands with the write, so the frame holds. `on` is a dependency list,
+  // not a key: count's write notifies it either way, and the boundary
+  // re-arms mainline in the same flush — fallback beside the current frame
+  // for `on: count` as for `on: () => latest(count)`. (Expectation changed
+  // from HELD with the value-compare `on`: a committed key landed with the
+  // write's commit.) B — an initialized boundary without `on` — forwards
+  // data's pending and holds the frame in every row (A33).
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Form, Key, string]> = [
@@ -310,7 +317,7 @@ describe("Loading `on` ≡ keyed Show around the boundary, minus the remount (#3
     ["on", "latest", EARLY],
     ["static", "committed", HELD],
     ["callback", "committed", HELD],
-    ["on", "committed", HELD]
+    ["on", "committed", EARLY]
   ];
   for (const [form, key, midFlight] of matrix) {
     test(`${form} over ${key}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "holds"}`, async () => {
@@ -330,7 +337,7 @@ describe("Loading `on` ≡ keyed Show around the boundary, minus the remount (#3
     });
   }
 
-  test("a change of the key with nothing pending under the boundary is a no-op (no fallback, no re-reveal churn)", () => {
+  test("an `on` notification with nothing pending under the boundary is a no-op (no fallback, no re-reveal churn)", () => {
     const [id, setId] = createSignal("a");
     const out = { value: undefined as unknown };
     const values: unknown[] = [];
@@ -354,7 +361,7 @@ describe("Loading `on` ≡ keyed Show around the boundary, minus the remount (#3
     expect(values).toEqual(["sync a", "sync b"]);
   });
 
-  test("the key is not a reset trigger: a fresh token per evaluation that reads nothing reactive never changes", async () => {
+  test("`on`'s value is irrelevant: a fresh token per evaluation that reads nothing reactive never re-arms", async () => {
     const [count, setCount] = createSignal(1);
     const out = { value: undefined as unknown };
     createRoot(() => {
@@ -382,14 +389,15 @@ describe("Loading `on` ≡ keyed Show around the boundary, minus the remount (#3
     flush();
     await microtask();
     flush();
-    // No reset: the boundary forwards the pending and holds its content.
+    // No notification, no re-arm: the boundary forwards the pending and
+    // holds its content.
     expect(out.value).toBe(1);
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(out.value).toBe(2);
   });
 
-  test("a key that is not ready counts as a change; it does not suspend the parent", async () => {
+  test("an `on` source going pending is a notification; it does not suspend the parent", async () => {
     const [trigger, setTrigger] = createSignal(0);
     const outer = { value: undefined as unknown };
     const inner = { value: undefined as unknown };
@@ -422,8 +430,8 @@ describe("Loading `on` ≡ keyed Show around the boundary, minus the remount (#3
     flush();
     await microtask();
     flush();
-    // The key reads a pending memo: the keyed boundary resets; the parent is
-    // not suspended by the key — it shows the keyed boundary's fallback.
+    // `on` reads a memo that went pending: the boundary re-arms; the parent
+    // is not suspended by `on` — it shows the re-armed boundary's fallback.
     expect(inner.value).toBe("inner loading");
     expect(outer.value).toBe("inner loading");
     await vi.advanceTimersByTimeAsync(1000);
