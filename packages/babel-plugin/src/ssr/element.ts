@@ -22,6 +22,7 @@ import {
   isFunctionShapedHole
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
+import { decodedAttrValue } from "../universal/element";
 import { createTemplate } from "./template";
 import type {
   BabelPath,
@@ -952,7 +953,7 @@ function createElement(
           );
         }
         const allocatesIds = hydratable && canChildSlotAllocateIds(path);
-        const child = transformNode(path);
+        const child = transformNode(path, { doNotEscape });
         if (!child) return memo;
         if (markers && child.exprs.length && !child.spreadElement)
           memo.push(t.stringLiteral("<!--$-->"));
@@ -1014,9 +1015,7 @@ function createElement(
             : node.argument
         );
       } else if (t.isJSXAttribute(node)) {
-        const value =
-            (t.isStringLiteral(node.value) ? t.stringLiteral(node.value.value) : node.value) ||
-            t.booleanLiteral(true),
+        const value = decodedAttrValue(node.value) || t.booleanLiteral(true),
           id = convertJSXIdentifier(node.name),
           key = t.isJSXNamespacedName(node.name)
             ? `${node.name.namespace.name}:${node.name.name.name}`

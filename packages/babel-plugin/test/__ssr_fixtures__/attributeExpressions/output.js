@@ -73,7 +73,10 @@ var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
     "<div><video muted></video><video></video><video></video><video muted></video><video",
     '></video><video src="test.mp4" muted></video></div>'
   ],
-  _tmpl$53 = ["<div><textarea>a &lt;b> &amp; c</textarea>", "", "", "</div>"];
+  _tmpl$53 = ["<div><textarea>a &lt;b> &amp; c</textarea>", "", "", "</div>"],
+  _tmpl$54 = "if (a < b) { x && y }",
+  _tmpl$55 = "a < b { x: 1 }",
+  _tmpl$56 = "a &lt; b";
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -630,3 +633,8 @@ var _v$48 = _$ssrElement(
     false
   );
 const template96 = _$ssr(_tmpl$53, _v$48, _v$49, _v$50);
+const template97 = [
+  _$ssrElement("script", spread, _$ssr(_tmpl$54), false),
+  _$ssrElement("style", spread, _$ssr(_tmpl$55), false),
+  _$ssrElement("div", spread, _$ssr(_tmpl$56), false)
+];

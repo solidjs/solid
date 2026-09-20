@@ -126,6 +126,9 @@ var _tmpl$55 = [
 	"",
 	"</div>"
 ];
+var _tmpl$56 = "if (a < b) { x && y }";
+var _tmpl$57 = "a < b { x: 1 }";
+var _tmpl$58 = "a &lt; b";
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -507,3 +510,8 @@ var _v$49 = () => {
 const template95 = _$ssr(_tmpl$54, _v$49);
 var _v$50 = _$ssrElement("textarea", [spread, { value: "a <b> & c" }], undefined, false), _v$51 = _$ssrElement("textarea", [spread, { value: "static" }], undefined, false), _v$52 = _$ssrElement("textarea", [{ value: "static" }, spread], undefined, false);
 const template96 = _$ssr(_tmpl$55, _v$50, _v$51, _v$52);
+const template97 = [
+	_$ssrElement("script", spread, _$ssr(_tmpl$56), false),
+	_$ssrElement("style", spread, _$ssr(_tmpl$57), false),
+	_$ssrElement("div", spread, _$ssr(_tmpl$58), false)
+];

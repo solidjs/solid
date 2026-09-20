@@ -436,3 +436,11 @@ const template96 = (
     <textarea value="static" {...spread} />
   </div>
 );
+
+const template97 = (
+  <>
+    <script {...spread}>{"if (a < b) { x && y }"}</script>
+    <style {...spread}>{"a < b { x: 1 }"}</style>
+    <div {...spread}>{"a < b"}</div>
+  </>
+);

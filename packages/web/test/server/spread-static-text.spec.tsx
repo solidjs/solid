@@ -27,6 +27,12 @@ describe("static text on spread elements (#3557)", () => {
       '<script id="a">a <b> && c</script>'
     );
     expect(render(() => <style {...rest}>a &gt; b</style>)).toBe('<style id="a">a > b</style>');
+    expect(render(() => <script {...rest}>{"if (a < b) { x && y }"}</script>)).toBe(
+      '<script id="a">if (a < b) { x && y }</script>'
+    );
+    expect(render(() => <style {...rest}>{"a < b { x: 1 }"}</style>)).toBe(
+      '<style id="a">a < b { x: 1 }</style>'
+    );
   });
 
   test("a static textarea value is escaped on both paths", () => {

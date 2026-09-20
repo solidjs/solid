@@ -11,6 +11,7 @@ import {
 } from "./utils";
 import { transformNode, getCreateTemplate, thisTagIdentifiers } from "./transform";
 import { markPropsLiteral } from "../ssr/props";
+import { decodedAttrValue } from "../universal/element";
 import type { PluginConfig } from "../config";
 import type { BabelPath, JSXNode, TransformResult } from "../types";
 
@@ -123,10 +124,7 @@ export default function transformComponent(
             : (node.argument as t.Expression)
         );
       } else if (t.isJSXAttribute(node)) {
-        // handle weird babel bug around HTML entities
-        const value =
-            (t.isStringLiteral(node.value) ? t.stringLiteral(node.value.value) : node.value) ||
-            t.booleanLiteral(true),
+        const value = decodedAttrValue(node.value) || t.booleanLiteral(true),
           id = convertJSXIdentifier(node.name),
           key = t.isIdentifier(id) ? id.name : (id as t.StringLiteral).value;
         if (hasChildren && key === "children") return;
