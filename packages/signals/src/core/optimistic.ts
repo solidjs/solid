@@ -429,7 +429,7 @@ function endOptimism(transition: Transition): boolean {
  * answered with a DIFFERENT value (A18 supersession, #3331): the optimism is
  * over for the graph — a tracked reader sees the staged truth — while the
  * override remains the DISPLAYED value for untracked reads (and for a stale
- * reader of some other transaction).
+ * reader of some other transaction), and for a LANE pass (#3548, below).
  */
 function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
   if (stale && readsHeldCommitted(el as Computed<any>, c)) return el._value;
@@ -441,6 +441,22 @@ function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
   // a body-ended node read the committed truth beside a display still
   // showing the override.
   const owner = resolveTransition(el);
+  // A lane pass composes the frame the lane applies AHEAD of the commit, so
+  // it reads what is on screen — for a superseded node, the override (A18
+  // (c): the applied screen keeps it until the transaction commits). The
+  // supersession dropped this node's own lane; a LATER write's lane reaching
+  // a shared reader (a list filtered on two rows' fields, #3548) otherwise
+  // handed that pass the staged truth and applied it at once: one list
+  // re-derived from the truth while its neighbours still displayed the
+  // override — the same row rendered in two lanes. The reader is recorded
+  // for replay at the owner's commit under laneReadsCommitted's contract:
+  // the superseded drop notifies nobody (resolveOptimisticNodes assumes its
+  // subscribers already derive from the truth), so the replay is what
+  // brings this reader the revealed value.
+  if (currentOptimisticLane !== null) {
+    (owner ?? globalQueue._batch)._gatedSubs.add(c);
+    return unwrapOverride(el._x?._overrideValue);
+  }
   if (stale && owner && activeTransition !== owner) return unwrapOverride(el._x?._overrideValue);
   // A superseded read is a staged read (A29) whether the truth is staged or
   // already committed: the pass that derives from it derives from the

@@ -78,8 +78,7 @@ describe("#3548 overlapping optimistic moves across filtered keyed lists", () =>
       // `<For each={view.cards.filter(...).sort(...)} keyed={c => c.id}>`.
       const lanes = [0, 1, 2].map(lane =>
         mapArray(
-          () =>
-            view.cards.filter(c => c.lane === lane).sort((a, b) => a.order - b.order),
+          () => view.cards.filter(c => c.lane === lane).sort((a, b) => a.order - b.order),
           card => card,
           { keyed: (c: Card) => c.id }
         )
@@ -107,7 +106,6 @@ describe("#3548 overlapping optimistic moves across filtered keyed lists", () =>
       void move(id, lane, order, version);
       flush();
     };
-
     // First yield lands.
     flush();
     await Promise.resolve();
@@ -121,6 +119,9 @@ describe("#3548 overlapping optimistic moves across filtered keyed lists", () =>
     expect(frames.at(-1)!.lanes).toEqual([[], [1], [0]]);
 
     // 4. authoritative result of action 1 lands; only action 1 resolves.
+    // Mainline provenance: it supersedes card 0's newer override for the
+    // graph (A18), while the screen keeps the override until the merged
+    // transaction (actions 2–4) commits (A18 (c)).
     source = {
       cards: [
         { id: 0, lane: 1, order: 1, version: 1 },
@@ -132,7 +133,8 @@ describe("#3548 overlapping optimistic moves across filtered keyed lists", () =>
     await new Promise(resolve => setTimeout(resolve, 0));
     flush();
 
-    // 5. card 1 within lane 1.
+    // 5. card 1 within lane 1 — a fresh lane reaching lane 1's list, which
+    // also derives from card 0's superseded field.
     start(1, 1, 3, 4);
 
     const last = frames.at(-1)!;
@@ -147,8 +149,10 @@ describe("#3548 overlapping optimistic moves across filtered keyed lists", () =>
         ids.forEach(id => seen.set(id, [...(seen.get(id) ?? []), lane]))
       );
       for (const [id, inLanes] of seen) {
-        expect(inLanes, `card ${id} rendered in lanes ${inLanes} — frame ${JSON.stringify(frame)}`)
-          .toHaveLength(1);
+        expect(
+          inLanes,
+          `card ${id} rendered in lanes ${inLanes} — frame ${JSON.stringify(frame)}`
+        ).toHaveLength(1);
       }
       const fromStore = [[], [], []] as number[][];
       frame.store.forEach((lane, id) => fromStore[lane].push(id));
@@ -159,12 +163,17 @@ describe("#3548 overlapping optimistic moves across filtered keyed lists", () =>
     }
     expect(last.lanes).toEqual([[], [1], [0]]);
 
-    // Cleanup: settle the remaining actions.
+    // Settle the remaining actions: the merged transaction commits, the
+    // overrides drop, and the published truth (card 0 in lane 1, card 1 in
+    // lane 0) reveals to every reader — the lane-pass readers replayed at the
+    // commit included.
     pending.get(2)!();
     pending.get(3)!();
     pending.get(4)!();
     await new Promise(resolve => setTimeout(resolve, 0));
     flush();
+    expect(view.cards.map(c => c.lane)).toEqual([1, 0]);
+    expect(frames.at(-1)!).toEqual({ lanes: [[1], [0], []], store: [1, 0] });
     dispose();
     delete (globalThis as any).__move3548;
   });
