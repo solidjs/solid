@@ -85,7 +85,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending, devUntrackCompanionOwner } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
-import type { Transition } from "./scheduler.js";
+import type { IQueue, Transition } from "./scheduler.js";
 import {
   notifyEpoch,
   bumpNotifyEpoch,
@@ -652,9 +652,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // with it; mainline's batch never sees it. A born-held effect
           // skips its synchronous first run (effect()) and is replayed by
           // the commit like a stale reader that showed the committed frame.
-          el._transition = bornHeld;
-          bornHeld._pendingNodes.push(el);
+          // (A re-pass under a fresh boundary — the in-flush form — is
+          // already the transaction's: restaged, not re-queued.)
+          if (el._transition !== bornHeld) {
+            el._transition = bornHeld;
+            bornHeld._pendingNodes.push(el);
+          }
           if (isEffect) bornHeld._gatedSubs.add(el);
+          // Under a boundary that has not revealed, a held first value is
+          // something not ready under it (#3540): the boundary collects this
+          // node as a source and shows its fallback; the source stays
+          // collected while born held (CollectionQueue._checkSources) and
+          // is released by the commit that initializes it. A boundary that
+          // already shows content is not told — it holds like any reader.
+          if (underFreshLoadingBoundary(el))
+            el._queue.notify(el, STATUS_PENDING, STATUS_PENDING, new NotReadyError(el));
         }
         // A window landing that gets held re-opens the window until the hold
         // commits — the verdict's held-value branch is window-gated (#2990).
@@ -1473,21 +1485,22 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
 }
 
 /**
- * Set while runtime bookkeeping evaluates a user accessor inside another
- * node's pass (a loading boundary's `on` key, read from `notify` while the
- * node that went pending is still recomputing). `context` is that node, but
- * the read is nobody's: the value is compared, never derived from, so the
- * untracked-pending re-run link (`read`, `!tracking`) must not be recorded on
- * it — it made the key's source a dependency of an unrelated async memo
- * (#3528: `isPending(m2)` through a memo in `on()` linked the memo into `m2`,
- * a cycle that re-derived `m2` on every pending mark and never converged).
+ * Set while runtime bookkeeping reads a node inside another node's pass (a
+ * loading boundary priming its tree at creation, from whatever pass is
+ * mounting it). `context` is that node, but the read is nobody's: the value
+ * is probed, never derived from, so nothing the read would normally record
+ * on `context` may be recorded — not the untracked-pending re-run link
+ * (`read`, `!tracking`; #3528: a boundary's `on` key read this way from
+ * `notify` linked the key's source into an unrelated async memo, a cycle that
+ * never converged), and not a transaction entry (`enterStagedRead`; #3540: a
+ * born-held tree would otherwise pull the mounting pass into the hold).
  */
 export let spectating = false;
 
 /**
- * Evaluates `fn` untracked and without recording a dependency for the
- * untracked-pending re-run rule on the current `context`. For bookkeeping
- * reads made mid-propagation on behalf of no node — see `spectating`.
+ * Evaluates `fn` untracked, recording nothing on the current `context`: no
+ * untracked-pending re-run link, no transaction entry. For bookkeeping reads
+ * made on behalf of no node — see `spectating`.
  */
 export function spectate<T>(fn: () => T): T {
   const prev = spectating;
@@ -1663,8 +1676,32 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
  * batch pointed at the transaction for the rest of the synchronous block,
  * so an unrelated write made after the mount was held with someone else's
  * action. The entry is the pass's alone: recompute stages the node into the
- * transaction (born held) and mainline is never touched. */
+ * transaction (born held) and mainline is never touched.
+ *
+ * A pass under a FRESH loading boundary takes this path inside a flush too
+ * (#3540). Born held is right for a plain memo or effect: published, its
+ * value would tear the frame. A boundary that has not revealed yet is the
+ * exception by definition — its job is to catch what is not ready under it
+ * rather than let it hold: the pass is staged into the transaction as
+ * above, and the boundary is told (recompute's born-held arm notifies it
+ * with a `NotReadyError` sourced at the node) so it shows its fallback now
+ * and reveals the staged result at the commit.
+ * Entering instead adopted the whole flush into the hold — a `Show` that
+ * flipped mainline to mount a `Loading` over a held value waited for the
+ * hold with it. A boundary that already shows content keeps the entering
+ * path: it has content to keep, and holds like any reader. */
 let stagedEntry: Transition | null = null;
+
+/** Is `el` routed to a loading boundary that still shows its fallback — the
+ * nearest pending-collecting queue up its chain is uninitialized? (Measured
+ * 2026-09-18: relocating the walk behind a `GlobalQueue` slot installed by
+ * boundaries.ts saved ~8 B on the core floor and cost boundary-using apps
+ * 50–70 B — the indirection's tokens outweigh the walk. Kept inline.) */
+function underFreshLoadingBoundary(el: Computed<any>): boolean {
+  for (let q: IQueue | null = el._queue; q !== null; q = q._parent)
+    if (q._collectionType! & STATUS_PENDING) return !q._initialized;
+  return false;
+}
 
 export function enterStagedRead(
   el: Signal<any> | Computed<any> | null,
@@ -1679,6 +1716,10 @@ export function enterStagedRead(
   // a store backing served under a hold — no node, the transaction is the
   // fold's.)
   if (el?._x?._parentSource || (context as Computed<any> | null)?._x?._parentSource) return;
+  // A bookkeeping read (`spectate`) is nobody's derivation: it compares or
+  // probes, and enters nothing — the boundary priming read of a born-held
+  // tree must not enter the creator's pass into the hold (#3540).
+  if (spectating) return;
   // Verdict machinery (GlobalQueue._verdictPull: companion creation and the
   // latest()/isPending() pulls — the latest() shadow is created before it is
   // marked optimistic, so the bit alone cannot tell) and optimistic nodes
@@ -1686,19 +1727,19 @@ export function enterStagedRead(
   // entering path.
   // (`context` is non-null here: every caller selected a value for a reader.)
   const ctx = context as Computed<any>;
-  if (activeTransition === null && !globalQueue._running) {
-    // Verdict pulls are observations, not derivations: a latest() /
-    // isPending() call from mainline must never enter a transaction (it
-    // would capture the rest of the caller's synchronous block).
-    if (GlobalQueue._verdictPull) return;
-    if (
-      ctx._flags & REACTIVE_RECOMPUTING_DEPS &&
-      !(ctx._config & CONFIG_OPTIMISTIC) &&
-      (stagedEntry === null || stagedEntry === t)
-    ) {
-      stagedEntry = t;
-      return;
-    }
+  const mainline = activeTransition === null && !globalQueue._running;
+  // Verdict pulls are observations, not derivations: a latest() /
+  // isPending() call from mainline must never enter a transaction (it
+  // would capture the rest of the caller's synchronous block).
+  if (mainline && GlobalQueue._verdictPull) return;
+  if (
+    ctx._flags & REACTIVE_RECOMPUTING_DEPS &&
+    !(ctx._config & CONFIG_OPTIMISTIC) &&
+    (stagedEntry === null || stagedEntry === t) &&
+    (mainline || (!GlobalQueue._verdictPull && underFreshLoadingBoundary(ctx)))
+  ) {
+    stagedEntry = t;
+    return;
   }
   globalQueue.initTransition(t);
 }
@@ -2168,11 +2209,13 @@ export function serve(
   // A node born held (recompute) has a staged value and no committed one: a
   // stale reader cannot fall back to the committed frame, so it takes the
   // staged value and enters like a tracked reader (A29); an untracked reader
-  // has nothing to serve and holds (A19 exception 1).
+  // has nothing to serve and holds (A19 exception 1) — a bookkeeping read
+  // (`spectate`) likewise: it derives nothing, so it cannot enter, and a
+  // held-only value is simply not ready to it.
   const noCommitted =
     el._pendingValue !== NOT_PENDING &&
     ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) !== 0;
-  if (noCommitted && !c) throw new NotReadyError(null);
+  if (noCommitted && (!c || spectating)) throw new NotReadyError(null);
   const u = c && unflushedStaged ? unflushedValue(el, committed) : NOT_PENDING;
   if (u !== NOT_PENDING) {
     markLateLinker(c!);

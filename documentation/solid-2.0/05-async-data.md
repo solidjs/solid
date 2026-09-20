@@ -47,9 +47,9 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 
 Nested `Loading` boundaries can be used to avoid blocking large subtrees and to control where loading UI appears.
 
-#### `Loading` `on` prop: controlling when fallback re-shows
+#### `Loading` `on` prop: keying the boundary
 
-By default, once a `Loading` boundary has rendered content, it keeps showing stale content during revalidation (transitions). The `on` prop lets you specify an expression that, when it changes *and* async is pending, causes the boundary to re-show its fallback instead of stale content.
+By default, once a `Loading` boundary has rendered content, it keeps that content visible during revalidation: like every reader of a pending value, it holds the write that made it pending until the data lands. The `on` prop is a **key** — semantically a keyed `<Show>` wrapping the boundary, minus the remount. While the key is unchanged the boundary holds as above; when a write changes the key, the boundary is fresh again and shows its fallback until the new content is ready.
 
 ```jsx
 // Without on: stale content shown during revalidation
@@ -57,13 +57,23 @@ By default, once a `Loading` boundary has rendered content, it keeps showing sta
   <UserProfile id={id()} />
 </Loading>
 
-// With on: fallback re-shown when id changes while data is pending
+// With on: the fallback shows when a write changes id, landing with that write
 <Loading on={id()} fallback={<Spinner />}>
   <UserProfile id={id()} />
 </Loading>
 ```
 
-This is useful for route-level or key-level transitions where you don't want to wait on all data loading before updating the UI. Show the fallback again instead.
+The change lands where the key's does. `on={id()}` reads the committed `id`, so the fallback belongs to the committed frame — "Loading profile B" never renders beside profile A's info; the whole write, including the boundary's swap to its fallback, lands at once. If other readers of the same data on the page are holding that write (a sibling `Loading` already showing content, for instance), the swap waits for them too, and by then the data may have landed.
+
+`on={latest(id)}` is the spelling for a placeholder **ahead of** the commit. `latest` changes as soon as the write is made, so the key changes then, and the fallback shows immediately. This deliberately renders a piece of the next frame beside the current one, so a fallback that names what is loading should read `latest(id)` too:
+
+```jsx
+<Loading on={latest(id)} fallback={<Spinner>Loading profile {latest(id)}…</Spinner>}>
+  <UserProfile id={id()} />
+</Loading>
+```
+
+The key is an ordinary reactive expression; whatever it reads decides where the change lands. There is no detection of `latest` and no separate prop.
 
 ### `isPending(fn)` (in-flight change queries)
 

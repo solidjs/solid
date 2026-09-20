@@ -366,7 +366,15 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // (through commitPendingNode), notifyStatus re-deriving a subscriber
     // instead of marking it over a kept-tail link (`_gen`, A30), and
     // reporterBlocksSource following a dep's `_pendingSources` one hop.
-    expect(minifiedBytes).toBeLessThan(25_750);
+    // Born held exempts boundaries (A29, #3540, 2026-09-18): +169 B
+    // core-retained (25,660 -> 25,829) — `underFreshLoadingBoundary` (the
+    // queue-chain walk to the nearest pending-collecting boundary),
+    // enterStagedRead taking the staging path inside a flush for a pass under
+    // a fresh boundary, recompute's born-held arm telling that boundary
+    // (queue.notify with a NotReadyError) and restaging a re-pass instead of
+    // re-queuing it, and `spectating` refusing the entry and the staged-only
+    // value in enterStagedRead / serve (the boundary's priming read).
+    expect(minifiedBytes).toBeLessThan(25_900);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

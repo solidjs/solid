@@ -121,7 +121,7 @@ This is primarily intended for use with **stores**, where the data at each index
 
 In 2.0’s async model, async values are part of computations (not a separate `createResource`), so `Loading` is the user-facing “this subtree may be not ready yet” boundary.
 
-`Loading` also accepts an `on` prop to control when the boundary re-shows its fallback during revalidation. See [RFC 05](05-async-data.md) for details.
+`Loading` also accepts an `on` prop — a key, as a keyed `<Show>` around the boundary would be: a write that changes it shows the fallback again instead of keeping stale content. See [RFC 05](05-async-data.md) for details.
 
 ### Error boundary: `Errored`
 

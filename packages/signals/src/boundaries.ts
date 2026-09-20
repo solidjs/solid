@@ -8,6 +8,7 @@ import {
   createOwner,
   getContext,
   getOwner,
+  NOT_PENDING,
   NotReadyError,
   Queue,
   read,
@@ -19,6 +20,7 @@ import {
   signal,
   STATUS_ERROR,
   STATUS_PENDING,
+  STATUS_UNINITIALIZED,
   untrack,
   type Computed,
   type Effect,
@@ -28,6 +30,7 @@ import type { IQueue, Signal } from "./core/index.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { attrHooks } from "./core/attribution-hooks.js";
 import { reportClientError } from "./core/error-hooks.js";
+import { enqueueSub } from "./core/heap.js";
 import { haltReactivity, schedule, transitions, wakeParked } from "./core/scheduler.js";
 import { accessor, type Accessor } from "./signals.js";
 
@@ -66,6 +69,58 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
     }
   };
   node._propagationMask = propagationMask;
+  node._config &= ~CONFIG_AUTO_DISPOSE;
+  recompute(node, true);
+  return node;
+}
+
+/**
+ * A loading boundary's `on` key (#3540): a tracked expression evaluated as
+ * the condition memo of `<Show keyed when={key}>` wrapping the boundary would
+ * be — a plain reader (born held over a held value, A29; staged with a
+ * transaction it reads), created under `owner` while the owner's queue is
+ * still the parent's, so it belongs to the parent boundary and not to this
+ * one. Two status rules set it apart from a plain memo:
+ * - Pending is not the parent's: a key that is not ready answers `ON_INIT`
+ *   and counts as a change (the boundary shows its fallback, not an outer
+ *   one). Propagation marks the node without a pass, so the channel scrubs
+ *   the mark and re-derives it; the pass reads the source (linking to its
+ *   landing) and catches.
+ * - An error IS the parent's, as `when`'s would be: forwarded up the queue
+ *   chain like a render effect's; uncaught, it halts (#2884).
+ */
+function keyComputed(owner: Owner, onFn: () => any): Computed<unknown> {
+  const node = runWithOwner(owner, () =>
+    computed<unknown>(
+      () => {
+        try {
+          return onFn();
+        } catch (e) {
+          if (e instanceof NotReadyError) return ON_INIT;
+          throw e;
+        }
+      },
+      { lazy: true }
+    )
+  );
+  ext(node)._notifyStatus = (status?: number, error?: any) => {
+    const flags = status !== undefined ? status : node._statusFlags;
+    if (flags & STATUS_PENDING) {
+      node._statusFlags &= ~STATUS_PENDING;
+      if (node._x?._error instanceof NotReadyError) node._x._error = undefined;
+      enqueueSub(node);
+      schedule();
+    }
+    if (flags & STATUS_ERROR) {
+      const actualError = error !== undefined ? error : node._x?._error;
+      node._statusFlags &= ~STATUS_ERROR;
+      if (node._x?._error === actualError && node._x !== null) node._x._error = undefined;
+      if (!node._queue.notify(node, STATUS_ERROR, flags, actualError)) {
+        haltReactivity(unwrapStatusError(actualError));
+        throw actualError;
+      }
+    }
+  };
   node._config &= ~CONFIG_AUTO_DISPOSE;
   recompute(node, true);
   return node;
@@ -284,7 +339,8 @@ export class CollectionQueue extends Queue {
   _collapsed: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _revealController?: RevealController;
   _initialized: boolean = false;
-  _onFn: (() => any) | undefined;
+  /** The `on` key the boundary last keyed on (`ON_INIT`: none yet, or the
+   * key was not ready). Maintained by the boundary's output pass. */
   _prevOn: any = ON_INIT;
   /** The boundary's owner — where a `caught` report locates itself, set before the children are built (a creation-time throw arrives before `_tree`). */
   _owner?: Owner;
@@ -296,50 +352,44 @@ export class CollectionQueue extends Queue {
     if (!type || (read(this._disabled) && (!_revealUsed || read(this._collapsed)))) return;
     return super.run(type);
   }
-  /** The `on` key, or ON_INIT when it throws. Evaluated mid-propagation,
-   * inside the pending node's own pass: read as a spectator so the key's
-   * sources never become that node's dependencies (#3528). */
-  _readOn(): any {
-    return spectate(() => {
-      try {
-        return this._onFn!();
-      } catch {
-        return ON_INIT;
-      }
-    });
+  /** The `on` key changed under a boundary that shows content: it is a fresh
+   * boundary now, as the one `<Show keyed when={key}>` would remount (#3540).
+   * Called from the boundary's output pass, so the fallback it selects lands
+   * where the key's change landed — with the write's commit for a committed
+   * key, ahead of it for `latest(x)`. Returns whether the fallback shows:
+   * the pass answers by it directly, not by reading `_disabled` back — the
+   * write just staged is served committed to a pass under a lane (the
+   * entanglement gate) and held to one under the transaction. */
+  _reset(): boolean {
+    this._initialized = false;
+    this._sources.clear();
+    // Readers forwarded while this boundary showed content are behind the
+    // fallback now: they stop blocking (`reporterBlocksSource`), and the
+    // transactions they were holding must be re-judged for it (A33, #3375).
+    // What those readers still wait on is this boundary's to wait on now:
+    // they never re-notify (status propagation dedupes on the reader's
+    // `_pendingSources`), so the reset collects it from their registrations
+    // — the one place a forwarded reader is recorded (INV-3) — or a sibling
+    // reader's flight that lands first reveals them stale (A33, #3459).
+    for (const t of transitions)
+      for (const [source, reporters] of t._asyncReporters)
+        for (const reporter of reporters)
+          if (this._holds(reporter)) {
+            this._sources.add(source);
+            reporter._x?._pendingSources?.forEach(s => this._sources.add(s));
+          }
+    const disabled = this._sources.size !== 0;
+    if (disabled) {
+      this._pending = true;
+      setSignal(this._disabled, true);
+      if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
+        attrHooks.boundaryFallback(this, this._tree, true);
+    }
+    wakeParked();
+    return disabled;
   }
   notify(node: Effect<any>, type: number, flags: number, error?: any) {
     if (!(type & this._collectionType)) return super.notify(node, type, flags, error);
-
-    if (this._initialized && this._onFn) {
-      const currentOn = this._readOn();
-      if (currentOn !== this._prevOn) {
-        this._prevOn = currentOn;
-        this._initialized = false;
-        this._sources.clear();
-        // Readers forwarded while this boundary showed content are behind the
-        // fallback now: they stop blocking (`reporterBlocksSource`), and the
-        // transactions they were holding must be re-judged for it (A33, #3375).
-        // What those readers still wait on is this boundary's to wait on now:
-        // they never re-notify (status propagation dedupes on the reader's
-        // `_pendingSources`), so the reset collects it from their registrations
-        // — the one place a forwarded reader is recorded (INV-3) — or a sibling
-        // reader's flight that lands first reveals them stale (A33, #3459).
-        for (const t of transitions)
-          for (const [source, reporters] of t._asyncReporters)
-            for (const reporter of reporters)
-              if (this._holds(reporter)) {
-                this._sources.add(source);
-                reporter._x?._pendingSources?.forEach(s => this._sources.add(s));
-              }
-        if (this._sources.size) {
-          setSignal(this._disabled, true);
-          if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
-            attrHooks.boundaryFallback(this, this._tree, true);
-        }
-        wakeParked();
-      }
-    }
 
     // Routing is dimension-independent: each boundary consumes only its own
     // status dimension from the mask (`type &= ~collectionType` below) and
@@ -407,11 +457,19 @@ export class CollectionQueue extends Queue {
       // mark's lifetime (the visual channel): the marked node carries no
       // status of its own, so the count is the liveness test. The release
       // sweep (finalizePureQueue after mark release) re-runs this check.
+      // A source born held under this boundary (recompute, #3540) carries no
+      // status either: it is collected while it has a staged value and no
+      // committed one, and released by the commit that initializes it.
       if (
         source._flags & REACTIVE_DISPOSED ||
         (!source._x?._affectsCount &&
           !(source._statusFlags & this._collectionType) &&
-          !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING))
+          !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING) &&
+          !(
+            this._collectionType & STATUS_PENDING &&
+            source._statusFlags & STATUS_UNINITIALIZED &&
+            source._pendingValue !== NOT_PENDING
+          ))
       )
         this._sources.delete(source);
     }
@@ -430,12 +488,6 @@ export class CollectionQueue extends Queue {
         setSignal(this._disabled, false);
         if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
           attrHooks.boundaryFallback(this, this._tree, false);
-        if (this._onFn) {
-          // A throw (value not yet committed) leaves _prevOn stale; the next
-          // notify then resets.
-          const on = this._readOn();
-          if (on !== ON_INIT) this._prevOn = on;
-        }
       }
     }
     if (_revealUsed) this._revealController?._evaluate();
@@ -467,10 +519,16 @@ function createCollectionBoundary<T>(
   queue._owner = owner;
   if (type === STATUS_ERROR)
     queue._error = signal<unknown>(undefined, { ownedWrite: true, _noSnapshot: true });
-  if (onFn) queue._onFn = onFn;
+  // The `on` key lives OUTSIDE the boundary, as the condition of a
+  // `<Show keyed when={key}>` wrapping it would: created before the owner's
+  // queue becomes this boundary's (keyComputed).
+  const onKey = onFn && keyComputed(owner, onFn);
   const tree = (queue._tree = createBoundChildren(owner, fn, queue, type) as BoundaryComputed<any>);
-  // Prime source tracking so reveal registration sees pending sources.
-  untrack(() => {
+  // Prime source tracking so reveal registration sees pending sources. A
+  // bookkeeping read (`spectate`): the mounting pass derives nothing from
+  // the tree — it must not be linked to it, nor enter the transaction a
+  // tree born held (A29 under a boundary, #3540) was staged into.
+  spectate(() => {
     let pending = false;
     try {
       read(tree);
@@ -491,7 +549,21 @@ function createCollectionBoundary<T>(
   return accessor<T>(
     computed(
       (): T => {
-        if (!read(queue._disabled)) {
+        // The key is read first: a change under a boundary that shows content
+        // resets it here, in this pass, so the fallback lands as this pass's
+        // value does — with the key's change. (Nothing to reset while the
+        // fallback shows: a fresh boundary has nothing to preserve.)
+        let reset = false;
+        if (onKey) {
+          const key = read(onKey);
+          if (key !== queue._prevOn) {
+            queue._prevOn = key;
+            if (queue._initialized) reset = queue._reset();
+          }
+        }
+        // `_disabled` is read whatever the reset said: its clear (the sweep's,
+        // when the collected sources settle) is what re-runs this pass.
+        if (!read(queue._disabled) && !reset) {
           const resolved = read(tree);
           if (!untrack(() => read(queue._disabled))) return ((queue._initialized = true), resolved);
         }
@@ -519,8 +591,15 @@ function createCollectionBoundary<T>(
  *
  * @param fn the tracked subtree
  * @param fallback the fallback shown while async reads in `fn` are unresolved
- * @param options `on` — accessor whose value scopes the boundary; when set,
- *   transitions caused by writes to other reactive sources are *not* caught
+ * @param options `on` — a tracked expression whose value keys the boundary,
+ *   as `<Show keyed when={key}>` wrapping it would (minus the remount of
+ *   `fn`): while the key is unchanged, a boundary that already shows content
+ *   keeps it through a refetch (the pending holds with the transaction);
+ *   when it changes, the boundary is fresh again and shows `fallback` until
+ *   the new content is ready. The change lands where the key's does:
+ *   `on: () => id()` with the write's commit, `on: () => latest(id)` ahead
+ *   of it — a placeholder for the next frame beside the current one. A key
+ *   that is not ready counts as a change.
  *
  * @example
  * ```tsx
