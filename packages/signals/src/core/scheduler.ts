@@ -430,29 +430,6 @@ export function wakeParked(): void {
   for (const t of transitions) wokenTransitions.includes(t) || wokenTransitions.push(t);
   schedule();
 }
-/**
- * Boundary display writes (`_disabled` / `_collapsed`, boundaries.ts) whose
- * subscribers have not been told yet. A collecting boundary's fallback is the
- * FRAME's, never a transaction's (#3540): a boundary that shows its fallback
- * has nothing to preserve, so nothing it selects can be held. The value is
- * written in place (no staging — the flag is never a pending node, so no hold
- * ever adopts or stamps it) and the subscriber walk waits for the flush's
- * finalize: past the park, where the ambient batch has been detached, so the
- * output pass it re-runs computes mainline and lands in the next pass beside
- * the current frame, rather than in a heap a hold is about to stash (the
- * pre-rc.10 `on` reset staged its `_disabled` write into the pending write's
- * transaction and the fallback landed with the commit). Inside finalize the
- * walk is immediate: a release (`_checkSources`) must land in the finalize
- * that decided it.
- */
-const displayWrites: Signal<any>[] = [];
-let finalizing = false;
-export function notifyDisplay(sig: Signal<any>): void {
-  if (finalizing) insertSubs(sig);
-  else displayWrites.push(sig);
-  schedule();
-}
-
 /** Transactions a mainline tick has PROPOSED against (A34, #3494): a write to a
  * node one of them holds — the same value or another — is a second proposal
  * on a contested node, and the tick reveals with the hold ("both are
@@ -865,7 +842,6 @@ export class GlobalQueue extends Queue {
           reassignPendingTransition(stashedTransition._pendingNodes);
           activeTransition = null;
           finalizePureQueue(null, true);
-          finalizing = false;
           return;
         }
         const completingTransition = activeTransition;
@@ -877,7 +853,6 @@ export class GlobalQueue extends Queue {
         activeTransition = null;
         reassignPendingTransition(batch._pendingNodes);
         finalizePureQueue(completingTransition);
-        finalizing = false;
         if (batch === completingTransition) {
           // Drop the dead Transition wrapper but keep its (drained) containers
           // as the ambient batch — late registrations during finalization live
@@ -899,7 +874,6 @@ export class GlobalQueue extends Queue {
         } else {
           if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
           finalizePureQueue();
-          finalizing = false;
         }
       }
       clock++;
@@ -1328,16 +1302,6 @@ export function finalizePureQueue(
   // For completing transitions or no-transition, resolve pending and revert optimistic
   const finalizingBatch = currentBatch;
   const resolvePending = !incomplete;
-  // Boundary display writes made since the last finalize tell their
-  // subscribers now (see displayWrites): after a park this is mainline, and
-  // the fallback passes they re-run are the next pass's, beside the frame.
-  finalizing = true;
-  if (displayWrites.length) {
-    while (displayWrites.length) insertSubs(displayWrites.pop()!);
-    // A parked pass computed its `scheduled` before this: the re-run pass
-    // stages mainline here and needs the next pass to commit and apply it.
-    schedule();
-  }
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
   // Contested effects (#3322) re-derive from the world this commit just
