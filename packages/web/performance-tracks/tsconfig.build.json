@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./types",
+    "baseUrl": "./src",
+    "rootDir": "./src",
+    "types": ["node"],
+    "paths": {
+      // Resolve against the built declarations (types:web runs first in the
+      // pipeline) for the same reason storage/ does: d.ts inputs are exempt
+      // from rootDir, so the emit lands at performance-tracks/types/index.d.ts
+      // — the path package.json advertises. `solid-js` and its attribution
+      // entry resolve through the workspace as published.
+      "@solidjs/web": ["../../types/index.d.ts"]
+    }
+  },
+  "include": ["./src"]
+}

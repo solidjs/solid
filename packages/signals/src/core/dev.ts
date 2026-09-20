@@ -8,7 +8,14 @@ import {
   type InteractionRef,
   type OriginRef
 } from "./attribution-hooks.js";
-import type { ChangeOrigin, RerunEvent } from "./attribution.js";
+import type {
+  ChangeOrigin,
+  CreateEvent,
+  EffectRunEvent,
+  FallbackEvent,
+  FlightEvent,
+  RerunEvent
+} from "./attribution.js";
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
@@ -310,10 +317,20 @@ export interface Observe {
    * `nodeId` — so consumers that run in-process (devtools, the console
    * reporter, `subscriptions(OBSERVE.subjectOf(run))`) look the
    * node up here. Answers for `DiagnosticEvent`s and the attribution
-   * engine's `RerunEvent`s; `undefined` for anything else, and for a record
-   * that has left the process and come back.
+   * engine's node records — `RerunEvent`, `CreateEvent`, `EffectRunEvent`,
+   * `FlightEvent`, and a `FallbackEvent` whose boundary reported its
+   * subtree; `undefined` for anything else, and for a record that has left
+   * the process and come back.
    */
-  subjectOf(record: DiagnosticEvent | RerunEvent): DiagnosticSubject | undefined;
+  subjectOf(
+    record:
+      | DiagnosticEvent
+      | RerunEvent
+      | CreateEvent
+      | EffectRunEvent
+      | FlightEvent
+      | FallbackEvent
+  ): DiagnosticSubject | undefined;
   /**
    * Marks `owner`'s subtree as the observer's own. A consumer that renders
    * inside the app it watches — an APM adapter's panel, devtools — would

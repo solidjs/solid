@@ -37,6 +37,14 @@ export interface AttributionHooks {
   originStart(ref: OriginRef): void;
   originEnd(): void;
   /**
+   * A `flush()` drain is starting: work is scheduled or a transition is
+   * active, so the loop will run at least once. Always paired with
+   * `flushEnd` for the same drain, and never nested (`flush()` is a no-op
+   * while the queue is running), so start → end is the wall time of one
+   * drain — the scheduler's own span.
+   */
+  flushStart(): void;
+  /**
    * A `flush()` drain finished: every batch it processed either committed
    * (its effects have run) or was parked in a held transition (`holdStart`
    * fired for it). Fires once per drain, after the loop — not per batch, and

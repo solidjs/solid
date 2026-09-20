@@ -194,6 +194,37 @@ export default [
     external: ["@solidjs/web"],
     plugins
   },
+  // @solidjs/web/performance-tracks — the Chrome Performance panel adapter
+  // over the attribution engine's records. Three tiers like the main entry:
+  // the prod artifact folds to `enablePerformanceTracks = () => noop` behind
+  // `"_SOLID_OBSERVE_"` (the engine it would subscribe to is inert there),
+  // observe paints with `console.timeStamp`, dev adds the rich
+  // `performance.measure` tooltips by default. `solid-js/attribution` stays
+  // external so the adapter subscribes to the ONE engine the app's build
+  // resolved (dev/observe real, prod inert) — a bundled copy would be a
+  // second engine hearing nothing.
+  {
+    input: "performance-tracks/src/index.ts",
+    output: { file: "performance-tracks/dist/performance-tracks.js", format: "es" },
+    external: ["solid-js", "solid-js/attribution", "@solidjs/web"],
+    // Once the body has folded, the externals are unused; both are
+    // `sideEffects: false` packages, so the bare imports go too and the
+    // prod artifact is the no-op alone.
+    treeshake: { moduleSideEffects: "no-external" },
+    plugins: [replaceDev(false)].concat(plugins)
+  },
+  {
+    input: "performance-tracks/src/index.ts",
+    output: { file: "performance-tracks/dist/performance-tracks.observe.js", format: "es" },
+    external: ["solid-js", "solid-js/attribution", "@solidjs/web"],
+    plugins: [replaceFlags(false, true)].concat(plugins)
+  },
+  {
+    input: "performance-tracks/src/index.ts",
+    output: { file: "performance-tracks/dist/performance-tracks.dev.js", format: "es" },
+    external: ["solid-js", "solid-js/attribution", "@solidjs/web"],
+    plugins: [replaceDev(true)].concat(plugins)
+  },
   {
     input: "serialization/src/serializer.ts",
     output: { file: "serialization/dist/serialization.js", format: "es" },

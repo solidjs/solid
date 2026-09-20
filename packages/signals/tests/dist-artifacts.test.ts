@@ -65,6 +65,13 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
     expect(observe.attribution.installed).not.toBeNull();
     const runs: any[] = [];
     attribution.subscribe((e: any) => runs.push(e));
+    // The timeline records ride core hooks of their own: `flushStart` in the
+    // scheduler, `effectRunStart`/`End` around the callback — both must be
+    // live in the observe core, not only in dev.
+    const flushes: any[] = [];
+    attribution.subscribe("flush", (e: any) => flushes.push(e));
+    const effects: any[] = [];
+    attribution.subscribe("effect", (e: any) => effects.push(e));
     const setCount = core.createRoot(() => {
       const [count, set] = core.createSignal(0, { name: "count" });
       core.createEffect(count, () => {}, { name: "reader" });
@@ -84,6 +91,14 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
     expect(rerun.interaction).toMatchObject({ kind: "interaction", name: "click" });
     // The drain's flushEnd reached the engine: the navigation settled.
     expect(attribution.navigations()[0]).toMatchObject({ name: "/go", outcome: "committed" });
+    // …and its flushStart: the drain is one record, serving the click.
+    expect(flushes.at(-1)).toMatchObject({ runs: 1, held: false });
+    expect(flushes.at(-1).interaction).toMatchObject({ kind: "interaction", name: "click" });
+    // The effect callback was timed and joined to its compute run.
+    const callback = effects.find((e: any) => e.run === rerun.run);
+    expect(callback).toBeDefined();
+    expect(callback.nodeId).toBe(rerun.nodeId);
+    expect(callback.interaction).toBe(rerun.interaction);
   } finally {
     attribution.disable();
   }

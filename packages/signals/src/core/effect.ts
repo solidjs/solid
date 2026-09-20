@@ -219,8 +219,12 @@ function runEffect(node: Effect<any>, type: number): void {
   if (__DEV__) {
     prevStrictRead = setStrictRead("an effect callback");
     setEffectCallback(true);
-    if (attrHooks !== null) attrHooks.effectRunStart(node);
   }
+  // Observe tier, like its `effectRunEnd` twin below: the frame the engine
+  // opens here is what stamps the callback's writes as the effect's (the
+  // cascade an observer reports) and what times the callback (the `effect`
+  // record) — facts a production observer needs, not only a dev console.
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.effectRunStart(node);
   const prevCleanup = node._cleanup;
   node._cleanup = undefined;
   try {

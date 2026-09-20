@@ -10,7 +10,13 @@
  * `attribution.prod.ts`, an inert engine with the same surface, so app code
  * can import it unconditionally.
  */
-export { attribution, formatOrigin, formatRerun } from "./core/attribution.js";
+export {
+  attribution,
+  formatOrigin,
+  formatRerun,
+  isLongHold,
+  isSilentHold
+} from "./core/attribution.js";
 // The folds and point queries are named exports, not methods of `attribution`:
 // each fold registers its accounting with the engine when its module is
 // evaluated, so a records-only consumer that never imports `costs`/`feedback`
@@ -27,7 +33,12 @@ export type {
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
+  CreateEvent,
+  EffectRunEvent,
+  FallbackEvent,
+  FlightEvent,
   FlightLink,
+  FlushEvent,
   HeldWrite,
   HoldEvent,
   InteractionEvent,

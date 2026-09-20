@@ -114,8 +114,22 @@ describe("InteractionEvent", () => {
       navigations: []
     });
     expect(e.at).toBeGreaterThanOrEqual(before);
+    expect(e.inputDelayMs).toBeUndefined();
     expect(e.settledMs).toBe(e.handlerMs);
     expect(attribution.interactions()).toEqual([e]);
+  });
+
+  it("dates itself from the runtime's `at` and reports the gap to handler entry as input delay", () => {
+    const { interactions } = arm();
+    const at = performance.now() - 20;
+    OBSERVE!.attribution.withInteraction({ ...CLICK, at }, () => {});
+    const [e] = interactions();
+    expect(e.at).toBe(at);
+    expect(e.inputDelayMs).toBeGreaterThanOrEqual(20);
+    // The handler ran for next to nothing; what the person waited was the queue.
+    expect(e.handlerMs).toBeLessThan(e.inputDelayMs!);
+    expect(e.settledMs).toBeCloseTo(e.inputDelayMs! + e.handlerMs, 6);
+    expect(e.outcome).toBe("idle");
   });
 
   it("stays open until the drain that committed its writes, counting the re-runs it caused", () => {

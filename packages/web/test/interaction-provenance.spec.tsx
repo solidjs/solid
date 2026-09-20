@@ -97,6 +97,68 @@ describe("interaction provenance", () => {
     dispose();
   });
 
+  test("the interaction is dated from the event's timeStamp when it is on the performance clock", () => {
+    arm();
+    const [n, setN] = createSignal(0, { name: "n" });
+    let interaction: any;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <button id="go" onClick={() => setN(v => v + 1)}>
+          Go
+        </button>
+      ),
+      container
+    );
+    flush();
+    attribution.subscribe("interaction", e => (interaction = e));
+
+    // The browser created the event 30ms before the handler ran (a busy main
+    // thread): `PerformanceEventTiming.startTime` would carry this value.
+    const created = performance.now() - 30;
+    const ev = new MouseEvent("click", { bubbles: true });
+    Object.defineProperty(ev, "timeStamp", { value: created });
+    container.querySelector("button")!.dispatchEvent(ev);
+    flush();
+
+    expect(interaction.at).toBe(created);
+    expect(interaction.inputDelayMs).toBeGreaterThanOrEqual(30);
+    expect(interaction.handlerMs).toBeLessThan(interaction.inputDelayMs);
+    expect(n()).toBe(1);
+    dispose();
+    container.remove();
+  });
+
+  test("an epoch-clock timeStamp (jsdom, legacy browsers) is ignored: dated at dispatch", () => {
+    arm();
+    const [n, setN] = createSignal(0, { name: "n" });
+    let interaction: any;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <button id="go" onClick={() => setN(v => v + 1)}>
+          Go
+        </button>
+      ),
+      container
+    );
+    flush();
+    attribution.subscribe("interaction", e => (interaction = e));
+
+    const ev = new MouseEvent("click", { bubbles: true });
+    expect(ev.timeStamp).toBeGreaterThan(performance.now()); // jsdom: Date.now()
+    const before = performance.now();
+    container.querySelector("button")!.dispatchEvent(ev);
+    flush();
+
+    expect(interaction.at).toBeGreaterThanOrEqual(before);
+    expect(interaction.inputDelayMs).toBeUndefined();
+    dispose();
+    container.remove();
+  });
+
   test("inputs are described by name, not text", () => {
     arm();
     const [q, setQ] = createSignal("", { name: "q" });

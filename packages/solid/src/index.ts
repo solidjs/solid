@@ -36,7 +36,8 @@ export {
   enforceLoadingBoundary,
   snapshot,
   untrack,
-  configureClientErrors
+  configureClientErrors,
+  ownerPath
 } from "@solidjs/signals";
 /** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
 export { ROOT_ERROR_HOOK } from "@solidjs/signals";
@@ -226,6 +227,11 @@ export type {
   AttributionRecordType,
   ChangeOrigin,
   ChangeRecord,
+  CreateEvent,
+  EffectRunEvent,
+  FallbackEvent,
+  FlightEvent,
+  FlushEvent,
   HeldWrite,
   HoldEvent,
   InteractionEvent,

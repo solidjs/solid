@@ -54,6 +54,7 @@ export {
   enforceLoadingBoundary,
   untrack,
   configureClientErrors,
+  ownerPath,
   ROOT_ERROR_HOOK
 } from "./signals.js";
 export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";

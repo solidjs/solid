@@ -499,9 +499,26 @@ function describeEventTarget(target) {
   return out;
 }
 
+/**
+ * The interaction's start on the `performance.now()` clock: the event's own
+ * `timeStamp` — when the browser created it, before any queued task ran —
+ * not the moment the handler was reached, so the wait the record measures
+ * begins where the user's does. It is also the join key to the browser's
+ * Event Timing entry for the same interaction (`PerformanceEventTiming
+ * .startTime` equals it), which is how a consumer lines an interaction
+ * record up with INP without a time-window guess. Guarded: an environment
+ * that still stamps events with epoch milliseconds (jsdom, pre-2016
+ * browsers) puts the value far past `performance.now()`, and a value from
+ * the wrong clock is worse than none — the engine then defaults to now.
+ */
+function interactionStart(e) {
+  const at = e.timeStamp;
+  return typeof at === "number" && at >= 0 && at <= performance.now() ? at : undefined;
+}
+
 function dispatchAsInteraction(e, fn) {
   return OBSERVE.attribution.withInteraction(
-    { type: e.type, target: describeEventTarget(e.target) },
+    { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e) },
     fn
   );
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */

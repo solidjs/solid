@@ -666,3 +666,103 @@ describe("why-did-this-run attribution", () => {
     expect(attribution.history()).toHaveLength(0);
   });
 });
+
+describe("shared engine: ref-counted enable/disable", () => {
+  function counter() {
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() =>
+      createEffect(
+        () => n(),
+        () => {},
+        { name: "e" }
+      )
+    );
+    flush();
+    return setN;
+  }
+
+  it("stays installed until the last consumer disables", () => {
+    const setN = counter();
+    const first: RerunEvent[] = [];
+    const second: RerunEvent[] = [];
+    attribution.enable({ log: false });
+    attribution.subscribe(e => first.push(e));
+    attribution.enable({ log: false });
+    attribution.subscribe(e => second.push(e));
+
+    setN(1);
+    flush();
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+
+    // One consumer leaves: the other keeps receiving.
+    attribution.disable();
+    setN(2);
+    flush();
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+
+    // The last one leaves: uninstalled, listeners cleared.
+    attribution.disable();
+    setN(3);
+    flush();
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(attribution.history()).toHaveLength(0);
+  });
+
+  it("opens a fresh window on every enable without uninstalling", () => {
+    const setN = counter();
+    attribution.enable({ log: false });
+    setN(1);
+    flush();
+    expect(attribution.history()).toHaveLength(1);
+
+    // A second consumer arrives (say, a capture): it reads back only what
+    // happens from here on.
+    attribution.enable({ log: false });
+    expect(attribution.history()).toHaveLength(0);
+    setN(2);
+    flush();
+    expect(attribution.history()).toHaveLength(1);
+    attribution.disable();
+    attribution.disable();
+  });
+
+  it("disable without a matching enable is a full, idempotent reset", () => {
+    const setN = counter();
+    attribution.disable();
+    attribution.disable();
+    const events: RerunEvent[] = [];
+    attribution.subscribe(e => events.push(e));
+    setN(1);
+    flush();
+    expect(events).toHaveLength(0);
+  });
+
+  it("checks: false folds every cost check out while records keep flowing", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    const events = collect({ checks: false, hotRuns: { count: 2, windowMs: 60_000 } });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    expect(events).toHaveLength(5);
+    expect(capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("checks defaults on: the same run warns", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    collect({ hotRuns: { count: 2, windowMs: 60_000 }, hotTime: false, wideDeps: false });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    expect(capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
+  });
+});
