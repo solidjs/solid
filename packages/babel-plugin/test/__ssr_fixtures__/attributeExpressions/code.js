@@ -427,3 +427,12 @@ const template95 = (
     <video src="test.mp4" muted />
   </div>
 );
+
+const template96 = (
+  <div>
+    <textarea value="a &lt;b&gt; &amp; c" />
+    <textarea {...spread} value="a &lt;b&gt; &amp; c" />
+    <textarea {...spread} value="static" />
+    <textarea value="static" {...spread} />
+  </div>
+);

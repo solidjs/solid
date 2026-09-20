@@ -787,6 +787,7 @@ export function transformSpecialCaseAttributes(
 ): void {
   tagName = tagName.toUpperCase();
   const transforms: { propName: string; attr: NodePath<t.JSXAttribute> }[] = [];
+  const hasSpread = path.node.openingElement.attributes.some(a => t.isJSXSpreadAttribute(a));
 
   let hasOrHadAttribute: Record<string, boolean> = {};
 
@@ -829,6 +830,8 @@ export function transformSpecialCaseAttributes(
       tagName === "TEXTAREA" &&
       defaultAttrName === "value" &&
       !t.isNullLiteral(value) &&
+      // A spread element keeps `value` a prop: the runtime spread orders sources.
+      !hasSpread &&
       // Only fold into children when SSR (HTML output needs the text content)
       // or when the value is a static literal (template-inlined HTML attribute
       // on parse). For dynamic DOM, prop:* survives the textarea "dirty" flag
@@ -837,9 +840,10 @@ export function transformSpecialCaseAttributes(
     ) {
       let child;
       if (t.isStringLiteral(value)) {
-        child = t.jsxText(value.value);
+        const text = escapeHTML(value.value) as string;
+        child = t.jsxText(text);
         // filterChildren reads child.extra.raw for JSXText nodes
-        child.extra = { raw: value.value, rawValue: value.value };
+        child.extra = { raw: text, rawValue: text };
       } else {
         child = t.jsxExpressionContainer(value);
       }

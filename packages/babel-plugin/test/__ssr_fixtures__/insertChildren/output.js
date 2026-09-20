@@ -112,3 +112,4 @@ const childrenAfterSpread = _$ssrElement(
   undefined,
   false
 );
+const spreadText = _$ssrElement("module", dynamic, "a &lt;b> &amp; c", false);

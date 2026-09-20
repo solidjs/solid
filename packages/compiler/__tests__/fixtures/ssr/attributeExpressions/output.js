@@ -120,6 +120,12 @@ var _tmpl$53 = [
 	"</textarea><textarea>static content</textarea><textarea>static content</textarea></div>"
 ];
 var _tmpl$54 = ["<div><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
+var _tmpl$55 = [
+	"<div><textarea>a &lt;b> &amp; c</textarea>",
+	"",
+	"",
+	"</div>"
+];
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -499,3 +505,5 @@ var _v$49 = () => {
 	return _$ssrAttribute("muted", _$escape(dynamicAttribute(), true));
 };
 const template95 = _$ssr(_tmpl$54, _v$49);
+var _v$50 = _$ssrElement("textarea", [spread, { value: "a <b> & c" }], undefined, false), _v$51 = _$ssrElement("textarea", [spread, { value: "static" }], undefined, false), _v$52 = _$ssrElement("textarea", [{ value: "static" }, spread], undefined, false);
+const template96 = _$ssr(_tmpl$55, _v$50, _v$51, _v$52);

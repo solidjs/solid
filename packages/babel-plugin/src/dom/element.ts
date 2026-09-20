@@ -1677,7 +1677,8 @@ function processSpreads(
             t.stringLiteral(normalized),
             (isContainer
               ? expression
-              : node.value || t.booleanLiteral(true)) as babelTypes.Expression
+              : (t.isStringLiteral(value) ? t.stringLiteral(value.value) : value) ||
+                t.booleanLiteral(true)) as babelTypes.Expression
           )
         );
       }
