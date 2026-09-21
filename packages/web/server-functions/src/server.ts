@@ -1121,7 +1121,12 @@ export function registerServerFunction(id, callback) {
   // (#3129). A function that still declares GET re-runs `GET()` right
   // after re-registering — module order guarantees it — so the grant
   // re-arms itself exactly when it is still meant.
-  if (REGISTRATIONS.get(id) !== callback) METHODS.delete(id);
+  if (REGISTRATIONS.get(id) !== callback) {
+    // dev: a program reload re-evaluates this id's module on the next
+    // request without the module that declared it (#3564)
+    if (DEV && declaresRead(id)) METHODS.set(id, callback);
+    else METHODS.delete(id);
+  }
   REGISTRATIONS.set(id, callback);
   return callback;
 } /**
