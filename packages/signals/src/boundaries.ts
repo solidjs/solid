@@ -47,7 +47,10 @@ export interface BoundaryComputed<T> extends Computed<T> {
 }
 
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
-  const node = computed<T>(fn, { lazy: true }) as BoundaryComputed<T>;
+  const node = computed<T>(
+    fn,
+    __OBSERVE__ ? { name: "boundary", lazy: true } : { lazy: true }
+  ) as BoundaryComputed<T>;
   ext(node)._notifyStatus = (status?: number, error?: any) => {
     // Use passed values if provided, otherwise read from node
     const flags = status !== undefined ? status : node._statusFlags;
@@ -166,8 +169,12 @@ function createBoundChildren<T>(
   const parentQueue = owner._queue;
   parentQueue.addChild((owner._queue = queue));
   cleanup(() => parentQueue.removeChild(owner._queue!));
+  // Named for the observe tier's owner paths: user content under a boundary
+  // is owned by `children`, and the boundary's own two nodes read as
+  // structure rather than as anonymous `computed`s between `<Loading>` and
+  // the content (`<App> › <Loading> › children › <Feed>`).
   return runWithOwner(owner, () => {
-    const c = computed(fn);
+    const c = computed(fn, __OBSERVE__ ? { name: "children" } : undefined);
     return boundaryComputed(() => flatten(read(c)), mask);
   });
 }
@@ -702,7 +709,7 @@ function createCollectionBoundary<T>(
       // legitimately swaps mid-hydration (reveal/resume), so it must never be frozen
       // by snapshot capture. The tree no longer carries foreign status flags, so
       // capture can't rely on PENDING to skip this node the way it used to.
-      { _noSnapshot: true }
+      __OBSERVE__ ? { name: "value", _noSnapshot: true } : { _noSnapshot: true }
     ))
   );
 }
@@ -843,11 +850,14 @@ export function createRevealOrder<T>(
   setContext(RevealControllerContext, controller, owner);
   return runWithOwner(owner, () => {
     const value = fn();
-    computed(() => {
-      order();
-      collapsed();
-      controller._evaluate();
-    });
+    computed(
+      () => {
+        order();
+        collapsed();
+        controller._evaluate();
+      },
+      __OBSERVE__ ? { name: "reveal order" } : undefined
+    );
     if (parentController) {
       controller._parentController = parentController;
       parentController._register(controller);

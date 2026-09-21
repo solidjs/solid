@@ -98,6 +98,15 @@ export interface ChangeRecord {
   seq: number;
   kind: ChangeKind;
   name: string;
+  /**
+   * Identity of the node that changed — the signal written, the memo whose
+   * value changed — in the same id space as `RerunEvent.nodeId`, so a
+   * derived cause joins the run that produced it and repeated writes to
+   * one signal join each other where `name` alone would merge every
+   * unnamed `signal`. Stamped on every record the engine makes; optional
+   * for a record built elsewhere (a `HeldWrite`, a deserialized artifact).
+   */
+  nodeId?: number;
   /** Short previews of the value transition (writes only). */
   prev?: string;
   value?: string;
@@ -923,7 +932,12 @@ function stampWrite(
   prev: unknown = NO_VALUES,
   value: unknown = NO_VALUES
 ): void {
-  const record: ChangeRecord = { seq: ++changeSeq, kind, name: nodeName(node) };
+  const record: ChangeRecord = {
+    seq: ++changeSeq,
+    kind,
+    name: nodeName(node),
+    nodeId: devId(node)
+  };
   if (value !== NO_VALUES) {
     record.prev = prev === NO_VALUES ? undefined : preview(prev);
     record.value = preview(value);
@@ -948,6 +962,7 @@ function stampDerived(node: Computed<any>, causes: ChangeRecord[]): void {
     seq: ++changeSeq,
     kind: "derived",
     name: nodeName(node),
+    nodeId: devId(node),
     causes
   };
 }

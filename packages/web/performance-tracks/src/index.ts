@@ -70,11 +70,14 @@ export interface PerformanceTracksOptions {
    */
   attribution?: AttributionOptions;
   /**
-   * Floor for `Effects`/`Memos` spans — compute runs (by `totalMs`),
-   * creation runs and effect callbacks (by their duration): spans under it
-   * are not painted. Default `0` in dev (every run; Chrome shows zero-width
-   * spans zoomed in) and `0.05` in observe builds, so a production trace
-   * carries the runs that cost something.
+   * Floor for run spans on `Propagation`, `Effects` and `Memos` — compute
+   * runs (by `totalMs`), creation runs and effect callbacks (by their
+   * duration): spans under it are not painted. The wave span on
+   * `Propagation` always is, and its label carries the counts, so a
+   * fan-out of runs too small to paint still reads as `47 runs`. Default
+   * `0` in dev (every run; Chrome shows zero-width spans zoomed in) and
+   * `0.05` in observe builds, so a production trace carries the runs that
+   * cost something.
    */
   minMs?: number;
   /**
@@ -136,7 +139,7 @@ interface Emitter {
  */
 const TRACKS = {
   interactions: "Interactions",
-  scheduler: "Scheduler",
+  propagation: "Propagation",
   effects: "Effects",
   memos: "Memos",
   async: "Async",
@@ -266,6 +269,22 @@ const CLEAR_EVERY = 500;
 
 class Painter {
   private readonly rich: boolean;
+  /**
+   * The wave under construction — what the current drain has propagated so
+   * far, folded into the `Propagation` wave span when its `flush` record
+   * arrives: the root writes (by identity: one write reaches many runs
+   * through many chains) and how many runs did nothing.
+   */
+  private roots = new Set<ChangeRecord>();
+  private unchanged = 0;
+  /**
+   * Short labels of the nodes that ran this drain, by `nodeId`, so a run's
+   * causes name the memo as the timeline shows it (collapsed to its flow
+   * tag or primitive) rather than by the raw `name` on the cause record.
+   * Producers run before their consumers, so the entry exists by the time
+   * the consumer's record arrives; cleared per drain to stay bounded.
+   */
+  private readonly names = new Map<number, string>();
   constructor(
     private readonly observe: Observe,
     private readonly emit: Emitter,
@@ -281,8 +300,18 @@ class Painter {
    * by self time like React's component flame — and `warning` when the
    * run provably did nothing (`changed: false`), `tertiary` under an
    * optimistic lane. The tooltip is the engine's own why-chain.
+   *
+   * `Propagation`: the same run inside its wave, labelled by what made it
+   * run (`<TodoRow> › effect ← doubled`), so the wave reads as the graph
+   * the write travelled: a wide flat wave is a coarse signal everyone
+   * depends on; a deep one is a chain of memos; a `warning` node with no
+   * dependants after it is the equality cutoff doing its job.
    */
   rerun(event: RerunEvent): void {
+    collectRoots(event.causes, this.roots);
+    if (!event.changed) this.unchanged++;
+    const node = this.describe(event);
+    this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
     const track = event.nodeKind === "effect" ? TRACKS.effects : TRACKS.memos;
     const color: TrackColor =
@@ -303,6 +332,7 @@ class Painter {
         ["Phase", event.phase + (event.held ? ", held" : "")],
         ["Deps", String(event.depCount)]
       ];
+      if (node.internal !== undefined) properties.push(["Node", node.internal]);
       if (event.depsAdded.length > 0) properties.push(["Deps added", event.depsAdded.join(", ")]);
       if (event.depsRemoved.length > 0)
         properties.push(["Deps removed", event.depsRemoved.join(", ")]);
@@ -311,11 +341,13 @@ class Painter {
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
+    const end = event.at + event.totalMs;
+    this.emit.span(node.label, event.at, end, track, color, tooltip, properties);
     this.emit.span(
-      this.label(event),
+      `${node.label} ← ${this.causeLabels(event.causes)}`,
       event.at,
-      event.at + event.totalMs,
-      track,
+      end,
+      TRACKS.propagation,
       color,
       tooltip,
       properties
@@ -325,9 +357,13 @@ class Painter {
   /**
    * `Effects` / `Memos`: a creation run — the mount flame. Same lane and
    * palette as a re-run, labelled `· create`, so a mount storm reads as a
-   * wall of creation spans under the interaction that built them.
+   * wall of creation spans under the interaction that built them. On
+   * `Propagation` too: a wave that builds nodes (a `<Show>` flipping, a
+   * `<For>` growing) shows what it mounted beside what it re-ran.
    */
   create(event: CreateEvent): void {
+    const node = this.describe(event);
+    this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
     let properties: Properties | undefined;
     if (this.rich) {
@@ -337,59 +373,81 @@ class Painter {
         ["Phase", event.phase + (event.held ? ", held" : "")],
         ["Deps", String(event.depCount)]
       ];
+      if (node.internal !== undefined) properties.push(["Node", node.internal]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
+    const label = `${node.label} · create`;
+    const end = event.at + event.totalMs;
+    const color: TrackColor = event.phase === "optimistic" ? "tertiary" : bySelfTime(event.selfMs);
     this.emit.span(
-      `${this.label(event)} · create`,
+      label,
       event.at,
-      event.at + event.totalMs,
+      end,
       event.nodeKind === "effect" ? TRACKS.effects : TRACKS.memos,
-      event.phase === "optimistic" ? "tertiary" : bySelfTime(event.selfMs),
+      color,
       undefined,
       properties
     );
+    this.emit.span(label, event.at, end, TRACKS.propagation, color, undefined, properties);
   }
 
   /**
    * `Effects`: the callback — the imperative half that writes the DOM —
    * as its own span after the compute run it belongs to, in the secondary
-   * palette so the two halves read apart.
+   * palette so the two halves read apart. On `Propagation` it is the leaf
+   * of the wave: where the write finally reached the screen.
    */
   effect(event: EffectRunEvent): void {
     if (event.durationMs < this.minMs) return;
+    const node = this.describe(event);
     let properties: Properties | undefined;
     if (this.rich) {
       properties = [["Duration", ms(event.durationMs)]];
+      if (node.internal !== undefined) properties.push(["Node", node.internal]);
       if (event.run !== undefined) properties.push(["Run", String(event.run)]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
-    this.emit.span(
-      `${this.label(event)} · callback`,
-      event.at,
-      event.at + event.durationMs,
-      TRACKS.effects,
-      event.durationMs < 10 ? "secondary-light" : event.durationMs < 100 ? "secondary" : "error",
-      undefined,
-      properties
-    );
+    const label = `${node.label} · callback`;
+    const end = event.at + event.durationMs;
+    const color: TrackColor =
+      event.durationMs < 10 ? "secondary-light" : event.durationMs < 100 ? "secondary" : "error";
+    this.emit.span(label, event.at, end, TRACKS.effects, color, undefined, properties);
+    this.emit.span(label, event.at, end, TRACKS.propagation, color, undefined, properties);
   }
 
   /**
-   * `Scheduler`: one span per drain, `at → at + durationMs`, labelled by
-   * what it processed; `tertiary` when it parked a transition (some of its
-   * writes stayed staged), the primary palette otherwise.
+   * `Propagation`: the wave — one span per drain, `at → at + durationMs`,
+   * labelled by the writes that started it and what they reached
+   * (`count 0 → 1 — click on button#next · 5 runs, 1 unchanged`). The runs
+   * painted inside it (see `rerun`) sit beneath it on the track by time,
+   * so the flame under a wave IS its propagation. `tertiary` when the
+   * drain parked a transition, `warning` when half or more of what it
+   * re-ran was unchanged, otherwise the primary palette by duration.
    */
   flush(event: FlushEvent): void {
-    let label = `flush · ${event.runs} ${event.runs === 1 ? "run" : "runs"}`;
+    const roots = [...this.roots];
+    const unchanged = this.unchanged;
+    this.roots.clear();
+    this.unchanged = 0;
+    this.names.clear();
+    let label = roots.length > 0 ? this.writes(roots, 3) : "flush";
+    const origin =
+      event.interaction ??
+      roots.map(r => r.origin).find(o => o !== undefined && o.kind !== "external");
+    if (origin !== undefined) label += ` — ${this.origin(origin)}`;
+    label += ` · ${event.runs} ${event.runs === 1 ? "run" : "runs"}`;
+    if (unchanged > 0) label += `, ${unchanged} unchanged`;
     if (event.created > 0) label += `, ${event.created} created`;
     if (event.held) label += " · held";
     let properties: Properties | undefined;
     if (this.rich) {
       properties = [
         ["Duration", ms(event.durationMs)],
+        ["Writes", roots.length > 0 ? this.writes(roots, Infinity) : "none"],
         ["Re-runs", String(event.runs)],
+        ["Unchanged", `${unchanged} (wasted)`],
         ["Created", String(event.created)],
         ["Held", event.held ? "yes — a transition parked" : "no"]
       ];
@@ -400,8 +458,14 @@ class Painter {
       label,
       event.at,
       event.at + event.durationMs,
-      TRACKS.scheduler,
-      event.held ? "tertiary" : event.durationMs < 16 ? "primary" : "primary-dark",
+      TRACKS.propagation,
+      event.held
+        ? "tertiary"
+        : unchanged > 0 && unchanged * 2 >= event.runs
+          ? "warning"
+          : event.durationMs < 16
+            ? "primary"
+            : "primary-dark",
       undefined,
       properties
     );
@@ -413,24 +477,19 @@ class Painter {
    * the re-ask storm's signature).
    */
   flight(event: FlightEvent): void {
-    const path = event.ownerPath;
-    const name =
-      path === undefined
-        ? event.nodeName
-        : path[path.length - 1] === event.nodeName
-          ? path.join(" › ")
-          : `${path.join(" › ")} › ${event.nodeName}`;
+    const node = describe(event.nodeName, event.ownerPath);
     let properties: Properties | undefined;
     if (this.rich) {
       properties = [
         ["In the air", ms(event.durationMs)],
         ["Outcome", event.outcome]
       ];
+      if (node.internal !== undefined) properties.push(["Node", node.internal]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
     this.emit.span(
-      `${name}${event.outcome === "abandoned" ? " · abandoned" : ""}`,
+      `${node.label}${event.outcome === "abandoned" ? " · abandoned" : ""}`,
       event.at,
       event.at + event.durationMs,
       TRACKS.async,
@@ -671,18 +730,134 @@ class Painter {
     );
   }
 
-  /** A run record's label: its node's owner path, the node's own name last. */
-  private label(event: RerunEvent | CreateEvent | EffectRunEvent): string {
-    const path = ownerPath(this.observe.subjectOf(event));
-    if (path === undefined) return event.nodeName;
-    return path[path.length - 1] === event.nodeName
-      ? path.join(" › ")
-      : `${path.join(" › ")} › ${event.nodeName}`;
+  /** A run record's node as the timeline shows it — see `describe`. */
+  private describe(event: RerunEvent | CreateEvent | EffectRunEvent): Described {
+    return describe(event.nodeName, ownerPath(this.observe.subjectOf(event)));
+  }
+
+  /**
+   * A run's immediate causes as `←` labels: memos by the short label their
+   * own run was painted with this drain, signals by name; a landing as
+   * `landed`, a self-invalidation as `refresh`. Deduplicated — a node with
+   * two deps on one memo has one cause.
+   */
+  private causeLabels(causes: ChangeRecord[]): string {
+    const labels = new Set<string>();
+    for (const c of causes) {
+      const name =
+        (c.kind === "derived" && c.nodeId !== undefined ? this.names.get(c.nodeId) : undefined) ??
+        c.name;
+      labels.add(
+        c.kind === "async" ? `${name} landed` : c.kind === "refresh" ? `refresh ${name}` : name
+      );
+    }
+    return [...labels].join(", ");
+  }
+
+  /**
+   * Root writes as one line, `count 0 → 1, name "a" → "b"`, values dropped
+   * under the scrub; past `limit` writes, `+N more`.
+   */
+  private writes(roots: ChangeRecord[], limit: number): string {
+    const shown = roots.slice(0, limit).map(r => {
+      let out =
+        r.kind === "async"
+          ? `${r.name} landed`
+          : r.kind === "refresh"
+            ? `refresh ${r.name}`
+            : r.name;
+      if (!this.scrub && r.prev !== undefined) out += ` ${r.prev} → ${r.value}`;
+      return out;
+    });
+    if (roots.length > limit) shown.push(`+${roots.length - limit} more`);
+    return shown.join(", ");
   }
 
   /** `formatOrigin`, through the scrub when the trace may be shared. */
   private origin(origin: ChangeOrigin): string {
     return formatOrigin(this.scrub ? scrubOrigin(origin) : origin);
+  }
+}
+
+// --- Node presentation ----------------------------------------------------------
+//
+// The owner path is the runtime's truth; the label is what a developer
+// wrote. Two kinds of node sit between the two: the memos a flow control
+// builds to do its job (`<Show>`'s `condition value` / `condition` /
+// `value`, a boundary's `children` / `boundary` / `value`), and the nodes a
+// composed primitive builds, which the compiler names `createDebounced.value`
+// — `primitive.local`, the store convention (`store.user`). Both are folded
+// on the label into the thing the developer wrote — `<App> › <Show>`,
+// `<App> › createDebounced` — with the runtime's name kept in the span's
+// `Node` property, so the label reads as source and the tooltip as graph.
+// Presentation only: every record is what the engine delivered.
+
+interface Described {
+  /** The label: owner path, folded, the node's own segment last. */
+  label: string;
+  /** The node's own segment as folded — what a dependant's `←` names it. */
+  short: string;
+  /** The runtime's name when the label folded it: `condition value`, `value`. */
+  internal?: string;
+}
+
+/** The nodes each flow control builds directly under its own owner. */
+const FLOW_INTERNALS: Record<string, ReadonlySet<string> | undefined> = {
+  "<Show>": new Set(["condition value", "condition", "value"]),
+  "<Switch>": new Set([
+    "children",
+    "conditions",
+    "condition value",
+    "condition",
+    "eval conditions"
+  ]),
+  "<Loading>": new Set(["children", "boundary", "value"]),
+  "<Errored>": new Set(["children", "boundary", "value"]),
+  "<Reveal>": new Set(["reveal order"])
+};
+
+function describe(nodeName: string, path: string[] | undefined): Described {
+  const full =
+    path === undefined
+      ? [nodeName]
+      : path[path.length - 1] === nodeName
+        ? path
+        : [...path, nodeName];
+  const segments: string[] = [];
+  let flow: ReadonlySet<string> | undefined;
+  let internal: string | undefined;
+  for (let i = 0; i < full.length; i++) {
+    const name = full[i];
+    let shown: string | undefined;
+    if (flow !== undefined && flow.has(name)) {
+      // A flow control's own node: folded into the tag before it. Stays
+      // in `flow` — a boundary's `children` owns its `value`'s content.
+      internal = name;
+    } else {
+      flow = FLOW_INTERNALS[name];
+      const dot = name.indexOf(".");
+      if (dot > 0 && name.charCodeAt(0) !== 60 /* `<` */) {
+        shown = name.slice(0, dot);
+        internal = name.slice(dot + 1);
+      } else {
+        shown = name;
+        internal = undefined;
+      }
+    }
+    if (shown !== undefined && shown !== segments[segments.length - 1]) segments.push(shown);
+  }
+  const short = segments[segments.length - 1];
+  return internal === undefined
+    ? { label: segments.join(" › "), short }
+    : { label: segments.join(" › "), short, internal };
+}
+
+/** Every root write reachable through a run's causes, by identity. */
+function collectRoots(causes: ChangeRecord[], out: Set<ChangeRecord>): void {
+  for (const c of causes) {
+    if (c.kind === "derived") {
+      if (c.causes !== undefined) collectRoots(c.causes, out);
+    } else out.add(c);
   }
 }
 

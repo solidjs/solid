@@ -84,6 +84,14 @@ describe("why-did-this-run attribution", () => {
     // The memo's own re-run is attributed directly to the write.
     const memoRun = events.find(e => e.nodeName === "label")!;
     expect(memoRun.causes[0]).toMatchObject({ kind: "write", name: "notifications" });
+
+    // Every cause carries the identity of the node that changed: the derived
+    // cause joins the memo run that produced it by `nodeId`, and the root
+    // write carries the signal's id, the same object on both chains.
+    expect(cause.nodeId).toBe(memoRun.nodeId);
+    expect(typeof cause.causes![0].nodeId).toBe("number");
+    expect(cause.causes![0].nodeId).toBe(memoRun.causes[0].nodeId);
+    expect(cause.causes![0].nodeId).not.toBe(memoRun.nodeId);
   });
 
   it("does not attribute downstream re-runs past an equality cutoff", () => {

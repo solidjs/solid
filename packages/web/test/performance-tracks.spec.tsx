@@ -19,6 +19,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { render } from "@solidjs/web";
 import {
   OBSERVE,
+  Show,
   createEffect,
   createLoadingBoundary,
   createMemo,
@@ -134,7 +135,7 @@ function enable(options?: Parameters<typeof enablePerformanceTracks>[0]) {
 
 const TRACK_ORDER = [
   "Interactions",
-  "Scheduler",
+  "Propagation",
   "Effects",
   "Memos",
   "Async",
@@ -142,6 +143,13 @@ const TRACK_ORDER = [
   "Navigations",
   "Server"
 ];
+
+/** The wave spans on `Propagation`: the drains, not the seed nor the runs inside (`←`, `· create`, `· callback`). */
+function waveSpans(spans: Measure[]) {
+  return spans.filter(
+    m => m.track === "Propagation" && m.label !== "Propagation" && / · \d+ runs?/.test(m.label)
+  );
+}
 
 /** The re-run spans on an `Effects`/`Memos` track: not the seed, not a creation or a callback. */
 function rerunSpans(spans: Measure[], track: "Effects" | "Memos") {
@@ -273,7 +281,7 @@ describe("enablePerformanceTracks", () => {
     expect(on("Effects").filter(m => m.label !== "Effects")).toEqual([]);
   });
 
-  test("the mount flame: creation runs and effect callbacks are spans of their own, the drain a Scheduler span", () => {
+  test("the mount flame: creation runs and effect callbacks are spans of their own, the drain a Propagation wave", () => {
     const { on } = measures();
     enable();
     const { reruns: runs } = records();
@@ -317,20 +325,175 @@ describe("enablePerformanceTracks", () => {
     );
     expect(callbacks[1].start).toBeGreaterThanOrEqual(rerun.at + rerun.totalMs - 0.001);
     expect(callbacks[1].color).toBe("secondary-light");
-    // The drain that served the click: two re-runs, nothing created, not held.
-    const drains = on("Scheduler").filter(m => m.label !== "Scheduler");
-    const drain = drains.at(-1)!;
-    expect(drain).toMatchObject({ label: "flush · 2 runs", color: "primary" });
-    expect(drain.start).toBeLessThanOrEqual(rerun.at);
-    expect(drain.end).toBeGreaterThanOrEqual(callbacks[1].end);
-    expect(drain.properties).toEqual(
+    // The wave that served the click: named by the write and the click,
+    // two re-runs, nothing created, not held. (The mount itself ran
+    // synchronously under createRoot — no drain, so no wave.)
+    const waves = waveSpans(on("Propagation"));
+    expect(waves).toHaveLength(1);
+    const [wave] = waves;
+    expect(wave).toMatchObject({
+      label: `count 0 → 1 — ${formatOrigin(rerun.interaction!)} · 2 runs`,
+      color: "primary"
+    });
+    expect(wave.start).toBeLessThanOrEqual(rerun.at);
+    expect(wave.end).toBeGreaterThanOrEqual(callbacks[1].end);
+    expect(wave.properties).toEqual(
       expect.arrayContaining([
+        ["Writes", "count 0 → 1"],
         ["Re-runs", "2"],
+        ["Unchanged", "0 (wasted)"],
         ["Created", "0"],
         ["Held", "no"],
         ["Interaction", formatOrigin(rerun.interaction!)]
       ])
     );
+  });
+
+  test("Propagation: the runs inside a wave are labelled by what made them run, callbacks as the leaves", () => {
+    const { on } = measures();
+    enable();
+    const { reruns } = records();
+    const [n, setN] = createSignal(0, { name: "count" });
+    createRoot(() => {
+      const doubled = createMemo(() => n() * 2, { name: "doubled" });
+      const label = createMemo(() => `${doubled()}!`, { name: "label" });
+      createRenderEffect(
+        () => [doubled(), label()],
+        () => {},
+        { name: "paint" }
+      );
+    });
+    flush();
+    setN(1);
+    flush();
+
+    const spans = on("Propagation").filter(m => m.label !== "Propagation");
+    const wave = waveSpans(spans).at(-1)!;
+    const inside = spans.filter(m => m !== wave && m.start >= wave.start && m.end <= wave.end);
+    // Each run: the same span as on Effects/Memos (start, end, colour,
+    // tooltip), with `← cause` on the label; both causes named, once each.
+    const memo = reruns.find(r => r.nodeName === "doubled")!;
+    const doubledSpan = inside.find(m => m.label.endsWith("doubled ← count"))!;
+    expect(doubledSpan).toMatchObject({
+      start: memo.at,
+      end: memo.at + memo.totalMs,
+      tooltip: formatRerun(memo)
+    });
+    expect(inside.some(m => m.label.endsWith("label ← doubled"))).toBe(true);
+    expect(inside.some(m => m.label.endsWith("paint ← doubled, label"))).toBe(true);
+    expect(inside.some(m => m.label.endsWith("paint · callback"))).toBe(true);
+    // Mirrored on the per-kind tracks with the plain owner-path label.
+    expect(rerunSpans(on("Memos"), "Memos").map(m => m.label.split(" › ").at(-1))).toEqual([
+      "doubled",
+      "label"
+    ]);
+    // The wave names its root write and what it reached.
+    expect(wave.label).toBe("count 0 → 1 · 3 runs");
+  });
+
+  test("Propagation: a wave that mostly re-ran unchanged nodes is a warning, and says so", () => {
+    const { on } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => {
+      const a = createMemo(() => (n(), 1), { name: "a" });
+      const b = createMemo(() => (n(), 2), { name: "b" });
+      createRenderEffect(
+        () => [a(), b()],
+        () => {},
+        { name: "reader" }
+      );
+    });
+    flush();
+    setN(1);
+    flush();
+    const wave = waveSpans(on("Propagation")).at(-1)!;
+    // Two memos re-ran to the same value; the cutoff kept the effect out.
+    expect(wave).toMatchObject({ label: "n 0 → 1 · 2 runs, 2 unchanged", color: "warning" });
+  });
+
+  test("Propagation: the wave survives the minMs floor and carries the counts the hidden runs would have shown", () => {
+    const { on } = measures();
+    enable({ minMs: 1000 });
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => {
+      for (let i = 0; i < 5; i++) createRenderEffect(n, () => {}, { name: `reader${i}` });
+    });
+    flush();
+    setN(1);
+    flush();
+    const spans = on("Propagation").filter(m => m.label !== "Propagation");
+    expect(spans.filter(m => / ← /.test(m.label))).toEqual([]);
+    expect(waveSpans(spans).at(-1)!.label).toBe("n 0 → 1 · 5 runs");
+  });
+
+  test("a flow control's own nodes fold into its tag on the label; the runtime's name is a property", () => {
+    const { on } = measures();
+    enable();
+    const [flag, setFlag] = createSignal(false, { name: "flag" });
+    const [n, setN] = createSignal(0, { name: "n" });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const Card = () => (
+      <Show when={flag()}>
+        <span>{n()}</span>
+      </Show>
+    );
+    const dispose = render(() => <Card />, container);
+    disposers.push(dispose, () => container.remove());
+    flush();
+    setFlag(true);
+    flush();
+    setN(1);
+    flush();
+
+    const memos = rerunSpans(on("Memos"), "Memos");
+    // `<Show>`'s `condition value` → `condition` → `value` chain: three memo
+    // re-runs, each labelled as the Show itself, none by its internal name.
+    expect(memos).toHaveLength(3);
+    for (const m of memos) {
+      expect(m.label.endsWith("<Card> › <Show>")).toBe(true);
+      expect(m.label).not.toMatch(/condition|value/);
+    }
+    expect(memos.map(m => m.properties!.find(([k]) => k === "Node")![1])).toEqual([
+      "condition value",
+      "condition",
+      "value"
+    ]);
+    // The user's binding under the Show: owned by `value` in the runtime,
+    // shown under `<Show>`. (The other effect re-run is render's own
+    // insert at the root, re-placing the Show's output — no owner path.)
+    const effects = rerunSpans(on("Effects"), "Effects");
+    expect(effects.map(m => m.label)).toEqual(["effect", "<Card> › <Show> › effect"]);
+    // On Propagation every cause reads as the Show, never as `value`.
+    const propagation = on("Propagation").filter(m => / ← /.test(m.label));
+    expect(propagation.map(m => m.label)).toEqual([
+      "<Card> › <Show> ← flag",
+      "<Card> › <Show> ← <Show>",
+      "<Card> › <Show> ← <Show>",
+      "effect ← <Show>",
+      "<Card> › <Show> › effect ← n"
+    ]);
+  });
+
+  test("a composed primitive's nodes (`primitive.local`) fold into the primitive", () => {
+    const { on } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => {
+      const value = createMemo(() => n() * 2, { name: "createDebounced.value" });
+      createRenderEffect(value, () => {}, { name: "reader" });
+    });
+    flush();
+    setN(1);
+    flush();
+    const [memo] = rerunSpans(on("Memos"), "Memos");
+    expect(memo.label).toBe("createDebounced");
+    expect(memo.properties).toEqual(expect.arrayContaining([["Node", "value"]]));
+    const labels = on("Propagation")
+      .filter(m => / ← /.test(m.label))
+      .map(m => m.label);
+    expect(labels).toEqual(["createDebounced ← n", "reader ← createDebounced"]);
   });
 
   test("Async: a flight from origin to landing, an abandoned one as a warning, a fallback show → hide", async () => {

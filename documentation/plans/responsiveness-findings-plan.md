@@ -206,12 +206,17 @@ appear, and they shape which fields the records need.
 
 - **Chrome DevTools performance tracks** — owned by the Chrome Performance
   Tracks plan: `@solidjs/web/performance-tracks`, `enablePerformanceTracks()`,
-  a `Solid` track group (Interactions, Scheduler, Components, Effects/Memos,
-  Async, Holds, Navigations, Server) emitted with `console.timeStamp` /
+  a `Solid` track group (Interactions, Propagation, Effects/Memos, Async,
+  Holds, Navigations, Server) emitted with `console.timeStamp` /
   `performance.measure` the way React 19.2's tracks are, staged adapter →
   engine records (`flush`, `create`, `effect`, `flight`, `fallback`) →
-  `component` mount record → dev enrichments (`performanceIssue`,
-  `console.createTask` stacks). It is also the fastest way to _see_ what
+  Propagation track (each drain as a wave named by its root writes, the
+  runs inside labelled `node ← cause`, flow-control internals folded into
+  their tag; Solid's answer to React's component flame, since nothing
+  re-renders here — the graph the write travelled is the picture) →
+  compiler source names (binding effects by target, primitives by declared
+  identifier) → dev enrichments (`performanceIssue`, `console.createTask`
+  stacks). It is also the fastest way to _see_ what
   items 1–4 here change, and its Stage 4 `performanceIssue` mapping is
   where the findings on this page surface in Chrome's Insights.
 - **React DevTools parity checklist**, for the docs and for gap-finding:
