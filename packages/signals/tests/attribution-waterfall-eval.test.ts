@@ -66,6 +66,25 @@ function arm(minFlightMs = 5) {
 
 const chainNames = (e: DiagnosticEvent) => (e.data!.chain as { name: string }[]).map(l => l.name);
 
+/**
+ * `sequentialMs` is the SUM of the chain's per-link flight times, each of
+ * which the engine measured on its own clock (`performance.now()` at flight
+ * start and landing). It is not asserted against the timers' nominal
+ * durations: a `setTimeout(N)` can land a hair under N ms of the engine's
+ * clock (libuv timers are ms-granular), and the flight's origin is stamped
+ * when the memo runs, which a loaded runner can delay past the timer's
+ * creation — the CI flake read 23 ms for two nominal 15 ms flights. What the
+ * number pins is the serialization: every link's time is counted, and the
+ * total is no more than the wall time the test itself observed.
+ */
+function expectSerialized(e: DiagnosticEvent, observedMs: number) {
+  const links = e.data!.chain as { ms: number }[];
+  const sum = links.reduce((acc, l) => acc + l.ms, 0);
+  expect(e.data!.sequentialMs as number).toBeCloseTo(sum, 6);
+  for (const l of links) expect(l.ms).toBeGreaterThan(0);
+  expect(e.data!.sequentialMs as number).toBeLessThanOrEqual(observedMs);
+}
+
 describe("ASYNC_WATERFALL", () => {
   it("catches the lazy dependent fetch (story -> author) at info severity", async () => {
     const events = arm();
@@ -78,6 +97,7 @@ describe("ASYNC_WATERFALL", () => {
       },
       { name: "author" }
     );
+    const t0 = performance.now();
     createRoot(() =>
       createEffect(
         () => author(),
@@ -87,12 +107,13 @@ describe("ASYNC_WATERFALL", () => {
     );
     flush();
     await until(() => events.length >= 1, "the story->author advisory");
+    const observed = performance.now() - t0;
 
     expect(events).toHaveLength(1);
     expect(events[0].severity).toBe("info"); // depth 2: advisory, not accusatory
     expect(events[0].nodeName).toBe("author");
     expect(chainNames(events[0])).toEqual(["story", "author"]);
-    expect(events[0].data!.sequentialMs as number).toBeGreaterThanOrEqual(25);
+    expectSerialized(events[0], observed);
 
     // The fact surface has it too.
     const chains = attribution.waterfalls();
@@ -105,6 +126,7 @@ describe("ASYNC_WATERFALL", () => {
     const a = createMemo(() => sleep(12, "a"), { name: "fetch-a" });
     const b = createMemo(() => sleep(12, a() + "b"), { name: "fetch-b" });
     const c = createMemo(() => sleep(12, b() + "c"), { name: "fetch-c" });
+    const t0 = performance.now();
     createRoot(() =>
       createEffect(
         () => c(),
@@ -114,11 +136,12 @@ describe("ASYNC_WATERFALL", () => {
     );
     flush();
     await until(() => events.some(e => e.severity === "warn"), "the depth-3 warn escalation");
+    const observed = performance.now() - t0;
 
     const worst = events.at(-1)!;
     expect(worst.severity).toBe("warn");
     expect(chainNames(worst)).toEqual(["fetch-a", "fetch-b", "fetch-c"]);
-    expect(worst.data!.sequentialMs as number).toBeGreaterThanOrEqual(30);
+    expectSerialized(worst, observed);
   });
 
   it("does not flag a dependent whose promise was preloaded (markFlight)", async () => {
