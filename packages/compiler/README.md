@@ -113,7 +113,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 - `generate`: `"dom"`, `"ssr"`, `"universal"`, or `"dynamic"` (default `"dom"`)
 - `hydratable`
 - `dev`
-- `componentNames`: emit the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) so dev/observe runtimes label owners after minification; the production runtimes ignore it. DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic
+- `sourceNames` (`boolean | { components?: boolean }`): names as written in source, carried into output so dev/observe runtimes can label the reactive graph after minification; `true` for every kind. `components` emits the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic. The production runtimes ignore the names
 - `sourceMap`
 - `contextToCustomElements` (default `true`)
 - `delegateEvents`

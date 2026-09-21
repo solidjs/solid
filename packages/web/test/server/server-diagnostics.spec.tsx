@@ -18,7 +18,7 @@
 //
 // Component labels (`ownerPath: ["<App>", "<Page>"]`) come from the server
 // `createComponent`, which the observe/dev tiers run under a labelled
-// transparent owner. This suite compiles with `componentNames` (see
+// transparent owner. This suite compiles with `sourceNames` (see
 // vite.config.server.mjs — the vite plugin's dev/observe postures), so a
 // compiled `<Page />` is `createComponent(Page, {}, "Page")` rather than the
 // prod inline `Page({})`; the labels here come from ordinary JSX.

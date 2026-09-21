@@ -17,7 +17,7 @@ const suiteOptions = {
   moduleName: "r-dom",
   builtIns: ["For", "Show"],
   generate: "dom",
-  componentNames: true,
+  sourceNames: { components: true },
   contextToCustomElements: true
 };
 
@@ -53,8 +53,8 @@ function writeOutputFixture(fixture, output) {
   fs.writeFileSync(outputFixturePath(fixture), output);
 }
 
-describe("AST-native Babel DOM componentNames fixture reuse", () => {
-  it("classifies supported Babel DOM componentNames fixtures", () => {
+describe("AST-native Babel DOM sourceNames.components fixture reuse", () => {
+  it("classifies supported Babel DOM sourceNames.components fixtures", () => {
     const actual = fs
       .readdirSync(babelFixtures, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
@@ -65,7 +65,7 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
   });
 
   it.each(Object.keys(fixtureParity))(
-    "matches generated Oxc output for supported Babel DOM componentNames fixture subset: %s",
+    "matches generated Oxc output for supported Babel DOM sourceNames.components fixture subset: %s",
     fixture => {
       const output = transformFixture(readFixture(fixture), fixture);
       if (process.env.UPDATE_OXC_FIXTURES === "1") {
@@ -79,7 +79,7 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
     const { code } = transform(readFixture("components"), {
       filename: "components.jsx",
       ...suiteOptions,
-      componentNames: false
+      sourceNames: false
     });
     expect(code).not.toContain('"Child"');
   });
@@ -90,7 +90,7 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
     const { code } = transform(readFixture("ssr"), {
       filename: "ssr.jsx",
       ...fixtureOptions("ssr"),
-      componentNames: false
+      sourceNames: false
     });
     expect(code).not.toContain("createComponent");
     expect(code).not.toContain('"Child"');

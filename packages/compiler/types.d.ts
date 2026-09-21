@@ -1,3 +1,9 @@
+/** The object form of `sourceNames`: which kinds of source name to carry into output. */
+export interface SourceNamesOptions {
+  /** Component owner labels: the tag as written, as `createComponent`'s third argument. */
+  components?: boolean;
+}
+
 export interface TransformOptions {
   filename?: string;
   /** Default `"@solidjs/web"`. */
@@ -13,14 +19,15 @@ export interface TransformOptions {
   hydratable?: boolean;
   dev?: boolean;
   /**
-   * Emit the source tag name as a third `createComponent` argument
-   * (`createComponent(Home, props, "Home")`) so dev/observe runtimes can
-   * label owners after minification renames the function. DOM and SSR
-   * output (SSR keeps the `createComponent` call it would otherwise inline
-   * to `Comp(props)`); not universal or dynamic. The production runtimes
-   * ignore the argument.
+   * Names as written in source, carried into output so the dev and observe
+   * runtimes can label the reactive graph after minification.
+   * `components`: the tag as a third `createComponent` argument
+   * (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR
+   * keeps the `createComponent` call it would otherwise inline to
+   * `Comp(props)`); not universal or dynamic. The production runtimes
+   * ignore the names. `true` enables every kind; an object picks.
    */
-  componentNames?: boolean;
+  sourceNames?: boolean | SourceNamesOptions;
   sourceMap?: boolean;
   contextToCustomElements?: boolean;
   delegateEvents?: boolean;

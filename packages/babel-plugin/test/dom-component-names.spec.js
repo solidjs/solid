@@ -8,9 +8,9 @@ runFixtures({
     moduleName: "r-dom",
     builtIns: ["For", "Show"],
     generate: "dom",
-    componentNames: true,
+    sourceNames: { components: true },
     contextToCustomElements: true
   },
-  title: "Convert JSX (componentNames)",
+  title: "Convert JSX (sourceNames.components)",
   fixtures: path.join(__dirname, "__dom_component_names_fixtures__")
 });

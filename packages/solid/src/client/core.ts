@@ -202,7 +202,7 @@ export function children(fn: Accessor<SolidElement>): ChildrenReturn {
  * non-function check, the devtools `_component` record and `$DEVCOMP` brand,
  * and the strict-read label. The prod build never calls this.
  *
- * `name` is the source tag the compiler emitted under `componentNames`; it
+ * `name` is the source tag the compiler emitted under `sourceNames.components`; it
  * wins over `Comp.name`, which a minifier rewrites and a `lazy()` or HMR
  * wrapper hides.
  */

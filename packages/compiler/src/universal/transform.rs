@@ -20,8 +20,8 @@ use crate::shared::condition::{
 };
 use crate::shared::refs::{assignment_fallback, callable_test};
 use crate::shared::utils::{
-    decode_html_entities, element_name, get_numbered_id, is_component_name,
-    static_jsx_expression, trim_jsx_text,
+    decode_html_entities, element_name, get_numbered_id, is_component_name, static_jsx_expression,
+    trim_jsx_text,
 };
 
 pub(crate) struct AstUniversalTransform<'a, 'source> {
@@ -195,7 +195,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             DomTransformConfig {
                 hydratable: dom.hydratable,
                 dev: dom.dev,
-                // Babel gates `componentNames` on `generate === "dom"`, so the
+                // Babel gates `sourceNames.components` on `generate === "dom"`, so the
                 // dynamic renderer's DOM subtree never emits labels.
                 component_names: false,
                 context_to_custom_elements: dom.context_to_custom_elements,

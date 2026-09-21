@@ -513,6 +513,33 @@ describe("@solidjs/compiler transform", () => {
     ).toThrow(/unknown option `notARealOption`/);
   });
 
+  it("sourceNames takes a boolean or a per-kind object, and rejects anything else", () => {
+    const code = "const view = <Home />;";
+    const opts = { filename: "input.jsx", moduleName: "r-dom" };
+    const label = '_$createComponent(Home, {}, "Home")';
+
+    expect(transform(code, { ...opts, sourceNames: true }).code).toContain(label);
+    expect(transform(code, { ...opts, sourceNames: { components: true } }).code).toContain(label);
+    expect(transform(code, { ...opts, sourceNames: false }).code).not.toContain('"Home"');
+    expect(transform(code, { ...opts, sourceNames: {} }).code).not.toContain('"Home"');
+    expect(transform(code, { ...opts, sourceNames: { components: false } }).code).not.toContain(
+      '"Home"'
+    );
+
+    expect(() => transform(code, { ...opts, sourceNames: "components" })).toThrow(
+      /`sourceNames` option must be boolean or an object/
+    );
+    expect(() => transform(code, { ...opts, sourceNames: { owners: true } })).toThrow(
+      /unknown `sourceNames` kind `owners`/
+    );
+    expect(() => transform(code, { ...opts, sourceNames: { components: 1 } })).toThrow(
+      /`sourceNames.components` must be boolean/
+    );
+    expect(() => transform(code, { ...opts, componentNames: true })).toThrow(
+      /unknown option `componentNames`/
+    );
+  });
+
   it("rejects unsupported dynamic renderer config instead of ignoring it", () => {
     expect(() =>
       transform("const view = <div />;", {

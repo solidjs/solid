@@ -261,7 +261,7 @@ const nativeOptionKeys = new Set([
   "generate",
   "hydratable",
   "dev",
-  "componentNames",
+  "sourceNames",
   "sourceMap",
   "contextToCustomElements",
   "delegateEvents",
@@ -323,6 +323,11 @@ function validateOptions(code, options) {
       nativeOptions.validate = value;
       continue;
     }
+    if (key === "sourceNames") {
+      validateSourceNames(value);
+      nativeOptions.sourceNames = value;
+      continue;
+    }
     if (nativeOptionKeys.has(key)) {
       if (key === "renderers") validateRenderers(value);
       nativeOptions[key] = value;
@@ -331,6 +336,23 @@ function validateOptions(code, options) {
     throw new Error(`@solidjs/compiler received unknown option \`${key}\``);
   }
   return nativeOptions;
+}
+
+const sourceNameKinds = new Set(["components"]);
+
+function validateSourceNames(value) {
+  if (typeof value === "boolean") return;
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
+    throw new TypeError("@solidjs/compiler `sourceNames` option must be boolean or an object");
+  }
+  for (const [kind, enabled] of Object.entries(value)) {
+    if (!sourceNameKinds.has(kind)) {
+      throw new Error(`@solidjs/compiler received unknown \`sourceNames\` kind \`${kind}\``);
+    }
+    if (typeof enabled !== "boolean") {
+      throw new TypeError(`@solidjs/compiler \`sourceNames.${kind}\` must be boolean`);
+    }
+  }
 }
 
 function validateRenderers(renderers) {

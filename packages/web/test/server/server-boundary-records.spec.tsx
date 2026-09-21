@@ -24,7 +24,7 @@
 //    paired `SSR_RENDER_ERROR_CONTAINED` finding carries and the same `id`;
 //  - a listener cannot break the render, and the emitter folds out of prod.
 //
-// This suite imports source (the dev tier) and compiles with `componentNames`
+// This suite imports source (the dev tier) and compiles with `sourceNames`
 // (vite.config.server.mjs), so `<App />` is a labelled component call.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

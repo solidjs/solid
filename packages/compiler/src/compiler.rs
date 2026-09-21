@@ -51,6 +51,18 @@ pub struct Renderer {
     pub elements: Vec<String>,
 }
 
+/// Babel's `sourceNames`, resolved: which names as written in source the
+/// output carries so the dev and observe runtimes can label the reactive
+/// graph after minification. Every kind off by default; the production
+/// runtimes ignore the names.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SourceNames {
+    /// The tag as written, as `createComponent`'s third argument
+    /// (`createComponent(Home, props, "Home")`). DOM and SSR output; not
+    /// universal or dynamic.
+    pub components: bool,
+}
+
 /// Default runtime import path — same as `@solidjs/babel-plugin` and the
 /// deleted `babel-preset-solid`.
 pub(crate) const DEFAULT_MODULE_NAME: &str = "@solidjs/web";
@@ -91,9 +103,7 @@ pub struct CompileOptions {
     /// its own object (#3511). `false` keeps the literal everywhere.
     pub hoist_props: bool,
     pub dev: bool,
-    /// DOM-only: emit the source tag name as `createComponent`'s third
-    /// argument for dev/observe owner labels.
-    pub component_names: bool,
+    pub source_names: SourceNames,
     pub source_map: bool,
     pub context_to_custom_elements: bool,
     pub delegate_events: bool,
@@ -124,7 +134,7 @@ impl Default for CompileOptions {
             server_components: false,
             hoist_props: true,
             dev: false,
-            component_names: false,
+            source_names: SourceNames::default(),
             source_map: false,
             context_to_custom_elements: true,
             delegate_events: true,
@@ -307,7 +317,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 options.hydratable,
                 options.server_components,
                 options.wrap_conditionals,
-                options.component_names,
+                options.source_names.components,
                 wrapper_name(&options.memo_wrapper, "memo"),
                 options.static_marker.clone(),
                 options.built_ins.clone(),
@@ -420,7 +430,7 @@ fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> Dom
     DomTransformConfig {
         hydratable: options.hydratable,
         dev: options.dev,
-        component_names: options.component_names,
+        component_names: options.source_names.components,
         context_to_custom_elements: options.context_to_custom_elements,
         delegate_events: options.delegate_events,
         delegated_events: options.delegated_events.clone(),

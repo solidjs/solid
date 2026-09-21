@@ -98,7 +98,7 @@ const modes = {
       moduleName: "r-dom",
       builtIns: ["For", "Show"],
       generate: "dom",
-      componentNames: true,
+      sourceNames: true,
       contextToCustomElements: true
     }
   },

@@ -72,7 +72,7 @@ export type Ref<T> = T | ((val: T) => void) | undefined | Ref<T>[];
  * custom JSX factory or renderer.
  *
  * @param name the tag as written in source (`"Home"`, `"Ui.Button"`), emitted
- *   by the compiler's `componentNames` option. Dev and observe builds label
+ *   by the compiler's `sourceNames.components` option. Dev and observe builds label
  *   the component's owner with it — `Comp.name` is whatever the minifier left
  *   — so diagnostics and attribution paths read `<Home>` in production
  *   bundles. The production build ignores it.

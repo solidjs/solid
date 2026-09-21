@@ -153,7 +153,11 @@ const noop = (): void => {};
 /**
  * Paint the attribution engine's records — and the web runtime's
  * server-function `call` and `frame` records — as tracks in the Chrome
- * Performance panel, from now until the returned function is called.
+ * Performance panel, from now until the returned function is called. The
+ * tracks themselves are Chrome's (its `detail.devtools` extension); in rich
+ * mode the spans are standard User Timing measures underneath, so any tool
+ * that reads those — Firefox's profiler, Lighthouse, RUM — sees the same
+ * spans as plain measures.
  *
  * Takes its own hold on the engine (`attribution.enable`), which is
  * ref-counted: enabling beside a diagnostics capture or an APM adapter

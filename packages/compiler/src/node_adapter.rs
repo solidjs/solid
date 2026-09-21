@@ -11,7 +11,7 @@ pub use crate::directives::{
 };
 pub use crate::lazy::TransformLazyOptions;
 pub use crate::refresh::TransformRefreshOptions;
-use crate::{CompileOptions, Generate, Renderer, Syntax, Wrapper};
+use crate::{CompileOptions, Generate, Renderer, SourceNames, Syntax, Wrapper};
 
 const UNSUPPORTED_GENERATE: &str =
     "The @solidjs/compiler backend implements DOM, SSR, universal, and dynamic modes only";
@@ -247,7 +247,13 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         server_components: options.server_components.unwrap_or(false),
         hoist_props: options.hoist_props.unwrap_or(true),
         dev: options.dev.unwrap_or(false),
-        component_names: options.component_names.unwrap_or(false),
+        source_names: match options.source_names {
+            None | Some(Either::A(false)) => SourceNames::default(),
+            Some(Either::A(true)) => SourceNames { components: true },
+            Some(Either::B(picked)) => SourceNames {
+                components: picked.components.unwrap_or(false),
+            },
+        },
         source_map: options.source_map.unwrap_or(false),
         context_to_custom_elements: options.context_to_custom_elements.unwrap_or(true),
         delegate_events: options.delegate_events.unwrap_or(true),

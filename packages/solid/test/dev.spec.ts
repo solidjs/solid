@@ -51,7 +51,7 @@ describe("observedComponent metadata", () => {
   test("compiler-emitted name labels the owner over Comp.name", () => {
     createRoot(() => {
       // Stands in for a minified or wrapped component whose function name no
-      // longer matches the tag — the `componentNames` argument wins.
+      // longer matches the tag — the `sourceNames.components` argument wins.
       createComponent(
         function a(p: any) {
           const owner = getOwner() as any;

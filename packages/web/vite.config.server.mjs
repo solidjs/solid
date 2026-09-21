@@ -11,13 +11,13 @@ import { resolve } from "path";
 const rootDir = resolve(import.meta.dirname);
 
 export default defineConfig({
-  // `componentNames`: what the vite plugin's dev/observe postures pass, so
+  // `sourceNames`: what the vite plugin's dev/observe postures pass, so
   // compiled `<Comp />` reaches the server `createComponent` with its label
   // and diagnostics carry `ownerPath` (server-diagnostics.spec.tsx pins it).
   plugins: [
     solidPlugin({
       compiler,
-      solid: { generate: "ssr", hydratable: true, componentNames: true }
+      solid: { generate: "ssr", hydratable: true, sourceNames: true }
     })
   ],
   test: {
