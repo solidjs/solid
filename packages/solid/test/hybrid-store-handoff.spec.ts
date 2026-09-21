@@ -352,6 +352,12 @@ describe("hybrid store handoff — rule 1: waits for the first server answer to 
 
   test("a settled answer whose adoption retries (NotReady trace) still hands off after it lands", async () => {
     startHydration({ t1: { v: { count: 5 }, s: 1 } });
+    // The client source's promise-shaped answer, released by the test. (Not a
+    // timer: the handoff run starts on a microtask after the retry's flush,
+    // so a `sleep(1)` inside the source raced the test's own `sleep(10)` —
+    // one stalled scheduling tick of ≥9ms on a loaded CI runner and the
+    // longer timer, created first, fired first.)
+    const answer = deferred<void>();
     let dispose!: () => void;
     const [state] = createRoot(
       d => {
@@ -363,10 +369,7 @@ describe("hybrid store handoff — rule 1: waits for the first server answer to 
         return createStore<Counter>(
           () => {
             const base = clientOnly();
-            return (async () => {
-              await sleep(1);
-              return { count: base + 1 };
-            })();
+            return answer.promise.then(() => ({ count: base + 1 }));
           },
           { count: 0 },
           { ssrSource: "hybrid" }
@@ -380,12 +383,16 @@ describe("hybrid store handoff — rule 1: waits for the first server answer to 
       stopHydration();
       flush();
       // The retry landed the server answer synchronously inside the flush;
-      // the handoff follows it.
+      // the handoff follows it on a microtask and runs the client source.
       expect(state.count).toBe(5);
-      await sleep(10);
-      flush();
+      await tick();
+      expect(state.count).toBe(5);
+      // The handoff run's promise-shaped answer commits when it lands.
+      answer.resolve();
+      await tick();
       expect(state.count).toBe(41);
     } finally {
+      answer.resolve();
       dispose();
     }
   });
@@ -458,6 +465,10 @@ describe("hybrid store handoff — rule 2: only the handoff run's first yield is
   test("a later run of a promise-shaped mutation source writes to the real draft", async () => {
     startHydration({ t0: { v: { count: 5 }, s: 1 } });
     const [version, setVersion] = createSignal(1);
+    // One gate per run, resolved by the test: the runs start on a microtask
+    // after the test's own step, so a real timer inside the source would race
+    // a real timer in the test (the CI flake in rule 1's NotReady case).
+    const gates: Array<ReturnType<typeof deferred<void>>> = [];
     let dispose!: () => void;
     const [state] = createRoot(
       d => {
@@ -465,7 +476,9 @@ describe("hybrid store handoff — rule 2: only the handoff run's first yield is
         return createStore<Counter>(
           async draft => {
             const v = version();
-            await sleep(1);
+            const gate = deferred<void>();
+            gates.push(gate);
+            await gate.promise;
             draft.count = v;
           },
           { count: 0 },
@@ -478,13 +491,22 @@ describe("hybrid store handoff — rule 2: only the handoff run's first yield is
       flush();
       expect(state.count).toBe(5);
       stopHydration();
-      await sleep(10);
-      flush();
-      // Handoff run: its writes reproduce the server answer and are absorbed.
+      await tick();
+      // Handoff run (and the creation run's, absorbed): every run so far
+      // reproduces the server answer. The hydration trace run executes the
+      // source under a MockPromise swap (subFetch), so ITS gate is inert —
+      // never consumed, nothing to resolve.
+      const release = () =>
+        gates.splice(0).forEach(g => typeof g.resolve === "function" && g.resolve());
+      expect(gates.length).toBeGreaterThanOrEqual(1);
+      release();
+      await tick();
       expect(state.count).toBe(5);
       setVersion(2);
-      await sleep(10);
-      flush();
+      await tick();
+      expect(gates.length).toBeGreaterThanOrEqual(1);
+      release();
+      await tick();
       expect(state.count).toBe(2);
     } finally {
       dispose();
