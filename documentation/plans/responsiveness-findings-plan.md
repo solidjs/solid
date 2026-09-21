@@ -3,10 +3,10 @@
 _Drafted 2026-09-18. Status: BACKLOG, worked against RCs as time allows.
 Successor to `observe-tier-plan.md` (the wiring, shipped in rc.9) and
 `sentry-integration-plan.md` (the first consumer, `@sentry/solid-2`, in
-review). Sibling of the **Chrome Performance Tracks** plan (Cursor plan
-`chrome_performance_tracks`, not yet in the repo), which owns the DevTools
-panel adapter and the engine records it needs; the two meet at the points
-marked "↔ Tracks" below. Owner: Ryan._
+review). Sibling of the **Chrome Performance Tracks** plan
+(`chrome-performance-tracks-plan.md`, shipped through its Stage 4), which
+owns the DevTools panel adapter and the engine records it needs; the two
+meet at the points marked "↔ Tracks" below. Owner: Ryan._
 
 ## Why this list exists
 

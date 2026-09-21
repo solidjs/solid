@@ -206,6 +206,33 @@ export function children(fn: Accessor<SolidElement>): ChildrenReturn {
  * wins over `Comp.name`, which a minifier rewrites and a `lazy()` or HMR
  * wrapper hides.
  */
+/**
+ * A `console.createTask` task (Chrome's async stack tagging API; no lib
+ * typing yet): `run(fn)` executes `fn` with the task's creation stack as
+ * the async parent of whatever `fn` reports.
+ */
+export interface ConsoleTask {
+  run<T>(fn: () => T): T;
+}
+
+function createConsoleTask(name: string): ConsoleTask | undefined {
+  const createTask = (console as { createTask?: (name: string) => ConsoleTask }).createTask;
+  return typeof createTask === "function" ? createTask.call(console, name) : undefined;
+}
+
+/**
+ * The dev-tier record a component root carries as `_component` — what
+ * devtools read off the owner tree.
+ */
+export interface ComponentRecord<P = unknown> {
+  fn: (props: P) => unknown;
+  props: P;
+  /** The source tag when the compiler emitted one, else `fn.name`. */
+  name: string | undefined;
+  /** The JSX site as a console task, when the console supports it (see `createConsoleTask`). */
+  task: ConsoleTask | undefined;
+}
+
 export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: string): V {
   // A JSX tag whose component resolved to a non-function otherwise surfaces
   // as `Cannot read properties of undefined (reading 'name')` from inside the
@@ -229,11 +256,20 @@ export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: 
       // "(in <TodoRow>)".
       owner._name = label;
       if (IS_DEV) {
-        owner._component = {
+        // The JSX site as a console task (Chrome's async stack tagging):
+        // an observer that later reports on this component's nodes — the
+        // performance tracks painting a re-run span — runs its
+        // `performance.measure` inside `task.run(...)`, and the entry's
+        // stack in the panel points at where the component was rendered
+        // rather than at the observer. Cheap while DevTools is closed (no
+        // stack is captured until the inspector asks for one).
+        const record: ComponentRecord<P> = {
           fn: Comp,
           props,
-          name
+          name,
+          task: createConsoleTask(label)
         };
+        owner._component = record;
         Object.assign(Comp, { [$DEVCOMP]: true });
         return untrack(() => Comp(props), label);
       }

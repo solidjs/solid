@@ -30,11 +30,12 @@
  * disable();
  * ```
  */
-import { OBSERVE, ownerPath } from "solid-js";
+import { OBSERVE, diagnosticGuideUrl, ownerPath } from "solid-js";
 import type {
   ChangeOrigin,
   ChangeRecord,
   CreateEvent,
+  DiagnosticEvent,
   EffectRunEvent,
   FallbackEvent,
   FlightEvent,
@@ -116,6 +117,26 @@ type TrackColor =
 
 type Properties = [string, string][];
 
+/**
+ * A `console.createTask` task — the JSX site a component was rendered from,
+ * stored on the component's owner in dev (`_component.task`). Emitting an
+ * entry inside `task.run` gives it that site as its stack in the panel.
+ */
+interface ConsoleTask {
+  run<T>(fn: () => T): T;
+}
+
+/**
+ * The panel's Insights annotation on an entry (`detail.devtools.performanceIssue`,
+ * the shape React's tracks emit; Chrome ignores it where unsupported).
+ */
+interface PerformanceIssue {
+  name: string;
+  severity: "info" | "warning" | "error";
+  description: string;
+  learnMoreUrl?: string;
+}
+
 interface Emitter {
   /** Tooltips and properties are carried (the `performance.measure` path). */
   readonly rich: boolean;
@@ -126,7 +147,20 @@ interface Emitter {
     track: string,
     color: TrackColor,
     tooltip?: string,
-    properties?: Properties
+    properties?: Properties,
+    task?: ConsoleTask
+  ): void;
+  /**
+   * A marker on the panel's Timings track at the current time — a finding
+   * as it is delivered. Rich mode carries the issue annotation.
+   */
+  mark(
+    label: string,
+    color: TrackColor,
+    tooltip?: string,
+    properties?: Properties,
+    issue?: PerformanceIssue,
+    task?: ConsoleTask
   ): void;
   /** Release what the emitter holds (rich mode: its User Timing entries). */
   dispose(): void;
@@ -165,6 +199,12 @@ const noop = (): void => {};
  * to the engine's timeline records (`create`, `effect`, `flush`, `flight`,
  * `fallback`) is what turns them on — they are built only while a listener
  * exists, so the engine pays for them only while the tracks are enabled.
+ * Every diagnostic delivered while enabled becomes a marker on the panel's
+ * Timings track (`SILENT_HOLD — <App> › <Search>`), annotated as a
+ * performance issue for the Insights sidebar when its severity is a
+ * warning or worse. In dev, spans and markers are emitted inside the
+ * `console.createTask` task of the component they belong to, so an entry's
+ * stack in the panel points at the JSX site that rendered the component.
  * Returns the disable; calling it twice is harmless. A no-op (returning a
  * no-op) in prod builds, where the observe tier is absent, and in an
  * environment without `console.timeStamp` or `performance.measure`.
@@ -193,7 +233,8 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
     attribution.subscribe("hold", e => painter.hold(e)),
     attribution.subscribe("navigation", e => painter.navigation(e)),
     observe.records.subscribe("call", e => painter.call(e)),
-    observe.records.subscribe("frame", e => painter.frame(e))
+    observe.records.subscribe("frame", e => painter.frame(e)),
+    observe.diagnostics.subscribe(e => painter.diagnostic(e))
   ];
   let enabled = true;
   return () => {
@@ -221,16 +262,23 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
   let emitter: Emitter;
   if (rich && hasMeasure) {
     const names = new Set<string>();
+    const markNames = new Set<string>();
     let pending = 0;
     const clear = () => {
       pending = 0;
-      if (typeof performance.clearMeasures !== "function") return;
-      for (const name of names) performance.clearMeasures(name);
+      if (typeof performance.clearMeasures === "function") {
+        for (const name of names) performance.clearMeasures(name);
+      }
       names.clear();
+      if (typeof performance.clearMarks === "function") {
+        for (const name of markNames) performance.clearMarks(name);
+      }
+      markNames.clear();
     };
+    const hasMark = typeof performance.mark === "function";
     emitter = {
       rich: true,
-      span(label, start, end, track, color, tooltip, properties) {
+      span(label, start, end, track, color, tooltip, properties, task) {
         const devtools: Record<string, unknown> = {
           dataType: "track-entry",
           track,
@@ -239,8 +287,20 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
         };
         if (tooltip !== undefined) devtools.tooltipText = tooltip;
         if (properties !== undefined) devtools.properties = properties;
-        performance.measure(label, { start, end, detail: { devtools } });
+        const measure = () => performance.measure(label, { start, end, detail: { devtools } });
+        task !== undefined ? task.run(measure) : measure();
         names.add(label);
+        if (++pending >= CLEAR_EVERY) clear();
+      },
+      mark(label, color, tooltip, properties, issue, task) {
+        if (!hasMark) return;
+        const devtools: Record<string, unknown> = { dataType: "marker", color };
+        if (tooltip !== undefined) devtools.tooltipText = tooltip;
+        if (properties !== undefined) devtools.properties = properties;
+        if (issue !== undefined) devtools.performanceIssue = issue;
+        const mark = () => performance.mark(label, { detail: { devtools } });
+        task !== undefined ? task.run(mark) : mark();
+        markNames.add(label);
         if (++pending >= CLEAR_EVERY) clear();
       },
       dispose: clear
@@ -251,8 +311,14 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
     const timeStamp = console.timeStamp as (...args: (string | number)[]) => void;
     emitter = {
       rich: false,
-      span(label, start, end, track, color) {
-        timeStamp(label, start, end, track, group, color);
+      span(label, start, end, track, color, _tooltip, _properties, task) {
+        const stamp = () => timeStamp(label, start, end, track, group, color);
+        task !== undefined ? task.run(stamp) : stamp();
+      },
+      mark(label, _color, _tooltip, _properties, _issue, task) {
+        // The one-argument form: a marker on the Timings track, now.
+        const stamp = () => timeStamp(label);
+        task !== undefined ? task.run(stamp) : stamp();
       },
       dispose: noop
     };
@@ -314,7 +380,8 @@ class Painter {
   rerun(event: RerunEvent): void {
     collectRoots(event.causes, this.roots);
     if (!event.changed) this.unchanged++;
-    const node = this.describe(event);
+    const subject = this.observe.subjectOf(event);
+    const node = describe(event.nodeName, ownerPath(subject));
     this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
     const track = event.nodeKind === "effect" ? TRACKS.effects : TRACKS.memos;
@@ -336,17 +403,21 @@ class Painter {
         ["Phase", event.phase + (event.held ? ", held" : "")],
         ["Deps", String(event.depCount)]
       ];
-      if (node.internal !== undefined) properties.push(["Node", node.internal]);
+      this.identity(properties, node, event.nodeId);
       if (event.depsAdded.length > 0) properties.push(["Deps added", event.depsAdded.join(", ")]);
       if (event.depsRemoved.length > 0)
         properties.push(["Deps removed", event.depsRemoved.join(", ")]);
       if (event.causes.length > 0)
         properties.push(["Causes", event.causes.map(c => rootCause(c, this.scrub)).join("; ")]);
+      const origin = rootOrigin(event.causes);
+      if (origin !== undefined && origin !== event.interaction)
+        properties.push(["Origin", this.origin(origin)]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
     const end = event.at + event.totalMs;
-    this.emit.span(node.label, event.at, end, track, color, tooltip, properties);
+    const task = taskOf(subject);
+    this.emit.span(node.label, event.at, end, track, color, tooltip, properties, task);
     this.emit.span(
       `${node.label} ← ${this.causeLabels(event.causes)}`,
       event.at,
@@ -354,7 +425,8 @@ class Painter {
       TRACKS.propagation,
       color,
       tooltip,
-      properties
+      properties,
+      task
     );
   }
 
@@ -366,7 +438,8 @@ class Painter {
    * `<For>` growing) shows what it mounted beside what it re-ran.
    */
   create(event: CreateEvent): void {
-    const node = this.describe(event);
+    const subject = this.observe.subjectOf(event);
+    const node = describe(event.nodeName, ownerPath(subject));
     this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
     let properties: Properties | undefined;
@@ -377,13 +450,14 @@ class Painter {
         ["Phase", event.phase + (event.held ? ", held" : "")],
         ["Deps", String(event.depCount)]
       ];
-      if (node.internal !== undefined) properties.push(["Node", node.internal]);
+      this.identity(properties, node, event.nodeId);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
     const label = `${node.label} · create`;
     const end = event.at + event.totalMs;
     const color: TrackColor = event.phase === "optimistic" ? "tertiary" : bySelfTime(event.selfMs);
+    const task = taskOf(subject);
     this.emit.span(
       label,
       event.at,
@@ -391,9 +465,10 @@ class Painter {
       event.nodeKind === "effect" ? TRACKS.effects : TRACKS.memos,
       color,
       undefined,
-      properties
+      properties,
+      task
     );
-    this.emit.span(label, event.at, end, TRACKS.propagation, color, undefined, properties);
+    this.emit.span(label, event.at, end, TRACKS.propagation, color, undefined, properties, task);
   }
 
   /**
@@ -404,11 +479,12 @@ class Painter {
    */
   effect(event: EffectRunEvent): void {
     if (event.durationMs < this.minMs) return;
-    const node = this.describe(event);
+    const subject = this.observe.subjectOf(event);
+    const node = describe(event.nodeName, ownerPath(subject));
     let properties: Properties | undefined;
     if (this.rich) {
       properties = [["Duration", ms(event.durationMs)]];
-      if (node.internal !== undefined) properties.push(["Node", node.internal]);
+      this.identity(properties, node, event.nodeId);
       if (event.run !== undefined) properties.push(["Run", String(event.run)]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
@@ -417,8 +493,79 @@ class Painter {
     const end = event.at + event.durationMs;
     const color: TrackColor =
       event.durationMs < 10 ? "secondary-light" : event.durationMs < 100 ? "secondary" : "error";
-    this.emit.span(label, event.at, end, TRACKS.effects, color, undefined, properties);
-    this.emit.span(label, event.at, end, TRACKS.propagation, color, undefined, properties);
+    const task = taskOf(subject);
+    this.emit.span(label, event.at, end, TRACKS.effects, color, undefined, properties, task);
+    this.emit.span(label, event.at, end, TRACKS.propagation, color, undefined, properties, task);
+  }
+
+  /**
+   * Timings track: a finding as a marker where it was delivered, labelled
+   * by its code and the owner it is about (`SILENT_HOLD — <App> › <Search>`),
+   * coloured by severity. A `warn`-or-worse finding is also annotated as a
+   * performance issue — the panel's Insights sidebar lists those — with the
+   * repair guide's section for the code as its link. `info` stays a plain
+   * marker. The message and `data` are the engine's own; under the scrub
+   * only the code, kind and owner are carried (a responsiveness finding's
+   * sentence names the element the user hit).
+   */
+  diagnostic(event: DiagnosticEvent): void {
+    const owner = event.ownerPath?.join(" › ");
+    const label = owner !== undefined ? `${event.code} — ${owner}` : event.code;
+    const color: TrackColor =
+      event.severity === "error"
+        ? "error"
+        : event.severity === "warn"
+          ? "warning"
+          : "primary-light";
+    let tooltip: string | undefined;
+    let properties: Properties | undefined;
+    let issue: PerformanceIssue | undefined;
+    if (this.rich) {
+      tooltip = this.scrub ? `${event.kind} finding ${event.code}` : event.message;
+      properties = [
+        ["Code", event.code],
+        ["Kind", event.kind],
+        ["Severity", event.severity]
+      ];
+      if (owner !== undefined) properties.push(["Owner path", owner]);
+      if (event.nodeName !== undefined) properties.push(["Node", event.nodeName]);
+      if (!this.scrub) {
+        properties.push(["Message", event.message]);
+        if (event.data !== undefined) {
+          // The primitive fields ride along (`holdMs`, `relay`, `soleWriter`);
+          // structured ones (`interaction`, `navigation`) are the message's.
+          for (const [key, value] of Object.entries(event.data)) {
+            if (typeof value === "number")
+              properties.push([key, Number.isInteger(value) ? String(value) : value.toFixed(2)]);
+            else if (typeof value === "string" || typeof value === "boolean")
+              properties.push([key, String(value)]);
+          }
+        }
+      }
+      properties.push(["Guide", diagnosticGuideUrl(event.code)]);
+      if (event.severity !== "info") {
+        issue = {
+          name: `Solid: ${event.code}`,
+          severity: event.severity === "error" ? "error" : "warning",
+          description: tooltip,
+          learnMoreUrl: diagnosticGuideUrl(event.code)
+        };
+      }
+    }
+    this.emit.mark(label, color, tooltip, properties, issue, taskOf(this.observe.subjectOf(event)));
+  }
+
+  /**
+   * The identity properties every node span carries in rich mode: the
+   * runtime's full owner path (the label folds flow internals and composed
+   * primitives — this is the unfolded truth), the folded node's runtime
+   * name when there is one, and the engine's node id (what `why()` and
+   * `subjectOf` key on).
+   */
+  private identity(properties: Properties, node: Described, nodeId: number): void {
+    if (node.path !== undefined) properties.push(["Owner path", node.path]);
+    if (node.internal !== undefined) properties.push(["Node", node.internal]);
+    properties.push(["Node id", String(nodeId)]);
   }
 
   /**
@@ -499,7 +646,8 @@ class Painter {
       TRACKS.async,
       event.outcome === "abandoned" ? "warning" : "secondary",
       undefined,
-      properties
+      properties,
+      taskOf(this.observe.subjectOf(event))
     );
   }
 
@@ -519,7 +667,8 @@ class Painter {
       TRACKS.async,
       "tertiary",
       undefined,
-      properties
+      properties,
+      taskOf(this.observe.subjectOf(event))
     );
   }
 
@@ -734,11 +883,6 @@ class Painter {
     );
   }
 
-  /** A run record's node as the timeline shows it — see `describe`. */
-  private describe(event: RerunEvent | CreateEvent | EffectRunEvent): Described {
-    return describe(event.nodeName, ownerPath(this.observe.subjectOf(event)));
-  }
-
   /**
    * A run's immediate causes as `←` labels: memos by the short label their
    * own run was painted with this drain, signals by name; a landing as
@@ -803,6 +947,8 @@ interface Described {
   short: string;
   /** The runtime's name when the label folded it: `condition value`, `value`. */
   internal?: string;
+  /** The runtime's full owner path, unfolded, when it differs from the label. */
+  path?: string;
 }
 
 /** The nodes each flow control builds directly under its own owner. */
@@ -851,9 +997,39 @@ function describe(nodeName: string, path: string[] | undefined): Described {
     if (shown !== undefined && shown !== segments[segments.length - 1]) segments.push(shown);
   }
   const short = segments[segments.length - 1];
-  return internal === undefined
-    ? { label: segments.join(" › "), short }
-    : { label: segments.join(" › "), short, internal };
+  const label = segments.join(" › ");
+  const described: Described = { label, short };
+  if (internal !== undefined) described.internal = internal;
+  const runtimePath = full.join(" › ");
+  if (runtimePath !== label) described.path = runtimePath;
+  return described;
+}
+
+/**
+ * The console task of the component a subject belongs to — the nearest
+ * component root above it carrying a dev `_component.task` — so an entry
+ * about the subject reports the JSX site as its stack. Dev only: the record
+ * exists only there; elsewhere the walk finds nothing and costs a few
+ * pointer reads per painted span.
+ */
+function taskOf(subject: ReturnType<Observe["subjectOf"]>): ConsoleTask | undefined {
+  if (!IS_DEV || !subject) return undefined;
+  let owner: any = "_parent" in subject ? subject : (subject as any)._owner;
+  for (; owner != null; owner = owner._parent) {
+    const task = owner._component?.task;
+    if (task !== undefined) return task as ConsoleTask;
+  }
+  return undefined;
+}
+
+/** The origin of the first root write behind a run's causes, if any is not `external`. */
+function rootOrigin(causes: ChangeRecord[]): ChangeOrigin | undefined {
+  for (const c of causes) {
+    let root = c;
+    while (root.causes !== undefined && root.causes.length > 0) root = root.causes[0];
+    if (root.origin !== undefined && root.origin.kind !== "external") return root.origin;
+  }
+  return undefined;
 }
 
 /** Every root write reachable through a run's causes, by identity. */

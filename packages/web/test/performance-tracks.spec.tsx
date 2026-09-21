@@ -55,15 +55,16 @@ afterEach(() => {
 
 // jsdom's `performance` has no User Timing and its console no `timeStamp`;
 // install recording stand-ins per test and take them down after.
-const originalMeasure = Object.getOwnPropertyDescriptor(performance, "measure");
-const originalClear = Object.getOwnPropertyDescriptor(performance, "clearMeasures");
-const originalTimeStamp = Object.getOwnPropertyDescriptor(console, "timeStamp");
+const originals = [
+  [performance, "measure"],
+  [performance, "clearMeasures"],
+  [performance, "mark"],
+  [performance, "clearMarks"],
+  [console, "timeStamp"],
+  [console, "createTask"]
+].map(([target, name]) => [target, name, Object.getOwnPropertyDescriptor(target, name)] as const);
 function restorePerformance() {
-  for (const [target, name, original] of [
-    [performance, "measure", originalMeasure],
-    [performance, "clearMeasures", originalClear],
-    [console, "timeStamp", originalTimeStamp]
-  ] as const) {
+  for (const [target, name, original] of originals) {
     if (original) Object.defineProperty(target, name, original);
     else delete (target as any)[name];
   }
@@ -72,13 +73,25 @@ function define(target: object, name: string, value: unknown) {
   Object.defineProperty(target, name, { configurable: true, writable: true, value });
 }
 
-/** Rich mode: what `performance.measure` was handed, decoded. */
+/** A marker (`performance.mark` with `detail.devtools`), decoded. */
+interface Marker {
+  label: string;
+  color: string;
+  tooltip?: string;
+  properties?: [string, string][];
+  issue?: { name: string; severity: string; description: string; learnMoreUrl?: string };
+  /** The console task the entry was emitted under, if any (see `tasks`). */
+  task?: string;
+}
+
+/** Rich mode: what `performance.measure` / `performance.mark` were handed, decoded. */
 function measures() {
-  const seen: Measure[] = [];
+  const seen: (Measure & { task?: string })[] = [];
+  const marks: Marker[] = [];
   const cleared: string[] = [];
   define(performance, "measure", (label: string, opts: any) => {
     const d = opts.detail.devtools;
-    const m: Measure = {
+    const m: Measure & { task?: string } = {
       label,
       start: opts.start,
       end: opts.end,
@@ -88,23 +101,69 @@ function measures() {
     };
     if (d.tooltipText !== undefined) m.tooltip = d.tooltipText;
     if (d.properties !== undefined) m.properties = d.properties;
+    if (currentTask !== undefined) m.task = currentTask;
     expect(d.dataType).toBe("track-entry");
     seen.push(m);
+  });
+  define(performance, "mark", (label: string, opts: any) => {
+    const d = opts.detail.devtools;
+    expect(d.dataType).toBe("marker");
+    const m: Marker = { label, color: d.color };
+    if (d.tooltipText !== undefined) m.tooltip = d.tooltipText;
+    if (d.properties !== undefined) m.properties = d.properties;
+    if (d.performanceIssue !== undefined) m.issue = d.performanceIssue;
+    if (currentTask !== undefined) m.task = currentTask;
+    marks.push(m);
   });
   define(performance, "clearMeasures", (name: string) => {
     cleared.push(name);
   });
-  return { seen, cleared, on: (track: string) => seen.filter(m => m.track === track) };
+  define(performance, "clearMarks", (name: string) => {
+    cleared.push(name);
+  });
+  return { seen, marks, cleared, on: (track: string) => seen.filter(m => m.track === track) };
 }
 
-/** Plain mode: the six-argument `console.timeStamp` calls. */
+/** Plain mode: the six-argument `console.timeStamp` calls (and the one-argument marker form). */
 function stamps() {
   const seen: Measure[] = [];
+  const marks: string[] = [];
   define(console, "timeStamp", (...args: any[]) => {
+    if (args.length === 1) {
+      marks.push(args[0]);
+      return;
+    }
     const [label, start, end, track, group, color] = args;
     seen.push({ label, start, end, track, group, color });
   });
-  return { seen, on: (track: string) => seen.filter(m => m.track === track) };
+  return { seen, marks, on: (track: string) => seen.filter(m => m.track === track) };
+}
+
+/**
+ * A stand-in for Chrome's `console.createTask`: `run(fn)` marks `fn` as
+ * running under the task's name, which the recording `performance.measure`
+ * / `performance.mark` above note on the entry. Installed before any
+ * component is created: the dev component wrapper creates the task at
+ * render time.
+ */
+let currentTask: string | undefined;
+function tasks() {
+  const created: string[] = [];
+  define(console, "createTask", (name: string) => {
+    created.push(name);
+    return {
+      run<T>(fn: () => T): T {
+        const previous = currentTask;
+        currentTask = name;
+        try {
+          return fn();
+        } finally {
+          currentTask = previous;
+        }
+      }
+    };
+  });
+  return { created };
 }
 
 function quiet() {
@@ -805,6 +864,170 @@ describe("enablePerformanceTracks", () => {
     setN(1);
     flush();
     expect(attribution.history()).toEqual([]);
+  });
+
+  test("a finding is a marker on the Timings track, an issue for the Insights sidebar when it warns", () => {
+    const { marks } = measures();
+    enable();
+    quiet();
+    OBSERVE!.diagnostics.emit({
+      code: "SILENT_HOLD",
+      kind: "responsiveness",
+      severity: "warn",
+      message: 'click on button#save "Save" waited 412ms with no feedback',
+      ownerPath: ["<App>", "<Search>"],
+      nodeName: "results",
+      data: { holdMs: 412, interaction: { type: "click" } }
+    });
+    OBSERVE!.diagnostics.emit({
+      code: "HOT_SCOPE_RERUNS",
+      kind: "perf",
+      severity: "info",
+      message: "effect re-ran 130 times in 1s"
+    });
+    expect(marks).toHaveLength(2);
+    const [hold, hot] = marks;
+    expect(hold).toMatchObject({
+      label: "SILENT_HOLD — <App> › <Search>",
+      color: "warning",
+      tooltip: 'click on button#save "Save" waited 412ms with no feedback'
+    });
+    expect(hold.properties).toEqual(
+      expect.arrayContaining([
+        ["Code", "SILENT_HOLD"],
+        ["Kind", "responsiveness"],
+        ["Severity", "warn"],
+        ["Owner path", "<App> › <Search>"],
+        ["Node", "results"],
+        ["Message", 'click on button#save "Save" waited 412ms with no feedback'],
+        ["holdMs", "412"], // primitive `data` fields ride along; objects do not
+        ["Guide", expect.stringMatching(/SKILL\.md#silent_hold$/)]
+      ])
+    );
+    expect(hold.properties!.some(([k]) => k === "interaction")).toBe(false);
+    expect(hold.issue).toEqual({
+      name: "Solid: SILENT_HOLD",
+      severity: "warning",
+      description: 'click on button#save "Save" waited 412ms with no feedback',
+      learnMoreUrl: expect.stringMatching(/SKILL\.md#silent_hold$/)
+    });
+    // `info` is a marker and nothing more.
+    expect(hot).toMatchObject({ label: "HOT_SCOPE_RERUNS", color: "primary-light" });
+    expect(hot.issue).toBeUndefined();
+  });
+
+  test("scrub: a finding's marker carries its code, kind and owner, not its sentence", () => {
+    const { marks } = measures();
+    enable({ scrub: true });
+    quiet();
+    OBSERVE!.diagnostics.emit({
+      code: "LONG_HOLD",
+      kind: "responsiveness",
+      severity: "error",
+      message: 'click on div#card "Personal note" waited 1200ms',
+      ownerPath: ["<App>"],
+      data: { holdMs: 1200 }
+    });
+    const [mark] = marks;
+    expect(mark).toMatchObject({
+      label: "LONG_HOLD — <App>",
+      color: "error",
+      tooltip: "responsiveness finding LONG_HOLD"
+    });
+    expect(JSON.stringify(mark)).not.toContain("Personal note");
+    expect(mark.properties!.some(([k]) => k === "Message" || k === "holdMs")).toBe(false);
+    expect(mark.issue).toMatchObject({
+      severity: "error",
+      description: "responsiveness finding LONG_HOLD"
+    });
+  });
+
+  test("plain mode: a finding is the one-argument console.timeStamp — a Timings marker, now", () => {
+    const { marks } = stamps();
+    enable({ rich: false });
+    quiet();
+    OBSERVE!.diagnostics.emit({
+      code: "SILENT_HOLD",
+      kind: "responsiveness",
+      severity: "warn",
+      message: "waited",
+      ownerPath: ["<App>"]
+    });
+    expect(marks).toEqual(["SILENT_HOLD — <App>"]);
+  });
+
+  test("dev: a component's spans are emitted under its console task, so their stack is the JSX site", () => {
+    const { created } = tasks();
+    const { on, marks } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    function Row() {
+      createRenderEffect(n, () => {}, { name: "reader" });
+      return <span>{n()}</span>;
+    }
+    function App() {
+      return <Row />;
+    }
+    const container = document.createElement("div");
+    const dispose = render(() => <App />, container);
+    disposers.push(dispose);
+    flush();
+    setN(1);
+    flush();
+    // One task per component, named as the owner is.
+    expect(created).toEqual(["<App>", "<Row>"]);
+    // The run inside <Row> was measured under <Row>'s task — the nearest
+    // component above it — on both tracks it is painted on.
+    const readerSpans = on("Effects").filter(m => m.label.endsWith("reader"));
+    expect(readerSpans.length).toBeGreaterThan(0);
+    for (const span of readerSpans) expect(span.task).toBe("<Row>");
+    expect(
+      on("Propagation")
+        .filter(m => m.label.includes("reader"))
+        .every(m => m.task === "<Row>")
+    ).toBe(true);
+    // A finding about a node under the component too.
+    quiet();
+    const subject = OBSERVE!.subjectOf(attribution.history().find(r => r.nodeName === "reader")!)!;
+    OBSERVE!.diagnostics.emit(
+      { code: "HOT_SCOPE_RERUNS", kind: "perf", severity: "warn", message: "hot" },
+      subject
+    );
+    expect(marks.at(-1)).toMatchObject({
+      label: "HOT_SCOPE_RERUNS — <App> › <Row> › reader",
+      task: "<Row>"
+    });
+    // Nothing outside a component carries a task.
+    expect(on("Interactions")[0].task).toBeUndefined();
+  });
+
+  test("rich mode: every node span names its runtime owner path and node id beside the folded label", () => {
+    const { on } = measures();
+    enable();
+    const [show, setShow] = createSignal(false, { name: "show" });
+    const container = document.createElement("div");
+    const dispose = render(
+      () => (
+        <Show when={show()}>
+          <span>on</span>
+        </Show>
+      ),
+      container
+    );
+    disposers.push(dispose);
+    flush();
+    setShow(true);
+    flush();
+    const folded = rerunSpans(on("Memos"), "Memos").find(m =>
+      m.properties?.some(([k]) => k === "Node")
+    )!;
+    expect(folded).toBeDefined();
+    expect(folded.label.endsWith("<Show>")).toBe(true);
+    const props = Object.fromEntries(folded.properties!);
+    // The label folded the flow control's node; the properties keep the truth.
+    expect(props["Owner path"]).toMatch(/<Show> › /);
+    expect(props["Owner path"].endsWith(props.Node)).toBe(true);
+    expect(props["Node id"]).toMatch(/^\d+$/);
   });
 
   test("without console.timeStamp or performance.measure it does nothing", () => {

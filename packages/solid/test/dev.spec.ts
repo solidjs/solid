@@ -38,6 +38,41 @@ describe("observedComponent metadata", () => {
     });
   });
 
+  test("the component root carries the JSX site as a console task when the console has createTask", () => {
+    const original = Object.getOwnPropertyDescriptor(console, "createTask");
+    const created: string[] = [];
+    const task = { run: (fn: () => unknown) => fn() };
+    Object.defineProperty(console, "createTask", {
+      configurable: true,
+      writable: true,
+      value: (name: string) => {
+        created.push(name);
+        return task;
+      }
+    });
+    try {
+      createRoot(() => {
+        createComponent(function Labelled() {
+          expect((getOwner() as any)._component.task).toBe(task);
+          return null;
+        }, {});
+      });
+      expect(created).toEqual(["<Labelled>"]);
+    } finally {
+      if (original) Object.defineProperty(console, "createTask", original);
+      else delete (console as any).createTask;
+    }
+    // Without the API (Node, Firefox, Safari) the field is present and undefined.
+    createRoot(() => {
+      createComponent(function Plain() {
+        const record = (getOwner() as any)._component;
+        expect("task" in record).toBe(true);
+        expect(record.task).toBeUndefined();
+        return null;
+      }, {});
+    });
+  });
+
   test("anonymous component gets empty string name", () => {
     createRoot(() => {
       createComponent((p: any) => {

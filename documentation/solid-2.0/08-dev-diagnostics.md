@@ -847,7 +847,8 @@ attribution.enable({
   wideWrites: 250,                            // or false
   waterfalls: { minFlightMs: 50 },            // or false
   holds: { infoMs: 100, warnMs: 200 },        // or false (disables hold tracking)
-  longHolds: { infoMs: 500, warnMs: 1000 }    // or false
+  longHolds: { infoMs: 500, warnMs: 1000 },   // or false
+  checks: true                                // false: records only — none of the five cost checks above
 });
 
 attribution.history();          // ring buffer of RerunEvents
@@ -857,7 +858,14 @@ attribution.navigations();      // every declared navigation, settled or not (be
 attribution.interactions();     // every user interaction, settled or not (below)
 attribution.subscribe(fn);      // live RerunEvent feed — same as subscribe("rerun", fn)
 attribution.subscribe("interaction" | "hold" | "navigation", fn); // each record as it settles
+attribution.subscribe("flush" | "create" | "effect" | "flight" | "fallback", fn); // timeline records (below)
 attribution.disable();
+
+// enable() is ref-counted: a second consumer (a diagnostics capture beside a
+// profiler track beside an APM adapter) takes its own hold, and disable()
+// releases the caller's — listeners and live state survive until the last
+// hold goes. Each enable() does reset the aggregation windows (history, the
+// fold tables), which is what a capture wants.
 
 // The folds over those records, the point queries and the formatters are
 // NAMED EXPORTS, not methods: a fold's module registers its accounting with
@@ -913,6 +921,10 @@ createRoot(() => {
 
 **Records and clocks.** Everything the engine hands out — `RerunEvent`, `InteractionEvent`, `HoldEvent`, `NavigationEvent` — is a record with an absolute `at` on the `performance.now()` clock (`RerunEvent.at` the run's start, `HoldEvent.at` the start of the wait, `NavigationEvent.at`/`InteractionEvent.at` the request/dispatch) plus durations from it (`holdMs`, `settledMs`, `selfMs`). Epoch time for an exporter is `performance.timeOrigin + at` (milliseconds). Without cross-origin isolation the browser quantizes `performance.now()` to 100µs, so a single run's `selfMs` is often `0`; the per-interaction `settledMs` is the wall-clock number to report. Records are serializable as emitted: none carries a live graph reference — a re-run names its scope by `nodeId` (the engine's per-node id, stable across the scope's runs in the process, distinct between scopes; in-process consumers get the node back through `OBSERVE.subjectOf(event)`) — while the frame objects that join records (`origin`, `interaction`) are the same object across records in-process, so join by identity there and by `ChangeOrigin.run`/`at`/`name` once they have left it. `subscribe(type, listener)` delivers each record synchronously at the moment it is complete (a re-run at recompute end; an interaction, hold or navigation when it settles), bottom-up: a hold before the navigation it held, before the interaction that performed it. A listener runs inside the engine and must not write signals; hand work off to a microtask.
 
+**Timeline records.** Five further record types describe the work itself rather than its outcome, shaped for a profiler track (`@solidjs/web/performance-tracks`, below) and for the responsiveness findings; they are built only while something is subscribed to them, so an app that does not listen pays nothing beyond the hook null-check. `flush` — one per scheduler drain: `at`, `durationMs`, `runs` and `created` inside it, `held` (a transition parked), `interaction`. `create` — a computation's creation run (`RerunEvent`'s shape without causes: `nodeId`, `nodeName`, `nodeKind`, `at`, `selfMs`, `totalMs`, `depCount`, `phase`, `held`, `interaction`) — the mount work that no `RerunEvent` describes, and what `InteractionEvent.created` counts. `effect` — an effect's callback, the imperative half that writes the DOM: `nodeId`, `nodeName`, `at`, `durationMs`, `run`, `interaction`. `flight` — an async node's flight, kickoff to landing: `nodeId`, `nodeName`, `ownerPath`, `at`, `durationMs`, `outcome: "landed" | "abandoned"` (superseded before it landed), `interaction`. `fallback` — a `<Loading>` boundary's fallback, shown to hidden: `ownerPath`, `at`, `shownMs`, `interaction`. Every derived `ChangeRecord` on a re-run's cause chain also carries the `nodeId` of the memo it came from, so a consumer can walk the propagation of one write node by node.
+
+**Joining an interaction to the browser's INP entry.** An `InteractionEvent.at` is the DOM event's `timeStamp` when the runtime dispatched it (compiled event bindings pass it; `OBSERVE.attribution.withInteraction({ …, at: e.timeStamp }, fn)` for a custom dispatcher), and `inputDelayMs` is the queueing from that moment to the handler's entry — the browser's input delay. The `PerformanceEventTiming` entry for the same event (a `PerformanceObserver` on `"event"`) has `startTime === interaction.at` on the same clock and carries `interactionId`, so the join is `entry.startTime === interaction.at`: `inputDelayMs` accounts for the entry's `processingStart − startTime`, `handlerMs` for its processing, and `settledMs` extends past its `duration` to when Solid had the screen right.
+
 **Excluding the observer.** `OBSERVE.exclude(owner)` marks an owner subtree as the observer's own: diagnostics whose subject sits under it are built (a throwing site still throws) but never delivered or printed, and the attribution engine records no run for its computations, charges none of them to an interaction, counts no write to its signals or stores toward an interaction, and does not spend a once-per-key slot (`IMMUTABLE_UPDATE_IN_STORE`'s per-path memory) on them. An interaction whose writes all went to excluded subjects, with none of the app's work run — a click on the observer's own panel — is not recorded at all. Mark the root as it is created (a store's nodes take the owner the store was created under, recorded only once the engine is enabled — enable before creating the panel's stores). The signals and stores created under it are excluded subjects wherever their writes come from — a click handler, an adapter callback — so writes need no `runWithOwner`, and must not use one: a write under an owner is a write in an owned scope (`REACTIVE_WRITE_IN_OWNED_SCOPE`). `OBSERVE.isExcluded(subject)` answers the question for any owner or node.
 
 **Values in records — the PII surface.** Records name things (owner paths, `name` options, store paths, route patterns, function ids) and are otherwise numbers, kinds and outcomes; a handful of fields carry _user data_, and an exporter that leaves the process owns scrubbing them (vendors already have the control surface — `beforeSend`, `sendDefaultPii` — and the runtime keeps producing them because they are what makes dev output readable). The complete list: `ChangeRecord.prev`/`value` and `HeldWrite.prev`/`value` — previews of the written values (`preview()`: strings quoted and cut at 40 characters, numbers/booleans verbatim, everything else a type tag such as `Array(12)` or `[Object]`), so the string case is the one to drop or hash unless opted in; `ChangeOrigin.target` (and `InteractionRef.target`) — the element hit, `tag#id "text"` with up to 30 characters of `textContent` for anything that is not an `input`/`textarea`/`select`, so a label but also whatever a `<td>` said; `ChangeOrigin.to`/`from`/`params` and `NavigationEvent.to`/`from`/`params` (`NavigationHop` too) — concrete paths and the values a route pattern bound (`/users/42`, `{ id: "42" }`), while `name` is the pattern; `DiagnosticEvent.message` and `data` for the responsiveness findings (`SILENT_HOLD`, `LONG_HOLD`) — the verdict sentence names the interaction (`click on button#next "Next →"`) and the navigation it was under (concrete `to`/`from`/`params`), and `data.interaction.target` / `data.navigation` carry the same fields structured; no finding quotes a value preview. `data.error` on the server error findings (`SSR_RENDER_ERROR_CONTAINED`, `SSR_ERROR_SANITIZED`, `SERVER_FN_ERROR_SANITIZED`) — the error **as thrown**, message and own properties, deliberately unsanitized: the wire got the generic message so the observer could see the real one, which means a driver's connection string or a query lands here, and an exporter treats it as it treats any captured exception. Dev-only checks may put the offending value on `data` (`PRELOAD_DESCRIPTOR_INVALID`'s `data.value`, `HEAD_TAG_INVALID`'s `data.detail`) — dev tier, never exported. Everything else is safe by construction: `RerunEvent` has names and numbers only; the runtimes' records (`"call"`, `"invocation"`, `"boundary"`, `"frame"`) never put arguments, results, thrown values, requests or responses on the record — those ride the `live` argument beside it, in-process only — and carry ids, methods, addresses, statuses and timings; `ownerPath` is component and primitive names. `stacks: true` adds first-party frames to `ChangeRecord.stack` (file paths, not values) and is a dev affordance to leave off in production.
@@ -958,7 +970,7 @@ Known gap: handlers bound through the runtime (delegated events, and non-literal
 
 The interaction is the unit a person experiences: one click, and everything it cost until the screen had the answer. Every downstream fact is already keyed to the interaction frame — writes stamp it, re-runs trace to it through their causes, holds and navigations carry it — and `feedback().interactions` folds those by interaction _name_. `interactions()` keeps one `InteractionEvent` per dispatch instead, with a start, an end, and the pieces attached, so a consumer building a span per interaction (an APM adapter) neither infers the end from an idle gap nor sums quantized per-run times to approximate the wall clock:
 
-- `name`, `target`, `at` — what the runtime described to `withInteraction`; `handlerMs` — the handler itself, dispatch to return.
+- `name`, `target`, `at` — what the runtime described to `withInteraction` (`at` the event's own `timeStamp` when it was given, else the dispatch); `inputDelayMs` — the browser's queueing from `at` to the handler's entry, present when `at` predates it; `handlerMs` — the handler itself, entry to return.
 - `writes` — root writes attributed to the frame: the handler's, and those of frames it opened (a navigation).
 - `runs` and `created` — re-runs traced back to it, and computations _created_ in those runs or in its flushes (the "create 1,000 rows" work, which no `RerunEvent` describes); `runMs` sums the self-time of both.
 - `holds` — the `HoldEvent`s its writes waited in; `navigations` — the `NavigationEvent`s performed under it. The same objects as in `holds()`/`navigations()`.
@@ -978,6 +990,28 @@ Runs are counted while the record is open; an async landing the interaction caus
 - `fallbacks`: per `Loading` boundary, `shows`, total `shownMs`, `worstMs`, and `flashes` — fallbacks shown under 150ms, the loading-flash shape.
 
 All tables are sorted worst-first. The `@solidjs/diagnostics` artifact includes `holds` and `feedback` alongside diagnostics and costs, and the browser bridge exposes both as live queries.
+
+### Chrome Performance panel (`@solidjs/web/performance-tracks`)
+
+The same records, painted: `enablePerformanceTracks()` renders the attribution engine's records and the web runtime's `call`/`frame` records as custom tracks in the Chrome Performance panel — the extensibility API React's own tracks use — beside Chrome's main-thread and network tracks, so what an agent read in the artifact is what the developer sees on the timeline. Dev and observe tiers; a no-op in prod builds.
+
+```ts
+import { enablePerformanceTracks } from "@solidjs/web/performance-tracks";
+
+const disable = enablePerformanceTracks({
+  minMs: 0, // floor for run spans; 0 in dev, 0.05 in observe builds
+  rich: true, // performance.measure with tooltips/properties (dev default) vs console.timeStamp
+  scrub: false, // drop value previews and element text (observe default)
+  group: "Solid", // the track group
+  attribution: {} // options for the engine hold it takes (log: false by default)
+});
+```
+
+Group `Solid`, tracks in order: **Interactions** — the input delay, the handler, then the settle to `committed`/`held` (a silent hold as a warning); **Propagation** — one span per scheduler drain labelled by the writes that started it and what they reached (`count 0 → 1 — click on button#next · 5 runs, 1 unchanged`), with every run inside it beneath, labelled by what made it run (`<TodoRow> › effect ← doubled`) — the write's path through the graph as a flame; **Effects** and **Memos** — one span per re-run, creation run (`· create`) and effect callback (`· callback`), coloured by self time, `warning` for a run that changed nothing; **Async** — flights kickoff → landing (abandoned ones as warnings) and fallbacks shown → hidden; **Holds** — each wait labelled by its blockers, `warning` when silent, `error` when long; **Navigations** — request → settle by route pattern; **Server** — server-function calls and frame streams. Every span is emitted retroactively from the record's own `performance.now()` stamps — nothing brackets a hot path.
+
+Labels read as source: a flow control's own nodes fold into its tag (`<App> › <Show>` rather than `<App> › <Show> › condition value`) and a composed primitive's nodes into the primitive (`createDebounced.value` → `createDebounced`, the same rule as `store.user`), with the runtime's name kept in the span's `Node` property; the `Owner path` property is the unfolded truth and `Node id` the engine's id. Rich mode carries the why-chain (`formatRerun`) as the tooltip, and causes, deps added/removed, phase, origin and interaction as properties.
+
+Findings become markers: every `DiagnosticEvent` delivered while enabled is a marker on the panel's Timings track (`SILENT_HOLD — <App> › <Search>`), coloured by severity, and — at `warn` or worse — annotated as a performance issue for the Insights sidebar (`detail.devtools.performanceIssue`, with the repair guide's section for the code as its link; Chrome ignores the annotation where it is not yet supported). In dev, every span and marker is emitted inside the `console.createTask` task of the component it belongs to (the dev component wrapper creates one per component root), so the entry's stack in the panel points at the JSX site that rendered the component rather than at the engine. Enabling takes its own ref-counted hold on the engine, so it coexists with a diagnostics capture or an APM adapter; the returned function releases it.
 
 ### Architecture
 
