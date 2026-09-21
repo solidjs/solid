@@ -640,6 +640,13 @@ function mergeLookup(view: MergeView, property: PropertyKey): any {
     k = view.kinds;
   for (let i = f.length - 1; i >= 0; i--) {
     const kind = k[i];
+    // The common leaf first, read in place: a component's props view is a
+    // few plain objects, read once per key on the server.
+    if (kind === SOURCE_PLAIN) {
+      const s = f[i];
+      if (property in s) return s[property];
+      continue;
+    }
     if (kind === SOURCE_OMIT) {
       const v: OmitView = f[i];
       if (isHidden(v, property)) continue;
@@ -809,18 +816,41 @@ function mergeEnumerableKeys(view: MergeView, filter?: OmitView): (string | symb
 
 const mergeTraps: ProxyHandler<MergeView> = {
   get(view, property, receiver) {
-    if (property === $PROXY) return receiver;
-    if (property === $TARGET || property === $OMIT) return undefined;
-    if (property === $SOURCES) return view.sources;
-    if (property === $VIEW) return view;
-    // A trap read counts toward the table (see `mergeReadTable`); the walk
-    // itself is the record's.
-    const table = mergeReadTable(view);
-    if (table !== undefined) {
-      const leaf = table.get(property);
-      return leaf === undefined ? undefined : leaf[property];
+    // The private keys are symbols; a string read (every prop) skips the four
+    // compares.
+    if (typeof property === "symbol") {
+      if (property === $PROXY) return receiver;
+      if (property === $TARGET || property === $OMIT) return undefined;
+      if (property === $SOURCES) return view.sources;
+      if (property === $VIEW) return view;
     }
-    return mergeGet(view, property);
+    // A trap read counts toward the table (see `mergeReadTable`); the walk
+    // itself is the record's. `mergeReadTable` and the plain walk of
+    // `mergeLookup` are inlined here: a trap is entered from the runtime, so
+    // nothing below it is inlined for it, and a component's props view is a
+    // few plain objects read once per key on the server — the walk is the
+    // whole read. A leaf that is not plain hands the walk to `mergeGet`,
+    // which starts over (a plain leaf walked twice is two `in` checks).
+    let table = view.table;
+    if (typeof table !== "object") {
+      if (table + 1 < READS_FOR_TABLE) {
+        view.table = table + 1;
+        const f = view.sources,
+          k = view.kinds;
+        for (let i = f.length - 1; i >= 0; i--) {
+          if (k[i] !== SOURCE_PLAIN) return mergeGet(view, property);
+          // Read first, `in` only to tell a missing key from one holding
+          // undefined: the last source is the one that usually has the key.
+          const v = f[i][property];
+          if (v !== undefined || property in f[i]) return v;
+        }
+        return undefined;
+      }
+      table = mergeTable(view);
+      if (table === undefined) return mergeGet(view, property);
+    } else if (table === null) return mergeGet(view, property);
+    const leaf = table.get(property);
+    return leaf === undefined ? undefined : leaf[property];
   },
   has(view, property) {
     if (property === $PROXY) return true;
@@ -964,8 +994,13 @@ export function mergeSources(o: any): any[] | undefined {
  */
 export function merge<T extends unknown[]>(...sources: T): Merge<T> {
   if (sources.length === 1 && typeof sources[0] !== "function") return sources[0] as any;
-  const flattened: T[] = [];
-  const kinds: SourceKind[] = [];
+  // Sized to the argument count up front: a view is built per source per
+  // component layer, and growing two empty arrays by `push` was a third of
+  // its construction. A nested view's sources may run past the count (the
+  // array grows), a falsy source leaves it short (trimmed below).
+  const flattened: T[] = new Array(sources.length);
+  const kinds: SourceKind[] = new Array(sources.length);
+  let n = 0;
   // The one non-falsy source, if there is exactly one: it IS the merge.
   let only: unknown = undefined;
   let count = 0;
@@ -975,8 +1010,8 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
     count++;
     only = s;
     if (typeof s === "function") {
-      flattened.push(createMemo(s as () => any) as any);
-      kinds.push(SOURCE_MEMO);
+      flattened[n] = createMemo(s as () => any) as any;
+      kinds[n++] = SOURCE_MEMO;
       continue;
     }
     if ($PROXY in (s as object)) {
@@ -990,24 +1025,28 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
         const child: MergeView | undefined = (s as any)[$VIEW];
         if (child !== undefined) {
           for (let j = 0; j < child.sources.length; j++) {
-            flattened.push(child.sources[j]);
-            kinds.push(child.kinds[j]);
+            flattened[n] = child.sources[j];
+            kinds[n++] = child.kinds[j];
           }
           continue;
         }
         const view: OmitView | undefined = (s as any)[$OMIT];
         if (view !== undefined) {
-          flattened.push(view as any);
-          kinds.push(SOURCE_OMIT);
+          flattened[n] = view as any;
+          kinds[n++] = SOURCE_OMIT;
           continue;
         }
       }
-      flattened.push(s as any);
-      kinds.push(SOURCE_PROXY);
+      flattened[n] = s as any;
+      kinds[n++] = SOURCE_PROXY;
       continue;
     }
-    flattened.push(s as any);
-    kinds.push(SOURCE_PLAIN);
+    flattened[n] = s as any;
+    kinds[n++] = SOURCE_PLAIN;
+  }
+  if (n !== flattened.length) {
+    flattened.length = n;
+    kinds.length = n;
   }
   if (SUPPORTS_PROXY) {
     if (count === 1 && typeof only !== "function") return only as any;

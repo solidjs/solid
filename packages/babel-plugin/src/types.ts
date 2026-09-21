@@ -18,9 +18,19 @@ export interface TemplateRecord {
   path?: NodePath;
 }
 
+/** A hoisted `ssrElement` skip predicate (ssr/template.ts `registerSkip`). */
+export interface SkipRecord {
+  /** The baked key set, `\0`-joined — the dedupe key. */
+  key: string;
+  id: t.Identifier;
+  predicate: t.ArrowFunctionExpression;
+}
+
 export interface ProgramScopeData {
   imports?: Map<string, t.Identifier>;
   templates?: TemplateRecord[];
+  /** SSR spread-element skip predicates, placed by postprocess. */
+  ssrSkips?: SkipRecord[];
   events?: Set<string>;
   /** SSR hoisted props shapes (ssr/props.ts), placed by postprocess. */
   hoistedProps?: t.Statement[];

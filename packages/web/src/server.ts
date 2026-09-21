@@ -1509,6 +1509,31 @@ export function useHead(tags) {
 // Based on https://github.com/WebReflection/domtagger/blob/master/esm/sanitizer.js
 const VOID_ELEMENTS =
   /^(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr)$/i;
+// `ssrElement` asks this per element; the answer per tag name is fixed, and a
+// spread element asks it on every render. One lookup instead of a regex run.
+// Bounded: a `<Dynamic component={name}>` tag can be any string, so past a
+// few hundred distinct names the regex answers without being remembered.
+const voidByTag = /*#__PURE__*/ new Map<string, boolean>();
+// Attribute names a spread has already emitted unchanged. A spread's keys
+// are author-written names from a small vocabulary, repeated on every
+// element; `escape` runs a regex over each one every time, and a name that
+// escaped to itself once escapes to itself always. Names that DO escape are
+// never remembered, so a hit means "emit as is". Bounded like `voidByTag`.
+const safeAttrNames = /*#__PURE__*/ new Set<string>();
+function attrName(prop: string): string {
+  if (safeAttrNames.has(prop)) return prop;
+  const escaped = escape(prop);
+  if (escaped === prop && safeAttrNames.size < 512) safeAttrNames.add(prop);
+  return escaped;
+}
+function isVoidElement(tag: string): boolean {
+  let v = voidByTag.get(tag);
+  if (v === undefined) {
+    v = VOID_ELEMENTS.test(tag);
+    if (voidByTag.size < 512) voidByTag.set(tag, v);
+  }
+  return v;
+}
 // Fragment replacement helpers emitted into stream task scripts.
 //
 // Mechanics vs. policy: the inline script owns the parse-time MECHANICS only
@@ -3914,10 +3939,11 @@ export function ssrElement(
   props: any | any[] | (() => any | any[]),
   children: any,
   needsId: boolean,
-  skip?: (key: string) => boolean
+  skip?: (key: string) => boolean,
+  attrs?: string | (() => string)
 ): { t: string };
 
-export function ssrElement(tag, props, children, needsId, skip) {
+export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // The hydration key must be allocated before the props thunk runs: dynamic
   // props (`mergeProps(() => ...)`) create a memo, which consumes a child id.
   // The client claims the element (getNextElement) before applying the spread,
@@ -3984,7 +4010,8 @@ export function ssrElement(tag, props, children, needsId, skip) {
       sourceOwners(props, viewKeys, owners);
     } else kind = SOURCE_PROXY;
   }
-  const skipChildren = VOID_ELEMENTS.test(tag);
+  const skipChildren = isVoidElement(tag);
+  const plain = kind === SOURCE_PLAIN;
   // Each emitted attribute carries its own leading space (the hydration key
   // already does), so skipped props leave no stray whitespace behind:
   // `<li _hk=0>` rather than `<li _hk=0 >` (#3382).
@@ -4001,7 +4028,14 @@ export function ssrElement(tag, props, children, needsId, skip) {
     for (let s = 0; s <= last; s++) keysOf[s] = Object.keys(sources[s]);
   }
   for (let s = 0; s <= last; s++) {
-    const keys = owners !== null ? viewKeys : keysOf !== null ? keysOf[s] : sourceKeys(props, kind);
+    const keys =
+      owners !== null
+        ? viewKeys
+        : keysOf !== null
+          ? keysOf[s]
+          : plain
+            ? Object.keys(props)
+            : sourceKeys(props, kind);
     if (sources !== null) props = sources[s];
     nextKey: for (let i = 0; i < keys.length; i++) {
       const prop = keys[i];
@@ -4026,8 +4060,13 @@ export function ssrElement(tag, props, children, needsId, skip) {
       // element with a spread is serialized here instead. Keep the runtime
       // path equivalent: textarea value/defaultValue are its text content,
       // never HTML attributes (#3286).
+      //
+      // A plain body (every source above, and a view's leaf) is read as
+      // `props[prop]` here rather than through `sourceGet`: the call is not
+      // inlined into a function this size, and it is one per attribute of
+      // every spread element.
       if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
-        const value = sourceGet(props, kind, prop);
+        const value = plain ? props[prop] : sourceGet(props, kind, prop);
         if (value !== null) children = escape(value);
         continue;
       }
@@ -4035,19 +4074,21 @@ export function ssrElement(tag, props, children, needsId, skip) {
         if (children === undefined && !skipChildren)
           children =
             tag === "script" || tag === "style" || prop === "innerHTML"
-              ? sourceGet(props, kind, prop)
-              : escape(sourceGet(props, kind, prop));
+              ? plain
+                ? props[prop]
+                : sourceGet(props, kind, prop)
+              : escape(plain ? props[prop] : sourceGet(props, kind, prop));
         continue;
       }
-      const value = sourceGet(props, kind, prop);
+      const value = plain ? props[prop] : sourceGet(props, kind, prop);
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382).
       if (
         value == undefined ||
         prop === "ref" ||
-        prop.slice(0, 2) === "on" ||
-        prop.slice(0, 5) === "prop:"
+        prop.startsWith("on") ||
+        prop.startsWith("prop:")
       ) {
         // Behavior claims ride NAMED ref/on* positions only — the compiler
         // can't see through a spread, so a claim-carrying stub landing here
@@ -4076,13 +4117,33 @@ export function ssrElement(tag, props, children, needsId, skip) {
         result += ` class="${ssrClassName(value)}"`;
       } else if (typeof value === "boolean") {
         if (!value) continue;
-        result += ` ${escape(prop)}`;
+        result += ` ${attrName(prop)}`;
       } else {
-        result += value === "" ? ` ${escape(prop)}` : ` ${escape(prop)}="${escape(value, true)}"`;
+        result +=
+          value === "" ? ` ${attrName(prop)}` : ` ${attrName(prop)}="${escape(value, true)}"`;
       }
     }
   }
 
+  // `attrs` is attribute markup the caller already has as a string — the
+  // static attributes of a spread element, or a class a library computed and
+  // knows is clean — appended after the props' attributes as the last source
+  // would be. It is markup, not a source: no key of it is walked, so it is
+  // not escaped here (the caller did that, or knows it need not be) and a
+  // key it carries must be kept off the props with `skip`, or the element
+  // gets the attribute twice (and the parser keeps the first). What it buys
+  // is the object, its key list and the precedence walk that a `{ class }`
+  // source costs on every render of an element whose attribute string is
+  // fixed, or one concat away.
+  //
+  // A function is that markup computed now — the compiler's form for a
+  // dynamic attribute after the element's last spread (`ssrElementAttribute`
+  // per attribute, concatenated). It is called HERE, after every source's
+  // getters and before the children, which is exactly where the trailing
+  // source it replaces had its getters read: the expressions run at the same
+  // point in the hydration-id sequence. Evaluating it in argument position
+  // would move them ahead of the element's own key.
+  if (attrs !== undefined) result += typeof attrs === "function" ? attrs() : attrs;
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
   if (skipChildren) return { t: result + " />" };
@@ -4104,6 +4165,23 @@ export function ssrElement(tag, props, children, needsId, skip) {
   if (ct === "object" && !children.h && typeof children.t === "string")
     return { t: result + ">" + children.t + "</" + tag + ">" };
   return ssr([result + ">", `</${tag}>`], resolveSSRNode(children, undefined, true));
+}
+export function ssrElementAttribute(key: string, value: any): string;
+
+export function ssrElementAttribute(key, value) {
+  // One attribute of a spread element, written as `ssrElement`'s walk writes
+  // it — the compiler's form for a dynamic attribute after the element's last
+  // spread, which used to be a getter in a trailing source. Same rules as the
+  // walk, in the same order: nullish is "not set" (`class`/`style` included,
+  // #3382), `style`/`class` take their serializers, a boolean is present or
+  // absent, `""` is a bare attribute, anything else is attribute-escaped.
+  // `key` is a compile-time attribute name (never `ref`, `on*` or `prop:*`,
+  // which the compiler drops) and is trusted like `ssrAttribute`'s.
+  if (value == undefined) return "";
+  if (key === "style") return ` style="${ssrStyle(value)}"`;
+  if (key === "class") return ` class="${ssrClassName(value)}"`;
+  if (typeof value === "boolean") return value ? ` ${key}` : "";
+  return value === "" ? ` ${key}` : ` ${key}="${escape(value, true)}"`;
 }
 export function ssrAttribute(key: string, value: any): string;
 
