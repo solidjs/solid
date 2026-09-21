@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
-import { createSignal, createMemo, Loading, Show, latest, flush } from "solid-js";
+import { action, createSignal, createMemo, Errored, Loading, Show, latest, flush } from "solid-js";
 import { render } from "../src/index.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -97,18 +97,21 @@ const HELD = "Count: 1A: 1B: 1";
 const EARLY = "Count: 1A: Loading AB: 1";
 const LANDED = "Count: 2A: 2B: 2";
 
-describe("Loading `on` ≡ keyed Show around the boundary; a boundary is never born held (#3540)", () => {
-  // Over `latest(count)` the key changes ahead of the write: a keyed `Show`
-  // remounts A, and the fresh boundary shows its fallback now (born held
-  // exempts boundaries, A29) — the same for `on={latest(count)}`, which
-  // resets the boundary without remounting it. Over `count()` the key lands
-  // with the write, so every form holds. B — an initialized boundary without
-  // a key — forwards data's pending and holds the frame either way (A33).
+describe("Loading `on` beside a keyed Show around the boundary; a boundary is never born held (#3540)", () => {
+  // A keyed `Show` remounts on its condition's VALUE: over `latest(count)`
+  // the key changes ahead of the write and the fresh boundary shows its
+  // fallback now (born held exempts boundaries, A29); over `count()` the key
+  // lands with the write, so the frame holds. `on` is a dependency list, not
+  // a key: count's write notifies it either way, and the boundary re-arms in
+  // the current frame — fallback beside the held frame for `on={count()}` as
+  // for `on={latest(count)}` (#3524, #3529: the fallback must not wait for
+  // B's hold). B — an initialized boundary without `on` — forwards data's
+  // pending and holds the frame in every row (A33).
   //
   // `mounts` pins it — how many times A's `<Loading>` was created [after the
   // first landing, mid-flight, after the second landing]. Static and callback
   // children are re-evaluated by `Show` at the key change: one more mount,
-  // mid-flight.
+  // mid-flight. `on` never remounts.
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Variant, string, [number, number, number]]> = [
@@ -116,7 +119,7 @@ describe("Loading `on` ≡ keyed Show around the boundary; a boundary is never b
     ["show-callback-latest", EARLY, [1, 2, 2]],
     ["show-static-committed", HELD, [1, 2, 2]],
     ["show-callback-committed", HELD, [1, 2, 2]],
-    ["on-committed", HELD, [0, 0, 0]],
+    ["on-committed", EARLY, [0, 0, 0]],
     ["on-latest", EARLY, [0, 0, 0]]
   ];
   for (const [variant, midFlight, expectedMounts] of matrix) {
@@ -144,4 +147,110 @@ describe("Loading `on` ≡ keyed Show around the boundary; a boundary is never b
       dispose();
     });
   }
+});
+
+describe("Loading `on` re-arms in the current frame (#3540)", () => {
+  test("a dependency written inside a held action: fallback beside the held DOM; the batch lands together", async () => {
+    const div = document.createElement("div");
+    let setCount!: (v: number) => void;
+    let setLabel!: (v: string) => void;
+    let release!: () => void;
+    const dispose = render(() => {
+      const [count, _setCount] = createSignal(1);
+      const [label, _setLabel] = createSignal("old");
+      setCount = _setCount;
+      setLabel = _setLabel;
+      const data = createMemo(async () => {
+        const v = count();
+        await delay(1000);
+        return v;
+      });
+      return (
+        <>
+          <p>Label: {label()}</p>
+          <p>Count: {count()}</p>
+          <p>
+            A:{" "}
+            <Loading on={count()} fallback="Loading A">
+              {data()}
+            </Loading>
+          </p>
+        </>
+      );
+    }, div);
+    flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    flush();
+    expect(div.textContent).toBe("Label: oldCount: 1A: 1");
+
+    const save = action(function* () {
+      setCount(2);
+      setLabel("new");
+      yield new Promise<void>(r => (release = r));
+    });
+    save();
+    flush();
+    // Fallback now; the action's other write is still held.
+    expect(div.textContent).toBe("Label: oldCount: 1A: Loading A");
+
+    await vi.advanceTimersByTimeAsync(1000);
+    flush();
+    expect(div.textContent).toBe("Label: oldCount: 1A: Loading A");
+
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(div.textContent).toBe("Label: newCount: 2A: 2");
+    dispose();
+  });
+});
+
+describe("Errored `on` retries on a dependency (#3540)", () => {
+  test("a change to a dependency while the error fallback shows clears the error and retries the children", () => {
+    const div = document.createElement("div");
+    let broken = true;
+    let setRetryKey!: (v: number) => void;
+    let attempts = 0;
+    const dispose = render(() => {
+      const [retryKey, _set] = createSignal(0);
+      setRetryKey = _set;
+      const Content = () => {
+        const value = createMemo(() => {
+          attempts++;
+          if (broken) throw new Error("boom");
+          return "content";
+        });
+        return <span>{value()}</span>;
+      };
+      return (
+        <Errored
+          fallback={(err: () => unknown) => <i>{(err() as Error).message}</i>}
+          on={retryKey()}
+        >
+          <Content />
+        </Errored>
+      );
+    }, div);
+    flush();
+    expect(div.textContent).toBe("boom");
+    expect(attempts).toBe(1);
+
+    setRetryKey(1);
+    flush();
+    expect(div.textContent).toBe("boom");
+    expect(attempts).toBe(2);
+
+    broken = false;
+    setRetryKey(2);
+    flush();
+    expect(div.textContent).toBe("content");
+    expect(attempts).toBe(3);
+
+    setRetryKey(3);
+    flush();
+    expect(div.textContent).toBe("content");
+    expect(attempts).toBe(3);
+    dispose();
+  });
 });
