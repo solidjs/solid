@@ -18,6 +18,9 @@ pub struct SourceNamesOption {
     /// Component owner labels: the tag as written, as `createComponent`'s
     /// third argument.
     pub components: Option<bool>,
+    /// Binding effect labels: the element and attribute (or hole) each
+    /// compiled effect writes.
+    pub bindings: Option<bool>,
 }
 
 #[napi(object)]
@@ -39,9 +42,12 @@ pub struct TransformOptions {
     /// minification. `components` emits the source tag name as a third
     /// `createComponent` argument (`createComponent(Home, props, "Home")`) —
     /// DOM and SSR output (SSR keeps the `createComponent` call it would
-    /// otherwise inline to `Comp(props)`); not universal or dynamic. The
-    /// production runtimes ignore the names. `true` enables every kind; the
-    /// object form picks.
+    /// otherwise inline to `Comp(props)`); not universal or dynamic.
+    /// `bindings` names every compiled binding effect by what it writes
+    /// (`span.textContent`, `div.class:active`, a hole `div.children`, a
+    /// spread `div.spread`) through an options argument on
+    /// `effect`/`insert`/`spread`; DOM output only. The production runtimes
+    /// ignore the names. `true` enables every kind; the object form picks.
     pub source_names: Option<Either<bool, SourceNamesOption>>,
     pub source_map: Option<bool>,
     pub context_to_custom_elements: Option<bool>,

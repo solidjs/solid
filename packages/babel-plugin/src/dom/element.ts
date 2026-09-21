@@ -36,6 +36,7 @@ import {
 } from "../shared/utils";
 import { transformNode } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
+import { namesBindings } from "../config";
 import { InlineElements, BlockElements } from "./constants";
 import type {
   BabelPath,
@@ -1399,6 +1400,25 @@ function transformChildren(
       i++;
     } else if (child.exprs.length) {
       let insert = registerImportMethod(path, "insert", getRendererConfig(path, "dom").moduleName);
+      // `sourceNames.bindings`: the hole's render effect is named for the
+      // parent it fills (`div.children`), through insert's trailing options
+      // argument; the marker and initial slots are filled with `undefined`
+      // when the call would otherwise omit them. Only holes that compile to
+      // an accessor get one — a static child (a component call, a literal)
+      // is inserted directly and creates no effect to name.
+      const accessorHole =
+        child.dynamic || (child as TransformResult & { functionHole?: boolean }).functionHole;
+      const emitInsert = (args: babelTypes.Expression[]) => {
+        if (accessorHole && namesBindings(getConfig(path))) {
+          while (args.length < 4) args.push(t.identifier("undefined"));
+          args.push(
+            t.objectExpression([
+              t.objectProperty(t.identifier("name"), t.stringLiteral(`${tagName}.children`))
+            ])
+          );
+        }
+        results.exprs.push(t.expressionStatement(t.callExpression(insert, args)));
+      };
       const multi = checkLength(filteredChildren),
         markers = config.hydratable && multi,
         // CSR counterpart of the hydratable per-slot markers: when this parent
@@ -1454,23 +1474,15 @@ function transformChildren(
               child.exprs[0] as babelTypes.Expression,
               exprId
             ] as babelTypes.Expression[]);
-        results.exprs.push(t.expressionStatement(t.callExpression(insert, args)));
+        emitInsert(args);
       } else if (multi) {
-        results.exprs.push(
-          t.expressionStatement(
-            t.callExpression(insert, [
-              results.id!,
-              child.exprs[0] as babelTypes.Expression,
-              nextChild(childNodes, index) || t.nullLiteral()
-            ])
-          )
-        );
+        emitInsert([
+          results.id!,
+          child.exprs[0] as babelTypes.Expression,
+          nextChild(childNodes, index) || t.nullLiteral()
+        ]);
       } else {
-        results.exprs.push(
-          t.expressionStatement(
-            t.callExpression(insert, [results.id!, child.exprs[0] as babelTypes.Expression])
-          )
-        );
+        emitInsert([results.id!, child.exprs[0] as babelTypes.Expression]);
       }
     }
   });
@@ -1699,12 +1711,18 @@ function processSpreads(
   // no hydration id here either, matching the ssrElement array form.
   const props = spreadArgs.length === 1 ? spreadArgs[0] : t.arrayExpression(spreadArgs);
 
+  const args = [elem, props, t.booleanLiteral(hasChildren)];
+  // `sourceNames.bindings`: the tag as written rides as spread's trailing
+  // argument (past the runtime-only `skip` slot); the runtime labels its
+  // attribute effect `<tag>.spread` and its children insert `<tag>.children`.
+  if (namesBindings(config)) args.push(t.identifier("undefined"), t.stringLiteral(tagName));
+
   return [
     filteredAttributes,
     t.expressionStatement(
       t.callExpression(
         registerImportMethod(path, "spread", getRendererConfig(path, "dom").moduleName),
-        [elem, props, t.booleanLiteral(hasChildren)]
+        args
       )
     )
   ];

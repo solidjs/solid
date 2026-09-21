@@ -61,6 +61,11 @@ pub struct SourceNames {
     /// (`createComponent(Home, props, "Home")`). DOM and SSR output; not
     /// universal or dynamic.
     pub components: bool,
+    /// Every compiled binding effect named by what it writes —
+    /// `span.textContent`, `div.class:active`, a hole `div.children`, a
+    /// spread `div.spread` — through an options argument on
+    /// `effect`/`insert`/`spread`. DOM output only.
+    pub bindings: bool,
 }
 
 /// Default runtime import path — same as `@solidjs/babel-plugin` and the
@@ -431,6 +436,7 @@ fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> Dom
         hydratable: options.hydratable,
         dev: options.dev,
         component_names: options.source_names.components,
+        binding_names: options.source_names.bindings,
         context_to_custom_elements: options.context_to_custom_elements,
         delegate_events: options.delegate_events,
         delegated_events: options.delegated_events.clone(),

@@ -4,12 +4,14 @@ import {
   getConfig,
   getNumberedId,
   getRendererConfig,
+  isLockedDOMProperty,
   isStatementVariableInitializer,
   isStatefulDOMProperty,
   registerImportMethod,
   wrapForEffect
 } from "../shared/utils";
 import { setAttr } from "./element";
+import { namesBindings } from "../config";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -177,6 +179,27 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
   // dynamics are only queued when effectWrapper is configured (element.ts
   // guards every push), so the name is always a string here
   const effectWrapperId = registerImportMethod(path, config.effectWrapper as string, undefined);
+  // `sourceNames.bindings`: the effect is named by what it writes — each
+  // binding's `<tag>.<attribute>` as written (undoing the `prop:` the locked
+  // DOM property pre-pass added to `value`, `checked`, …), the merged effect
+  // listing all of its bindings — as a trailing `{ name }` options argument.
+  const label = namesBindings(config)
+    ? [
+        t.objectExpression([
+          t.objectProperty(
+            t.identifier("name"),
+            t.stringLiteral(
+              dynamics
+                .map(
+                  d =>
+                    `${d.tagName}.${isLockedDOMProperty(d.tagName, d.key) ? d.key.replace(/^prop:/, "") : d.key}`
+                )
+                .join(", ")
+            )
+          )
+        ])
+      ]
+    : [];
 
   if (dynamics.length === 1) {
     const prevValue =
@@ -207,7 +230,8 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
               })
             )
           ])
-        )
+        ),
+        ...label
       ])
     );
   }
@@ -270,7 +294,8 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
       t.arrowFunctionExpression(
         [t.objectPattern(properties.map(id => t.objectProperty(id, id, false, true))), prevId],
         t.blockStatement(statements)
-      )
+      ),
+      ...label
     ])
   );
 }

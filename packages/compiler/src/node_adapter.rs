@@ -249,9 +249,13 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         dev: options.dev.unwrap_or(false),
         source_names: match options.source_names {
             None | Some(Either::A(false)) => SourceNames::default(),
-            Some(Either::A(true)) => SourceNames { components: true },
+            Some(Either::A(true)) => SourceNames {
+                components: true,
+                bindings: true,
+            },
             Some(Either::B(picked)) => SourceNames {
                 components: picked.components.unwrap_or(false),
+                bindings: picked.bindings.unwrap_or(false),
             },
         },
         source_map: options.source_map.unwrap_or(false),

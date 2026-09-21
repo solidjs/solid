@@ -21,11 +21,14 @@ export function tagElement(node: Node): void {
 
 // `scope: true` (set by insert for compiler-tagged hole accessors) makes the
 // render effect non-transparent so the hole gets its own id scope, mirroring
-// the server's ssrScope owner.
+// the server's ssrScope owner. `name` is the binding's target as the
+// compiler wrote it under `sourceNames.bindings` (`span.textContent`,
+// `div.class:active`); the dev and observe runtimes label the effect node
+// with it, production ignores it.
 export function effect<T>(
   fn: (prev?: T) => T,
   effectFn: (value: T, prev?: T) => void | (() => void),
-  options?: { scope?: boolean }
+  options?: { scope?: boolean; name?: string }
 ): void {
   const nodeOptions = options
     ? { sync: true, ...options, transparent: !options.scope }

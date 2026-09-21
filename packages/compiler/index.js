@@ -338,7 +338,7 @@ function validateOptions(code, options) {
   return nativeOptions;
 }
 
-const sourceNameKinds = new Set(["components"]);
+const sourceNameKinds = new Set(["components", "bindings"]);
 
 function validateSourceNames(value) {
   if (typeof value === "boolean") return;

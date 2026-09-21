@@ -2,6 +2,8 @@
 export interface SourceNamesOptions {
   /** Component owner labels: the tag as written, as `createComponent`'s third argument. */
   components?: boolean;
+  /** Binding effect labels: the element and attribute (or hole) each compiled effect writes. */
+  bindings?: boolean;
 }
 
 export interface TransformOptions {
@@ -24,8 +26,12 @@ export interface TransformOptions {
    * `components`: the tag as a third `createComponent` argument
    * (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR
    * keeps the `createComponent` call it would otherwise inline to
-   * `Comp(props)`); not universal or dynamic. The production runtimes
-   * ignore the names. `true` enables every kind; an object picks.
+   * `Comp(props)`); not universal or dynamic. `bindings`: every compiled
+   * binding effect named by what it writes — `span.textContent`,
+   * `div.class:active`, a hole `div.children`, a spread `div.spread` — as
+   * an options argument on `effect`/`insert`/`spread`; DOM output only.
+   * The production runtimes ignore the names. `true` enables every kind;
+   * an object picks.
    */
   sourceNames?: boolean | SourceNamesOptions;
   sourceMap?: boolean;

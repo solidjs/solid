@@ -113,7 +113,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 - `generate`: `"dom"`, `"ssr"`, `"universal"`, or `"dynamic"` (default `"dom"`)
 - `hydratable`
 - `dev`
-- `sourceNames` (`boolean | { components?: boolean }`): names as written in source, carried into output so dev/observe runtimes can label the reactive graph after minification; `true` for every kind. `components` emits the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic. The production runtimes ignore the names
+- `sourceNames` (`boolean | { components?: boolean; bindings?: boolean }`): names as written in source, carried into output so dev/observe runtimes can label the reactive graph after minification; `true` for every kind. `components` emits the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic. `bindings` names every compiled binding effect by what it writes — `effect(…, { name: "span.textContent" })`, a hole `insert(el, v, undefined, undefined, { name: "div.children" })`, a spread `spread(el, props, false, undefined, "div")` (labelled `div.spread` / `div.children` by the runtime) — DOM output only. The production runtimes ignore the names
 - `sourceMap`
 - `contextToCustomElements` (default `true`)
 - `delegateEvents`

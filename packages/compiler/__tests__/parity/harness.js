@@ -92,8 +92,8 @@ const modes = {
       contextToCustomElements: true
     }
   },
-  "dom-component-names": {
-    fixtureDir: "__dom_component_names_fixtures__",
+  "dom-source-names": {
+    fixtureDir: "__dom_source_names_fixtures__",
     options: {
       moduleName: "r-dom",
       builtIns: ["For", "Show"],

@@ -13,6 +13,8 @@ export interface RendererConfig {
 export interface SourceNamesConfig {
   /** Component owner labels: the tag as written, as `createComponent`'s third argument. */
   components?: boolean;
+  /** Binding effect labels: the element and attribute (or hole) each compiled effect writes. */
+  bindings?: boolean;
 }
 
 export interface PluginConfig {
@@ -30,8 +32,12 @@ export interface PluginConfig {
    * `components`: the tag as a third `createComponent` argument
    * (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR
    * keeps the `createComponent` call it would otherwise inline to
-   * `Comp(props)`); not universal or dynamic. The production runtimes
-   * ignore the names. `true` enables every kind; an object picks. */
+   * `Comp(props)`); not universal or dynamic. `bindings`: every compiled
+   * binding effect named by what it writes — `span.textContent`,
+   * `div.class:active`, `div.style:color`, a hole `div.children`, a spread
+   * `div.spread` — as an options argument on `effect`/`insert`/`spread`;
+   * DOM output only. The production runtimes ignore the names. `true`
+   * enables every kind; an object picks. */
   sourceNames: boolean | SourceNamesConfig;
   delegateEvents: boolean;
   delegatedEvents: string[];
@@ -99,8 +105,18 @@ const config: PluginConfig = {
 /** `sourceNames` resolved to its per-kind flags (`true` → every kind on). */
 export function sourceNames(config: PluginConfig): Required<SourceNamesConfig> {
   const value = config.sourceNames;
-  if (typeof value === "boolean") return { components: value };
-  return { components: value?.components ?? false };
+  if (typeof value === "boolean") return { components: value, bindings: value };
+  return { components: value?.components ?? false, bindings: value?.bindings ?? false };
+}
+
+/**
+ * Whether this generate names its compiled binding effects: `sourceNames.bindings`
+ * on plain DOM output. The dynamic generate's DOM subtrees and universal
+ * renderers own their `effect`/`insert`/`spread` signatures, so they never
+ * carry the options argument.
+ */
+export function namesBindings(config: PluginConfig): boolean {
+  return config.generate === "dom" && sourceNames(config).bindings;
 }
 
 export default config;

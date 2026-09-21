@@ -18,7 +18,7 @@ var _el$8 = _el$7.nextSibling;
 var _el$9 = _el$8.nextSibling;
 _$insert(_el$, _$createComponent(Child, _$mergeProps({ name: "Jane" }, props, { get children() {
 	var _el$2 = _tmpl$();
-	_$insert(_el$2, name);
+	_$insert(_el$2, name, undefined, undefined, { name: "span.children" });
 	return _el$2;
 } }), "Child"), _el$3);
 _$insert(_el$, _$createComponent(Ui.Button, { variant: "primary" }, "Ui.Button"), _el$4);

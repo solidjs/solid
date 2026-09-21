@@ -4,11 +4,12 @@ const { transform } = require("../index");
 
 const babelFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin/test/__dom_component_names_fixtures__"
+  "../../babel-plugin/test/__dom_source_names_fixtures__"
 );
-const oxcFixtures = path.resolve(__dirname, "fixtures/dom-component-names");
+const oxcFixtures = path.resolve(__dirname, "fixtures/dom-source-names");
 
 const fixtureParity = {
+  bindings: "subset",
   components: "subset",
   ssr: "subset"
 };
@@ -17,7 +18,7 @@ const suiteOptions = {
   moduleName: "r-dom",
   builtIns: ["For", "Show"],
   generate: "dom",
-  sourceNames: { components: true },
+  sourceNames: true,
   contextToCustomElements: true
 };
 
@@ -53,8 +54,8 @@ function writeOutputFixture(fixture, output) {
   fs.writeFileSync(outputFixturePath(fixture), output);
 }
 
-describe("AST-native Babel DOM sourceNames.components fixture reuse", () => {
-  it("classifies supported Babel DOM sourceNames.components fixtures", () => {
+describe("AST-native Babel DOM sourceNames fixture reuse", () => {
+  it("classifies supported Babel DOM sourceNames fixtures", () => {
     const actual = fs
       .readdirSync(babelFixtures, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
@@ -65,7 +66,7 @@ describe("AST-native Babel DOM sourceNames.components fixture reuse", () => {
   });
 
   it.each(Object.keys(fixtureParity))(
-    "matches generated Oxc output for supported Babel DOM sourceNames.components fixture subset: %s",
+    "matches generated Oxc output for supported Babel DOM sourceNames fixture subset: %s",
     fixture => {
       const output = transformFixture(readFixture(fixture), fixture);
       if (process.env.UPDATE_OXC_FIXTURES === "1") {
