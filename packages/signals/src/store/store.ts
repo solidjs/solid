@@ -71,6 +71,12 @@ type DataNodes = Record<PropertyKey, DataNode>;
 export const $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
   $TARGET = Symbol(__DEV__ ? "STORE_TARGET" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),
+  // The view record behind a merge()/omit() proxy (a `MergeView` or an
+  // `OmitView`, utils.ts); a store answers `undefined` on its symbol fast
+  // path. One read classifies any `$PROXY`-marked object — store, view, or
+  // foreign — where asking `$TARGET` first and then each view kind was two
+  // to four trap hops (see `viewOf`).
+  $RECORD = Symbol(__DEV__ ? "VIEW_RECORD" : 0),
   $DELETED = Symbol(__DEV__ ? "STORE_DELETED" : 0),
   // Node-map slot carrying a record-level `affects()` mark: any read through
   // the record witnesses it into the active isPending() probe.

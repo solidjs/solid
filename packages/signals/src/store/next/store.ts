@@ -83,6 +83,7 @@ import {
 import {
   $AFFECTS,
   $PROXY,
+  $RECORD,
   $TARGET,
   $TRACK,
   affectsScopesLive,
@@ -1970,6 +1971,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
       if (key === $TARGET) return target;
       if (key === $PROXY) return receiver;
       if (key === $OWNER) return undefined; // ownership stamp: never a user key
+      if (key === $RECORD) return undefined; // a store is no view (see `viewOf`)
       // refresh()/isPending resolve the projection computed through $REFRESH.
       if (key === $REFRESH) return target.fam?.node ?? undefined;
       if (key === $TRACK) {
@@ -2142,7 +2144,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
 
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
-    if (key === $OWNER) return false;
+    if (key === $OWNER || key === $RECORD) return false;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
@@ -2177,7 +2179,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
   },
 
   getOwnPropertyDescriptor(target, key) {
-    if (key === $OWNER) return undefined;
+    if (key === $OWNER || key === $RECORD) return undefined;
     // A descriptor read is a PRESENCE read: it subscribes to the key's
     // presence node and witnesses affects()/isPending() exactly as `in` does
     // (structural oracle, 2026-09-17 — the trap read no node before, so a

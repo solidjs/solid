@@ -1,7 +1,7 @@
 import { pendingCheckActive } from "../core/core.js";
 import { SUPPORTS_PROXY } from "../core/index.js";
 import { createMemo } from "../signals.js";
-import { $PROXY, $TARGET, ownEnumerableKeys } from "./store.js";
+import { $PROXY, $RECORD, $TARGET, ownEnumerableKeys } from "./store.js";
 
 function trueFn() {
   return true;
@@ -63,12 +63,6 @@ const EMPTY = Object.freeze({});
 function leafOf(s: any, kind: SourceKind): any {
   return kind === SOURCE_MEMO ? ((s = s()) == null ? EMPTY : s) : s;
 }
-
-const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
-const $OMIT = Symbol(__DEV__ ? "OMIT_VIEW" : 0);
-// The MergeView behind a merge proxy. `$SOURCES` answers the array; the
-// record itself is reached through this symbol so the table can live on it.
-const $VIEW = Symbol(__DEV__ ? "MERGE_VIEW" : 0);
 
 /** @internal The record behind an `omit()` proxy: `source` with `hidden`
  * keys removed. It is the proxy's TARGET, so the shared handler reads it as
@@ -138,19 +132,24 @@ function viewSource(view: OmitView): any {
   return leafOf(view.source, view.kind);
 }
 
-// Whether a `$PROXY`-marked object is one of OUR views rather than a store
-// (or a foreign proxy). Asked through `$TARGET`, which a store's `get` trap
-// answers on its symbol fast path and the view traps answer first thing —
-// so the question never reaches a store's generic read path (firewall gate,
-// tracked key read), which is what any unknown symbol (`$SOURCES`, `$OMIT`)
-// would take. Call only after `$PROXY in o` is known true.
-function isView(o: any): boolean {
-  return o[$TARGET] === undefined && (o[$OMIT] !== undefined || o[$VIEW] !== undefined);
+// The record behind a `$PROXY`-marked object that is one of OUR views, else
+// undefined for a store or a foreign proxy. ONE read: the view traps answer
+// `$RECORD` first thing and a store's `get` trap answers it `undefined` on
+// its symbol fast path, so the question never reaches a store's generic
+// read path (firewall gate, tracked key read), which is what an unknown
+// symbol would take — and a foreign proxy forwards it to a target that has
+// no such key. Asking `$TARGET` first and then each view kind was two to
+// four trap hops per source at every `merge()`, `omit()` and `ssrElement`.
+// Call only after `$PROXY in o` is known true.
+function recordOf(o: any): MergeView | OmitView | undefined {
+  return o[$RECORD];
 }
 
 /** @internal The `OmitView` behind an `omit()` proxy, or undefined. */
 export function omitView(o: any): OmitView | undefined {
-  return o != null && $PROXY in o && o[$TARGET] === undefined ? o[$OMIT] : undefined;
+  if (o == null || !($PROXY in o)) return undefined;
+  const r = o[$RECORD];
+  return r instanceof OmitView ? r : undefined;
 }
 
 // A props SOURCE ENTRY is a plain object, a proxy (store, merge, omit — the
@@ -230,11 +229,9 @@ function mergeHasStaticKeys(view: MergeView): boolean {
  * only correct one. */
 export function hasStaticKeys(o: any): boolean {
   if (!($PROXY in o)) return true;
-  if (o[$TARGET] !== undefined) return false;
-  const merged: MergeView | undefined = o[$VIEW];
-  if (merged !== undefined) return mergeHasStaticKeys(merged);
-  const view: OmitView | undefined = o[$OMIT];
-  return view !== undefined && entryHasStaticKeys(view, SOURCE_OMIT);
+  const r = recordOf(o);
+  if (r instanceof MergeView) return mergeHasStaticKeys(r);
+  return r !== undefined && entryHasStaticKeys(r, SOURCE_OMIT);
 }
 
 /**
@@ -319,7 +316,7 @@ function sourceDescriptor(
     // (frames slot props) has no own descriptors: for both, existence is
     // `in` and the kind is accessor — one trap, and never the store's
     // descriptor path.
-    if (isView(s)) return Reflect.getOwnPropertyDescriptor(s, key);
+    if (recordOf(s) !== undefined) return Reflect.getOwnPropertyDescriptor(s, key);
     return present || key in s ? accessorDescriptor(() => s[key]) : undefined;
   }
   const desc = Reflect.getOwnPropertyDescriptor(s, key);
@@ -347,7 +344,7 @@ function sourceEnumerableKeys(s: any, kind: SourceKind): (string | symbol)[] {
 
 // The target of a merge() proxy: the flattened sources, read by one shared
 // handler — like OmitView, no per-instance closures. `sources` is what
-// `$SOURCES` answers.
+// `mergeSources` answers.
 /** @internal */
 export class MergeView {
   /** key → the plain leaf that owns it (later sources win), built by an
@@ -371,17 +368,17 @@ export class MergeView {
 /** @internal The `MergeView` behind a `merge()` proxy — its flattened
  * `sources` with their `kinds` — or undefined. */
 export function mergeView(o: any): MergeView | undefined {
-  return o != null && $PROXY in o && o[$TARGET] === undefined ? o[$VIEW] : undefined;
+  if (o == null || !($PROXY in o)) return undefined;
+  const r = o[$RECORD];
+  return r instanceof MergeView ? r : undefined;
 }
 
 /** @internal The record behind a merge() or omit() proxy — a `MergeView`
  * (flattened `sources` with their `kinds`) or an `OmitView` — or undefined
  * for anything else (a plain object, a store, a foreign proxy). Two fast
- * traps on a store, none on a plain object. */
+ * traps on a proxy (`has`, then `$RECORD`), none on a plain object. */
 export function viewOf(o: any): MergeView | OmitView | undefined {
-  if (o == null || !($PROXY in o) || o[$TARGET] !== undefined) return undefined;
-  const merged = o[$VIEW];
-  return merged !== undefined ? merged : o[$OMIT];
+  return o != null && $PROXY in o ? o[$RECORD] : undefined;
 }
 
 /** @internal The resolved key table of a merge/omit view — every own key of
@@ -414,11 +411,10 @@ export function viewOf(o: any): MergeView | OmitView | undefined {
  * Once built — by a `spread`, `Object.keys`, `{...props}`, or the count —
  * every trap uses it. */
 export function resolvedTable(o: any): Map<PropertyKey, any> | undefined {
-  if (o == null || !($PROXY in o) || o[$TARGET] !== undefined) return undefined;
-  const view = o[$OMIT];
-  if (view !== undefined) return omitTable(view);
-  const merged = o[$VIEW];
-  return merged === undefined ? undefined : mergeTable(merged);
+  if (o == null || !($PROXY in o)) return undefined;
+  const r = recordOf(o);
+  if (r instanceof OmitView) return omitTable(r);
+  return r === undefined ? undefined : mergeTable(r);
 }
 
 function mergeTable(view: MergeView): Map<PropertyKey, any> | undefined {
@@ -816,13 +812,13 @@ function mergeEnumerableKeys(view: MergeView, filter?: OmitView): (string | symb
 
 const mergeTraps: ProxyHandler<MergeView> = {
   get(view, property, receiver) {
-    // The private keys are symbols; a string read (every prop) skips the four
-    // compares.
+    // The private keys are symbols; a string read (every prop) skips the
+    // compares. `$TARGET` is answered so a store check never walks the
+    // sources (a leaf that is a store would answer it).
     if (typeof property === "symbol") {
       if (property === $PROXY) return receiver;
-      if (property === $TARGET || property === $OMIT) return undefined;
-      if (property === $SOURCES) return view.sources;
-      if (property === $VIEW) return view;
+      if (property === $RECORD) return view;
+      if (property === $TARGET) return undefined;
     }
     // A trap read counts toward the table (see `mergeReadTable`); the walk
     // itself is the record's. `mergeReadTable` and the plain walk of
@@ -856,8 +852,7 @@ const mergeTraps: ProxyHandler<MergeView> = {
   },
   has(view, property) {
     if (property === $PROXY) return true;
-    if (property === $TARGET || property === $OMIT || property === $SOURCES || property === $VIEW)
-      return false;
+    if (property === $TARGET || property === $RECORD) return false;
     const table = mergeReadTable(view);
     if (table !== undefined) return table.has(property);
     return mergeHas(view, property);
@@ -865,14 +860,7 @@ const mergeTraps: ProxyHandler<MergeView> = {
   set: trueFn,
   deleteProperty: trueFn,
   getOwnPropertyDescriptor(view, property) {
-    if (
-      property === $PROXY ||
-      property === $TARGET ||
-      property === $OMIT ||
-      property === $SOURCES ||
-      property === $VIEW
-    )
-      return undefined;
+    if (property === $PROXY || property === $TARGET || property === $RECORD) return undefined;
     const table = mergeReadTable(view);
     if (table !== undefined) return tableDescriptor(view, table, property);
     return mergeDescriptor(view, property);
@@ -890,13 +878,12 @@ const mergeTraps: ProxyHandler<MergeView> = {
 const omitTraps: ProxyHandler<OmitView> = {
   get(view, property, receiver) {
     if (property === $PROXY) return receiver;
-    // $VIEW is the underlying merge's record, UNFILTERED: never forwarded,
-    // and $SOURCES never answers the merge's own sources, which would hand
-    // a re-merge the unfiltered objects and leak the omitted keys (#3014).
-    // A consumer reaches the record through $OMIT and walks it as ONE
-    // filtered entry.
-    if (property === $TARGET || property === $VIEW || property === $SOURCES) return undefined;
-    if (property === $OMIT) return view;
+    // `$RECORD` is THIS view — never the underlying merge's record, which is
+    // unfiltered: handing a re-merge the merge's own sources would leak the
+    // omitted keys (#3014). A consumer walks the omit record as ONE filtered
+    // entry (`recordOf` tells the two records apart by class).
+    if (property === $RECORD) return view;
+    if (property === $TARGET) return undefined;
     if (view.kind === SOURCE_MERGE) {
       const table = omitReadTable(view);
       if (table !== undefined) {
@@ -911,8 +898,7 @@ const omitTraps: ProxyHandler<OmitView> = {
   },
   has(view, property) {
     if (property === $PROXY) return true;
-    if (property === $TARGET || property === $VIEW || property === $SOURCES || property === $OMIT)
-      return false;
+    if (property === $TARGET || property === $RECORD) return false;
     if (view.kind === SOURCE_MERGE) {
       const table = omitReadTable(view);
       if (table !== undefined) return table.has(property);
@@ -925,14 +911,7 @@ const omitTraps: ProxyHandler<OmitView> = {
   set: trueFn,
   deleteProperty: trueFn,
   getOwnPropertyDescriptor(view, property) {
-    if (
-      property === $PROXY ||
-      property === $TARGET ||
-      property === $VIEW ||
-      property === $OMIT ||
-      property === $SOURCES
-    )
-      return undefined;
+    if (property === $PROXY || property === $TARGET || property === $RECORD) return undefined;
     if (view.kind === SOURCE_MERGE) {
       const table = omitReadTable(view);
       if (table !== undefined) return tableDescriptor(view, table, property);
@@ -955,10 +934,11 @@ const omitTraps: ProxyHandler<OmitView> = {
 /** @internal The flattened sources behind a `merge()` proxy, or undefined.
  * A merge's writes are no-ops, so its sources are the whole truth. A COPY of
  * a merge (`{...merged}`, a descriptor copy) is a plain object that carries
- * no sources — `ownKeys` never answers $SOURCES — so what is on the copy is
+ * no sources — `ownKeys` never lists $RECORD — so what is on the copy is
  * the truth there and every consumer reads it directly (#3384). */
 export function mergeSources(o: any): any[] | undefined {
-  return o != null && $PROXY in o && o[$TARGET] === undefined ? o[$SOURCES] : undefined;
+  const r = mergeView(o);
+  return r === undefined ? undefined : r.sources;
 }
 /**
  * Merges multiple props-like objects into a single proxy that *preserves
@@ -1017,30 +997,25 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
       continue;
     }
     if ($PROXY in (s as object)) {
-      // A store (`$TARGET`) is a leaf as it is. A merge() proxy is flattened
-      // through: its writes are no-ops, so its sources are exactly what it
-      // reads. An omit() proxy joins as its view record — ONE entry, its
-      // filter travelling with it, whether it is over a plain object or a
-      // whole merge (never the merge's own sources, which would leak the
+      // A store (or a foreign proxy) is a leaf as it is. A merge() proxy is
+      // flattened through: its writes are no-ops, so its sources are exactly
+      // what it reads. An omit() proxy joins as its view record — ONE entry,
+      // its filter travelling with it, whether it is over a plain object or
+      // a whole merge (never the merge's own sources, which would leak the
       // omitted keys, #3014). A consumer's walk recurses into the record.
-      if ((s as any)[$TARGET] === undefined) {
-        const child: MergeView | undefined = (s as any)[$VIEW];
-        if (child !== undefined) {
-          for (let j = 0; j < child.sources.length; j++) {
-            flattened[n] = child.sources[j];
-            kinds[n++] = child.kinds[j];
-          }
-          continue;
+      const r = recordOf(s);
+      if (r instanceof MergeView) {
+        for (let j = 0; j < r.sources.length; j++) {
+          flattened[n] = r.sources[j];
+          kinds[n++] = r.kinds[j];
         }
-        const view: OmitView | undefined = (s as any)[$OMIT];
-        if (view !== undefined) {
-          flattened[n] = view as any;
-          kinds[n++] = SOURCE_OMIT;
-          continue;
-        }
+      } else if (r !== undefined) {
+        flattened[n] = r as any;
+        kinds[n++] = SOURCE_OMIT;
+      } else {
+        flattened[n] = s as any;
+        kinds[n++] = SOURCE_PROXY;
       }
-      flattened[n] = s as any;
-      kinds[n++] = SOURCE_PROXY;
       continue;
     }
     flattened[n] = s as any;
@@ -1062,7 +1037,7 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
     // sources, so a data property on a source is read live, like a getter.
     // Writes to the result are no-ops (a consumer that needs its own object
     // copies: `{...merged}`, which the traps answer truthfully). Copies of
-    // the result never carry $SOURCES (#3384): `ownKeys` answers only the
+    // the result never carry $RECORD (#3384): `ownKeys` answers only the
     // sources' keys.
     return new Proxy(new MergeView(flattened, kinds), mergeTraps) as unknown as Merge<T>;
   }
@@ -1162,19 +1137,14 @@ export function omit(props: any, ...keys: any[]): any {
     if (typeof props === "function") kind = SOURCE_MEMO;
     else if ($PROXY in props) {
       kind = SOURCE_PROXY;
-      if (props[$TARGET] === undefined) {
-        const inner: OmitView | undefined = props[$OMIT];
-        if (inner !== undefined) {
-          source = inner.source;
-          kind = inner.kind;
-          hidden = combineHidden(inner.hidden, hidden);
-        } else {
-          const merged: MergeView | undefined = props[$VIEW];
-          if (merged !== undefined) {
-            source = merged;
-            kind = SOURCE_MERGE;
-          }
-        }
+      const r = recordOf(props);
+      if (r instanceof OmitView) {
+        source = r.source;
+        kind = r.kind;
+        hidden = combineHidden(r.hidden, hidden);
+      } else if (r !== undefined) {
+        source = r;
+        kind = SOURCE_MERGE;
       }
     }
     return new Proxy(new OmitView(source, kind, hidden), omitTraps);

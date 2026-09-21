@@ -7,6 +7,7 @@ import {
   deep,
   flush,
   getOwner,
+  $RECORD,
   $TARGET,
   merge,
   mergeSources,
@@ -874,10 +875,11 @@ describe("view descriptors", () => {
     expect(owners[3]).toBe(top[1]);
   });
   // A store-shaped proxy that logs every trap it is asked. `$PROXY in`,
-  // `$TARGET` and `$PROXY` are a store's fast paths; anything else — an
-  // unknown symbol taking its generic read path, `getPrototypeOf` from an
-  // `instanceof`, a descriptor per key — is a cost per read that the views
-  // must not add over a direct read of the store.
+  // `$TARGET`, `$PROXY` and `$RECORD` (answered undefined: a store is no
+  // view) are a store's fast paths; anything else — an unknown symbol taking
+  // its generic read path, `getPrototypeOf` from an `instanceof`, a
+  // descriptor per key — is a cost per read that the views must not add over
+  // a direct read of the store.
   function storeShaped(data: Record<string, unknown>) {
     const log: string[] = [];
     const target = {};
@@ -885,11 +887,13 @@ describe("view descriptors", () => {
       get(_, key, receiver) {
         if (key === $PROXY) return receiver;
         if (key === $TARGET) return target;
+        if (key === $RECORD) return undefined;
         log.push(`get ${String(key)}`);
         return data[key as string];
       },
       has(_, key) {
         if (key === $PROXY || key === $TARGET) return true;
+        if (key === $RECORD) return false;
         log.push(`has ${String(key)}`);
         return key in data;
       },
@@ -909,6 +913,54 @@ describe("view descriptors", () => {
     });
     return { proxy, log };
   }
+  test("classifying a $PROXY-marked source is one `$RECORD` read: a view flattens, a store or a proxy that does not know the key is a leaf", () => {
+    // Our views answer `$RECORD` with their record; a store answers it
+    // `undefined` on its fast path (silent above). A proxy that carries the
+    // brand but predates the key (solid-js's server memo source, a frames
+    // slot) forwards it to a target without it: still a leaf, one read.
+    const log: string[] = [];
+    const data = { a: 1 };
+    const legacy: any = new Proxy(
+      {},
+      {
+        get(_, key, receiver) {
+          if (key === $PROXY) return receiver;
+          log.push(`get ${String(key)}`);
+          return (data as any)[key];
+        },
+        has(_, key) {
+          if (key === $PROXY) return true;
+          return key in data;
+        },
+        ownKeys() {
+          return Reflect.ownKeys(data);
+        },
+        getOwnPropertyDescriptor(_, key) {
+          const desc = Reflect.getOwnPropertyDescriptor(data, key);
+          return desc && { ...desc, configurable: true };
+        }
+      }
+    );
+    const merged: any = merge(legacy, { b: 2 });
+    expect(log).toEqual([`get ${String($RECORD)}`]);
+    expect(mergeSources(merged)).toEqual([legacy, { b: 2 }]);
+    expect(merged.a).toBe(1);
+
+    // A view over a view: the record travels, not the proxy — the inner
+    // merge's sources are the outer's, an omit joins as one record.
+    const inner = merge({ a: 0 }, { c: 3 });
+    expect(mergeSources(merge(inner, { d: 4 }))).toEqual([{ a: 0 }, { c: 3 }, { d: 4 }]);
+    const rest = omit(inner, "c");
+    const outer: any = merge(rest, { d: 4 });
+    const sources = mergeSources(outer)!;
+    expect(sources[0]).toBeInstanceOf(OmitView);
+    expect(Object.keys(outer)).toEqual(["a", "d"]);
+    // The record is not a key of the view, and never copies out of it.
+    expect(Reflect.ownKeys(outer)).toEqual(["a", "d"]);
+    expect($RECORD in outer).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(outer, $RECORD)).toBeUndefined();
+    expect(mergeSources({ ...outer })).toBeUndefined();
+  });
   test("a read through a merge or omit asks a store exactly what a direct read would", () => {
     const { proxy: store, log } = storeShaped({ a: 1, b: 2 });
     const merged: any = merge({ a: 0, z: 9 }, store);
