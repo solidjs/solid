@@ -831,10 +831,11 @@ const mergeTraps: ProxyHandler<MergeView> = {
     // few plain objects read once per key on the server — the walk is the
     // whole read. A leaf that is not plain hands the walk to `mergeGet`,
     // which starts over (a plain leaf walked twice is two `in` checks).
-    let table = view.table;
-    if (typeof table !== "object") {
-      if (table + 1 < READS_FOR_TABLE) {
-        view.table = table + 1;
+    const state = view.table;
+    let table: Map<PropertyKey, any> | undefined;
+    if (typeof state !== "object") {
+      if (state + 1 < READS_FOR_TABLE) {
+        view.table = state + 1;
         const f = view.sources,
           k = view.kinds;
         for (let i = f.length - 1; i >= 0; i--) {
@@ -848,7 +849,8 @@ const mergeTraps: ProxyHandler<MergeView> = {
       }
       table = mergeTable(view);
       if (table === undefined) return mergeGet(view, property);
-    } else if (table === null) return mergeGet(view, property);
+    } else if (state === null) return mergeGet(view, property);
+    else table = state;
     const leaf = table.get(property);
     return leaf === undefined ? undefined : leaf[property];
   },
