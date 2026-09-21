@@ -28,6 +28,8 @@ mod node_adapter;
 #[cfg(feature = "node")]
 mod refresh;
 mod shared;
+#[cfg(feature = "node")]
+mod source_names;
 mod ssr;
 #[cfg(feature = "tsrx")]
 mod tsrx;

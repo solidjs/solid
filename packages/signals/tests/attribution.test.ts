@@ -436,6 +436,46 @@ describe("why-did-this-run attribution", () => {
     expect(run.causes.some(c => c.name === "store.count")).toBe(true);
   });
 
+  it("a store declared with a name labels its property nodes by that name", () => {
+    const events = collect();
+    const [todos, setTodos] = createStore({ list: [{ title: "a" }] }, { name: "todos" });
+    const [derived] = createStore(
+      d => void (d.n = todos.list.length),
+      { n: 0 },
+      {
+        name: "counts"
+      }
+    );
+    createRoot(() => {
+      createEffect(
+        () => todos.list[0].title,
+        () => {},
+        { name: "title-reader" }
+      );
+      createEffect(
+        () => derived.n,
+        () => {},
+        { name: "count-reader" }
+      );
+    });
+    flush();
+
+    setTodos(s => {
+      s.list[0].title = "b";
+      s.list.push({ title: "c" });
+    });
+    flush();
+
+    // Nested nodes read the ROOT store's name: the property key is the
+    // leaf, the store name the prefix — "todos.title", not "store.title".
+    const title = events.find(e => e.nodeName === "title-reader")!;
+    expect(title.causes.map(c => c.name)).toContain("todos.title");
+    // A derived store names its projection node AND its property nodes.
+    const count = events.find(e => e.nodeName === "count-reader")!;
+    expect(count.causes.map(c => c.name)).toContain("counts.n");
+    expect(events.some(e => e.nodeName === "counts")).toBe(true);
+  });
+
   it("measures self-time and aggregates costs by scope and root write", () => {
     const spin = (ms: number) => {
       const end = performance.now() + ms;

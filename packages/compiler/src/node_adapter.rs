@@ -11,6 +11,7 @@ pub use crate::directives::{
 };
 pub use crate::lazy::TransformLazyOptions;
 pub use crate::refresh::TransformRefreshOptions;
+pub use crate::source_names::TransformSourceNamesOptions;
 use crate::{CompileOptions, Generate, Renderer, SourceNames, Syntax, Wrapper};
 
 const UNSUPPORTED_GENERATE: &str =
@@ -196,6 +197,19 @@ pub fn transform_refresh(
     options: Option<TransformRefreshOptions>,
 ) -> Result<TransformResult> {
     crate::refresh::transform_refresh(code, options)
+}
+
+/// The `sourceNames.primitives` pass — names `createSignal`/`createMemo`/
+/// `createStore`/… calls after the identifier they are declared as
+/// (`createSignal(0, { name: "count" })`), prefixed with the enclosing
+/// non-component function (`createCounter.count`). Plain JavaScript, so it
+/// applies to `.js`/`.ts` modules as well as JSX/TSX.
+#[napi]
+pub fn transform_source_names(
+    code: String,
+    options: Option<TransformSourceNamesOptions>,
+) -> Result<TransformResult> {
+    crate::source_names::transform_source_names(code, options)
 }
 
 #[napi]

@@ -72,6 +72,7 @@ import {
   visibleOverride,
   runAuthoritative,
   stagedTruthPB,
+  nameStore,
   storeSetterNext,
   targetsEqual,
   unwrapValue,
@@ -214,6 +215,7 @@ export function createOptimisticStoreNext<T extends object = {}>(
   };
   const store = wrapNext(initialValue as any, null, null, fam) as Store<T>;
   fam.px = store;
+  if (__OBSERVE__) nameStore(store, options?.name);
   // Same key resolution the projection channels use ("id" default) — replay's
   // satisfaction rule reads it off the family.
   const keyOption = options?.key === undefined ? "id" : options.key;

@@ -254,3 +254,28 @@ export function transformRefreshAsync(
   code: string,
   options?: TransformRefreshOptions | null
 ): Promise<TransformResult>;
+
+/**
+ * Options for the `sourceNames.primitives` pass: reactive primitives named
+ * after the identifier they are declared as. `const [count, setCount] =
+ * createSignal(0)` becomes `createSignal(0, { name: "count" })`; inside a
+ * non-component function the name is prefixed with that function's
+ * (`createCounter.count`). Only calls resolving to imports from `solid-js` /
+ * `@solidjs/signals` are named, and an explicit `name` is never overridden.
+ * Plain JavaScript in and out, so it applies to `.ts`/`.js` modules too;
+ * `@solidjs/vite-plugin` runs it ahead of the JSX transform.
+ */
+export interface TransformSourceNamesOptions {
+  /** Picks the parser dialect (`.ts`, `.tsx`, `.js`, `.jsx`); TSX without one. */
+  filename?: string;
+  sourceMap?: boolean;
+}
+
+export function transformSourceNames(
+  code: string,
+  options?: TransformSourceNamesOptions | null
+): TransformResult;
+export function transformSourceNamesAsync(
+  code: string,
+  options?: TransformSourceNamesOptions | null
+): Promise<TransformResult>;

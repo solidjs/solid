@@ -113,7 +113,7 @@ Pass `sourceMap: true` to receive a JSON source map string in `result.map`. For 
 - `generate`: `"dom"`, `"ssr"`, `"universal"`, or `"dynamic"` (default `"dom"`)
 - `hydratable`
 - `dev`
-- `sourceNames` (`boolean | { components?: boolean; bindings?: boolean }`): names as written in source, carried into output so dev/observe runtimes can label the reactive graph after minification; `true` for every kind. `components` emits the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic. `bindings` names every compiled binding effect by what it writes — `effect(…, { name: "span.textContent" })`, a hole `insert(el, v, undefined, undefined, { name: "div.children" })`, a spread `spread(el, props, false, undefined, "div")` (labelled `div.spread` / `div.children` by the runtime) — DOM output only. The production runtimes ignore the names
+- `sourceNames` (`boolean | { components?: boolean; bindings?: boolean }`): names as written in source, carried into output so dev/observe runtimes can label the reactive graph after minification; `true` for every kind. `components` emits the source tag name as `createComponent`'s third argument (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR keeps the `createComponent` call it otherwise inlines to `Comp(props)`); not universal or dynamic. `bindings` names every compiled binding effect by what it writes — `effect(…, { name: "span.textContent" })`, a hole `insert(el, v, undefined, undefined, { name: "div.children" })`, a spread `spread(el, props, false, undefined, "div")` (labelled `div.spread` / `div.children` by the runtime) — DOM output only. The production runtimes ignore the names. Naming the primitives themselves is the separate `transformSourceNames` pass below, since it applies to plain `.ts`/`.js` modules too
 - `sourceMap`
 - `contextToCustomElements` (default `true`)
 - `delegateEvents`
@@ -159,6 +159,25 @@ A function-level directive only works where the pass can extract the function: a
 A module-level `"use server"` module can only export server functions. Its client build is rebuilt from those exports alone, so anything else would be missing from the browser bundle. Re-exports, `export *`, class and enum exports, destructured exports, and exports declared without an initializer are compile errors naming the export and its position. Type-only and `declare` exports are erased and are fine.
 
 The runtime module defaults to `@solidjs/web/server-functions`. Function IDs are `<name>-<xxhash32(root-relative path)>`, the same in every env. The name is the function's dotted binding path, such as `handlers.save`, built from every named container on the way down (variable bindings, property keys, class names, class members, and named functions), so an id identifies a function by where it is bound rather than by its position in the file. Adding, removing, or reordering functions does not move the ids of the others. There are also experimental `transformLazy` and `transformRefresh` passes.
+
+### Source names for primitives
+
+`transformSourceNames(code, { filename?, sourceMap? })` is the `sourceNames.primitives` half: it names reactive primitives after the identifier they are declared as, so the dev and observe runtimes label graph nodes `count` / `doubled` / `todos.title` instead of `signal` / `computed` / `store.title`. It is plain JavaScript in and out (JSX passes through untouched), which is why it is its own pass rather than a `transform()` option — primitives live in `.ts`/`.js` modules as much as in components. `@solidjs/vite-plugin` runs it ahead of the JSX transform for the dev and `observe` postures.
+
+```js
+const [count, setCount] = createSignal(0);          // createSignal(0, { name: "count" })
+const doubled = createMemo(() => count() * 2);      // createMemo(…, { name: "doubled" })
+const [todos, setTodos] = createStore({ list: [] }); // createStore(…, { name: "todos" })
+export function createCounter() {
+  const [value, setValue] = createSignal(0);        // { name: "createCounter.value" }
+  …
+}
+function Counter() {
+  const [n, setN] = createSignal(0);                // { name: "n" } — no prefix in a component
+}
+```
+
+The name comes from the first element of the array pattern, the variable binding, the object-literal property key, or the class field the call initialises; a call in any other position (a hole in the pattern, an argument, an assignment) is left alone. Inside a non-component function — anything not PascalCase: `createCounter`, `useTheme`, a method — the name is prefixed with that function's, so a composed primitive's nodes fold under it (`createCounter.value`, `createCounter.twice`); components contribute no prefix, and anonymous callbacks inherit the nearest named function. Only calls that resolve to imports from `solid-js` or `@solidjs/signals` are named (aliases and namespace imports included; a shadowing local or another library's `createSignal` is not). The pass never overrides an explicit `name`, leaves a spread or non-literal options argument alone, fills omitted positional arguments with `void 0`, and reaches the call through `as`/`satisfies`/`!` and type arguments. Named: `createSignal`, `createMemo`, `createOptimistic`, `createStore`, `createOptimisticStore`, `createProjection`. A two-argument `createStore(x, y)` is only named when `y` is a non-empty object literal of option keys (`shallow`/`name`) — otherwise it may be a derive passed by reference with its seed.
 
 ## Rust compiler core
 

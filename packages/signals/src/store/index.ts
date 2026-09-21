@@ -62,7 +62,7 @@ export function createStore<T extends object = {}>(
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore(first: any, second?: any, third?: any): any {
   if (typeof first === "function") return createStoreDerivedNext(first, second, third);
-  return createStoreNext(first, !!second?.shallow);
+  return createStoreNext(first, !!second?.shallow, __OBSERVE__ ? second?.name : undefined);
 }
 
 export function reconcile<T extends U, U>(

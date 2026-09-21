@@ -36,7 +36,7 @@ import {
   type Store
 } from "../store.js";
 import { reconcileNextState } from "./reconcile.js";
-import { storeSetterNext, wrapNext } from "./store.js";
+import { nameStore, storeSetterNext, wrapNext } from "./store.js";
 import type { StoreNextFamily } from "./target.js";
 
 /**
@@ -197,7 +197,10 @@ function createProjectionNextInternal<T extends object = {}>(
 
   let nodeOptions: { name?: string; loadingValue?: void } | undefined;
   if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-  if (__OBSERVE__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
+  if (__OBSERVE__ && options?.name) {
+    nodeOptions = { ...nodeOptions, name: options.name };
+    nameStore(store, options.name);
+  }
   const node = computed(() => {
     if (!fam.node) fam.node = getOwner() as Computed<any>;
     runProjectionComputedNext(store, fn, options?.key === undefined ? "id" : options.key);
