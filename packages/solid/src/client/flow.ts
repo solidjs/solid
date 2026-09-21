@@ -401,6 +401,11 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * Errors thrown from the fallback itself can be caught by a parent
  * `<Errored>`.
  *
+ * The optional `on` prop is a dependency list: the expression is tracked and
+ * its value is irrelevant — whenever anything it reads changes while the
+ * boundary is showing its error fallback, the caught error is cleared and the
+ * children are retried, exactly as calling `reset()` would (reset keys).
+ *
  * @example
  * ```tsx
  * <Errored fallback={(err, reset) => (
@@ -408,21 +413,29 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * )}>
  *   <MyComp />
  * </Errored>
+ *
+ * // Retry automatically when the route changes.
+ * <Errored fallback={<ErrorPage />} on={route()}>
+ *   <Page />
+ * </Errored>
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/error-boundary
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: ErrorAccessor, reset: () => void) => SolidElement);
+  on?: any;
   children: SolidElement;
 }): SolidElement {
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
   return createErrorBoundary(
     () => props.children,
     (err: ErrorAccessor, reset) => {
       const f = props.fallback;
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err());
       return typeof f === "function" && f.length ? f(err, reset) : f;
-    }
+    },
+    onOpt
   ) as unknown as SolidElement;
 }
 
@@ -438,16 +451,16 @@ export function Errored(props: {
  * the pending value like any other reader and holds the write that made it
  * pending until the data lands (`isPending()` flips meanwhile).
  *
- * The optional `on` prop is a key — as `<Show keyed when={key}>` wrapping the
- * boundary would be, minus the remount. While the key is unchanged the
- * boundary holds as above; when a write changes it, the boundary is fresh
- * again and shows `fallback` until the new content is ready. The change lands
- * where the key's does: `on={route()}` lands with the write's commit, so the
- * fallback belongs to the committed frame ("Loading comments for B" never
- * renders beside A's info). `on={latest(route)}` is the spelling for a
- * placeholder ahead of the commit — it deliberately renders a piece of the
- * next frame beside the current one, so a fallback that names what is
- * loading should read `latest(route)` too.
+ * The optional `on` prop is a dependency list. The expression is tracked and
+ * its value is irrelevant — what matters is what it reads. Whenever anything
+ * it reads changes (a plain write, an optimistic write, a source going
+ * pending or landing), the boundary re-arms: if something under it is still
+ * pending, it shows `fallback` again right away, in the current frame, until
+ * the new content is ready; if nothing is pending, nothing happens. A write
+ * made inside a held `action` still re-arms the boundary now — the fallback
+ * shows beside the frame the action is still holding, and the action's batch
+ * commits later, intact. The children are not re-created; they stay alive
+ * behind the fallback.
  *
  * Scope `<Loading>` around the data-dependent slot, not the surrounding
  * shell. Wrapping layout chrome (header, nav, footer) in the same boundary
@@ -466,16 +479,15 @@ export function Errored(props: {
  *
  * @example
  * ```tsx
- * // Keyed on the route: a navigation shows the skeleton with its commit;
- * // a refetch of the same route keeps the page visible.
+ * // Re-arm on the route: a navigation shows the skeleton immediately while
+ * // the new page loads; a refetch of the same route keeps the page visible.
  * <Loading fallback={<Skeleton />} on={route()}>
  *   <Page />
  * </Loading>
  *
- * // Ahead of the commit: the skeleton for the NEXT route shows now, beside
- * // the current frame — so the fallback names the next route too.
- * <Loading fallback={<Skeleton route={latest(route)} />} on={latest(route)}>
- *   <Page />
+ * // Several dependencies: any of them changing re-arms the boundary.
+ * <Loading fallback={<Skeleton />} on={[query(), page()]}>
+ *   <Results />
  * </Loading>
  * ```
  *

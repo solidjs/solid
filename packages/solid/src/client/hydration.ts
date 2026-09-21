@@ -1165,9 +1165,10 @@ function hydratedCreateSignal(fn?: any, second?: any) {
 
 function hydratedCreateErrorBoundary<T, U>(
   fn: () => T,
-  fallback: (error: () => unknown, reset: () => void) => U
+  fallback: (error: () => unknown, reset: () => void) => U,
+  options?: { on?: () => any }
 ): Accessor<T | U> {
-  if (!sharedConfig.hydrating) return coreErrorBoundary(fn, fallback);
+  if (!sharedConfig.hydrating) return coreErrorBoundary(fn, fallback, options);
   markTopLevelSnapshotScope();
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
@@ -1175,16 +1176,20 @@ function hydratedCreateErrorBoundary<T, U>(
     const err = sharedConfig.load!(expectedId);
     if (err !== undefined) {
       let hydrated = true;
-      return coreErrorBoundary(() => {
-        if (hydrated) {
-          hydrated = false;
-          throw err;
-        }
-        return fn();
-      }, fallback);
+      return coreErrorBoundary(
+        () => {
+          if (hydrated) {
+            hydrated = false;
+            throw err;
+          }
+          return fn();
+        },
+        fallback,
+        options
+      );
     }
   }
-  return coreErrorBoundary(fn, fallback);
+  return coreErrorBoundary(fn, fallback, options);
 }
 
 function wrapStoreFn(fn: any, options?: any) {
@@ -1673,7 +1678,8 @@ export const createSignal: {
 export const createErrorBoundary = ((...args: any[]) =>
   (_createErrorBoundary || coreErrorBoundary)(...args)) as <T, U>(
   fn: () => T,
-  fallback: (error: Accessor<unknown>, reset: () => void) => U
+  fallback: (error: Accessor<unknown>, reset: () => void) => U,
+  options?: { on?: () => any }
 ) => Accessor<T | U>;
 
 /**
