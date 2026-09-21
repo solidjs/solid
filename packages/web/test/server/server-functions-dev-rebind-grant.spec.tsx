@@ -15,6 +15,12 @@ const readRequest = (id: string) =>
     headers: { "Sec-Fetch-Site": "same-origin" }
   });
 
+const crossSiteGet = (id: string) =>
+  new Request(`https://app.example/_server/data/${id}`, {
+    method: "GET",
+    headers: { "Sec-Fetch-Site": "cross-site", Origin: "https://evil.example" }
+  });
+
 const read = (id: string) => handleServerFunctionRequest(readRequest(id), { provideEvent });
 
 afterEach(() => setServerFunctionsDev(false));
@@ -37,6 +43,23 @@ it("dev: a live grant follows the id across a re-registration that does not re-d
   expect(await after.text()).toContain("second evaluation");
   expect(second).toHaveBeenCalledTimes(1);
   expect(first).toHaveBeenCalledTimes(1);
+});
+
+it.skip("dev: a re-registration that never re-declares GET keeps the origin gate on (intended, not yet held)", async () => {
+  setServerFunctionsDev(true);
+  GET(
+    createServerReference(registerServerReference("dev-rebind-undeclared", async () => "a read"))
+  );
+  const mutation = vi.fn(async () => "a mutation");
+  registerServerReference("dev-rebind-undeclared", mutation);
+
+  const response = await handleServerFunctionRequest(crossSiteGet("dev-rebind-undeclared"), {
+    provideEvent
+  });
+  expect({ status: response.status, calls: mutation.mock.calls.length }).toStrictEqual({
+    status: 403,
+    calls: 0
+  });
 });
 
 it("dev: a stale grant does not come alive on a re-registration", async () => {
