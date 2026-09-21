@@ -272,6 +272,7 @@ export function Match<T>(props: AnyMatchProps<T>) {
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: () => any, reset: () => void) => SolidElement);
+  on?: any;
   children: SolidElement;
 }): SolidElement {
   return createErrorBoundary(

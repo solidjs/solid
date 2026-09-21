@@ -12,14 +12,25 @@ import {
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 // #3528: a boundary whose `on` accessor consults `isPending(dep)` — directly or
-// through a memo — over two async memos. `on` is evaluated from `notify`, inside
-// the pending memo's own pass; the memo of `isPending(m2)` is marked pending by
-// that propagation, and reading it there (untracked, pending) recorded the
-// untracked-pending re-run link on `context` — which was `m2`. `m2` then
-// depended on a memo that depends on `m2`: every pending mark re-derived `m2`
-// (the A30 kept-tail rule), which went pending again, forever, in one flush.
-// A click must produce exactly one new flight of the written memo, with the
-// new input.
+// through a memo — over two async memos. `on` was evaluated from `notify`,
+// inside the pending memo's own pass; the memo of `isPending(m2)` is marked
+// pending by that propagation, and reading it there (untracked, pending)
+// recorded the untracked-pending re-run link on `context` — which was `m2`.
+// `m2` then depended on a memo that depends on `m2`: every pending mark
+// re-derived `m2` (the A30 kept-tail rule), which went pending again, forever,
+// in one flush. A click must produce exactly one new flight of the written
+// memo, with the new input.
+//
+// #3540: `on` is a dependency list now (its own tracked computation, outside
+// the boundary), not a trigger evaluated per pending notification, and its
+// value is never compared. `isPending(dep)` in `on` is a read like any other:
+// the verdict flips when the write goes pending, the notification re-arms the
+// boundary at the flush's finalize — mainline — and the fallback shows ahead
+// of the commit, beside the current frame. `on=always` returns a fresh token
+// per evaluation but reads nothing reactive: nothing ever notifies it, so the
+// boundary is never re-armed — it forwards the pending and holds with the
+// transaction like a boundary without `on`. (Expectations unchanged from the
+// keyed `on`: a verdict flip was a key change there too.)
 type OnMode = "always" | "memo-isPending" | "fn-isPending";
 
 function build(onMode: OnMode, boundaries: 1 | 2) {
@@ -98,7 +109,7 @@ function build(onMode: OnMode, boundaries: 1 | 2) {
 
 describe("#3528 isPending consulted from a Loading boundary's `on`", () => {
   test.each(["always", "fn-isPending", "memo-isPending"] as const)(
-    "on=%s, one boundary: one click is one flight, and the boundary resets",
+    "on=%s, one boundary: one click is one flight; an `on` notification re-arms the boundary",
     async onMode => {
       const h = build(onMode, 1);
       await h.settle();
@@ -109,9 +120,17 @@ describe("#3528 isPending consulted from a Loading boundary's `on`", () => {
       h.dispose();
       const r = h.since("--click--");
       expect(r.runs).toEqual(["m2(c=1)"]);
-      // The reset frees the boundary's reader from the hold (A33): the count
-      // publishes with the fallback, and the content reveals when m2 lands.
-      expect(r.log).toEqual(["count=1", "A=Loading", "A=2 0"]);
+      if (onMode === "always") {
+        // Nothing reactive read, nothing notifies: no re-arm, the boundary
+        // forwards the pending and the frame holds until m2 lands.
+        expect(r.log).toEqual(["A=2 0", "count=1"]);
+      } else {
+        // The verdict flips ahead of the commit and notifies `on`: the
+        // fallback lands first; the re-arm frees the boundary's reader from
+        // the hold (A33), the count publishes, and the content reveals when
+        // m2 lands.
+        expect(r.log).toEqual(["A=Loading", "count=1", "A=2 0"]);
+      }
     }
   );
 
@@ -127,10 +146,13 @@ describe("#3528 isPending consulted from a Loading boundary's `on`", () => {
       h.dispose();
       const r = h.since("--click--");
       expect(r.runs).toEqual(["m2(c=1)"]);
-      // B reads m2 too and is not keyed on it: an outside reader of the
-      // flight, so the frame stays held until m2 lands (A33) — one reveal.
-      expect(r.log).toHaveLength(3);
-      expect(r.log).toEqual(expect.arrayContaining(["count=1", "A=2 0", "B=2 0"]));
+      // A's `on` is notified ahead of the commit (a verdict): its fallback
+      // shows beside the current frame. B reads m2 too, with no `on`: an
+      // outside reader of the flight, so the frame stays held until m2 lands
+      // (A33) — one reveal.
+      expect(r.log[0]).toBe("A=Loading");
+      expect(r.log.slice(1)).toHaveLength(3);
+      expect(r.log.slice(1)).toEqual(expect.arrayContaining(["count=1", "A=2 0", "B=2 0"]));
     }
   );
 

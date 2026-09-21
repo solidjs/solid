@@ -145,7 +145,8 @@ function canUseSimpleSyncFlush(queue: GlobalQueue): boolean {
     batch._optimisticNodes.length === 0 &&
     batch._affectsNodes.length === 0 &&
     batch._optimisticStores.size === 0 &&
-    transientStoreNodes.size === 0
+    transientStoreNodes.size === 0 &&
+    pendingRearms.size === 0 // a re-arm drains in finalizePureQueue
   );
 }
 
@@ -429,6 +430,38 @@ export const wokenTransitions: Transition[] = [];
 export function wakeParked(): void {
   for (const t of transitions) wokenTransitions.includes(t) || wokenTransitions.push(t);
   schedule();
+}
+
+/** A boundary that can be re-armed (boundaries.ts `CollectionQueue._rearm`). */
+export interface Rearmable {
+  _rearm(): void;
+}
+/**
+ * Boundaries whose `on` dependencies notified this flush (#3540). The
+ * notification arrives inside a pass — under whatever transaction the pass
+ * runs in — and a reset performed there stages the boundary's fallback swap
+ * INTO that transaction: the fallback then lands with the commit, which for
+ * a held write is exactly too late (the pre-rc.10 shape; the fallback is
+ * the frame's, never a transaction's). So the notification only records the
+ * boundary here (a Set: however many dependencies notify in one flush, one
+ * re-arm) and the flush's finalize re-arms it — mainline, past the park,
+ * with the ambient batch detached — where the swap is a plain write that
+ * lands in the next pass of the same `flush()`, beside the frame the
+ * transaction is still holding.
+ */
+export const pendingRearms: Set<Rearmable> = new Set();
+export function queueRearm(boundary: Rearmable): void {
+  pendingRearms.add(boundary);
+  schedule();
+}
+/** The finalize's drain (see pendingRearms): each boundary decides for
+ * itself, from what is still pending under it now, whether re-arming means
+ * its fallback or nothing. Snapshot first: a re-arm can queue another (a
+ * write it makes notifies an `on` that reads it), which is the next pass's. */
+function drainRearms(): void {
+  const queued = Array.from(pendingRearms);
+  pendingRearms.clear();
+  for (let i = 0; i < queued.length; i++) queued[i]._rearm();
 }
 /** Transactions a mainline tick has PROPOSED against (A34, #3494): a write to a
  * node one of them holds — the same value or another — is a second proposal
@@ -1302,6 +1335,14 @@ export function finalizePureQueue(
   // For completing transitions or no-transition, resolve pending and revert optimistic
   const finalizingBatch = currentBatch;
   const resolvePending = !incomplete;
+  // Re-arm the boundaries whose `on` notified this flush (pendingRearms),
+  // first: `activeTransition` is null at every call site — after the park
+  // (with the parked transaction's batch detached) as after a commit — so a
+  // fallback swap made here is a plain ambient write, never staged into the
+  // hold. It re-runs the boundary's output pass in the heap run below, and
+  // that pass's value commits here (a settling finalize) or in the next pass
+  // of this flush (a parked one — the swap re-armed `scheduled`).
+  if (pendingRearms.size) drainRearms();
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
   // Contested effects (#3322) re-derive from the world this commit just

@@ -224,25 +224,27 @@ describe("a second write while an async chain is in flight", () => {
     setCount(1); // details re-asks (due 5500); Details and Outside both report it
     await settle();
     await advanceTo(4000);
-    // The reset frees Details, but Outside still consumes the flight: count=1
-    // stays held. page=1 joins the hold too (its reader details lives there),
-    // so nothing publishes at 4000 — not even the fallback. pageData1 lands at
-    // 5000 and re-asks details (due 7000); everything reveals with its answer.
+    // The re-arm frees Details, but Outside still consumes the flight: count=1
+    // stays held. page=1 joins the hold too (its reader details lives there).
+    // `on` is a dependency list (#3540): page's write notifies it, and the
+    // boundary re-arms at the flush's finalize — mainline, past the park — so
+    // the fallback is the ONLY thing that publishes at 4000: the frame's
+    // fallback beside the held Sum/Outside, none of the held writes with it.
+    // pageData1 lands at 5000 and re-asks details (due 7000); everything else
+    // reveals with its answer.
     setPage(1);
     await settle();
     await advanceTo(12000);
-    const f = frames(log, when);
-    expect(f.slice(0, 2)).toEqual([
+    // (With the reset made from the boundary's own pass, the 7000 frame also
+    // carried a stale `Sum: 1` — Sum's slot computed at 4000 with page=1 over
+    // the committed count, published ahead of the #3322 contested re-derive.
+    // Not so with the finalize re-arm: 7000 is one clean frame.)
+    expect(frames(log, when)).toEqual([
       "0: Boundary: Loading... | Sum: 0",
-      "3000: Boundary: content | Details: 0 | Outside: 0"
+      "3000: Boundary: content | Details: 0 | Outside: 0",
+      "4000: Boundary: Loading...",
+      "7000: Boundary: content | Details: 2 | Outside: 2 | Sum: 2"
     ]);
-    expect(f).toHaveLength(3);
-    expect(f[2].startsWith("7000: ")).toBe(true);
-    for (const v of ["Details: 2", "Outside: 2", "Sum: 2"]) expect(f[2]).toContain(v);
-    // Not asserted exactly: the 7000 frame also carries a stale `Sum: 1` —
-    // the slot Sum computed mainline at 4000 (page=1, committed count) is
-    // published before the #3322 contested re-derive publishes `Sum: 2`.
-    // Pre-existing (identical on the branch base), tracked separately.
   });
 
   it("#3374 repeating the held write after remounting the reader publishes with the derived value", async () => {

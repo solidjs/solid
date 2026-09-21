@@ -301,7 +301,19 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "9.60 KB",
+    // Born held exempts boundaries (A29 amended, #3540, 2026-09-18): 9,613 B
+    // against `next`'s 9,567 (+46 B). Core-retained: `underFreshLoadingBoundary`
+    // (the queue-chain walk to the nearest pending-collecting boundary),
+    // enterStagedRead taking the staging path inside a flush for a pass under a
+    // fresh boundary (the mainline and in-flush arms folded to one predicate),
+    // recompute's born-held arm restaging a re-pass instead of re-queuing it
+    // and telling the fresh boundary (queue.notify with a NotReadyError), and
+    // `spectating` refusing the entry (enterStagedRead) and the staged-only
+    // value (serve) for the boundary's priming read. +169 B minified in the
+    // in-package floor (25,660 -> 25,829). Relocation measured NO-WIN: the
+    // walk behind a `GlobalQueue` slot installed by boundaries.ts saved 8 B
+    // here and cost the boundary-using app scenarios 50-70 B each.
+    limit: "9.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -583,7 +595,14 @@ module.exports = [
     // The descriptor trap subscribes to the key's presence node and witnesses
     // isPending()/affects() as `in` does (structural oracle, 2026-09-17):
     // +3 B brotli over the cap, measured at 16,703 B.
-    limit: "16.75 KB",
+    // Born held exempts boundaries (#3540, 2026-09-18): 16,759 B against
+    // `next`'s 16,707 (+52 B) — the core floor's +46 B (see its note); 0 B in
+    // the store.
+    // `on` re-arms at the flush's finalize (#3540, 2026-09-21): 16,811 B,
+    // +11 B over the cap — the scheduler's `pendingRearms` set, `queueRearm`,
+    // the finalize drain and the simple-sync-flush gate (+58 B minified in
+    // the signals core).
+    limit: "16.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -742,7 +761,12 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "12.35 KB",
+    // Born held exempts boundaries (#3540, 2026-09-18): 12,367 B against
+    // `next`'s 12,253 (+114 B). The core floor's +46 B (see its note), and
+    // the verdict layer pays for `spectating` at serve's staged-only arm
+    // beside its own `_verdictPull` gate in enterStagedRead (the two gates
+    // are now tested together in one predicate).
+    limit: "12.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -865,7 +889,10 @@ module.exports = [
     // is the same 34,727 B and differs only in which short names the minifier
     // hands out); ratcheted so the 15 B of remaining headroom does not flake
     // on Linux. 0 B in the signals floor.
-    limit: "12.45 KB",
+    // `on` re-arms at the flush's finalize (#3540, 2026-09-21): 12,472 B,
+    // +22 B over the cap — the scheduler's `pendingRearms` drain sits on the
+    // flush path every app retains (see the `+ createStore` note).
+    limit: "12.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -1052,7 +1079,11 @@ module.exports = [
     // `adopted` latch and a live-guarded flip make a dependency change before
     // the landing take over (rule 4, +42 B). Same shared store hydration
     // adapter as the entry above, retained here without the store engine.
-    limit: "20.5 KB",
+    // Born held exempts boundaries; `on` is a key (#3540, 2026-09-18): 20,521 B
+    // against `next`'s 20,431 (+90 B). Core: the same +46 B as the core floor
+    // note; boundaries: the same key computed / output-pass reset / born-held
+    // source retention as the CSR note.
+    limit: "20.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -1277,7 +1308,16 @@ module.exports = [
     // 30.6 KB, measured at 30,545 B against `next`'s 30.41 KB (+~135 B, of
     // which +18 B is rule 4); the same hydrateStoreLikeFn hybrid-branch change
     // as the hydrating (no stores) note. 0 B in the signals floor.
-    limit: "30.6 KB",
+    // Born held exempts boundaries; `on` is a key (#3540, 2026-09-18): 30,695 B
+    // against `next`'s 30,545 (+150 B). Core: the same +46 B as the core
+    // floor note; boundaries: the same key computed / output-pass reset /
+    // born-held source retention as the CSR note. 0 B in the store engine.
+    // `on` is a dependency list; re-arm at the finalize (#3540, 2026-09-21):
+    // 30,765 B, +15 B over the cap. Core: `pendingRearms` / `queueRearm` /
+    // the finalize drain replace `keyComputed`'s value compare and
+    // `_prevOn` (a near wash in boundaries.ts); solid: `<Errored on>` threaded
+    // through the hydration wrapper to createErrorBoundary's options.
+    limit: "30.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1409,7 +1449,15 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "15.50 KB",
+    // Born held exempts boundaries; `on` is a key (#3540, 2026-09-18): 15,617 B
+    // against `next`'s 15,492 (+125 B). Core: the same +46 B as the core
+    // floor note. Boundaries: `on` is a tracked key computed (`keyComputed`:
+    // a NotReadyError from the key is `ON_INIT`, a real error forwards up the
+    // queue chain), read by the boundary's output pass and reset there
+    // (`_reset`, moved out of `notify`); `_checkSources` keeps a born-held
+    // source collected until the commit initializes it; the priming read is a
+    // `spectate` (no dependency link, no transaction entry).
+    limit: "15.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -1529,7 +1577,16 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "17.00 KB",
+    // Born held exempts boundaries; `on` is a key (#3540, 2026-09-18): 17,090 B
+    // against `next`'s 16,965 (+125 B). Core: the same +46 B as the core
+    // floor note. Boundaries: `on` is a tracked key computed (`keyComputed`:
+    // a NotReadyError from the key is `ON_INIT`, a real error forwards up the
+    // queue chain), read by the boundary's output pass and reset there
+    // (`_reset`, moved out of `notify`); `_checkSources` keeps a born-held
+    // source collected until the commit initializes it; the priming read is a
+    // `spectate`. Observe: the boundaryFallback attribution call moved with
+    // the reset.
+    limit: "17.15 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1684,7 +1741,21 @@ module.exports = [
     // drop (signals and writable memos, through commitPendingNode), a
     // kept-tail pending mark re-deriving its subscriber (A30), and
     // reporterBlocksSource following `_pendingSources` one hop.
-    limit: "27.50 KB",
+    // Born held exempts boundaries; `on` is a key (#3540, 2026-09-18): 27,579 B
+    // against `next`'s 27,448 (+131 B). Core: the same +46 B as the core
+    // floor note. Boundaries: `on` is a tracked key computed (`keyComputed`:
+    // a NotReadyError from the key is `ON_INIT`, a real error forwards up the
+    // queue chain), read by the boundary's output pass and reset there
+    // (`_reset`, moved out of `notify`); `_checkSources` keeps a born-held
+    // source collected until the commit initializes it; the priming read is a
+    // `spectate`. Observe: the boundaryFallback attribution call moved with
+    // the reset.
+    // `on` is a dependency list; re-arm at the finalize (#3540, 2026-09-21):
+    // 27,614 B, +14 B over the cap — `keyComputed` / `ON_INIT` / `_prevOn`
+    // become the on-node (`queueRearm` on every run after the first), and
+    // `_reset` becomes `_rearm` + `_retry` (shared with the error fallback's
+    // `reset()`); the scheduler gains `pendingRearms` and its finalize drain.
+    limit: "27.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

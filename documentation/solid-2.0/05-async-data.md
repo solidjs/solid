@@ -28,7 +28,7 @@ function Profile() {
 
 <Loading fallback={<Spinner />}>
   <Profile />
-</Loading>
+</Loading>;
 ```
 
 This pushes “loading state” to UI structure (boundaries) instead of leaking into every type.
@@ -47,9 +47,9 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 
 Nested `Loading` boundaries can be used to avoid blocking large subtrees and to control where loading UI appears.
 
-#### `Loading` `on` prop: controlling when fallback re-shows
+#### `Loading` `on` prop: re-arming the boundary
 
-By default, once a `Loading` boundary has rendered content, it keeps showing stale content during revalidation (transitions). The `on` prop lets you specify an expression that, when it changes *and* async is pending, causes the boundary to re-show its fallback instead of stale content.
+By default, once a `Loading` boundary has rendered content, it keeps that content visible during revalidation: like every reader of a pending value, it holds the write that made it pending until the data lands. The `on` prop is a **dependency list**: a tracked expression whose value is irrelevant — what matters is what it reads. Whenever anything it reads changes, the boundary **re-arms**: if something under it is pending, it shows its fallback again, now, until the new content is ready; if nothing is pending, nothing happens.
 
 ```jsx
 // Without on: stale content shown during revalidation
@@ -57,19 +57,28 @@ By default, once a `Loading` boundary has rendered content, it keeps showing sta
   <UserProfile id={id()} />
 </Loading>
 
-// With on: fallback re-shown when id changes while data is pending
+// With on: a change to id shows the fallback while the new profile loads
 <Loading on={id()} fallback={<Spinner />}>
   <UserProfile id={id()} />
 </Loading>
+
+// Several dependencies: a change to any of them re-arms
+<Loading on={[query(), page()]} fallback={<Spinner />}>
+  <Results />
+</Loading>
 ```
 
-This is useful for route-level or key-level transitions where you don't want to wait on all data loading before updating the UI. Show the fallback again instead.
+The re-arm is a change to the **current frame**. A write that makes the profile pending is held by the readers showing the old profile — the write's whole batch commits when the data lands — but the boundary's swap to its fallback is not part of that batch: it lands in the frame being displayed, beside whatever the write is still holding elsewhere on the page. This is the point of `on`: to stop waiting on the old content for this slot without changing when the write itself commits. The children are not re-created; they stay alive behind the fallback and reveal again when the pending data lands.
+
+Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` re-arms whenever `id` changes, and an expression that reads nothing reactive never re-arms. Optimistic writes to a dependency notify like any other write; `latest()` and `isPending()` inside `on` are ordinary reads. A zero-argument function is a tracked accessor, not a callback.
+
+`Errored` accepts the same `on`: while its error fallback shows, a change to a dependency clears the error and retries the children — `reset()` driven by data (reset keys). See [RFC 03](03-control-flow.md#error-boundary-errored).
 
 ### `isPending(fn)` (in-flight change queries)
 
 `isPending` answers: “Is a value change in flight for this read that hasn't revealed yet?”
 
-It returns `true` when a tracked input of the data has changed and the new answer hasn't landed (e.g. navigation changed an id and the refetch is still in flight), or when in-flight work has declared it will change the data (`affects`, RFC 06). A re-ask of the *same* question is silent: a bare `refresh()`, polling, or a confirming refetch after a mutation does not read as pending — the data you're showing still answers what's being asked, and the fresh value reveals silently. To make a reload read as pending, declare it: `affects(user); refresh(user)`.
+It returns `true` when a tracked input of the data has changed and the new answer hasn't landed (e.g. navigation changed an id and the refetch is still in flight), or when in-flight work has declared it will change the data (`affects`, RFC 06). A re-ask of the _same_ question is silent: a bare `refresh()`, polling, or a confirming refetch after a mutation does not read as pending — the data you're showing still answers what's being asked, and the fresh value reveals silently. To make a reload read as pending, declare it: `affects(user); refresh(user)`.
 
 `isPending` performs the read you pass it, so its placement matters: reading async data can participate in Loading/SSR readiness, while reading upstream state only observes that state's own pending transition.
 
@@ -118,7 +127,7 @@ const user = createMemo(() => fetchUser(userId()));
 const latestUserId = () => latest(userId);
 ```
 
-`latest()` escapes the *transaction*, not its own lane. Readers of `latest(x)` render ahead of the transition that holds `x`, but they reveal together with any *rendered* async derived from `latest(x)` — the same rule every lane follows, and the same rule the transaction itself follows: async holds when a render effect reads it and no `Loading` boundary catches it. So a `latest()` view is never shown beside a half-computed derivation of itself, while a derivation nobody renders, or one inside a `Loading` that shows its fallback, holds nothing (there is no frame to tear). Routing several rendered async computations through the same `latest(x)` makes them one lane that reveals when the slowest settles; derive with the plain read (`x()` inside the async memo — it is held by the transition anyway) when the display should not wait for it.
+`latest()` escapes the _transaction_, not its own lane. Readers of `latest(x)` render ahead of the transition that holds `x`, but they reveal together with any _rendered_ async derived from `latest(x)` — the same rule every lane follows, and the same rule the transaction itself follows: async holds when a render effect reads it and no `Loading` boundary catches it. So a `latest()` view is never shown beside a half-computed derivation of itself, while a derivation nobody renders, or one inside a `Loading` that shows its fallback, holds nothing (there is no frame to tear). Routing several rendered async computations through the same `latest(x)` makes them one lane that reveals when the slowest settles; derive with the plain read (`x()` inside the async memo — it is held by the transition anyway) when the display should not wait for it.
 
 ### `resolve(fn)` (wait for a reactive expression to settle)
 
@@ -132,11 +141,11 @@ const user = await resolve(() => userMemo());
 const result = await resolve(() => computedValue());
 ```
 
-Its sibling `until(fn, options?)` waits for a reactive *condition* instead of a value: it resolves the first time `fn` settles **truthy** (falsy results keep waiting), with optional `timeout`/`signal` rejection. Inside an `action()` it reads the authoritative view — optimistic overrides are invisible to it (your own tentative write cannot satisfy your own ack), while real data reads normally wherever it lives, including values still staged in the open transaction. That makes it the acknowledgment mechanism for mutations confirmed on a live data channel — see [RFC 06](06-actions-optimistic.md).
+Its sibling `until(fn, options?)` waits for a reactive _condition_ instead of a value: it resolves the first time `fn` settles **truthy** (falsy results keep waiting), with optional `timeout`/`signal` rejection. Inside an `action()` it reads the authoritative view — optimistic overrides are invisible to it (your own tentative write cannot satisfy your own ack), while real data reads normally wherever it lives, including values still staged in the open transaction. That makes it the acknowledgment mechanism for mutations confirmed on a live data channel — see [RFC 06](06-actions-optimistic.md).
 
 ### `loadingValue` / `seedLoadingValue`: declared first paint (advanced)
 
-The primary pattern for first-load UI is structural: wrap the branch in `Loading`. This option is the escape hatch for the cases where the right loading UI *is* the real UI rendered with provisional data — a feed that renders placeholder rows through the same components it renders real rows, a chart drawn from default data, dimmed with an inline indicator. Instead of branching to a fallback tree, the computation declares what it renders before its first answer:
+The primary pattern for first-load UI is structural: wrap the branch in `Loading`. This option is the escape hatch for the cases where the right loading UI _is_ the real UI rendered with provisional data — a feed that renders placeholder rows through the same components it renders real rows, a chart drawn from default data, dimmed with an inline indicator. Instead of branching to a fallback tree, the computation declares what it renders before its first answer:
 
 ```js
 const feed = createMemo(() => fetchFeed(id()), {
@@ -150,7 +159,7 @@ const feed = createMemo(() => fetchFeed(id()), {
 - Store-family sources (`createStore(fn)`, `createProjection`, `createOptimisticStore`) declare it as `seedLoadingValue: true`, which promotes their existing seed to the same role.
 - SSR renders the declared value into the HTML rather than suspending, and the landing streams as data; hydration claims against it. With `ssrSource: "client"` (below) the declaration is what makes a browser-only compute renderable on the server at all — without it, the source suspends structurally instead.
 
-The guardrail is honesty: this is for *default data the user can tell is provisional*, not for impersonating an answer that hasn't arrived. If you find yourself inventing plausible-looking real data to avoid a spinner, use `Loading`.
+The guardrail is honesty: this is for _default data the user can tell is provisional_, not for impersonating an answer that hasn't arrived. If you find yourself inventing plausible-looking real data to avoid a spinner, use `Loading`.
 
 ### Transitions: built-in, multiple in flight
 
@@ -162,10 +171,10 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 
 **`ssrSource`** is the hydration policy: what initial value the client uses, and whether the compute re-runs.
 
-- `"server"` *(default)* — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
+- `"server"` _(default)_ — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
 - `"hybrid"` — the client seeds from the serialized server value, then re-runs the compute to take over. Choose this for computes that mix server data with client-only signals (window size, user locale).
 - `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. What the server renders in the compute's place is the author's choice of channel:
-  - **Bare (structural)** — with no declaration, the source is a hole the server can never fill. Reads suspend *finally*: the nearest `Loading` boundary flushes its fallback into the HTML and hands the position to the client, which renders the content fresh after hydration. Read outside a `Loading` boundary this is a render error (the stream would otherwise hang), so bare client sources must sit under a boundary.
+  - **Bare (structural)** — with no declaration, the source is a hole the server can never fill. Reads suspend _finally_: the nearest `Loading` boundary flushes its fallback into the HTML and hands the position to the client, which renders the content fresh after hydration. Read outside a `Loading` boundary this is a render error (the stream would otherwise hang), so bare client sources must sit under a boundary.
   - **Declared (`loadingValue` / `seedLoadingValue`, above)** — the server renders the declared first paint instead of suspending; the client serves the same value while hydrating, then runs the compute. `loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it; store-family sources declare `seedLoadingValue: true` (the seed is what the pre-compute window renders).
 
 ```js
@@ -214,17 +223,17 @@ In 1.x, `.loading` was a property on the resource itself. In 2.0, loading state 
 ```js
 // 1.x
 const [user] = createResource(id, fetchUser);
-<Show when={user.loading}>Refreshing...</Show>
+<Show when={user.loading}>Refreshing...</Show>;
 
 // 2.0
 const user = createMemo(() => fetchUser(id()));
 <Loading fallback={<UserSkeleton />}>
   <Show when={isPending(() => user())}>Updating...</Show>
   <UserDetails user={user()} />
-</Loading>
+</Loading>;
 ```
 
-Here `isPending` fires while a changed `id()` is being answered. Note the split from 1.x: `.loading` was also true during a plain `refetch`, but a bare `refresh()` re-asks the same question and is *not* pending in 2.0. For a refetch that should read as pending, declare it (`affects(user); refresh(user)`); for a process affordance (“saving…”, a disabled reload button), co-write an optimistic flag in the action instead (RFC 06).
+Here `isPending` fires while a changed `id()` is being answered. Note the split from 1.x: `.loading` was also true during a plain `refetch`, but a bare `refresh()` re-asks the same question and is _not_ pending in 2.0. For a refetch that should read as pending, declare it (`affects(user); refresh(user)`); for a process affordance (“saving…”, a disabled reload button), co-write an optimistic flag in the action instead (RFC 06).
 
 Remember: `isPending(fn)` actively reads `fn`. If that read is not ready yet, it follows the same `Loading` path as reading the value directly. Put pending indicators under the boundary that should own initial fallback UI.
 
@@ -255,7 +264,7 @@ navigate(`/todos/${todos.at(-1).id}`);
 
 The promise is safe to ignore — fire-and-forget `refresh()` is unchanged, and a failed refetch never surfaces an unhandled rejection from an ignored promise. The semantics are quiescence, not flight identity: if a second refresh (or any invalidation) supersedes this one mid-flight, the promise waits for — and delivers — whatever finally lands. A failed re-ask rejects with the error. Awaiting does not change the quiet-re-ask contract: `isPending` still stays `false` for a bare refresh.
 
-Refresh granularity is the granularity of the *derive function*: refreshing a nested store node re-asks the whole family projection (there is no per-path refetch to re-run), though the promise still resolves with the node you passed. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
+Refresh granularity is the granularity of the _derive function_: refreshing a nested store node re-asks the whole family projection (there is no per-path refetch to re-run), though the promise still resolves with the node you passed. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
 
 #### `resource.mutate` → `createOptimisticStore` / `action`
 
@@ -276,7 +285,9 @@ In 2.0, `createOptimisticStore` + `action` addresses all three: store-backed gra
 const [todos, setOptimisticTodos] = createOptimisticStore(fetchTodos, []);
 
 const addTodo = action(function* (todo) {
-  setOptimisticTodos(s => { s.push(todo); });
+  setOptimisticTodos(s => {
+    s.push(todo);
+  });
   yield saveTodo(todo);
   refresh(todos);
 });
@@ -318,10 +329,10 @@ Removed in favor of built-in transition behavior. Pending UI should be expressed
 
 ## Removals
 
-| Removed | Replacement |
-|--------|-------------|
-| `createResource` | Async computations (`createMemo`, `createStore(fn)`, projections) + `Loading` |
-| `useTransition` / `startTransition` | Built-in transitions; use `Loading`, `isPending`, optimistic APIs |
+| Removed                             | Replacement                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| `createResource`                    | Async computations (`createMemo`, `createStore(fn)`, projections) + `Loading` |
+| `useTransition` / `startTransition` | Built-in transitions; use `Loading`, `isPending`, optimistic APIs             |
 
 ## Alternatives considered
 

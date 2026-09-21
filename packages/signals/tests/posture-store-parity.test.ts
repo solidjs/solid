@@ -10,11 +10,16 @@
  *      `unflushed`: an adopted-before-any-flush staging is marked
  *      (ADOPTED_UNFLUSHED) — latest() serves the committed value, the
  *      verdict sees nothing staged — until the carrying flush.
- * S2 — OBSERVED, both sides agree: a memo + render effect created inside
- *      loading-boundary content over a held value publishes the held value
- *      (the in-flush form of spec O2 — creation under a transaction escapes;
- *      the content pass entered the hold, the creation direct-committed).
- *      Mainline creation over the same value is born held (A29).
+ * S2 — (fixed, #3540) a memo + render effect created inside loading-boundary
+ *      content over a held value used to publish the held value (the in-flush
+ *      form of spec O2 — creation under a transaction escaped; the content
+ *      pass entered the hold, the creation direct-committed, and the effect
+ *      ran behind the fallback). Creation under a boundary that has not
+ *      revealed is born held into the transaction and collected by the
+ *      boundary as not ready (A29's boundary exemption): nothing publishes
+ *      until the hold commits, and the effect waits for the reveal like every
+ *      effect behind a fallback. Mainline creation over the same value is
+ *      born held (A29).
  *
  * S3 — INV-4 after disposing a projection mid-refetch: its own file,
  *      tests/inv4-projection-dispose-shadow.test.ts (the live actions S1/S2
@@ -98,11 +103,12 @@ describe("S1 — adopted, unflushed: verdict channels inside the adopting action
   });
 });
 
-describe("S2 — creation in boundary content over a held value publishes it (OBSERVED, spec O2 in-flush form; signal and store agree)", () => {
+describe("S2 — creation in boundary content over a held value is born held and collected, not published (A29 boundary exemption, #3540; signal and store agree)", () => {
   /** Build a memo + render effect over `read` inside a loading boundary whose
    * content is pending on a sibling flight (the fallback shows). */
   function behindFallback(read: () => unknown) {
     const published: unknown[] = [];
+    let shown: unknown;
     createRoot(() => {
       const blocker = createMemo(() => never());
       const b = createLoadingBoundary(
@@ -116,12 +122,14 @@ describe("S2 — creation in boundary content over a held value publishes it (OB
         },
         () => "fallback"
       );
-      createRenderEffect(b, () => {});
+      createRenderEffect(b, v => {
+        shown = v;
+      });
     });
     flush();
-    return published;
+    return { published, shown: () => shown };
   }
-  it("signal held by a live action: the memo publishes the held 1 while x() reads 0", () => {
+  it("signal held by a live action: nothing publishes the held 1 while x() reads 0", () => {
     const [x, setX] = createSignal(0);
     action(function* () {
       setX(1);
@@ -129,10 +137,12 @@ describe("S2 — creation in boundary content over a held value publishes it (OB
     })();
     flush();
     expect(x()).toBe(0);
-    expect(behindFallback(x)).toEqual([1]);
+    const b = behindFallback(x);
+    expect(b.published).toEqual([]);
+    expect(b.shown()).toBe("fallback");
     expect(x()).toBe(0);
   });
-  it("store leaf held by a live action: the memo publishes the held 1 while s.n reads 0", () => {
+  it("store leaf held by a live action: nothing publishes the held 1 while s.n reads 0", () => {
     const [s, setS] = createStore({ n: 0 });
     action(function* () {
       setS(d => {
@@ -142,7 +152,9 @@ describe("S2 — creation in boundary content over a held value publishes it (OB
     })();
     flush();
     expect(s.n).toBe(0);
-    expect(behindFallback(() => s.n)).toEqual([1]);
+    const b = behindFallback(() => s.n);
+    expect(b.published).toEqual([]);
+    expect(b.shown()).toBe("fallback");
     expect(s.n).toBe(0);
   });
 });

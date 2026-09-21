@@ -121,7 +121,7 @@ This is primarily intended for use with **stores**, where the data at each index
 
 In 2.0’s async model, async values are part of computations (not a separate `createResource`), so `Loading` is the user-facing “this subtree may be not ready yet” boundary.
 
-`Loading` also accepts an `on` prop to control when the boundary re-shows its fallback during revalidation. See [RFC 05](05-async-data.md) for details.
+`Loading` also accepts an `on` prop — a dependency list: a tracked expression whose value is irrelevant; whenever anything it reads changes, the boundary shows its fallback again (if something under it is still pending) instead of keeping stale content. See [RFC 05](05-async-data.md) for details.
 
 ### Error boundary: `Errored`
 
@@ -139,6 +139,15 @@ The reset function is an action: pass it to event handlers or other imperative c
     </div>
   )}
 >
+  <Page />
+</Errored>
+```
+
+`Errored` also accepts an `on` prop, with the same shape as `Loading`'s: a dependency list. While the boundary shows its error fallback, a change to anything `on` reads clears the caught error and retries the children — the same thing `reset()` does, driven by data instead of a click (reset keys):
+
+```jsx
+// A navigation retries the page instead of leaving the old route's error up.
+<Errored fallback={<ErrorPage />} on={route()}>
   <Page />
 </Errored>
 ```

@@ -401,6 +401,11 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * Errors thrown from the fallback itself can be caught by a parent
  * `<Errored>`.
  *
+ * The optional `on` prop is a dependency list: the expression is tracked and
+ * its value is irrelevant — whenever anything it reads changes while the
+ * boundary is showing its error fallback, the caught error is cleared and the
+ * children are retried, exactly as calling `reset()` would (reset keys).
+ *
  * @example
  * ```tsx
  * <Errored fallback={(err, reset) => (
@@ -408,21 +413,29 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * )}>
  *   <MyComp />
  * </Errored>
+ *
+ * // Retry automatically when the route changes.
+ * <Errored fallback={<ErrorPage />} on={route()}>
+ *   <Page />
+ * </Errored>
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/error-boundary
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: ErrorAccessor, reset: () => void) => SolidElement);
+  on?: any;
   children: SolidElement;
 }): SolidElement {
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
   return createErrorBoundary(
     () => props.children,
     (err: ErrorAccessor, reset) => {
       const f = props.fallback;
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err());
       return typeof f === "function" && f.length ? f(err, reset) : f;
-    }
+    },
+    onOpt
   ) as unknown as SolidElement;
 }
 
@@ -434,9 +447,20 @@ export function Errored(props: {
  * nearest enclosing `<Loading>`. The boundary swaps to its `fallback` until
  * every pending read has resolved, then renders the children.
  *
- * The optional `on` prop scopes the boundary so it ignores transitions
- * caused by writes to other reactive sources — those transitions stay on the
- * previous content (with `isPending()` flipping during the transition).
+ * Once content has rendered, a refetch keeps it visible: the boundary reads
+ * the pending value like any other reader and holds the write that made it
+ * pending until the data lands (`isPending()` flips meanwhile).
+ *
+ * The optional `on` prop is a dependency list. The expression is tracked and
+ * its value is irrelevant — what matters is what it reads. Whenever anything
+ * it reads changes (a plain write, an optimistic write, a source going
+ * pending or landing), the boundary re-arms: if something under it is still
+ * pending, it shows `fallback` again right away, in the current frame, until
+ * the new content is ready; if nothing is pending, nothing happens. A write
+ * made inside a held `action` still re-arms the boundary now — the fallback
+ * shows beside the frame the action is still holding, and the action's batch
+ * commits later, intact. The children are not re-created; they stay alive
+ * behind the fallback.
  *
  * Scope `<Loading>` around the data-dependent slot, not the surrounding
  * shell. Wrapping layout chrome (header, nav, footer) in the same boundary
@@ -455,9 +479,15 @@ export function Errored(props: {
  *
  * @example
  * ```tsx
- * // Only show the fallback for transitions caused by writes to `route`.
- * <Loading fallback={<Skeleton />} on={route}>
+ * // Re-arm on the route: a navigation shows the skeleton immediately while
+ * // the new page loads; a refetch of the same route keeps the page visible.
+ * <Loading fallback={<Skeleton />} on={route()}>
  *   <Page />
+ * </Loading>
+ *
+ * // Several dependencies: any of them changing re-arms the boundary.
+ * <Loading fallback={<Skeleton />} on={[query(), page()]}>
+ *   <Results />
  * </Loading>
  * ```
  *
