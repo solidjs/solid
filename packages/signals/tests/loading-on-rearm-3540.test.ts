@@ -1,14 +1,18 @@
 /**
- * #3540 — `on` re-arms the boundary at the flush's finalize, mainline.
+ * #3540 — `on` re-arms the boundary; the fallback follows the frame.
  *
  * `on` is a dependency list: a tracked function whose READS re-arm the
  * boundary; its value is never compared. A notification arrives inside a
- * pass — under whatever transaction that pass runs in — and the re-arm is
- * deferred to the flush's finalize (scheduler `pendingRearms`), where
- * `activeTransition` is null: the fallback swap is a plain mainline write
- * that lands in the next pass of the SAME flush, beside whatever frame a
- * transaction still holds, instead of being staged into that transaction and
- * landing with its commit (the pre-rc.10 shape, #3524 / #3529).
+ * pass and the re-arm runs once the pass's heap has run (scheduler
+ * `pendingRearms`), before the verdict, under the transaction the notifying
+ * write belongs to: the boundary releases its hold NOW — the frame stops
+ * waiting on its content — and its fallback swap is staged with that
+ * transaction, landing with the write's commit (frame-following). Nothing
+ * else holding, that commit is this pass's; a held navigation lands the
+ * fallback together with the rest of the new page, never beside the old
+ * one. `on` reading display-ahead state (`latest()`, an optimistic write)
+ * is the exception: the swap is the finalize's, mainline, and the fallback
+ * shows now, beside the held frame (the trigger shape of rc.10).
  *
  * The constraint the mechanism must respect: the re-arm changes nothing
  * about the hold itself. A held batch stays held — none of its staged values
@@ -17,7 +21,8 @@
  *
  * Every observation is made in an effect's EFFECT phase (the committed
  * frame). The born-held exemption and the keyed-Show matrix are in
- * boundary-not-born-held-3540.test.ts.
+ * boundary-not-born-held-3540.test.ts; the frame sequences of the
+ * shell/comments navigation are in loading-on-frame-following-3540.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -31,6 +36,7 @@ import {
   createSignal,
   flush,
   isPending,
+  latest,
   onCleanup,
   untrack
 } from "../src/index.js";
@@ -79,7 +85,7 @@ function revealed(makeOn: (count: () => number) => () => unknown) {
   return { count, setCount, out, dispose };
 }
 
-describe("Loading `on` re-arms in the current frame (#3540)", () => {
+describe("Loading `on` re-arms; the fallback follows the frame (#3540)", () => {
   test("a dependency written mainline while content is pending: fallback in the same flush; reveal at the landing", async () => {
     const t = revealed(count => count);
     expect(t.out.value).toBe("fallback");
@@ -88,7 +94,9 @@ describe("Loading `on` re-arms in the current frame (#3540)", () => {
     expect(t.out.value).toBe("data 1");
 
     // count's write makes data pending and notifies `on` in one flush: the
-    // re-arm drains at finalize and the fallback lands in the same flush.
+    // re-arm releases the boundary before the verdict, nothing else holds,
+    // and count's frame — the fallback swap staged with it — commits in the
+    // same pass.
     t.setCount(2);
     flush();
     expect(t.out.value).toBe("fallback");
@@ -100,13 +108,15 @@ describe("Loading `on` re-arms in the current frame (#3540)", () => {
     t.dispose();
   });
 
-  test("a dependency written INSIDE a held action: fallback now beside the held frame; the batch stays held and commits intact", async () => {
+  /** A boundary over `data(count)` beside three plain readers, count written
+   * inside an action with two other writes, then the action awaits: the
+   * transaction is held (data's flight AND the action's own promise). */
+  function heldAction(makeOn: (count: () => number) => () => unknown) {
     const [count, setCount] = createSignal(1);
     const [a, setA] = createSignal("a0");
     const [b, setB] = createSignal("b0");
     const cells = { A: cell(), B: cell(), count: cell(), boundary: cell(), pending: cell() };
-    let cleanups = 0;
-    let mounts = 0;
+    const counters = { cleanups: 0, mounts: 0 };
     let release!: () => void;
     let dispose!: () => void;
     createRoot(d => {
@@ -126,12 +136,12 @@ describe("Loading `on` re-arms in the current frame (#3540)", () => {
             // The children, as `props.children` would be: built once, with
             // their own reader of data. Alive behind the fallback, never
             // re-created — a cleanup here fires at disposal only.
-            mounts++;
-            onCleanup(() => cleanups++);
+            counters.mounts++;
+            onCleanup(() => counters.cleanups++);
             return createMemo(() => `data ${data()}`);
           },
           () => "fallback",
-          { on: count }
+          { on: makeOn(count) }
         )
       );
       show(() => {
@@ -139,29 +149,88 @@ describe("Loading `on` re-arms in the current frame (#3540)", () => {
         return typeof v === "function" ? v() : v;
       }, cells.boundary);
     });
+    const run = () =>
+      action(function* () {
+        setCount(2);
+        setA("a1");
+        setB("b1");
+        yield new Promise<void>(r => (release = r));
+      })();
+    return { cells, counters, run, release: () => release(), dispose };
+  }
+
+  test("a dependency written INSIDE a held action: the fallback lands WITH the action's frame; the batch stays held and commits intact", async () => {
+    const t = heldAction(count => count);
+    const { cells, counters } = t;
     flush();
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(cells.boundary.value).toBe("data 1");
     expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a0", "b0", 1]);
 
-    // Three writes in one action, then the action awaits: the transaction
-    // is held (data's flight AND the action's own promise).
-    action(function* () {
-      setCount(2);
-      setA("a1");
-      setB("b1");
-      yield new Promise<void>(r => (release = r));
-    })();
+    t.run();
     flush();
 
-    // The fallback landed in the current frame ...
+    // The boundary released its hold, but the action holds the frame the
+    // count's write belongs to, and the fallback swap is staged with it: the
+    // frame still shows the committed world — content included. (Under the
+    // trigger re-arm of rc.10 the fallback landed here, beside the old
+    // frame, for a change nothing on screen reflected yet.)
+    expect(cells.boundary.value).toBe("data 1");
+    expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a0", "b0", 1]);
+    expect(cells.pending.value).toBe(true);
+    expect(counters.cleanups).toBe(0);
+
+    // The flight lands; the action is still open, so the batch is still held
+    // — nothing commits piecemeal. The landing settles the boundary's
+    // collected source ahead of the commit: the swap is cleared before it
+    // ever shows.
+    await vi.advanceTimersByTimeAsync(1000);
+    flush();
+    expect(cells.boundary.value).toBe("data 1");
+    expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a0", "b0", 1]);
+
+    // The action settles: all three land together with the new content, in
+    // one frame. Neither a nor b ever showed its new value before this, and
+    // the boundary never showed a fallback — nothing on screen needed one.
+    t.release();
+    await microtask();
+    await microtask();
+    flush();
+    expect(cells.boundary.value).toBe("data 2");
+    expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a1", "b1", 2]);
+    expect(cells.pending.value).toBe(false);
+    expect(cells.boundary.log).toEqual(["fallback", "data 1", "data 2"]);
+    expect(cells.A.log).toEqual(["a0", "a1"]);
+    expect(cells.B.log).toEqual(["b0", "b1"]);
+    expect(cells.count.log).toEqual([1, 2]);
+    expect(counters.mounts).toBe(1);
+    expect(counters.cleanups).toBe(0);
+    t.dispose();
+    expect(counters.cleanups).toBe(1);
+  });
+
+  test("`on: () => latest(count)` written INSIDE a held action: fallback now beside the held frame; the batch stays held and commits intact", async () => {
+    const t = heldAction(count => () => latest(count));
+    const { cells, counters } = t;
+    flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    flush();
+    expect(cells.boundary.value).toBe("data 1");
+    expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a0", "b0", 1]);
+
+    t.run();
+    flush();
+
+    // `latest()` is the display-ahead read: the `on` pass ran under the
+    // shadow's lane, so the swap is the finalize's, mainline — the fallback
+    // landed in the current frame ...
     expect(cells.boundary.value).toBe("fallback");
     // ... and NONE of the staged values did: the mainline frame still shows
     // the committed world, the write is still pending, the children live.
     expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a0", "b0", 1]);
     expect(cells.pending.value).toBe(true);
-    expect(cleanups).toBe(0);
+    expect(counters.cleanups).toBe(0);
 
     // The flight lands; the action is still open, so the batch is still held
     // and the boundary still shows its fallback — nothing commits piecemeal.
@@ -172,20 +241,21 @@ describe("Loading `on` re-arms in the current frame (#3540)", () => {
 
     // The action settles: all three land together, content revealed, in one
     // frame. Neither a nor b ever showed its new value before this.
-    release();
+    t.release();
     await microtask();
     await microtask();
     flush();
     expect(cells.boundary.value).toBe("data 2");
     expect([cells.A.value, cells.B.value, cells.count.value]).toEqual(["a1", "b1", 2]);
     expect(cells.pending.value).toBe(false);
+    expect(cells.boundary.log).toEqual(["fallback", "data 1", "fallback", "data 2"]);
     expect(cells.A.log).toEqual(["a0", "a1"]);
     expect(cells.B.log).toEqual(["b0", "b1"]);
     expect(cells.count.log).toEqual([1, 2]);
-    expect(mounts).toBe(1);
-    expect(cleanups).toBe(0);
-    dispose();
-    expect(cleanups).toBe(1);
+    expect(counters.mounts).toBe(1);
+    expect(counters.cleanups).toBe(0);
+    t.dispose();
+    expect(counters.cleanups).toBe(1);
   });
 
   test("an optimistic write to a dependency re-arms", async () => {

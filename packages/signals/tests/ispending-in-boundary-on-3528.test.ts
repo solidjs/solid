@@ -23,14 +23,15 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 //
 // #3540: `on` is a dependency list now (its own tracked computation, outside
 // the boundary), not a trigger evaluated per pending notification, and its
-// value is never compared. `isPending(dep)` in `on` is a read like any other:
-// the verdict flips when the write goes pending, the notification re-arms the
-// boundary at the flush's finalize — mainline — and the fallback shows ahead
-// of the commit, beside the current frame. `on=always` returns a fresh token
-// per evaluation but reads nothing reactive: nothing ever notifies it, so the
-// boundary is never re-armed — it forwards the pending and holds with the
-// transaction like a boundary without `on`. (Expectations unchanged from the
-// keyed `on`: a verdict flip was a key change there too.)
+// value is never compared. `isPending(dep)` in `on` is a read like any other
+// — of DISPLAY-AHEAD state: the verdict's companion is optimistic, so the
+// `on` pass runs under its lane, and the re-arm's fallback swap is the
+// mainline drain's (as for `latest()`): the fallback shows now, beside
+// whatever frame a transaction still holds, rather than following the
+// write's frame. `on=always` returns a fresh token per evaluation but reads
+// nothing reactive: nothing ever notifies it, so the boundary is never
+// re-armed — it forwards the pending and holds with the transaction like a
+// boundary without `on`.
 type OnMode = "always" | "memo-isPending" | "fn-isPending";
 
 function build(onMode: OnMode, boundaries: 1 | 2) {
@@ -125,11 +126,16 @@ describe("#3528 isPending consulted from a Loading boundary's `on`", () => {
         // forwards the pending and the frame holds until m2 lands.
         expect(r.log).toEqual(["A=2 0", "count=1"]);
       } else {
-        // The verdict flips ahead of the commit and notifies `on`: the
-        // fallback lands first; the re-arm frees the boundary's reader from
-        // the hold (A33), the count publishes, and the content reveals when
-        // m2 lands.
-        expect(r.log).toEqual(["A=Loading", "count=1", "A=2 0"]);
+        // The verdict flips and notifies `on`: the re-arm frees the
+        // boundary's reader from the hold (A33) before the verdict, so the
+        // count publishes in this pass; the display-ahead swap is the
+        // finalize's, so the fallback lands in the same pass, applied after
+        // the count (its effect was queued by the finalize's heap run, the
+        // count's by the main one). The content reveals when m2 lands.
+        // (Under the trigger re-arm of rc.10 the fallback preceded the count
+        // by a pass: the release was the finalize's too, and the frame it
+        // freed committed one pass later.)
+        expect(r.log).toEqual(["count=1", "A=Loading", "A=2 0"]);
       }
     }
   );

@@ -304,11 +304,18 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
   // new boundary shows its fallback ahead of the write; over `count()` the
   // key lands with the write, so the frame holds. `on` is a dependency list,
   // not a key: count's write notifies it either way, and the boundary
-  // re-arms mainline in the same flush — fallback beside the current frame
-  // for `on: count` as for `on: () => latest(count)`. (Expectation changed
-  // from HELD with the value-compare `on`: a committed key landed with the
-  // write's commit.) B — an initialized boundary without `on` — forwards
-  // data's pending and holds the frame in every row (A33).
+  // re-arms — releasing its hold now, with the fallback swap FOLLOWING THE
+  // FRAME the write belongs to. B — an initialized boundary without `on` —
+  // forwards data's pending and holds the frame in every row (A33), and it
+  // reads the SAME `data` A's content does: the frame waits for data, and
+  // by the time it commits A's collected source has settled and the sweep
+  // has cleared the swap — `on: count` shows no fallback at all (HELD; DEV
+  // warns LOADING_ON_OUTSIDE_HOLD, pinned in
+  // loading-on-frame-following-3540.test.ts). `on: () => latest(count)` is
+  // the display-ahead read: its swap is mainline and the fallback shows now,
+  // beside the held frame (EARLY). (Expectation for `on` over committed was
+  // EARLY under the trigger re-arm of rc.10, HELD under the value-compare
+  // `on` before it — for a different reason: the key landed with the write.)
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Form, Key, string]> = [
@@ -317,10 +324,12 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
     ["on", "latest", EARLY],
     ["static", "committed", HELD],
     ["callback", "committed", HELD],
-    ["on", "committed", EARLY]
+    ["on", "committed", HELD]
   ];
   for (const [form, key, midFlight] of matrix) {
     test(`${form} over ${key}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "holds"}`, async () => {
+      // `on` over committed warns LOADING_ON_OUTSIDE_HOLD (B reads data too).
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const t = build(form, key);
       await vi.advanceTimersByTimeAsync(1000);
       flush();
@@ -334,6 +343,8 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
       flush();
       expect(t.snapshot()).toBe("2|2|2");
       t.dispose();
+      expect(warn).toHaveBeenCalledTimes(form === "on" && key === "committed" ? 1 : 0);
+      warn.mockRestore();
     });
   }
 
