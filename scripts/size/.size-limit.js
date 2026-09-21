@@ -598,7 +598,11 @@ module.exports = [
     // Born held exempts boundaries (#3540, 2026-09-18): 16,759 B against
     // `next`'s 16,707 (+52 B) — the core floor's +46 B (see its note); 0 B in
     // the store.
-    limit: "16.80 KB",
+    // `on` re-arms at the flush's finalize (#3540, 2026-09-21): 16,811 B,
+    // +11 B over the cap — the scheduler's `pendingRearms` set, `queueRearm`,
+    // the finalize drain and the simple-sync-flush gate (+58 B minified in
+    // the signals core).
+    limit: "16.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -885,7 +889,10 @@ module.exports = [
     // is the same 34,727 B and differs only in which short names the minifier
     // hands out); ratcheted so the 15 B of remaining headroom does not flake
     // on Linux. 0 B in the signals floor.
-    limit: "12.45 KB",
+    // `on` re-arms at the flush's finalize (#3540, 2026-09-21): 12,472 B,
+    // +22 B over the cap — the scheduler's `pendingRearms` drain sits on the
+    // flush path every app retains (see the `+ createStore` note).
+    limit: "12.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -1305,7 +1312,12 @@ module.exports = [
     // against `next`'s 30,545 (+150 B). Core: the same +46 B as the core
     // floor note; boundaries: the same key computed / output-pass reset /
     // born-held source retention as the CSR note. 0 B in the store engine.
-    limit: "30.75 KB",
+    // `on` is a dependency list; re-arm at the finalize (#3540, 2026-09-21):
+    // 30,765 B, +15 B over the cap. Core: `pendingRearms` / `queueRearm` /
+    // the finalize drain replace `keyComputed`'s value compare and
+    // `_prevOn` (a near wash in boundaries.ts); solid: `<Errored on>` threaded
+    // through the hydration wrapper to createErrorBoundary's options.
+    limit: "30.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1738,7 +1750,12 @@ module.exports = [
     // source collected until the commit initializes it; the priming read is a
     // `spectate`. Observe: the boundaryFallback attribution call moved with
     // the reset.
-    limit: "27.60 KB",
+    // `on` is a dependency list; re-arm at the finalize (#3540, 2026-09-21):
+    // 27,614 B, +14 B over the cap — `keyComputed` / `ON_INIT` / `_prevOn`
+    // become the on-node (`queueRearm` on every run after the first), and
+    // `_reset` becomes `_rearm` + `_retry` (shared with the error fallback's
+    // `reset()`); the scheduler gains `pendingRearms` and its finalize drain.
+    limit: "27.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
