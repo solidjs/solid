@@ -345,6 +345,59 @@ describe("ssrElement with multiple sources", () => {
   });
 });
 
+// `ssrElement(tag, props, children, needsId, skip, attrs)`: `attrs` is
+// attribute markup the caller already holds as a string, appended after the
+// props' attributes as a last source would be — walked for nothing, escaped by
+// nobody here.
+describe("ssrElement with an attribute string", () => {
+  const attrs = (props: any, s: string | undefined, skip?: (k: string) => boolean, tag = "div") =>
+    renderToString(() => ssrElement(tag, props, undefined, false, skip, s));
+
+  test("is appended after the props' attributes, verbatim", () => {
+    expect(attrs({ id: "x" }, ' class="c d"')).toBe('<div id="x" class="c d"></div>');
+    // not escaped: the caller vouches for it
+    expect(attrs({}, ' data-raw="a&amp;b"')).toBe('<div data-raw="a&amp;b"></div>');
+    // an empty string and undefined add nothing
+    expect(attrs({ id: "x" }, "")).toBe('<div id="x"></div>');
+    expect(attrs({ id: "x" }, undefined)).toBe('<div id="x"></div>');
+  });
+
+  test("is the same as a trailing source when its keys are kept off the props", () => {
+    const { source, reads } = counting({ id: "x", class: "author", title: "t", style: "s" });
+    const skip = (k: string) => k === "class" || k === "style";
+    const html = attrs(source, ' class="computed" style="color:red"', skip);
+    expect(html).toBe(
+      renderToString(() =>
+        ssrElement("div", [source, { class: "computed", style: "color:red" }], undefined, false)
+      )
+    );
+    expect(html).toBe('<div id="x" title="t" class="computed" style="color:red"></div>');
+    // the shadowed getters are never read, by either form
+    expect(reads).toEqual({ id: 2, class: 0, title: 2, style: 0 });
+  });
+
+  test("takes the array-sources form, the thunk form, and void tags", () => {
+    expect(attrs([{ id: "x" }, { title: "t" }], ' class="c"')).toBe(
+      '<div id="x" title="t" class="c"></div>'
+    );
+    expect(attrs(() => ({ id: "x" }), ' class="c"')).toBe('<div id="x" class="c"></div>');
+    expect(attrs({ type: "text" }, ' class="c"', undefined, "input")).toBe(
+      '<input type="text" class="c" />'
+    );
+    // children from the props still follow it
+    expect(attrs({ children: "kid", id: "x" }, ' class="c"')).toBe(
+      '<div id="x" class="c">kid</div>'
+    );
+  });
+
+  test("attribute names that escape are still escaped, and remembered only when clean", () => {
+    // a key that needs escaping never lands as-is, however often it is seen
+    for (let i = 0; i < 3; i++) {
+      expect(attrs({ "a<b": "1", ok: "2" }, undefined)).toBe('<div a&lt;b="1" ok="2"></div>');
+    }
+  });
+});
+
 // omit() and merge() results are walked as VIEWS — the underlying sources,
 // filter attached — not enumerated through their proxies. Output is what the
 // proxy would have produced; the getters behind hidden or shadowed keys are

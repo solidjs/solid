@@ -364,8 +364,16 @@ export function ssrElement(
   props: any | any[] | (() => any | any[]),
   children: any,
   needsId: boolean,
-  skip?: (key: string) => boolean
+  skip?: (key: string) => boolean,
+  attrs?: string | (() => string)
 ): { t: string } {}
+/**
+ * Compiler primitive — serializes one attribute of a spread element as
+ * `ssrElement` would, for a dynamic attribute after the element's last
+ * spread. Not meant for hand-written code.
+ * @internal
+ */
+export function ssrElementAttribute(key: string, value: any): string {}
 /**
  * Compiler primitive — serializes a class value (string, object map, or
  * array) for SSR output. Not meant for hand-written code.

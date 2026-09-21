@@ -8,6 +8,7 @@ import { ssrStyle as _$ssrStyle } from "r-server";
 import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
+import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
 var _ref$, _v$, _v$2, _v$22, _v$23, _v$37, _v$38, _v$39, _v$40, _v$41;
 var _tmpl$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
 var _tmpl$2 = ["<div>", "</div>"];
@@ -120,6 +121,14 @@ var _tmpl$53 = [
 	"</textarea><textarea>static content</textarea><textarea>static content</textarea></div>"
 ];
 var _tmpl$54 = ["<div><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
+var _sk$ = (k) => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class";
+var _sk$2 = (k) => k === "class" || k === "style";
+var _sk$3 = (k) => k === "something";
+var _sk$4 = (k) => k === "data-dynamic" || k === "data-static";
+var _sk$5 = (k) => k === "class" || k === "data-kind";
+var _sk$6 = (k) => k === "class" || k === "data-id";
+var _sk$7 = (k) => k === "id";
+var _sk$8 = (k) => k === "disabled" || k === "type" || k === "tabindex" || k === "style";
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -128,36 +137,13 @@ const refConst = null;
 const selected = true;
 let id = "my-h1";
 let link;
-const template = _$ssrElement("div", [
-	{ id: "main" },
-	results,
-	{
-		class: { selected: unknown },
-		style: { color }
-	}
-], _$ssrElement("h1", [
-	{ id },
-	results,
-	{
-		foo: true,
-		disabled: true,
-		get title() {
-			return welcoming();
-		},
-		get style() {
-			return {
-				"background-color": color(),
-				"margin-right": "40px"
-			};
-		},
-		get "class"() {
-			return ["base", {
-				dynamic: dynamic(),
-				selected
-			}];
-		}
-	}
-], (_ref$ = link, _$ssr(_tmpl$, "ccc ddd")), false), false);
+const template = _$ssrElement("div", [{ id: "main" }, results], _$ssrElement("h1", [{ id }, results], (_ref$ = link, _$ssr(_tmpl$, "ccc ddd")), false, _sk$, () => " foo disabled" + _$ssrElementAttribute("title", welcoming()) + _$ssrElementAttribute("style", {
+	"background-color": color(),
+	"margin-right": "40px"
+}) + _$ssrElementAttribute("class", ["base", {
+	dynamic: dynamic(),
+	selected
+}])), false, _sk$2, () => _$ssrElementAttribute("class", { selected: unknown }) + _$ssrElementAttribute("style", { color }));
 const template2 = _$ssrElement("div", getProps("test"), [
 	(_v$ = _$escape(rowId), _$ssr(_tmpl$2, _v$)),
 	(_v$2 = () => {
@@ -238,10 +224,10 @@ var _v$16 = () => {
 	return "t" in test && "true";
 };
 const template23 = _$ssr(_tmpl$20, _v$16, _v$17);
-const template24 = _$ssrElement("a", [props, { something: true }], undefined, false);
+const template24 = _$ssrElement("a", props, undefined, false, _sk$3, " something");
 var _v$18 = () => {
 	return _$escape(props.children);
-}, _v$19 = _$ssrElement("a", [props, { something: true }], undefined, false);
+}, _v$19 = _$ssrElement("a", props, undefined, false, _sk$3, " something");
 const template25 = _$ssr(_tmpl$21, _v$18, _v$19);
 const template26 = _$ssrElement("div", [{
 	start: "Hi",
@@ -374,29 +360,25 @@ const propsSpread = {
 };
 const template80 = _$ssrElement("div", propsSpread, undefined, false);
 const template81 = _$ssrElement("div", propsSpread, undefined, false);
-const template82 = _$ssrElement("div", [propsSpread, {
-	get "data-dynamic"() {
-		return color();
-	},
-	"data-static": /* @static */ color()
-}], undefined, false);
-const template83 = _$ssrElement("div", [propsSpread, {
-	get "data-dynamic"() {
-		return color();
-	},
-	"data-static": /* @static */ color()
-}], undefined, false);
+const template82 = _$ssrElement("div", propsSpread, undefined, false, _sk$4, () => _$ssrElementAttribute("data-dynamic", color()) + _$ssrElementAttribute(
+	"data-static",
+	/* @static */
+	color()
+));
+const template83 = _$ssrElement("div", propsSpread, undefined, false, _sk$4, () => _$ssrElementAttribute("data-dynamic", color()) + _$ssrElementAttribute(
+	"data-static",
+	/* @static */
+	color()
+));
 const template84 = _$ssrElement("div", [
 	propsSpread1,
 	propsSpread2,
-	propsSpread3,
-	{
-		get "data-dynamic"() {
-			return color();
-		},
-		"data-static": /* @static */ color()
-	}
-], undefined, false);
+	propsSpread3
+], undefined, false, _sk$4, () => _$ssrElementAttribute("data-dynamic", color()) + _$ssrElementAttribute(
+	"data-static",
+	/* @static */
+	color()
+));
 // STATIC PROPERTY OF OBJECT ACCESS
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: {
@@ -499,3 +481,22 @@ var _v$49 = () => {
 	return _$ssrAttribute("muted", _$escape(dynamicAttribute(), true));
 };
 const template95 = _$ssr(_tmpl$54, _v$49);
+// Static attributes after the last spread bake into ssrElement's attribute
+// string with their keys skipped on the spread; statics before a spread, and
+// anything between two spreads, stay a source the spread can override.
+const template110 = _$ssrElement("li", spread, undefined, false, _sk$5, " class=\"row\" data-kind=\"item\"");
+const template111 = _$ssrElement("li", [{
+	class: "row",
+	"data-kind": "item"
+}, spread], undefined, false);
+const template112 = _$ssrElement("li", spread, () => {
+	return _$escape(dynamicContent());
+}, false, _sk$6, () => " class=\"row\"" + _$ssrElementAttribute("data-id", dynamicAttribute()));
+const template113 = _$ssrElement("div", [
+	first,
+	{ class: "x" },
+	second
+], undefined, false, _sk$7, " id=\"y\"");
+const template114 = _$ssrElement("input", spread, undefined, false, _sk$8, " type=\"text\" tabindex=\"0\" style=\" color:red;top:0 \"");
+const template115 = _$ssrElement("textarea", [spread, { innerHTML: "<b>x</b>" }], undefined, false);
+const template116 = _$ssrElement("li", spread, undefined, false, _sk$5, " class=\"row\" data-kind=\"item\"");

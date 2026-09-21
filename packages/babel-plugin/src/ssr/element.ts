@@ -22,7 +22,8 @@ import {
   isFunctionShapedHole
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
-import { createTemplate } from "./template";
+import { createTemplate, registerSkip } from "./template";
+import { markPropsLiteral } from "./props";
 import type {
   BabelPath,
   JSXNode,
@@ -986,18 +987,47 @@ function createElement(
   });
 
   let props: babelTypes.Expression[];
+  // Attributes written AFTER the last spread are markup, not a source: no
+  // later source can override them, so they go to `ssrElement` as its
+  // attribute string and their keys are skipped on every source — the
+  // spread's own copy of `class` is never read or emitted, exactly as if they
+  // were the winning last source. A static is written as the template path
+  // writes it; a dynamic one is `ssrElementAttribute(key, expr)`, the spread
+  // walk's own rules for one key, and makes the string a thunk that
+  // `ssrElement` calls after the walk — the point where the trailing source's
+  // getters were read, so the expressions keep their place in the
+  // hydration-id sequence. What goes away per element is the trailing object
+  // literal (with getters, a dictionary-mode object and a closure per
+  // getter), its key list, and the "does a later source own this key" check
+  // on every key of the spread; an element whose only other source is the
+  // spread serializes from ONE plain object. Attributes before a spread stay
+  // a source: the spread may override them, and only the runtime knows its
+  // keys.
+  const tail: Array<string | babelTypes.Expression> = [];
+  const skipKeys: string[] = [];
   if (propAttributes.length === 1 && t.isJSXSpreadAttribute(propAttributes[0].node)) {
     props = [propAttributes[0].node.argument];
   } else {
     props = [];
     let runningObject: Array<babelTypes.ObjectProperty | babelTypes.ObjectMethod> = [],
       hasChildren = path.node.children.length > 0;
+    // A source object with getters is the same shape as a component's props
+    // literal, and a candidate for the same hoisted constructor (ssr/props.ts).
+    const sourceLiteral = (properties: typeof runningObject) => {
+      const literal = t.objectExpression(properties);
+      markPropsLiteral(literal, path, config);
+      return literal;
+    };
+    let lastSpread = -1;
+    attributes.forEach((attribute, i) => {
+      if (t.isJSXSpreadAttribute(attribute.node)) lastSpread = i;
+    });
 
-    attributes.forEach(attribute => {
+    attributes.forEach((attribute, i) => {
       const node = attribute.node;
       if (t.isJSXSpreadAttribute(node)) {
         if (runningObject.length) {
-          props.push(t.objectExpression(runningObject));
+          props.push(sourceLiteral(runningObject));
           runningObject = [];
         }
         // A dynamic spread defers behind a thunk: evaluated in argument
@@ -1023,6 +1053,16 @@ function createElement(
         if (hasChildren && key === "children") return;
         if (key === "ref") return;
         if (key.startsWith("prop:") || key.startsWith("on")) return;
+        if (i > lastSpread) {
+          const part = tailAttribute(path, tagName, key, node);
+          if (part !== undefined) {
+            if (typeof part === "string" && typeof tail[tail.length - 1] === "string")
+              tail[tail.length - 1] += part;
+            else tail.push(part);
+            skipKeys.push(key);
+            return;
+          }
+        }
         if (t.isJSXExpressionContainer(value)) {
           if (t.isJSXEmptyExpression(value.expression)) return;
           const expression = value.expression as babelTypes.Expression;
@@ -1046,7 +1086,7 @@ function createElement(
       }
     });
 
-    if (runningObject.length || !props.length) props.push(t.objectExpression(runningObject));
+    if (runningObject.length || !props.length) props.push(sourceLiteral(runningObject));
 
     // Several sources go as an ARRAY, not a mergeProps() call: ssrElement
     // serializes straight from the sources (later wins per key, only the
@@ -1057,22 +1097,86 @@ function createElement(
     if (props.length > 1) props = [t.arrayExpression(props)];
   }
 
-  const exprs = [
-    t.callExpression(registerImportMethod(path, "ssrElement"), [
-      t.stringLiteral(tagName),
-      props[0],
-      childNodes.length
-        ? hydratable
-          ? t.arrowFunctionExpression(
-              [],
-              childNodes.length === 1 ? childNodes[0] : t.arrayExpression(childNodes)
-            )
-          : childNodes.length === 1
-            ? childNodes[0]
-            : t.arrayExpression(childNodes)
-        : t.identifier("undefined"),
-      t.booleanLiteral(Boolean(topLevel && config.hydratable))
-    ])
+  const args: babelTypes.Expression[] = [
+    t.stringLiteral(tagName),
+    props[0],
+    childNodes.length
+      ? hydratable
+        ? t.arrowFunctionExpression(
+            [],
+            childNodes.length === 1 ? childNodes[0] : t.arrayExpression(childNodes)
+          )
+        : childNodes.length === 1
+          ? childNodes[0]
+          : t.arrayExpression(childNodes)
+      : t.identifier("undefined"),
+    t.booleanLiteral(Boolean(topLevel && config.hydratable))
   ];
+  // The tail rides as `ssrElement`'s skip predicate (hoisted, one per key
+  // set) and attribute string — a literal when every part is static, else a
+  // thunk concatenating the parts in source order. A `false` static bakes to
+  // no markup but still skips its key.
+  if (skipKeys.length) {
+    let markup: babelTypes.Expression;
+    if (tail.every(part => typeof part === "string")) markup = t.stringLiteral(tail.join(""));
+    else {
+      let concat: babelTypes.Expression | undefined;
+      for (const part of tail) {
+        const expr = typeof part === "string" ? t.stringLiteral(part) : part;
+        concat = concat ? t.binaryExpression("+", concat, expr) : expr;
+      }
+      markup = t.arrowFunctionExpression([], concat!);
+    }
+    args.push(registerSkip(path, skipKeys), markup);
+  }
+  const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
+}
+
+/**
+ * What an attribute after an element's last spread contributes to
+ * `ssrElement`'s attribute string. A static is written as the template path
+ * writes the same attribute (`transformAttributes`' static branch): a bare or
+ * `true` attribute as ` key`, a string or number as ` key="value"` with the
+ * value attribute-escaped and class/style whitespace normalized, `false` as
+ * nothing. An expression is `ssrElementAttribute("key", expr)` — the spread
+ * walk's rules for one key, evaluated when `ssrElement` calls the thunk.
+ * `undefined` when the attribute is content rather than markup and must stay
+ * a source: a child property (`innerHTML`, `textContent`, `children`), a
+ * textarea's value (its text content on the server), a reserved namespace,
+ * or a JSX value.
+ */
+function tailAttribute(
+  path: BabelPath,
+  tagName: string,
+  key: string,
+  node: babelTypes.JSXAttribute
+): string | babelTypes.Expression | undefined {
+  if (
+    ChildProperties.has(key) ||
+    key === "$ServerOnly" ||
+    (tagName === "textarea" && (key === "value" || key === "defaultValue")) ||
+    (t.isJSXNamespacedName(node.name) && reservedNameSpaces.has(node.name.namespace.name))
+  )
+    return undefined;
+  const value = node.value;
+  const literal: babelTypes.Node | null | undefined = t.isJSXExpressionContainer(value)
+    ? value.expression
+    : value;
+  if (literal == null) return ` ${key}`;
+  if (t.isBooleanLiteral(literal)) return literal.value ? ` ${key}` : "";
+  if (t.isStringLiteral(literal) || t.isNumericLiteral(literal)) {
+    let text = String(literal.value);
+    if (key === "style" || key === "class") {
+      text = trimWhitespace(text);
+      if (key === "style") text = text.replace(/; /g, ";").replace(/: /g, ":");
+    }
+    return text === "" ? ` ${key}` : ` ${key}="${escapeHTML(text, true)}"`;
+  }
+  if (t.isJSXEmptyExpression(literal) || t.isJSXElement(literal) || t.isJSXFragment(literal))
+    return undefined;
+  return t.callExpression(registerImportMethod(path, "ssrElementAttribute"), [
+    t.stringLiteral(key),
+    literal as babelTypes.Expression
+  ]);
 }

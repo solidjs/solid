@@ -1,7 +1,7 @@
 import * as t from "@babel/types";
 import { getConfig, isStatementVariableInitializer, registerImportMethod } from "../shared/utils";
 import type { NodePath } from "@babel/traverse";
-import type { ProgramScopeData, TemplateRecord, TransformResult } from "../types";
+import type { ProgramScopeData, SkipRecord, TemplateRecord, TransformResult } from "../types";
 
 type SSRDeclarator = t.VariableDeclarator & { id: t.LVal; init: t.Expression };
 
@@ -149,4 +149,37 @@ export function appendTemplates(path: NodePath<t.Program>, templates: TemplateRe
     return t.variableDeclarator(template.id, template.template as t.Expression);
   });
   path.node.body.unshift(t.variableDeclaration("var", declarators));
+}
+
+/**
+ * The `skip` predicate of an `ssrElement` call whose static tail attributes
+ * were baked into its attribute string (ssr/element.ts `createElement`):
+ * `k => k === "a" || k === "b"` over the baked keys, so the spread's own
+ * copies of them are never read or emitted. Hoisted to the module like a
+ * template — one function per distinct key set, shared by every element that
+ * bakes the same keys — so the call site allocates nothing per render.
+ */
+export function registerSkip(path: NodePath, keys: string[]): t.Identifier {
+  const data = path.scope.getProgramParent().data as ProgramScopeData;
+  const skips = data.ssrSkips || (data.ssrSkips = []);
+  const key = keys.join("\0");
+  const found = skips.find(s => s.key === key);
+  if (found) return found.id;
+  const id = path.scope.generateUidIdentifier("sk$");
+  const k = t.identifier("k");
+  let test: t.Expression = t.binaryExpression("===", k, t.stringLiteral(keys[0]));
+  for (let i = 1; i < keys.length; i++) {
+    test = t.logicalExpression("||", test, t.binaryExpression("===", k, t.stringLiteral(keys[i])));
+  }
+  skips.push({ key, id, predicate: t.arrowFunctionExpression([t.identifier("k")], test) });
+  return id;
+}
+
+export function appendSkips(path: NodePath<t.Program>, skips: SkipRecord[]) {
+  path.node.body.unshift(
+    t.variableDeclaration(
+      "var",
+      skips.map(s => t.variableDeclarator(s.id, s.predicate))
+    )
+  );
 }
