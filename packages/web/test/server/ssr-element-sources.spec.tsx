@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToString, ssrElement } from "@solidjs/web";
-import { merge, omit } from "solid-js";
+import { $PROXY, createStore, merge, omit } from "solid-js";
 
 // `ssrElement(tag, [a, b, c], ...)` serializes straight from several prop
 // sources. Its contract is the merged one — byte-for-byte what
@@ -311,6 +311,42 @@ describe("ssrElement with multiple sources", () => {
     expect(render("div", () => null)).toBe("<div></div>");
     expect(render("div", null)).toBe("<div></div>");
     expect(render("br", {}, undefined, true)).toMatch(/^<br _hk=\w+ \/>$/);
+  });
+
+  // A store, or any proxy that is not one of our views, is a single source
+  // whose keys come from ONE `ownKeys` trap and whose values come from its
+  // `get` trap — never enumerated through a descriptor trap per key.
+  test("a store or foreign proxy source is walked through its traps", () => {
+    const [state] = createStore({ id: "s", title: "T" });
+    expect(render("div", state)).toBe('<div id="s" title="T"></div>');
+
+    const traps: string[] = [];
+    const sym = Symbol("hidden");
+    const foreign = new Proxy({} as Record<PropertyKey, string>, {
+      ownKeys() {
+        traps.push("ownKeys");
+        return ["id", sym, "data-x"];
+      },
+      get(_t, key) {
+        traps.push(`get:${String(key)}`);
+        if (key === $PROXY) return foreign;
+        if (key === "id") return "f";
+        if (key === "data-x") return "y";
+        return undefined;
+      },
+      has(_t, key) {
+        return key === $PROXY || key === "id" || key === "data-x";
+      },
+      getOwnPropertyDescriptor() {
+        traps.push("descriptor");
+        return { value: "", enumerable: true, configurable: true };
+      }
+    });
+    expect(render("div", foreign)).toBe('<div id="f" data-x="y"></div>');
+    expect(traps.filter(t => t === "ownKeys")).toHaveLength(1);
+    expect(traps).not.toContain("descriptor");
+    expect(traps).toContain("get:id");
+    expect(traps).toContain("get:data-x");
   });
 
   // One string, a number, nothing, or one finished node joins the open and

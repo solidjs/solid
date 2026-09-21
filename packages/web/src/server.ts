@@ -15,11 +15,7 @@ import {
   creationStamp,
   inServerComponentScope,
   viewOf,
-  sourceKeys,
-  sourceGet,
   sourceOwners,
-  SOURCE_PLAIN,
-  SOURCE_PROXY,
   ssrScope as scope,
   ssrSanitizeError,
   reportServerError
@@ -1509,30 +1505,49 @@ export function useHead(tags) {
 // Based on https://github.com/WebReflection/domtagger/blob/master/esm/sanitizer.js
 const VOID_ELEMENTS =
   /^(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr)$/i;
-// `ssrElement` asks this per element; the answer per tag name is fixed, and a
-// spread element asks it on every render. One lookup instead of a regex run.
-// Bounded: a `<Dynamic component={name}>` tag can be any string, so past a
-// few hundred distinct names the regex answers without being remembered.
-const voidByTag = /*#__PURE__*/ new Map<string, boolean>();
+// What `ssrElement` needs to know about a tag name, fixed per name and asked
+// on every render of a spread element: its opening and closing markup, and
+// whether it is void, a textarea (its value is content), or raw text
+// (`script`/`style`, whose content is not escaped). One lookup per element in
+// place of a regex run, four string compares per key, and — the part that
+// shows — building `<tag` and `</tag>` from the name on every call: three
+// string allocations per element, a third of the walk's cost over a writer
+// that knows its tag. Bounded: a `<Dynamic component={name}>` tag can be any
+// string, so past a few hundred distinct names the record is built without
+// being remembered.
+interface TagInfo {
+  open: string;
+  close: string;
+  isVoid: boolean;
+  textarea: boolean;
+  raw: boolean;
+}
+const tagInfos = /*#__PURE__*/ new Map<string, TagInfo>();
+function tagInfo(tag: string): TagInfo {
+  let info = tagInfos.get(tag);
+  if (info === undefined) {
+    info = {
+      open: "<" + tag,
+      close: "</" + tag + ">",
+      isVoid: VOID_ELEMENTS.test(tag),
+      textarea: tag === "textarea",
+      raw: tag === "script" || tag === "style"
+    };
+    if (tagInfos.size < 512) tagInfos.set(tag, info);
+  }
+  return info;
+}
 // Attribute names a spread has already emitted unchanged. A spread's keys
 // are author-written names from a small vocabulary, repeated on every
 // element; `escape` runs a regex over each one every time, and a name that
 // escaped to itself once escapes to itself always. Names that DO escape are
-// never remembered, so a hit means "emit as is". Bounded like `voidByTag`.
+// never remembered, so a hit means "emit as is". Bounded like `tagInfos`.
 const safeAttrNames = /*#__PURE__*/ new Set<string>();
 function attrName(prop: string): string {
   if (safeAttrNames.has(prop)) return prop;
   const escaped = escape(prop);
   if (escaped === prop && safeAttrNames.size < 512) safeAttrNames.add(prop);
   return escaped;
-}
-function isVoidElement(tag: string): boolean {
-  let v = voidByTag.get(tag);
-  if (v === undefined) {
-    v = VOID_ELEMENTS.test(tag);
-    if (voidByTag.size < 512) voidByTag.set(tag, v);
-  }
-  return v;
 }
 // Fragment replacement helpers emitted into stream task scripts.
 //
@@ -3979,7 +3994,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // merge/omit layers, and each prop below is one direct read of its owner —
   // no `in` walk per key, no key list per leaf.
   let sources = null;
-  let kind = SOURCE_PLAIN;
+  let proxy = false;
   let viewKeys = null;
   let owners = null;
   if (Array.isArray(props)) {
@@ -4008,19 +4023,28 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
       viewKeys = [];
       owners = [];
       sourceOwners(props, viewKeys, owners);
-    } else kind = SOURCE_PROXY;
+    } else proxy = true;
   }
-  const skipChildren = isVoidElement(tag);
-  const plain = kind === SOURCE_PLAIN;
+  const info = tagInfo(tag);
+  const skipChildren = info.isVoid;
   // Each emitted attribute carries its own leading space (the hydration key
   // already does), so skipped props leave no stray whitespace behind:
   // `<li _hk=0>` rather than `<li _hk=0 >` (#3382).
-  let result = `<${tag}${hk}`;
+  let result = info.open + hk;
   // One walk over one prop body: the outer loop runs once for a single props
   // object and once per source otherwise. With several sources every
   // source's key list is taken once up front, and "a later source owns this
   // key" is a lookup in that list — one `ownKeys` per source rather than an
   // `in` (a trap, or a filtered view's) per key per later source.
+  //
+  // Whatever the body — a plain object, a view's leaf, a store or foreign
+  // proxy — a prop is read as `props[prop]`: a plain read, or the proxy's
+  // `get` trap, which is all `sourceGet` does for these kinds. Only the key
+  // list differs: a proxy is asked through ONE `ownKeys` trap (`Object.keys`
+  // on a proxy adds a descriptor trap per key), which may list symbols and
+  // non-enumerable keys, as `sourceKeys` did. Keeping the kind out of the
+  // loop is worth having: the body runs once per attribute of every spread
+  // element, and it is too large for a helper call per read to be inlined.
   const last = sources === null ? 0 : sources.length - 1;
   let keysOf = null;
   if (sources !== null) {
@@ -4033,15 +4057,15 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
         ? viewKeys
         : keysOf !== null
           ? keysOf[s]
-          : plain
-            ? Object.keys(props)
-            : sourceKeys(props, kind);
+          : proxy
+            ? Reflect.ownKeys(props)
+            : Object.keys(props);
     if (sources !== null) props = sources[s];
     nextKey: for (let i = 0; i < keys.length; i++) {
       const prop = keys[i];
       if (typeof prop !== "string" || (skip !== undefined && skip(prop))) continue;
-      // A view's key is read from the leaf that owns it (kind stays PLAIN:
-      // a plain leaf, or a store proxy read through its trap as `[]`).
+      // A view's key is read from the leaf that owns it (a plain leaf, or a
+      // store proxy read through its trap).
       if (owners !== null) props = owners[i];
       // A later source that has the key owns it; this source's getter stays
       // unread.
@@ -4060,27 +4084,17 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
       // element with a spread is serialized here instead. Keep the runtime
       // path equivalent: textarea value/defaultValue are its text content,
       // never HTML attributes (#3286).
-      //
-      // A plain body (every source above, and a view's leaf) is read as
-      // `props[prop]` here rather than through `sourceGet`: the call is not
-      // inlined into a function this size, and it is one per attribute of
-      // every spread element.
-      if (tag === "textarea" && (prop === "value" || prop === "defaultValue")) {
-        const value = plain ? props[prop] : sourceGet(props, kind, prop);
+      if (info.textarea && (prop === "value" || prop === "defaultValue")) {
+        const value = props[prop];
         if (value !== null) children = escape(value);
         continue;
       }
       if (ChildProperties.has(prop)) {
         if (children === undefined && !skipChildren)
-          children =
-            tag === "script" || tag === "style" || prop === "innerHTML"
-              ? plain
-                ? props[prop]
-                : sourceGet(props, kind, prop)
-              : escape(plain ? props[prop] : sourceGet(props, kind, prop));
+          children = info.raw || prop === "innerHTML" ? props[prop] : escape(props[prop]);
         continue;
       }
-      const value = plain ? props[prop] : sourceGet(props, kind, prop);
+      const value = props[prop];
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382).
@@ -4160,11 +4174,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // (`ssrTextTail`) is not touched: the parent resets it on this element's
   // finished node either way.
   const ct = typeof children;
-  if (ct === "string" || ct === "number") return { t: result + ">" + children + "</" + tag + ">" };
-  if (children == null || ct === "boolean") return { t: result + "></" + tag + ">" };
+  if (ct === "string" || ct === "number") return { t: result + ">" + children + info.close };
+  if (children == null || ct === "boolean") return { t: result + ">" + info.close };
   if (ct === "object" && !children.h && typeof children.t === "string")
-    return { t: result + ">" + children.t + "</" + tag + ">" };
-  return ssr([result + ">", `</${tag}>`], resolveSSRNode(children, undefined, true));
+    return { t: result + ">" + children.t + info.close };
+  return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
 }
 export function ssrElementAttribute(key: string, value: any): string;
 
