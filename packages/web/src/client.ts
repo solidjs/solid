@@ -34,7 +34,7 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, tagElement } from "./render.js";
+import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -949,31 +949,34 @@ export function spread<T>(
 // `name` is the element's tag as written, emitted by the compiler under
 // `sourceNames.bindings`; the attribute effect is labelled `<tag>.spread`
 // and the children insert `<tag>.children`, like a compiled hole's. Dev and
-// observe runtimes carry the labels; production ignores them.
+// observe runtimes carry the labels — through `spreadName` (render.ts),
+// which `effect` and `insert` read while this body runs, so no call site
+// below changes shape and production is byte-identical without them.
 export function spread(node, props, skipChildren, skip, name) {
+  if ("_SOLID_OBSERVE_" && name !== undefined) {
+    const outer = spreadName;
+    setSpreadName(name);
+    try {
+      return spread(node, props, skipChildren, skip);
+    } finally {
+      setSpreadName(outer);
+    }
+  }
   const prevProps = {};
   const apply = newProps => {
     const r = newProps.ref;
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
     assign(node, newProps, true, prevProps, true);
   };
-  const attrs = name !== undefined ? { name: name + ".spread" } : undefined;
-  const children = name !== undefined ? { name: name + ".children" } : undefined;
   if (Array.isArray(props)) {
     if (!skipChildren && !(skip !== undefined && skip("children")))
-      insert(
-        node,
-        () => {
-          for (let i = props.length - 1; i >= 0; i--) {
-            const s = resolveSource(props[i]);
-            if (s != null && entryHas(s, "children")) return entryGet(s, "children");
-          }
-        },
-        undefined,
-        undefined,
-        children
-      );
-    effect(() => collectSources({}, props, undefined, skip), apply, attrs);
+      insert(node, () => {
+        for (let i = props.length - 1; i >= 0; i--) {
+          const s = resolveSource(props[i]);
+          if (s != null && entryHas(s, "children")) return entryGet(s, "children");
+        }
+      });
+    effect(() => collectSources({}, props, undefined, skip), apply);
     return prevProps;
   }
   if (!skipChildren && !(skip !== undefined && skip("children"))) {
@@ -987,54 +990,44 @@ export function spread(node, props, skipChildren, skip, name) {
       const desc = Object.getOwnPropertyDescriptor(props, "children");
       if (desc !== undefined) {
         if (desc.get === undefined) insert(node, desc.value);
-        else insert(node, () => props.children, undefined, undefined, children);
+        else insert(node, () => props.children);
       }
     } else
-      insert(
-        node,
-        () => {
-          const source = resolveSource(props);
-          return source != null && entryHas(source, "children")
-            ? entryGet(source, "children")
-            : undefined;
-        },
-        undefined,
-        undefined,
-        children
-      );
+      insert(node, () => {
+        const source = resolveSource(props);
+        return source != null && entryHas(source, "children")
+          ? entryGet(source, "children")
+          : undefined;
+      });
   }
-  effect(
-    () => {
-      const source = resolveSource(props);
-      const newProps = {};
-      // A merge() proxy is read through its SOURCES, not through the proxy: a
-      // spread mixed with other attributes compiles to
-      // `spread(el, merge(statics, () => rest))`, and going through the proxy
-      // costs merge's `keys()` (a Set plus an own-enumerable scan of every
-      // source) and then, per key, a right-to-left `in` walk of the sources.
-      // The union of own string keys with later sources overriding earlier
-      // — Object.assign order, merge's own contract — is all a spread needs.
-      // An omit() proxy likewise is read through its VIEW RECORD — its source
-      // walked directly with the hidden keys filtered — never through its
-      // traps (a descriptor trap per key, allocating, on every rerun).
-      //
-      // A view over plain objects only has a RESOLVED TABLE — key → owning
-      // leaf, shadowing already applied — built once; on every rerun this
-      // effect then does exactly what it did over an eager copy: one read per
-      // key, no re-enumeration and no per-key walk of the later sources.
-      const table = resolvedTable(source);
-      if (table !== undefined) return collectTable(newProps, table, skip);
-      if (source != null) {
-        const view = viewOf(source);
-        if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
-        else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
-        else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
-      }
-      return newProps;
-    },
-    apply,
-    attrs
-  );
+  effect(() => {
+    const source = resolveSource(props);
+    const newProps = {};
+    // A merge() proxy is read through its SOURCES, not through the proxy: a
+    // spread mixed with other attributes compiles to
+    // `spread(el, merge(statics, () => rest))`, and going through the proxy
+    // costs merge's `keys()` (a Set plus an own-enumerable scan of every
+    // source) and then, per key, a right-to-left `in` walk of the sources.
+    // The union of own string keys with later sources overriding earlier
+    // — Object.assign order, merge's own contract — is all a spread needs.
+    // An omit() proxy likewise is read through its VIEW RECORD — its source
+    // walked directly with the hidden keys filtered — never through its
+    // traps (a descriptor trap per key, allocating, on every rerun).
+    //
+    // A view over plain objects only has a RESOLVED TABLE — key → owning
+    // leaf, shadowing already applied — built once; on every rerun this
+    // effect then does exactly what it did over an eager copy: one read per
+    // key, no re-enumeration and no per-key walk of the later sources.
+    const table = resolvedTable(source);
+    if (table !== undefined) return collectTable(newProps, table, skip);
+    if (source != null) {
+      const view = viewOf(source);
+      if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
+      else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
+      else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
+    }
+    return newProps;
+  }, apply);
   return prevProps;
 }
 
@@ -1320,6 +1313,14 @@ export function insert<T>(
 ): JSX.Element;
 
 export function insert(parent, accessor, marker, initial, options) {
+  // Inside a labelled `spread` (see there): the children insert is
+  // `<tag>.children`, taken before `effect` would label it `<tag>.spread`.
+  if (
+    "_SOLID_OBSERVE_" &&
+    spreadName !== undefined &&
+    (options === undefined || options.name === undefined)
+  )
+    options = { ...options, name: spreadName + ".children" };
   const multi = marker !== undefined;
   const host = options && options.host;
   if (multi && !initial) initial = [];

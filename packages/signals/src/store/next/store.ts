@@ -2408,8 +2408,7 @@ setNextAffectsNodeResolver((t: StoreNextTarget, key: PropertyKey) =>
 
 export function createStoreNext<T extends Record<PropertyKey, any>>(
   initialValue: T,
-  shallow = false,
-  name?: string
+  shallow = false
 ): [T, SetStoreNextFunction<T>] {
   if (shallow && __DEV__) {
     // Never both deep-wrapped and raw (R41/R44): a value already tracked as
@@ -2435,10 +2434,9 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
     // 2000-store create+commit shape, CodSpeed −11.7% on #3380's first cut)
     // and, disabled, buys nothing — a store created before enable() has no
     // excluded owner to inherit either way.
-    if (attrHooks !== null) {
-      storeOwners!.set((proxy as any)[$TARGET] as StoreNextTarget, owner);
-      nameStore(proxy, name);
-    }
+    // The declared name is the public `createStore`'s to record (`nameStore`,
+    // same gate) — a parameter here would survive into the prod artifact.
+    if (attrHooks !== null) storeOwners!.set((proxy as any)[$TARGET] as StoreNextTarget, owner);
   }
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);
   return [proxy, setter];

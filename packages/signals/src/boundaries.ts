@@ -174,7 +174,9 @@ function createBoundChildren<T>(
   // structure rather than as anonymous `computed`s between `<Loading>` and
   // the content (`<App> › <Loading> › children › <Feed>`).
   return runWithOwner(owner, () => {
-    const c = computed(fn, __OBSERVE__ ? { name: "children" } : undefined);
+    // The call, not the argument, is gated: `computed(fn, void 0)` would keep
+    // a trailing argument in the prod artifact.
+    const c = __OBSERVE__ ? computed(fn, { name: "children" }) : computed(fn);
     return boundaryComputed(() => flatten(read(c)), mask);
   });
 }
@@ -850,14 +852,14 @@ export function createRevealOrder<T>(
   setContext(RevealControllerContext, controller, owner);
   return runWithOwner(owner, () => {
     const value = fn();
-    computed(
-      () => {
-        order();
-        collapsed();
-        controller._evaluate();
-      },
-      __OBSERVE__ ? { name: "reveal order" } : undefined
-    );
+    const evaluate = computed(() => {
+      order();
+      collapsed();
+      controller._evaluate();
+    });
+    // Post-construction rather than an options argument, so the prod call
+    // keeps its shape; the observe node literal already carries the slot.
+    if (__OBSERVE__) (evaluate as any)._name = "reveal order";
     if (parentController) {
       controller._parentController = parentController;
       parentController._register(controller);
