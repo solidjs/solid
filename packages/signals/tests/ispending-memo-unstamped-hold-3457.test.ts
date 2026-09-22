@@ -8,7 +8,7 @@
  * fresh staged value, and the A10 pairing rule must not mute the verdict:
  * the transaction's async source is still computing (#3028), stamp or not.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMemo,
   createRenderEffect,
@@ -18,9 +18,18 @@ import {
   isPending
 } from "../src/index.js";
 
-afterEach(() => flush());
+// Fake timers: the test asserts that `slow` has NOT landed 5 ms into a 20 ms
+// flight. On the wall clock that window is a race a loaded CI runner lost
+// (the +5 checkpoint saw the +20 landing); on the fake clock every step
+// below advances exactly the ms it says.
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  flush();
+  vi.useRealTimers();
+});
 
 const delay = <T>(ms: number, value: T) => new Promise<T>(r => setTimeout(r, ms, value));
+const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 
 describe("memo-wrapped isPending agrees with a direct read through a hold (#3457)", () => {
   it("A10 / #3457 isPending(copy) inside a memo reports the hold like the direct probe", async () => {
@@ -58,7 +67,7 @@ describe("memo-wrapped isPending agrees with a direct read through a hold (#3457
       );
     });
     flush();
-    await delay(40, 0);
+    await advance(40);
     flush();
     expect(slowShown).toBe(0);
     expect(direct).toBe(false);
@@ -70,13 +79,15 @@ describe("memo-wrapped isPending agrees with a direct read through a hold (#3457
     expect(slowShown).toBe(0);
     expect(direct).toBe(true);
     expect(viaMemo).toBe(true);
-    await delay(5, 0);
+    // +5 ms: still mid-flight (the 20 ms timer has not fired), still held.
+    await advance(5);
     flush();
     expect(slowShown).toBe(0);
     expect(direct).toBe(true);
     expect(viaMemo).toBe(true);
 
-    await delay(60, 0);
+    // +60 ms: the flight landed at +20; the hold committed.
+    await advance(60);
     flush();
     expect(slowShown).toBe(1);
     expect(direct).toBe(false);

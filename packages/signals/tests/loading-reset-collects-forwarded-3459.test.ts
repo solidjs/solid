@@ -6,8 +6,16 @@ import {
   createSignal,
   flush
 } from "../src/index.js";
+import { afterEach, beforeEach, vi } from "vitest";
 
 const delay = <T = void>(ms: number, value?: T) => new Promise<T>(r => setTimeout(r, ms, value));
+
+// Fake timers: the scenario samples a 200 ms flight every 25 ms and asserts
+// the frames it must still be showing — a wall-clock window on a loaded
+// runner. `delay` stays the timer both the flight and the click use; the
+// sampling loop advances the clock instead of waiting on it.
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
 
 // #3459: `Loading on={a()}` over `fast = createMemo(async () => a())` and
 // `slow = createMemo(() => delay(200, b()))`. `setB(1); await 50; setA(1)`.
@@ -70,14 +78,15 @@ async function scenario(shape: "two-effects" | "one-effect") {
       setA(1);
     };
   });
-  await delay(250);
+  flush(); // starts slow's first flight before the clock moves
+  await vi.advanceTimersByTimeAsync(250);
   flush();
   log.push(`initial: ${snap()}`);
   void click();
   for (let t = 0; t <= 300; t += 25) {
     flush();
     log.push(`t=${t}: ${snap()}`);
-    await delay(25);
+    await vi.advanceTimersByTimeAsync(25);
   }
   return log;
 }
