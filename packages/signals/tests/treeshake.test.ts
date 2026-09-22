@@ -404,7 +404,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // +10 B core-retained (26,117 -> 26,127) — readerSeesCommitted's
     // CONFIG_HELD_TRUTH arm gains a `currentOptimisticLane !== null` term, so
     // a deriving reader of held truth takes the A29 arm.
-    expect(minifiedBytes).toBeLessThan(26_160);
+    // A parked frame dies with its owner (#3561, 2026-09-22): +63 B
+    // core-retained (26,130 -> 26,193) — disposeChildren's death path drains
+    // the owner's `_pendingFirstChild` / `_pendingDisposal` (the previous
+    // frame parked as zombies, #3404) before setting REACTIVE_DISPOSED, since
+    // the commit's drain returns on that flag. Gated on `self` and not
+    // `zombie`: a rerun's `disposeChildren(el)` leaves the frame rendering.
+    expect(minifiedBytes).toBeLessThan(26_230);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
