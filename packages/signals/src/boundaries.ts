@@ -364,6 +364,8 @@ export class CollectionQueue extends Queue {
   _collectionType: number;
   _sources: Set<Computed<any>> = new Set();
   _tree?: BoundaryComputed<any>;
+  /** The output pass — fallback or content (createCollectionBoundary). */
+  _output?: Computed<any>;
   _pending = true;
   _disabled: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _error?: Signal<unknown>;
@@ -376,7 +378,8 @@ export class CollectionQueue extends Queue {
    * any: the fallback swap is display-ahead — shown through the lane. */
   _rearmLane: OptimisticLane | null = null;
   /** DEV: a frame-following swap is staged and not yet reported unseen
-   * (devHeldSweep; cleared by the sweep that settles or clears it). */
+   * (devHeldSweep; dropped by the sweep that finds it committed, or by the
+   * report). */
   _swapUnseen?: boolean;
   constructor(type: number) {
     super();
@@ -576,6 +579,22 @@ export class CollectionQueue extends Queue {
         ))
     );
   }
+  /** The pre-verdict sweep (scheduler run(), #3540): a collecting boundary
+   * whose OUTPUT is pending — its fallback read something not ready — is
+   * judged here, under the transaction. That output is what an initialized
+   * parent holds the frame on, and it derives from `_disabled`, not the
+   * tree: the tree settling never re-runs it, only a sweep does, and the
+   * commit sweep runs after the verdict the output's own read keeps parking
+   * — the content waited for the fallback's flight. Judged ready here, the
+   * boundary stages `_disabled` false with the frame and the output re-runs
+   * in this heap: it reads the tree and drops the fallback's read (recompute
+   * settles a pass's outgoing pending sources), so the verdict sees the
+   * release. A boundary showing a ready fallback parks nothing and keeps the
+   * commit sweep's reveal. */
+  _judgeHeld(): void {
+    if (this._initialized || !(this._output!._statusFlags & STATUS_PENDING)) return;
+    this._checkSources();
+  }
   _checkSources() {
     for (const source of this._sources) if (this._settled(source)) this._sources.delete(source);
     if (!this._sources.size) {
@@ -590,7 +609,10 @@ export class CollectionQueue extends Queue {
         this._pending = false;
       }
       if (!this._pending) {
-        if (__DEV__) this._swapUnseen = false; // the swap ran its course (`_devHeldSweep`)
+        // DEV: a swap that committed ran its course; one cleared here while
+        // still staged was never displayed — the parked walk judges whose
+        // hold that was (`_devHeldSweep`).
+        if (__DEV__ && this._disabled._pendingValue !== true) this._swapUnseen = false;
         setSignal(this._disabled, false);
         if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
           attrHooks.boundaryFallback(this, this._tree, false);
@@ -618,20 +640,26 @@ function reportUnseen(queue: CollectionQueue, detail: string, name?: string): vo
     )
   );
 }
-/** DEV, a parked finalize (scheduler `checkBoundaryChildren` →
+/** DEV, a parked finalize (scheduler `devSweepBoundaryChildren` →
  * `_devHeldSweep`): the after-the-fact LOADING_ON_OUTSIDE_HOLD rule. The
- * re-arm's swap is still staged (`_disabled` holds `true` uncommitted) and
- * the content it was waiting on has settled — the sweep that follows the
- * commit will clear it before any effect phase runs, so the fallback is never
- * displayed. That is the design when other data holds the frame (a race the
- * fallback may still win: the shell landing first shows it); it is the missed
- * case when nothing but the write's own action (or an override it left)
- * parks the transaction — the action outlasts the data, and `on` never shows
- * a fallback. The source rule in `_rearm` cannot see this: nothing outside
- * the boundary reads the source. */
+ * re-arm's swap never committed and the content it was waiting on has
+ * settled: `_disabled` still holds the staged `true` (the sweep that follows
+ * the commit will clear it before any effect phase runs), or the pre-verdict
+ * sweep (`_judgeHeld`, a fallback that read something not ready) already
+ * staged `false` over it. Either way the fallback is never displayed. That
+ * is the design when other data holds the frame (a race the fallback may
+ * still win: the shell landing first shows it); it is the missed case when
+ * nothing but the write's own action (or an override it left) parks the
+ * transaction — the action outlasts the data, and `on` never shows a
+ * fallback. The source rule in `_rearm` cannot see this: nothing outside
+ * the boundary reads the source. A swap the commit sweep clears was
+ * committed, and displayed (`_checkSources` drops `_swapUnseen` for it). */
 function devHeldSweep(queue: CollectionQueue): void {
-  if (!queue._swapUnseen || queue._disabled._pendingValue !== true) return;
-  for (const source of queue._sources) if (!queue._settled(source)) return;
+  if (!queue._swapUnseen) return;
+  const staged = queue._disabled._pendingValue;
+  if (staged === true) {
+    for (const source of queue._sources) if (!queue._settled(source)) return;
+  } else if (staged !== false) return;
   const t = queue._disabled._transition;
   if (t === null) return;
   for (const [source, reporters] of currentTransition(t)._asyncReporters)
@@ -697,7 +725,7 @@ function createCollectionBoundary<T>(
     cleanup(() => controller._unregister(queue));
   }
   return accessor<T>(
-    computed(
+    (queue._output = computed(
       (): T => {
         // `_disabled` selects fallback or content: set by a collecting
         // notification or a re-arm (`_rearm`), cleared by the sweep when the
@@ -717,7 +745,7 @@ function createCollectionBoundary<T>(
       // by snapshot capture. The tree no longer carries foreign status flags, so
       // capture can't rely on PENDING to skip this node the way it used to.
       { _noSnapshot: true }
-    )
+    ))
   );
 }
 

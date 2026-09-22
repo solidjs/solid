@@ -385,7 +385,12 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // flush, after the heap and before the verdict (`drainRearms()` plus the
     // heap re-run that stages the boundary's output pass with the frame), and
     // `notifyOnLane` (the display-ahead swap's lane-channel notification).
-    expect(minifiedBytes).toBeLessThan(26_030);
+    // A pending fallback's boundary is judged before the verdict (#3540,
+    // 2026-09-22): +63 B core-retained (25,984 -> 26,047) — the flush's
+    // pre-verdict `checkBoundaryChildren(this, true)` walk (`_judgeHeld`,
+    // boundaries.ts) plus the heap re-run that lets the output drop the
+    // fallback's read ahead of the verdict it was parking.
+    expect(minifiedBytes).toBeLessThan(26_090);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
