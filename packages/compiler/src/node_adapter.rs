@@ -11,7 +11,8 @@ pub use crate::directives::{
 };
 pub use crate::lazy::TransformLazyOptions;
 pub use crate::refresh::TransformRefreshOptions;
-use crate::{CompileOptions, Generate, Renderer, Syntax, Wrapper};
+pub use crate::source_names::TransformSourceNamesOptions;
+use crate::{CompileOptions, Generate, Renderer, SourceNames, Syntax, Wrapper};
 
 const UNSUPPORTED_GENERATE: &str =
     "The @solidjs/compiler backend implements DOM, SSR, universal, and dynamic modes only";
@@ -198,6 +199,19 @@ pub fn transform_refresh(
     crate::refresh::transform_refresh(code, options)
 }
 
+/// The `sourceNames.primitives` pass — names `createSignal`/`createMemo`/
+/// `createStore`/… calls after the identifier they are declared as
+/// (`createSignal(0, { name: "count" })`), prefixed with the enclosing
+/// non-component function (`createCounter.count`). Plain JavaScript, so it
+/// applies to `.js`/`.ts` modules as well as JSX/TSX.
+#[napi]
+pub fn transform_source_names(
+    code: String,
+    options: Option<TransformSourceNamesOptions>,
+) -> Result<TransformResult> {
+    crate::source_names::transform_source_names(code, options)
+}
+
 #[napi]
 pub fn transform(code: String, options: Option<TransformOptions>) -> Result<TransformResult> {
     let options = options.unwrap_or_default();
@@ -247,7 +261,17 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         server_components: options.server_components.unwrap_or(false),
         hoist_props: options.hoist_props.unwrap_or(true),
         dev: options.dev.unwrap_or(false),
-        component_names: options.component_names.unwrap_or(false),
+        source_names: match options.source_names {
+            None | Some(Either::A(false)) => SourceNames::default(),
+            Some(Either::A(true)) => SourceNames {
+                components: true,
+                bindings: true,
+            },
+            Some(Either::B(picked)) => SourceNames {
+                components: picked.components.unwrap_or(false),
+                bindings: picked.bindings.unwrap_or(false),
+            },
+        },
         source_map: options.source_map.unwrap_or(false),
         context_to_custom_elements: options.context_to_custom_elements.unwrap_or(true),
         delegate_events: options.delegate_events.unwrap_or(true),

@@ -150,9 +150,9 @@ describe("caught", () => {
     flush();
     expect(result).toBe("fallback");
     expect(calls).toHaveLength(1);
-    // Thrown inside the boundary's own computation under <App>; met by the
-    // boundary, whose chain is <App>.
-    expect(calls[0].context.ownerPath).toEqual(["<App>", "computed"]);
+    // Thrown inside the boundary's `children` computation under <App>; met
+    // by the boundary, whose chain is <App>.
+    expect(calls[0].context.ownerPath).toEqual(["<App>", "children"]);
     expect(calls[0].context.boundaryPath).toEqual(["<App>"]);
   });
 });

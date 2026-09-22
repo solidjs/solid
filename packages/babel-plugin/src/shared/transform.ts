@@ -107,7 +107,7 @@ function getTargetFunctionParent(path: NodePath, parent: FunctionParentScope): F
 
 /**
  * JSX tag identifiers `transformThis` rewrote from `this` to the `_self$`
- * capture, so `componentNames` can label `<this.Row />` by its source text
+ * capture, so `sourceNames.components` can label `<this.Row />` by its source text
  * rather than the generated uid.
  */
 export const thisTagIdentifiers = new WeakSet<t.JSXIdentifier>();

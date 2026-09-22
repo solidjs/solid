@@ -39,6 +39,7 @@ import type { Refreshable } from "../core/index.js";
 import {
   createStoreNext,
   deepNext,
+  nameStore,
   snapshotNext,
   type SetStoreNextFunction
 } from "./next/store.js";
@@ -62,6 +63,11 @@ export function createStore<T extends object = {}>(
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore(first: any, second?: any, third?: any): any {
   if (typeof first === "function") return createStoreDerivedNext(first, second, third);
+  if (__OBSERVE__) {
+    const store = createStoreNext(first, !!second?.shallow);
+    if (second?.name) nameStore(store[0], second.name);
+    return store;
+  }
   return createStoreNext(first, !!second?.shallow);
 }
 

@@ -49,11 +49,14 @@ export async function captureArtifact<T>(
   const useAttribution = attributionOption !== false;
 
   const capture = OBSERVE.diagnostics.capture();
+  // The capture's own hold on the shared engine; releasing it leaves any
+  // other consumer's hold (a profiler track, an APM adapter) in place.
+  let release: (() => void) | undefined;
   if (useAttribution) {
     // Default log:false — the artifact is the output, not the console.
     const opts: AttributionOptions =
       typeof attributionOption === "object" ? { log: false, ...attributionOption } : { log: false };
-    engine.enable(opts);
+    release = engine.enable(opts);
   }
   const records = captureRecords();
 
@@ -67,15 +70,15 @@ export async function captureArtifact<T>(
     result = await scenario();
     if (options.autoFlush !== false) flush();
   } finally {
-    // Read every table before disable(): aggregates reset on disable.
-    if (useAttribution) {
+    // Read every table before releasing: the last release resets the aggregates.
+    if (release) {
       attribution = {
         reruns: [...engine.history()],
         costs: costs(),
         holds: [...engine.holds()],
         feedback: feedback()
       };
-      engine.disable();
+      release();
     }
     events = capture.stop();
     tables = records.stop();

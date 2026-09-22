@@ -119,6 +119,47 @@ function transformRefreshAsync(code, options) {
   return Promise.resolve().then(() => transformRefresh(code, options));
 }
 
+function transformSourceNames(code, options) {
+  if (typeof code !== "string") {
+    throw new TypeError("@solidjs/compiler transformSourceNames() expects source code as a string");
+  }
+
+  const nativeOptions = validateSourceNamesOptions(options);
+  const result = native.transformSourceNames(code, nativeOptions);
+  return {
+    code: result.code,
+    map: result.map ?? null
+  };
+}
+
+function transformSourceNamesAsync(code, options) {
+  return Promise.resolve().then(() => transformSourceNames(code, options));
+}
+
+const sourceNamesOptionKeys = new Set(["filename", "sourceMap"]);
+
+function validateSourceNamesOptions(options) {
+  if (options == null) return options;
+  if (typeof options !== "object" || Array.isArray(options)) {
+    throw new TypeError("@solidjs/compiler transformSourceNames() expects options to be an object");
+  }
+
+  const nativeOptions = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (!sourceNamesOptionKeys.has(key)) {
+      throw new Error(`@solidjs/compiler received unknown option \`${key}\``);
+    }
+    if (key === "filename" && typeof value !== "string") {
+      throw new TypeError("@solidjs/compiler `filename` option must be a string");
+    }
+    if (key === "sourceMap" && typeof value !== "boolean") {
+      throw new TypeError("@solidjs/compiler `sourceMap` option must be boolean");
+    }
+    nativeOptions[key] = value;
+  }
+  return nativeOptions;
+}
+
 const lazyOptionKeys = new Set(["filename", "sourceMap"]);
 
 function validateLazyOptions(options) {
@@ -261,7 +302,7 @@ const nativeOptionKeys = new Set([
   "generate",
   "hydratable",
   "dev",
-  "componentNames",
+  "sourceNames",
   "sourceMap",
   "contextToCustomElements",
   "delegateEvents",
@@ -323,6 +364,11 @@ function validateOptions(code, options) {
       nativeOptions.validate = value;
       continue;
     }
+    if (key === "sourceNames") {
+      validateSourceNames(value);
+      nativeOptions.sourceNames = value;
+      continue;
+    }
     if (nativeOptionKeys.has(key)) {
       if (key === "renderers") validateRenderers(value);
       nativeOptions[key] = value;
@@ -331,6 +377,23 @@ function validateOptions(code, options) {
     throw new Error(`@solidjs/compiler received unknown option \`${key}\``);
   }
   return nativeOptions;
+}
+
+const sourceNameKinds = new Set(["components", "bindings"]);
+
+function validateSourceNames(value) {
+  if (typeof value === "boolean") return;
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
+    throw new TypeError("@solidjs/compiler `sourceNames` option must be boolean or an object");
+  }
+  for (const [kind, enabled] of Object.entries(value)) {
+    if (!sourceNameKinds.has(kind)) {
+      throw new Error(`@solidjs/compiler received unknown \`sourceNames\` kind \`${kind}\``);
+    }
+    if (typeof enabled !== "boolean") {
+      throw new TypeError(`@solidjs/compiler \`sourceNames.${kind}\` must be boolean`);
+    }
+  }
 }
 
 function validateRenderers(renderers) {
@@ -463,5 +526,7 @@ module.exports = {
   transformLazy,
   transformLazyAsync,
   transformRefresh,
-  transformRefreshAsync
+  transformRefreshAsync,
+  transformSourceNames,
+  transformSourceNamesAsync
 };

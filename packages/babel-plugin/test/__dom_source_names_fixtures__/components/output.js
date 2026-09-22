@@ -35,7 +35,9 @@ _$insert(
       {
         get children() {
           var _el$2 = _tmpl$();
-          _$insert(_el$2, name);
+          _$insert(_el$2, name, undefined, undefined, {
+            name: "span.children"
+          });
           return _el$2;
         }
       }

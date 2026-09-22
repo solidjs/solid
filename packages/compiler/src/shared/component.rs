@@ -31,7 +31,7 @@ pub(crate) trait ComponentLower<'a>:
 {
     /// Marks the `createComponent` helper as used.
     fn mark_create_component(&mut self);
-    /// Babel's `componentNames` on DOM output: append the source tag text as
+    /// Babel's `sourceNames.components` on DOM output: append the source tag text as
     /// `createComponent`'s third argument. The DOM lowering opts in here; the
     /// SSR lowering has its own component path (ssr/transform.rs) and applies
     /// the same option there; universal renderers own their two-argument
@@ -196,7 +196,7 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
 }
 
 /// The tag as written in source (`Home`, `Ui.Button`, `this.Row`) — the
-/// label `componentNames` emits, matching Babel's `jsxTagName`. `is_this`
+/// label `sourceNames.components` emits, matching Babel's `jsxTagName`. `is_this`
 /// answers whether the identifier at a span was written as `this` in source
 /// (the shared `this` pre-pass has already rewritten it to the `_self$`
 /// capture, keeping the span). Shared by the DOM and SSR lowerings.

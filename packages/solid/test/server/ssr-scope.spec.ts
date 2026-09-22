@@ -16,7 +16,7 @@
  * Two transparent owners sit between a component body and its id-bearing
  * ancestor: the labelled `<Name>` owner the observe/dev `createComponent`
  * runs a body under (every compiled component, since the compiler emits
- * `createComponent` for SSR under `componentNames`), and the server-component
+ * `createComponent` for SSR under `sourceNames.components`), and the server-component
  * scope owner in every tier.
  */
 import { describe, expect, test } from "vitest";

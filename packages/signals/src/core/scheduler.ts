@@ -1591,6 +1591,10 @@ export function flush<T>(fn?: () => T): T | void {
   // per real drain and never for a no-op call. The declaration is dead in
   // prod (its only write is behind __OBSERVE__) and rollup drops it.
   let drained = false;
+  // The drain's opening instant, under the loop's own condition so it fires
+  // exactly when `flushEnd` below will. Outside every try (see the rule in
+  // attribution-hooks.ts).
+  if (__OBSERVE__ && attrHooks !== null && (scheduled || activeTransition)) attrHooks.flushStart();
   // `flush()` is an explicit drain point, so it must also process an active
   // transition even if no microtask was scheduled for it yet.
   while (scheduled || activeTransition) {

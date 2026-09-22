@@ -84,6 +84,14 @@ describe("why-did-this-run attribution", () => {
     // The memo's own re-run is attributed directly to the write.
     const memoRun = events.find(e => e.nodeName === "label")!;
     expect(memoRun.causes[0]).toMatchObject({ kind: "write", name: "notifications" });
+
+    // Every cause carries the identity of the node that changed: the derived
+    // cause joins the memo run that produced it by `nodeId`, and the root
+    // write carries the signal's id, the same object on both chains.
+    expect(cause.nodeId).toBe(memoRun.nodeId);
+    expect(typeof cause.causes![0].nodeId).toBe("number");
+    expect(cause.causes![0].nodeId).toBe(memoRun.causes[0].nodeId);
+    expect(cause.causes![0].nodeId).not.toBe(memoRun.nodeId);
   });
 
   it("does not attribute downstream re-runs past an equality cutoff", () => {
@@ -428,6 +436,46 @@ describe("why-did-this-run attribution", () => {
     expect(run.causes.some(c => c.name === "store.count")).toBe(true);
   });
 
+  it("a store declared with a name labels its property nodes by that name", () => {
+    const events = collect();
+    const [todos, setTodos] = createStore({ list: [{ title: "a" }] }, { name: "todos" });
+    const [derived] = createStore(
+      d => void (d.n = todos.list.length),
+      { n: 0 },
+      {
+        name: "counts"
+      }
+    );
+    createRoot(() => {
+      createEffect(
+        () => todos.list[0].title,
+        () => {},
+        { name: "title-reader" }
+      );
+      createEffect(
+        () => derived.n,
+        () => {},
+        { name: "count-reader" }
+      );
+    });
+    flush();
+
+    setTodos(s => {
+      s.list[0].title = "b";
+      s.list.push({ title: "c" });
+    });
+    flush();
+
+    // Nested nodes read the ROOT store's name: the property key is the
+    // leaf, the store name the prefix — "todos.title", not "store.title".
+    const title = events.find(e => e.nodeName === "title-reader")!;
+    expect(title.causes.map(c => c.name)).toContain("todos.title");
+    // A derived store names its projection node AND its property nodes.
+    const count = events.find(e => e.nodeName === "count-reader")!;
+    expect(count.causes.map(c => c.name)).toContain("counts.n");
+    expect(events.some(e => e.nodeName === "counts")).toBe(true);
+  });
+
   it("measures self-time and aggregates costs by scope and root write", () => {
     const spin = (ms: number) => {
       const end = performance.now() + ms;
@@ -664,5 +712,229 @@ describe("why-did-this-run attribution", () => {
     flush();
     expect(events).toHaveLength(0);
     expect(attribution.history()).toHaveLength(0);
+  });
+});
+
+describe("shared engine: holds, releases, layered options", () => {
+  function counter() {
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() =>
+      createEffect(
+        () => n(),
+        () => {},
+        { name: "e" }
+      )
+    );
+    flush();
+    return setN;
+  }
+
+  it("stays installed until the last hold is released", () => {
+    const setN = counter();
+    const first: RerunEvent[] = [];
+    const second: RerunEvent[] = [];
+    const releaseFirst = attribution.enable({ log: false });
+    attribution.subscribe(e => first.push(e));
+    const releaseSecond = attribution.enable({ log: false });
+    attribution.subscribe(e => second.push(e));
+
+    setN(1);
+    flush();
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+
+    // One consumer leaves: the other keeps receiving.
+    releaseFirst();
+    releaseFirst(); // idempotent: not the second consumer's hold
+    setN(2);
+    flush();
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+
+    // The last one leaves: uninstalled, listeners cleared.
+    releaseSecond();
+    setN(3);
+    flush();
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(attribution.history()).toHaveLength(0);
+  });
+
+  it("opens a fresh window on every enable without uninstalling", () => {
+    const setN = counter();
+    const release = attribution.enable({ log: false });
+    setN(1);
+    flush();
+    expect(attribution.history()).toHaveLength(1);
+
+    // A second consumer arrives (say, a capture): it reads back only what
+    // happens from here on.
+    const releaseCapture = attribution.enable({ log: false });
+    expect(attribution.history()).toHaveLength(0);
+    setN(2);
+    flush();
+    expect(attribution.history()).toHaveLength(1);
+    releaseCapture();
+    release();
+  });
+
+  it("options combine by the most demanding request, whatever the order of the holds", () => {
+    const setN = counter();
+    const events: RerunEvent[] = [];
+    // One `console.log` per logged re-run on either path (plain, or the
+    // grouped one whose body is the `log` call).
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "groupCollapsed").mockImplementation(() => {});
+    vi.spyOn(console, "groupEnd").mockImplementation(() => {});
+    const logs = () => logged.mock.calls.length;
+    // A track asks for no log.
+    const releaseTrack = attribution.enable({ log: false, hotRuns: false, hotTime: false });
+    attribution.subscribe(e => events.push(e));
+    setN(1);
+    flush();
+    expect(logs()).toBe(0);
+
+    // A console session arrives wanting the log (the default): it prints —
+    // the later hold adds to what the engine does, and the earlier one
+    // cannot deny it.
+    const releaseConsole = attribution.enable({ hotRuns: false, hotTime: false, wideDeps: false });
+    setN(2);
+    flush();
+    expect(logs()).toBe(1);
+    expect(events).toHaveLength(2);
+
+    // The track leaves: the session's log is untouched.
+    releaseTrack();
+    setN(3);
+    flush();
+    expect(logs()).toBe(2);
+
+    // The track comes back beside the session: still printing — the same
+    // pair of requests gives the same result in the other order.
+    const releaseTrack2 = attribution.enable({ log: false, hotRuns: false, hotTime: false });
+    setN(4);
+    flush();
+    expect(logs()).toBe(3);
+
+    // The session leaves: only the track's request remains — quiet.
+    releaseConsole();
+    setN(5);
+    flush();
+    expect(logs()).toBe(3);
+    releaseTrack2();
+  });
+
+  it("a check runs while any holder wants it, at the most sensitive threshold requested", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    // A records-only adapter.
+    const releaseAdapter = attribution.enable({ log: false, checks: false });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    const hot = () => capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS").length;
+    expect(hot()).toBe(0);
+
+    // A capture beside it asks for the hot-runs check at 3 runs: it runs,
+    // for the adapter's writes too, while the capture holds.
+    const capture2 = OBSERVE!.diagnostics.capture();
+    const releaseCapture = attribution.enable({
+      log: false,
+      hotRuns: { count: 3, windowMs: 60_000 },
+      hotTime: false,
+      wideDeps: false
+    });
+    for (let i = 6; i <= 10; i++) {
+      setN(i);
+      flush();
+    }
+    expect(capture2.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
+
+    // The capture leaves: records only again.
+    releaseCapture();
+    const capture3 = OBSERVE!.diagnostics.capture();
+    for (let i = 11; i <= 20; i++) {
+      setN(i);
+      flush();
+    }
+    expect(capture3.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(0);
+    releaseAdapter();
+  });
+
+  it("an explicit undefined is unsaid: the default stands", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    const release = attribution.enable({
+      log: false,
+      hotRuns: { count: 2, windowMs: 60_000 },
+      hotTime: false,
+      wideDeps: undefined
+    });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    // hotRuns as asked; wideDeps at its default (no finding for one dep either way).
+    expect(capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
+    release();
+  });
+
+  it("disable() tears down whatever holds are outstanding", () => {
+    const setN = counter();
+    const events: RerunEvent[] = [];
+    // A consumer that re-enables to reopen its window and then calls disable()
+    // once — the pre-token idiom — leaves nothing behind.
+    const release = attribution.enable({ log: false });
+    attribution.enable({ log: false });
+    attribution.subscribe(e => events.push(e));
+    attribution.disable();
+    setN(1);
+    flush();
+    expect(events).toHaveLength(0);
+    expect(attribution.history()).toHaveLength(0);
+    release(); // a release after the teardown is a no-op
+    setN(2);
+    flush();
+    expect(attribution.history()).toHaveLength(0);
+  });
+
+  it("disable without a matching enable is a full, idempotent reset", () => {
+    const setN = counter();
+    attribution.disable();
+    attribution.disable();
+    const events: RerunEvent[] = [];
+    attribution.subscribe(e => events.push(e));
+    setN(1);
+    flush();
+    expect(events).toHaveLength(0);
+  });
+
+  it("checks: false folds every cost check out while records keep flowing", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    const events = collect({ checks: false, hotRuns: { count: 2, windowMs: 60_000 } });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    expect(events).toHaveLength(5);
+    expect(capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("checks defaults on: the same run warns", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    collect({ hotRuns: { count: 2, windowMs: 60_000 }, hotTime: false, wideDeps: false });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    expect(capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
   });
 });

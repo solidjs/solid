@@ -327,12 +327,13 @@ export function getNode(
       (target.fam?.node as any) ?? undefined
     ));
     // Attribution-only: name store property nodes by path segment so
-    // attribution chains and wide-scope warnings read "store.todos", not
+    // attribution chains and wide-scope warnings read "store.todos" (or
+    // "todos.title" when the store was declared with a name), not
     // "signal". Gated on the engine being installed — node creation is
     // the hottest store path, and the disabled cost must stay one null
     // check (nodes created before enable() stay generically named).
     if (__OBSERVE__ && attrHooks !== null) {
-      (created as any)._name = "store." + String(key);
+      (created as any)._name = storeLabel(target) + "." + String(key);
       stampNodeOwner(created, target);
     }
     // Optimistic families: arm the override slot — setSignal routes armed
@@ -458,13 +459,31 @@ function sameLogicalSlot(target: StoreNextTarget, a: any, b: any): boolean {
 const storeOwners: WeakMap<StoreNextTarget, Owner | null> | null = __OBSERVE__
   ? new WeakMap()
   : null;
-function storeRootOwner(target: StoreNextTarget): Owner | null | undefined {
+function storeRoot(target: StoreNextTarget): StoreNextTarget {
   let root = target;
   while (root.u !== null) root = root.u;
-  return storeOwners!.get(root);
+  return root;
+}
+function storeRootOwner(target: StoreNextTarget): Owner | null | undefined {
+  return storeOwners!.get(storeRoot(target));
 }
 function stampNodeOwner(created: Signal<any>, target: StoreNextTarget): void {
   (created as any)._owner = storeRootOwner(target) ?? null;
+}
+
+// Attribution-only: the store's declared name (`createStore(v, { name })`,
+// what the compiler's `sourceNames.primitives` fills in). Property nodes are
+// named `<store>.<key>` from it so chains read "todos.title" instead of the
+// generic "store.title". Same gating and lifetime as storeOwners: recorded
+// only while the engine is installed, keyed by the root target.
+const storeNames: WeakMap<StoreNextTarget, string> | null = __OBSERVE__ ? new WeakMap() : null;
+/** Record a store proxy's declared name for attribution labels (observe tiers). */
+export function nameStore(proxy: any, name: string | undefined): void {
+  if (__OBSERVE__ && attrHooks !== null && name)
+    storeNames!.set((proxy as any)[$TARGET] as StoreNextTarget, name);
+}
+function storeLabel(target: StoreNextTarget): string {
+  return storeNames!.get(storeRoot(target)) ?? "store";
 }
 
 export function getHasNode(
@@ -2415,6 +2434,8 @@ export function createStoreNext<T extends Record<PropertyKey, any>>(
     // 2000-store create+commit shape, CodSpeed −11.7% on #3380's first cut)
     // and, disabled, buys nothing — a store created before enable() has no
     // excluded owner to inherit either way.
+    // The declared name is the public `createStore`'s to record (`nameStore`,
+    // same gate) — a parameter here would survive into the prod artifact.
     if (attrHooks !== null) storeOwners!.set((proxy as any)[$TARGET] as StoreNextTarget, owner);
   }
   const setter: SetStoreNextFunction<T> = fn => storeSetterNext(proxy, fn);

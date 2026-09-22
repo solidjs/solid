@@ -29,7 +29,11 @@ export type StoreReturn<T> = [get: Store<T>, set: StoreSetter<T>];
 export type ProjectionStoreReturn<T> = [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 /** Options shared by all store primitives. */
 export interface StoreOptions {
-  /** Debug name (dev mode only) */
+  /**
+   * Debug name (dev and observe builds). Property nodes are labelled
+   * `<name>.<key>` in attribution output (`todos.title`); a derived store's
+   * projection node carries the name itself.
+   */
   name?: string;
   /** Single-layer store: root keys reactive, values raw records replaced by reference */
   shallow?: boolean;

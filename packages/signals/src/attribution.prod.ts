@@ -14,7 +14,7 @@ const EMPTY: readonly never[] = Object.freeze([]);
 const noop = () => {};
 
 export const attribution: Attribution = {
-  enable: noop,
+  enable: () => noop,
   disable: noop,
   subscribe: () => noop,
   history: () => EMPTY,
@@ -40,6 +40,9 @@ export const why: typeof Engine.why = () => [];
 export const subscriptions: typeof Engine.subscriptions = () => [];
 export const formatRerun: typeof Engine.formatRerun = () => "";
 export const formatOrigin: typeof Engine.formatOrigin = () => "";
+// No hold is ever recorded in prod, so no hold is ever silent or long.
+export const isSilentHold: typeof Engine.isSilentHold = () => false;
+export const isLongHold: typeof Engine.isLongHold = () => false;
 
 export type {
   Acknowledgement,
@@ -50,7 +53,12 @@ export type {
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
+  CreateEvent,
+  EffectRunEvent,
+  FallbackEvent,
+  FlightEvent,
   FlightLink,
+  FlushEvent,
   HeldWrite,
   HoldEvent,
   InteractionEvent,

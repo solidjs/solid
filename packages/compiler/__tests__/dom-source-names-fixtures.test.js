@@ -4,11 +4,12 @@ const { transform } = require("../index");
 
 const babelFixtures = path.resolve(
   __dirname,
-  "../../babel-plugin/test/__dom_component_names_fixtures__"
+  "../../babel-plugin/test/__dom_source_names_fixtures__"
 );
-const oxcFixtures = path.resolve(__dirname, "fixtures/dom-component-names");
+const oxcFixtures = path.resolve(__dirname, "fixtures/dom-source-names");
 
 const fixtureParity = {
+  bindings: "subset",
   components: "subset",
   ssr: "subset"
 };
@@ -17,7 +18,7 @@ const suiteOptions = {
   moduleName: "r-dom",
   builtIns: ["For", "Show"],
   generate: "dom",
-  componentNames: true,
+  sourceNames: true,
   contextToCustomElements: true
 };
 
@@ -53,8 +54,8 @@ function writeOutputFixture(fixture, output) {
   fs.writeFileSync(outputFixturePath(fixture), output);
 }
 
-describe("AST-native Babel DOM componentNames fixture reuse", () => {
-  it("classifies supported Babel DOM componentNames fixtures", () => {
+describe("AST-native Babel DOM sourceNames fixture reuse", () => {
+  it("classifies supported Babel DOM sourceNames fixtures", () => {
     const actual = fs
       .readdirSync(babelFixtures, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
@@ -65,7 +66,7 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
   });
 
   it.each(Object.keys(fixtureParity))(
-    "matches generated Oxc output for supported Babel DOM componentNames fixture subset: %s",
+    "matches generated Oxc output for supported Babel DOM sourceNames fixture subset: %s",
     fixture => {
       const output = transformFixture(readFixture(fixture), fixture);
       if (process.env.UPDATE_OXC_FIXTURES === "1") {
@@ -79,7 +80,7 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
     const { code } = transform(readFixture("components"), {
       filename: "components.jsx",
       ...suiteOptions,
-      componentNames: false
+      sourceNames: false
     });
     expect(code).not.toContain('"Child"');
   });
@@ -90,7 +91,7 @@ describe("AST-native Babel DOM componentNames fixture reuse", () => {
     const { code } = transform(readFixture("ssr"), {
       filename: "ssr.jsx",
       ...fixtureOptions("ssr"),
-      componentNames: false
+      sourceNames: false
     });
     expect(code).not.toContain("createComponent");
     expect(code).not.toContain('"Child"');

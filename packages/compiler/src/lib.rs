@@ -28,12 +28,16 @@ mod node_adapter;
 #[cfg(feature = "node")]
 mod refresh;
 mod shared;
+#[cfg(feature = "node")]
+mod source_names;
 mod ssr;
 #[cfg(feature = "tsrx")]
 mod tsrx;
 mod universal;
 
-pub use compiler::{CompileOptions, CompileOutput, Generate, Renderer, Syntax, Wrapper, compile};
+pub use compiler::{
+    CompileOptions, CompileOutput, Generate, Renderer, SourceNames, Syntax, Wrapper, compile,
+};
 pub use error::{CompileError, CompileErrorKind};
 #[cfg(feature = "tsrx")]
 pub use tsrx::{

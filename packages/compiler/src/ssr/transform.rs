@@ -48,7 +48,7 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     hydratable: bool,
     server_components: bool,
     wrap_conditionals: bool,
-    /// Babel's `componentNames` on SSR output: keep the `createComponent`
+    /// Babel's `sourceNames.components` on SSR output: keep the `createComponent`
     /// call (instead of inlining `Comp(props)`) and pass the source tag text
     /// as its third argument, so the server runtime labels the owner.
     component_names: bool,
@@ -1183,7 +1183,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         let props = component_props_expression(self, element.span, prop_objects, force_merge_props);
         // Babel: SSR inlines `createComponent(Comp, props)` to `Comp(props)`
         // (the prod server wrapper is that call), except under
-        // `componentNames`, where the wrapper carries the label:
+        // `sourceNames.components`, where the wrapper carries the label:
         // `_$createComponent(Comp, props, "Comp")`.
         let call = if self.component_names {
             self.uses_create_component = true;

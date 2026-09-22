@@ -38,7 +38,10 @@
     "server-functions/package.json",
     "server-functions/rich-args/package.json",
     "frames/dist",
-    "frames/package.json"
+    "frames/package.json",
+    "performance-tracks/dist",
+    "performance-tracks/types",
+    "performance-tracks/package.json"
   ],
   "exports": {
     ".": {
@@ -112,6 +115,42 @@
     "./storage": {
       "types": "./storage/types/index.d.ts",
       "default": "./storage/dist/storage.js"
+    },
+    "./performance-tracks": {
+      "worker": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "browser": {
+        "development": {
+          "types": "./performance-tracks/types/index.d.ts",
+          "default": "./performance-tracks/dist/performance-tracks.dev.js"
+        },
+        "observe": {
+          "types": "./performance-tracks/types/index.d.ts",
+          "default": "./performance-tracks/dist/performance-tracks.observe.js"
+        },
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "deno": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "node": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "development": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.dev.js"
+      },
+      "observe": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.observe.js"
+      },
+      "types": "./performance-tracks/types/index.d.ts",
+      "default": "./performance-tracks/dist/performance-tracks.js"
     },
     "./serialization": {
       "types": "./serialization/types/index.d.ts",
@@ -300,13 +339,14 @@
     "build:clean": "rimraf dist/",
     "build:js": "rollup -c",
     "link": "symlink-dir . node_modules/@solidjs/web",
-    "types": "npm-run-all -nl types:clean types:copy-jsx types:web types:copy-web types:web-storage",
-    "types:clean": "rimraf types/ storage/types/ serialization/types/ frames/types/ .types-build/",
+    "types": "npm-run-all -nl types:clean types:copy-jsx types:web types:copy-web types:web-storage types:web-performance-tracks",
+    "types:clean": "rimraf types/ storage/types/ serialization/types/ frames/types/ performance-tracks/types/ .types-build/",
     "jsx-sync": "node ./scripts/jsx-sync.mjs --compile --element \"SolidElement | Node | ArrayElement\" --import \"import type { Element as SolidElement } from \\\"solid-js\\\";\"",
     "types:copy-jsx": "pnpm run jsx-sync",
     "types:web": "tsc --project ./tsconfig.build.json",
     "types:copy-web": "node ./scripts/copy-types.mjs",
     "types:web-storage": "tsc --project ./storage/tsconfig.build.json",
+    "types:web-performance-tracks": "tsc --project ./performance-tracks/tsconfig.build.json",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
     "coverage": "vitest run --coverage",

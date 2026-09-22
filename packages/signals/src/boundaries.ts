@@ -33,6 +33,7 @@ import { attrHooks } from "./core/attribution-hooks.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { enqueueSub } from "./core/heap.js";
 import {
+  activeTransition,
   haltReactivity,
   queueRearm,
   reporterBlocksSource,
@@ -47,7 +48,10 @@ export interface BoundaryComputed<T> extends Computed<T> {
 }
 
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
-  const node = computed<T>(fn, { lazy: true }) as BoundaryComputed<T>;
+  const node = computed<T>(
+    fn,
+    __OBSERVE__ ? { name: "boundary", lazy: true } : { lazy: true }
+  ) as BoundaryComputed<T>;
   ext(node)._notifyStatus = (status?: number, error?: any) => {
     // Use passed values if provided, otherwise read from node
     const flags = status !== undefined ? status : node._statusFlags;
@@ -166,8 +170,14 @@ function createBoundChildren<T>(
   const parentQueue = owner._queue;
   parentQueue.addChild((owner._queue = queue));
   cleanup(() => parentQueue.removeChild(owner._queue!));
+  // Named for the observe tier's owner paths: user content under a boundary
+  // is owned by `children`, and the boundary's own two nodes read as
+  // structure rather than as anonymous `computed`s between `<Loading>` and
+  // the content (`<App> › <Loading> › children › <Feed>`).
   return runWithOwner(owner, () => {
-    const c = computed(fn);
+    // The call, not the argument, is gated: `computed(fn, void 0)` would keep
+    // a trailing argument in the prod artifact.
+    const c = __OBSERVE__ ? computed(fn, { name: "children" }) : computed(fn);
     return boundaryComputed(() => flatten(read(c)), mask);
   });
 }
@@ -472,7 +482,10 @@ export class CollectionQueue extends Queue {
       this._disabled._value = true;
       notifyOnLane(this._disabled, lane);
     }
-    if (__OBSERVE__ && attrHooks !== null) attrHooks.boundaryFallback(this, this._tree!, true);
+    // Observe: the staged swap is displayed when the transaction carrying
+    // this pass commits; the lane's readers run in this drain.
+    if (__OBSERVE__ && attrHooks !== null)
+      attrHooks.boundaryFallback(this, this._tree!, true, lane === null ? activeTransition : null);
   }
   /** Retry the collected failures of an error boundary: recompute each
    * source that threw, so the boundary can recover. */
@@ -519,7 +532,7 @@ export class CollectionQueue extends Queue {
         if (wasEmpty) {
           setSignal(this._disabled, true);
           if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
-            attrHooks.boundaryFallback(this, this._tree, true);
+            attrHooks.boundaryFallback(this, this._tree, true, activeTransition);
         }
         if (this._collectionType & STATUS_ERROR) {
           const caught = unwrapStatusError(source._x?._error);
@@ -702,7 +715,7 @@ function createCollectionBoundary<T>(
       // legitimately swaps mid-hydration (reveal/resume), so it must never be frozen
       // by snapshot capture. The tree no longer carries foreign status flags, so
       // capture can't rely on PENDING to skip this node the way it used to.
-      { _noSnapshot: true }
+      __OBSERVE__ ? { name: "value", _noSnapshot: true } : { _noSnapshot: true }
     ))
   );
 }
@@ -843,11 +856,14 @@ export function createRevealOrder<T>(
   setContext(RevealControllerContext, controller, owner);
   return runWithOwner(owner, () => {
     const value = fn();
-    computed(() => {
+    const evaluate = computed(() => {
       order();
       collapsed();
       controller._evaluate();
     });
+    // Post-construction rather than an options argument, so the prod call
+    // keeps its shape; the observe node literal already carries the slot.
+    if (__OBSERVE__) (evaluate as any)._name = "reveal order";
     if (parentController) {
       controller._parentController = parentController;
       parentController._register(controller);

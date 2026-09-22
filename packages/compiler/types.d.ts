@@ -1,3 +1,11 @@
+/** The object form of `sourceNames`: which kinds of source name to carry into output. */
+export interface SourceNamesOptions {
+  /** Component owner labels: the tag as written, as `createComponent`'s third argument. */
+  components?: boolean;
+  /** Binding effect labels: the element and attribute (or hole) each compiled effect writes. */
+  bindings?: boolean;
+}
+
 export interface TransformOptions {
   filename?: string;
   /** Default `"@solidjs/web"`. */
@@ -13,14 +21,19 @@ export interface TransformOptions {
   hydratable?: boolean;
   dev?: boolean;
   /**
-   * Emit the source tag name as a third `createComponent` argument
-   * (`createComponent(Home, props, "Home")`) so dev/observe runtimes can
-   * label owners after minification renames the function. DOM and SSR
-   * output (SSR keeps the `createComponent` call it would otherwise inline
-   * to `Comp(props)`); not universal or dynamic. The production runtimes
-   * ignore the argument.
+   * Names as written in source, carried into output so the dev and observe
+   * runtimes can label the reactive graph after minification.
+   * `components`: the tag as a third `createComponent` argument
+   * (`createComponent(Home, props, "Home")`) — DOM and SSR output (SSR
+   * keeps the `createComponent` call it would otherwise inline to
+   * `Comp(props)`); not universal or dynamic. `bindings`: every compiled
+   * binding effect named by what it writes — `span.textContent`,
+   * `div.class:active`, a hole `div.children`, a spread `div.spread` — as
+   * an options argument on `effect`/`insert`/`spread`; DOM output only.
+   * The production runtimes ignore the names. `true` enables every kind;
+   * an object picks.
    */
-  componentNames?: boolean;
+  sourceNames?: boolean | SourceNamesOptions;
   sourceMap?: boolean;
   contextToCustomElements?: boolean;
   delegateEvents?: boolean;
@@ -240,4 +253,29 @@ export function transformRefresh(
 export function transformRefreshAsync(
   code: string,
   options?: TransformRefreshOptions | null
+): Promise<TransformResult>;
+
+/**
+ * Options for the `sourceNames.primitives` pass: reactive primitives named
+ * after the identifier they are declared as. `const [count, setCount] =
+ * createSignal(0)` becomes `createSignal(0, { name: "count" })`; inside a
+ * non-component function the name is prefixed with that function's
+ * (`createCounter.count`). Only calls resolving to imports from `solid-js` /
+ * `@solidjs/signals` are named, and an explicit `name` is never overridden.
+ * Plain JavaScript in and out, so it applies to `.ts`/`.js` modules too;
+ * `@solidjs/vite-plugin` runs it ahead of the JSX transform.
+ */
+export interface TransformSourceNamesOptions {
+  /** Picks the parser dialect (`.ts`, `.tsx`, `.js`, `.jsx`); TSX without one. */
+  filename?: string;
+  sourceMap?: boolean;
+}
+
+export function transformSourceNames(
+  code: string,
+  options?: TransformSourceNamesOptions | null
+): TransformResult;
+export function transformSourceNamesAsync(
+  code: string,
+  options?: TransformSourceNamesOptions | null
 ): Promise<TransformResult>;

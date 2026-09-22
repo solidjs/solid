@@ -87,7 +87,7 @@ export function createComponent<T extends Record<string, any>>(
  * (see `createComponentOwner`). Outside any owner there is nothing to hang
  * the label on and the call stays plain. The prod build never reaches this.
  *
- * `name` is the source tag the compiler emitted under `componentNames`; it
+ * `name` is the source tag the compiler emitted under `sourceNames.components`; it
  * wins over `Comp.name`, which a minifier rewrites and a `lazy()` wrapper
  * hides. The dev tier adds the client's non-function check, so a JSX tag
  * that resolved to `undefined` names the mistake instead of failing inside

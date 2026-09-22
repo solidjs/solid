@@ -19,17 +19,26 @@
 // Installed by both entries — the client's and the server's — so a server
 // render's console report (a `SERVER_WRITE`, a `HEAD_TAG_INVALID`) carries the
 // same pointer as a client one. The skill has a section per code on either side.
-import type { Dev } from "@solidjs/signals";
+import type { Dev, DiagnosticCode } from "@solidjs/signals";
 
 const SKILLS_URL = "https://github.com/solidjs/solid/blob/main/packages";
 
+/**
+ * The stable URL of a diagnostic code's section in the repair guide (the
+ * `reactivity-diagnostics` skill shipped with `solid-js`) — what the console
+ * footer prints, and what an observer attaches to a finding it renders
+ * elsewhere (the performance tracks' `learnMoreUrl`).
+ */
+export function diagnosticGuideUrl(code: DiagnosticCode): string {
+  // GitHub heading anchors: lowercased, underscores kept (`### SILENT_HOLD` → `#silent_hold`).
+  return `${SKILLS_URL}/solid/skills/reactivity-diagnostics/SKILL.md#${code.toLowerCase()}`;
+}
+
 export function installConsoleFooter(dev: Dev): void {
   dev.setConsoleFooter(event => {
-    // GitHub heading anchors: lowercased, underscores kept (`### SILENT_HOLD` → `#silent_hold`).
-    const anchor = event.code.toLowerCase();
     const base =
       `[${event.code}] repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md ` +
-      `— ${SKILLS_URL}/solid/skills/reactivity-diagnostics/SKILL.md#${anchor}`;
+      `— ${diagnosticGuideUrl(event.code)}`;
     return event.kind === "perf" || event.kind === "graph" || event.kind === "responsiveness"
       ? base +
           `\n[${event.code}] deeper evidence: import { attribution } from "solid-js/attribution"; ` +

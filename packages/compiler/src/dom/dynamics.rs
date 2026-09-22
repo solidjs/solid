@@ -67,6 +67,24 @@ impl<'a> AstDomTransform<'a, '_> {
             return None;
         }
         self.template_state.uses_effect = true;
+        // `sourceNames.bindings`: the effect is named by what it writes — each
+        // binding's `<tag>.<attribute>` as written (undoing the `prop:` the
+        // locked DOM property plan added to `value`, `checked`, …), the
+        // merged effect listing all of its bindings — as a trailing `{ name }`
+        // options argument. Mirrors Babel's `wrapDynamics`.
+        let label = self.binding_names.then(|| {
+            dynamics
+                .iter()
+                .map(|slot| {
+                    let key = slot
+                        .key
+                        .strip_prefix("prop:")
+                        .filter(|local| dom_with_state(&slot.tag_name, local).is_some());
+                    format!("{}.{}", slot.tag_name, key.unwrap_or(&slot.key))
+                })
+                .collect::<std::vec::Vec<_>>()
+                .join(", ")
+        });
 
         if dynamics.len() == 1 {
             let slot = dynamics.pop().expect("single dynamic slot exists");
@@ -109,10 +127,14 @@ impl<'a> AstDomTransform<'a, '_> {
             };
             let setter = self.arrow_with_statements(span, params, self.ast().vec1(statement));
             let effect_local = self.effect_wrapper_local();
-            return Some(self.ast().statement_expression(
-                span,
-                self.call_identifier(span, &effect_local, vec![getter, setter]),
-            ));
+            let mut args = vec![getter, setter];
+            if let Some(label) = label {
+                args.push(self.name_options_object(span, &label));
+            }
+            return Some(
+                self.ast()
+                    .statement_expression(span, self.call_identifier(span, &effect_local, args)),
+            );
         }
 
         let span = dynamics
@@ -222,10 +244,26 @@ impl<'a> AstDomTransform<'a, '_> {
         let getter = self.arrow_with_return(span, std::vec::Vec::new(), values_object);
         let setter = self.arrow_with_destructured_params(span, &param_names, "_p$", statements);
         let effect_local = self.effect_wrapper_local();
-        Some(self.ast().statement_expression(
+        let mut args = vec![getter, setter];
+        if let Some(label) = label {
+            args.push(self.name_options_object(span, &label));
+        }
+        Some(
+            self.ast()
+                .statement_expression(span, self.call_identifier(span, &effect_local, args)),
+        )
+    }
+
+    /// `{ name: "<label>" }` — the options argument `sourceNames.bindings`
+    /// appends to `effect` and `insert` calls.
+    pub(crate) fn name_options_object(&self, span: Span, label: &str) -> Expression<'a> {
+        let value = self
+            .ast()
+            .expression_string_literal(span, self.ast().str(label), None);
+        self.ast().expression_object(
             span,
-            self.call_identifier(span, &effect_local, vec![getter, setter]),
-        ))
+            self.ast().vec1(self.object_property(span, "name", value)),
+        )
     }
 
     /// `_p$?.<name>`

@@ -3,8 +3,21 @@ import { createMemo, createRenderEffect, getOwner } from "solid-js";
 // Replaced with a boolean literal by the build (see rollup.config.js); the cast
 // keeps the typed module honest about it being a build-time flag.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 const transparentOptions = { transparent: true, sync: true };
+
+// Observe/dev: the element tag a `spread` is being applied for, while its
+// body runs (`spread` sets it, see client.ts). The effects and inserts the
+// body creates take their labels from it — `<tag>.spread` for the attribute
+// effect, `<tag>.children` for the children insert — instead of `spread`
+// passing an options argument to each of its call sites, which would leave a
+// trailing `undefined` argument in the production artifact. Synchronous:
+// `spread` creates its nodes before it returns and restores the outer value.
+export let spreadName: string | undefined;
+export function setSpreadName(name: string | undefined): void {
+  spreadName = name;
+}
 const syncOptions = { sync: true };
 
 // Dev: the binding effect whose callback is currently writing the DOM. The
@@ -21,12 +34,21 @@ export function tagElement(node: Node): void {
 
 // `scope: true` (set by insert for compiler-tagged hole accessors) makes the
 // render effect non-transparent so the hole gets its own id scope, mirroring
-// the server's ssrScope owner.
+// the server's ssrScope owner. `name` is the binding's target as the
+// compiler wrote it under `sourceNames.bindings` (`span.textContent`,
+// `div.class:active`); the dev and observe runtimes label the effect node
+// with it, production ignores it.
 export function effect<T>(
   fn: (prev?: T) => T,
   effectFn: (value: T, prev?: T) => void | (() => void),
-  options?: { scope?: boolean }
+  options?: { scope?: boolean; name?: string }
 ): void {
+  if (
+    IS_OBSERVE &&
+    spreadName !== undefined &&
+    (options === undefined || options.name === undefined)
+  )
+    options = { ...options, name: spreadName + ".spread" };
   const nodeOptions = options
     ? { sync: true, ...options, transparent: !options.scope }
     : transparentOptions;

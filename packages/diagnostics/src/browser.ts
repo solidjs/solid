@@ -84,7 +84,8 @@ export function installDiagnosticsBridge(
   interface Session {
     capture: ReturnType<NonNullable<typeof OBSERVE>["diagnostics"]["capture"]>;
     records: RecordsCapture;
-    useAttribution: boolean;
+    /** The session's engine hold; undefined when begun with attribution disabled. */
+    release: (() => void) | undefined;
     startedAt: Date;
     start: number;
   }
@@ -98,17 +99,19 @@ export function installDiagnosticsBridge(
       const attributionOption = options.attribution ?? true;
       const useAttribution = attributionOption !== false;
       const capture = OBSERVE!.diagnostics.capture();
+      // The session's own hold on the shared engine (see `capture.ts`).
+      let release: (() => void) | undefined;
       if (useAttribution) {
         const opts: AttributionOptions =
           typeof attributionOption === "object"
             ? { log: false, ...attributionOption }
             : { log: false };
-        engine.enable(opts);
+        release = engine.enable(opts);
       }
       session = {
         capture,
         records: captureRecords(),
-        useAttribution,
+        release,
         startedAt: new Date(),
         start: performance.now()
       };
@@ -122,14 +125,14 @@ export function installDiagnosticsBridge(
       // Drain scheduled work so trailing writes are attributed to the capture.
       flush();
       let attribution: DiagnosticsArtifact["attribution"] = null;
-      if (active.useAttribution) {
+      if (active.release) {
         attribution = {
           reruns: [...engine.history()],
           costs: costs(),
           holds: [...engine.holds()],
           feedback: feedback()
         };
-        engine.disable();
+        active.release();
       }
       const events = active.capture.stop();
       const records = active.records.stop();
@@ -169,7 +172,7 @@ export function installDiagnosticsBridge(
         `Diagnostics bridge ${caller}() requires an open session; call begin() first.`
       );
     }
-    if (!session.useAttribution) {
+    if (!session.release) {
       throw new Error(
         `Diagnostics bridge ${caller}() requires attribution; the open session was begun with attribution disabled.`
       );

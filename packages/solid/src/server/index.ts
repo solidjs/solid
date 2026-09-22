@@ -1,6 +1,7 @@
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "@solidjs/signals";
 import { serverSlots } from "./observe.js";
 import { installConsoleFooter } from "../console-footer.js";
+export { diagnosticGuideUrl } from "../console-footer.js";
 
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
@@ -54,6 +55,7 @@ export {
   enforceLoadingBoundary,
   untrack,
   configureClientErrors,
+  ownerPath,
   ROOT_ERROR_HOOK
 } from "./signals.js";
 export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";

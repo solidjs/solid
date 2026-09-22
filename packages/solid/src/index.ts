@@ -36,7 +36,8 @@ export {
   enforceLoadingBoundary,
   snapshot,
   untrack,
-  configureClientErrors
+  configureClientErrors,
+  ownerPath
 } from "@solidjs/signals";
 /** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
 export { ROOT_ERROR_HOOK } from "@solidjs/signals";
@@ -174,6 +175,7 @@ export function getProjectionTrace(
 import { IS_DEV, IS_OBSERVE } from "./client/core.js";
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "@solidjs/signals";
 import { installConsoleFooter } from "./console-footer.js";
+export { diagnosticGuideUrl } from "./console-footer.js";
 export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
 export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
 // The types a runtime, router or observability adapter names when it talks to
@@ -226,6 +228,11 @@ export type {
   AttributionRecordType,
   ChangeOrigin,
   ChangeRecord,
+  CreateEvent,
+  EffectRunEvent,
+  FallbackEvent,
+  FlightEvent,
+  FlushEvent,
   HeldWrite,
   HoldEvent,
   InteractionEvent,

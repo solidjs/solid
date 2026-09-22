@@ -14,7 +14,7 @@
 // pinned to the runtime's (compile-time, below) — the client's `"call"`
 // included, since the mirrors are one package.
 //
-// Imports source (the dev tier) and compiles with `componentNames`
+// Imports source (the dev tier) and compiles with `sourceNames`
 // (vite.config.server.mjs); the server-functions runtime is the built
 // observe artifact, as in server-observe-invocations.spec.tsx.
 import { AsyncLocalStorage } from "node:async_hooks";

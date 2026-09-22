@@ -12,7 +12,7 @@ import {
 import { transformNode, getCreateTemplate, thisTagIdentifiers } from "./transform";
 import { markPropsLiteral } from "../ssr/props";
 import { decodedAttrValue } from "../universal/element";
-import type { PluginConfig } from "../config";
+import { sourceNames, type PluginConfig } from "../config";
 import type { BabelPath, JSXNode, TransformResult } from "../types";
 
 type JSXAttributePath = BabelPath<t.JSXAttribute | t.JSXSpreadAttribute>;
@@ -63,7 +63,7 @@ function convertComponentIdentifier(
 
 /**
  * The tag as written in source (`Home`, `Ui.Button`, `this.Row`) — the label
- * `componentNames` emits. Read before `convertComponentIdentifier` since that
+ * `sourceNames.components` emits. Read before `convertComponentIdentifier` since that
  * retypes the JSX identifier nodes in place.
  */
 function jsxTagName(node: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName): string {
@@ -357,7 +357,7 @@ export default function transformComponent(
     props = [t.callExpression(registerImportMethod(path, "mergeProps"), props)];
   }
   const componentArgs = [tagId, props[0]];
-  // `componentNames` carries the source tag name into the call so the
+  // `sourceNames.components` carries the source tag name into the call so the
   // dev/observe runtimes can label the owner after minification renames the
   // function — on the client (`createComponent` in solid-js's client entry)
   // and on the server (its server entry's, which runs the body under a
@@ -366,7 +366,7 @@ export default function transformComponent(
   // whose `createComponent` is user code with a two-argument contract, nor
   // the dynamic renderer's subtrees.
   const labelled =
-    config.componentNames && (config.generate === "dom" || config.generate === "ssr");
+    sourceNames(config).components && (config.generate === "dom" || config.generate === "ssr");
   if (labelled) {
     componentArgs.push(t.stringLiteral(tagName));
   }
@@ -376,7 +376,7 @@ export default function transformComponent(
   // never fires in compiled output. Inline to a direct `Comp(props)` call to
   // drop one function-call frame per component invocation. (DOM/dev modes
   // keep the wrapper since it does real work — `untrack`, dev metadata.)
-  // With `componentNames` the wrapper IS the work — the label has nowhere
+  // With `sourceNames.components` the wrapper IS the work — the label has nowhere
   // else to go — so SSR output keeps the call; the vite-plugin turns the
   // option on for dev and observe builds only, so prod output stays inlined.
   if (config.generate === "ssr" && !labelled) {

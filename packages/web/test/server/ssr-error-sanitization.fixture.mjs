@@ -37,7 +37,7 @@ const fallback = err =>
   );
 
 // The compiled shapes, label included — `createComponent(Comp, props, "Comp")`
-// is what the SSR compiler emits with `componentNames`, and what gives a
+// is what the SSR compiler emits with `sourceNames.components`, and what gives a
 // finding its `ownerPath`.
 const errored = children =>
   createComponent(

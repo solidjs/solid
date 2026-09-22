@@ -73,13 +73,13 @@ describe("render's onError", () => {
     expect(container.textContent).toBe("fallback");
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
-    // Where it broke: the memo that threw, under its component (the
-    // compiler's inner memos ride along by their default name); where it
-    // was met: the boundary. The dev tier labels component owners.
+    // Where it broke: the memo that threw, under its component, under the
+    // boundary's `children` node; where it was met: the boundary. The dev
+    // tier labels component owners.
     expect(calls[0].context.ownerPath).toEqual([
       "<App>",
       "<Errored>",
-      "computed",
+      "children",
       "<Widget>",
       "text"
     ]);

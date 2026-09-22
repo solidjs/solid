@@ -13,6 +13,7 @@ import {
   $DEVCOMP,
   type Owner
 } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
 
 afterEach(() => {
   if (DEV) {
@@ -38,6 +39,62 @@ describe("observedComponent metadata", () => {
     });
   });
 
+  test("the component root carries the JSX site as a console task while an attribution engine is installed", () => {
+    const original = Object.getOwnPropertyDescriptor(console, "createTask");
+    const created: string[] = [];
+    const task = { run: (fn: () => unknown) => fn() };
+    Object.defineProperty(console, "createTask", {
+      configurable: true,
+      writable: true,
+      value: (name: string) => {
+        created.push(name);
+        return task;
+      }
+    });
+    try {
+      // No engine installed: the task is not created — `console.createTask`
+      // captures a stack per call, a cost only an attribution consumer reads.
+      createRoot(() => {
+        createComponent(function Idle() {
+          const record = (getOwner() as any)._component;
+          expect("task" in record).toBe(true);
+          expect(record.task).toBeUndefined();
+          return null;
+        }, {});
+      });
+      expect(created).toEqual([]);
+      const release = attribution.enable({ log: false });
+      try {
+        createRoot(() => {
+          createComponent(function Labelled() {
+            expect((getOwner() as any)._component.task).toBe(task);
+            return null;
+          }, {});
+        });
+        expect(created).toEqual(["<Labelled>"]);
+      } finally {
+        release();
+      }
+    } finally {
+      if (original) Object.defineProperty(console, "createTask", original);
+      else delete (console as any).createTask;
+    }
+    // Without the API (Node, Firefox, Safari) the field is present and undefined.
+    const release = attribution.enable({ log: false });
+    try {
+      createRoot(() => {
+        createComponent(function Plain() {
+          const record = (getOwner() as any)._component;
+          expect("task" in record).toBe(true);
+          expect(record.task).toBeUndefined();
+          return null;
+        }, {});
+      });
+    } finally {
+      release();
+    }
+  });
+
   test("anonymous component gets empty string name", () => {
     createRoot(() => {
       createComponent((p: any) => {
@@ -51,7 +108,7 @@ describe("observedComponent metadata", () => {
   test("compiler-emitted name labels the owner over Comp.name", () => {
     createRoot(() => {
       // Stands in for a minified or wrapped component whose function name no
-      // longer matches the tag — the `componentNames` argument wins.
+      // longer matches the tag — the `sourceNames.components` argument wins.
       createComponent(
         function a(p: any) {
           const owner = getOwner() as any;

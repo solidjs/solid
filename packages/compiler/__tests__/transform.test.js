@@ -513,6 +513,44 @@ describe("@solidjs/compiler transform", () => {
     ).toThrow(/unknown option `notARealOption`/);
   });
 
+  it("sourceNames takes a boolean or a per-kind object, and rejects anything else", () => {
+    const code = "const view = <div class={cls()}><Home /></div>;";
+    const opts = { filename: "input.jsx", moduleName: "r-dom" };
+    const label = '_$createComponent(Home, {}, "Home")';
+    const binding = '{ name: "div.class" }';
+
+    const every = transform(code, { ...opts, sourceNames: true }).code;
+    expect(every).toContain(label);
+    expect(every).toContain(binding);
+    const components = transform(code, { ...opts, sourceNames: { components: true } }).code;
+    expect(components).toContain(label);
+    expect(components).not.toContain(binding);
+    const bindings = transform(code, { ...opts, sourceNames: { bindings: true } }).code;
+    expect(bindings).not.toContain('"Home"');
+    expect(bindings).toContain(binding);
+    for (const off of [false, {}, { components: false, bindings: false }]) {
+      const plain = transform(code, { ...opts, sourceNames: off }).code;
+      expect(plain).not.toContain('"Home"');
+      expect(plain).not.toContain("name:");
+    }
+
+    expect(() => transform(code, { ...opts, sourceNames: "components" })).toThrow(
+      /`sourceNames` option must be boolean or an object/
+    );
+    expect(() => transform(code, { ...opts, sourceNames: { owners: true } })).toThrow(
+      /unknown `sourceNames` kind `owners`/
+    );
+    expect(() => transform(code, { ...opts, sourceNames: { components: 1 } })).toThrow(
+      /`sourceNames.components` must be boolean/
+    );
+    expect(() => transform(code, { ...opts, sourceNames: { bindings: "yes" } })).toThrow(
+      /`sourceNames.bindings` must be boolean/
+    );
+    expect(() => transform(code, { ...opts, componentNames: true })).toThrow(
+      /unknown option `componentNames`/
+    );
+  });
+
   it("rejects unsupported dynamic renderer config instead of ignoring it", () => {
     expect(() =>
       transform("const view = <div />;", {

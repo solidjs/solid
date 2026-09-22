@@ -99,18 +99,28 @@ impl<'a> AstDomTransform<'a, '_> {
                 .expression_array(Span::default(), self.ast().vec_from_iter(elements))
         };
 
+        let mut args = vec![
+            self.identifier_expression(Span::default(), element_id),
+            props,
+            self.ast()
+                .expression_boolean_literal(Span::default(), skip_children),
+        ];
+        // `sourceNames.bindings`: the tag as written rides as spread's
+        // trailing argument (past the runtime-only `skip` slot); the runtime
+        // labels its attribute effect `<tag>.spread` and its children insert
+        // `<tag>.children`.
+        if self.binding_names {
+            args.push(self.identifier_expression(Span::default(), "undefined"));
+            args.push(self.ast().expression_string_literal(
+                Span::default(),
+                self.ast().str(tag_name),
+                None,
+            ));
+        }
+
         Ok(self.ast().statement_expression(
             Span::default(),
-            self.call_identifier(
-                Span::default(),
-                "_$spread",
-                vec![
-                    self.identifier_expression(Span::default(), element_id),
-                    props,
-                    self.ast()
-                        .expression_boolean_literal(Span::default(), skip_children),
-                ],
-            ),
+            self.call_identifier(Span::default(), "_$spread", args),
         ))
     }
 

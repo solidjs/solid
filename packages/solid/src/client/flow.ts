@@ -303,7 +303,7 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
       }
       return func;
     },
-    { sync: true }
+    IS_OBSERVE ? { name: "conditions", sync: true } : { sync: true }
   );
   return createMemo(
     () => {

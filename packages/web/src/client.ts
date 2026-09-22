@@ -34,7 +34,7 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, tagElement } from "./render.js";
+import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -499,9 +499,26 @@ function describeEventTarget(target) {
   return out;
 }
 
+/**
+ * The interaction's start on the `performance.now()` clock: the event's own
+ * `timeStamp` — when the browser created it, before any queued task ran —
+ * not the moment the handler was reached, so the wait the record measures
+ * begins where the user's does. It is also the join key to the browser's
+ * Event Timing entry for the same interaction (`PerformanceEventTiming
+ * .startTime` equals it), which is how a consumer lines an interaction
+ * record up with INP without a time-window guess. Guarded: an environment
+ * that still stamps events with epoch milliseconds (jsdom, pre-2016
+ * browsers) puts the value far past `performance.now()`, and a value from
+ * the wrong clock is worse than none — the engine then defaults to now.
+ */
+function interactionStart(e) {
+  const at = e.timeStamp;
+  return typeof at === "number" && at >= 0 && at <= performance.now() ? at : undefined;
+}
+
 function dispatchAsInteraction(e, fn) {
   return OBSERVE.attribution.withInteraction(
-    { type: e.type, target: describeEventTarget(e.target) },
+    { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e) },
     fn
   );
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
@@ -884,13 +901,15 @@ export function spread(
   node: Element,
   sources: unknown[],
   skipChildren?: Boolean,
-  skip?: (key: string) => boolean
+  skip?: (key: string) => boolean,
+  name?: string
 ): void;
 export function spread<T>(
   node: Element,
   accessor: T,
   skipChildren?: Boolean,
-  skip?: (key: string) => boolean
+  skip?: (key: string) => boolean,
+  name?: string
 ): void;
 
 // At most TWO reactive nodes per element (#3388) — one when nothing flows
@@ -926,7 +945,23 @@ export function spread<T>(
 // is called inline in the compute half, tracked, once per run — NO memo and
 // so NO hydration id, matching the server's `ssrElement` array form. Nullish
 // sources are skipped. `skip(key)` → the key is never read nor applied.
-export function spread(node, props, skipChildren, skip) {
+//
+// `name` is the element's tag as written, emitted by the compiler under
+// `sourceNames.bindings`; the attribute effect is labelled `<tag>.spread`
+// and the children insert `<tag>.children`, like a compiled hole's. Dev and
+// observe runtimes carry the labels — through `spreadName` (render.ts),
+// which `effect` and `insert` read while this body runs, so no call site
+// below changes shape and production is byte-identical without them.
+export function spread(node, props, skipChildren, skip, name) {
+  if ("_SOLID_OBSERVE_" && name !== undefined) {
+    const outer = spreadName;
+    setSpreadName(name);
+    try {
+      return spread(node, props, skipChildren, skip);
+    } finally {
+      setSpreadName(outer);
+    }
+  }
   const prevProps = {};
   const apply = newProps => {
     const r = newProps.ref;
@@ -1267,10 +1302,25 @@ export function insert<T>(
     host?: () => Node | null;
     /** Defer the insert effect to the queue instead of running it inline. */
     schedule?: boolean;
+    /**
+     * Label for the hole's render effects (the outer and, for a nested
+     * accessor, the inner unwrapping effect) — the compiler emits the parent
+     * tag as written under `sourceNames.bindings` (`div.children`). Dev and
+     * observe runtimes carry it on the node; production ignores it.
+     */
+    name?: string;
   }
 ): JSX.Element;
 
 export function insert(parent, accessor, marker, initial, options) {
+  // Inside a labelled `spread` (see there): the children insert is
+  // `<tag>.children`, taken before `effect` would label it `<tag>.spread`.
+  if (
+    "_SOLID_OBSERVE_" &&
+    spreadName !== undefined &&
+    (options === undefined || options.name === undefined)
+  )
+    options = { ...options, name: spreadName + ".children" };
   const multi = marker !== undefined;
   const host = options && options.host;
   if (multi && !initial) initial = [];

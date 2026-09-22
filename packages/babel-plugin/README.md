@@ -127,12 +127,17 @@ Emit hydratable markers.
 
 Development output. With `hydratable`, emits the hydration walk validation helpers.
 
-### componentNames
+### sourceNames
 
-- Type: `boolean`
+- Type: `boolean | { components?: boolean; bindings?: boolean }`
 - Default: `false`
 
-Emit the tag as written in source as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"` — so the dev and observe runtimes label each component's owner (`<Home>` in diagnostic `ownerPath`s and attribution chains) even after a minifier renames the function or a `lazy()`/HMR wrapper hides it. Applies to DOM and SSR output; for SSR the compiler keeps the `createComponent` call it otherwise inlines to `Comp(props)`, so the server runtime labels the owner the same way (prod SSR output, without the option, is unchanged). Universal and dynamic output are unaffected. The production runtimes ignore the argument. `@solidjs/vite-plugin` turns this on for its dev and `observe` postures.
+Names as written in source, carried into the output so the dev and observe runtimes can label the reactive graph — in diagnostic `ownerPath`s, attribution chains, and the Performance panel tracks — even after a minifier renames everything. `true` turns on every kind; the object form picks. The production runtimes ignore the names, and output is byte-identical with the option off.
+
+- `components`: emit the tag as written as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"` — so each component's owner reads `<Home>` even when a `lazy()`/HMR wrapper hides the function. Applies to DOM and SSR output; for SSR the compiler keeps the `createComponent` call it otherwise inlines to `Comp(props)`, so the server runtime labels the owner the same way (prod SSR output, without the option, is unchanged). Universal and dynamic output are unaffected.
+- `bindings`: every compiled binding effect is named by what it writes, as a trailing options argument the dev and observe runtimes read and production ignores. An attribute effect gets `<tag>.<attribute>` as written — `<span textContent={label()} />` compiles to `effect(() => label(), v => …, { name: "span.textContent" })`, `class:active` to `div.class:active`, a `style={{ color: c() }}` property to `div.style:color` — and a template's merged effect lists all of its bindings (`"button.class, span.textContent"`). A hole's insert is named for the parent it fills: `<div>{count()}</div>` compiles to `insert(el, count, undefined, undefined, { name: "div.children" })`; a static child (a component call, a literal) creates no effect and gets no name. A spread passes the tag as its trailing argument (`spread(el, props, false, undefined, "div")`), and the runtime labels its attribute effect `div.spread` and its children insert `div.children`. DOM output only.
+
+`@solidjs/vite-plugin` turns this on for its dev and `observe` postures.
 
 ### delegateEvents
 

@@ -1168,6 +1168,15 @@ module.exports = [
     // (core floor note). Boundaries: `_judgeHeld` (the output-pending gate
     // over `_checkSources`) and the `_output` back-reference it reads; the
     // DEV rule's two-state test is shaken.
+    // Chrome performance tracks (2026-09-22): 20.70 -> 20.75 KB, measured at
+    // 20,672 B against `next`'s 20,663 (+9 B) with the minified bundle
+    // structurally identical — same byte count, and an identifier-normalised
+    // diff of the two is empty. The delta is esbuild's mangled-name
+    // assignment shifting under brotli, not code: every source-name site is
+    // folded (spread labels ride `spreadName` instead of call arguments, the
+    // boundary names gate the call or set `_name` after it, createStore's
+    // name branch is an `__OBSERVE__` block). Verify with the same
+    // normalised diff before attributing a future move here to the tier.
     limit: "20.75 KB",
     modifyEsbuildConfig
   },
@@ -1570,7 +1579,17 @@ module.exports = [
     // 2026-09-22): 15.75 -> 15.80 KB, measured at 15,764 B against `next`'s
     // 15,725 (+39 B), rebased over #3577 — the same core walk and boundaries
     // `_judgeHeld` / `_output` as the hydrating note.
-    limit: "15.80 KB",
+    // Chrome performance tracks (2026-09-22): 15.70 -> 15.80 KB, measured at
+    // 15,733 B against `next`'s 15,686 (+47 B), the minified bundle
+    // structurally identical (same byte count; identifier-normalised diff
+    // empty) — esbuild's name assignment under brotli, see the hydrating
+    // note. The signals-only prod scenarios are byte-identical.
+    // Rebased over #3586 and #3555 (2026-09-22): 15.80 -> 15.85 KB, measured
+    // at 15,815 B against `next`'s 15,764 (+51 B). Re-verified: the minified
+    // bundles are 44,649 B on both sides and differ only in which short name
+    // esbuild assigns where; the same brotli noise as above, now on top of
+    // the upstream bytes, which those PRs left 36 B under this cap.
+    limit: "15.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -1708,7 +1727,21 @@ module.exports = [
     // boundaries `_judgeHeld` / `_output` (+39 B there); no observe-gated
     // bytes added (the boundaryFallback call site is untouched), the rest is
     // brotli layout over the tier's wiring.
-    limit: "17.35 KB",
+    // Chrome performance tracks, Stages 0–4 (2026-09-22): 17.30 -> 17.40 KB,
+    // measured at 17,330 B against `next`'s 17,247 (+83 B). The tier's
+    // share of the tracks work: the `flushStart` hook site beside `flushEnd`,
+    // `effectRunStart/End` moved from `__DEV__` to `__OBSERVE__` (the
+    // effect-callback record), `_name`s on the flow controls' internal nodes
+    // (`children`, `boundary`, `value`, `reveal order`, `conditions`) and on
+    // compiled binding effects (`span.textContent`, and `div.spread` /
+    // `div.children` through web's `spreadName`), and the store's declared
+    // name on its property nodes (`nameStore`/`storeLabel`). Prod: the
+    // signals-only scenarios and frames byte-identical; the app scenarios
+    // structurally identical (see the hydrating and CSR notes).
+    // Fallback records time the display, not the swap (#3575 rebase): 17,402 B
+    // (+72 B) — the two boundaryFallback show sites pass the transaction the
+    // swap is staged in (`activeTransition`, or null for a lane swap).
+    limit: "17.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1887,7 +1920,36 @@ module.exports = [
     // pre-verdict boundary judgment (`_judgeHeld` / `_output` in
     // boundaries.ts) and the scheduler's `checkBoundaryChildren` walk in
     // core/scheduler.ts; no attribution-engine change.
-    limit: "27.80 KB",
+    // Chrome performance tracks, Stages 0–4 (2026-09-22): 27.75 -> 28.60 KB,
+    // measured at 28,504 B against `next`'s 27,701 (+803 B, of which +83
+    // is the tier's, above). The engine's side: ref-counted
+    // enable()/disable() with per-hold listener release, the `checks`
+    // option, `isSilentHold`/`isLongHold` on the entry, `at`/`inputDelayMs`
+    // on interactions, and the five timeline records a profiler track reads —
+    // `flush`, `create`, `effect`, `flight`, `fallback` — each built only
+    // while a listener exists, plus `nodeId` on derived cause records (the
+    // Propagation track's node-to-node link). The enabled hot path was
+    // re-benchmarked at the `next` baseline after the effect-frame WeakMap
+    // was made lazy (see the Stage 2 note in
+    // documentation/plans/chrome-performance-tracks-plan.md).
+    // Fallback records time the display, not the swap (#3575 rebase): 28,757 B
+    // (+253 B, of which +72 is the tier's, above). The engine holds a shown
+    // fallback as staged under its transaction (or the current drain), moves
+    // it to the drain at `transitionSettled`, follows `transitionMerged`, and
+    // stamps its `at` at `flushEnd`; a hide before that drops it unrecorded —
+    // a swap the content outran, or one the commit's sweep cleared before
+    // any effect ran, was never on screen. The folds hear show/hide from the
+    // same gate, so the feedback fold's shows/flashes agree.
+    // enable() as a hold with a release; options merged by the most demanding
+    // request (#3580 review, 2026-09-22): 28.85 -> 29.00 KB, measured at
+    // 28,951 B (+194 B over the 28,757 above, 0 B in the tier). The holds
+    // array and its release closure, `disable()` as the full teardown, and
+    // `resolveHold`/`demanding`: each hold's request filled from the defaults
+    // (`checks: false` folding its five checks first), then combined per key
+    // — booleans OR, `historyLimit` max, a config over `false`, between
+    // configs the lower bound and the longer `windowMs` — so the result is
+    // independent of the order holds were taken. Engine-only.
+    limit: "29.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
