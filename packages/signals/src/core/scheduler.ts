@@ -842,6 +842,17 @@ export class GlobalQueue extends Queue {
         runHeap(dirtyQueue, GlobalQueue._update);
       }
       if (activeTransition) {
+        // A boundary whose fallback read something not ready is judged before
+        // the verdict, under the transaction (boundaries.ts `_judgeHeld`,
+        // #3540): its output is pending on that read and holds the frame,
+        // and only a sweep re-runs it — the commit sweep, after the verdict
+        // its own read keeps parking. Ready, it stages `_disabled` false with
+        // the frame; the heap re-runs so the output drops the read ahead of
+        // the verdict.
+        if (this._children.length) {
+          checkBoundaryChildren(this, true);
+          if (dirtyQueue._max >= dirtyQueue._min) runHeap(dirtyQueue, GlobalQueue._update);
+        }
         const isComplete = transitionComplete(activeTransition);
         if (!isComplete) {
           const stashedTransition = activeTransition!;
@@ -1345,8 +1356,10 @@ export function finalizePureQueue(
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
   // A parked finalize sweeps nothing (the boundaries' staged swaps are the
-  // transaction's); DEV walks them read-only for the after-the-fact
-  // LOADING_ON_OUTSIDE_HOLD rule (boundaries.ts `_devHeldSweep`, #3540).
+  // transaction's; a boundary whose own output parks the verdict was judged
+  // under it in run(), ahead of the verdict); DEV walks them read-only for
+  // the after-the-fact LOADING_ON_OUTSIDE_HOLD rule (boundaries.ts
+  // `_devHeldSweep`, #3540).
   else if (__DEV__ && incomplete && globalQueue._children.length)
     devSweepBoundaryChildren(globalQueue);
   // Contested effects (#3322) re-derive from the world this commit just
@@ -1440,10 +1453,13 @@ export function finalizePureQueue(
   }
 }
 
-function checkBoundaryChildren(queue: Queue) {
+/** The boundary sweep: the commit's (`_checkSources`), or — `held`, before
+ * the verdict (#3540) — the one for a collecting boundary whose output is
+ * pending on its fallback's read (`_judgeHeld`). */
+function checkBoundaryChildren(queue: Queue, held?: boolean) {
   for (const child of queue._children) {
-    (child as any)._checkSources?.();
-    checkBoundaryChildren(child as Queue);
+    held ? (child as any)._judgeHeld?.() : (child as any)._checkSources?.();
+    checkBoundaryChildren(child as Queue, held);
   }
 }
 /** DEV twin of checkBoundaryChildren for a parked finalize (#3540): read-only. */

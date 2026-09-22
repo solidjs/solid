@@ -779,7 +779,12 @@ module.exports = [
     // rc.10: on follows the frame (#3540): 12,370 B against `next`'s 12,391
     // (-21 B) — the core floor's drain move (see its note); the rest is the
     // prop mangler handing out different short names.
-    limit: "12.40 KB",
+    // A pending fallback's boundary is judged before the verdict (#3540,
+    // 2026-09-22): 12.40 -> 12.45 KB, measured at 12,431 B against `next`'s
+    // 12,393 (+38 B), rebased over #3577 — the flush's pre-verdict
+    // `checkBoundaryChildren(this, true)` walk and heap re-run (core;
+    // boundaries are not retained here).
+    limit: "12.45 KB",
     modifyEsbuildConfig
   },
   {
@@ -1103,7 +1108,13 @@ module.exports = [
     // `_rearm` / `_swap(lane)` / lane-aware on-node / `_settled` as the CSR
     // note. Solid: `<Errored on>` and its hydration-wrapper threading are
     // gone. 0 B in web.
-    limit: "20.70 KB",
+    // A pending fallback's boundary is judged before the verdict (#3540,
+    // 2026-09-22): 20.70 -> 20.75 KB, measured at 20,731 B against `next`'s
+    // 20,679 (+52 B), rebased over #3577. Core: the pre-verdict boundary walk
+    // (core floor note). Boundaries: `_judgeHeld` (the output-pending gate
+    // over `_checkSources`) and the `_output` back-reference it reads; the
+    // DEV rule's two-state test is shaken.
+    limit: "20.75 KB",
     modifyEsbuildConfig
   },
   {
@@ -1495,7 +1506,11 @@ module.exports = [
     // `wakeParked()` call on recompute's #3181 sync-settle branch (~15 B
     // minified); the rest is brotli layout. The other scenarios stayed
     // within their caps.
-    limit: "15.75 KB",
+    // A pending fallback's boundary is judged before the verdict (#3540,
+    // 2026-09-22): 15.75 -> 15.80 KB, measured at 15,764 B against `next`'s
+    // 15,725 (+39 B), rebased over #3577 — the same core walk and boundaries
+    // `_judgeHeld` / `_output` as the hydrating note.
+    limit: "15.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1627,7 +1642,13 @@ module.exports = [
     // rc.10: on follows the frame (#3540): 17,247 B against `next`'s 17,127
     // (+120 B) — the CSR note's core + boundaries + solid deltas; observe:
     // the boundaryFallback attribution call moved into `_swap`.
-    limit: "17.30 KB",
+    // A pending fallback's boundary is judged before the verdict (#3540,
+    // 2026-09-22): 17.30 -> 17.35 KB, measured at 17,311 B against `next`'s
+    // 17,230 (+81 B), rebased over #3577 — the CSR note's core walk and
+    // boundaries `_judgeHeld` / `_output` (+39 B there); no observe-gated
+    // bytes added (the boundaryFallback call site is untouched), the rest is
+    // brotli layout over the tier's wiring.
+    limit: "17.35 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
