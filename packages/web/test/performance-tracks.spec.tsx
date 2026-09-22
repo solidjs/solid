@@ -938,7 +938,7 @@ describe("enablePerformanceTracks", () => {
     attribution.disable();
   });
 
-  test("joining an engine another consumer holds leaves their log on; installing it, the log is off", () => {
+  test("the adapter asks for no log: quiet alone, and a console session beside it keeps its log", () => {
     measures();
     const logged = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "groupCollapsed").mockImplementation(() => {});
@@ -954,15 +954,19 @@ describe("enablePerformanceTracks", () => {
     expect(logged).not.toHaveBeenCalled();
     alone();
 
-    // A console session holds the engine with the log on; the adapter joins
-    // and layers only what it was given — the session keeps its log.
+    // A console session holds the engine with the log on; the tracks enabled
+    // beside it (in either order) cannot take it away — the engine does what
+    // any holder asks for.
     const releaseConsole = attribution.enable({ hotRuns: false, hotTime: false, wideDeps: false });
     const joined = enable();
     setN(2);
     flush();
     expect(logged).toHaveBeenCalledTimes(1);
-    joined();
     releaseConsole();
+    setN(3);
+    flush();
+    expect(logged).toHaveBeenCalledTimes(1); // the session left: quiet again
+    joined();
   });
 
   test("alone on the engine, disable uninstalls it", () => {

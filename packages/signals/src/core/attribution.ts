@@ -1341,14 +1341,20 @@ export interface Attribution {
    * state or anyone's subscriptions, so a capture begun beside a running
    * consumer still measures only its own scenario.
    *
-   * Options layer: the options in effect are the defaults with each live
-   * hold's `opts` applied over them in the order the holds were taken, so
-   * the latest hold's thresholds win for the keys it names, and releasing a
-   * hold removes its layer — a track that took `log: false` beside a console
-   * session gives the log back when it goes. The release is idempotent; the
-   * last release uninstalls the hooks, clears every ring buffer and drops
-   * every subscription. A consumer that re-`enable()`s to reopen its window
-   * must release both holds (or `disable()`).
+   * Options combine across holds by the most demanding value per key: a
+   * hold's `opts` say what it wants (the defaults fill what it leaves
+   * unsaid), and the engine does whatever any holder asked for — the log
+   * prints while any holder wants it, a check runs while any holder wants
+   * it and at the most sensitive threshold requested, `historyLimit` is the
+   * largest. A hold can add to what another asked for, never take it away,
+   * so the result does not depend on the order holds were taken; releasing
+   * a hold withdraws its requests — a track enabled with `log: false` beside
+   * a console session never silences it, and a capture with tight
+   * thresholds beside a records-only adapter runs the checks for its own
+   * duration. The release is idempotent; the last release uninstalls the
+   * hooks, clears every ring buffer and drops every subscription. A consumer
+   * that re-`enable()`s to reopen its window must release both holds (or
+   * `disable()`).
    */
   enable(opts?: AttributionOptions): () => void;
   /**
@@ -3610,10 +3616,9 @@ const engineHooks: AttributionHooks = {
 };
 
 /**
- * Outstanding `enable()` holds, in the order taken. The engine is one per
- * process and shared by every consumer on the page; it stays installed while
- * any hold remains, and the options in effect are the holds' layered in this
- * order (see `applyOptions`).
+ * Outstanding `enable()` holds. The engine is one per process and shared by
+ * every consumer on the page; it stays installed while any hold remains, and
+ * the options in effect are the holds' requests combined (see `applyOptions`).
  */
 interface Hold {
   opts: AttributionOptions | undefined;
@@ -3658,17 +3663,73 @@ function resetTracking(): void {
   currentInteraction = null;
 }
 
-/** Recompute the options in effect: the defaults, each live hold layered over in hold order. */
-function applyOptions(): void {
-  options = { ...defaultOptions };
-  for (const hold of holds) options = { ...options, ...hold.opts };
-  if (!options.checks) {
-    options.hotRuns = false;
-    options.hotTime = false;
-    options.wideDeps = false;
-    options.unstableMemos = false;
-    options.wideWrites = false;
+type Options = typeof defaultOptions;
+
+/**
+ * One hold's request in full: the defaults for what it left unsaid (an
+ * explicit `undefined` is unsaid), and `checks: false` folding its five cost
+ * checks off before anyone else's request is considered.
+ */
+function resolveHold(opts: AttributionOptions | undefined): Options {
+  const out: Options = { ...defaultOptions };
+  if (opts !== undefined) {
+    for (const key of Object.keys(opts) as (keyof AttributionOptions)[]) {
+      const value = opts[key];
+      if (value !== undefined) (out as Record<string, unknown>)[key] = value;
+    }
   }
+  if (!out.checks) {
+    out.hotRuns = false;
+    out.hotTime = false;
+    out.wideDeps = false;
+    out.unstableMemos = false;
+    out.wideWrites = false;
+  }
+  return out;
+}
+
+/**
+ * The more demanding of two settings for one key: `true` over `false`, the
+ * larger `historyLimit`, a threshold config over `false`, and between two
+ * configs the field values that fire sooner — the lower count, budget or
+ * millisecond bound, the longer `windowMs`.
+ */
+function demanding(key: keyof Options, a: unknown, b: unknown): unknown {
+  if (typeof a === "boolean") return a || b;
+  if (key === "historyLimit") return Math.max(a as number, b as number);
+  if (a === false) return b;
+  if (b === false) return a;
+  if (typeof a === "number") return Math.min(a, b as number);
+  const out: Record<string, number> = {};
+  for (const field in a as Record<string, number>) {
+    const x = (a as Record<string, number>)[field];
+    const y = (b as Record<string, number>)[field];
+    out[field] = field === "windowMs" ? Math.max(x, y) : Math.min(x, y);
+  }
+  return out;
+}
+
+/**
+ * Recompute the options in effect: each live hold's request resolved, then
+ * combined per key by the most demanding value — the one that has the
+ * engine observe more, report more or keep more. A hold says what it wants
+ * and can only add to what another hold asked for, never take it away, so
+ * the result does not depend on the order the holds were taken: the console
+ * log prints while any holder wants it, a check runs while any holder wants
+ * it and at the most sensitive threshold anyone asked for, the ring buffer
+ * is the largest requested. With no hold outstanding the defaults stand.
+ */
+function applyOptions(): void {
+  if (holds.length === 0) {
+    options = { ...defaultOptions };
+    return;
+  }
+  const out = resolveHold(holds[0].opts) as Record<string, unknown>;
+  for (let i = 1; i < holds.length; i++) {
+    const next = resolveHold(holds[i].opts) as Record<string, unknown>;
+    for (const key in out) out[key] = demanding(key as keyof Options, out[key], next[key]);
+  }
+  options = out as Options;
 }
 
 /** The last hold is gone (or `disable()` was called): uninstall and clear everything. */

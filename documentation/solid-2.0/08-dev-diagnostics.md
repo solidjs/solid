@@ -865,12 +865,17 @@ attribution.disable();          // everything, whatever holds are outstanding (t
 // Each enable() is a hold and returns its release: a second consumer (a
 // diagnostics capture beside a profiler track beside an APM adapter) takes
 // its own, and listeners and live state survive until the last hold goes.
-// Options layer in hold order — the latest hold wins for the keys it names,
-// and a released hold takes its layer with it (a track that enabled with
-// `log: false` beside this session gives the log back when it leaves). Each
-// enable() does reset the aggregation windows (history, the fold tables),
-// which is what a capture wants; a consumer that re-enables to reopen its
-// window holds twice and releases twice.
+// Options combine across holds by the most demanding request per key — the
+// log prints while any holder wants it, a check runs while any holder wants
+// it and at the most sensitive threshold asked for, historyLimit is the
+// largest — so a hold can add to what the engine does but never take away
+// what another asked for, and the order holds are taken does not matter.
+// Releasing a hold withdraws its requests: a track that enabled with
+// `log: false` beside this session never silenced it; a capture with tight
+// thresholds beside a records-only adapter runs the checks for its own
+// duration. Each enable() does reset the aggregation windows (history, the
+// fold tables), which is what a capture wants; a consumer that re-enables
+// to reopen its window holds twice and releases twice.
 
 // The folds over those records, the point queries and the formatters are
 // NAMED EXPORTS, not methods: a fold's module registers its accounting with
@@ -1016,7 +1021,7 @@ Group `Solid`, tracks in order: **Interactions** — the input delay, the handle
 
 Labels read as source: a flow control's own nodes fold into its tag (`<App> › <Show>` rather than `<App> › <Show> › condition value`) and a composed primitive's nodes into the primitive (`createDebounced.value` → `createDebounced`, the same rule as `store.user`), with the runtime's name kept in the span's `Node` property; the `Owner path` property is the unfolded truth and `Node id` the engine's id. Rich mode carries the why-chain (`formatRerun`) as the tooltip, and causes, deps added/removed, phase, origin and interaction as properties.
 
-Findings become markers: every `DiagnosticEvent` delivered while enabled is a marker on the panel's Timings track (`SILENT_HOLD — <App> › <Search>`), coloured by severity, and — at `warn` or worse — annotated as a performance issue for the Insights sidebar (`detail.devtools.performanceIssue`, with the repair guide's section for the code as its link; Chrome ignores the annotation where it is not yet supported). In dev, every span and marker is emitted inside the `console.createTask` task of the component it belongs to, so the entry's stack in the panel points at the JSX site that rendered the component rather than at the engine. The dev component wrapper creates that task only for components rendered while an attribution engine is installed — `console.createTask` captures a stack per call, roughly the wrapper's own cost again and ~90 B retained per instance, DevTools open or not, and only an attribution consumer reads it — so a dev session with nothing enabled pays nothing, and the tracks enabled at bootstrap see every component's site (a component rendered before any consumer enabled carries no task and its spans are emitted plainly). Enabling takes its own hold on the engine (`attribution.enable`, layering `log: false` only when it is the one installing it), so it coexists with a diagnostics capture or an APM adapter; the returned function releases it. There is one instance per page: a second `enablePerformanceTracks()` while one is running joins it (the first call's options stand) and returns its own release, and the instance is torn down when every release has been called — a module HMR re-evaluates lands back on one set of tracks, not two painters. The adapter is the one place host APIs are called from inside the engine's hooks, and it guards them: a `performance`/`console` call that throws drops that entry (dev warns once) and never reaches the engine.
+Findings become markers: every `DiagnosticEvent` delivered while enabled is a marker on the panel's Timings track (`SILENT_HOLD — <App> › <Search>`), coloured by severity, and — at `warn` or worse — annotated as a performance issue for the Insights sidebar (`detail.devtools.performanceIssue`, with the repair guide's section for the code as its link; Chrome ignores the annotation where it is not yet supported). In dev, every span and marker is emitted inside the `console.createTask` task of the component it belongs to, so the entry's stack in the panel points at the JSX site that rendered the component rather than at the engine. The dev component wrapper creates that task only for components rendered while an attribution engine is installed — `console.createTask` captures a stack per call, roughly the wrapper's own cost again and ~90 B retained per instance, DevTools open or not, and only an attribution consumer reads it — so a dev session with nothing enabled pays nothing, and the tracks enabled at bootstrap see every component's site (a component rendered before any consumer enabled carries no task and its spans are emitted plainly). Enabling takes its own hold on the engine (`attribution.enable({ log: false, ... })` — asking for no console log, which quiets the console only while no other holder wants it), so it coexists with a diagnostics capture or an APM adapter; the returned function releases it. There is one instance per page: a second `enablePerformanceTracks()` while one is running joins it (the first call's options stand) and returns its own release, and the instance is torn down when every release has been called — a module HMR re-evaluates lands back on one set of tracks, not two painters. The adapter is the one place host APIs are called from inside the engine's hooks, and it guards them: a `performance`/`console` call that throws drops that entry (dev warns once) and never reaches the engine.
 
 ### Architecture
 

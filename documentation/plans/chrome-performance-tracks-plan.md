@@ -52,8 +52,10 @@ Stages, as landed (one commit each on the branch):
 
 - **Stage 0 — shared foundation** (`@solidjs/signals`, `@solidjs/web`):
   `attribution.enable()` as a hold returning its release (live state
-  survives until the last hold; options layer in hold order and a released
-  hold's layer goes with it; `disable()` is the full teardown; each
+  survives until the last hold; options combine per key by the most
+  demanding request — a hold adds to what the engine does, never takes away
+  what another asked for — and a released hold withdraws its requests;
+  `disable()` is the full teardown; each
   `enable()` resets the aggregation windows, which is what a capture wants
   — the token form landed in review, replacing a counted `disable()`); `AttributionOptions.checks` (default `true`, D2
   proper still open); `isSilentHold`/`isLongHold` on the public entry;

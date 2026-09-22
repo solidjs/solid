@@ -64,12 +64,13 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 export interface PerformanceTracksOptions {
   /**
-   * Options for the engine hold this adapter takes (`attribution.enable`).
-   * When the adapter is what installs the engine, the console log is off by
-   * default (`log: false` — the timeline is the output); joining an engine
-   * another consumer already holds, it leaves their options alone and layers
-   * only what is passed here. `checks` is left to the engine's default; pass
-   * `checks: false` for records only.
+   * Options for the engine hold this adapter takes
+   * (`attribution.enable({ log: false, ...attribution })`). The adapter asks
+   * for no console log — the timeline is the output — which, the engine
+   * combining holds by the most demanding request, quiets the console only
+   * while nobody else wants it: a console session beside the tracks keeps
+   * its log. `checks` is left to the engine's default; pass `checks: false`
+   * for records only (honoured while no other holder wants the checks).
    */
   attribution?: AttributionOptions;
   /**
@@ -231,11 +232,7 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   const painter = new Painter(observe, emitter, minMs, scrub);
 
   const releases = [
-    attribution.enable(
-      observe.attribution.installed === null
-        ? { log: false, ...options.attribution }
-        : options.attribution
-    ),
+    attribution.enable({ log: false, ...options.attribution }),
     attribution.subscribe("rerun", e => painter.rerun(e)),
     attribution.subscribe("create", e => painter.create(e)),
     attribution.subscribe("effect", e => painter.effect(e)),

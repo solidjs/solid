@@ -1935,7 +1935,16 @@ module.exports = [
     // a swap the content outran, or one the commit's sweep cleared before
     // any effect ran, was never on screen. The folds hear show/hide from the
     // same gate, so the feedback fold's shows/flashes agree.
-    limit: "28.85 KB",
+    // enable() as a hold with a release; options merged by the most demanding
+    // request (#3580 review, 2026-09-22): 28.85 -> 29.00 KB, measured at
+    // 28,951 B (+194 B over the 28,757 above, 0 B in the tier). The holds
+    // array and its release closure, `disable()` as the full teardown, and
+    // `resolveHold`/`demanding`: each hold's request filled from the defaults
+    // (`checks: false` folding its five checks first), then combined per key
+    // — booleans OR, `historyLimit` max, a config over `false`, between
+    // configs the lower bound and the longer `windowMs` — so the result is
+    // independent of the order holds were taken. Engine-only.
+    limit: "29.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

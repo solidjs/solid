@@ -778,36 +778,108 @@ describe("shared engine: holds, releases, layered options", () => {
     release();
   });
 
-  it("options layer in hold order and a released hold's layer goes with it", () => {
+  it("options combine by the most demanding request, whatever the order of the holds", () => {
     const setN = counter();
     const events: RerunEvent[] = [];
-    // A console session with the log on.
     // One `console.log` per logged re-run on either path (plain, or the
     // grouped one whose body is the `log` call).
     const logged = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "groupCollapsed").mockImplementation(() => {});
     vi.spyOn(console, "groupEnd").mockImplementation(() => {});
     const logs = () => logged.mock.calls.length;
-    const releaseConsole = attribution.enable({ hotRuns: false, hotTime: false, wideDeps: false });
+    // A track asks for no log.
+    const releaseTrack = attribution.enable({ log: false, hotRuns: false, hotTime: false });
     attribution.subscribe(e => events.push(e));
     setN(1);
     flush();
-    expect(logs()).toBe(1);
+    expect(logs()).toBe(0);
 
-    // A track joins and takes the log off: its layer is over the console's.
-    const releaseTrack = attribution.enable({ log: false });
+    // A console session arrives wanting the log (the default): it prints —
+    // the later hold adds to what the engine does, and the earlier one
+    // cannot deny it.
+    const releaseConsole = attribution.enable({ hotRuns: false, hotTime: false, wideDeps: false });
     setN(2);
     flush();
     expect(logs()).toBe(1);
     expect(events).toHaveLength(2);
 
-    // The track leaves: the console's log is back — nothing was rebuilt
-    // from defaults; the console's own options are still in effect.
+    // The track leaves: the session's log is untouched.
     releaseTrack();
     setN(3);
     flush();
     expect(logs()).toBe(2);
+
+    // The track comes back beside the session: still printing — the same
+    // pair of requests gives the same result in the other order.
+    const releaseTrack2 = attribution.enable({ log: false, hotRuns: false, hotTime: false });
+    setN(4);
+    flush();
+    expect(logs()).toBe(3);
+
+    // The session leaves: only the track's request remains — quiet.
     releaseConsole();
+    setN(5);
+    flush();
+    expect(logs()).toBe(3);
+    releaseTrack2();
+  });
+
+  it("a check runs while any holder wants it, at the most sensitive threshold requested", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    // A records-only adapter.
+    const releaseAdapter = attribution.enable({ log: false, checks: false });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    const hot = () => capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS").length;
+    expect(hot()).toBe(0);
+
+    // A capture beside it asks for the hot-runs check at 3 runs: it runs,
+    // for the adapter's writes too, while the capture holds.
+    const capture2 = OBSERVE!.diagnostics.capture();
+    const releaseCapture = attribution.enable({
+      log: false,
+      hotRuns: { count: 3, windowMs: 60_000 },
+      hotTime: false,
+      wideDeps: false
+    });
+    for (let i = 6; i <= 10; i++) {
+      setN(i);
+      flush();
+    }
+    expect(capture2.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
+
+    // The capture leaves: records only again.
+    releaseCapture();
+    const capture3 = OBSERVE!.diagnostics.capture();
+    for (let i = 11; i <= 20; i++) {
+      setN(i);
+      flush();
+    }
+    expect(capture3.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(0);
+    releaseAdapter();
+  });
+
+  it("an explicit undefined is unsaid: the default stands", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setN = counter();
+    const release = attribution.enable({
+      log: false,
+      hotRuns: { count: 2, windowMs: 60_000 },
+      hotTime: false,
+      wideDeps: undefined
+    });
+    const capture = OBSERVE!.diagnostics.capture();
+    for (let i = 1; i <= 5; i++) {
+      setN(i);
+      flush();
+    }
+    // hotRuns as asked; wideDeps at its default (no finding for one dep either way).
+    expect(capture.stop().filter(e => e.code === "HOT_SCOPE_RERUNS")).toHaveLength(1);
+    release();
   });
 
   it("disable() tears down whatever holds are outstanding", () => {
