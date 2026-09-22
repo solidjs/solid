@@ -639,6 +639,24 @@ describe("Server owner tree", () => {
     );
   });
 
+  test("cleanup order is unwind: children before owner, later registrations before earlier (#3572)", () => {
+    // Mirrors the client ruling: `disposeOwner` tears down the child chain,
+    // then the owner's own list in reverse registration order.
+    const order: string[] = [];
+    let dispose!: () => void;
+    createRoot(
+      d => {
+        dispose = d;
+        onCleanup(() => order.push("A"));
+        onCleanup(() => order.push("B"));
+        createRoot(() => onCleanup(() => order.push("C")));
+      },
+      { id: "test" }
+    );
+    dispose();
+    expect(order).toEqual(["C", "B", "A"]);
+  });
+
   test("disposing a parent does not dispose an owner recycled into another root", () => {
     let disposeParent!: () => void;
     let disposeChild!: () => void;

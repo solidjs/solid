@@ -168,6 +168,38 @@ describe("@solidjs/signals artifacts", () => {
   });
 });
 
+describe("@solidjs/signals cleanup order per tier", () => {
+  // #3572: cleanup order is unwind — children before the owner's own list,
+  // and within one owner later registrations before earlier ones. The tiers
+  // differ only in wiring and checks; the disposal walk is the same code,
+  // and this pins that against each built artifact (the suite otherwise
+  // sees only source).
+  const cores: Record<keyof typeof TIERS, () => Promise<any>> = {
+    prod: () => import("../dist/prod/index.js"),
+    observe: () => import("../dist/observe/index.js"),
+    dev: () => import("../dist/dev.js")
+  };
+  for (const tier of Object.keys(TIERS) as (keyof typeof TIERS)[]) {
+    test(`${tier}: children first, then the owner's cleanups later-registered first`, async () => {
+      const { createRoot, createEffect, onCleanup, flush } = await cores[tier]();
+      const order: string[] = [];
+      const dispose = createRoot((dispose: () => void) => {
+        onCleanup(() => order.push("A"));
+        onCleanup(() => order.push("B"));
+        createRoot(() => onCleanup(() => order.push("C")));
+        createEffect(
+          () => {},
+          () => () => order.push("D")
+        );
+        return dispose;
+      });
+      flush();
+      dispose();
+      expect(order).toEqual(["D", "C", "B", "A"]);
+    });
+  }
+});
+
 describe("@solidjs/signals node literals per tier", () => {
   // Each node factory has two object literals — prod, and observe = prod plus
   // its diagnostic slots (`_name`; `_owner` on signals) — selected at build

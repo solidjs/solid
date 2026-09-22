@@ -65,6 +65,12 @@ import {
  * Cannot be used inside `createTrackedEffect` or `onSettled` — return a
  * cleanup function from the callback body instead.
  *
+ * Cleanups run in unwind order: an owner's children are disposed before its
+ * own cleanups, and within one owner later registrations run before earlier
+ * ones. In production a component body shares its enclosing owner, so
+ * register cleanup before creating children when the order between them
+ * matters.
+ *
  * @example
  * ```ts
  * // Library shape: thread a resource's disposal into a *captured* owner

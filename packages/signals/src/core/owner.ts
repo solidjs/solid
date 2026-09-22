@@ -184,7 +184,11 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   if (!disposal) return;
 
   if (Array.isArray(disposal)) {
-    for (let i = 0; i < disposal.length; i++) {
+    // Unwind order (#3572, restores 1.x #1562): later registrations run
+    // before earlier ones. Children have already been disposed by the caller,
+    // so with LIFO a body that registers cleanup before creating its children
+    // tears down after them — the same order a per-component owner gives.
+    for (let i = disposal.length - 1; i >= 0; i--) {
       const callable = disposal[i];
       callable.call(callable);
     }

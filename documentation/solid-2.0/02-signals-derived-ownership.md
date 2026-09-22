@@ -30,6 +30,10 @@ function Widget() {
 // When Widget is disposed, the nested root is disposed too.
 ```
 
+#### Disposal order is unwind
+
+Cleanups run in unwind order: an owner's children are disposed before its own cleanups, and within one owner later registrations run before earlier ones (the same LIFO rule 1.x had). In production a component body shares its enclosing owner rather than getting one of its own, so a parent that registers `onCleanup` before rendering its children tears down after them — the same order the dev build's per-component owner gives. Register cleanup before creating children when the order between them matters; a parent that registers `onCleanup` *after* creating its children runs before them in production (and after them in dev).
+
 #### Detaching is explicit: `runWithOwner(null, ...)`
 
 If you really want “no owner” (module singletons, external integrations), detach explicitly:

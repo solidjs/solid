@@ -162,8 +162,9 @@ describe("behavior claims through server-component mounts", () => {
 
     dispose();
     flush();
-    // Owner disposal runs every ref's registered cleanup (both fires).
-    expect(cleanups).toEqual(["Label v1", "Label v3"]);
+    // Owner disposal runs every ref's registered cleanup (both fires), in
+    // unwind order — the later registration first (#3572).
+    expect(cleanups).toEqual(["Label v3", "Label v1"]);
     container.remove();
   });
 

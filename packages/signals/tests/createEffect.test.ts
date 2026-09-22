@@ -648,10 +648,12 @@ describe("final returned cleanup runs at the effect's own disposal", () => {
     flush();
     dispose();
 
-    // Children unwind newest-first at their positions, then the owner's own
-    // disposal list runs FIFO. Under the old parent-registration scheme the
-    // effect cleanups landed in that FIFO list instead (before, A, B, after).
-    expect(order).toEqual(["effect:B", "effect:A", "onCleanup:before", "onCleanup:after"]);
+    // Full unwind (#3572): children (the effect nodes) unwind newest-first at
+    // their positions, then the owner's own disposal list unwinds too —
+    // later registrations before earlier ones. Under the old
+    // parent-registration scheme the effect cleanups landed in the owner's
+    // list instead, and that list ran FIFO (before, A, B, after).
+    expect(order).toEqual(["effect:B", "effect:A", "onCleanup:after", "onCleanup:before"]);
   });
 
   it("early individual disposal fires the cleanup once; outer disposal does not re-run it", () => {
