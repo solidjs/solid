@@ -98,6 +98,33 @@ it("should clean up in reverse order", () => {
   expect(disposeParent).toHaveBeenCalledWith(3);
 });
 
+it("cleanup order is unwind: children before owner, later registrations before earlier", () => {
+  // #3572 / #1562. Disposal unwinds: an owner's children are torn down
+  // before the owner's own cleanups, and within one owner the cleanups run
+  // in reverse registration order (LIFO). Production component bodies share
+  // their enclosing owner, so this is what makes a parent that registers
+  // cleanup before rendering its children tear down after them — the same
+  // order the dev tier's per-component owner gives.
+  const order: string[] = [];
+
+  const dispose = createRoot(dispose => {
+    onCleanup(() => order.push("A"));
+    onCleanup(() => order.push("B"));
+    createRoot(() => onCleanup(() => order.push("C")));
+    createEffect(
+      () => {},
+      () => () => order.push("D")
+    );
+    return dispose;
+  });
+  flush();
+  dispose();
+
+  // Children first, in their chain order (newest child first), then the
+  // owner's own list unwound: B (registered last) before A.
+  expect(order).toEqual(["D", "C", "B", "A"]);
+});
+
 it("should dispose all roots", () => {
   const disposals: string[] = [];
 

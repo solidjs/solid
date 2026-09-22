@@ -329,6 +329,11 @@ export function isDisposed(owner: Owner): boolean {
   return (owner as unknown as SSROwner)._disposed;
 }
 
+/**
+ * Server mirror of `onCleanup`. Cleanups run in unwind order: an owner's
+ * children are disposed before its own cleanups, and within one owner later
+ * registrations run before earlier ones (see `disposeOwner`).
+ */
 export function onCleanup(fn: Disposable): Disposable {
   const o = currentOwner;
   if (!o) return fn;
@@ -390,7 +395,8 @@ function unlinkOwner(node: SSROwner): void {
  * Tears down `owner` (optionally) and all of its descendants. Walks the
  * forward-only `_firstChild` -> `_nextSibling` chain, recursively disposing
  * each child with `self=true`, then runs the owner's own `_disposal` queue
- * and resets `_firstChild` / `_childCount`.
+ * in unwind order (later registrations first) and resets `_firstChild` /
+ * `_childCount`.
  *
  * `self=false` keeps `owner` itself alive (its `_disposed` flag stays clear,
  * future `runWithOwner(owner, ...)` keeps working) but tears down its
@@ -436,7 +442,9 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   const d = node._disposal;
   if (d) {
     if (Array.isArray(d)) {
-      for (let i = 0, len = d.length; i < len; i++) d[i]();
+      // Unwind order, mirroring the client `runDisposal` (#3572): later
+      // registrations run before earlier ones.
+      for (let i = d.length - 1; i >= 0; i--) d[i]();
     } else {
       d();
     }

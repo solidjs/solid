@@ -7,6 +7,7 @@ import {
   createMemo,
   createEffect,
   getOwner,
+  onCleanup,
   flush,
   DEV,
   $DEVCOMP,
@@ -114,10 +115,16 @@ describe("effect cleanup ordering through the dev component wrapper", () => {
   // (unwind order). The transparent observedComponent root adds a nesting level at
   // the same position, so DFS unwind order relative to siblings is identical
   // with and without the wrapper — dev matches prod for the idiomatic 2.0
-  // cleanup form. (Raw onCleanup in a component body still lands on the
-  // wrapper and is a known dev divergence — see #1561/#2710 assessment.)
-  // Disposal order is not a documented guarantee; this pins implementation
-  // behavior so changes to it are deliberate.
+  // cleanup form.
+  //
+  // Disposal order IS documented (#3572): children before the owner's own
+  // cleanups, and within one owner later registrations before earlier ones.
+  // Raw `onCleanup` in a component body lands on the wrapper in dev and on
+  // the enclosing owner in prod; the unwind rule makes the two agree when
+  // the parent registers BEFORE creating its children (the tests below).
+  // Two shapes remain documented divergences: a parent registering
+  // `onCleanup` AFTER creating its children, and a parent effect-returned
+  // cleanup vs a child body's `onCleanup` — see #1561/#2710.
   test("effect-returned cleanups order the same with and without the wrapper", () => {
     const run = (wrap: boolean) => {
       const order: string[] = [];
@@ -155,6 +162,58 @@ describe("effect cleanup ordering through the dev component wrapper", () => {
     expect(dev).toEqual(prod);
     // Children unwind newest-first at their structural positions.
     expect(dev).toEqual(["sibling:after", "child:B", "child:A", "sibling:before"]);
+  });
+
+  // The #3572 shapes: raw `onCleanup` in component bodies where the parent
+  // registers before rendering its children. `wrap=true` is the dev tier
+  // (each component gets its own transparent owner); `wrap=false` is the
+  // flattened prod shape (every body shares the enclosing owner). Both must
+  // unwind children-first.
+  const unwind = (build: (call: (C: () => any) => any, order: string[]) => void) => {
+    const run = (wrap: boolean) => {
+      const order: string[] = [];
+      const call = (C: () => any) => (wrap ? createComponent(C, {}) : C());
+      createRoot(dispose => {
+        build(call, order);
+        flush();
+        dispose();
+      });
+      flush();
+      return order;
+    };
+    const wrapped = run(true);
+    const flattened = run(false);
+    expect(flattened).toEqual(wrapped);
+    return wrapped;
+  };
+
+  test("parent registers onCleanup then renders a child: child tears down first (wrapped and flattened)", () => {
+    const order = unwind((call, order) => {
+      const Child = () => (onCleanup(() => order.push("child")), null);
+      const Parent = () => (onCleanup(() => order.push("parent")), call(Child));
+      call(Parent);
+    });
+    expect(order).toEqual(["child", "parent"]);
+  });
+
+  test("parent registers onCleanup then renders siblings: siblings unwind, then parent", () => {
+    const order = unwind((call, order) => {
+      const A = () => (onCleanup(() => order.push("A")), null);
+      const B = () => (onCleanup(() => order.push("B")), null);
+      const Parent = () => (onCleanup(() => order.push("parent")), [call(A), call(B)]);
+      call(Parent);
+    });
+    expect(order).toEqual(["B", "A", "parent"]);
+  });
+
+  test("3-deep chain, each level registering before its child: innermost first", () => {
+    const order = unwind((call, order) => {
+      const Leaf = () => (onCleanup(() => order.push("leaf")), null);
+      const Mid = () => (onCleanup(() => order.push("mid")), call(Leaf));
+      const Top = () => (onCleanup(() => order.push("top")), call(Mid));
+      call(Top);
+    });
+    expect(order).toEqual(["leaf", "mid", "top"]);
   });
 });
 
