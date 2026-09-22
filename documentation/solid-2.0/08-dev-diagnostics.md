@@ -126,6 +126,31 @@ render(
 
 **Scope:** the diagnostic only fires during the synchronous body of `render()` / `hydrate()`. Post-mount route transitions (including lazy route changes) run under their own transitions with the guard off, so they do not emit this warning.
 
+#### `LOADING_ON_OUTSIDE_HOLD`
+
+**Message:** "`on` re-armed a Loading boundary, but `comments` is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. Read `latest()` in `on` to show the fallback now, or move the outside read under the boundary." — or, after the fact: "… but the frame was held until its content settled, so the fallback was never displayed. Read `latest()` in `on` to show the fallback immediately."
+
+**Severity:** `warn` (non-halting)
+
+A `<Loading on={…}>` dependency changed while something under the boundary was pending, so the boundary stopped waiting on its content and staged its fallback. The fallback follows the frame — it lands with the change that caused it — and in this shape that frame waits on the very data the boundary is waiting on, so by the time it commits the content is ready and the fallback is never shown. Two triggers, one code:
+
+- **At the change** (`data.source` names the source): the same async source is also read by a live reader outside the boundary — a sibling `<Loading>` over the same data, an `isPending()` on it in the header, a plain read in the shell. That reader holds the frame until the data lands.
+- **After the fact** (no `data.source`): nothing outside reads the data, but the write happened inside an `action` that stays open until the data lands (a refresh the action awaits, for instance). The action parks the frame past the content's landing, so the staged fallback is cleared before it is displayed. Reported once, when the content settles. A frame held by _other_ data is not reported — that is a race the fallback may still win.
+
+```jsx
+// Warns: B reads the same data() and holds the frame — A's fallback never shows.
+<Loading on={id()} fallback={<Spinner />}>{data()}</Loading>
+<Loading fallback={<Spinner />}>{data()}</Loading>
+
+// Fix 1: the fallback now, beside the held frame.
+<Loading on={latest(id)} fallback={<Spinner />}>{data()}</Loading>
+
+// Fix 2: one boundary owns the read.
+<Loading on={id()} fallback={<Spinner />}>{data()} {data()}</Loading>
+```
+
+Not reported for `on={latest(id)}` (or any display-ahead read in `on`): that fallback shows immediately by the user's choice. See [RFC 05](05-async-data.md#loading-on-prop-dependencies-that-show-the-fallback-again).
+
 #### `CLEANUP_IN_FORBIDDEN_SCOPE`
 
 **Message:** "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
@@ -760,6 +785,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `SETTLE_WALK_UNINITIALIZED_SOURCE` | error     | lifecycle      | Internal: settle walk reached a source that never produced a value (reported)                                              |
 | `STRICT_READ_UNTRACKED`            | warn      | strict-read    | Untracked reactive read in component/effect body                                                                           |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE`    | warn      | async          | Pending async read in trackedEffect/onSettled                                                                              |
+| `LOADING_ON_OUTSIDE_HOLD`          | warn      | async          | `<Loading on>` changed but the frame waits on its data (read outside, or the action outlasts it): fallback never shown     |
 | `NO_OWNER_EFFECT`                  | warn      | lifecycle      | Effect created without reactive owner                                                                                      |
 | `NO_OWNER_CLEANUP`                 | warn      | lifecycle      | `onCleanup` called without owner                                                                                           |
 | `NO_OWNER_BOUNDARY`                | warn      | lifecycle      | Boundary created without owner                                                                                             |

@@ -765,8 +765,9 @@ function createCollectionBoundary<T>(
  *   else holds that frame; together with the rest of the new page during a
  *   held navigation, not before it. Read `latest()` in `on` to show the
  *   fallback immediately, beside the still-held frame. If the same data is
- *   also read outside the boundary, the frame waits on it and no fallback
- *   appears (DEV warns `LOADING_ON_OUTSIDE_HOLD`). Optimistic writes and a
+ *   also read outside the boundary (or the write's action outlasts the
+ *   data), the frame waits on it and no fallback appears (DEV warns
+ *   `LOADING_ON_OUTSIDE_HOLD`). Optimistic writes and a
  *   source going pending notify like any other. The children are not
  *   re-created — they stay alive behind the fallback.
  *

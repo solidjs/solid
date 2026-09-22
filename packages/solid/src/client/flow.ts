@@ -454,13 +454,18 @@ export function Errored(props: {
  * The optional `on` prop is a dependency list. The expression is tracked and
  * its value is irrelevant — what matters is what it reads. Whenever anything
  * it reads changes (a plain write, an optimistic write, a source going
- * pending or landing), the boundary re-arms: if something under it is still
- * pending, it shows `fallback` again right away, in the current frame, until
- * the new content is ready; if nothing is pending, nothing happens. A write
- * made inside a held `action` still re-arms the boundary now — the fallback
- * shows beside the frame the action is still holding, and the action's batch
- * commits later, intact. The children are not re-created; they stay alive
- * behind the fallback.
+ * pending or landing), the boundary stops waiting on its current content and
+ * shows `fallback` again if something under it is still pending, until the
+ * new content is ready; if nothing is pending, nothing happens. The fallback
+ * lands with the same frame as the change that caused it: immediately when
+ * nothing else holds that frame; together with the rest of the new page
+ * during a held navigation (a write inside an `action`, or one whose data
+ * other readers are still waiting on) — never a spinner beside a page the
+ * change has not reached yet. Read `latest()` in `on` to show the fallback
+ * immediately, beside the still-held frame. If the same data is also read
+ * outside the boundary (or the write's action outlasts the data), the frame
+ * waits on it and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD`.
+ * The children are not re-created; they stay alive behind the fallback.
  *
  * Scope `<Loading>` around the data-dependent slot, not the surrounding
  * shell. Wrapping layout chrome (header, nav, footer) in the same boundary
@@ -479,15 +484,20 @@ export function Errored(props: {
  *
  * @example
  * ```tsx
- * // Re-arm on the route: a navigation shows the skeleton immediately while
- * // the new page loads; a refetch of the same route keeps the page visible.
+ * // Depend on the route: a navigation shows the skeleton with the new route
+ * // while the page loads; a refetch of the same route keeps the page visible.
  * <Loading fallback={<Skeleton />} on={route()}>
  *   <Page />
  * </Loading>
  *
- * // Several dependencies: any of them changing re-arms the boundary.
+ * // Several dependencies: a change to any of them shows the fallback.
  * <Loading fallback={<Skeleton />} on={[query(), page()]}>
  *   <Results />
+ * </Loading>
+ *
+ * // The fallback now, beside whatever the navigation is still holding.
+ * <Loading fallback={<Skeleton />} on={latest(route)}>
+ *   <Page />
  * </Loading>
  * ```
  *

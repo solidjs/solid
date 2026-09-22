@@ -47,9 +47,9 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 
 Nested `Loading` boundaries can be used to avoid blocking large subtrees and to control where loading UI appears.
 
-#### `Loading` `on` prop: re-arming the boundary
+#### `Loading` `on` prop: dependencies that show the fallback again
 
-By default, once a `Loading` boundary has rendered content, it keeps that content visible during revalidation: like every reader of a pending value, it holds the write that made it pending until the data lands. The `on` prop is a **dependency list**: a tracked expression whose value is irrelevant — what matters is what it reads. Whenever anything it reads changes, the boundary **re-arms**: if something under it is pending, it shows its fallback again, now, until the new content is ready; if nothing is pending, nothing happens.
+By default, once a `Loading` boundary has rendered content, it keeps that content visible during revalidation: like every reader of a pending value, it holds the write that made it pending until the data lands. The `on` prop is a **dependency list**: a tracked expression whose value is irrelevant — what matters is what it reads. Whenever anything it reads changes, the boundary stops waiting on its current content: if something under it is pending, it shows its fallback again until the new content is ready; if nothing is pending, nothing happens.
 
 ```jsx
 // Without on: stale content shown during revalidation
@@ -62,15 +62,27 @@ By default, once a `Loading` boundary has rendered content, it keeps that conten
   <UserProfile id={id()} />
 </Loading>
 
-// Several dependencies: a change to any of them re-arms
+// Several dependencies: a change to any of them shows the fallback
 <Loading on={[query(), page()]} fallback={<Spinner />}>
   <Results />
 </Loading>
 ```
 
-The re-arm is a change to the **current frame**. A write that makes the profile pending is held by the readers showing the old profile — the write's whole batch commits when the data lands — but the boundary's swap to its fallback is not part of that batch: it lands in the frame being displayed, beside whatever the write is still holding elsewhere on the page. This is the point of `on`: to stop waiting on the old content for this slot without changing when the write itself commits. The children are not re-created; they stay alive behind the fallback and reveal again when the pending data lands.
+The fallback **follows the frame**: it lands with the same frame as the change that caused it. When nothing else on the page is waiting on that change, that is immediately — the new `id` and the spinner appear together. During a held navigation — the write happened inside an `action`, or other readers outside the boundary are still waiting on data the change put in flight — the fallback lands together with the rest of the new page, not before it. What `on` changes is the boundary's own hold: it stops waiting on the old content for this slot, so the frame no longer waits for it. The children are not re-created; they stay alive behind the fallback and reveal again when the pending data lands.
 
-Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` re-arms whenever `id` changes, and an expression that reads nothing reactive never re-arms. Optimistic writes to a dependency notify like any other write; `latest()` and `isPending()` inside `on` are ordinary reads. A zero-argument function is a tracked accessor, not a callback.
+Take a product page whose shell reads `product(id)` outside a `<Loading on={id()}>` whose content reads `comments(id)`. Navigating from product A to B:
+
+```
+no on:         [A]  →  [B + comments]                  the frame waits for both
+on={id()}:     [A]  →  [B + spinner]  →  [B + comments]  the fallback lands with B
+on={latest(id)}: [A] → [A + spinner]  →  [B + spinner]  →  [B + comments]
+```
+
+The shell keeps showing A until `product(2)` lands; the spinner arrives with B, not beside A for a change the page does not reflect yet. If the comments land before the shell, no fallback is ever shown. To show the fallback immediately, beside the still-held frame, read `latest()` in `on` (the last line above): a display-ahead read says the change is already on screen, so the fallback belongs there too. The same goes for any display-ahead state read in `on` — `isPending()`, an optimistic signal.
+
+One shape shows no fallback at all: when the data the boundary is waiting on is also read outside it (a sibling `<Loading>` over the same `comments(id)`, an `isPending` on it in the header), or the write's `action` stays open until the data lands. The frame waits on that read, so by the time it commits the content is ready and the fallback was never needed. In development the `LOADING_ON_OUTSIDE_HOLD` diagnostic names the source and the fix: read `latest()` in `on`, or move the outside read under the boundary.
+
+Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` notifies whenever `id` changes, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. A zero-argument function is a tracked accessor, not a callback.
 
 `Errored` accepts the same `on`: while its error fallback shows, a change to a dependency clears the error and retries the children — `reset()` driven by data (reset keys). See [RFC 03](03-control-flow.md#error-boundary-errored).
 

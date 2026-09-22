@@ -121,7 +121,7 @@ This is primarily intended for use with **stores**, where the data at each index
 
 In 2.0’s async model, async values are part of computations (not a separate `createResource`), so `Loading` is the user-facing “this subtree may be not ready yet” boundary.
 
-`Loading` also accepts an `on` prop — a dependency list: a tracked expression whose value is irrelevant; whenever anything it reads changes, the boundary shows its fallback again (if something under it is still pending) instead of keeping stale content. See [RFC 05](05-async-data.md) for details.
+`Loading` also accepts an `on` prop — a dependency list: a tracked expression whose value is irrelevant; whenever anything it reads changes, the boundary stops waiting on its current content and shows its fallback again (if something under it is still pending) instead of keeping stale content. The fallback lands with the same frame as the change that caused it — immediately when nothing else holds that frame, together with the rest of the new page during a held navigation; read `latest()` in `on` to show it immediately beside the still-held frame. See [RFC 05](05-async-data.md#loading-on-prop-dependencies-that-show-the-fallback-again) for the product-page walkthrough and the `LOADING_ON_OUTSIDE_HOLD` diagnostic.
 
 ### Error boundary: `Errored`
 
