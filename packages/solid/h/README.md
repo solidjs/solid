@@ -40,7 +40,7 @@ render(Counter, document.getElementById("app"));
 
 ## Differences from JSX
 
-There are a few differences from Solid's JSX that are important to note. And also apply when attempting use any transformation that would compile to HyperScript.
+There are a few differences from Solid's JSX that are important to note. They also apply when attempting to use any transformation that would compile to HyperScript.
 
 1. Reactive expression must be manually wrapped in functions to be reactive.
 
