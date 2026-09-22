@@ -451,9 +451,10 @@ describe("fallback records", () => {
     fallbacks.length = 0;
 
     t.setId(2);
-    flush();
+    flush(); // the re-arm stages the swap — not displayed
     await wait(15);
     // Product lands: the new shell AND the spinner commit together.
+    const committed = performance.now();
     t.land("product");
     await until(() => t.view.shell === "product 2", "shell");
     expect(t.view).toEqual({ shell: "product 2", comments: "spinner" });
@@ -462,9 +463,11 @@ describe("fallback records", () => {
     t.land("comments");
     await until(() => t.view.comments === "comments 2", "content");
     expect(fallbacks).toHaveLength(1);
-    // Timed from the commit that displayed it, not from the re-arm that staged it.
+    // Timed from the commit that displayed it, not from the re-arm that
+    // staged it 15ms+ earlier: `at` is at or after the landing, and the
+    // showing is at least the wait between landing and content.
+    expect(fallbacks[0].at).toBeGreaterThanOrEqual(committed);
     expect(fallbacks[0].shownMs).toBeGreaterThanOrEqual(10);
-    expect(fallbacks[0].shownMs).toBeLessThan(30);
   });
 
   it("is listener-gated: a show with no listener produces nothing at hide", async () => {

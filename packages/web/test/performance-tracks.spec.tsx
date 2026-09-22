@@ -55,14 +55,17 @@ afterEach(() => {
 
 // jsdom's `performance` has no User Timing and its console no `timeStamp`;
 // install recording stand-ins per test and take them down after.
-const originals = [
-  [performance, "measure"],
-  [performance, "clearMeasures"],
-  [performance, "mark"],
-  [performance, "clearMarks"],
-  [console, "timeStamp"],
-  [console, "createTask"]
-].map(([target, name]) => [target, name, Object.getOwnPropertyDescriptor(target, name)] as const);
+const originals = (
+  [
+    [performance, "measure"],
+    [performance, "clearMeasures"],
+    [performance, "mark"],
+    [performance, "clearMarks"],
+    [performance, "getEntriesByName"],
+    [console, "timeStamp"],
+    [console, "createTask"]
+  ] as [object, string][]
+).map(([target, name]) => [target, name, Object.getOwnPropertyDescriptor(target, name)] as const);
 function restorePerformance() {
   for (const [target, name, original] of originals) {
     if (original) Object.defineProperty(target, name, original);
