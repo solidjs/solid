@@ -330,7 +330,15 @@ module.exports = [
     // its loop, pointing each drained child's prev at itself and reading its
     // next sibling after its disposal. +63 B minified in the in-package
     // floor (26,054 -> 26,117); the rest is mangler/brotli layout.
-    limit: "9.70 KB",
+    // Held truth masks lane passes only (#3164 ruling, #3568; 2026-09-22):
+    // 9.70 -> 9.75 KB, measured at 9,711 B against `next`'s 9,685 (+26 B).
+    // Core-retained: readerSeesCommitted's CONFIG_HELD_TRUTH arm gains a
+    // `currentOptimisticLane !== null` term — deriving readers of held truth
+    // fall through to the A29 arm instead of being served committed. +10 B
+    // minified in the in-package floor (26,117 -> 26,127); the rest is brotli
+    // layout. The store twin (`heldTruthMasked`) is in the store module:
+    // + createStore is -5 B, isPending/latest -45 B (mangler/brotli layout).
+    limit: "9.75 KB",
     modifyEsbuildConfig
   },
   {

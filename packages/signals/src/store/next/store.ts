@@ -32,6 +32,7 @@ import {
 } from "../../core/constants.js";
 import {
   context,
+  currentOptimisticLane,
   devGuardStoreSetterResult,
   devGuardStoreSetterWrite,
   isEqual,
@@ -396,8 +397,9 @@ function liveFoldTransition(target: StoreNextTarget): Transition | null {
  * draft the backing is the setter's working copy, not a flushed hold — its
  * nodes take their writes at setter exit (notifyWrites). Optimistic families
  * hold at the backing: tentative writes are node overrides over a discarded
- * clone, and a truth-staged landing is masked from ordinary readers by
- * heldTruthMasked — neither is a plain staged write to mirror. Chained
+ * clone, and a truth-staged landing is served through the fold's own hold
+ * (heldTruthMasked for lane passes, pendingBackingVisible's hold arms for
+ * the rest) — neither is a plain staged write to mirror. Chained
  * backings serve the inner store's live value, never a node value. */
 function heldFoldTransition(target: StoreNextTarget): Transition | null {
   if (target.ch || target.fam?.opt === true || inDraft(target)) return null;
@@ -1694,10 +1696,12 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
   if (target.pb === null) return false;
   // The writer's own channels compose on the pending backing regardless.
   if (inDraft(target) || getWriteOverride()) return true;
-  // HELD truth on an optimistic family (#3164 fold) is masked from ordinary
-  // readers until the transaction's reveal (the backing-level twin of core
+  // HELD truth on an optimistic family (#3164 fold) is masked from LANE
+  // passes until the transaction's reveal (the backing-level twin of core
   // serve()'s CONFIG_HELD_TRUTH arm; authoritative postures and latest()
-  // tunnel through inside heldTruthMasked).
+  // tunnel through inside heldTruthMasked). Every other reader takes the
+  // hold arms below: committed for no pass, the staged backing for the
+  // holding pass, stale-of-foreign or A29 for a foreign one.
   if (heldTruthMasked(target)) return false;
   const c = readerContext();
   if (c === null || c._config & CONFIG_CHILDREN_FORBIDDEN) {
@@ -1716,13 +1720,21 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing
- * stamped by a live transition that retains optimism — is masked from
- * ordinary readers (they keep committed until the transaction's reveal);
- * the authoritative postures and latest() tunnel through. Un-stamped
- * backings and optimism-free transitions keep ordinary mid-batch/
- * speculation visibility. */
+ * stamped by a live transition that retains optimism — is masked from LANE
+ * passes only (a lane paints display-ahead at the park, so it keeps
+ * committed until the transaction's reveal — owning transaction or not);
+ * the authoritative postures and latest() tunnel through, and every other
+ * reader is served by the ordinary hold arms (a deriving pass is held with
+ * the truth, A29). Un-stamped backings and optimism-free transitions keep
+ * ordinary mid-batch/speculation visibility. */
 function heldTruthMasked(target: StoreNextTarget): boolean {
-  if (target.fam?.opt !== true || latestReadActive || authoritativeServe()) return false;
+  if (
+    target.fam?.opt !== true ||
+    currentOptimisticLane === null ||
+    latestReadActive ||
+    authoritativeServe()
+  )
+    return false;
   const fb = foldBatches.get(target);
   // opt families are only created by createOptimisticStore, whose module
   // install populates optHooks — the assertion holds by construction.

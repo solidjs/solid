@@ -571,12 +571,15 @@ export const STATES: State[] = [
     expect: {
       untracked: rule(
         0,
-        "A17 held truth (#3164): staged confirming truth is masked from ordinary readers until the transaction's reveal"
+        "Rule 1 / held truth (#3164): an untracked read keeps the committed frame until the transaction's reveal"
       ),
-      derivesFrom: rule(0, "A17 held truth: ordinary tracked readers keep committed"),
-      published: observed(
-        0,
-        "a fresh reader of a held-truth node publishes the committed value; no rule names the fresh-reader cell"
+      derivesFrom: rule(
+        1,
+        "held truth (#3164, lane-only mask): to a deriving reader the stolen confirming truth is a staged value like any other — the memo derives from it and enters the transaction (A29); only a lane pass is masked"
+      ),
+      published: rule(
+        HELD,
+        "A29: the memo that derived from the held truth is held with the transaction — its render effect publishes at the reveal, not before"
       ),
       preexisting: observed(
         0,

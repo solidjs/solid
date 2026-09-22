@@ -400,6 +400,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // splice pointed at itself and its next read after its disposal, so a
     // node a cleanup links mid-drain survives the drain without cutting the
     // drain short.
+    // Held truth masks lane passes only (#3164 ruling, #3568; 2026-09-22):
+    // +10 B core-retained (26,117 -> 26,127) — readerSeesCommitted's
+    // CONFIG_HELD_TRUTH arm gains a `currentOptimisticLane !== null` term, so
+    // a deriving reader of held truth takes the A29 arm.
     expect(minifiedBytes).toBeLessThan(26_160);
   });
 
