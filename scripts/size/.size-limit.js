@@ -1584,7 +1584,12 @@ module.exports = [
     // structurally identical (same byte count; identifier-normalised diff
     // empty) — esbuild's name assignment under brotli, see the hydrating
     // note. The signals-only prod scenarios are byte-identical.
-    limit: "15.80 KB",
+    // Rebased over #3586 and #3555 (2026-09-22): 15.80 -> 15.85 KB, measured
+    // at 15,815 B against `next`'s 15,764 (+51 B). Re-verified: the minified
+    // bundles are 44,649 B on both sides and differ only in which short name
+    // esbuild assigns where; the same brotli noise as above, now on top of
+    // the upstream bytes, which those PRs left 36 B under this cap.
+    limit: "15.85 KB",
     modifyEsbuildConfig
   },
   {
