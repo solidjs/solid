@@ -662,6 +662,20 @@ function createDeferredPromise<T>(): DeferredPromise<T> {
     resolvePromise = resolve;
     rejectPromise = reject;
   }) as DeferredPromise<T>["promise"];
+  // Observed at birth. This deferred is an internal channel: its outcome is
+  // always mirrored where it matters (`comp.error`, the slot record, the
+  // guarded serialized promise), and `settleServerAsync` settles it
+  // unconditionally — a serialized flight must land whatever the node's
+  // lifetime. But not every flight has a consumer: under renderToString
+  // there is no serialization channel (`ctx.async` unset) and the sync
+  // `<Loading>` path never awaits the NotReadyError's source; a
+  // NoHydration zone or `serialize: false` opts out of the stream; an
+  // unread source has no reader at all. There, a terminal rejection landed
+  // on a promise with zero subscribers — an unhandledRejection that took
+  // the process down after the HTML had already been returned (#3570).
+  // A no-op rejection arm is a separate derived promise: real subscribers
+  // still see the rejection exactly as before.
+  promise.then(undefined, () => {});
 
   return {
     promise,
