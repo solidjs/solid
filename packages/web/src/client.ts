@@ -2621,7 +2621,7 @@ function insertExpression(parent, value, current, marker) {
   } else if (value.nodeType) {
     if (Array.isArray(current)) {
       cleanChildren(parent, current, multi ? marker : null, value);
-    } else if (current && current.nodeType) {
+    } else if (current != null && current.nodeType) {
       // `current` is a node we previously inserted but it may have been
       // moved out by user code (e.g. ref-driven migration, JSX wrapping)
       // since the last render. If it's still here, replace it in place;
@@ -2629,14 +2629,17 @@ function insertExpression(parent, value, current, marker) {
       current.parentNode === parent
         ? parent.replaceChild(value, current)
         : parent.appendChild(value);
-    } else if (current && parent.firstChild) {
+    } else if (current != null && parent.firstChild) {
+      // A sole text child is the raw primitive, and `0` / `NaN` are falsy.
+      // Truthiness would skip this replace and leave that text node beside
+      // the new element (#3571).
       parent.replaceChild(value, parent.firstChild);
     } else {
       parent.appendChild(value);
     }
     if (marker) value[$$SLOT] = marker;
   } else if (Array.isArray(value)) {
-    const currentArray = current && Array.isArray(current);
+    const currentArray = Array.isArray(current);
     // Commit-time text materialization (normalize left primitives raw): a
     // primitive slot adopts the positional text node with a `.data` write
     // when one is there, and allocates only otherwise. The adopted node's
@@ -2661,7 +2664,8 @@ function insertExpression(parent, value, current, marker) {
         appendNodes(parent, value, marker);
       } else reconcileArrays(parent, current, value, marker);
     } else {
-      current && cleanChildren(parent, current);
+      // Same sole-primitive case: `0` / `NaN` still own a text node (#3571).
+      if (current != null) cleanChildren(parent, current);
       appendNodes(parent, value);
     }
   } else if ("_SOLID_DEV_")
