@@ -1331,23 +1331,32 @@ function logRerun(event: RerunEvent): void {
  */
 export interface Attribution {
   /**
-   * Install the engine, or take one more hold on it. The engine is shared
-   * by every consumer in the page — a profiler track, an APM adapter, a
-   * diagnostics capture — so `enable()` counts holders: the first call
-   * installs the hooks and resets everything; a call while already enabled
-   * opens a fresh window over the ring buffers and folds (`history()`,
-   * `holds()`, `costs()`, `feedback()` … read from here on) without
-   * disturbing the live tracking state or anyone's subscriptions, so a
-   * capture begun beside a running consumer still measures only its own
-   * scenario. Options are applied on every call — the latest caller's
-   * thresholds are in effect.
+   * Install the engine, or take one more hold on it, and return the release
+   * for that hold. The engine is shared by every consumer in the page — a
+   * profiler track, an APM adapter, a diagnostics capture — so each
+   * `enable()` is a hold: the first installs the hooks and resets
+   * everything; one taken while already enabled opens a fresh window over
+   * the ring buffers and folds (`history()`, `holds()`, `costs()`,
+   * `feedback()` … read from here on) without disturbing the live tracking
+   * state or anyone's subscriptions, so a capture begun beside a running
+   * consumer still measures only its own scenario.
+   *
+   * Options layer: the options in effect are the defaults with each live
+   * hold's `opts` applied over them in the order the holds were taken, so
+   * the latest hold's thresholds win for the keys it names, and releasing a
+   * hold removes its layer — a track that took `log: false` beside a console
+   * session gives the log back when it goes. The release is idempotent; the
+   * last release uninstalls the hooks, clears every ring buffer and drops
+   * every subscription. A consumer that re-`enable()`s to reopen its window
+   * must release both holds (or `disable()`).
    */
-  enable(opts?: AttributionOptions): void;
+  enable(opts?: AttributionOptions): () => void;
   /**
-   * Release one hold. The engine stays installed — hooks, subscriptions,
-   * tracking state — while any other holder remains; the last release
-   * uninstalls the hooks, clears every ring buffer and drops every
-   * subscription. A `disable()` with no hold outstanding is a full reset.
+   * Tear the engine down whatever holds are outstanding: drops every hold,
+   * uninstalls the hooks, clears every ring buffer and every subscription.
+   * The console's and a test harness's reset — a consumer sharing the page
+   * with others releases its own hold with the function `enable()` returned
+   * instead. Idempotent; a `disable()` with nothing enabled is a no-op reset.
    */
   disable(): void;
   /**
@@ -3601,10 +3610,15 @@ const engineHooks: AttributionHooks = {
 };
 
 /**
- * Outstanding `enable()` holds. The engine is one per process and shared by
- * every consumer on the page; it stays installed while any hold remains.
+ * Outstanding `enable()` holds, in the order taken. The engine is one per
+ * process and shared by every consumer on the page; it stays installed while
+ * any hold remains, and the options in effect are the holds' layered in this
+ * order (see `applyOptions`).
  */
-let holders = 0;
+interface Hold {
+  opts: AttributionOptions | undefined;
+}
+const holds: Hold[] = [];
 
 /**
  * The windows: what a consumer reads back — the ring buffers, the once-only
@@ -3644,8 +3658,10 @@ function resetTracking(): void {
   currentInteraction = null;
 }
 
-function applyOptions(opts?: AttributionOptions): void {
-  options = { ...defaultOptions, ...opts };
+/** Recompute the options in effect: the defaults, each live hold layered over in hold order. */
+function applyOptions(): void {
+  options = { ...defaultOptions };
+  for (const hold of holds) options = { ...options, ...hold.opts };
   if (!options.checks) {
     options.hotRuns = false;
     options.hotTime = false;
@@ -3655,24 +3671,38 @@ function applyOptions(opts?: AttributionOptions): void {
   }
 }
 
+/** The last hold is gone (or `disable()` was called): uninstall and clear everything. */
+function uninstall(): void {
+  holds.length = 0;
+  applyOptions();
+  attributionActive = false;
+  clearListeners();
+  resetWindows();
+  resetTracking();
+  setAttributionHooks(null);
+}
+
 export const attribution: Attribution = {
   enable(opts?: AttributionOptions) {
-    applyOptions(opts);
-    holders++;
+    const hold: Hold = { opts };
+    holds.push(hold);
+    applyOptions();
     resetWindows();
-    if (attributionActive) return;
-    attributionActive = true;
-    resetTracking();
-    setAttributionHooks(engineHooks);
+    if (!attributionActive) {
+      attributionActive = true;
+      resetTracking();
+      setAttributionHooks(engineHooks);
+    }
+    return () => {
+      const i = holds.indexOf(hold);
+      if (i === -1) return;
+      holds.splice(i, 1);
+      if (holds.length === 0) uninstall();
+      else applyOptions();
+    };
   },
   disable() {
-    if (holders > 0) holders--;
-    if (holders > 0) return;
-    attributionActive = false;
-    clearListeners();
-    resetWindows();
-    resetTracking();
-    setAttributionHooks(null);
+    uninstall();
   },
   subscribe(
     typeOrListener: AttributionRecordType | ((event: RerunEvent) => void),

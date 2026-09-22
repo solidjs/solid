@@ -14,7 +14,7 @@ const EMPTY: readonly never[] = Object.freeze([]);
 const noop = () => {};
 
 export const attribution: Attribution = {
-  enable: noop,
+  enable: () => noop,
   disable: noop,
   subscribe: () => noop,
   history: () => EMPTY,

@@ -935,6 +935,33 @@ describe("enablePerformanceTracks", () => {
     attribution.disable();
   });
 
+  test("joining an engine another consumer holds leaves their log on; installing it, the log is off", () => {
+    measures();
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "groupCollapsed").mockImplementation(() => {});
+    vi.spyOn(console, "groupEnd").mockImplementation(() => {});
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => createRenderEffect(n, () => {}, { name: "reader" }));
+    flush();
+
+    // The adapter installs the engine: no console log — the timeline is the output.
+    const alone = enable();
+    setN(1);
+    flush();
+    expect(logged).not.toHaveBeenCalled();
+    alone();
+
+    // A console session holds the engine with the log on; the adapter joins
+    // and layers only what it was given — the session keeps its log.
+    const releaseConsole = attribution.enable({ hotRuns: false, hotTime: false, wideDeps: false });
+    const joined = enable();
+    setN(2);
+    flush();
+    expect(logged).toHaveBeenCalledTimes(1);
+    joined();
+    releaseConsole();
+  });
+
   test("alone on the engine, disable uninstalls it", () => {
     measures();
     const disable = enable();

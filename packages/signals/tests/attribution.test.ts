@@ -715,7 +715,7 @@ describe("why-did-this-run attribution", () => {
   });
 });
 
-describe("shared engine: ref-counted enable/disable", () => {
+describe("shared engine: holds, releases, layered options", () => {
   function counter() {
     const [n, setN] = createSignal(0, { name: "n" });
     createRoot(() =>
@@ -729,13 +729,13 @@ describe("shared engine: ref-counted enable/disable", () => {
     return setN;
   }
 
-  it("stays installed until the last consumer disables", () => {
+  it("stays installed until the last hold is released", () => {
     const setN = counter();
     const first: RerunEvent[] = [];
     const second: RerunEvent[] = [];
-    attribution.enable({ log: false });
+    const releaseFirst = attribution.enable({ log: false });
     attribution.subscribe(e => first.push(e));
-    attribution.enable({ log: false });
+    const releaseSecond = attribution.enable({ log: false });
     attribution.subscribe(e => second.push(e));
 
     setN(1);
@@ -744,14 +744,15 @@ describe("shared engine: ref-counted enable/disable", () => {
     expect(second).toHaveLength(1);
 
     // One consumer leaves: the other keeps receiving.
-    attribution.disable();
+    releaseFirst();
+    releaseFirst(); // idempotent: not the second consumer's hold
     setN(2);
     flush();
     expect(first).toHaveLength(2);
     expect(second).toHaveLength(2);
 
     // The last one leaves: uninstalled, listeners cleared.
-    attribution.disable();
+    releaseSecond();
     setN(3);
     flush();
     expect(first).toHaveLength(2);
@@ -761,20 +762,71 @@ describe("shared engine: ref-counted enable/disable", () => {
 
   it("opens a fresh window on every enable without uninstalling", () => {
     const setN = counter();
-    attribution.enable({ log: false });
+    const release = attribution.enable({ log: false });
     setN(1);
     flush();
     expect(attribution.history()).toHaveLength(1);
 
     // A second consumer arrives (say, a capture): it reads back only what
     // happens from here on.
-    attribution.enable({ log: false });
+    const releaseCapture = attribution.enable({ log: false });
     expect(attribution.history()).toHaveLength(0);
     setN(2);
     flush();
     expect(attribution.history()).toHaveLength(1);
+    releaseCapture();
+    release();
+  });
+
+  it("options layer in hold order and a released hold's layer goes with it", () => {
+    const setN = counter();
+    const events: RerunEvent[] = [];
+    // A console session with the log on.
+    // One `console.log` per logged re-run on either path (plain, or the
+    // grouped one whose body is the `log` call).
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "groupCollapsed").mockImplementation(() => {});
+    vi.spyOn(console, "groupEnd").mockImplementation(() => {});
+    const logs = () => logged.mock.calls.length;
+    const releaseConsole = attribution.enable({ hotRuns: false, hotTime: false, wideDeps: false });
+    attribution.subscribe(e => events.push(e));
+    setN(1);
+    flush();
+    expect(logs()).toBe(1);
+
+    // A track joins and takes the log off: its layer is over the console's.
+    const releaseTrack = attribution.enable({ log: false });
+    setN(2);
+    flush();
+    expect(logs()).toBe(1);
+    expect(events).toHaveLength(2);
+
+    // The track leaves: the console's log is back — nothing was rebuilt
+    // from defaults; the console's own options are still in effect.
+    releaseTrack();
+    setN(3);
+    flush();
+    expect(logs()).toBe(2);
+    releaseConsole();
+  });
+
+  it("disable() tears down whatever holds are outstanding", () => {
+    const setN = counter();
+    const events: RerunEvent[] = [];
+    // A consumer that re-enables to reopen its window and then calls disable()
+    // once — the pre-token idiom — leaves nothing behind.
+    const release = attribution.enable({ log: false });
+    attribution.enable({ log: false });
+    attribution.subscribe(e => events.push(e));
     attribution.disable();
-    attribution.disable();
+    setN(1);
+    flush();
+    expect(events).toHaveLength(0);
+    expect(attribution.history()).toHaveLength(0);
+    release(); // a release after the teardown is a no-op
+    setN(2);
+    flush();
+    expect(attribution.history()).toHaveLength(0);
   });
 
   it("disable without a matching enable is a full, idempotent reset", () => {

@@ -51,9 +51,11 @@ at t=0.003 in a fixed order.
 Stages, as landed (one commit each on the branch):
 
 - **Stage 0 — shared foundation** (`@solidjs/signals`, `@solidjs/web`):
-  ref-counted `attribution.enable()`/`disable()` (live state survives until
-  the last hold; each `enable()` resets the aggregation windows, which is
-  what a capture wants); `AttributionOptions.checks` (default `true`, D2
+  `attribution.enable()` as a hold returning its release (live state
+  survives until the last hold; options layer in hold order and a released
+  hold's layer goes with it; `disable()` is the full teardown; each
+  `enable()` resets the aggregation windows, which is what a capture wants
+  — the token form landed in review, replacing a counted `disable()`); `AttributionOptions.checks` (default `true`, D2
   proper still open); `isSilentHold`/`isLongHold` on the public entry;
   `dispatchAsInteraction` passes `at: e.timeStamp` and the record carries
   `inputDelayMs`; the INP join recipe documented (`entry.startTime ===
@@ -176,8 +178,8 @@ transition)`. Shape: `{ ownerPath?, at, shownMs, interaction? }` (item 4's
 ## Coordination
 
 - **Sentry (`@sentry/solid-2`, paused).** Unaffected by Stage 4 (adapter-side,
-  dev-only). Benefits from Stages 0–3.5 on rebase: ref-counted `enable()`
-  (it and this adapter can now coexist), `at`/`inputDelayMs` for the INP
+  dev-only). Benefits from Stages 0–3.5 on rebase: `enable()` as a hold with
+  a release (it and this adapter can now coexist), `at`/`inputDelayMs` for the INP
   join, the timeline records, and source names in `ownerPath`. One caveat
   for its brief: its diagnostics fingerprint is `[code, ...ownerPath]`, and
   the renamed internal nodes (`computed` → `children`, `effect` →

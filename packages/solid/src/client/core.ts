@@ -5,7 +5,8 @@ import {
   untrack,
   setContext,
   getContext,
-  flatten
+  flatten,
+  OBSERVE
 } from "@solidjs/signals";
 import type { Accessor, EffectOptions } from "@solidjs/signals";
 import type { ArrayElement, Element as SolidElement } from "../types.js";
@@ -229,7 +230,11 @@ export interface ComponentRecord<P = unknown> {
   props: P;
   /** The source tag when the compiler emitted one, else `fn.name`. */
   name: string | undefined;
-  /** The JSX site as a console task, when the console supports it (see `createConsoleTask`). */
+  /**
+   * The JSX site as a console task — when the console supports it and an
+   * attribution engine was installed when the component rendered (see
+   * `createConsoleTask` and the note at its use).
+   */
   task: ConsoleTask | undefined;
 }
 
@@ -261,13 +266,18 @@ export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: 
         // performance tracks painting a re-run span — runs its
         // `performance.measure` inside `task.run(...)`, and the entry's
         // stack in the panel points at where the component was rendered
-        // rather than at the observer. Cheap while DevTools is closed (no
-        // stack is captured until the inspector asks for one).
+        // rather than at the observer. Only while an attribution engine is
+        // installed: `console.createTask` costs a stack capture per call
+        // (about the component wrapper's own cost again, and ~90 B retained
+        // per instance, DevTools open or not), and only an attribution
+        // consumer ever reads the task — so a dev session with nothing
+        // enabled pays nothing, and a consumer that enables before render
+        // (the tracks at bootstrap) sees every component's site.
         const record: ComponentRecord<P> = {
           fn: Comp,
           props,
           name,
-          task: createConsoleTask(label)
+          task: OBSERVE!.attribution.installed !== null ? createConsoleTask(label) : undefined
         };
         owner._component = record;
         Object.assign(Comp, { [$DEVCOMP]: true });

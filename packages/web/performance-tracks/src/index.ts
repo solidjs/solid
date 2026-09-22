@@ -64,10 +64,12 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 export interface PerformanceTracksOptions {
   /**
-   * Options for the engine hold this adapter takes
-   * (`attribution.enable({ log: false, ...attribution })`). The console log
-   * is off by default — the timeline is the output. `checks` is left to the
-   * engine's default; pass `checks: false` for records only.
+   * Options for the engine hold this adapter takes (`attribution.enable`).
+   * When the adapter is what installs the engine, the console log is off by
+   * default (`log: false` — the timeline is the output); joining an engine
+   * another consumer already holds, it leaves their options alone and layers
+   * only what is passed here. `checks` is left to the engine's default; pass
+   * `checks: false` for records only.
    */
   attribution?: AttributionOptions;
   /**
@@ -193,9 +195,9 @@ const noop = (): void => {};
  * that reads those — Firefox's profiler, Lighthouse, RUM — sees the same
  * spans as plain measures.
  *
- * Takes its own hold on the engine (`attribution.enable`), which is
- * ref-counted: enabling beside a diagnostics capture or an APM adapter
- * disturbs neither, and releasing here leaves theirs in place. Subscribing
+ * Takes its own hold on the engine (`attribution.enable`): enabling beside
+ * a diagnostics capture or an APM adapter disturbs neither, and releasing
+ * here leaves theirs in place. Subscribing
  * to the engine's timeline records (`create`, `effect`, `flush`, `flight`,
  * `fallback`) is what turns them on — they are built only while a listener
  * exists, so the engine pays for them only while the tracks are enabled.
@@ -228,8 +230,12 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   const scrub = options.scrub ?? !IS_DEV;
   const painter = new Painter(observe, emitter, minMs, scrub);
 
-  attribution.enable({ log: false, ...options.attribution });
   const releases = [
+    attribution.enable(
+      observe.attribution.installed === null
+        ? { log: false, ...options.attribution }
+        : options.attribution
+    ),
     attribution.subscribe("rerun", e => painter.rerun(e)),
     attribution.subscribe("create", e => painter.create(e)),
     attribution.subscribe("effect", e => painter.effect(e)),
@@ -254,7 +260,6 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
         if (--active.holders > 0 || instance !== active) return;
         instance = null;
         for (const release of releases) release();
-        attribution.disable();
         emitter.dispose();
       };
     }
