@@ -380,13 +380,12 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // finalizePureQueue, and the simple-sync-flush gate on the set. The set
     // is the scheduler's because the drain point is: the re-arm must run
     // mainline, past the transaction park, which only the flush knows.
-    // `on` follows the frame (#3540, 2026-09-21): +46 B core-retained
-    // (25,958 -> 26,004) — a second drain point in flush, after the heap and
-    // before the verdict (`drainRearms(false)` plus the heap re-run that
-    // stages the boundary's output pass with the frame), the `mainline`
-    // argument threaded through the drain, and `reporterBlocksSource`'s
-    // export (free: a name, not code).
-    expect(minifiedBytes).toBeLessThan(26_050);
+    // `on` follows the frame (#3540, 2026-09-21): +26 B core-retained
+    // (25,958 -> 25,984) — the drain point moves from finalizePureQueue into
+    // flush, after the heap and before the verdict (`drainRearms()` plus the
+    // heap re-run that stages the boundary's output pass with the frame), and
+    // `notifyOnLane` (the display-ahead swap's lane-channel notification).
+    expect(minifiedBytes).toBeLessThan(26_030);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

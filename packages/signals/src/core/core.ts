@@ -168,6 +168,22 @@ export let latestReadActive = false;
 export let context: Owner | null = null;
 export let currentOptimisticLane: OptimisticLane | null = null;
 
+/** Notify `node`'s subscribers on `lane`'s channel: they recompute as the
+ * lane's passes — a memo publishes a derived override (lanes stage, #3479),
+ * an effect runs from the lane's queue, at the park, ahead of the
+ * transaction — the display-ahead view. The write itself is already staged
+ * (setSignal) and commits with the frame; this walk shows it now. Used by a
+ * boundary re-armed from a lane pass (boundaries.ts `_swap`, #3540). */
+export function notifyOnLane(node: Signal<any>, lane: OptimisticLane): void {
+  const prev = currentOptimisticLane;
+  currentOptimisticLane = lane;
+  try {
+    insertSubs(node, true);
+  } finally {
+    currentOptimisticLane = prev;
+  }
+}
+
 export let snapshotCaptureActive = false;
 export let snapshotSources: Set<any> | null = null;
 

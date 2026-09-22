@@ -11,8 +11,8 @@
  * else holding, that commit is this pass's; a held navigation lands the
  * fallback together with the rest of the new page, never beside the old
  * one. `on` reading display-ahead state (`latest()`, an optimistic write)
- * is the exception: the swap is the finalize's, mainline, and the fallback
- * shows now, beside the held frame (the trigger shape of rc.10).
+ * is the exception: the swap is shown through the lane the `on` pass ran
+ * under, and the fallback shows now, beside the held frame.
  *
  * The constraint the mechanism must respect: the re-arm changes nothing
  * about the hold itself. A held batch stays held — none of its staged values
@@ -27,7 +27,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   action,
-  createErrorBoundary,
   createLoadingBoundary,
   createMemo,
   createOptimistic,
@@ -223,8 +222,8 @@ describe("Loading `on` re-arms; the fallback follows the frame (#3540)", () => {
     flush();
 
     // `latest()` is the display-ahead read: the `on` pass ran under the
-    // shadow's lane, so the swap is the finalize's, mainline — the fallback
-    // landed in the current frame ...
+    // shadow's lane, so the swap is shown through it — the fallback landed
+    // in the current frame ...
     expect(cells.boundary.value).toBe("fallback");
     // ... and NONE of the staged values did: the mainline frame still shows
     // the committed world, the write is still pending, the children live.
@@ -383,7 +382,7 @@ describe("Loading `on` re-arms; the fallback follows the frame (#3540)", () => {
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(t.out.value).toBe("data 1");
-    // The write queues the re-arm; the root is gone before finalize drains it.
+    // The write queues the re-arm; the root is gone before the flush drains it.
     t.setCount(2);
     t.dispose();
     expect(() => flush()).not.toThrow();
@@ -391,107 +390,5 @@ describe("Loading `on` re-arms; the fallback follows the frame (#3540)", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(() => flush()).not.toThrow();
     expect(t.out.log).toEqual(["fallback", "data 1"]);
-  });
-});
-
-describe("Errored `on` re-arms: clear the error and retry (#3540)", () => {
-  test("a dependency written while the error fallback shows retries the children", () => {
-    // Not reactive: the failing computation has no source that changes, so
-    // only a retry can recover it (a failed fetch, say).
-    let broken = true;
-    const [retryKey, setRetryKey] = createSignal(0);
-    const out = cell();
-    let attempts = 0;
-    let dispose!: () => void;
-    createRoot(d => {
-      dispose = d;
-      const content = createMemo(() => {
-        attempts++;
-        if (broken) throw new Error("boom");
-        return "content";
-      });
-      show(
-        untrack(() =>
-          createErrorBoundary(
-            () => content(),
-            err => `error: ${(err() as Error).message}`,
-            { on: retryKey }
-          )
-        ),
-        out
-      );
-    });
-    flush();
-    expect(out.value).toBe("error: boom");
-    expect(attempts).toBe(1);
-
-    // Nothing else changed: the retry throws again and the fallback stays.
-    setRetryKey(1);
-    flush();
-    expect(out.value).toBe("error: boom");
-    expect(attempts).toBe(2);
-
-    // The cause is fixed; `on` is the reset key.
-    broken = false;
-    setRetryKey(2);
-    flush();
-    expect(out.value).toBe("content");
-    expect(attempts).toBe(3);
-
-    // With nothing caught, a notification is a no-op.
-    setRetryKey(3);
-    flush();
-    expect(out.value).toBe("content");
-    expect(attempts).toBe(3);
-    dispose();
-  });
-
-  test("the retry runs through the same finalize path: a dependency written inside a held action retries now", async () => {
-    let broken = true;
-    const [retryKey, setRetryKey] = createSignal(0);
-    const [a, setA] = createSignal("a0");
-    const out = cell();
-    const aCell = cell();
-    let release!: () => void;
-    let dispose!: () => void;
-    createRoot(d => {
-      dispose = d;
-      show(a, aCell);
-      show(
-        untrack(() =>
-          createErrorBoundary(
-            () => {
-              if (broken) throw new Error("boom");
-              return "content";
-            },
-            err => `error: ${(err() as Error).message}`,
-            { on: retryKey }
-          )
-        ),
-        out
-      );
-    });
-    flush();
-    expect(out.value).toBe("error: boom");
-
-    // The cause is fixed; the retry key is written inside an action that
-    // stays open. The retry is not the action's to hold: content now, the
-    // action's other write later.
-    broken = false;
-    action(function* () {
-      setRetryKey(1);
-      setA("a1");
-      yield new Promise<void>(r => (release = r));
-    })();
-    flush();
-    expect(out.value).toBe("content");
-    expect(aCell.value).toBe("a0");
-
-    release();
-    await microtask();
-    await microtask();
-    flush();
-    expect(aCell.value).toBe("a1");
-    dispose();
   });
 });

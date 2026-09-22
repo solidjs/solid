@@ -146,7 +146,7 @@ function canUseSimpleSyncFlush(queue: GlobalQueue): boolean {
     batch._affectsNodes.length === 0 &&
     batch._optimisticStores.size === 0 &&
     transientStoreNodes.size === 0 &&
-    pendingRearms.size === 0 // a mainline re-arm drains in finalizePureQueue
+    pendingRearms.size === 0 // a re-arm queued outside a pass drains in run()
   );
 }
 
@@ -434,45 +434,36 @@ export function wakeParked(): void {
 
 /** A boundary that can be re-armed (boundaries.ts `CollectionQueue._rearm`). */
 export interface Rearmable {
-  _rearm(mainline: boolean): void;
+  _rearm(): void;
 }
 /**
  * Boundaries whose `on` dependencies notified this flush (#3540). The
  * notification arrives inside a pass (a Set: however many dependencies
- * notify in one flush, one re-arm) and the boundary is re-armed at one of
- * two moments of the pass, each with its own drain:
- * - Before the verdict (`_rearm(false)`, after the heap): every pass the
- *   notifying write dirtied has run, so what it put in flight under the
- *   boundary is registered — and `activeTransition` is still the transaction
- *   the write belongs to, so a write made here is staged INTO its frame. The
- *   loading boundary re-arms here: it releases its hold (the verdict that
- *   follows sees it — a frame nothing else holds commits in this same pass)
- *   and stages its fallback swap, which lands WITH the frame: during a held
- *   navigation the fallback appears together with the rest of the new page,
- *   never before it (frame-following; the trigger shape it replaces put the
- *   fallback beside the OLD page, for a change nothing on screen showed yet).
- * - At the finalize (`_rearm(true)`): mainline, past the park, with the
- *   ambient batch detached — a write here is the current frame's, never a
- *   transaction's. What must NOT follow the frame runs here: an error
- *   boundary's retry (a recompute, not a display write — content now, the
- *   action's other writes later), and the swap of a boundary whose `on` read
- *   a lane (`latest()`, an optimistic write): display-ahead by the user's
- *   choice, its fallback shows now, beside the frame the transaction still
- *   holds. A boundary that needs this drain re-queues itself from the first.
+ * notify in one flush, one re-arm) and the boundary is re-armed once the
+ * pass's heap has run, before the verdict (GlobalQueue.run → drainRearms):
+ * every pass the notifying write dirtied has run, so what it put in flight
+ * under the boundary is registered — and `activeTransition` is still the
+ * transaction the write belongs to, so the fallback swap staged there is the
+ * frame's and lands WITH it. The boundary releases its hold (the verdict
+ * that follows sees it — a frame nothing else holds commits in this same
+ * pass); during a held navigation the fallback appears together with the
+ * rest of the new page, never before it. A boundary whose `on` pass ran
+ * under a lane (`latest()`, an optimistic write) shows its swap through
+ * that lane instead — display-ahead, at the park (boundaries.ts `_swap`).
  */
 export const pendingRearms: Set<Rearmable> = new Set();
 export function queueRearm(boundary: Rearmable): void {
   pendingRearms.add(boundary);
   schedule();
 }
-/** A drain (see pendingRearms): each boundary decides for itself, from what
- * is pending under it now, whether re-arming means its fallback or nothing.
- * Snapshot first: a re-arm can queue another — its own mainline follow-up,
- * or a write it makes notifying an `on` that reads it (the next pass's). */
-function drainRearms(mainline: boolean): void {
+/** The drain (see pendingRearms): each boundary decides for itself, from
+ * what is pending under it now, whether re-arming means its fallback or
+ * nothing. Snapshot first: a re-arm can queue another — a write it makes
+ * notifying an `on` that reads it — which is the next pass's. */
+function drainRearms(): void {
   const queued = Array.from(pendingRearms);
   pendingRearms.clear();
-  for (let i = 0; i < queued.length; i++) queued[i]._rearm(mainline);
+  for (let i = 0; i < queued.length; i++) queued[i]._rearm();
 }
 /** Transactions a mainline tick has PROPOSED against (A34, #3494): a write to a
  * node one of them holds — the same value or another — is a second proposal
@@ -848,12 +839,12 @@ export class GlobalQueue extends Queue {
         runHeap(dirtyQueue, GlobalQueue._update);
       // Re-arm the boundaries whose `on` notified this pass (pendingRearms):
       // after the heap — what the notification put in flight is registered —
-      // and before the verdict, under the transaction that carried it. A
-      // loading boundary releases its hold here and stages its fallback swap
-      // with the frame; the heap re-runs so its output pass is staged too,
-      // ahead of the verdict that commits or parks it (#3540).
+      // and before the verdict, under the transaction that carried it. The
+      // boundary releases its hold and stages its fallback swap with the
+      // frame; the heap re-runs so its output pass is staged too, ahead of
+      // the verdict that commits or parks it (#3540).
       if (pendingRearms.size) {
-        drainRearms(false);
+        drainRearms();
         runHeap(dirtyQueue, GlobalQueue._update);
       }
       if (activeTransition) {
@@ -1357,14 +1348,6 @@ export function finalizePureQueue(
   // For completing transitions or no-transition, resolve pending and revert optimistic
   const finalizingBatch = currentBatch;
   const resolvePending = !incomplete;
-  // The mainline re-arm drain (pendingRearms: error retries, display-ahead
-  // swaps), first: `activeTransition` is null at every call site — after the
-  // park (with the parked transaction's batch detached) as after a commit —
-  // so a write made here is a plain ambient write, never staged into the
-  // hold. It re-runs the boundary's output pass in the heap run below, and
-  // that pass's value commits here (a settling finalize) or in the next pass
-  // of this flush (a parked one — the write re-armed `scheduled`).
-  if (pendingRearms.size) drainRearms(true);
   if (resolvePending) commitPendingNodes();
   if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
   // A parked finalize sweeps nothing (the boundaries' staged swaps are the
@@ -1643,8 +1626,8 @@ function runQueue(queue: QueueCallback[], type: number): void {
 /** Does `reporter` still hold the transaction waiting on `source` — live,
  * routed to no collecting loading boundary, and deriving from the source in
  * its current pass? The verdict's per-reporter test (sourceObserved), also
- * a boundary re-arm's (boundaries.ts `_rearm`, which runs before the verdict
- * prunes registrations that stopped counting). */
+ * a boundary re-arm's (boundaries.ts `_rearm` runs before the verdict prunes
+ * registrations that stopped counting). */
 export function reporterBlocksSource(
   reporter: Computed<any>,
   source: Computed<any>,

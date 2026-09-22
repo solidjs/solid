@@ -84,8 +84,6 @@ One shape shows no fallback at all: when the data the boundary is waiting on is 
 
 Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` notifies whenever `id` changes, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. A zero-argument function is a tracked accessor, not a callback.
 
-`Errored` accepts the same `on`: while its error fallback shows, a change to a dependency clears the error and retries the children — `reset()` driven by data (reset keys). See [RFC 03](03-control-flow.md#error-boundary-errored).
-
 ### `isPending(fn)` (in-flight change queries)
 
 `isPending` answers: “Is a value change in flight for this read that hasn't revealed yet?”

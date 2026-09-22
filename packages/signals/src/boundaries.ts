@@ -1,4 +1,5 @@
-import { recompute, ext, spectate, currentOptimisticLane } from "./core/core.js";
+import { recompute, ext, spectate, currentOptimisticLane, notifyOnLane } from "./core/core.js";
+import type { OptimisticLane } from "./core/lanes.js";
 import { unwrapStatusError } from "./core/error.js";
 import {
   cleanup,
@@ -95,13 +96,12 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
  * same constant re-arms whenever a read source changes. A zero-argument
  * function is an accessor, tracked like any other.
  *
- * The pass's posture is the notification's: a plain pass derived from the
- * frame the write belongs to (the committed one, or a transaction's staged
- * one — this pass runs under it), and the re-arm follows that frame. A pass
+ * The pass's posture is the notification's. A plain pass derives from the
+ * frame the write belongs to, and the re-arm follows that frame. A pass
  * under a lane read display-ahead state — `latest()` (its shadow is an
  * optimistic computed), an optimistic write — and the re-arm shows the
- * fallback ahead too, now, beside whatever frame a transaction still holds
- * (`_rearmAhead`; the mainline drain).
+ * fallback through that lane (`_rearmLane`): now, beside whatever frame a
+ * transaction still holds.
  *
  * Created under `owner` while the owner's queue is still the parent's, so
  * the node belongs to the parent boundary, not to this one — as the
@@ -128,7 +128,7 @@ function onNode(owner: Owner, queue: CollectionQueue, onFn: () => any): Computed
           if (!(e instanceof NotReadyError)) throw e;
         }
         if (mounted) {
-          if (currentOptimisticLane !== null) queue._rearmAhead = true;
+          if (currentOptimisticLane !== null) queue._rearmLane = currentOptimisticLane;
           queueRearm(queue);
         } else mounted = true;
       },
@@ -372,12 +372,9 @@ export class CollectionQueue extends Queue {
   _initialized: boolean = false;
   /** The boundary's owner — where a `caught` report locates itself, set before the children are built (a creation-time throw arrives before `_tree`). */
   _owner?: Owner;
-  /** The `on` pass that queued this re-arm ran under a lane (onNode): the
-   * fallback swap is display-ahead — the mainline drain's, not the frame's. */
-  _rearmAhead = false;
-  /** Released before the verdict with the swap deferred (`_rearmAhead`):
-   * the mainline drain owes the boundary its fallback. */
-  _swapOwed = false;
+  /** The lane the `on` pass that queued this re-arm ran under (onNode), if
+   * any: the fallback swap is display-ahead — shown through the lane. */
+  _rearmLane: OptimisticLane | null = null;
   /** DEV: a frame-following swap is staged and not yet reported unseen
    * (devHeldSweep; cleared by the sweep that settles or clears it). */
   _swapUnseen?: boolean;
@@ -390,49 +387,30 @@ export class CollectionQueue extends Queue {
     return super.run(type);
   }
   /** An `on` dependency notified (onNode → scheduler `pendingRearms`), and
-   * this is one of the flush's two drains (#3540): before the verdict
-   * (`mainline` false — under the transaction the notifying write belongs
-   * to, so a write here is staged with its frame) or at the finalize
-   * (`mainline` true — past any park, so a write here is the current
-   * frame's). Re-arming means, for what the boundary currently shows:
-   * - content (a loading boundary that revealed, `_initialized`): the
-   *   boundary is fresh again — its fallback, if anything under it is still
-   *   pending; nothing at all otherwise (no fallback flash for a
-   *   notification that finds nothing to wait on). The release is
-   *   immediate: the boundary stops holding the frame, whatever it shows.
-   *   The fallback swap FOLLOWS THE FRAME the notification belongs to: it
-   *   lands with the write's commit — now, when nothing else holds it;
-   *   together with the rest of the new page when something outside the
-   *   boundary does — never beside the old page for a change nothing on
-   *   screen reflects yet. If the pending lands before that frame commits,
-   *   the sweep (`_checkSources`) clears the swap ahead of the commit and no
-   *   fallback is ever shown. The exception is a display-ahead notification
-   *   (`_rearmAhead`: `on` read `latest()` or an optimistic write): the
-   *   user asked for the change now, and the swap is the mainline drain's —
-   *   the fallback shows now, beside the frame the transaction still holds.
-   *   The children stay alive behind the fallback (`_disabled` hides the
-   *   output; nothing is disposed or re-created) and reveal again when the
-   *   pending lands.
-   * - its error fallback (an error boundary holding caught failures): the
-   *   failures are retried, exactly as the fallback's `reset()` would —
-   *   reset keys. The boundary reveals if the retry succeeds. Mainline: a
-   *   retry is a recompute, not a display write — content now, the action's
-   *   other writes later.
-   * - its loading fallback already: nothing to re-arm.
-   * A boundary disposed since the notification is skipped. */
-  _rearm(mainline: boolean): void {
-    const ahead = this._rearmAhead;
-    this._rearmAhead = false;
+   * this is the flush's drain (#3540): after the heap, before the verdict,
+   * under the transaction the notifying write belongs to. A boundary
+   * showing content (`_initialized`) is fresh again — its fallback, if
+   * anything under it is still pending; nothing at all otherwise (no
+   * fallback flash for a notification that finds nothing to wait on). The
+   * release is immediate: the boundary stops holding the frame. The
+   * fallback swap FOLLOWS THE FRAME: staged here, it lands with the write's
+   * commit — now, when nothing else holds it; together with the rest of the
+   * new page when something outside the boundary does — never beside the
+   * old page for a change nothing on screen reflects yet. If the pending
+   * lands before that frame commits, the sweep (`_checkSources`) clears the
+   * swap ahead of the commit and no fallback is ever shown. A display-ahead
+   * notification (`_rearmLane`: `on` read `latest()` or an optimistic
+   * write) asked for the change now, and the swap is shown through the
+   * lane — the fallback now, beside the frame the transaction still holds.
+   * The children stay alive behind the fallback (`_disabled` hides the
+   * output; nothing is disposed or re-created) and reveal again when the
+   * pending lands. A boundary already on its fallback, or disposed since
+   * the notification, has nothing to re-arm. */
+  _rearm(): void {
+    const lane = this._rearmLane;
+    this._rearmLane = null;
     if (this._tree === undefined || this._tree._flags & REACTIVE_DISPOSED) return;
-    if (this._collectionType & STATUS_ERROR) {
-      if (!mainline) queueRearm(this);
-      else if (this._sources.size) this._retry();
-      return;
-    }
-    if (!this._initialized) {
-      if (mainline && this._swapOwed) this._swap();
-      return;
-    }
+    if (!this._initialized) return;
     // Readers forwarded while this boundary showed content are what it
     // would wait on now. They never re-notify (status propagation dedupes on
     // the reader's `_pendingSources`), so the re-arm collects it from their
@@ -457,7 +435,7 @@ export class CollectionQueue extends Queue {
         // the swap with it) waits for the source and the fallback is never
         // seen (LOADING_ON_OUTSIDE_HOLD below). Not for a display-ahead
         // re-arm: that fallback shows now by the user's choice.
-        if (__DEV__ && held && !ahead && outside === undefined)
+        if (__DEV__ && held && lane === null && outside === undefined)
           for (const reporter of reporters)
             if (!this._holds(reporter) && reporterBlocksSource(reporter, source)) {
               outside = source;
@@ -479,19 +457,11 @@ export class CollectionQueue extends Queue {
     this._initialized = false;
     this._sources = sources;
     this._pending = true;
-    // Ahead of the verdict a write lands in the notifying write's frame:
-    // that is the swap's place — unless the notification was display-ahead,
-    // whose swap the mainline drain makes (`_swapOwed`).
-    if (ahead && !mainline) {
-      this._swapOwed = true;
-      queueRearm(this);
-    } else {
-      // DEV: a frame-following swap the source rule did not already report
-      // is watched by the parked sweep (`_devHeldSweep`) — one report per
-      // re-arm, whichever rule sees it first.
-      if (__DEV__) this._swapUnseen = !ahead && !mainline && outside === undefined;
-      this._swap();
-    }
+    // DEV: a frame-following swap the source rule did not already report is
+    // watched by the parked sweep (`_devHeldSweep`) — one report per re-arm,
+    // whichever rule sees it first.
+    if (__DEV__) this._swapUnseen = lane === null && outside === undefined;
+    this._swap(lane);
     // Those readers are behind the fallback now: they stop blocking
     // (`reporterBlocksSource`), and the transactions they were holding must
     // be re-judged for it (A33, #3375) — the active one by the verdict that
@@ -505,11 +475,19 @@ export class CollectionQueue extends Queue {
   _devHeldSweep(): void {
     if (__DEV__) devHeldSweep(this);
   }
-  /** Show the fallback: the swap the output pass selects on. Lands where it
-   * is written — in the active transaction's frame, or the current one. */
-  _swap(): void {
-    this._swapOwed = false;
-    setSignal(this._disabled, true);
+  /** Show the fallback: the swap the output pass selects on. Staged, it is
+   * the frame's and lands with its commit. Re-armed from a lane pass
+   * (`lane`), it is the current frame's — committed outright, as the lane's
+   * view already is on screen — and shown through the lane: the output pass
+   * publishes a derived override and its readers run from the lane's queue,
+   * at the park, ahead of the transaction (a lane pass reads staged plain
+   * writes committed, so a staged swap would be invisible to it). */
+  _swap(lane: OptimisticLane | null): void {
+    if (lane === null) setSignal(this._disabled, true);
+    else {
+      this._disabled._value = true;
+      notifyOnLane(this._disabled, lane);
+    }
     if (__OBSERVE__ && attrHooks !== null) attrHooks.boundaryFallback(this, this._tree!, true);
   }
   /** Retry the collected failures of an error boundary: recompute each
@@ -807,13 +785,6 @@ export function createLoadingBoundary<T, U>(
  * App code should use `<Errored fallback={...}>` instead — reach for this only
  * when authoring custom boundary components.
  *
- * @param options `on` — a dependency list, as for `createLoadingBoundary`: a
- *   tracked function whose reads re-arm the boundary (its value is
- *   irrelevant). While the boundary shows its error fallback, a write to
- *   anything `on` reads retries the failed computations, exactly as the
- *   fallback's `reset()` does — reset keys. With nothing caught, the
- *   notification is a no-op.
- *
  * @example
  * ```tsx
  * // Custom boundary that wraps the primitive and adds telemetry.
@@ -830,14 +801,10 @@ export function createLoadingBoundary<T, U>(
  */
 export function createErrorBoundary<T, U>(
   fn: () => T,
-  fallback: (error: Accessor<unknown>, reset: () => void) => U,
-  options?: { on?: () => any }
+  fallback: (error: Accessor<unknown>, reset: () => void) => U
 ): Accessor<T | U> {
-  return createCollectionBoundary<T | U>(
-    STATUS_ERROR,
-    fn,
-    queue => fallback(accessor(queue._error), () => queue._retry()),
-    options?.on
+  return createCollectionBoundary<T | U>(STATUS_ERROR, fn, queue =>
+    fallback(accessor(queue._error), () => queue._retry())
   );
 }
 

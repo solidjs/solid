@@ -25,8 +25,8 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // the boundary), not a trigger evaluated per pending notification, and its
 // value is never compared. `isPending(dep)` in `on` is a read like any other
 // — of DISPLAY-AHEAD state: the verdict's companion is optimistic, so the
-// `on` pass runs under its lane, and the re-arm's fallback swap is the
-// mainline drain's (as for `latest()`): the fallback shows now, beside
+// `on` pass runs under its lane, and the re-arm's fallback swap is shown
+// through that lane (as for `latest()`): the fallback shows now, beside
 // whatever frame a transaction still holds, rather than following the
 // write's frame. `on=always` returns a fresh token per evaluation but reads
 // nothing reactive: nothing ever notifies it, so the boundary is never
@@ -128,14 +128,11 @@ describe("#3528 isPending consulted from a Loading boundary's `on`", () => {
       } else {
         // The verdict flips and notifies `on`: the re-arm frees the
         // boundary's reader from the hold (A33) before the verdict, so the
-        // count publishes in this pass; the display-ahead swap is the
-        // finalize's, so the fallback lands in the same pass, applied after
-        // the count (its effect was queued by the finalize's heap run, the
-        // count's by the main one). The content reveals when m2 lands.
-        // (Under the trigger re-arm of rc.10 the fallback preceded the count
-        // by a pass: the release was the finalize's too, and the frame it
-        // freed committed one pass later.)
-        expect(r.log).toEqual(["count=1", "A=Loading", "A=2 0"]);
+        // count publishes in this pass; the display-ahead swap is shown
+        // through the companion's lane, and lane effects apply ahead of the
+        // regular queue — the fallback lands in the same pass as the count,
+        // applied before it. The content reveals when m2 lands.
+        expect(r.log).toEqual(["A=Loading", "count=1", "A=2 0"]);
       }
     }
   );

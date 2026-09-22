@@ -3,17 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
-import {
-  action,
-  createSignal,
-  createMemo,
-  Errored,
-  Loading,
-  Show,
-  latest,
-  flush,
-  OBSERVE
-} from "solid-js";
+import { action, createSignal, createMemo, Loading, Show, latest, flush, OBSERVE } from "solid-js";
 import { render } from "../src/index.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -331,57 +321,6 @@ describe("Loading `on` follows the frame (#3540)", () => {
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(div.textContent).toBe("Count: 2A: 2");
-    dispose();
-  });
-});
-
-describe("Errored `on` retries on a dependency (#3540)", () => {
-  // Unchanged by frame-following: a retry is a recompute, not a display
-  // write — it runs mainline (content now, an action's other writes later).
-  test("a change to a dependency while the error fallback shows clears the error and retries the children", () => {
-    const div = document.createElement("div");
-    let broken = true;
-    let setRetryKey!: (v: number) => void;
-    let attempts = 0;
-    const dispose = render(() => {
-      const [retryKey, _set] = createSignal(0);
-      setRetryKey = _set;
-      const Content = () => {
-        const value = createMemo(() => {
-          attempts++;
-          if (broken) throw new Error("boom");
-          return "content";
-        });
-        return <span>{value()}</span>;
-      };
-      return (
-        <Errored
-          fallback={(err: () => unknown) => <i>{(err() as Error).message}</i>}
-          on={retryKey()}
-        >
-          <Content />
-        </Errored>
-      );
-    }, div);
-    flush();
-    expect(div.textContent).toBe("boom");
-    expect(attempts).toBe(1);
-
-    setRetryKey(1);
-    flush();
-    expect(div.textContent).toBe("boom");
-    expect(attempts).toBe(2);
-
-    broken = false;
-    setRetryKey(2);
-    flush();
-    expect(div.textContent).toBe("content");
-    expect(attempts).toBe(3);
-
-    setRetryKey(3);
-    flush();
-    expect(div.textContent).toBe("content");
-    expect(attempts).toBe(3);
     dispose();
   });
 });

@@ -143,15 +143,6 @@ The reset function is an action: pass it to event handlers or other imperative c
 </Errored>
 ```
 
-`Errored` also accepts an `on` prop, with the same shape as `Loading`'s: a dependency list. While the boundary shows its error fallback, a change to anything `on` reads clears the caught error and retries the children — the same thing `reset()` does, driven by data instead of a click (reset keys):
-
-```jsx
-// A navigation retries the page instead of leaving the old route's error up.
-<Errored fallback={<ErrorPage />} on={route()}>
-  <Page />
-</Errored>
-```
-
 #### Reporting what a boundary caught: the client error hook
 
 A fallback rendered is a failure handled — and, until now, one nothing outside the app could see in production: the browser's global handlers hear what reaches `window.onerror`, and a caught error never does. The client error hook is the prod-tier seam for it — any app that wants to log its errors, not only an APM — and the twin of the server's `configureServerErrors` ([RFC 12](12-ssr-http.md#the-server-error-hook-configureservererrors--onerror)):

@@ -401,11 +401,6 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * Errors thrown from the fallback itself can be caught by a parent
  * `<Errored>`.
  *
- * The optional `on` prop is a dependency list: the expression is tracked and
- * its value is irrelevant — whenever anything it reads changes while the
- * boundary is showing its error fallback, the caught error is cleared and the
- * children are retried, exactly as calling `reset()` would (reset keys).
- *
  * @example
  * ```tsx
  * <Errored fallback={(err, reset) => (
@@ -413,29 +408,21 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * )}>
  *   <MyComp />
  * </Errored>
- *
- * // Retry automatically when the route changes.
- * <Errored fallback={<ErrorPage />} on={route()}>
- *   <Page />
- * </Errored>
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/error-boundary
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: ErrorAccessor, reset: () => void) => SolidElement);
-  on?: any;
   children: SolidElement;
 }): SolidElement {
-  const onOpt = "on" in props ? { on: () => props.on } : undefined;
   return createErrorBoundary(
     () => props.children,
     (err: ErrorAccessor, reset) => {
       const f = props.fallback;
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err());
       return typeof f === "function" && f.length ? f(err, reset) : f;
-    },
-    onOpt
+    }
   ) as unknown as SolidElement;
 }
 
