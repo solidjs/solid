@@ -162,7 +162,7 @@ The runtime module defaults to `@solidjs/web/server-functions`. Function IDs are
 
 ### Source names for primitives
 
-`transformSourceNames(code, { filename?, sourceMap? })` is the `sourceNames.primitives` half: it names reactive primitives after the identifier they are declared as, so the dev and observe runtimes label graph nodes `count` / `doubled` / `todos.title` instead of `signal` / `computed` / `store.title`. It is plain JavaScript in and out (JSX passes through untouched), which is why it is its own pass rather than a `transform()` option — primitives live in `.ts`/`.js` modules as much as in components. `@solidjs/vite-plugin` runs it ahead of the JSX transform for the dev and `observe` postures.
+`transformSourceNames(code, { filename?, sourceMap? })` is the pass behind `@solidjs/vite-plugin`'s `sourceNames.primitives` option: it names reactive primitives after the identifier they are declared as, so the dev and observe runtimes label graph nodes `count` / `doubled` / `todos.title` instead of `signal` / `computed` / `store.title`. It is plain JavaScript in and out (JSX passes through untouched), which is why it is its own pass rather than a `transform()` option — primitives live in `.ts`/`.js` modules as much as in components. `@solidjs/vite-plugin` runs it ahead of the JSX transform for the dev and `observe` postures.
 
 ```js
 const [count, setCount] = createSignal(0);          // createSignal(0, { name: "count" })
