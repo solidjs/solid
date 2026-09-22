@@ -98,11 +98,15 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
     return v;
   }
 
-  if (hasOverride) globalQueue.initTransition(resolveTransition(el as any));
-  // No revert target is stashed: while the override is active every reader
-  // sees it (A17), so authoritative arrivals commit silently into _value and
-  // reverting is just dropping the override — _value is already correct.
-  else globalQueue._batch._optimisticNodes.push(el);
+  if (hasOverride) {
+    const transition = resolveTransition(el as any);
+    if (transition) globalQueue.initTransition(transition);
+  } else {
+    // No revert target is stashed: while the override is active every reader
+    // sees it (A17), so authoritative arrivals commit silently into _value and
+    // reverting is just dropping the override — _value is already correct.
+    globalQueue._batch._optimisticNodes.push(el);
+  }
 
   // Stamp ownership on the node (post-merge, so entangled writers share the
   // joint root). resolveTransition prefers this over the lane's _transition,

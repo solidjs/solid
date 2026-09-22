@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+A rewrite of an optimistic node whose override no transaction owns no longer opens a transaction of its own. `optimisticWrite` passed whatever `resolveTransition` returned to `initTransition`, and for an orphan override that is null, which `initTransition` reads as "open a fresh transaction": the ambient batch was adopted into it, every plain write staged in the same tick was stamped as its pending node, and `activeTransition` stayed set for the rest of the caller's block. The `latest()` shadow is such a node: its first companion sync installs the orphan override and the second one hit this path, so after one `latest(() => store.value)` the second and every later `setStore` write in a tick was held by a transaction nobody started, and an untracked read of a projection served the committed value instead of the pending backing (`0, 1, 0, 0, 0` where the same writes without the `latest()` read served `0, 1, 2, 3, 4`). The changed-value branch now joins a transaction only when one is resolved, as the same-value branch already did.
