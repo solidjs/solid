@@ -98,8 +98,8 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   if (self && (node as any)._fn && (node as Computed<unknown>)._x !== null)
     (node as Computed<unknown>)._x!._inFlight = null;
   let child = zombie ? ((node._x?._pendingFirstChild ?? null) as Owner | null) : node._firstChild;
+  if (!zombie) node._firstChild = null;
   while (child) {
-    const nextChild = child._nextSibling;
     const n = child as Computed<unknown>;
     // Owner teardown is death regardless of the child's own lifecycle
     // (#3024): strip AUTO_DISPOSE so a post-disposal read freezes at the
@@ -118,15 +118,21 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // Owners, whose _flags is undefined), so no gate here.
     deleteFromHeap(n, queueFor(n));
     clearDeps(n);
+    // The chain is detached above so a node a cleanup links mid-drain lands
+    // on the fresh head and survives. Pointing each drained child's prev at
+    // itself routes its later splice onto the detached chain, never the head,
+    // and keeps the dev owner-chain-head invariant honest for those children.
+    child._prevSibling = child;
     disposeChildren(child, true);
-    child = nextChild;
+    // Read after, not before: a sibling this disposal made dormant spliced
+    // itself out of the detached chain, and a cleanup may then have linked
+    // it at the fresh head, which rewrote the `_nextSibling` a pre-read
+    // would still be holding.
+    child = child._nextSibling;
   }
   if (zombie) {
     if (node._x !== null) node._x._pendingFirstChild = null;
-  } else {
-    node._firstChild = null;
-    node._childCount = 0;
-  }
+  } else node._childCount = 0;
   // O(1) splice out of parent's chain on individual dispose. Skipped during
   // batch dispose (parent already disposed) and zombie disposal (node sits on
   // parent's _pendingFirstChild). We leave node._nextSibling intact so outer
@@ -163,6 +169,14 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     node._cleanup = undefined;
     effectCleanup();
   }
+}
+
+export function linkChild(parent: Owner, node: Owner): void {
+  const head = parent._firstChild;
+  node._prevSibling = null;
+  node._nextSibling = head;
+  if (head !== null) head._prevSibling = node;
+  parent._firstChild = node;
 }
 
 function runDisposal(node: Owner, zombie?: boolean): void {
@@ -372,16 +386,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     });
     throw new Error(PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE);
   }
-  if (parent) {
-    const lastChild = parent._firstChild;
-    if (lastChild === null) {
-      parent._firstChild = owner;
-    } else {
-      owner._nextSibling = lastChild;
-      lastChild._prevSibling = owner;
-      parent._firstChild = owner;
-    }
-  }
+  if (parent) linkChild(parent, owner);
   if (__DEV__) DEV.hooks.onOwner?.(owner);
   return owner;
 }
