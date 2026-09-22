@@ -1725,7 +1725,7 @@ function heldTruthMasked(target: StoreNextTarget): boolean {
   const fb = foldBatches.get(target);
   // opt families are only created by createOptimisticStore, whose module
   // install populates optHooks — the assertion holds by construction.
-  return fb !== undefined && optHooks!.retainsOptimism(fb);
+  return fb !== undefined && optHooks!.retainsOptimism(fb) && !ownsHold(fb);
 }
 
 const hasOwn = Object.prototype.hasOwnProperty;

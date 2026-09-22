@@ -105,12 +105,14 @@ export const CONFIG_FRESH_READ = 1 << 16;
  * (a landing staged into the retaining transaction) and until()'s
  * flip-entanglement (a foreign carrier's staged write, stolen when it
  * flipped the awaited predicate truthy). Until the reveal, ordinary
- * readers — lane and speculative recomputes included — keep committed:
- * the staging notified subscribers as a plain write, so without the mask
- * a mid-hold recompute composes live optimism with the confirming truth,
- * a frame no timeline contains (GabbeV's union tear). Authoritative
- * readers (until()'s predicate) and latest() tunnel through — the
- * exemption that keeps holds deadlock-free. Override-covered nodes never
+ * readers — lane passes and stale readers of a foreign transaction — keep
+ * committed: the staging notified subscribers as a plain write, so without
+ * the mask a mid-hold recompute composes live optimism with the confirming
+ * truth, a frame no timeline contains (GabbeV's union tear). A pass that
+ * owns the transaction derives from the staged world whole (A29: it is held
+ * with it), authoritative readers (until()'s predicate) and latest() tunnel
+ * through — the exemptions that keep holds coherent and deadlock-free.
+ * Override-covered nodes never
  * arm: the override is their display and its revert their notification
  * (A17). Cleared at commit (the commit IS the reveal); subscribers masked
  * during the hold are woken by finalizePureQueue's post-revert pass. */

@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+Fix an optimistic store's array readers seeing a torn frame when the refetch behind an optimistic `push` or `splice` returns more rows than the optimistic view showed (#3568). The landing folds into the retaining transaction, and the pass that re-runs under that transaction was served the landed `length` (the override it supersedes hands a tracked reader the truth) while the rows past the optimistic view stayed masked to the committed backing. The pass walked to the new index and read `undefined`, so `mapArray` called its row callback with an `undefined` item, and a node born from that read never learned its row, so index-reading effects kept rendering a hole after settle. A pass that owns the fold's transaction now sees the staged world whole: the pending backing for keys without a node and the staged value of held nodes, instead of the committed frame. Stale readers of a foreign transaction, lane passes and untracked reads keep the committed frame until the reveal as before.

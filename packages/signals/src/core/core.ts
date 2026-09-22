@@ -1762,9 +1762,12 @@ export function enterStagedRead(
  * - A17 for HELD truth (#3164, CONFIG_HELD_TRUTH): staged confirming truth —
  *   fold-staged onto an armed family, or entangle-stolen by an awaited
  *   until() — is masked from ordinary readers until its transaction's
- *   reveal, the retaining transaction's own speculative recomputes included
- *   (partial override coverage would otherwise compose override + staged
- *   truth into a state no timeline contains). Authoritative readers
+ *   reveal (partial override coverage would otherwise compose override +
+ *   staged truth into a state no timeline contains). A pass that owns the
+ *   transaction is not masked: it derives from the staged world whole and
+ *   is held with it (A29) — masking it composed the truth a superseded
+ *   override already hands it with committed neighbours (#3568, an array's
+ *   landed length beside rows still masked). Authoritative readers
  *   (until()'s predicate) and latest() see the staged truth — the tunnel that
  *   keeps the hold deadlock-free.
  * False means the reader derives from the staged value and enters its
@@ -1784,7 +1787,8 @@ export function readerSeesCommitted(
     (stale && !noCommitted && heldFromStale(el, c)) ||
     (el._config & CONFIG_HELD_TRUTH &&
       !latestReadActive &&
-      !(c._config & CONFIG_AUTHORITATIVE_READ))
+      !(c._config & CONFIG_AUTHORITATIVE_READ) &&
+      !(el._transition !== null && ownsHold(el._transition)))
   );
 }
 
