@@ -320,6 +320,16 @@ module.exports = [
     // swap's lane-channel notification). The DEV-only after-the-fact
     // LOADING_ON_OUTSIDE_HOLD sweep is 0 B here (its own shaken function).
     // Boundaries are not retained by this floor.
+    // Lazy memo relink + dead-owner freeze (#3555, 2026-09-22): 9,685 B
+    // against `next`'s 9,675 (+10 B; 15 B under the cap, which is unchanged).
+    // Core-retained: `linkChild` (the one head link shared by createOwner,
+    // setupComputedNode and prepareComputed's auto-dispose reawaken, with its
+    // zombie guard), the freeze branch in prepareComputed (a dormant node
+    // read under a disposed owner drops AUTO_DISPOSE and returns instead of
+    // recomputing, #3024), and disposeChildren detaching the chain before
+    // its loop, pointing each drained child's prev at itself and reading its
+    // next sibling after its disposal. +63 B minified in the in-package
+    // floor (26,054 -> 26,117); the rest is mangler/brotli layout.
     limit: "9.70 KB",
     modifyEsbuildConfig
   },
@@ -629,7 +639,13 @@ module.exports = [
     // the core floor is 0 B, and isPending/latest's +31 B, the every-store-
     // family app's +32 B and CSR observe's +11 B are the prop mangler's
     // short-name assignment and the brotli layout that follows.
-    limit: "16.90 KB",
+    // Lazy memo relink + dead-owner freeze (#3555, 2026-09-22): 16.90 ->
+    // 16.95 KB, measured at 16,903 B against `next`'s 16,891 (+12 B):
+    // linkChild on reawaken, the freeze branch in prepareComputed, and
+    // disposeChildren's post-disposal sibling read (+63 B minified in the
+    // signals core, see the core floor note); the rest is mangler/brotli
+    // layout. 0 B in the store.
+    limit: "16.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -801,7 +817,14 @@ module.exports = [
     // 12,393 (+38 B), rebased over #3577 — the flush's pre-verdict
     // `checkBoundaryChildren(this, true)` walk and heap re-run (core;
     // boundaries are not retained here).
-    limit: "12.45 KB",
+    // Lazy memo relink + dead-owner freeze (#3555, 2026-09-22): 12.45 ->
+    // 12.50 KB, measured at 12,479 B against `next`'s 12,428 (+51 B):
+    // linkChild on reawaken, the freeze branch in prepareComputed, and
+    // disposeChildren's post-disposal sibling read (+63 B minified in the
+    // signals core, see the core floor note); the verdict layer is
+    // untouched, so the +41 B over the core floor's own delta is
+    // mangler/brotli layout over the larger bundle.
+    limit: "12.50 KB",
     modifyEsbuildConfig
   },
   {
@@ -929,7 +952,13 @@ module.exports = [
     // flush path every app retains (see the `+ createStore` note).
     // rc.10: on follows the frame (#3540): 12,473 B against `next`'s 12,472
     // (+1 B) — the core floor's drain move; within the cap.
-    limit: "12.50 KB",
+    // Lazy memo relink + dead-owner freeze (#3555, 2026-09-22): 12.50 ->
+    // 12.55 KB, measured at 12,510 B against `next`'s 12,489 (+21 B):
+    // linkChild on reawaken, the freeze branch in prepareComputed, and
+    // disposeChildren's post-disposal sibling read (+63 B minified in the
+    // signals core, see the core floor note); the rest is mangler/brotli
+    // layout. 0 B in solid and web.
+    limit: "12.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -1369,7 +1398,13 @@ module.exports = [
     // (+105 B) — the same core + boundaries + solid deltas as the entry
     // above; brotli's context over the larger bundle lands 20 B differently
     // from the entry above's -3 B. 0 B in the store engine.
-    limit: "30.90 KB",
+    // Lazy memo relink + dead-owner freeze (#3555, 2026-09-22): 30.90 ->
+    // 30.95 KB, measured at 30,901 B against `next`'s 30,874 (+27 B):
+    // linkChild on reawaken, the freeze branch in prepareComputed, and
+    // disposeChildren's post-disposal sibling read (+63 B minified in the
+    // signals core, see the core floor note); the rest is mangler/brotli
+    // layout. 0 B in the store engine, solid, or web.
+    limit: "30.95 KB",
     modifyEsbuildConfig
   },
   {
