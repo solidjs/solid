@@ -26,6 +26,12 @@
  *     LOADING_ON_OUTSIDE_HOLD once per re-arm;
  *  4. `on={latest(id)}`: the display-ahead read — the fallback shows now,
  *     beside the held frame, and no diagnostic (the user's explicit choice).
+ *  5. the write's action outlasts the data: nothing outside the boundary
+ *     reads the source, but the action parks the frame past the content's
+ *     landing, so the swap is cleared before it is ever displayed — the
+ *     after-the-fact LOADING_ON_OUTSIDE_HOLD rule (once; never when other
+ *     data holds the frame, never for `latest()`, never when the source rule
+ *     already fired for the re-arm).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -329,9 +335,31 @@ describe("3. an outside hold on the SAME source: the frame waits, no fallback �
         "product 2 + comments 2 + comments 2"
       ]);
       expect(t.log).not.toContain("comments=spinner");
+      // Once: the after-the-fact rule (5.) does not re-report this re-arm.
+      expect(d.warn).toHaveBeenCalledTimes(1);
       t.dispose();
     });
   }
+
+  test("action write outlasting comments: the source rule reported the re-arm, the after-the-fact rule stays silent", async () => {
+    const d = captureWarnings();
+    const t = page({ productMs: 50, commentsMs: 100, on: "id", outsideComments: true });
+    await t.settle();
+    const release = t.navigate("action");
+    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
+    // Comments land while the action still parks the frame: the shape 5.
+    // reports — but this re-arm was already reported at the source.
+    await t.advance(100);
+    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
+    await release();
+    expect(t.frames).toEqual([
+      "product 1 + comments 1 + comments 1",
+      "product 2 + comments 2 + comments 2"
+    ]);
+    expect(d.warn).toHaveBeenCalledTimes(1);
+    d.stop();
+    t.dispose();
+  });
 });
 
 describe("4. `on: () => latest(id)`: the display-ahead read shows the fallback now, beside the held frame", () => {
@@ -383,6 +411,86 @@ describe("4. `on: () => latest(id)`: the display-ahead read shows the fallback n
       "product 1 + spinner + comments 1",
       "product 2 + comments 2 + comments 2"
     ]);
+    expect(d.codes()).toEqual([]);
+    d.stop();
+    t.dispose();
+  });
+});
+
+describe("5. the write's action outlasts the data: the fallback is never displayed — DEV warns after the fact", () => {
+  test("`on: id` written inside an action that ends after comments land: [A] → [B + comments], LOADING_ON_OUTSIDE_HOLD once", async () => {
+    // Nothing outside the boundary reads comments (no shell), so the source
+    // rule has nothing to report at the re-arm. The action parks the frame;
+    // comments land under it; the staged swap is cleared by the sweep that
+    // follows the action's commit, before any effect phase — no spinner.
+    const d = captureWarnings();
+    const t = page({ productMs: 50, commentsMs: 100, on: "id", shell: false });
+    await t.settle();
+    const release = t.navigate("action");
+    expect(d.codes()).toEqual([]);
+    expect(t.frames).toEqual(["- + comments 1"]);
+
+    // Comments land; the action still parks the frame, and nothing else
+    // async holds it: the swap can no longer be seen. Reported here, once.
+    await t.advance(100);
+    expect(t.frames).toEqual(["- + comments 1"]);
+    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
+    const event = d.stop()[0];
+    expect(event.severity).toBe("warn");
+    expect(event.kind).toBe("async");
+    expect(event.message).toContain("the frame was held until its content settled");
+    expect(event.message).toContain("never displayed");
+    expect(event.message).toContain("latest()");
+
+    // The action ends: the new content, no fallback ever shown.
+    await release();
+    expect(t.frames).toEqual(["- + comments 1", "- + comments 2"]);
+    expect(t.log).toEqual(["comments=comments 2"]);
+    expect(d.warn).toHaveBeenCalledTimes(1);
+    t.dispose();
+  });
+
+  test("`on: () => latest(id)` inside the same action: the fallback showed now — no diagnostic", async () => {
+    const d = captureWarnings();
+    const t = page({ productMs: 50, commentsMs: 100, on: "latest", shell: false });
+    await t.settle();
+    const release = t.navigate("action");
+    expect(t.frames).toEqual(["- + comments 1", "- + spinner"]);
+    await t.advance(100);
+    expect(d.codes()).toEqual([]);
+    await release();
+    expect(t.frames).toEqual(["- + comments 1", "- + spinner", "- + comments 2"]);
+    expect(d.codes()).toEqual([]);
+    d.stop();
+    t.dispose();
+  });
+
+  test("plain write, nothing else holds: the fallback landed with the write — no diagnostic", async () => {
+    const d = captureWarnings();
+    const t = page({ productMs: 50, commentsMs: 100, on: "id", shell: false });
+    await t.settle();
+    t.navigate("plain");
+    expect(t.frames).toEqual(["- + comments 1", "- + spinner"]);
+    await t.advance(101);
+    expect(t.frames).toEqual(["- + comments 1", "- + spinner", "- + comments 2"]);
+    expect(d.codes()).toEqual([]);
+    d.stop();
+    t.dispose();
+  });
+
+  test("action write, shell holds the frame and comments land first: other data holds — a race, no diagnostic", async () => {
+    // The shape of 2. (comments land first) with the action still live: the
+    // fallback is not seen here either, but the frame is held by product —
+    // had the shell landed first, the fallback would have shown with it.
+    const d = captureWarnings();
+    const t = page({ productMs: 200, commentsMs: 100, on: "id" });
+    await t.settle();
+    const release = t.navigate("action");
+    await t.advance(100);
+    expect(d.codes()).toEqual([]);
+    await release();
+    await t.advance(100);
+    expect(t.frames).toEqual(["product 1 + comments 1", "product 2 + comments 2"]);
     expect(d.codes()).toEqual([]);
     d.stop();
     t.dispose();

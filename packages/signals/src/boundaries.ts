@@ -32,6 +32,7 @@ import { attrHooks } from "./core/attribution-hooks.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { enqueueSub } from "./core/heap.js";
 import {
+  currentTransition,
   haltReactivity,
   queueRearm,
   reporterBlocksSource,
@@ -377,6 +378,9 @@ export class CollectionQueue extends Queue {
   /** Released before the verdict with the swap deferred (`_rearmAhead`):
    * the mainline drain owes the boundary its fallback. */
   _swapOwed = false;
+  /** DEV: a frame-following swap is staged and not yet reported unseen
+   * (`_devHeldSweep`; cleared by the sweep that settles or clears it). */
+  _swapUnseen = false;
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -463,23 +467,12 @@ export class CollectionQueue extends Queue {
     if (!sources.size) return;
     if (__DEV__ && outside !== undefined) {
       const name = (outside as any)._name as string | undefined;
-      const message =
-        `[LOADING_ON_OUTSIDE_HOLD] \`on\` re-armed a Loading boundary, but ${
+      this._reportUnseen(
+        `${
           name ? `\`${name}\`` : "a source it is waiting on"
         } is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. ` +
-        "Read `latest()` in `on` to show the fallback now, or move the outside read under the boundary.";
-      reportDiagnostic(
-        emitDiagnostic(
-          {
-            code: "LOADING_ON_OUTSIDE_HOLD",
-            kind: "async",
-            severity: "warn",
-            message,
-            nodeName: name,
-            data: { source: name }
-          },
-          this._owner
-        )
+          "Read `latest()` in `on` to show the fallback now, or move the outside read under the boundary.",
+        name
       );
     }
     this._initialized = false;
@@ -491,7 +484,13 @@ export class CollectionQueue extends Queue {
     if (ahead && !mainline) {
       this._swapOwed = true;
       queueRearm(this);
-    } else this._swap();
+    } else {
+      // DEV: a frame-following swap the source rule did not already report
+      // is watched by the parked sweep (`_devHeldSweep`) — one report per
+      // re-arm, whichever rule sees it first.
+      if (__DEV__) this._swapUnseen = !ahead && !mainline && outside === undefined;
+      this._swap();
+    }
     // Those readers are behind the fallback now: they stop blocking
     // (`reporterBlocksSource`), and the transactions they were holding must
     // be re-judged for it (A33, #3375) — the active one by the verdict that
@@ -499,6 +498,48 @@ export class CollectionQueue extends Queue {
     // transaction parked regardless (transitionComplete): its batch commits
     // when it settles, intact.
     wakeParked();
+  }
+  /** DEV: LOADING_ON_OUTSIDE_HOLD — a frame-following re-arm whose fallback
+   * the user will not see, with the reason (`detail`) and the fix. */
+  _reportUnseen(detail: string, name?: string): void {
+    if (!__DEV__) return;
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "LOADING_ON_OUTSIDE_HOLD",
+          kind: "async",
+          severity: "warn",
+          message: `[LOADING_ON_OUTSIDE_HOLD] \`on\` re-armed a Loading boundary, but ${detail}`,
+          nodeName: name,
+          data: { source: name }
+        },
+        this._owner
+      )
+    );
+  }
+  /** DEV, a parked finalize (scheduler `checkBoundaryChildren`): the
+   * after-the-fact LOADING_ON_OUTSIDE_HOLD rule. The re-arm's swap is still
+   * staged (`_disabled` holds `true` uncommitted) and the content it was
+   * waiting on has settled — the sweep that follows the commit will clear it
+   * before any effect phase runs, so the fallback is never displayed. That
+   * is the design when other data holds the frame (a race the fallback may
+   * still win: the shell landing first shows it); it is the missed case when
+   * nothing but the write's own action (or an override it left) parks the
+   * transaction — the action outlasts the data, and `on` never shows a
+   * fallback. The source rule in `_rearm` cannot see this: nothing outside
+   * the boundary reads the source. */
+  _devHeldSweep(): void {
+    if (!__DEV__ || !this._swapUnseen || this._disabled._pendingValue !== true) return;
+    for (const source of this._sources) if (!this._settled(source)) return;
+    const t = this._disabled._transition;
+    if (t === null) return;
+    for (const [source, reporters] of currentTransition(t)._asyncReporters)
+      for (const reporter of reporters) if (reporterBlocksSource(reporter, source)) return;
+    this._swapUnseen = false;
+    this._reportUnseen(
+      "the frame was held until its content settled, so the fallback was never displayed. " +
+        "Read `latest()` in `on` to show the fallback immediately."
+    );
   }
   /** Show the fallback: the swap the output pass selects on. Lands where it
    * is written — in the active transaction's frame, or the current one. */
@@ -581,28 +622,29 @@ export class CollectionQueue extends Queue {
     }
     return false;
   }
+  /** Has a collected source stopped counting for this boundary? A source
+   * with a live affects() mark holds display state for the mark's lifetime
+   * (the visual channel): the marked node carries no status of its own, so
+   * the count is the liveness test. The release sweep (finalizePureQueue
+   * after mark release) re-runs this check. A source born held under this
+   * boundary (recompute, #3540) carries no status either: it is collected
+   * while it has a staged value and no committed one, and released by the
+   * commit that initializes it. */
+  _settled(source: Computed<any>): boolean {
+    return !!(
+      source._flags & REACTIVE_DISPOSED ||
+      (!source._x?._affectsCount &&
+        !(source._statusFlags & this._collectionType) &&
+        !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING) &&
+        !(
+          this._collectionType & STATUS_PENDING &&
+          source._statusFlags & STATUS_UNINITIALIZED &&
+          source._pendingValue !== NOT_PENDING
+        ))
+    );
+  }
   _checkSources() {
-    for (const source of this._sources) {
-      // A source with a live affects() mark holds display state for the
-      // mark's lifetime (the visual channel): the marked node carries no
-      // status of its own, so the count is the liveness test. The release
-      // sweep (finalizePureQueue after mark release) re-runs this check.
-      // A source born held under this boundary (recompute, #3540) carries no
-      // status either: it is collected while it has a staged value and no
-      // committed one, and released by the commit that initializes it.
-      if (
-        source._flags & REACTIVE_DISPOSED ||
-        (!source._x?._affectsCount &&
-          !(source._statusFlags & this._collectionType) &&
-          !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING) &&
-          !(
-            this._collectionType & STATUS_PENDING &&
-            source._statusFlags & STATUS_UNINITIALIZED &&
-            source._pendingValue !== NOT_PENDING
-          ))
-      )
-        this._sources.delete(source);
-    }
+    for (const source of this._sources) if (this._settled(source)) this._sources.delete(source);
     if (!this._sources.size) {
       if (
         this._collectionType & STATUS_PENDING &&
@@ -615,6 +657,7 @@ export class CollectionQueue extends Queue {
         this._pending = false;
       }
       if (!this._pending) {
+        if (__DEV__) this._swapUnseen = false; // the swap ran its course (`_devHeldSweep`)
         setSignal(this._disabled, false);
         if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
           attrHooks.boundaryFallback(this, this._tree, false);
