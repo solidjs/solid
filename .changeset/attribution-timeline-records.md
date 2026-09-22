@@ -12,4 +12,4 @@ Core: a `flushStart` hook beside `flushEnd` (one drain, never nested), and `effe
 
 The engine's effect-frame → node map is now filled by the first write inside a callback rather than by every callback (every reader resolves it through a write's origin, and most effect callbacks never write), which removes a WeakMap write per effect callback from the enabled engine's hot path.
 
-`@solidjs/web/performance-tracks` paints the new records: creation runs and effect callbacks on the `Effects`/`Memos` tracks, drains on a new `Scheduler` track, flights and fallbacks on a new `Async` track.
+`@solidjs/web/performance-tracks` paints the new records: creation runs and effect callbacks on the `Effects`/`Memos` tracks, drains on the `Propagation` track (one wave per drain), flights and fallbacks on a new `Async` track.

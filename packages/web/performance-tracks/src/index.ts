@@ -85,9 +85,9 @@ export interface PerformanceTracksOptions {
    * Emit through `performance.measure` with `detail.devtools` — tooltips
    * (the why-chain of a re-run) and properties (causes, deps, blockers…)
    * on every span — instead of `console.timeStamp`. Costs a User Timing
-   * entry per span; the adapter clears the entries it made in batches.
-   * Default: dev builds. Falls back to `console.timeStamp` where
-   * `performance.measure` is missing.
+   * entry per span; the adapter clears the entries it made in batches (a
+   * name it shares with an app measure is left alone). Default: dev builds.
+   * Each path falls back to the other where its API is missing.
    */
   rich?: boolean;
   /** The track group name. Default `"Solid"`. */
@@ -205,12 +205,19 @@ const noop = (): void => {};
  * warning or worse. In dev, spans and markers are emitted inside the
  * `console.createTask` task of the component they belong to, so an entry's
  * stack in the panel points at the JSX site that rendered the component.
- * Returns the disable; calling it twice is harmless. A no-op (returning a
- * no-op) in prod builds, where the observe tier is absent, and in an
- * environment without `console.timeStamp` or `performance.measure`.
+ *
+ * One instance per page: the tracks are a view of one engine, and a second
+ * painter would paint every span twice. A call while enabled joins the
+ * running instance — its options are not re-read; the first call's apply —
+ * and returns a release of its own; the instance is torn down when every
+ * release has been called (a module re-evaluated by HMR that enables again
+ * and disposes the old one lands back on one instance either way). A no-op
+ * (returning a no-op) in prod builds, where the observe tier is absent, and
+ * in an environment without `console.timeStamp` or `performance.measure`.
  */
 export function enablePerformanceTracks(options: PerformanceTracksOptions = {}): () => void {
   if (!IS_OBSERVE) return noop;
+  if (instance !== null) return instance.join();
   const observe = OBSERVE;
   if (observe === undefined) return noop;
   if (typeof performance !== "object" || typeof performance.now !== "function") return noop;
@@ -236,15 +243,32 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
     observe.records.subscribe("frame", e => painter.frame(e)),
     observe.diagnostics.subscribe(e => painter.diagnostic(e))
   ];
-  let enabled = true;
-  return () => {
-    if (!enabled) return;
-    enabled = false;
-    for (const release of releases) release();
-    attribution.disable();
-    emitter.dispose();
+  const active: Instance = {
+    holders: 0,
+    join() {
+      active.holders++;
+      let held = true;
+      return () => {
+        if (!held) return;
+        held = false;
+        if (--active.holders > 0 || instance !== active) return;
+        instance = null;
+        for (const release of releases) release();
+        attribution.disable();
+        emitter.dispose();
+      };
+    }
   };
+  instance = active;
+  return active.join();
 }
+
+/** The running adapter, if any (see `enablePerformanceTracks`). */
+interface Instance {
+  holders: number;
+  join(): () => void;
+}
+let instance: Instance | null = null;
 
 // --- Emission ------------------------------------------------------------------
 
@@ -254,26 +278,30 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
  * with `detail.devtools` is the rich one — tooltips and properties — at the
  * price of an entry in the performance timeline per span, which the
  * adapter clears by name once a batch has accumulated (the trace has them
- * by then; clearing removes nothing from a recording).
+ * by then; clearing removes nothing from a recording). Each path falls back
+ * to the other when its API is missing; `undefined` when neither exists.
+ *
+ * The emitter is the one place the adapter calls host APIs from inside the
+ * engine's hooks, so it is the one guard: a throw from `performance` or
+ * `console` (a hostile polyfill, a timestamp the host refuses) is caught
+ * here and never reaches the engine's record loop — the span is dropped,
+ * and dev says so once.
  */
 function createEmitter(group: string, rich: boolean): Emitter | undefined {
   const hasMeasure = typeof performance.measure === "function";
   const hasTimeStamp = typeof console !== "undefined" && typeof console.timeStamp === "function";
   let emitter: Emitter;
-  if (rich && hasMeasure) {
-    const names = new Set<string>();
-    const markNames = new Set<string>();
+  if ((rich && hasMeasure) || (!hasTimeStamp && hasMeasure)) {
+    // Our entries by name, counted: a name is cleared only while every entry
+    // under it is ours, so an app measure that shares a label is never
+    // clobbered (and ours stay with it — the cost of the collision).
+    const names = new Map<string, number>();
+    const markNames = new Map<string, number>();
     let pending = 0;
     const clear = () => {
       pending = 0;
-      if (typeof performance.clearMeasures === "function") {
-        for (const name of names) performance.clearMeasures(name);
-      }
-      names.clear();
-      if (typeof performance.clearMarks === "function") {
-        for (const name of markNames) performance.clearMarks(name);
-      }
-      markNames.clear();
+      clearOwned(names, "measure", performance.clearMeasures);
+      clearOwned(markNames, "mark", performance.clearMarks);
     };
     const hasMark = typeof performance.mark === "function";
     emitter = {
@@ -288,8 +316,8 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
         if (tooltip !== undefined) devtools.tooltipText = tooltip;
         if (properties !== undefined) devtools.properties = properties;
         const measure = () => performance.measure(label, { start, end, detail: { devtools } });
-        task !== undefined ? task.run(measure) : measure();
-        names.add(label);
+        if (!guarded(measure, task)) return;
+        names.set(label, (names.get(label) ?? 0) + 1);
         if (++pending >= CLEAR_EVERY) clear();
       },
       mark(label, color, tooltip, properties, issue, task) {
@@ -299,8 +327,8 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
         if (properties !== undefined) devtools.properties = properties;
         if (issue !== undefined) devtools.performanceIssue = issue;
         const mark = () => performance.mark(label, { detail: { devtools } });
-        task !== undefined ? task.run(mark) : mark();
-        markNames.add(label);
+        if (!guarded(mark, task)) return;
+        markNames.set(label, (markNames.get(label) ?? 0) + 1);
         if (++pending >= CLEAR_EVERY) clear();
       },
       dispose: clear
@@ -312,13 +340,11 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
     emitter = {
       rich: false,
       span(label, start, end, track, color, _tooltip, _properties, task) {
-        const stamp = () => timeStamp(label, start, end, track, group, color);
-        task !== undefined ? task.run(stamp) : stamp();
+        guarded(() => timeStamp(label, start, end, track, group, color), task);
       },
       mark(label, _color, _tooltip, _properties, _issue, task) {
         // The one-argument form: a marker on the Timings track, now.
-        const stamp = () => timeStamp(label);
-        task !== undefined ? task.run(stamp) : stamp();
+        guarded(() => timeStamp(label), task);
       },
       dispose: noop
     };
@@ -334,6 +360,45 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
 const SEED_AT = 0.003;
 /** Rich mode: clear the User Timing entries after this many spans. */
 const CLEAR_EVERY = 500;
+
+/** Run a host call (inside the component's task when there is one); `false` if it threw. */
+let warnedThrow = false;
+function guarded(fn: () => void, task: ConsoleTask | undefined): boolean {
+  try {
+    task !== undefined ? task.run(fn) : fn();
+    return true;
+  } catch (error) {
+    if (IS_DEV && !warnedThrow) {
+      warnedThrow = true;
+      console.warn("[performance-tracks] a timeline entry could not be emitted; dropped.", error);
+    }
+    return false;
+  }
+}
+
+/**
+ * Clear the User Timing entries under the names we made — a name only while
+ * the timeline holds no more of it than we made (an app's entry of the same
+ * name keeps the name, ours included, until the app clears it).
+ */
+function clearOwned(
+  owned: Map<string, number>,
+  type: "measure" | "mark",
+  clearFn: ((name?: string) => void) | undefined
+): void {
+  if (typeof clearFn !== "function" || typeof performance.getEntriesByName !== "function") {
+    owned.clear();
+    return;
+  }
+  for (const [name, count] of owned) {
+    // More entries than ours: the app owns some; leave the name alone. Fewer
+    // (something cleared the timeline under us): nothing but ours can remain.
+    if (performance.getEntriesByName(name, type).length <= count) {
+      clearFn.call(performance, name);
+      owned.delete(name);
+    }
+  }
+}
 
 // --- Painting ------------------------------------------------------------------
 

@@ -89,7 +89,16 @@ function measures() {
   const seen: (Measure & { task?: string })[] = [];
   const marks: Marker[] = [];
   const cleared: string[] = [];
+  // The timeline's live entries by name, as `getEntriesByName` reports them:
+  // the adapter clears a name only while it holds no more entries than the
+  // adapter made (an app's measure of the same name keeps the name).
+  const live = new Map<string, number>();
+  const add = (name: string) => live.set(name, (live.get(name) ?? 0) + 1);
+  define(performance, "getEntriesByName", (name: string) =>
+    Array.from({ length: live.get(name) ?? 0 }, () => ({ name }))
+  );
   define(performance, "measure", (label: string, opts: any) => {
+    add(label);
     const d = opts.detail.devtools;
     const m: Measure & { task?: string } = {
       label,
@@ -106,6 +115,7 @@ function measures() {
     seen.push(m);
   });
   define(performance, "mark", (label: string, opts: any) => {
+    add(label);
     const d = opts.detail.devtools;
     expect(d.dataType).toBe("marker");
     const m: Marker = { label, color: d.color };
@@ -116,12 +126,21 @@ function measures() {
     marks.push(m);
   });
   define(performance, "clearMeasures", (name: string) => {
+    live.delete(name);
     cleared.push(name);
   });
   define(performance, "clearMarks", (name: string) => {
+    live.delete(name);
     cleared.push(name);
   });
-  return { seen, marks, cleared, on: (track: string) => seen.filter(m => m.track === track) };
+  return {
+    seen,
+    marks,
+    cleared,
+    /** An entry the app made under `name` (not through the adapter). */
+    appEntry: add,
+    on: (track: string) => seen.filter(m => m.track === track)
+  };
 }
 
 /** Plain mode: the six-argument `console.timeStamp` calls (and the one-argument marker form). */
@@ -794,6 +813,68 @@ describe("enablePerformanceTracks", () => {
     expect(new Set(cleared)).toEqual(new Set(seen.map(m => m.label)));
   });
 
+  test("rich mode leaves an app measure that shares a label alone", () => {
+    const { seen, cleared, appEntry } = measures();
+    const disable = enable();
+    // The app measured under one of the adapter's labels (a track name here).
+    appEntry("Memos");
+    disable();
+    expect(cleared).not.toContain("Memos");
+    expect(new Set(cleared)).toEqual(new Set(seen.map(m => m.label).filter(l => l !== "Memos")));
+  });
+
+  test("a host API that throws drops the entry and never reaches the engine", () => {
+    const { seen } = measures();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const measure = performance.measure;
+    define(performance, "measure", (label: string, opts: any) => {
+      if (label.endsWith("reader")) throw new TypeError("refused");
+      return measure(label, opts);
+    });
+    enable();
+    const { reruns } = records();
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => createRenderEffect(n, () => {}, { name: "reader" }));
+    flush();
+    setN(1);
+    flush();
+    // The engine delivered the record to every listener; the span was dropped.
+    expect(reruns).toHaveLength(1);
+    expect(seen.some(m => m.label.endsWith("reader"))).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("performance-tracks");
+    setN(2);
+    flush();
+    expect(reruns).toHaveLength(2);
+    expect(warn).toHaveBeenCalledTimes(1); // once
+  });
+
+  test("one instance per page: a second enable joins it, and the last release tears it down", () => {
+    const { seen } = measures();
+    const first = enable();
+    const second = enable({ group: "Other" });
+    const [n, setN] = createSignal(0, { name: "n" });
+    createRoot(() => createRenderEffect(n, () => {}, { name: "reader" }));
+    flush();
+    setN(1);
+    flush();
+    // Painted once, in the first call's group — not twice.
+    const painted = seen.filter(m => m.label.endsWith("reader"));
+    expect(painted).toHaveLength(1);
+    expect(painted[0].group).toBe("Solid");
+    first();
+    setN(2);
+    flush();
+    // The second holder keeps the instance alive.
+    expect(seen.filter(m => m.label.endsWith("reader"))).toHaveLength(2);
+    second();
+    setN(3);
+    flush();
+    expect(seen.filter(m => m.label.endsWith("reader"))).toHaveLength(2);
+    // The engine hold was taken once and is released with the instance.
+    expect(attribution.history()).toEqual([]);
+  });
+
   test("scrub: no value previews, no element text except on a button or a link", () => {
     const { on } = measures();
     enable({ scrub: true });
@@ -1064,6 +1145,24 @@ describe("the production artifact", () => {
     flush();
     expect(attribution.history()).toEqual([]);
     disable();
+  });
+
+  test("the server conditions resolve to it under every posture: the tracks are a browser view", async () => {
+    // @ts-ignore — JSON import of the manifest under test.
+    const pkg = (await import("../package.json")).default as {
+      exports: Record<string, Record<string, unknown>>;
+    };
+    const entry = pkg.exports["./performance-tracks"];
+    const inert = "./performance-tracks/dist/performance-tracks.js";
+    for (const runtime of ["node", "worker", "deno"]) {
+      const condition = entry[runtime] as Record<string, unknown>;
+      expect(condition.default).toBe(inert);
+      expect(condition.development).toBeUndefined();
+      expect(condition.observe).toBeUndefined();
+    }
+    const browser = entry.browser as Record<string, Record<string, string>>;
+    expect(browser.development.default).toBe("./performance-tracks/dist/performance-tracks.dev.js");
+    expect(browser.observe.default).toBe("./performance-tracks/dist/performance-tracks.observe.js");
   });
 });
 

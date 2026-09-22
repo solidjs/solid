@@ -117,6 +117,30 @@
       "default": "./storage/dist/storage.js"
     },
     "./performance-tracks": {
+      "worker": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "browser": {
+        "development": {
+          "types": "./performance-tracks/types/index.d.ts",
+          "default": "./performance-tracks/dist/performance-tracks.dev.js"
+        },
+        "observe": {
+          "types": "./performance-tracks/types/index.d.ts",
+          "default": "./performance-tracks/dist/performance-tracks.observe.js"
+        },
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "deno": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
+      "node": {
+        "types": "./performance-tracks/types/index.d.ts",
+        "default": "./performance-tracks/dist/performance-tracks.js"
+      },
       "development": {
         "types": "./performance-tracks/types/index.d.ts",
         "default": "./performance-tracks/dist/performance-tracks.dev.js"

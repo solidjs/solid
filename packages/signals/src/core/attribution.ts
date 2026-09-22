@@ -3001,9 +3001,12 @@ interface OpenFallback {
   /** Pending display: the transaction it lands with, or `DRAIN` for this flush's end. */
   staged: Transition | typeof DRAIN | null;
 }
-const DRAIN = Symbol("drain");
+/** The key for swaps no transaction carries — an object, so the map below can be weak. */
+const DRAIN: { readonly drain: true } = { drain: true };
 const openFallbacks = new WeakMap<object, OpenFallback>();
-const stagedFallbacks = new Map<Transition | typeof DRAIN, OpenFallback[]>();
+// Weak on the transaction: one that is dropped without settling or merging
+// (its boundary disposed, its queues discarded) takes its staged opens with it.
+const stagedFallbacks = new WeakMap<Transition | typeof DRAIN, OpenFallback[]>();
 /** Bumped by `resetTracking` — the engine's install generation. */
 let trackingGen = 0;
 
@@ -3630,7 +3633,7 @@ function resetTracking(): void {
   frames.length = 0;
   activeHold = null;
   openFlush = null;
-  stagedFallbacks.clear();
+  stagedFallbacks.delete(DRAIN);
   trackingGen++;
   openNavs.clear();
   openInteractions.clear();
