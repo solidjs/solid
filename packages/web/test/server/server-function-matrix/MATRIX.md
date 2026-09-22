@@ -265,6 +265,55 @@ preflight, credentials, declared reads, same-origin byte-identity) and
 `server-functions-csrf` (the decision matrix, updated: `same-site` is now
 decided by the allowlist rather than refused outright).
 
+## Ruling — dev rebind of a GET grant (#3564, 2026-09-22)
+
+A GET grant binds to function identity, not id (#3237): registering a
+different function under a granted id revokes the grant (#3129), and the new
+function's own `GET()` — run right after by module order — re-grants it.
+Under `vite dev` that order breaks: a program reload invalidates every
+module, but the next `/_server` request re-evaluates only the module the
+requested id lives in. When the declaration lives elsewhere — a router's
+`query()` in the app's data layer — nothing re-arms the grant until the next
+document render, and every read answers 405 (`Allow: POST`) in between.
+Carrying the whole grant would also carry the origin-gate exemption to a
+function that never signed it. Resolved as a dispatch-only provisional
+grant, dev build only:
+
+1. **The dev rebind carries a LIVE grant, provisionally.** When
+   `registerServerFunction` rebinds an id whose grant is live
+   (`declaresRead`: made about the binding being replaced), it moves the
+   grant to the new binding and marks the id carried (`CARRIED`, process
+   state beside the other registries). A grant that is not live — the id
+   rebound before its declaration, #3237's stale case — still revokes;
+   stale never revives.
+2. **A carried grant is dispatch-only: the origin gate stays on.**
+   `declaresRead` answers true for the rebound function, so the method gate
+   admits GET/HEAD and a same-origin router fetch answers 200 — the 405 is
+   gone. But `handleServerFunctionRequest` forces `protectsRequest` for a
+   carried id: the #3114 skip is the declaration's safety assertion, and
+   the new function never made it. A cross-site GET lands on the 403
+   production gives. `Vary`/cache fragmentation is irrelevant in dev.
+3. **The live binding's own `GET()` restores the full grant.** A
+   declaration whose binding is the id's current registration
+   (`existing === binding`) clears the carried mark — the data layer
+   re-ran, the assertion is signed, the exemption returns.
+4. **A stale `GET()` against a carried grant is discarded, not thrown.** A
+   declaration about any other binding while the id is carried is a
+   reference from before the reload, not two live functions colliding: it
+   grants nothing (#3237, fail closed) and leaves the provisional grant as
+   it is — still dispatching, gate still on. The two-references throw is
+   kept for the genuine collision (no carried grant at the id).
+5. **Provisional chains and never self-upgrades.** A further rebind of a
+   carried id stays carried; only (3) upgrades it.
+6. **Production is byte-for-byte unchanged.** Every rebind revokes; the
+   carried set is always empty. The carve-out is under the runtime `DEV`
+   flag, so a build whose packaging cannot replace `_SOLID_DEV_` selects it
+   through `setServerFunctionsDev`.
+
+Pinned in `server-functions-dev-rebind-grant` (carry, origin gate on a
+carried id, re-declaration upgrade, stale re-declaration, chained rebinds,
+stale-grant refusal, production revocation).
+
 ## Extraction and merge discipline
 
 - A red test demonstrates current behavior; it becomes an ordinary guard only
