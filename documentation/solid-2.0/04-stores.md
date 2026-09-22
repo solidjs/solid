@@ -117,6 +117,20 @@ const users = createProjection(async () => {
 }, [], { key: "id" });
 ```
 
+**The draft stays valid until the next run or disposal** (#3585). The draft a run receives is not closed when the derive returns: it remains writable — from a subscription callback, a timer, a post-`await` continuation — until the derive runs again (the next run's draft replaces it the moment that run starts, even if it is still awaiting) or the projection's owner is disposed. That makes external subscriptions a plain derive:
+
+```js
+const data = createProjection((draft) => {
+  draft.length = 0;
+  const unsubscribe = subscribeToData(props.id, (item) => {
+    draft.push(item);
+  });
+  onCleanup(unsubscribe);
+}, []);
+```
+
+A late write is applied to the store and reaches subscribers at the next flush, which it schedules itself when no async run is in flight to do so. Writes through a superseded or disposed draft are dropped silently — a callback from a previous run cannot write into the state the current run owns, and a leaked callback after unmount is a no-op — but the cleanup is still yours (`onCleanup(unsubscribe)` above); the draft going dead does not stop the subscription. One carve-out: with `seedLoadingValue: true`, the first run works a detached copy of the seed rather than the live draft (the seed *is* the displayed value during the loading window), so a callback captured during that first run stops writing through once it lands — set up long-lived subscriptions on later runs, or without `seedLoadingValue`.
+
 **A derive must never swallow `NotReadyError`** (#3073). Reading a not-yet-settled async source inside a derive throws; that propagation is load-bearing. It is how loading states coordinate on every build, and on the server build — which has no subscription graph — it is additionally the *only* re-derive channel: the projection machinery catches the escaping error, holds the projection pending, and retries the derive when the source settles. A derive that wraps its reads in a broad `try/catch` "completes" with partial state and severs that channel — the browser build masks the mistake (dependencies register before the throw, so reactivity re-runs the derive anyway), but the node build freezes at the first result. To branch on readiness instead of suspending, probe with `isPending()` rather than catching; not-ready handling (hold the previous state, retry at settlement) is already the machinery's job.
 
 **`createStore(fn, seed, options?)`** — a writable derived store. Same derive semantics as `createProjection`, but returns `[store, setter]` so you can also write to it imperatively. Use this when you need both reactively derived state *and* local mutations.

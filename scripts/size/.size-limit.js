@@ -653,6 +653,15 @@ module.exports = [
     // disposeChildren's post-disposal sibling read (+63 B minified in the
     // signals core, see the core floor note); the rest is mangler/brotli
     // layout. 0 B in the store.
+    // Draft valid until superseded or disposed (#3585, proj R37,
+    // 2026-09-22): 16,912 B against `next`'s 16,880 (+32 B; 38 B under the
+    // cap, which is unchanged). Core: `schedule()` records the microtask it
+    // withholds under projectionWriteActive and `scheduleWithheld` re-arms
+    // it (+83 B minified in the scheduler). Store: the per-run token on the
+    // family, `isDisposed(owner)` in the draft gate, and the after-write
+    // arming closure, paid for by folding the three mutating draft traps
+    // onto one bracket (-10 B minified in projection.js). The core floor
+    // does not retain `scheduleWithheld` (-5 B, layout).
     limit: "16.95 KB",
     modifyEsbuildConfig
   },
@@ -1421,7 +1430,17 @@ module.exports = [
     // disposeChildren's post-disposal sibling read (+63 B minified in the
     // signals core, see the core floor note); the rest is mangler/brotli
     // layout. 0 B in the store engine, solid, or web.
-    limit: "30.95 KB",
+    // Draft valid until superseded or disposed (#3585, proj R37,
+    // 2026-09-22): 30.95 -> 31.0 KB, measured at 30,978 B against `next`'s
+    // 30,905 (+73 B). Core: `schedule()` records the microtask it withholds
+    // under projectionWriteActive and `scheduleWithheld` re-arms it (+83 B
+    // minified in the scheduler — the one place the guard lives). Store:
+    // the per-run token on the family, `isDisposed(owner)` in the draft
+    // gate, and the after-write arming closure, paid for by folding the
+    // three mutating draft traps onto one bracket (-10 B minified in
+    // projection.js). The rest is brotli layout over the larger bundle
+    // (+ createStore, which retains the same bytes, moved +32 B).
+    limit: "31.0 KB",
     modifyEsbuildConfig
   },
   {

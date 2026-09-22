@@ -81,6 +81,7 @@ Source suites: `sync` = `tests/store/createProjection.test.ts`, `async` = `tests
 - CONFLICT: store-wide status (gates every property read incl. untracked), not per-property lane value. Needs a store-level status home after layer deletion.
 
 **R24 — Draft writes during an in-flight async run are invisible until that run settles** (per-run atomic visibility).
+- Amended 2026-09-22 with R37: "invisible until settle" covers the run's SYNC prefix — the setter-scoped writes made before the derive returns, held with the rerun's transition (R31). Writes made after the derive returned (a post-`await` continuation, a subscription callback) take the authoritative override channel: they are immediately visible to context-free readers (the pending backing is authoritative-elect for them) and notify subscribers per op; a flight still up drains them at its landing, otherwise the write arms the drain itself.
 
 **R25 — Async generators publish one snapshot per yield**: bare `yield` publishes accumulated draft mutations; `yield value` replaces the entire state (no merge); each yield transforms again.
 
@@ -108,6 +109,13 @@ Source suites: `sync` = `tests/store/createProjection.test.ts`, `async` = `tests
 ## Lifecycle
 
 **R36 — Disposing the owning root stops the projection** (no recomputes, no notifications afterward).
+
+**R37 — A draft is valid from the start of its run until it is superseded or its owner is disposed — not "until no longer in flight" (#3585, ruled 2026-09-22).** The draft handed to a run stays writable after the derive returns — sync or async, whatever it returned — until (a) the NEXT run of the derive starts (including a run that throws NotReady or is parked on an `await`; latest-run-wins, R26), or (b) the projection's owner is disposed. This is the contract behind `createProjection(draft => { subscribe(id, item => draft.push(item)); onCleanup(unsubscribe) })` working without a never-resolving-Promise workaround; it applies equally to `createStore(fn, seed)` and `createOptimisticStore(fn)` drafts.
+- Late writes take the authoritative override channel (pending-backing write, per-op notification, fold at the next flush). When no flight is up to drain them at its landing, the write arms the drain itself (`scheduleWithheld`) — `schedule()` withholds its microtask under projectionWriteActive precisely because a landing normally follows, and a drain BEFORE the landing tears the run's pre- and post-`await` halves apart (async "notifies only changed paths", spec A22). A late write inside an `action` is stamped to that transaction and commits atomically with it.
+- A write to a superseded or disposed draft is dropped silently — same fate as a superseded async run's pending draft writes (R26); no diagnostic (a stale `.then` continuation landing after supersession is the ordinary latest-run-wins race, not an authoring error).
+- Carve-out: a loading-window run (`seedLoadingValue`) works a detached shadow of the seed, not the draft (#2988). A callback that closes over the shadow writes into a dead clone once the window has closed (first commit). Ruled acceptable for now; a redirecting shadow would remove the carve-out.
+- The pre-R37 gate (`!settled || owner._x?._inFlight === result`) was timing-dependent: a sync derive's `undefined` result equalled a never-installed `_x`'s `undefined` `_inFlight`, so the "dead" draft was live exactly while nothing had read the projection, and a superseded run's leaked callback kept writing into the NEXT run's state. Nothing pinned it.
+- Evidence: `tests/createProjection.draft-lifetime-3585.test.ts` (GabbeV's two cases verbatim; subscriber/flush/return-shape invariance; supersession incl. mid-`await` and NotReady runs; dispose; auto-drain incl. post-landing async; action hold; derived `createStore`; the shadow carve-out).
 
 ## Tests pinning internals — need a ruling
 
