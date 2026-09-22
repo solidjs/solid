@@ -155,4 +155,68 @@ describe("sole-child falsy primitives (#3571)", () => {
 
     dispose();
   });
+
+  test("NaN swaps with an array and back without leaving text behind", () => {
+    const [showList, setShowList] = createSignal(false);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>{showList() ? [<b>b</b>, <i>i</i>] : NaN}</div>;
+      return d;
+    });
+    flush();
+
+    expect(div.childNodes.length).toBe(1);
+    expect(div.textContent).toBe("NaN");
+
+    setShowList(true);
+    flush();
+    expect(directText(div)).toEqual([]);
+    expect(div.textContent).toBe("bi");
+    expect(div.childNodes.length).toBe(2);
+
+    setShowList(false);
+    flush();
+    expect(div.childNodes.length).toBe(1);
+    expect(div.textContent).toBe("NaN");
+
+    setShowList(true);
+    flush();
+    expect(directText(div)).toEqual([]);
+    expect(div.textContent).toBe("bi");
+
+    dispose();
+  });
+
+  test.each([
+    ["empty string", ""],
+    ["null", null],
+    ["false", false]
+  ])("%s swaps with an element and back (nothing to clean up)", (_label, empty) => {
+    const [show, setShow] = createSignal(false);
+    let span!: HTMLSpanElement;
+    const dispose = createRoot(d => {
+      <span ref={span}>{show() ? <i>x</i> : empty}</span>;
+      return d;
+    });
+    flush();
+
+    expect(span.childNodes.length).toBe(0);
+
+    setShow(true);
+    flush();
+    expect(span.childNodes.length).toBe(1);
+    expect(span.firstChild!.nodeName).toBe("I");
+    expect(span.textContent).toBe("x");
+
+    setShow(false);
+    flush();
+    expect(span.childNodes.length).toBe(0);
+
+    setShow(true);
+    flush();
+    expect(span.childNodes.length).toBe(1);
+    expect(span.textContent).toBe("x");
+
+    dispose();
+  });
 });

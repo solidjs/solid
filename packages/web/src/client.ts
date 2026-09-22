@@ -2639,7 +2639,7 @@ function insertExpression(parent, value, current, marker) {
     }
     if (marker) value[$$SLOT] = marker;
   } else if (Array.isArray(value)) {
-    const currentArray = current && Array.isArray(current);
+    const currentArray = Array.isArray(current);
     // Commit-time text materialization (normalize left primitives raw): a
     // primitive slot adopts the positional text node with a `.data` write
     // when one is there, and allocates only otherwise. The adopted node's
