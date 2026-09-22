@@ -356,8 +356,9 @@ export function entangleConfirmingTransitions(obs: Computed<any>, target: Transi
   // batch there hands the stolen cargo to that finalize's commit sweep — a
   // premature reveal at a foreign settle. Subscribers that computed against
   // the pre-steal world were re-dirtied by the steal itself, so this
-  // flush's applies paint the masked (mid-hold) view; the cargo commits at
-  // the awaiting transaction's own settle.
+  // flush's applies paint the mid-hold view (committed for lane and stale
+  // readers; a deriving reader is held with the cargo); the cargo commits
+  // at the awaiting transaction's own settle.
 }
 
 /** Move a confirming carrier's staged nodes into the awaiting transaction:
@@ -369,15 +370,19 @@ export function entangleConfirmingTransitions(obs: Computed<any>, target: Transi
  *
  * EFFECT subs of stolen nodes re-run: any that recomputed against the
  * staging BEFORE the steal (the carrier's landing notified them as a plain
- * write) hold a private torn result — override composed with confirming
- * truth — that the next paint gate (stash-point lane run, a foreign
- * flush's completion drain) would show. Re-running them under the mask
- * re-derives the mid-hold view in this same heap pass. PURE computeds are
- * deliberately NOT re-run: a torn staged value of theirs is itself stolen
- * cargo — masked at read, so ordinary readers already serve their
- * committed value — while re-running them would re-derive the OLD world
- * and re-stage it over the held truth. The reveal re-notifies
- * (commitPendingNodes), which is when they re-derive for real. */
+ * write) hold a private result derived from the carrier's world — one
+ * that the next paint gate (stash-point lane run, a foreign flush's
+ * completion drain) would apply as the carrier's. Re-running them now that
+ * the cargo is the awaiting transaction's re-routes each by its posture in
+ * this same heap pass: a lane pass keeps committed (the mask), a stale
+ * render effect keeps committed and registers for the reveal's replay
+ * (stale-of-foreign), and a deriving user effect is served the truth and
+ * held with the transaction (A29). PURE computeds are deliberately NOT
+ * re-run: a staged value of theirs is itself stolen cargo — held with the
+ * transaction, so ordinary readers already serve their committed value —
+ * while re-running them would re-derive the OLD world and re-stage it over
+ * the held truth. The reveal re-notifies (commitPendingNodes), which is
+ * when they re-derive for real. */
 function stealEntangledCargo(carrier: Signal<any>[], target: Transition): boolean {
   if (carrier === target._pendingNodes || carrier.length === 0) return false;
   for (let i = 0; i < carrier.length; i++) {

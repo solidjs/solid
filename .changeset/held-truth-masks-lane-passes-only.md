@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+Held truth (#3164) is masked from lane passes only; every other deriving reader follows A29. Confirming truth staged into a transaction that retains optimism — a landing folded onto an optimistic store, or a carrier stolen by an awaited `until()` — is, to a memo or user effect, a staged value like any other: the pass derives from it and is held with the transaction, so it composes one staged world instead of staged truth beside committed neighbours. Fixes #3568 (an optimistic `push`/`splice` followed by a longer refetch handed `<For>` a `HOLE`: the pass read the landed `length` through the superseded override while the rows past it stayed masked to committed) and the owning-lane leak that #3589's owner exemption opened (the lane pass that owns the transaction painted the confirmed `v1` beside `saving=true`). Untracked reads, stale readers of a foreign transaction, and lane passes — owning transaction or not — keep committed until the reveal; `latest()` and `until()`'s predicate tunnel through as before. Supersedes #3589.

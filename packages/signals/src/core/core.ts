@@ -1785,14 +1785,20 @@ export function enterStagedRead(
  * - a stale reader (render effect) of a FOREIGN transaction's staged write —
  *   committed, no entanglement (heldFromStale registers the replay; a node
  *   born held has no committed frame to fall back to, `noCommitted`);
- * - A17 for HELD truth (#3164, CONFIG_HELD_TRUTH): staged confirming truth —
- *   fold-staged onto an armed family, or entangle-stolen by an awaited
- *   until() — is masked from ordinary readers until its transaction's
- *   reveal, the retaining transaction's own speculative recomputes included
- *   (partial override coverage would otherwise compose override + staged
- *   truth into a state no timeline contains). Authoritative readers
- *   (until()'s predicate) and latest() see the staged truth — the tunnel that
- *   keeps the hold deadlock-free.
+ * - HELD truth (#3164, CONFIG_HELD_TRUTH) read by a LANE pass: staged
+ *   confirming truth — fold-staged onto an armed family, or entangle-stolen
+ *   by an awaited until() — is masked from lane passes only, owning
+ *   transaction or not. A lane applies its frame display-ahead at the park,
+ *   so a lane pass served the truth would paint the confirmation beside the
+ *   optimism it confirms (`saving=true` beside the saved row — the #3164
+ *   tear); it keeps committed and is re-run by the reveal's post-revert
+ *   wake. Every other deriving reader falls through to A29 below: the truth
+ *   is a staged value like any other, and the pass that derives from it is
+ *   held with it — including the retaining transaction's own passes, which
+ *   a superseded override already hands the truth (#3568: masking them
+ *   composed the landed `length` with rows still masked to committed).
+ *   latest() and authoritative readers (until()'s predicate) tunnel
+ *   through — the tunnel that keeps the hold deadlock-free.
  * False means the reader derives from the staged value and enters its
  * transaction (enterStagedRead, A29).
  */
@@ -1809,6 +1815,7 @@ export function readerSeesCommitted(
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
     (stale && !noCommitted && heldFromStale(el, c)) ||
     (el._config & CONFIG_HELD_TRUTH &&
+      currentOptimisticLane !== null &&
       !latestReadActive &&
       !(c._config & CONFIG_AUTHORITATIVE_READ))
   );

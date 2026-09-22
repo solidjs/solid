@@ -104,16 +104,32 @@ export const CONFIG_FRESH_READ = 1 << 16;
  * transaction's settle. Two arming sites, one meaning: the store fold
  * (a landing staged into the retaining transaction) and until()'s
  * flip-entanglement (a foreign carrier's staged write, stolen when it
- * flipped the awaited predicate truthy). Until the reveal, ordinary
- * readers — lane and speculative recomputes included — keep committed:
- * the staging notified subscribers as a plain write, so without the mask
- * a mid-hold recompute composes live optimism with the confirming truth,
- * a frame no timeline contains (GabbeV's union tear). Authoritative
- * readers (until()'s predicate) and latest() tunnel through — the
- * exemption that keeps holds deadlock-free. Override-covered nodes never
+ * flipped the awaited predicate truthy). Override-covered nodes never
  * arm: the override is their display and its revert their notification
- * (A17). Cleared at commit (the commit IS the reveal); subscribers masked
- * during the hold are woken by finalizePureQueue's post-revert pass. */
+ * (A17).
+ *
+ * To a DERIVING reader the truth is a staged value like any other: a memo
+ * or user effect served it enters the transaction and is held with it
+ * (A29), so a pass that composes it with a superseded override's truth
+ * composes ONE staged world — never staged truth beside committed
+ * neighbours (#3568: the mask served the retaining transaction's own pass
+ * the landed `length` through the override while the rows past it stayed
+ * committed, and `<For>` walked into a hole). Stale readers of a foreign
+ * transaction keep committed through the stale-of-foreign clause,
+ * untracked reads keep committed (Rule 1), and latest() and until()'s
+ * predicate tunnel through — the exemption that keeps holds deadlock-free.
+ *
+ * The one reader the mark gates is a LANE pass, owning transaction or not
+ * (ruled 2026-09-22, superseding #3589's owner exemption): a lane applies
+ * its frame display-ahead at the park, so a lane pass served the truth
+ * would paint the confirmation beside the optimism it confirms —
+ * `saving=true` beside the saved row, a frame no timeline contains
+ * (GabbeV's union tear). It keeps committed and is re-run by the reveal's
+ * post-revert wake. A lane under the retaining transaction owns its
+ * overrides and its lane cargo (`ownsLane`), not the transaction's
+ * confirming truth. Cleared at commit (the commit IS the reveal);
+ * subscribers masked during the hold are woken by finalizePureQueue's
+ * post-revert pass. */
 export const CONFIG_HELD_TRUTH = 1 << 17;
 /** SLOT node (store leaf): created through `slotSignal` with `_host`/`_key`
  * backrefs baked into the literal. The unobserved sweep dispatches these to
