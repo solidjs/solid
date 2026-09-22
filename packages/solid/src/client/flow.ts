@@ -448,11 +448,13 @@ export function Errored(props: {
  * nothing else holds that frame; together with the rest of the new page
  * during a held navigation (a write inside an `action`, or one whose data
  * other readers are still waiting on) — never a spinner beside a page the
- * change has not reached yet. Read `latest()` in `on` to show the fallback
- * immediately, beside the still-held frame. If the same data is also read
- * outside the boundary (or the write's action outlasts the data), the frame
- * waits on it and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD`.
- * The children are not re-created; they stay alive behind the fallback.
+ * change has not reached yet. If the same data is also read outside the
+ * boundary (or the write's action outlasts the data), the frame waits on it
+ * and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD`. The fix is
+ * structural — one hold should own the data — or `isPending()` for the wait.
+ * A display-ahead read in `on` (`latest()`) shows the fallback now, beside
+ * the held frame; that is a capability, not the recommended shape. The
+ * children are not re-created; they stay alive behind the fallback.
  *
  * Scope `<Loading>` around the data-dependent slot, not the surrounding
  * shell. Wrapping layout chrome (header, nav, footer) in the same boundary
@@ -480,11 +482,6 @@ export function Errored(props: {
  * // Several dependencies: a change to any of them shows the fallback.
  * <Loading fallback={<Skeleton />} on={[query(), page()]}>
  *   <Results />
- * </Loading>
- *
- * // The fallback now, beside whatever the navigation is still holding.
- * <Loading fallback={<Skeleton />} on={latest(route)}>
- *   <Page />
  * </Loading>
  * ```
  *

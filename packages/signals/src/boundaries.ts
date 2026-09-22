@@ -441,7 +441,7 @@ export class CollectionQueue extends Queue {
         `${
           name ? `\`${name}\`` : "a source it is waiting on"
         } is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. ` +
-          "Read `latest()` in `on` to show the fallback now, or move the outside read under the boundary.",
+          "Move the outside read under the boundary so one hold owns the data, or show the wait with `isPending()`. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)",
         name
       );
     }
@@ -640,7 +640,7 @@ function devHeldSweep(queue: CollectionQueue): void {
   reportUnseen(
     queue,
     "the frame was held until its content settled, so the fallback was never displayed. " +
-      "Read `latest()` in `on` to show the fallback immediately."
+      "The old content stayed valid for the whole wait; show the wait with `isPending()` or an optimistic value. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)"
   );
 }
 
@@ -740,13 +740,15 @@ function createCollectionBoundary<T>(
  *   if nothing is pending, the notification is a no-op. The fallback lands
  *   with the same frame as the change that caused it — now, when nothing
  *   else holds that frame; together with the rest of the new page during a
- *   held navigation, not before it. Read `latest()` in `on` to show the
- *   fallback immediately, beside the still-held frame. If the same data is
- *   also read outside the boundary (or the write's action outlasts the
- *   data), the frame waits on it and no fallback appears (DEV warns
- *   `LOADING_ON_OUTSIDE_HOLD`). Optimistic writes and a
- *   source going pending notify like any other. The children are not
- *   re-created — they stay alive behind the fallback.
+ *   held navigation, not before it. If the same data is also read outside
+ *   the boundary (or the write's action outlasts the data), the frame waits
+ *   on it and no fallback appears (DEV warns `LOADING_ON_OUTSIDE_HOLD`);
+ *   the fix is structural — one hold should own the data — or `isPending()`
+ *   for the wait. A display-ahead read in `on` (`latest()`) shows the
+ *   fallback now, beside the held frame; that is a capability, not the
+ *   recommended shape. Optimistic writes and a source going pending notify
+ *   like any other. The children are not re-created — they stay alive
+ *   behind the fallback.
  *
  * @example
  * ```tsx
