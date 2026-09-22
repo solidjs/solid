@@ -313,7 +313,14 @@ module.exports = [
     // in-package floor (25,660 -> 25,829). Relocation measured NO-WIN: the
     // walk behind a `GlobalQueue` slot installed by boundaries.ts saved 8 B
     // here and cost the boundary-using app scenarios 50-70 B each.
-    limit: "9.65 KB",
+    // rc.10: on follows the frame (#3540): 9,653 B against `next`'s 9,640
+    // (+13 B) — the re-arm drain moves from finalizePureQueue to `flush`,
+    // after the heap and before the verdict (`drainRearms()` + heap re-run;
+    // `_endOptimism` moved ahead of it), and `notifyOnLane` (the display-ahead
+    // swap's lane-channel notification). The DEV-only after-the-fact
+    // LOADING_ON_OUTSIDE_HOLD sweep is 0 B here (its own shaken function).
+    // Boundaries are not retained by this floor.
+    limit: "9.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -602,6 +609,9 @@ module.exports = [
     // +11 B over the cap — the scheduler's `pendingRearms` set, `queueRearm`,
     // the finalize drain and the simple-sync-flush gate (+58 B minified in
     // the signals core).
+    // rc.10: on follows the frame (#3540): 16,793 B against `next`'s 16,811
+    // (-18 B) — the core floor's drain move (see its note); the rest is the
+    // prop mangler handing out different short names. 0 B in the store.
     limit: "16.85 KB",
     modifyEsbuildConfig
   },
@@ -766,6 +776,9 @@ module.exports = [
     // the verdict layer pays for `spectating` at serve's staged-only arm
     // beside its own `_verdictPull` gate in enterStagedRead (the two gates
     // are now tested together in one predicate).
+    // rc.10: on follows the frame (#3540): 12,370 B against `next`'s 12,391
+    // (-21 B) — the core floor's drain move (see its note); the rest is the
+    // prop mangler handing out different short names.
     limit: "12.40 KB",
     modifyEsbuildConfig
   },
@@ -892,6 +905,8 @@ module.exports = [
     // `on` re-arms at the flush's finalize (#3540, 2026-09-21): 12,472 B,
     // +22 B over the cap — the scheduler's `pendingRearms` drain sits on the
     // flush path every app retains (see the `+ createStore` note).
+    // rc.10: on follows the frame (#3540): 12,473 B against `next`'s 12,472
+    // (+1 B) — the core floor's drain move; within the cap.
     limit: "12.50 KB",
     modifyEsbuildConfig
   },
@@ -1083,7 +1098,12 @@ module.exports = [
     // against `next`'s 20,431 (+90 B). Core: the same +46 B as the core floor
     // note; boundaries: the same key computed / output-pass reset / born-held
     // source retention as the CSR note.
-    limit: "20.55 KB",
+    // rc.10: on follows the frame (#3540): 20,663 B against `next`'s 20,542
+    // (+121 B). Core: the drain move (core floor note); boundaries: the same
+    // `_rearm` / `_swap(lane)` / lane-aware on-node / `_settled` as the CSR
+    // note. Solid: `<Errored on>` and its hydration-wrapper threading are
+    // gone. 0 B in web.
+    limit: "20.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -1317,7 +1337,11 @@ module.exports = [
     // the finalize drain replace `keyComputed`'s value compare and
     // `_prevOn` (a near wash in boundaries.ts); solid: `<Errored on>` threaded
     // through the hydration wrapper to createErrorBoundary's options.
-    limit: "30.80 KB",
+    // rc.10: on follows the frame (#3540): 30,844 B against `next`'s 30,739
+    // (+105 B) — the same core + boundaries + solid deltas as the entry
+    // above; brotli's context over the larger bundle lands 20 B differently
+    // from the entry above's -3 B. 0 B in the store engine.
+    limit: "30.90 KB",
     modifyEsbuildConfig
   },
   {
@@ -1457,7 +1481,16 @@ module.exports = [
     // (`_reset`, moved out of `notify`); `_checkSources` keeps a born-held
     // source collected until the commit initializes it; the priming read is a
     // `spectate` (no dependency link, no transaction entry).
-    limit: "15.65 KB",
+    // rc.10: on follows the frame (#3540): 15,686 B against `next`'s 15,637
+    // (+49 B). Core: the drain move (core floor note). Boundaries: `_rearm`
+    // collects from the live transactions' reporter registrations through
+    // `reporterBlocksSource` (now exported) and swaps (`_swap(lane)`) —
+    // staged into the frame, or committed and notified on the lane the
+    // on-node ran under (`_rearmLane`, from `currentOptimisticLane`); the
+    // source-settled predicate is `_settled` (shared with the DEV sweep,
+    // whose stub and flag are the only DEV bytes left in prod). Solid:
+    // `<Errored on>` is gone.
+    limit: "15.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -1586,7 +1619,10 @@ module.exports = [
     // source collected until the commit initializes it; the priming read is a
     // `spectate`. Observe: the boundaryFallback attribution call moved with
     // the reset.
-    limit: "17.15 KB",
+    // rc.10: on follows the frame (#3540): 17,247 B against `next`'s 17,127
+    // (+120 B) — the CSR note's core + boundaries + solid deltas; observe:
+    // the boundaryFallback attribution call moved into `_swap`.
+    limit: "17.30 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1755,7 +1791,10 @@ module.exports = [
     // become the on-node (`queueRearm` on every run after the first), and
     // `_reset` becomes `_rearm` + `_retry` (shared with the error fallback's
     // `reset()`); the scheduler gains `pendingRearms` and its finalize drain.
-    limit: "27.65 KB",
+    // rc.10: on follows the frame (#3540): 27,701 B against `next`'s 27,614
+    // (+87 B) — the CSR observe note's deltas; 0 B in the attribution
+    // engine.
+    limit: "27.75 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

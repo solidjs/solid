@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createLoadingBoundary,
   createMemo,
@@ -226,25 +226,30 @@ describe("a second write while an async chain is in flight", () => {
     await advanceTo(4000);
     // The re-arm frees Details, but Outside still consumes the flight: count=1
     // stays held. page=1 joins the hold too (its reader details lives there).
-    // `on` is a dependency list (#3540): page's write notifies it, and the
-    // boundary re-arms at the flush's finalize — mainline, past the park — so
-    // the fallback is the ONLY thing that publishes at 4000: the frame's
-    // fallback beside the held Sum/Outside, none of the held writes with it.
-    // pageData1 lands at 5000 and re-asks details (due 7000); everything else
-    // reveals with its answer.
+    // `on` is a dependency list (#3540): page's write notifies it, the
+    // boundary releases its hold before the verdict and stages its fallback
+    // swap WITH page's frame (frame-following). Outside waits on the same
+    // `details` the boundary was waiting on, so that frame cannot commit
+    // until details lands — and by then the boundary's collected source has
+    // settled and the sweep clears the swap ahead of the commit: nothing
+    // publishes at 4000, and no fallback ever shows (by design: the frame
+    // waited; DEV warns LOADING_ON_OUTSIDE_HOLD once). pageData1 lands at
+    // 5000 and re-asks details (due 7000); everything reveals with its answer.
+    // (Under the rc.10 trigger re-arm the fallback published alone at 4000,
+    // beside the held Sum/Outside; under the reset made from the boundary's
+    // own pass before it, the 7000 frame also carried a stale `Sum: 1`.)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     setPage(1);
     await settle();
     await advanceTo(12000);
-    // (With the reset made from the boundary's own pass, the 7000 frame also
-    // carried a stale `Sum: 1` — Sum's slot computed at 4000 with page=1 over
-    // the committed count, published ahead of the #3322 contested re-derive.
-    // Not so with the finalize re-arm: 7000 is one clean frame.)
     expect(frames(log, when)).toEqual([
       "0: Boundary: Loading... | Sum: 0",
       "3000: Boundary: content | Details: 0 | Outside: 0",
-      "4000: Boundary: Loading...",
-      "7000: Boundary: content | Details: 2 | Outside: 2 | Sum: 2"
+      "7000: Details: 2 | Outside: 2 | Sum: 2"
     ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("[LOADING_ON_OUTSIDE_HOLD]");
+    warn.mockRestore();
   });
 
   it("#3374 repeating the held write after remounting the reader publishes with the derived value", async () => {
