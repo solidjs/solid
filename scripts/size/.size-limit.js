@@ -1820,7 +1820,14 @@ module.exports = [
     // rc.10: on follows the frame (#3540): 27,701 B against `next`'s 27,614
     // (+87 B) — the CSR observe note's deltas; 0 B in the attribution
     // engine.
-    limit: "27.75 KB",
+    // Pending-fallback reveal (#3581, 2026-09-22): 27.75 -> 27.80 KB, measured
+    // at 27,756 B against 5e467329e's 27,704 (+52 B; 6 B over the old cap).
+    // #3581 re-set the isPending/hydrating/CSR/CSR-observe caps but not this
+    // one (its own measurement landed at 27,743, 7 B under). The bytes are the
+    // pre-verdict boundary judgment (`_judgeHeld` / `_output` in
+    // boundaries.ts) and the scheduler's `checkBoundaryChildren` walk in
+    // core/scheduler.ts; no attribution-engine change.
+    limit: "27.80 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
