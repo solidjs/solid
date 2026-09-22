@@ -176,3 +176,51 @@ it("a lazy memo a cleanup reawakens while its owner's held children are torn dow
   expect(chain(owner)).toEqual(["cleanup2", "m2"]);
   dispose();
 });
+
+it("a lazy memo made dormant and reawakened while its owner's held children drain does not cut the drain short", () => {
+  let owner!: any;
+  let setTick!: (v: number) => void;
+  let gen = 0;
+  const cleaned: string[] = [];
+  const dispose = createRoot(d => {
+    const [tick, _setTick] = createSignal(0);
+    setTick = _setTick;
+    const held = createMemo(
+      () => {
+        tick();
+        owner = getOwner()!;
+        const g = ++gen;
+        createRenderEffect(
+          () => {
+            onCleanup(() => cleaned.push("sibling" + g));
+          },
+          () => {},
+          { name: "sibling" + g }
+        );
+        const lazy = createMemo(() => g, { lazy: true, name: "lazy" + g });
+        createRenderEffect(
+          () => {
+            lazy();
+            onCleanup(() => lazy());
+          },
+          () => {},
+          { name: "reader" + g }
+        );
+        return new Promise<number>(() => {});
+      },
+      { name: "held" }
+    );
+    createRenderEffect(held, () => {});
+    return d;
+  });
+  flush();
+  expect(chain(owner)).toEqual(["reader1", "lazy1", "sibling1"]);
+
+  setTick(1);
+  flush();
+  expect(cleaned).toEqual(["sibling1"]);
+  expect(chain(owner)).toEqual(["reader2", "lazy2", "sibling2", "lazy1"]);
+
+  dispose();
+  expect(cleaned).toEqual(["sibling1", "sibling2"]);
+});

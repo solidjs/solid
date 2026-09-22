@@ -100,7 +100,6 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   let child = zombie ? ((node._x?._pendingFirstChild ?? null) as Owner | null) : node._firstChild;
   if (!zombie) node._firstChild = null;
   while (child) {
-    const nextChild = child._nextSibling;
     const n = child as Computed<unknown>;
     // Owner teardown is death regardless of the child's own lifecycle
     // (#3024): strip AUTO_DISPOSE so a post-disposal read freezes at the
@@ -125,7 +124,11 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // and keeps the dev owner-chain-head invariant honest for those children.
     child._prevSibling = child;
     disposeChildren(child, true);
-    child = nextChild;
+    // Read after, not before: a sibling this disposal made dormant spliced
+    // itself out of the detached chain, and a cleanup may then have linked
+    // it at the fresh head, which rewrote the `_nextSibling` a pre-read
+    // would still be holding.
+    child = child._nextSibling;
   }
   if (zombie) {
     if (node._x !== null) node._x._pendingFirstChild = null;

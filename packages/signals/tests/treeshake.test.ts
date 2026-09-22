@@ -391,15 +391,16 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // boundaries.ts) plus the heap re-run that lets the output drop the
     // fallback's read ahead of the verdict it was parking.
     // A reawakened lazy memo rejoins its owner's chain (#3554, 2026-09-22):
-    // +67 B core-retained (26,054 -> 26,121) — `linkChild`, the one head link
+    // +63 B core-retained (26,054 -> 26,117) — `linkChild`, the one head link
     // shared by createOwner, setupComputedNode and prepareComputed's
-    // auto-dispose reawaken, with its zombie guard (+49 B); the reawaken
-    // freezing a dormant node whose owner is dead instead of recomputing it,
-    // the strip in disposeChildren having missed it off the chain (#3024,
-    // +18 B); and disposeChildren detaching the chain before its loop with
-    // each child's splice pointed at itself, so a node a cleanup links
-    // mid-drain survives the drain.
-    expect(minifiedBytes).toBeLessThan(26_175);
+    // auto-dispose reawaken, with its zombie guard; the reawaken freezing a
+    // dormant node whose owner is dead instead of recomputing it, the strip
+    // in disposeChildren having missed it off the chain (#3024); and
+    // disposeChildren detaching the chain before its loop, each child's
+    // splice pointed at itself and its next read after its disposal, so a
+    // node a cleanup links mid-drain survives the drain without cutting the
+    // drain short.
+    expect(minifiedBytes).toBeLessThan(26_160);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
