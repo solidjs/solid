@@ -278,6 +278,7 @@ const nativeOptionKeys = new Set([
   "omitNestedClosingTags",
   "omitLastClosingTag",
   "serverComponents",
+  "hoistProps",
   "builtIns",
   "renderers"
 ]);

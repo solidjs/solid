@@ -61,6 +61,12 @@ pub struct TransformOptions {
     /// intrinsic elements compile to a guarded `_$ssrClaim` hole (the
     /// `_bnd` behavior-claim marker) instead of dropping.
     pub server_components: Option<bool>,
+    /// SSR-only (default `true`): a component's props literal with getters
+    /// compiles to a module-level constructor with shared getters instead of
+    /// an object literal — same own keys, order and descriptors, prototype
+    /// `Object.prototype`; a getter is defined only for a read through its
+    /// own object (#3511). `false` keeps the literal.
+    pub hoist_props: Option<bool>,
     /// Component exports from `moduleName` that are auto-imported.
     /// Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`.
     pub built_ins: Option<Vec<String>>,

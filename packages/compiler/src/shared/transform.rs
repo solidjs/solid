@@ -26,6 +26,11 @@ pub(crate) trait JsxTransform<'a>: VisitMut<'a> {
     /// (spans are unreliable — synthesized nodes share them).
     fn push_iife_callee(&mut self, _addr: usize) {}
     fn pop_iife_callee(&mut self) {}
+    /// Records the IIFE `finalize_root_capture` wraps a module-level JSX root
+    /// in for its `_self$` capture (Babel places the capture as a statement
+    /// instead, so what sits inside is module-level code to it). Only the
+    /// SSR transform tracks these, keyed by the root's span start.
+    fn note_module_capture_iife(&mut self, _span: Span) {}
     /// Records a function/arrow node whose body has already been driven
     /// through `process_statements` — which ends with its own deferred pass,
     /// so nothing raw is left inside. Keyed by node address (spans are
@@ -115,6 +120,7 @@ pub(crate) fn finalize_root_capture<'a, T: JsxTransform<'a>>(
     let Some(capture) = target.take_this_capture(span) else {
         return result;
     };
+    target.note_module_capture_iife(span);
     wrap_result_with_capture(target.arena(), span, capture, result)
 }
 
@@ -732,6 +738,12 @@ impl<'a> JsxTransform<'a> for AstSsrTransform<'a, '_> {
 
     fn pop_iife_callee(&mut self) {
         self.iife_callee_addrs.pop();
+    }
+
+    fn note_module_capture_iife(&mut self, span: Span) {
+        if !self.in_class_field {
+            self.module_capture_iifes.insert(span.start);
+        }
     }
 
     fn scan_taken_names(&mut self, program: &Program<'a>) {

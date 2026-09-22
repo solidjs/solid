@@ -83,6 +83,13 @@ pub struct CompileOptions {
     pub hydratable: bool,
     /// SSR-only: behavior-claim (`_bnd`) marker emission for server components.
     pub server_components: bool,
+    /// SSR-only: emit each component's props literal with getters as a
+    /// module-level constructor with shared getters (one hidden class per
+    /// call site, no closure per getter per instance) instead of an object
+    /// literal, which V8 builds in dictionary mode. Same own keys, order,
+    /// descriptors and prototype; a getter is defined only for a read through
+    /// its own object (#3511). `false` keeps the literal everywhere.
+    pub hoist_props: bool,
     pub dev: bool,
     /// DOM-only: emit the source tag name as `createComponent`'s third
     /// argument for dev/observe owner labels.
@@ -115,6 +122,7 @@ impl Default for CompileOptions {
             generate: Generate::Dom,
             hydratable: false,
             server_components: false,
+            hoist_props: true,
             dev: false,
             component_names: false,
             source_map: false,
@@ -304,10 +312,14 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 options.static_marker.clone(),
                 options.built_ins.clone(),
             );
+            if options.hoist_props {
+                transform.enable_hoist_props();
+            }
             transform.visit_program(&mut program);
             if let Some(error) = transform.error.take() {
                 return Err(CompileError::transform(error));
             }
+            transform.hoist_props(&mut program, options.dev);
             transform.prepend_helpers(&mut program);
         }
         Generate::Universal => {

@@ -36,6 +36,8 @@ export interface TransformOptions {
   omitNestedClosingTags?: boolean;
   omitLastClosingTag?: boolean;
   serverComponents?: boolean;
+  /** SSR-only, default `true`: component props literals with getters compile to module-level constructors with shared getters (#3511). */
+  hoistProps?: boolean;
   /** Default `["For", "Show", "Switch", "Match", "Loading", "Reveal", "Portal", "Repeat", "Dynamic", "Errored"]`. */
   builtIns?: string[];
   requireImportSource?: false | string;

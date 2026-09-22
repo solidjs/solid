@@ -250,6 +250,34 @@ Inline style attributes in templates when the value is a string or `Record<strin
 
 SSR-only: emit behavior-claim (`_bnd`) markers for `ref` / `on*` on intrinsic elements.
 
+### hoistProps
+
+- Type: `boolean`
+- Default: `true`
+
+SSR-only: a component's props literal with getters compiles to a module-level constructor whose getters are shared across instances, instead of an object literal (which V8 builds in dictionary mode, allocating a closure per getter per instance):
+
+```js
+var _m$ = Symbol();
+var _d$ = {
+  get() {
+    const props = this[_m$];
+    return props.label;
+  },
+  enumerable: true,
+  configurable: true
+};
+function _P$(_p, _p2) {
+  this[_m$] = _p;
+  this.as = _p2;
+  Object.defineProperty(this, "label", _d$);
+}
+_P$.prototype = Object.prototype;
+Comp(new _P$(props, "a"));
+```
+
+The instance has the same own keys, order and descriptors as the literal and `Object.prototype` as its prototype; `Object.keys`, spread, `hasOwn` and `isStatic()` answer as before. One contract follows: a props getter is defined only for a read through its own object (`props.x`, spread, `merge()`/`omit()`). Copying its property descriptor onto another object and reading it there throws — define a getter that reads through the source instead. Sites whose getters close over a binding that is reassigned, declared after the site, or `this`/`arguments` keep the literal. `false` keeps the literal everywhere.
+
 ## TSRX (experimental)
 
 TSRX (TypeScript Render Extensions) is a syntax for declarative UI. `.tsrx` sources desugar to the same Solid JSX this plugin already compiles: `@if`/`@else`, `@for … @empty`, `@switch`/`@case`, and `@try`/`@catch`/`@pending` lower to the corresponding control-flow components (`Show`, `For`, `Switch`/`Match`, `Errored`, `Loading`), and `@{}` statement containers mix setup statements with rendered elements.
