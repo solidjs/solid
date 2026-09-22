@@ -22,6 +22,7 @@ import {
   isFunctionShapedHole
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
+import { decodedAttrValue } from "../universal/element";
 import { createTemplate } from "./template";
 import type {
   BabelPath,
@@ -944,7 +945,7 @@ function createElement(
     childNodes = filteredChildren.reduce((memo: babelTypes.Expression[], path: JSXChildPath) => {
       if (t.isJSXText(path.node)) {
         const v = decode(trimWhitespace((path.node.extra?.raw as string | undefined) ?? ""));
-        if (v.length) memo.push(t.stringLiteral(v));
+        if (v.length) memo.push(t.stringLiteral(doNotEscape ? v : (escapeHTML(v) as string)));
       } else {
         if (path.isJSXFragment()) {
           throw new Error(
@@ -952,7 +953,7 @@ function createElement(
           );
         }
         const allocatesIds = hydratable && canChildSlotAllocateIds(path);
-        const child = transformNode(path);
+        const child = transformNode(path, { doNotEscape });
         if (!child) return memo;
         if (markers && child.exprs.length && !child.spreadElement)
           memo.push(t.stringLiteral("<!--$-->"));
@@ -1014,7 +1015,7 @@ function createElement(
             : node.argument
         );
       } else if (t.isJSXAttribute(node)) {
-        const value = node.value || t.booleanLiteral(true),
+        const value = decodedAttrValue(node.value) || t.booleanLiteral(true),
           id = convertJSXIdentifier(node.name),
           key = t.isJSXNamespacedName(node.name)
             ? `${node.name.namespace.name}:${node.name.name.name}`

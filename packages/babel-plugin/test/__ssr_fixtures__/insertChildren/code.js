@@ -42,3 +42,4 @@ const staticChildren = <module children="hello" />;
 const foldedChildren = <module children={hello} />;
 const childrenBeforeSpread = <module children={fallback()} {...props} />;
 const childrenAfterSpread = <module {...props} children={later()} />;
+const spreadText = <module {...dynamic}>a &lt;b&gt; &amp; c</module>;

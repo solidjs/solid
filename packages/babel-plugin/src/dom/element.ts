@@ -35,6 +35,7 @@ import {
   isFunctionShapedHole
 } from "../shared/utils";
 import { transformNode } from "../shared/transform";
+import { decodedAttrValue } from "../universal/element";
 import { InlineElements, BlockElements } from "./constants";
 import type {
   BabelPath,
@@ -1677,7 +1678,7 @@ function processSpreads(
             t.stringLiteral(normalized),
             (isContainer
               ? expression
-              : node.value || t.booleanLiteral(true)) as babelTypes.Expression
+              : decodedAttrValue(value) || t.booleanLiteral(true)) as babelTypes.Expression
           )
         );
       }

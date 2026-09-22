@@ -247,7 +247,7 @@ function transformAttributes(
 // rebuild the literal so the host gets the decoded string. Only for the
 // attribute's own StringLiteral: an expression container's string is a JS
 // string, where `&hellip;` is six literal characters by JS semantics.
-function decodedAttrValue(value: t.JSXAttribute["value"]): t.JSXAttribute["value"] {
+export function decodedAttrValue(value: t.JSXAttribute["value"]): t.JSXAttribute["value"] {
   return t.isStringLiteral(value) ? t.stringLiteral(value.value) : value;
 }
 

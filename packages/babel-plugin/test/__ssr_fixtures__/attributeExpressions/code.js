@@ -427,3 +427,20 @@ const template95 = (
     <video src="test.mp4" muted />
   </div>
 );
+
+const template96 = (
+  <div>
+    <textarea value="a &lt;b&gt; &amp; c" />
+    <textarea {...spread} value="a &lt;b&gt; &amp; c" />
+    <textarea {...spread} value="static" />
+    <textarea value="static" {...spread} />
+  </div>
+);
+
+const template97 = (
+  <>
+    <script {...spread}>{"if (a < b) { x && y }"}</script>
+    <style {...spread}>{"a < b { x: 1 }"}</style>
+    <div {...spread}>{"a < b"}</div>
+  </>
+);

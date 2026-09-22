@@ -1529,6 +1529,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     let span = text.span;
                     let text = decode_html_entities(&trim_jsx_text(&text.value));
                     if !text.is_empty() {
+                        let text = if do_not_escape {
+                            text
+                        } else {
+                            escape_html_text_expression(&text)
+                        };
                         nodes.push(self.ast().expression_string_literal(
                             span,
                             self.ast().str(&text),

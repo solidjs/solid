@@ -89,3 +89,4 @@ const childrenBeforeSpread = _$ssrElement("module", [{ get children() {
 const childrenAfterSpread = _$ssrElement("module", [props, { get children() {
 	return later();
 } }], undefined, false);
+const spreadText = _$ssrElement("module", dynamic, "a &lt;b> &amp; c", false);
