@@ -7,6 +7,6 @@ Loading `on` follows the frame (#3540). When a dependency of `on` changes, the b
 
 Read `latest()` in `on` (or any display-ahead state: `isPending()`, an optimistic signal) to keep the previous behavior — the fallback shows now, beside the still-held frame.
 
-If the same data the boundary is waiting on is also read outside it, the frame waits on that read and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD` with the fix (read `latest()` in `on`, or move the outside read under the boundary). The same code fires after the fact when the write's action outlasts the data — nothing outside reads the source, but the action parks the frame past the content's landing, so the fallback is never displayed (a frame held by other data is a race, not a warning).
+If the same data the boundary is waiting on is also read outside it, the frame waits on that read and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD` with the fix (move the outside read under the boundary). A frame held by the write's action or by other data past the content's landing shows no fallback either — a race, not a warning.
 
 `Errored` no longer accepts `on` (nor `createErrorBoundary` an `on` option). It was added in #3556 and never released in a stable — rc-only. Retry through the `reset` the fallback receives (`fallback={(err, reset) => ...}`), or re-mount the boundary on the dependency (`<Show keyed when={id()}>`).

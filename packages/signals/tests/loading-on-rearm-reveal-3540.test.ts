@@ -20,11 +20,16 @@
  *    `count 1` would tear. Content pending on a source the transaction never
  *    wrote reveals at the commit too: its own hold (the pending write it
  *    derives from) is joined to the frame the moment the output pass, staged
- *    by the swap, reads its landing. In both shapes the action outlasts the
- *    data, so the sweep clears the swap before any effect phase and the
- *    fallback is never displayed — DEV warns LOADING_ON_OUTSIDE_HOLD once.
- *    The pre-#3575 sequence — fallback now, content as soon as it lands,
- *    beside the still-held frame — is the display-ahead read's:
+ *    by the swap, reads its landing — membership in the transaction is the
+ *    criterion, not data lineage (ruling, #3540). In both shapes the action
+ *    outlasts the data, so the sweep clears the swap before any effect phase
+ *    and the fallback is never displayed. That is a race the developer does
+ *    not control (the action could as well have ended first), a fallback
+ *    that loses it is a legitimate outcome, and it is NOT reported: DEV's
+ *    LOADING_ON_OUTSIDE_HOLD names only the structural shape, a same-source
+ *    read outside the boundary (loading-on-frame-following-3540, 3.). The
+ *    pre-#3575 sequence — fallback now, content as soon as it lands, beside
+ *    the still-held frame — is the display-ahead read's:
  *    `on: () => latest(dep)`.
  *
  * Every observation is made in an effect's EFFECT phase (the committed
@@ -298,13 +303,13 @@ describe("reveal timing after a re-arm follows the frame (#3540, #3575)", () => 
 
     // The flight lands; the transaction is still open. `data 2` derives from
     // the staged count: revealing it beside `count 1` would tear. The action
-    // outlasted the data, so the staged swap can no longer be seen: the
-    // after-the-fact rule reports it here, once.
+    // outlasted the data, so the staged swap can no longer be seen — a race
+    // the fallback lost, not a defect: nothing is reported.
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(out.value).toBe("data 1");
     expect(countCell.value).toBe(1);
-    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
+    expect(d.codes()).toEqual([]);
 
     // The commit: count and the content together; the fallback never shown.
     release();
@@ -314,7 +319,8 @@ describe("reveal timing after a re-arm follows the frame (#3540, #3575)", () => 
     expect(out.value).toBe("data 2");
     expect(countCell.value).toBe(2);
     expect(out.log).toEqual(["data 2"]);
-    expect(d.warn).toHaveBeenCalledTimes(1);
+    expect(d.codes()).toEqual([]);
+    expect(d.warn).not.toHaveBeenCalled();
     d.stop();
     dispose();
   });
@@ -393,13 +399,17 @@ describe("reveal timing after a re-arm follows the frame (#3540, #3575)", () => 
     // The flight lands. `data 1` derives from nothing the action wrote —
     // but the output pass that reads its landing is staged, so `asked`'s
     // hold joins the action's frame and the reveal waits for its commit.
-    // The action outlasted the data: the swap will be cleared before any
-    // effect phase, and the after-the-fact rule reports it, once.
+    // By design: the re-arm made the boundary's output the transaction's,
+    // and membership in the transaction is the criterion, not data lineage.
+    // The action outlasted the data, so the swap will be cleared before any
+    // effect phase and the fallback is never displayed — the nested
+    // boundary's data was simply faster than the frame's hold, a race the
+    // developer does not control. Nothing is reported.
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(t.out.value).toBe("data 0");
     expect(t.held()).toEqual([0, "a0"]);
-    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
+    expect(d.codes()).toEqual([]);
 
     // The commit: dep, other and the content together; no fallback shown.
     release();
@@ -409,7 +419,8 @@ describe("reveal timing after a re-arm follows the frame (#3540, #3575)", () => 
     expect(t.out.value).toBe("data 1");
     expect(t.held()).toEqual([1, "a1"]);
     expect(t.out.log).toEqual(["data 1"]);
-    expect(d.warn).toHaveBeenCalledTimes(1);
+    expect(d.codes()).toEqual([]);
+    expect(d.warn).not.toHaveBeenCalled();
     d.stop();
     t.dispose();
   });

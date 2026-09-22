@@ -128,28 +128,23 @@ render(
 
 #### `LOADING_ON_OUTSIDE_HOLD`
 
-**Message:** "`on` re-armed a Loading boundary, but `comments` is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. Move the outside read under the boundary so one hold owns the data, or show the wait with `isPending()`. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)" — or, after the fact: "… but the frame was held until its content settled, so the fallback was never displayed. The old content stayed valid for the whole wait; show the wait with `isPending()` or an optimistic value. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)"
+**Message:** "`on` re-armed a Loading boundary, but `comments` is also read outside it and holds the frame: the fallback can never be seen — the frame waits on the very source the boundary is waiting on. Move the outside read under the boundary so one hold owns the data. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)"
 
 **Severity:** `warn` (non-halting)
 
-A `<Loading on={…}>` dependency changed while something under the boundary was pending, so the boundary stopped waiting on its content and staged its fallback. The fallback follows the frame — it lands with the change that caused it — and in this shape that frame waits on the very data the boundary is waiting on, so by the time it commits the content is ready and the fallback is never shown. Two triggers, one code:
+A `<Loading on={…}>` dependency changed while something under the boundary was pending, so the boundary stopped waiting on its content and staged its fallback. The fallback follows the frame — it lands with the change that caused it — and here that frame waits on the very async source the boundary is waiting on, because a live reader **outside** the boundary also reads it: a sibling `<Loading>` over the same data, an `isPending()` on it in the header, a plain read in the shell. That reader holds the frame until the data lands, so by the time the frame commits the content is ready and the fallback can never be shown. The diagnostic fires once, at the change, and `data.source` names the source.
 
-- **At the change** (`data.source` names the source): the same async source is also read by a live reader outside the boundary — a sibling `<Loading>` over the same data, an `isPending()` on it in the header, a plain read in the shell. That reader holds the frame until the data lands.
-- **After the fact** (no `data.source`): nothing outside reads the data, but the write happened inside an `action` that stays open until the data lands (a refresh the action awaits, for instance). The action parks the frame past the content's landing, so the staged fallback is cleared before it is displayed. Reported once, when the content settles. A frame held by _other_ data is not reported — that is a race the fallback may still win.
+This is the only shape reported, because it is the only one that is deterministic and structural: no ordering of the flights can show this fallback. A frame held past the content's landing by something _else_ — the write's `action` staying open, other pending data the shell is waiting on — also shows no fallback, but that is a race the fallback may still win (the action ending first, the shell landing first, shows it with the commit), a fallback that loses it is a legitimate outcome, and the engine cannot tell "the action awaited exactly this data" from "the action awaited something slower". Nothing is reported for it.
 
-The frame is holding because the old content is still on screen and still valid; a `Loading` fallback would say it is not. So the fix is structural, or it acknowledges the wait in place:
+The frame is holding because the old content is still on screen and still valid; a `Loading` fallback would say it is not. The fix is structural — one hold owns the data:
 
 ```jsx
-// Warns: B reads the same data() and holds the frame — A's fallback never shows.
+// Warns: B reads the same data() and holds the frame — A's fallback can never show.
 <Loading on={id()} fallback={<Spinner />}>{data()}</Loading>
 <Loading fallback={<Spinner />}>{data()}</Loading>
 
 // Fix: one boundary owns the read.
 <Loading on={id()} fallback={<Spinner />}>{data()} {data()}</Loading>
-
-// Or, for the action shape: keep the content, show the wait.
-<Show when={isPending(data)}><Spinner /></Show>
-{data()}
 ```
 
 A display-ahead read in `on` — `on={latest(id)}`, `isPending()`, an optimistic signal — is not reported: it says the change is already on screen, so the fallback lands now beside the held frame. That is a capability the diagnostic notes, not the recommended shape: it puts the new page's loading state inside the old page. See [RFC 05](05-async-data.md#loading-on-prop-dependencies-that-show-the-fallback-again).
@@ -788,7 +783,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `SETTLE_WALK_UNINITIALIZED_SOURCE` | error     | lifecycle      | Internal: settle walk reached a source that never produced a value (reported)                                              |
 | `STRICT_READ_UNTRACKED`            | warn      | strict-read    | Untracked reactive read in component/effect body                                                                           |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE`    | warn      | async          | Pending async read in trackedEffect/onSettled                                                                              |
-| `LOADING_ON_OUTSIDE_HOLD`          | warn      | async          | `<Loading on>` changed but the frame waits on its data (read outside, or the action outlasts it): fallback never shown     |
+| `LOADING_ON_OUTSIDE_HOLD`          | warn      | async          | `<Loading on>` changed but its data is also read outside the boundary and holds the frame: the fallback can never be seen  |
 | `NO_OWNER_EFFECT`                  | warn      | lifecycle      | Effect created without reactive owner                                                                                      |
 | `NO_OWNER_CLEANUP`                 | warn      | lifecycle      | `onCleanup` called without owner                                                                                           |
 | `NO_OWNER_BOUNDARY`                | warn      | lifecycle      | Boundary created without owner                                                                                             |

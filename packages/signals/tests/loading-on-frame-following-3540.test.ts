@@ -22,16 +22,20 @@
  *     cleared ahead of the commit and no fallback is ever shown (nor does the
  *     new content reveal beside the old shell);
  *  3. an outside hold on the SAME source the boundary waits on: the frame
- *     waits for it, so no fallback ever shows — by design; DEV warns
- *     LOADING_ON_OUTSIDE_HOLD once per re-arm;
+ *     waits for the very source the boundary is waiting on, so the fallback
+ *     can NEVER be seen — deterministic and structural; DEV warns
+ *     LOADING_ON_OUTSIDE_HOLD once per re-arm, at the change, naming the
+ *     source (the only shape the diagnostic reports);
  *  4. `on={latest(id)}`: the display-ahead read — the fallback shows now,
  *     beside the held frame, and no diagnostic (the user's explicit choice).
  *  5. the write's action outlasts the data: nothing outside the boundary
  *     reads the source, but the action parks the frame past the content's
- *     landing, so the swap is cleared before it is ever displayed — the
- *     after-the-fact LOADING_ON_OUTSIDE_HOLD rule (once; never when other
- *     data holds the frame, never for `latest()`, never when the source rule
- *     already fired for the re-arm).
+ *     landing, so the swap is cleared before it is ever displayed. That is a
+ *     race (the action could as well have ended first, showing the fallback
+ *     with the commit), a fallback that loses it is a legitimate outcome,
+ *     and the engine cannot tell "the action awaited exactly this data" from
+ *     "the action awaited something slower": NOT reported — no after-the-fact
+ *     rule exists.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -304,9 +308,9 @@ describe("2. an outside hold on a different source (the shell): the fallback lan
   }
 });
 
-describe("3. an outside hold on the SAME source: the frame waits, no fallback — by design; DEV warns", () => {
+describe("3. an outside hold on the SAME source: the frame waits, the fallback can never be seen — DEV warns at the change", () => {
   for (const write of ["plain", "action"] as Write[]) {
-    test(`${write} write: comments read outside the boundary too — [A] → [B + comments], LOADING_ON_OUTSIDE_HOLD once`, async () => {
+    test(`${write} write: comments read outside the boundary too — [A] → [B + comments], LOADING_ON_OUTSIDE_HOLD once, naming the source`, async () => {
       const d = captureWarnings();
       const t = page({ productMs: 50, commentsMs: 100, on: "id", outsideComments: true });
       await t.settle();
@@ -315,14 +319,21 @@ describe("3. an outside hold on the SAME source: the frame waits, no fallback �
       // The re-arm releases the boundary's reader of comments, but the
       // outside reader keeps the frame waiting on the same flight: the
       // fallback swap lands with a frame that, by then, has the content.
+      // Reported at the re-arm — before anything lands — because it is
+      // structural: no ordering of the flights can show this fallback.
       const release = t.navigate(write);
       expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
       const event = d.stop()[0];
       expect(event.severity).toBe("warn");
       expect(event.kind).toBe("async");
       expect(event.data).toEqual({ source: "comments" });
-      expect(event.message).toContain("`comments` is also read outside it");
-      expect(event.message).toContain("latest()");
+      expect(event.message).toContain("`comments` is also read outside it and holds the frame");
+      expect(event.message).toContain("the fallback can never be seen");
+      expect(event.message).toContain("Move the outside read under the boundary");
+      // `latest()` in `on` is a capability, not the recommendation (#3578):
+      // mentioned last, in parentheses.
+      expect(event.message).toMatch(/\(Reading `latest\(\)` in `on` [^)]*\)$/);
+      expect(event.message).not.toContain("isPending");
       expect(d.warn).toHaveBeenCalledTimes(1);
       if (write === "action") await release();
       expect(t.frames).toEqual(["product 1 + comments 1 + comments 1"]);
@@ -335,20 +346,21 @@ describe("3. an outside hold on the SAME source: the frame waits, no fallback �
         "product 2 + comments 2 + comments 2"
       ]);
       expect(t.log).not.toContain("comments=spinner");
-      // Once: the after-the-fact rule (5.) does not re-report this re-arm.
+      // Once: nothing re-reports the re-arm when the content lands or the
+      // frame commits.
       expect(d.warn).toHaveBeenCalledTimes(1);
       t.dispose();
     });
   }
 
-  test("action write outlasting comments: the source rule reported the re-arm, the after-the-fact rule stays silent", async () => {
+  test("action write outlasting comments: reported once, at the re-arm — the landing under the open action adds nothing", async () => {
     const d = captureWarnings();
     const t = page({ productMs: 50, commentsMs: 100, on: "id", outsideComments: true });
     await t.settle();
     const release = t.navigate("action");
     expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
-    // Comments land while the action still parks the frame: the shape 5.
-    // reports — but this re-arm was already reported at the source.
+    // Comments land while the action still parks the frame: the same
+    // re-arm, already reported at the source; no second report.
     await t.advance(100);
     expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
     await release();
@@ -417,12 +429,18 @@ describe("4. `on: () => latest(id)`: the display-ahead read shows the fallback n
   });
 });
 
-describe("5. the write's action outlasts the data: the fallback is never displayed — DEV warns after the fact", () => {
-  test("`on: id` written inside an action that ends after comments land: [A] → [B + comments], LOADING_ON_OUTSIDE_HOLD once", async () => {
-    // Nothing outside the boundary reads comments (no shell), so the source
-    // rule has nothing to report at the re-arm. The action parks the frame;
-    // comments land under it; the staged swap is cleared by the sweep that
-    // follows the action's commit, before any effect phase — no spinner.
+describe("5. the write's action outlasts the data: the fallback is never displayed — a race, not reported", () => {
+  test("`on: id` written inside an action that ends after comments land: [A] → [B + comments], no diagnostic", async () => {
+    // Nothing outside the boundary reads comments (no shell), so nothing is
+    // reported at the re-arm. The action parks the frame; comments land
+    // under it; the staged swap is cleared by the sweep that follows the
+    // action's commit, before any effect phase — no spinner. Had the action
+    // ended first, the fallback would have landed with the commit (the
+    // held-action case in loading-on-keyed-boundary-3540.spec): the
+    // fallback lost a race the developer does not control, which is a
+    // legitimate outcome and not a defect. The engine cannot tell an action
+    // that awaited exactly this data from one that awaited something slower,
+    // so no after-the-fact rule reports it.
     const d = captureWarnings();
     const t = page({ productMs: 50, commentsMs: 100, on: "id", shell: false });
     await t.settle();
@@ -430,23 +448,19 @@ describe("5. the write's action outlasts the data: the fallback is never display
     expect(d.codes()).toEqual([]);
     expect(t.frames).toEqual(["- + comments 1"]);
 
-    // Comments land; the action still parks the frame, and nothing else
-    // async holds it: the swap can no longer be seen. Reported here, once.
+    // Comments land; the action still parks the frame: the swap can no
+    // longer be seen. Nothing is reported.
     await t.advance(100);
     expect(t.frames).toEqual(["- + comments 1"]);
-    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
-    const event = d.stop()[0];
-    expect(event.severity).toBe("warn");
-    expect(event.kind).toBe("async");
-    expect(event.message).toContain("the frame was held until its content settled");
-    expect(event.message).toContain("never displayed");
-    expect(event.message).toContain("latest()");
+    expect(d.codes()).toEqual([]);
 
-    // The action ends: the new content, no fallback ever shown.
+    // The action ends: the new content, no fallback ever shown, no warning.
     await release();
     expect(t.frames).toEqual(["- + comments 1", "- + comments 2"]);
     expect(t.log).toEqual(["comments=comments 2"]);
-    expect(d.warn).toHaveBeenCalledTimes(1);
+    expect(d.codes()).toEqual([]);
+    expect(d.warn).not.toHaveBeenCalled();
+    d.stop();
     t.dispose();
   });
 
@@ -492,6 +506,44 @@ describe("5. the write's action outlasts the data: the fallback is never display
     await t.advance(100);
     expect(t.frames).toEqual(["product 1 + comments 1", "product 2 + comments 2"]);
     expect(d.codes()).toEqual([]);
+    d.stop();
+    t.dispose();
+  });
+
+  test("plain write, the frame held by OTHER pending data that outlasts the content (no action): no report, content reveals at the commit", async () => {
+    // The other-data hold on its own, no action anywhere: the shell's
+    // `product` (a different source, read outside) holds id's frame past
+    // comments' landing. The swap is cleared ahead of the commit and the
+    // whole new page lands together — the fallback lost the race to the
+    // content, which is by design. Nothing outside reads `comments`, so the
+    // same-source rule has nothing to say, and there is no other rule.
+    const d = captureWarnings();
+    const t = page({ productMs: 300, commentsMs: 100, on: "id" });
+    await t.settle();
+    expect(t.frames).toEqual(["product 1 + comments 1"]);
+
+    t.navigate("plain");
+    expect(t.frames).toEqual(["product 1 + comments 1"]);
+    expect(d.codes()).toEqual([]);
+
+    // Comments land; product still holds the frame for another 200ms.
+    await t.advance(100);
+    expect(t.frames).toEqual(["product 1 + comments 1"]);
+    expect(t.log).toEqual([]);
+    expect(d.codes()).toEqual([]);
+
+    // Still held, still silent — no sweep reports the cleared swap.
+    await t.advance(100);
+    expect(t.frames).toEqual(["product 1 + comments 1"]);
+    expect(d.codes()).toEqual([]);
+
+    // Product lands: the commit reveals the content directly.
+    await t.advance(100);
+    expect(t.frames).toEqual(["product 1 + comments 1", "product 2 + comments 2"]);
+    expect(t.log).toEqual(["shell=product 2", "comments=comments 2"]);
+    expect(t.log).not.toContain("comments=spinner");
+    expect(d.codes()).toEqual([]);
+    expect(d.warn).not.toHaveBeenCalled();
     d.stop();
     t.dispose();
   });
