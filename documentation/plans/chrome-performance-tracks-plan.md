@@ -67,7 +67,12 @@ interaction.at`).
   moved from `__DEV__` to `__OBSERVE__`; a 27% regression on the enabled
   observe path (a `WeakMap.set` per effect callback in `pushFrame`) found
   and removed by registering effect frames lazily, only when a write uses
-  one as its origin — enabled cost back at the `next` baseline.
+  one as its origin — enabled cost back at the `next` baseline. Re-run after
+  the rebase over #3575 (the boundary run path rewritten): 2,000 effects on
+  one signal, and 200 `<Loading>` boundaries each over a memo read by 10
+  effects, disabled / enabled `checks: false` / enabled `checks: true`,
+  min-of-5 medians of 200 flushes — every cell within ±6% of `next`, signs
+  both ways (parity; the machine's noise band).
 - **Stage 3 — Propagation track** (replaced the planned component record).
   Solid does not re-render components, so a per-component track answers the
   wrong question; what a developer wants to see is the graph the write
@@ -123,10 +128,19 @@ interaction? }` — the fingerprint fields responsiveness item 4's
   `ABANDONED_FLIGHTS` needs. Idle cost: none new (the folds already ran).
   Proof: a superseded flight is `abandoned`; a landed one carries its
   duration.
-- **`fallback`** — Known: `boundaryFallback(boundary, tree, shown)`. Shape:
-  `{ ownerPath?, at, shownMs, interaction? }` (item 4's `FALLBACK_FLASH`
-  reads `shownMs`). Idle cost: none new. Proof: show → hide produces one
-  record with the boundary's owner path.
+- **`fallback`** — Known: `boundaryFallback(boundary, tree, shown,
+transition)`. Shape: `{ ownerPath?, at, shownMs, interaction? }` (item 4's
+  `FALLBACK_FLASH` reads `shownMs`). The show is the boundary's SWAP, a
+  staged write that lands with its transaction (#3575: `on` follows the
+  frame); the engine holds the open under that transaction and stamps `at`
+  at the `flushEnd` of the drain that committed it — the display instant —
+  and a hide before that drops the open: a swap the content outran, or one
+  the commit's own sweep cleared before any effect ran, was never on
+  screen and is no record (the feedback fold's `shows`/`flashes` agree).
+  Idle cost: none new. Proof: display → hide produces one record with the
+  boundary's owner path; the #3540 product page's "content lands first"
+  shape produces none, and its "shell lands first" shape is timed from the
+  commit, not the re-arm.
 - **`ChangeRecord.nodeId`** (Stage 3) — Known: `stampWrite`/`stampDerived`.
   Shape: optional `nodeId` on every derived record. Idle cost: one field
   write on a path already stamping. Proof: `attribution.test.ts`, the chain

@@ -1733,7 +1733,10 @@ module.exports = [
     // name on its property nodes (`nameStore`/`storeLabel`). Prod: the
     // signals-only scenarios and frames byte-identical; the app scenarios
     // structurally identical (see the hydrating and CSR notes).
-    limit: "17.40 KB",
+    // Fallback records time the display, not the swap (#3575 rebase): 17,402 B
+    // (+72 B) — the two boundaryFallback show sites pass the transaction the
+    // swap is staged in (`activeTransition`, or null for a lane swap).
+    limit: "17.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -1924,7 +1927,15 @@ module.exports = [
     // re-benchmarked at the `next` baseline after the effect-frame WeakMap
     // was made lazy (see the Stage 2 note in
     // documentation/plans/chrome-performance-tracks-plan.md).
-    limit: "28.60 KB",
+    // Fallback records time the display, not the swap (#3575 rebase): 28,757 B
+    // (+253 B, of which +72 is the tier's, above). The engine holds a shown
+    // fallback as staged under its transaction (or the current drain), moves
+    // it to the drain at `transitionSettled`, follows `transitionMerged`, and
+    // stamps its `at` at `flushEnd`; a hide before that drops it unrecorded —
+    // a swap the content outran, or one the commit's sweep cleared before
+    // any effect ran, was never on screen. The folds hear show/hide from the
+    // same gate, so the feedback fold's shows/flashes agree.
+    limit: "28.85 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

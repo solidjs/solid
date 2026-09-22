@@ -178,8 +178,20 @@ export interface AttributionHooks {
    * fire while the subtree is still being built — whose owner chain names
    * the boundary. Fired at the source-set transitions (first pending source
    * registers / last one clears), not per flush.
+   *
+   * A show is the boundary's SWAP, a staged write: `transition` is the one
+   * it lands with (`transitionSettled` is its display instant), or `null`
+   * when this drain commits it (`flushEnd`) — the lane swap included, whose
+   * readers run in this drain. A hide before that commit means the fallback
+   * was never displayed — the content landed first and the sweep cleared the
+   * swap ahead of the frame (#3540).
    */
-  boundaryFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void;
+  boundaryFallback(
+    boundary: object,
+    tree: Computed<any> | undefined,
+    shown: boolean,
+    transition?: Transition | null
+  ): void;
   /**
    * The one query on the surface: the provenance a root write performed at
    * this moment would be stamped with — the innermost open frame (an effect

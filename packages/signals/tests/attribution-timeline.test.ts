@@ -369,6 +369,104 @@ describe("fallback records", () => {
     void setPage;
   });
 
+  /** The #3540 product page: `product(id)` read by a shell effect OUTSIDE a
+   * `<Loading on={id()}>` whose content reads `comments(id)`. Navigating
+   * re-arms the boundary: its fallback swap is staged into id's frame, which
+   * the shell holds until product lands. */
+  function productPage() {
+    const [id, setId] = createSignal(1, { name: "id" });
+    const resolvers = {
+      product: [] as ((v: string) => void)[],
+      comments: [] as ((v: string) => void)[]
+    };
+    const view = { shell: "-", comments: "-" };
+    createRoot(() => {
+      const product = createMemo(
+        () => {
+          const v = id();
+          return new Promise<string>(r => resolvers.product.push(() => r(`product ${v}`)));
+        },
+        { name: "product" }
+      );
+      const comments = createMemo(
+        () => {
+          const v = id();
+          return new Promise<string>(r => resolvers.comments.push(() => r(`comments ${v}`)));
+        },
+        { name: "comments" }
+      );
+      createRenderEffect(product, v => void (view.shell = v), { name: "shell" });
+      const boundary = createLoadingBoundary(
+        () => comments(),
+        () => "spinner",
+        { on: id }
+      );
+      createRenderEffect(boundary, v => void (view.comments = String(v)), { name: "content" });
+    });
+    const land = (which: "product" | "comments") => resolvers[which].shift()!("");
+    return { setId, view, land };
+  }
+
+  it("a re-arm whose swap the frame never committed (content landed first) is not a showing", async () => {
+    arm();
+    const fallbacks: FallbackEvent[] = [];
+    attribution.subscribe("fallback", e => fallbacks.push(e));
+    const t = productPage();
+    flush();
+    t.land("product");
+    t.land("comments");
+    await until(() => t.view.shell === "product 1" && t.view.comments === "comments 1", "mount");
+    // The mount's spinner was displayed and is a record.
+    expect(fallbacks).toHaveLength(1);
+    fallbacks.length = 0;
+
+    t.setId(2);
+    flush();
+    // The shell holds id's frame on product; the swap is staged in it.
+    expect(t.view).toEqual({ shell: "product 1", comments: "comments 1" });
+    await wait(15);
+    // Comments land first: the swap is cleared ahead of the commit…
+    t.land("comments");
+    await wait(5);
+    flush();
+    expect(t.view).toEqual({ shell: "product 1", comments: "comments 1" });
+    // …and the whole new page commits with product, content included.
+    t.land("product");
+    await until(() => t.view.shell === "product 2", "navigation");
+    expect(t.view).toEqual({ shell: "product 2", comments: "comments 2" });
+    // The spinner was never on screen: no record — the DEV diagnostic and the
+    // profiler's Fallback track would otherwise show a ~20 ms showing.
+    expect(fallbacks).toEqual([]);
+  });
+
+  it("a re-arm whose swap the frame committed (shell landed first) is one showing, from the commit", async () => {
+    arm();
+    const fallbacks: FallbackEvent[] = [];
+    attribution.subscribe("fallback", e => fallbacks.push(e));
+    const t = productPage();
+    flush();
+    t.land("product");
+    t.land("comments");
+    await until(() => t.view.comments === "comments 1", "mount");
+    fallbacks.length = 0;
+
+    t.setId(2);
+    flush();
+    await wait(15);
+    // Product lands: the new shell AND the spinner commit together.
+    t.land("product");
+    await until(() => t.view.shell === "product 2", "shell");
+    expect(t.view).toEqual({ shell: "product 2", comments: "spinner" });
+    expect(fallbacks).toEqual([]);
+    await wait(15);
+    t.land("comments");
+    await until(() => t.view.comments === "comments 2", "content");
+    expect(fallbacks).toHaveLength(1);
+    // Timed from the commit that displayed it, not from the re-arm that staged it.
+    expect(fallbacks[0].shownMs).toBeGreaterThanOrEqual(10);
+    expect(fallbacks[0].shownMs).toBeLessThan(30);
+  });
+
   it("is listener-gated: a show with no listener produces nothing at hide", async () => {
     arm();
     const fallbacks: FallbackEvent[] = [];

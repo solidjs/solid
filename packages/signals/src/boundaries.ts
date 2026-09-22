@@ -33,6 +33,7 @@ import { attrHooks } from "./core/attribution-hooks.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { enqueueSub } from "./core/heap.js";
 import {
+  activeTransition,
   haltReactivity,
   queueRearm,
   reporterBlocksSource,
@@ -481,7 +482,10 @@ export class CollectionQueue extends Queue {
       this._disabled._value = true;
       notifyOnLane(this._disabled, lane);
     }
-    if (__OBSERVE__ && attrHooks !== null) attrHooks.boundaryFallback(this, this._tree!, true);
+    // Observe: the staged swap is displayed when the transaction carrying
+    // this pass commits; the lane's readers run in this drain.
+    if (__OBSERVE__ && attrHooks !== null)
+      attrHooks.boundaryFallback(this, this._tree!, true, lane === null ? activeTransition : null);
   }
   /** Retry the collected failures of an error boundary: recompute each
    * source that threw, so the boundary can recover. */
@@ -528,7 +532,7 @@ export class CollectionQueue extends Queue {
         if (wasEmpty) {
           setSignal(this._disabled, true);
           if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
-            attrHooks.boundaryFallback(this, this._tree, true);
+            attrHooks.boundaryFallback(this, this._tree, true, activeTransition);
         }
         if (this._collectionType & STATUS_ERROR) {
           const caught = unwrapStatusError(source._x?._error);

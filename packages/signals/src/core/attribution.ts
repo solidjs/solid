@@ -2972,46 +2972,118 @@ function trackFlushStart(): void {
 
 // --- Fallbacks -------------------------------------------------------------------
 //
-// A loading boundary's fallback, from show to hide, as a record. Keyed by the
-// boundary object (a WeakMap — a fallback that never hides must not pin its
-// boundary); `gen` stamps the show with the tracking generation so a show
+// A loading boundary's fallback, from display to hide, as a record. Keyed by
+// the boundary object (a WeakMap — a fallback that never hides must not pin
+// its boundary); `gen` stamps the show with the tracking generation so a show
 // that predates a reinstall cannot emit against the new window.
+//
+// The show the boundary reports is the SWAP — a staged write, which lands
+// with its transaction's commit (#3540: `on` follows the frame) and is on
+// screen once the drain that committed it has run its effects. Until then
+// the fallback is not displayed: an open is `staged` — under the transaction
+// it lands with (`transitionSettled` moves it to the settling drain;
+// `transitionMerged` follows a fold), or under the current drain when no
+// transaction carries it, the lane swap included (its readers run in this
+// drain). `flushEnd` — the "committed, screen updated" instant — stamps the
+// drain's opens with their `at`. A hide that finds the open still staged was
+// never displayed: the content landed before the frame did and the sweep
+// cleared the swap ahead of the commit, or the commit's own sweep cleared it
+// before any effect ran (the LOADING_ON_OUTSIDE_HOLD shape). It drops the
+// open and makes no record, and the folds hear neither show nor hide.
 interface OpenFallback {
   at: number;
   gen: number;
+  /** A `fallback` listener existed at the show; the record is for it. */
+  record: boolean;
+  boundary: object;
   tree: Computed<any> | undefined;
   interaction: ChangeOrigin | undefined;
+  /** Pending display: the transaction it lands with, or `DRAIN` for this flush's end. */
+  staged: Transition | typeof DRAIN | null;
 }
+const DRAIN = Symbol("drain");
 const openFallbacks = new WeakMap<object, OpenFallback>();
+const stagedFallbacks = new Map<Transition | typeof DRAIN, OpenFallback[]>();
 /** Bumped by `resetTracking` — the engine's install generation. */
 let trackingGen = 0;
 
-function trackFallback(boundary: object, tree: Computed<any> | undefined, shown: boolean): void {
+function trackFallback(
+  boundary: object,
+  tree: Computed<any> | undefined,
+  shown: boolean,
+  transition: Transition | null
+): void {
   if (shown) {
-    if (!listened("fallback")) return;
+    // Folds count showings too: an open is kept for either audience.
+    const record = listened("fallback");
+    if (!record && folds.length === 0) return;
     // The wait is the enclosing recompute's cause's interaction — the read
     // that registered the pending source runs inside one — else the ambient.
     const causes = enclosingCauses();
-    openFallbacks.set(boundary, {
+    const staged = transition ?? DRAIN;
+    const open: OpenFallback = {
       at: now(),
       gen: trackingGen,
+      record,
+      boundary,
       tree,
-      interaction: causes !== null ? interactionIn(causes) : (currentInteraction ?? undefined)
-    });
+      interaction: causes !== null ? interactionIn(causes) : (currentInteraction ?? undefined),
+      staged
+    };
+    openFallbacks.set(boundary, open);
+    const list = stagedFallbacks.get(staged);
+    if (list === undefined) stagedFallbacks.set(staged, [open]);
+    else list.push(open);
     return;
   }
   const open = openFallbacks.get(boundary);
   if (open === undefined) return;
   openFallbacks.delete(boundary);
+  if (open.staged !== null) {
+    // Cleared before its commit: never on screen.
+    const list = stagedFallbacks.get(open.staged)!;
+    list.splice(list.indexOf(open), 1);
+    if (list.length === 0) stagedFallbacks.delete(open.staged);
+    return;
+  }
   if (open.gen !== trackingGen) return;
-  const event: FallbackEvent = { at: open.at, shownMs: now() - open.at };
-  // The first show can fire before the subtree exists; the hide has it.
+  // The hide has the subtree the first show may have lacked.
   const subtree = tree ?? open.tree;
+  for (const f of folds) f.fallback?.(boundary, subtree, false);
+  if (!open.record) return;
+  const event: FallbackEvent = { at: open.at, shownMs: now() - open.at };
   const path = subtree !== undefined ? ownerPath(subtree) : undefined;
   if (path !== undefined) event.ownerPath = path;
   if (open.interaction !== undefined) event.interaction = open.interaction;
   if (subtree !== undefined) recordSubject(event, subtree);
   emitRecord("fallback", event);
+}
+
+/** flushEnd: the drain's committed swaps have rendered — those fallbacks are on screen from here. */
+function displayFallbacks(): void {
+  const list = stagedFallbacks.get(DRAIN);
+  if (list === undefined) return;
+  stagedFallbacks.delete(DRAIN);
+  const at = now();
+  for (const open of list) {
+    open.staged = null;
+    open.at = at;
+    if (open.gen === trackingGen)
+      for (const f of folds) f.fallback?.(open.boundary, open.tree, true);
+  }
+}
+
+/** transitionSettled (`from` a transaction, into this drain) and
+ * transitionMerged (`from` the outgoing, into the surviving transaction):
+ * the swaps staged under `from` now land with `into`. */
+function rebaseFallbacks(from: Transition, into: Transition | typeof DRAIN): void {
+  const list = stagedFallbacks.get(from);
+  if (list === undefined) return;
+  stagedFallbacks.delete(from);
+  for (const open of list) open.staged = into;
+  const target = stagedFallbacks.get(into);
+  if (target === undefined) stagedFallbacks.set(into, list);
+  else target.push(...list);
 }
 
 /** flushEnd: every open, closed, unheld navigation's (and interaction's) writes just committed. */
@@ -3031,6 +3103,8 @@ function trackFlushEnd(): void {
     emitRecord("flush", event);
   }
   drainSeq++;
+  // The swaps this drain committed have rendered.
+  displayFallbacks();
   for (const state of openNavs)
     if (state.open === 0 && !state.held) settleNavigation(state, "committed");
   for (const state of openInteractions) maybeSettleInteraction(state);
@@ -3502,9 +3576,11 @@ const engineHooks: AttributionHooks = {
   },
   transitionSettled(t) {
     trackHoldSettled(t);
+    rebaseFallbacks(t, DRAIN);
   },
   transitionMerged(target, outgoing) {
     trackHoldMerge(target, outgoing);
+    rebaseFallbacks(outgoing, target);
   },
   storeReplaced(path, isArray, total, unchanged, prevTotal, owner) {
     checkImmutableUpdate(path, isArray, total, unchanged, prevTotal, owner);
@@ -3512,9 +3588,9 @@ const engineHooks: AttributionHooks = {
   listChurn(el, removed, created, newLen, keyed) {
     checkListIdentity(el, removed, created, newLen, keyed);
   },
-  boundaryFallback(boundary, tree, shown) {
-    for (const f of folds) f.fallback?.(boundary, tree, shown);
-    trackFallback(boundary, tree, shown);
+  boundaryFallback(boundary, tree, shown, transition) {
+    // The folds hear the show at its display (see trackFallback), not here.
+    trackFallback(boundary, tree, shown, transition ?? null);
   },
   currentOrigin() {
     return ambientOrigin();
@@ -3554,6 +3630,7 @@ function resetTracking(): void {
   frames.length = 0;
   activeHold = null;
   openFlush = null;
+  stagedFallbacks.clear();
   trackingGen++;
   openNavs.clear();
   openInteractions.clear();
