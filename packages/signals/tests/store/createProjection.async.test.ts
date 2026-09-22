@@ -16,6 +16,7 @@ import {
   refresh,
   untrack
 } from "../../src/index.js";
+import { vi } from "vitest";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -206,29 +207,48 @@ describe("Projection async behavior", () => {
     // boundary over the projection forever (the rendering example's Stream
     // page on client navigation). Own-draft ops carry the write override and
     // must be exempt from the gate.
-    const tick = (ms: number) => new Promise(r => setTimeout(r, ms));
-    const seen: number[] = [];
-    let proj!: { id: number }[];
-    createRoot(() => {
-      proj = createProjection<{ id: number }[]>(async function* (state) {
-        for (const item of [{ id: 1 }, { id: 2 }]) {
-          await tick(2);
-          state.push(item);
-          yield;
-        }
-      }, []);
-      createEffect(
-        () => proj.length,
-        len => {
-          seen.push(len);
-        }
-      );
-    });
-    flush();
-    await tick(30);
-    flush();
-    expect(seen).toEqual([1, 2]);
-    expect(proj.map(i => i.id)).toEqual([1, 2]);
+    //
+    // Fake timers: the second `tick(2)` is only CREATED after the first one
+    // fires (the continuation resumes from the first yield's landing). Node
+    // runs every timer already due before it drains the microtasks that
+    // create the next one, so a runner stalled ~30 ms before the first tick
+    // fired ran the test's own 30 ms wait ahead of the second push (CI saw
+    // `[1]`). On the fake clock, each step runs the timers it covers and the
+    // microtasks they release, in order.
+    vi.useFakeTimers();
+    try {
+      const tick = (ms: number) => new Promise(r => setTimeout(r, ms));
+      const seen: number[] = [];
+      let proj!: { id: number }[];
+      createRoot(() => {
+        proj = createProjection<{ id: number }[]>(async function* (state) {
+          for (const item of [{ id: 1 }, { id: 2 }]) {
+            await tick(2);
+            state.push(item);
+            yield;
+          }
+        }, []);
+        createEffect(
+          () => proj.length,
+          len => {
+            seen.push(len);
+          }
+        );
+      });
+      flush();
+      // +2: the first push lands (its read of `state.length` passed the gate)
+      // and the continuation resumes into the second tick.
+      await vi.advanceTimersByTimeAsync(2);
+      flush();
+      expect(seen).toEqual([1]);
+      // +4: the second push, reading the draft it just grew.
+      await vi.advanceTimersByTimeAsync(2);
+      flush();
+      expect(seen).toEqual([1, 2]);
+      expect(proj.map(i => i.id)).toEqual([1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("yielding a value replaces the entire snapshot (no merge)", async () => {
