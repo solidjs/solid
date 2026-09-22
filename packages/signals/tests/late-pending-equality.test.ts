@@ -1,13 +1,86 @@
 import { expect, it } from "vitest";
 import {
+  createEffect,
   createMemo,
   createProjection,
   createRenderEffect,
   createRoot,
   createSignal,
   flush,
-  isPending
+  isPending,
+  onCleanup,
+  untrack
 } from "../src/index.js";
+
+it("commits an effect write when a pending source is superseded with its cached value", async () => {
+  const gate = Promise.withResolvers<number>();
+  let flight: Promise<number> | undefined = gate.promise;
+  let notify = () => {};
+  let mount!: () => void;
+  let readDerived!: () => number;
+  let direct = -1;
+  let displayedDerived = -1;
+  const applied: number[] = [];
+  const dispose = createRoot(dispose => {
+    const [mounted, setMounted] = createSignal(false);
+    mount = () => setMounted(true);
+    createMemo(() => {
+      if (!mounted()) {
+        // Disposing the previous branch invalidates the new reader after
+        // its first cached read, making it observe the pending flight.
+        onCleanup(() => notify());
+        return;
+      }
+      const [version, setVersion] = createSignal(0, { ownedWrite: true });
+      notify = () => setVersion(value => value + 1);
+      const data = createMemo(previous => {
+        version();
+        return flight && previous !== undefined ? flight : 1;
+      });
+      const [derived, setDerived] = createSignal(0);
+      readDerived = () => untrack(derived);
+      createEffect(data, value => {
+        applied.push(value);
+        setDerived(value);
+      });
+      createRenderEffect(data, value => {
+        direct = value;
+      });
+      createRenderEffect(derived, value => {
+        displayedDerived = value;
+      });
+    });
+    return dispose;
+  });
+  try {
+    flush();
+    mount();
+    flush();
+    expect(applied).toEqual([1]);
+    expect(readDerived()).toBe(0);
+    expect(displayedDerived).toBe(0);
+    flight = undefined;
+    notify();
+    flush();
+    // Superseding the flight releases the write without waiting for its
+    // abandoned promise to resolve.
+    expect(applied).toEqual([1]);
+    expect(direct).toBe(1);
+    expect(readDerived()).toBe(1);
+    expect(displayedDerived).toBe(1);
+    gate.resolve(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(applied).toEqual([1]);
+    expect(direct).toBe(1);
+    expect(readDerived()).toBe(1);
+    expect(displayedDerived).toBe(1);
+  } finally {
+    dispose();
+    flush();
+  }
+});
 
 it("wakes a late reader when a conditional drops a pending source with an equal value", async () => {
   const gate = Promise.withResolvers<{ enabled: boolean }>();
