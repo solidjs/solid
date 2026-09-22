@@ -620,6 +620,15 @@ module.exports = [
     // count as `next`'s — the delta is the prop mangler handing out
     // different short names package-wide once two `_` props left the class,
     // and the brotli layout that follows. 0 B in the store.
+    // ssrElement/merge at the writer floor (#3562, 2026-09-22): rebased over
+    // #3584, measured at 16,891 B against `next`'s 16,866 (+25 B; 9 B under
+    // the cap, which is unchanged): merge()'s presized source arrays and the
+    // `$RECORD` classification of proxy sources in store/utils.ts (a view
+    // answers its record, the store's symbol fast path answers undefined; the
+    // `$SOURCES` / `$OMIT` / `$VIEW` probes are gone). No core source change;
+    // the core floor is 0 B, and isPending/latest's +31 B, the every-store-
+    // family app's +32 B and CSR observe's +11 B are the prop mangler's
+    // short-name assignment and the brotli layout that follows.
     limit: "16.90 KB",
     modifyEsbuildConfig
   },
