@@ -379,8 +379,8 @@ export class CollectionQueue extends Queue {
    * the mainline drain owes the boundary its fallback. */
   _swapOwed = false;
   /** DEV: a frame-following swap is staged and not yet reported unseen
-   * (`_devHeldSweep`; cleared by the sweep that settles or clears it). */
-  _swapUnseen = false;
+   * (devHeldSweep; cleared by the sweep that settles or clears it). */
+  _swapUnseen?: boolean;
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -467,7 +467,8 @@ export class CollectionQueue extends Queue {
     if (!sources.size) return;
     if (__DEV__ && outside !== undefined) {
       const name = (outside as any)._name as string | undefined;
-      this._reportUnseen(
+      reportUnseen(
+        this,
         `${
           name ? `\`${name}\`` : "a source it is waiting on"
         } is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. ` +
@@ -499,47 +500,10 @@ export class CollectionQueue extends Queue {
     // when it settles, intact.
     wakeParked();
   }
-  /** DEV: LOADING_ON_OUTSIDE_HOLD — a frame-following re-arm whose fallback
-   * the user will not see, with the reason (`detail`) and the fix. */
-  _reportUnseen(detail: string, name?: string): void {
-    if (!__DEV__) return;
-    reportDiagnostic(
-      emitDiagnostic(
-        {
-          code: "LOADING_ON_OUTSIDE_HOLD",
-          kind: "async",
-          severity: "warn",
-          message: `[LOADING_ON_OUTSIDE_HOLD] \`on\` re-armed a Loading boundary, but ${detail}`,
-          nodeName: name,
-          data: { source: name }
-        },
-        this._owner
-      )
-    );
-  }
   /** DEV, a parked finalize (scheduler `checkBoundaryChildren`): the
-   * after-the-fact LOADING_ON_OUTSIDE_HOLD rule. The re-arm's swap is still
-   * staged (`_disabled` holds `true` uncommitted) and the content it was
-   * waiting on has settled — the sweep that follows the commit will clear it
-   * before any effect phase runs, so the fallback is never displayed. That
-   * is the design when other data holds the frame (a race the fallback may
-   * still win: the shell landing first shows it); it is the missed case when
-   * nothing but the write's own action (or an override it left) parks the
-   * transaction — the action outlasts the data, and `on` never shows a
-   * fallback. The source rule in `_rearm` cannot see this: nothing outside
-   * the boundary reads the source. */
+   * after-the-fact LOADING_ON_OUTSIDE_HOLD rule (devHeldSweep). */
   _devHeldSweep(): void {
-    if (!__DEV__ || !this._swapUnseen || this._disabled._pendingValue !== true) return;
-    for (const source of this._sources) if (!this._settled(source)) return;
-    const t = this._disabled._transition;
-    if (t === null) return;
-    for (const [source, reporters] of currentTransition(t)._asyncReporters)
-      for (const reporter of reporters) if (reporterBlocksSource(reporter, source)) return;
-    this._swapUnseen = false;
-    this._reportUnseen(
-      "the frame was held until its content settled, so the fallback was never displayed. " +
-        "Read `latest()` in `on` to show the fallback immediately."
-    );
+    if (__DEV__) devHeldSweep(this);
   }
   /** Show the fallback: the swap the output pass selects on. Lands where it
    * is written — in the active transaction's frame, or the current one. */
@@ -665,6 +629,50 @@ export class CollectionQueue extends Queue {
     }
     if (_revealUsed) this._revealController?._evaluate();
   }
+}
+
+/** DEV: LOADING_ON_OUTSIDE_HOLD — a frame-following re-arm whose fallback
+ * the user will not see, with the reason (`detail`) and the fix. Called only
+ * under `__DEV__`, so prod shakes it. */
+function reportUnseen(queue: CollectionQueue, detail: string, name?: string): void {
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "LOADING_ON_OUTSIDE_HOLD",
+        kind: "async",
+        severity: "warn",
+        message: `[LOADING_ON_OUTSIDE_HOLD] \`on\` re-armed a Loading boundary, but ${detail}`,
+        nodeName: name,
+        data: { source: name }
+      },
+      queue._owner
+    )
+  );
+}
+/** DEV, a parked finalize (scheduler `checkBoundaryChildren` →
+ * `_devHeldSweep`): the after-the-fact LOADING_ON_OUTSIDE_HOLD rule. The
+ * re-arm's swap is still staged (`_disabled` holds `true` uncommitted) and
+ * the content it was waiting on has settled — the sweep that follows the
+ * commit will clear it before any effect phase runs, so the fallback is never
+ * displayed. That is the design when other data holds the frame (a race the
+ * fallback may still win: the shell landing first shows it); it is the missed
+ * case when nothing but the write's own action (or an override it left)
+ * parks the transaction — the action outlasts the data, and `on` never shows
+ * a fallback. The source rule in `_rearm` cannot see this: nothing outside
+ * the boundary reads the source. */
+function devHeldSweep(queue: CollectionQueue): void {
+  if (!queue._swapUnseen || queue._disabled._pendingValue !== true) return;
+  for (const source of queue._sources) if (!queue._settled(source)) return;
+  const t = queue._disabled._transition;
+  if (t === null) return;
+  for (const [source, reporters] of currentTransition(t)._asyncReporters)
+    for (const reporter of reporters) if (reporterBlocksSource(reporter, source)) return;
+  queue._swapUnseen = false;
+  reportUnseen(
+    queue,
+    "the frame was held until its content settled, so the fallback was never displayed. " +
+      "Read `latest()` in `on` to show the fallback immediately."
+  );
 }
 
 function createCollectionBoundary<T>(

@@ -1366,11 +1366,12 @@ export function finalizePureQueue(
   // of this flush (a parked one — the write re-armed `scheduled`).
   if (pendingRearms.size) drainRearms(true);
   if (resolvePending) commitPendingNodes();
+  if (!incomplete && globalQueue._children.length) checkBoundaryChildren(globalQueue);
   // A parked finalize sweeps nothing (the boundaries' staged swaps are the
   // transaction's); DEV walks them read-only for the after-the-fact
   // LOADING_ON_OUTSIDE_HOLD rule (boundaries.ts `_devHeldSweep`, #3540).
-  if (globalQueue._children.length && (!incomplete || __DEV__))
-    checkBoundaryChildren(globalQueue, incomplete);
+  else if (__DEV__ && incomplete && globalQueue._children.length)
+    devSweepBoundaryChildren(globalQueue);
   // Contested effects (#3322) re-derive from the world this commit just
   // produced. Ahead of the heap run — not the post-heap gated replay — so
   // the recompute and the effect phase land in this same pass and the value
@@ -1462,11 +1463,17 @@ export function finalizePureQueue(
   }
 }
 
-function checkBoundaryChildren(queue: Queue, held = false) {
+function checkBoundaryChildren(queue: Queue) {
   for (const child of queue._children) {
-    if (held) (child as any)._devHeldSweep?.();
-    else (child as any)._checkSources?.();
-    checkBoundaryChildren(child as Queue, held);
+    (child as any)._checkSources?.();
+    checkBoundaryChildren(child as Queue);
+  }
+}
+/** DEV twin of checkBoundaryChildren for a parked finalize (#3540): read-only. */
+function devSweepBoundaryChildren(queue: Queue) {
+  for (const child of queue._children) {
+    (child as any)._devHeldSweep?.();
+    devSweepBoundaryChildren(child as Queue);
   }
 }
 
