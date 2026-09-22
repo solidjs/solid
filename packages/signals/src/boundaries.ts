@@ -386,26 +386,17 @@ export class CollectionQueue extends Queue {
     if (!type || (read(this._disabled) && (!_revealUsed || read(this._collapsed)))) return;
     return super.run(type);
   }
-  /** An `on` dependency notified (onNode → scheduler `pendingRearms`), and
-   * this is the flush's drain (#3540): after the heap, before the verdict,
-   * under the transaction the notifying write belongs to. A boundary
-   * showing content (`_initialized`) is fresh again — its fallback, if
-   * anything under it is still pending; nothing at all otherwise (no
-   * fallback flash for a notification that finds nothing to wait on). The
-   * release is immediate: the boundary stops holding the frame. The
-   * fallback swap FOLLOWS THE FRAME: staged here, it lands with the write's
-   * commit — now, when nothing else holds it; together with the rest of the
-   * new page when something outside the boundary does — never beside the
-   * old page for a change nothing on screen reflects yet. If the pending
-   * lands before that frame commits, the sweep (`_checkSources`) clears the
-   * swap ahead of the commit and no fallback is ever shown. A display-ahead
-   * notification (`_rearmLane`: `on` read `latest()` or an optimistic
-   * write) asked for the change now, and the swap is shown through the
-   * lane — the fallback now, beside the frame the transaction still holds.
-   * The children stay alive behind the fallback (`_disabled` hides the
-   * output; nothing is disposed or re-created) and reveal again when the
-   * pending lands. A boundary already on its fallback, or disposed since
-   * the notification, has nothing to re-arm. */
+  /** An `on` dependency notified (onNode → scheduler `pendingRearms`);
+   * drained after the heap, before the verdict, under the notifying write's
+   * transaction (#3540). A boundary showing content is fresh again: it
+   * releases its hold now and, if anything under it is still pending, swaps
+   * to its fallback. The swap is staged, so it lands with the write's frame
+   * — at once when nothing else holds it, with the rest of the new page
+   * when something outside the boundary does; if the pending lands first,
+   * `_checkSources` clears it and no fallback is shown. An `on` that read a
+   * lane (`latest()`, an optimistic write) asked for the change now:
+   * `_rearmLane` shows the swap through the lane, beside the held frame.
+   * Children stay alive behind the fallback. */
   _rearm(): void {
     const lane = this._rearmLane;
     this._rearmLane = null;

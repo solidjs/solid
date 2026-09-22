@@ -437,19 +437,13 @@ export interface Rearmable {
   _rearm(): void;
 }
 /**
- * Boundaries whose `on` dependencies notified this flush (#3540). The
- * notification arrives inside a pass (a Set: however many dependencies
- * notify in one flush, one re-arm) and the boundary is re-armed once the
- * pass's heap has run, before the verdict (GlobalQueue.run → drainRearms):
- * every pass the notifying write dirtied has run, so what it put in flight
- * under the boundary is registered — and `activeTransition` is still the
- * transaction the write belongs to, so the fallback swap staged there is the
- * frame's and lands WITH it. The boundary releases its hold (the verdict
- * that follows sees it — a frame nothing else holds commits in this same
- * pass); during a held navigation the fallback appears together with the
- * rest of the new page, never before it. A boundary whose `on` pass ran
- * under a lane (`latest()`, an optimistic write) shows its swap through
- * that lane instead — display-ahead, at the park (boundaries.ts `_swap`).
+ * Boundaries whose `on` dependencies notified this flush (#3540; a Set:
+ * many notifications, one re-arm). The notification arrives inside a pass,
+ * at the height of the `on` reads — before the readers the write put in
+ * flight are registered — so the re-arm waits for the heap and runs before
+ * the verdict (GlobalQueue.run → drainRearms), still under the write's
+ * transaction: the release is seen by the verdict that follows, and the
+ * staged fallback swap lands with the write's frame.
  */
 export const pendingRearms: Set<Rearmable> = new Set();
 export function queueRearm(boundary: Rearmable): void {
