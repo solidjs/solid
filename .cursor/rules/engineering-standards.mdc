@@ -22,6 +22,10 @@ Commits and pushes always require an explicit ask in the user's latest message. 
 - **Understand before implementing.** If a design or proposal isn't fully clear, ask questions first. Don't start coding until the model is understood.
 - **Correctness over speed.** Take the time to get it right. A wrong implementation that passes tests is worse than no implementation.
 
+## Public API changes must be flagged
+
+Any change to the public surface — a new or removed export, prop, option, or parameter; a changed signature, default, or documented behavior of an existing one; a new diagnostic code — must be called out explicitly to the maintainer *before* it is made (or, when discovered mid-task, before it is committed), stated as its own item, not folded into a summary of the fix. This applies to changes made for "parity", "symmetry", or "while I was there" exactly as much as to changes the task asked for; those are the ones most likely to slip through. The same applies to instructions given to subagents: a brief that would add or remove public surface must say so, and the agent must report the surface it touched. The PR body must list every public API change under its own heading.
+
 ## When Comparing Approaches
 
 - Each approach must be architecturally distinct, not a rename of the other.
