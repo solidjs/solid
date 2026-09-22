@@ -1063,6 +1063,18 @@ const REFERENCE_BINDINGS = processState(
   "solid.ServerFunctionReferenceBindings",
   () => new WeakMap()
 );
+// Ids whose grant is PROVISIONAL (dev only, #3564): a rebind found the
+// grant live and carried it to the new binding instead of revoking it, and
+// the live binding has not re-declared `GET()` since. A carried grant is
+// dispatch-only — `declaresRead` answers true so the method gate admits
+// the read, but the origin-gate exemption a declaration also grants
+// (#3114) is withheld: the new function never signed the safety assertion,
+// so `handleServerFunctionRequest` keeps the gate ON for a carried id
+// exactly as for a function that never declared GET. The mark clears when
+// the live binding's own `GET()` re-declares the grant; it chains across
+// further rebinds and never upgrades on its own. Always empty in prod,
+// where every rebind revokes (#3129).
+const CARRIED = processState("solid.ServerFunctionCarriedGrants", () => new Set());
 
 // Whether the id's CURRENT binding is the function a `GET()` grant was made
 // to — the one question both dispatch gates ask (#3237): the method gate
@@ -1073,7 +1085,10 @@ const REFERENCE_BINDINGS = processState(
 // (the grant then names a binding this id does not have). Neither is a
 // declared read — a stale or unverifiable grant fails CLOSED, so such a
 // call is gated exactly like a function that never declared GET: 405,
-// origin gate on.
+// origin gate on. The one carve-out is dev's provisional carry (#3564,
+// `CARRIED`): a rebind that finds the grant LIVE moves it to the new
+// binding, so this answers true for the rebound function — but only for
+// dispatch; the origin gate stays on until the new binding re-declares.
 function declaresRead(id) {
   const granted = METHODS.get(id);
   return granted !== undefined && granted === REGISTRATIONS.get(id);
@@ -1120,12 +1135,33 @@ export function registerServerFunction(id, callback) {
   // a mutation reachable over GET, from any origin, with ambient cookies
   // (#3129). A function that still declares GET re-runs `GET()` right
   // after re-registering — module order guarantees it — so the grant
-  // re-arms itself exactly when it is still meant.
+  // re-arms itself exactly when it is still meant. That is the production
+  // rule, and it holds without exception there.
+  //
+  // Dev carve-out (#3564): under `vite dev` a program reload invalidates
+  // every module, but the next `/_server` request re-evaluates only the
+  // module the requested id lives in. When the `GET()` declaration lives
+  // elsewhere — a router's `query()` in the app's data layer — nothing
+  // re-arms the grant until the next document render, and every read
+  // answers 405 in between. So in dev a rebind that finds the grant LIVE
+  // (`declaresRead`: made about the binding being replaced, not a stale
+  // one) carries it to the new binding as a PROVISIONAL, dispatch-only
+  // grant: the read dispatches, but the origin-gate exemption is withheld
+  // (`CARRIED`) until the live binding's own `GET()` re-declares. A
+  // cross-site GET at a carried id lands on the same 403 production gives
+  // — what the carry trades away is only dev's cache-friendliness of an
+  // ungated read, which dev never needed. A stale grant (the id rebound
+  // BEFORE the declaration, #3237) is not live and still revokes; so does
+  // every rebind in prod.
   if (REGISTRATIONS.get(id) !== callback) {
-    // dev: a program reload re-evaluates this id's module on the next
-    // request without the module that declared it (#3564)
-    if (DEV && declaresRead(id)) METHODS.set(id, callback);
-    else METHODS.delete(id);
+    if (DEV && declaresRead(id)) {
+      METHODS.set(id, callback);
+      // a carried id stays carried: a further rebind never upgrades it
+      CARRIED.add(id);
+    } else {
+      METHODS.delete(id);
+      CARRIED.delete(id);
+    }
   }
   REGISTRATIONS.set(id, callback);
   return callback;
@@ -1382,6 +1418,15 @@ export function GET<A extends readonly any[], R>(
  * binding the id no longer has grants nothing, for the same reason
  * (#3237).
  *
+ * Dev build only (#3564): a rebind that finds the grant live carries it to
+ * the new function as a PROVISIONAL grant — dispatch works, but the origin
+ * gate stays on — so a declaration made in a module the dev server did not
+ * re-evaluate (a router's `query()`) survives a program reload. The live
+ * function's own `GET()` turns the provisional grant back into a full one;
+ * a `GET()` on a reference from the earlier evaluation is stale, grants
+ * nothing, and leaves the provisional grant as it is. Production revokes on
+ * every rebind, no exceptions.
+ *
  * Wrap the reference at its declaration; the compiler round-trips the call
  * in both builds:
  *
@@ -1407,6 +1452,15 @@ export function GET(fn) {
   const binding = REFERENCE_BINDINGS.has(fn) ? REFERENCE_BINDINGS.get(fn) : REGISTRATIONS.get(id);
   const existing = METHODS.get(id);
   if (existing !== undefined && existing !== binding) {
+    // A carried grant (dev, #3564) names the id's LIVE binding, so a
+    // declaration about any other binding is a reference from before the
+    // reload — the declaring module re-ran against a reference it still
+    // holds from the earlier evaluation. That is a reload, not two live
+    // references colliding: the stale declaration grants nothing (#3237,
+    // fail closed) and the provisional grant stays exactly as it is —
+    // still dispatching, origin gate still on — until the live binding
+    // re-declares.
+    if (CARRIED.has(id)) return fn;
     // This declaration would CHANGE an existing grant's binding — an id
     // collision between two live references. Never rebind silently: the
     // grant is a safety assertion the new function did not sign.
@@ -1423,6 +1477,10 @@ export function GET(fn) {
     return fn;
   }
   METHODS.set(id, binding);
+  // the binding this declaration is about signed the assertion itself: a
+  // provisional grant carried to it across a dev rebind (#3564) is now a
+  // full one, origin-gate exemption included
+  CARRIED.delete(id);
   // the declaration records itself on the metadata channel
   const reference = withMeta(fn, { method: "GET" });
   guardDeclaredMethod(getServerFunctionMetadata(reference), id);
@@ -3603,10 +3661,17 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const csrf = options.csrf !== undefined ? options.csrf : config.csrf;
   // The skip is `GET()`'s safety contract at work (see its notes and
   // #3114); `protectDeclaredReads` is the opt-in for deployments that
-  // would rather gate reads than share their cache entries.
+  // would rather gate reads than share their cache entries. A grant
+  // carried across a dev rebind (#3564, `CARRIED`) is provisional: the
+  // function dispatching under it never made the assertion, so it gets
+  // dispatch but not the skip — the gate stays on, and a cross-site GET
+  // lands on the 403 production gives it. Cache fragmentation is nothing
+  // in dev; the set is empty in prod.
   const protectsRequest =
     csrf !== false &&
-    (!declaredRead || (typeof csrf === "object" && csrf.protectDeclaredReads === true));
+    (!declaredRead ||
+      CARRIED.has(functionId) ||
+      (typeof csrf === "object" && csrf.protectDeclaredReads === true));
   const csrfOptions = csrf === true ? {} : csrf;
   // The gate's verdict (see `allowsServerFunctionRequest`): `false`
   // refuses, `true` admits, an origin string admits a cross-origin caller

@@ -22,6 +22,8 @@ const crossSiteGet = (id: string) =>
   });
 
 const read = (id: string) => handleServerFunctionRequest(readRequest(id), { provideEvent });
+const readCrossSite = (id: string) =>
+  handleServerFunctionRequest(crossSiteGet(id), { provideEvent });
 
 afterEach(() => setServerFunctionsDev(false));
 
@@ -45,21 +47,90 @@ it("dev: a live grant follows the id across a re-registration that does not re-d
   expect(first).toHaveBeenCalledTimes(1);
 });
 
-it.skip("dev: a re-registration that never re-declares GET keeps the origin gate on (intended, not yet held)", async () => {
+it("dev: a carried grant is dispatch-only — the origin gate stays on until GET() re-declares", async () => {
   setServerFunctionsDev(true);
   GET(
     createServerReference(registerServerReference("dev-rebind-undeclared", async () => "a read"))
   );
+  // the declared read is exempt from the origin gate (#3114)
+  expect((await readCrossSite("dev-rebind-undeclared")).status).toBe(200);
+
+  // the reload rebinds the id to a function that never declared GET
   const mutation = vi.fn(async () => "a mutation");
   registerServerReference("dev-rebind-undeclared", mutation);
 
-  const response = await handleServerFunctionRequest(crossSiteGet("dev-rebind-undeclared"), {
-    provideEvent
-  });
-  expect({ status: response.status, calls: mutation.mock.calls.length }).toStrictEqual({
+  // a cross-site GET lands on the 403 production gives it, function never run
+  const refused = await readCrossSite("dev-rebind-undeclared");
+  expect({ status: refused.status, calls: mutation.mock.calls.length }).toStrictEqual({
     status: 403,
     calls: 0
   });
+  // while the same-origin router fetch dispatches: no 405
+  const admitted = await read("dev-rebind-undeclared");
+  expect(admitted.status).toBe(200);
+  expect(await admitted.text()).toContain("a mutation");
+  expect(mutation).toHaveBeenCalledTimes(1);
+});
+
+it("dev: the live binding re-declaring GET() turns the carried grant back into a full one", async () => {
+  setServerFunctionsDev(true);
+  GET(createServerReference(registerServerReference("dev-rebind-redeclare", async () => "a read")));
+
+  // reload: the server module re-registers; the grant is carried
+  const fresh = vi.fn(async () => "a read again");
+  const reference = createServerReference(registerServerReference("dev-rebind-redeclare", fresh));
+  expect((await readCrossSite("dev-rebind-redeclare")).status).toBe(403);
+
+  // the next document render re-runs the data layer's query() against the
+  // fresh reference: no rebind error, and the assertion is signed again
+  expect(() => GET(reference)).not.toThrow();
+
+  const crossSite = await readCrossSite("dev-rebind-redeclare");
+  expect(crossSite.status).toBe(200);
+  expect(await crossSite.text()).toContain("a read again");
+  const sameOrigin = await read("dev-rebind-redeclare");
+  expect(sameOrigin.status).toBe(200);
+  expect(fresh).toHaveBeenCalledTimes(2);
+});
+
+it("dev: a stale GET() against a carried grant is discarded — no throw, grant stays provisional", async () => {
+  setServerFunctionsDev(true);
+  const stale = createServerReference(
+    registerServerReference("dev-rebind-stale-redeclare", async () => "a read")
+  );
+  GET(stale);
+
+  // reload: the server module re-registers; the grant is carried
+  const second = vi.fn(async () => "second evaluation");
+  registerServerReference("dev-rebind-stale-redeclare", second);
+
+  // the declaring module re-runs, still holding the reference from before
+  // the reload: a reload, not two live references colliding
+  expect(() => GET(stale)).not.toThrow();
+
+  // the stale declaration granted nothing: the grant is still provisional
+  const sameOrigin = await read("dev-rebind-stale-redeclare");
+  expect(sameOrigin.status).toBe(200);
+  expect(await sameOrigin.text()).toContain("second evaluation");
+  const crossSite = await readCrossSite("dev-rebind-stale-redeclare");
+  expect(crossSite.status).toBe(403);
+  expect(second).toHaveBeenCalledTimes(1);
+});
+
+it("dev: a carried grant stays provisional across further re-registrations", async () => {
+  setServerFunctionsDev(true);
+  GET(createServerReference(registerServerReference("dev-rebind-chain", async () => "a read")));
+
+  registerServerReference("dev-rebind-chain", async () => "second evaluation");
+  const third = vi.fn(async () => "third evaluation");
+  registerServerReference("dev-rebind-chain", third);
+
+  const sameOrigin = await read("dev-rebind-chain");
+  expect(sameOrigin.status).toBe(200);
+  expect(await sameOrigin.text()).toContain("third evaluation");
+  const crossSite = await readCrossSite("dev-rebind-chain");
+  expect(crossSite.status).toBe(403);
+  expect(third).toHaveBeenCalledTimes(1);
 });
 
 it("dev: a stale grant does not come alive on a re-registration", async () => {
