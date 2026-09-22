@@ -73,14 +73,21 @@ The fallback **follows the frame**: it lands with the same frame as the change t
 Take a product page whose shell reads `product(id)` outside a `<Loading on={id()}>` whose content reads `comments(id)`. Navigating from product A to B:
 
 ```
-no on:         [A]  →  [B + comments]                  the frame waits for both
-on={id()}:     [A]  →  [B + spinner]  →  [B + comments]  the fallback lands with B
+no on:      [A]  →  [B + comments]                  the frame waits for both
+on={id()}:  [A]  →  [B + spinner]  →  [B + comments]  the fallback lands with B
+```
+
+The shell keeps showing A until `product(2)` lands; the spinner arrives with B, not beside A for a change the page does not reflect yet. If the comments land before the shell, no fallback is ever shown.
+
+One shape shows no fallback at all: when the data the boundary is waiting on is also read outside it (a sibling `<Loading>` over the same `comments(id)`, an `isPending` on it in the header), or the write's `action` stays open until the data lands. The frame waits on that read, so by the time it commits the content is ready and the fallback was never needed. In development the `LOADING_ON_OUTSIDE_HOLD` diagnostic names the source. The fix is structural: move the outside read under the boundary so one hold owns the data, or — during an `action` — show the wait with `isPending()` or an optimistic value, which is what a hold's stale content is for. The old content is on screen and valid the whole time; a `Loading` fallback says it is not.
+
+It is possible to show the fallback beside the still-held frame anyway: a display-ahead read in `on` — `latest(id)`, `isPending()`, an optimistic signal — says the change is already on screen, so the fallback lands there too:
+
+```
 on={latest(id)}: [A] → [A + spinner]  →  [B + spinner]  →  [B + comments]
 ```
 
-The shell keeps showing A until `product(2)` lands; the spinner arrives with B, not beside A for a change the page does not reflect yet. If the comments land before the shell, no fallback is ever shown. To show the fallback immediately, beside the still-held frame, read `latest()` in `on` (the last line above): a display-ahead read says the change is already on screen, so the fallback belongs there too. The same goes for any display-ahead state read in `on` — `isPending()`, an optimistic signal.
-
-One shape shows no fallback at all: when the data the boundary is waiting on is also read outside it (a sibling `<Loading>` over the same `comments(id)`, an `isPending` on it in the header), or the write's `action` stays open until the data lands. The frame waits on that read, so by the time it commits the content is ready and the fallback was never needed. In development the `LOADING_ON_OUTSIDE_HOLD` diagnostic names the source and the fix: read `latest()` in `on`, or move the outside read under the boundary.
+That is a capability, not a recommendation. The `[A + spinner]` frame is B's loading state inside A's page, for a change nothing else on the page reflects yet; reach for it only when that is what you mean.
 
 Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` notifies whenever `id` changes, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. A zero-argument function is a tracked accessor, not a callback.
 

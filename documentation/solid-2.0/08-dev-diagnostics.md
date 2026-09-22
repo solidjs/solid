@@ -128,7 +128,7 @@ render(
 
 #### `LOADING_ON_OUTSIDE_HOLD`
 
-**Message:** "`on` re-armed a Loading boundary, but `comments` is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. Read `latest()` in `on` to show the fallback now, or move the outside read under the boundary." — or, after the fact: "… but the frame was held until its content settled, so the fallback was never displayed. Read `latest()` in `on` to show the fallback immediately."
+**Message:** "`on` re-armed a Loading boundary, but `comments` is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. Move the outside read under the boundary so one hold owns the data, or show the wait with `isPending()`. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)" — or, after the fact: "… but the frame was held until its content settled, so the fallback was never displayed. The old content stayed valid for the whole wait; show the wait with `isPending()` or an optimistic value. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)"
 
 **Severity:** `warn` (non-halting)
 
@@ -137,19 +137,22 @@ A `<Loading on={…}>` dependency changed while something under the boundary was
 - **At the change** (`data.source` names the source): the same async source is also read by a live reader outside the boundary — a sibling `<Loading>` over the same data, an `isPending()` on it in the header, a plain read in the shell. That reader holds the frame until the data lands.
 - **After the fact** (no `data.source`): nothing outside reads the data, but the write happened inside an `action` that stays open until the data lands (a refresh the action awaits, for instance). The action parks the frame past the content's landing, so the staged fallback is cleared before it is displayed. Reported once, when the content settles. A frame held by _other_ data is not reported — that is a race the fallback may still win.
 
+The frame is holding because the old content is still on screen and still valid; a `Loading` fallback would say it is not. So the fix is structural, or it acknowledges the wait in place:
+
 ```jsx
 // Warns: B reads the same data() and holds the frame — A's fallback never shows.
 <Loading on={id()} fallback={<Spinner />}>{data()}</Loading>
 <Loading fallback={<Spinner />}>{data()}</Loading>
 
-// Fix 1: the fallback now, beside the held frame.
-<Loading on={latest(id)} fallback={<Spinner />}>{data()}</Loading>
-
-// Fix 2: one boundary owns the read.
+// Fix: one boundary owns the read.
 <Loading on={id()} fallback={<Spinner />}>{data()} {data()}</Loading>
+
+// Or, for the action shape: keep the content, show the wait.
+<Show when={isPending(data)}><Spinner /></Show>
+{data()}
 ```
 
-Not reported for `on={latest(id)}` (or any display-ahead read in `on`): that fallback shows immediately by the user's choice. See [RFC 05](05-async-data.md#loading-on-prop-dependencies-that-show-the-fallback-again).
+A display-ahead read in `on` — `on={latest(id)}`, `isPending()`, an optimistic signal — is not reported: it says the change is already on screen, so the fallback lands now beside the held frame. That is a capability the diagnostic notes, not the recommended shape: it puts the new page's loading state inside the old page. See [RFC 05](05-async-data.md#loading-on-prop-dependencies-that-show-the-fallback-again).
 
 #### `CLEANUP_IN_FORBIDDEN_SCOPE`
 
