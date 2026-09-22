@@ -71,6 +71,18 @@ export function dispose(node: Computed<unknown>): void {
 export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
   const flags = (node as any)._flags;
   if (flags & REACTIVE_DISPOSED) return;
+  // A previous frame parked as zombies (#3404) dies with its owner (#3024):
+  // the commit that would retire it returns on the DISPOSED flag set below,
+  // so it drains here or its cleanups never run and the zombies stay
+  // subscribed, to rerun in a torn-down tree (#3561). Death only (`self`):
+  // a rerun's `disposeChildren(el)` leaves the frame rendering until commit.
+  if (
+    self &&
+    !zombie &&
+    node._x !== null &&
+    (node._x._pendingFirstChild !== null || node._x._pendingDisposal !== null)
+  )
+    disposeChildren(node, false, true);
   if (self) {
     (node as any)._flags = flags | REACTIVE_DISPOSED;
     // Companions are created detached and outlive their owner, but a verdict
