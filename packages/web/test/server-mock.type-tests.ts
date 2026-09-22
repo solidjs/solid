@@ -57,6 +57,7 @@ mutual<typeof rt.ssrClassName>(mock.ssrClassName, rt.ssrClassName);
 mutual<typeof rt.ssrStyle>(mock.ssrStyle, rt.ssrStyle);
 mutual<typeof rt.ssrStyleProperty>(mock.ssrStyleProperty, rt.ssrStyleProperty);
 mutual<typeof rt.ssrAttribute>(mock.ssrAttribute, rt.ssrAttribute);
+mutual<typeof rt.ssrElementAttribute>(mock.ssrElementAttribute, rt.ssrElementAttribute);
 mutual<typeof rt.ssrGroup>(mock.ssrGroup, rt.ssrGroup);
 mutual<typeof rt.ssrHydrationKey>(mock.ssrHydrationKey, rt.ssrHydrationKey);
 mutual<typeof rt.resolveSSRNode>(mock.resolveSSRNode, rt.resolveSSRNode);

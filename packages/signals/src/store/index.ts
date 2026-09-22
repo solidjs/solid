@@ -11,7 +11,7 @@ export type {
 } from "./store.js";
 export type { Merge, Omit } from "./utils.js";
 
-export { isWrappable, $TRACK, $PROXY, $TARGET } from "./store.js";
+export { isWrappable, $TRACK, $PROXY, $TARGET, $RECORD } from "./store.js";
 export {
   mergeSources,
   mergeView,

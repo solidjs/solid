@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToString, ssrElement } from "@solidjs/web";
-import { merge, omit } from "solid-js";
+import { $PROXY, createStore, merge, omit } from "solid-js";
 
 // `ssrElement(tag, [a, b, c], ...)` serializes straight from several prop
 // sources. Its contract is the merged one — byte-for-byte what
@@ -313,6 +313,42 @@ describe("ssrElement with multiple sources", () => {
     expect(render("br", {}, undefined, true)).toMatch(/^<br _hk=\w+ \/>$/);
   });
 
+  // A store, or any proxy that is not one of our views, is a single source
+  // whose keys come from ONE `ownKeys` trap and whose values come from its
+  // `get` trap — never enumerated through a descriptor trap per key.
+  test("a store or foreign proxy source is walked through its traps", () => {
+    const [state] = createStore({ id: "s", title: "T" });
+    expect(render("div", state)).toBe('<div id="s" title="T"></div>');
+
+    const traps: string[] = [];
+    const sym = Symbol("hidden");
+    const foreign = new Proxy({} as Record<PropertyKey, string>, {
+      ownKeys() {
+        traps.push("ownKeys");
+        return ["id", sym, "data-x"];
+      },
+      get(_t, key) {
+        traps.push(`get:${String(key)}`);
+        if (key === $PROXY) return foreign;
+        if (key === "id") return "f";
+        if (key === "data-x") return "y";
+        return undefined;
+      },
+      has(_t, key) {
+        return key === $PROXY || key === "id" || key === "data-x";
+      },
+      getOwnPropertyDescriptor() {
+        traps.push("descriptor");
+        return { value: "", enumerable: true, configurable: true };
+      }
+    });
+    expect(render("div", foreign)).toBe('<div id="f" data-x="y"></div>');
+    expect(traps.filter(t => t === "ownKeys")).toHaveLength(1);
+    expect(traps).not.toContain("descriptor");
+    expect(traps).toContain("get:id");
+    expect(traps).toContain("get:data-x");
+  });
+
   // One string, a number, nothing, or one finished node joins the open and
   // close tags in place; anything else — arrays, pending nodes — goes through
   // the tree resolver. Same output either way; this pins the shapes.
@@ -342,6 +378,59 @@ describe("ssrElement with multiple sources", () => {
     expect(
       renderToString(() => [ssrElement("p", {}, "a", false), ssrElement("p", {}, "b", false)])
     ).toBe("<p>a</p><p>b</p>");
+  });
+});
+
+// `ssrElement(tag, props, children, needsId, skip, attrs)`: `attrs` is
+// attribute markup the caller already holds as a string, appended after the
+// props' attributes as a last source would be — walked for nothing, escaped by
+// nobody here.
+describe("ssrElement with an attribute string", () => {
+  const attrs = (props: any, s: string | undefined, skip?: (k: string) => boolean, tag = "div") =>
+    renderToString(() => ssrElement(tag, props, undefined, false, skip, s));
+
+  test("is appended after the props' attributes, verbatim", () => {
+    expect(attrs({ id: "x" }, ' class="c d"')).toBe('<div id="x" class="c d"></div>');
+    // not escaped: the caller vouches for it
+    expect(attrs({}, ' data-raw="a&amp;b"')).toBe('<div data-raw="a&amp;b"></div>');
+    // an empty string and undefined add nothing
+    expect(attrs({ id: "x" }, "")).toBe('<div id="x"></div>');
+    expect(attrs({ id: "x" }, undefined)).toBe('<div id="x"></div>');
+  });
+
+  test("is the same as a trailing source when its keys are kept off the props", () => {
+    const { source, reads } = counting({ id: "x", class: "author", title: "t", style: "s" });
+    const skip = (k: string) => k === "class" || k === "style";
+    const html = attrs(source, ' class="computed" style="color:red"', skip);
+    expect(html).toBe(
+      renderToString(() =>
+        ssrElement("div", [source, { class: "computed", style: "color:red" }], undefined, false)
+      )
+    );
+    expect(html).toBe('<div id="x" title="t" class="computed" style="color:red"></div>');
+    // the shadowed getters are never read, by either form
+    expect(reads).toEqual({ id: 2, class: 0, title: 2, style: 0 });
+  });
+
+  test("takes the array-sources form, the thunk form, and void tags", () => {
+    expect(attrs([{ id: "x" }, { title: "t" }], ' class="c"')).toBe(
+      '<div id="x" title="t" class="c"></div>'
+    );
+    expect(attrs(() => ({ id: "x" }), ' class="c"')).toBe('<div id="x" class="c"></div>');
+    expect(attrs({ type: "text" }, ' class="c"', undefined, "input")).toBe(
+      '<input type="text" class="c" />'
+    );
+    // children from the props still follow it
+    expect(attrs({ children: "kid", id: "x" }, ' class="c"')).toBe(
+      '<div id="x" class="c">kid</div>'
+    );
+  });
+
+  test("attribute names that escape are still escaped, and remembered only when clean", () => {
+    // a key that needs escaping never lands as-is, however often it is seen
+    for (let i = 0; i < 3; i++) {
+      expect(attrs({ "a<b": "1", ok: "2" }, undefined)).toBe('<div a&lt;b="1" ok="2"></div>');
+    }
   });
 });
 
