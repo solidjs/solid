@@ -396,9 +396,15 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
 }
 
 /**
- * Creates a detached reactive root. The callback receives a `dispose()`
- * function which, when called, tears down every signal, memo, effect, and
- * `onCleanup` registered inside the root.
+ * Creates a reactive root — an owner scope with its own `dispose()`. A root
+ * created inside an existing owner is owned by it and is disposed when the
+ * parent is disposed; call `dispose()` to tear it down earlier. To create a
+ * root that outlives its creator, detach explicitly:
+ * `runWithOwner(null, () => createRoot(...))`. Pass `id` to seed hydration
+ * ids for the tree it owns.
+ *
+ * `dispose()` tears down every signal, memo, effect, and `onCleanup`
+ * registered inside the root.
  *
  * Use this to host long-lived reactive scopes outside of a component (custom
  * controllers, app bootstrapping, tests). Inside a component, prefer
@@ -406,6 +412,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
  *
  * @example
  * ```ts
+ * // At module level there is no owner, so this root lives until disposed.
  * const dispose = createRoot(dispose => {
  *   const [n, setN] = createSignal(0);
  *   createEffect(() => n(), value => console.log(value));
@@ -415,6 +422,10 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
  *
  * // Later, to tear everything down:
  * dispose();
+ *
+ * // Inside an owner (component, effect, another root), detach explicitly
+ * // if the root must outlive its creator:
+ * const detached = runWithOwner(null, () => createRoot(d => d));
  * ```
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/create-root

@@ -200,6 +200,28 @@ onSettled(() => {
 });
 ```
 
+#### Nested `createRoot` is owned by its parent
+
+In 1.x a `createRoot` created inside another owner was kept out of that owner's `owned` list, so it lived until its own `dispose()` was called. In 2.0 a root created inside an existing owner is a child of that owner and is disposed with it (its own `dispose()` still works for tearing it down earlier). To keep the 1.x “lives until I dispose it” behavior, detach explicitly with `runWithOwner(null, ...)`:
+
+```js
+// 1.x (nested root survives the parent)
+const dispose = createRoot(dispose => {
+  onCleanup(() => controller.destroy());
+  return dispose;
+});
+
+// 2.0 (same lifetime: detach explicitly)
+const dispose = runWithOwner(null, () =>
+  createRoot(dispose => {
+    onCleanup(() => controller.destroy());
+    return dispose;
+  })
+);
+```
+
+See [RFC 02 — Ownership: `createRoot` is owned by the parent by default](02-signals-derived-ownership.md#ownership-createroot-is-owned-by-the-parent-by-default).
+
 ### Dev warnings you’ll likely see (and how to fix them)
 
 These are **dev-only diagnostics** meant to catch bugs earlier. Some are warnings (console); others are errors (throw). See [RFC 08](08-dev-diagnostics.md) for the full reference.
