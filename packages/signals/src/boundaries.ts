@@ -33,7 +33,6 @@ import { attrHooks } from "./core/attribution-hooks.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { enqueueSub } from "./core/heap.js";
 import {
-  currentTransition,
   haltReactivity,
   queueRearm,
   reporterBlocksSource,
@@ -377,10 +376,6 @@ export class CollectionQueue extends Queue {
   /** The lane the `on` pass that queued this re-arm ran under (onNode), if
    * any: the fallback swap is display-ahead — shown through the lane. */
   _rearmLane: OptimisticLane | null = null;
-  /** DEV: a frame-following swap is staged and not yet reported unseen
-   * (devHeldSweep; dropped by the sweep that finds it committed, or by the
-   * report). */
-  _swapUnseen?: boolean;
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -426,9 +421,13 @@ export class CollectionQueue extends Queue {
           }
         // DEV: the same source is also awaited by a live reporter OUTSIDE
         // this boundary — one whose hold the frame keeps, so the frame (and
-        // the swap with it) waits for the source and the fallback is never
-        // seen (LOADING_ON_OUTSIDE_HOLD below). Not for a display-ahead
-        // re-arm: that fallback shows now by the user's choice.
+        // the swap with it) waits for the very source the boundary is
+        // waiting on: the fallback can never be seen. Deterministic and
+        // structural — the one shape LOADING_ON_OUTSIDE_HOLD reports (below).
+        // A frame held by OTHER pending data, or by the write's action, past
+        // the content's landing is a race the fallback may lose, and a
+        // legitimate outcome: not reported. Not for a display-ahead re-arm
+        // either: that fallback shows now by the user's choice.
         if (__DEV__ && held && lane === null && outside === undefined)
           for (const reporter of reporters)
             if (!this._holds(reporter) && reporterBlocksSource(reporter, source)) {
@@ -443,18 +442,14 @@ export class CollectionQueue extends Queue {
         this,
         `${
           name ? `\`${name}\`` : "a source it is waiting on"
-        } is also read outside it and holds the frame: the fallback lands with the frame and will not be seen until that read settles. ` +
-          "Move the outside read under the boundary so one hold owns the data, or show the wait with `isPending()`. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)",
+        } is also read outside it and holds the frame: the fallback can never be seen — the frame waits on the very source the boundary is waiting on. ` +
+          "Move the outside read under the boundary so one hold owns the data. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)",
         name
       );
     }
     this._initialized = false;
     this._sources = sources;
     this._pending = true;
-    // DEV: a frame-following swap the source rule did not already report is
-    // watched by the parked sweep (`_devHeldSweep`) — one report per re-arm,
-    // whichever rule sees it first.
-    if (__DEV__) this._swapUnseen = lane === null && outside === undefined;
     this._swap(lane);
     // Those readers are behind the fallback now: they stop blocking
     // (`reporterBlocksSource`), and the transactions they were holding must
@@ -463,11 +458,6 @@ export class CollectionQueue extends Queue {
     // transaction parked regardless (transitionComplete): its batch commits
     // when it settles, intact.
     wakeParked();
-  }
-  /** DEV, a parked finalize (scheduler `checkBoundaryChildren`): the
-   * after-the-fact LOADING_ON_OUTSIDE_HOLD rule (devHeldSweep). */
-  _devHeldSweep(): void {
-    if (__DEV__) devHeldSweep(this);
   }
   /** Show the fallback: the swap the output pass selects on. Staged, it is
    * the frame's and lands with its commit. Re-armed from a lane pass
@@ -609,10 +599,6 @@ export class CollectionQueue extends Queue {
         this._pending = false;
       }
       if (!this._pending) {
-        // DEV: a swap that committed ran its course; one cleared here while
-        // still staged was never displayed — the parked walk judges whose
-        // hold that was (`_devHeldSweep`).
-        if (__DEV__ && this._disabled._pendingValue !== true) this._swapUnseen = false;
         setSignal(this._disabled, false);
         if (__OBSERVE__ && attrHooks !== null && this._collectionType & STATUS_PENDING)
           attrHooks.boundaryFallback(this, this._tree, false);
@@ -623,8 +609,12 @@ export class CollectionQueue extends Queue {
 }
 
 /** DEV: LOADING_ON_OUTSIDE_HOLD — a frame-following re-arm whose fallback
- * the user will not see, with the reason (`detail`) and the fix. Called only
- * under `__DEV__`, so prod shakes it. */
+ * can never be seen, with the reason (`detail`) and the fix. One rule, at
+ * the change (`_rearm`): the source the boundary waits on is also read
+ * outside it. A fallback cleared after the fact — the frame held by an
+ * action or by other pending data past the content's landing — is a race
+ * the engine cannot tell from a structural hold, and a legitimate outcome:
+ * never reported. Called only under `__DEV__`, so prod shakes it. */
 function reportUnseen(queue: CollectionQueue, detail: string, name?: string): void {
   reportDiagnostic(
     emitDiagnostic(
@@ -640,38 +630,6 @@ function reportUnseen(queue: CollectionQueue, detail: string, name?: string): vo
     )
   );
 }
-/** DEV, a parked finalize (scheduler `devSweepBoundaryChildren` →
- * `_devHeldSweep`): the after-the-fact LOADING_ON_OUTSIDE_HOLD rule. The
- * re-arm's swap never committed and the content it was waiting on has
- * settled: `_disabled` still holds the staged `true` (the sweep that follows
- * the commit will clear it before any effect phase runs), or the pre-verdict
- * sweep (`_judgeHeld`, a fallback that read something not ready) already
- * staged `false` over it. Either way the fallback is never displayed. That
- * is the design when other data holds the frame (a race the fallback may
- * still win: the shell landing first shows it); it is the missed case when
- * nothing but the write's own action (or an override it left) parks the
- * transaction — the action outlasts the data, and `on` never shows a
- * fallback. The source rule in `_rearm` cannot see this: nothing outside
- * the boundary reads the source. A swap the commit sweep clears was
- * committed, and displayed (`_checkSources` drops `_swapUnseen` for it). */
-function devHeldSweep(queue: CollectionQueue): void {
-  if (!queue._swapUnseen) return;
-  const staged = queue._disabled._pendingValue;
-  if (staged === true) {
-    for (const source of queue._sources) if (!queue._settled(source)) return;
-  } else if (staged !== false) return;
-  const t = queue._disabled._transition;
-  if (t === null) return;
-  for (const [source, reporters] of currentTransition(t)._asyncReporters)
-    for (const reporter of reporters) if (reporterBlocksSource(reporter, source)) return;
-  queue._swapUnseen = false;
-  reportUnseen(
-    queue,
-    "the frame was held until its content settled, so the fallback was never displayed. " +
-      "The old content stayed valid for the whole wait; show the wait with `isPending()` or an optimistic value. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)"
-  );
-}
-
 function createCollectionBoundary<T>(
   type: number,
   fn: () => T,
@@ -769,14 +727,16 @@ function createCollectionBoundary<T>(
  *   with the same frame as the change that caused it — now, when nothing
  *   else holds that frame; together with the rest of the new page during a
  *   held navigation, not before it. If the same data is also read outside
- *   the boundary (or the write's action outlasts the data), the frame waits
- *   on it and no fallback appears (DEV warns `LOADING_ON_OUTSIDE_HOLD`);
- *   the fix is structural — one hold should own the data — or `isPending()`
- *   for the wait. A display-ahead read in `on` (`latest()`) shows the
- *   fallback now, beside the held frame; that is a capability, not the
- *   recommended shape. Optimistic writes and a source going pending notify
- *   like any other. The children are not re-created — they stay alive
- *   behind the fallback.
+ *   the boundary, the frame waits on it and the fallback can never be seen
+ *   (DEV warns `LOADING_ON_OUTSIDE_HOLD`); the fix is structural — move the
+ *   outside read under the boundary so one hold owns the data. A frame held
+ *   past the content's landing by something else (the write's action, other
+ *   pending data) also shows no fallback; that is a race the fallback may
+ *   lose, a legitimate outcome, and not reported. A display-ahead read in
+ *   `on` (`latest()`) shows the fallback now, beside the held frame; that
+ *   is a capability, not the recommended shape. Optimistic writes and a
+ *   source going pending notify like any other. The children are not
+ *   re-created — they stay alive behind the fallback.
  *
  * @example
  * ```tsx

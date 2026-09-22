@@ -449,9 +449,12 @@ export function Errored(props: {
  * during a held navigation (a write inside an `action`, or one whose data
  * other readers are still waiting on) — never a spinner beside a page the
  * change has not reached yet. If the same data is also read outside the
- * boundary (or the write's action outlasts the data), the frame waits on it
- * and no fallback appears; DEV warns `LOADING_ON_OUTSIDE_HOLD`. The fix is
- * structural — one hold should own the data — or `isPending()` for the wait.
+ * boundary, the frame waits on it and the fallback can never be seen; DEV
+ * warns `LOADING_ON_OUTSIDE_HOLD`, and the fix is structural — move the
+ * outside read under the boundary so one hold owns the data. A frame held
+ * past the content's landing by something else (the write's action, other
+ * pending data) shows no fallback either; that is a race, a legitimate
+ * outcome, and not reported — show the wait with `isPending()` instead.
  * A display-ahead read in `on` (`latest()`) shows the fallback now, beside
  * the held frame; that is a capability, not the recommended shape. The
  * children are not re-created; they stay alive behind the fallback.

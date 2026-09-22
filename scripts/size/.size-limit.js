@@ -612,7 +612,15 @@ module.exports = [
     // rc.10: on follows the frame (#3540): 16,793 B against `next`'s 16,811
     // (-18 B) — the core floor's drain move (see its note); the rest is the
     // prop mangler handing out different short names. 0 B in the store.
-    limit: "16.85 KB",
+    // LOADING_ON_OUTSIDE_HOLD same-source only (#3584, 2026-09-22): 16.85 ->
+    // 16.90 KB, measured at 16,866 B against `next`'s 16,805 (+61 B). The
+    // after-the-fact DEV sweep and the `_swapUnseen` field are gone (−9 B
+    // prod in boundaries.ts, 0 B in the scheduler); boundaries are not
+    // retained here and this scenario's minified bundle is the same byte
+    // count as `next`'s — the delta is the prop mangler handing out
+    // different short names package-wide once two `_` props left the class,
+    // and the brotli layout that follows. 0 B in the store.
+    limit: "16.90 KB",
     modifyEsbuildConfig
   },
   {

@@ -116,11 +116,12 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   // waiting on its current content — but the fallback swap FOLLOWS THE FRAME
   // the write belongs to. Here B — an initialized boundary without `on` —
   // reads the SAME `data()` and holds the frame on it (A33), so for
-  // `on={count()}` the frame waits for data and A's fallback is never shown:
-  // held mid-flight, then the whole landing (DEV warns
-  // LOADING_ON_OUTSIDE_HOLD: the fix is `latest()` in `on`, or moving B's
-  // read under A). `on={latest(count)}` is that fix — a display-ahead read,
-  // the fallback now, beside the held frame.
+  // `on={count()}` the frame waits for data and A's fallback can never be
+  // shown: held mid-flight, then the whole landing (DEV warns
+  // LOADING_ON_OUTSIDE_HOLD at the change — the same-source outside read is
+  // structural; the fix is moving B's read under A). `on={latest(count)}` is
+  // a display-ahead read — the fallback now, beside the held frame — a
+  // capability, not the recommended shape.
   //
   // `mounts` pins it — how many times A's `<Loading>` was created [after the
   // first landing, mid-flight, after the second landing]. Static and callback
@@ -240,7 +241,7 @@ describe("Loading `on` follows the frame (#3540)", () => {
     dispose();
   });
 
-  test("the action outlasts the data: no fallback is ever shown; DEV warns LOADING_ON_OUTSIDE_HOLD", async () => {
+  test("the action outlasts the data: no fallback is ever shown — a race, no diagnostic", async () => {
     const { div, dispose, save } = heldActionPage("committed");
     flush();
     await vi.advanceTimersByTimeAsync(1000);
@@ -249,16 +250,19 @@ describe("Loading `on` follows the frame (#3540)", () => {
 
     // Data lands while the action still parks the frame: the staged swap is
     // cleared before it is ever displayed, and the commit shows the content
-    // directly. Nothing outside A reads data, so this is the after-the-fact
-    // rule, reported once when the content settles.
+    // directly. Had the action ended first (the test above), the fallback
+    // would have landed with the commit — the fallback lost a race the
+    // developer does not control, a legitimate outcome. Nothing outside A
+    // reads data, so the same-source rule has nothing to report, and there
+    // is no after-the-fact rule.
     const release = save();
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(div.textContent).toBe("Label: oldCount: 1A: 1");
-    expect(codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
 
     await release();
     expect(div.textContent).toBe("Label: newCount: 2A: 2");
+    expect(codes()).toEqual([]);
     dispose();
   });
 
