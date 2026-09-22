@@ -104,6 +104,33 @@ it("a dormant lazy memo read after its owner's dispose stays off the dead chain"
   expect(chain(owner)).toEqual([]);
 });
 
+it("a dormant lazy memo read after its owner's dispose freezes instead of reawakening", () => {
+  const { runs, m1, setRead, setTick, dispose } = setup();
+
+  setRead(false);
+  flush();
+  dispose();
+
+  const evals = runs.m1;
+  let seen = -1;
+  const disposeReader = createRoot(d => {
+    createEffect(m1, v => void (seen = v), { name: "outside" });
+    return d;
+  });
+  flush();
+  expect(seen).toBe(0);
+  expect(runs.m1).toBe(evals);
+
+  setTick(1);
+  flush();
+  setTick(2);
+  flush();
+  expect(m1()).toBe(0);
+  expect(seen).toBe(0);
+  expect(runs.m1).toBe(evals);
+  disposeReader();
+});
+
 it("a lazy memo a cleanup reawakens while its owner's held children are torn down stays on the chain", () => {
   let owner!: any;
   let m1!: () => number;

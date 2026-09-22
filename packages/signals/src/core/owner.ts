@@ -119,7 +119,10 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // Owners, whose _flags is undefined), so no gate here.
     deleteFromHeap(n, queueFor(n));
     clearDeps(n);
-    // Detached first so a mid-drain link survives; the self-pointing prev keeps the splice off the head.
+    // The chain is detached above so a node a cleanup links mid-drain lands
+    // on the fresh head and survives. Pointing each drained child's prev at
+    // itself routes its later splice onto the detached chain, never the head,
+    // and keeps the dev owner-chain-head invariant honest for those children.
     child._prevSibling = child;
     disposeChildren(child, true);
     child = nextChild;

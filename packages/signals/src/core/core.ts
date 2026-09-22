@@ -1542,9 +1542,17 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
     // derived-writable signals), so reads return the last committed value.
     if (comp._config & CONFIG_AUTO_DISPOSE) {
       const parent = comp._parent as Computed<unknown> | null;
-      // A zombie never left its chain (the splice was skipped); a dead owner's chain is never drained again.
-      if (parent !== null && !(comp._flags & REACTIVE_ZOMBIE || parent._flags & REACTIVE_DISPOSED))
-        linkChild(parent, comp);
+      if (parent !== null) {
+        // A dormant node was off the chain when its owner died, so the strip
+        // in disposeChildren missed it: freeze here instead (#3024).
+        if (parent._flags & REACTIVE_DISPOSED) {
+          comp._config &= ~CONFIG_AUTO_DISPOSE;
+          return;
+        }
+        // A zombie never left its chain: settleAutodispose releases without
+        // the !ZOMBIE check its siblings have, so this guard is load-bearing.
+        if (!(comp._flags & REACTIVE_ZOMBIE)) linkChild(parent, comp);
+      }
       recompute(comp as Computed<any>, true);
     }
   } else if (refresh) {
