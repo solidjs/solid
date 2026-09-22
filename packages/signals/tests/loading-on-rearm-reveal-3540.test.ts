@@ -12,16 +12,25 @@
  *    first and the fallback is never seen). The parent never drops to its
  *    own fallback for a child's re-arm.
  *
- * 2. Reveal timing follows the sources. Content pending on a source the
- *    re-arming transaction STAGED reveals at that transaction's commit, even
- *    if the flight lands first — publishing `data 2` beside `count 1` would
- *    tear. Content pending on a source the transaction never touched reveals
- *    as soon as it lands, while the transaction is still held — nothing in
- *    it is staged, so nothing can tear.
+ * 2. Reveal timing follows the frame (#3575). The swap a held write's re-arm
+ *    stages is that write's transaction's, and so is everything the
+ *    boundary's output publishes after it: the boundary reveals WITH the
+ *    frame. Content pending on a source the transaction STAGED reveals at
+ *    the commit even if the flight lands first — publishing `data 2` beside
+ *    `count 1` would tear. Content pending on a source the transaction never
+ *    wrote reveals at the commit too: its own hold (the pending write it
+ *    derives from) is joined to the frame the moment the output pass, staged
+ *    by the swap, reads its landing. In both shapes the action outlasts the
+ *    data, so the sweep clears the swap before any effect phase and the
+ *    fallback is never displayed — DEV warns LOADING_ON_OUTSIDE_HOLD once.
+ *    The pre-#3575 sequence — fallback now, content as soon as it lands,
+ *    beside the still-held frame — is the display-ahead read's:
+ *    `on: () => latest(dep)`.
  *
  * Every observation is made in an effect's EFFECT phase (the committed
  * frame). Same-source reveal-at-commit is also pinned by the held-action case
- * in loading-on-rearm-3540.test.ts; the independent-source case is new here.
+ * in loading-on-rearm-3540.test.ts and by loading-on-frame-following-3540
+ * (5.); the independent-source case is pinned here.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -32,14 +41,30 @@ import {
   createRoot,
   createSignal,
   flush,
-  untrack
+  latest,
+  untrack,
+  OBSERVE
 } from "../src/index.js";
 
 beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const microtask = () => Promise.resolve();
+
+/** DEV diagnostics, silenced on the console and collected by code. */
+function captureWarnings() {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const capture = OBSERVE!.diagnostics.capture();
+  return {
+    warn,
+    codes: () => capture.events.map(e => e.code),
+    stop: () => capture.stop()
+  };
+}
 
 function show(accessor: () => unknown, cell: { value: unknown; log: unknown[] }) {
   createRenderEffect(accessor, v => {
@@ -226,8 +251,9 @@ describe("a re-armed boundary whose fallback goes pending with the same write (#
   });
 });
 
-describe("reveal timing after a re-arm follows the sources (#3540)", () => {
+describe("reveal timing after a re-arm follows the frame (#3540, #3575)", () => {
   test("content pending on a source the held transaction staged reveals at the commit, not when the flight lands", async () => {
+    const d = captureWarnings();
     const [count, setCount] = createSignal(1);
     const countCell = cell();
     const out = cell();
@@ -256,44 +282,55 @@ describe("reveal timing after a re-arm follows the sources (#3540)", () => {
     await vi.advanceTimersByTimeAsync(1000);
     flush();
     expect(out.value).toBe("data 1");
+    out.log.length = 0;
 
+    // The re-arm releases the boundary's hold on `data`, and the swap is
+    // staged with count's write: the action holds that frame, so nothing on
+    // screen changes — no fallback beside the old count.
     action(function* () {
       setCount(2);
       yield new Promise<void>(r => (release = r));
     })();
     flush();
-    expect(out.value).toBe("fallback");
+    expect(out.value).toBe("data 1");
     expect(countCell.value).toBe(1);
+    expect(d.codes()).toEqual([]);
 
     // The flight lands; the transaction is still open. `data 2` derives from
-    // the staged count: revealing it beside `count 1` would tear.
+    // the staged count: revealing it beside `count 1` would tear. The action
+    // outlasted the data, so the staged swap can no longer be seen: the
+    // after-the-fact rule reports it here, once.
     await vi.advanceTimersByTimeAsync(1000);
     flush();
-    expect(out.value).toBe("fallback");
+    expect(out.value).toBe("data 1");
     expect(countCell.value).toBe(1);
+    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
 
+    // The commit: count and the content together; the fallback never shown.
     release();
     await microtask();
     await microtask();
     flush();
     expect(out.value).toBe("data 2");
     expect(countCell.value).toBe(2);
+    expect(out.log).toEqual(["data 2"]);
+    expect(d.warn).toHaveBeenCalledTimes(1);
+    d.stop();
     dispose();
   });
 
-  test("content pending on a source the held transaction never touched reveals when it lands, while the transaction is still held", async () => {
+  /** `data` is re-asked through `asked` — a write the action never makes —
+   * and is in flight when the action writes the `on` dependency. */
+  function independent(on: "dep" | "latest") {
     const [dep, setDep] = createSignal(0);
     const [other, setOther] = createSignal("a0");
     const [asked, setAsked] = createSignal(0);
     const depCell = cell();
     const otherCell = cell();
     const out = cell();
-    let release!: () => void;
     let dispose!: () => void;
     createRoot(d => {
       dispose = d;
-      // Independent of the transaction: re-asked through `asked`, which the
-      // test writes mainline.
       const data = createMemo(async () => {
         const v = asked();
         await sleep(1000);
@@ -306,44 +343,116 @@ describe("reveal timing after a re-arm follows the sources (#3540)", () => {
           createLoadingBoundary(
             () => `data ${data()}`,
             () => "fallback",
-            { on: dep }
+            { on: on === "dep" ? dep : () => latest(dep) }
           )
         ),
         out
       );
     });
     flush();
+    return {
+      setDep,
+      setOther,
+      setAsked,
+      out,
+      dispose,
+      held: () => [depCell.value, otherCell.value]
+    };
+  }
+
+  test("content pending on a source the held transaction never wrote: the re-arm joins the boundary to the frame — it reveals at the commit", async () => {
+    const d = captureWarnings();
+    const t = independent("dep");
     await vi.advanceTimersByTimeAsync(1000);
     flush();
-    expect(out.value).toBe("data 0");
+    expect(t.out.value).toBe("data 0");
+    t.out.log.length = 0;
 
-    // Content goes pending mainline (nothing staged), then the transaction
-    // writes the `on` dependency and something unrelated, and stays open.
-    setAsked(1);
+    // The content goes pending. An initialized boundary forwards it: the
+    // frame — `asked`'s write — is held on `data`, and the boundary keeps
+    // its content (no `on` notification yet).
+    t.setAsked(1);
     flush();
-    expect(out.value).toBe("data 0"); // holds its content: no `on` notification yet
+    expect(t.out.value).toBe("data 0");
+
+    // A second, open transaction writes the `on` dependency and something
+    // unrelated. The re-arm stages the swap into IT; the boundary's output
+    // is that frame's now, and the action holds it: nothing changes on
+    // screen.
+    let release!: () => void;
     action(function* () {
-      setDep(1);
-      setOther("a1");
+      t.setDep(1);
+      t.setOther("a1");
       yield new Promise<void>(r => (release = r));
     })();
     flush();
-    expect(out.value).toBe("fallback");
-    expect([depCell.value, otherCell.value]).toEqual([0, "a0"]);
+    expect(t.out.value).toBe("data 0");
+    expect(t.held()).toEqual([0, "a0"]);
+    expect(d.codes()).toEqual([]);
 
-    // The flight lands: nothing in `data 1` is the transaction's, so the
-    // boundary reveals now, beside the still-held dep/other.
+    // The flight lands. `data 1` derives from nothing the action wrote —
+    // but the output pass that reads its landing is staged, so `asked`'s
+    // hold joins the action's frame and the reveal waits for its commit.
+    // The action outlasted the data: the swap will be cleared before any
+    // effect phase, and the after-the-fact rule reports it, once.
     await vi.advanceTimersByTimeAsync(1000);
     flush();
-    expect(out.value).toBe("data 1");
-    expect([depCell.value, otherCell.value]).toEqual([0, "a0"]);
+    expect(t.out.value).toBe("data 0");
+    expect(t.held()).toEqual([0, "a0"]);
+    expect(d.codes()).toEqual(["LOADING_ON_OUTSIDE_HOLD"]);
+
+    // The commit: dep, other and the content together; no fallback shown.
+    release();
+    await microtask();
+    await microtask();
+    flush();
+    expect(t.out.value).toBe("data 1");
+    expect(t.held()).toEqual([1, "a1"]);
+    expect(t.out.log).toEqual(["data 1"]);
+    expect(d.warn).toHaveBeenCalledTimes(1);
+    d.stop();
+    t.dispose();
+  });
+
+  test("the same shape with `on: () => latest(dep)`: fallback now, content as soon as it lands, beside the held frame", async () => {
+    // The display-ahead read: the swap shows through the lane, so the
+    // boundary's output stays mainline and `data 1` reveals when it lands,
+    // while dep/other are still held — nothing in it is the action's, so
+    // nothing tears. The user's explicit choice: no diagnostic.
+    const d = captureWarnings();
+    const t = independent("latest");
+    await vi.advanceTimersByTimeAsync(1000);
+    flush();
+    expect(t.out.value).toBe("data 0");
+    t.out.log.length = 0;
+
+    t.setAsked(1);
+    flush();
+    expect(t.out.value).toBe("data 0");
+
+    let release!: () => void;
+    action(function* () {
+      t.setDep(1);
+      t.setOther("a1");
+      yield new Promise<void>(r => (release = r));
+    })();
+    flush();
+    expect(t.out.value).toBe("fallback");
+    expect(t.held()).toEqual([0, "a0"]);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    flush();
+    expect(t.out.value).toBe("data 1");
+    expect(t.held()).toEqual([0, "a0"]);
 
     release();
     await microtask();
     await microtask();
     flush();
-    expect(out.value).toBe("data 1");
-    expect([depCell.value, otherCell.value]).toEqual([1, "a1"]);
-    dispose();
+    expect(t.out.value).toBe("data 1");
+    expect(t.held()).toEqual([1, "a1"]);
+    expect(d.codes()).toEqual([]);
+    d.stop();
+    t.dispose();
   });
 });
