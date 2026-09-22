@@ -10,7 +10,9 @@ import { createRoot, flush } from "solid-js";
 // static textarea `value` keeps its source order against the spread.
 
 const rest = { id: "a" };
-const withValue = { id: "a", value: "from-spread" };
+// Widened so TS cannot see the duplicate `value` key (TS2783) — the collision
+// between the explicit attribute and the spread is the case under test.
+const withValue: Record<string, string> = { id: "a", value: "from-spread" };
 
 function mount<T extends Element>(code: () => any): T {
   let el!: T;

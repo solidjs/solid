@@ -12,7 +12,9 @@ const stripKeys = (html: string) => html.replace(/ _hk=[^\s>]+/g, "");
 const render = (code: () => any) => stripKeys(renderToString(code));
 
 const rest = { id: "a" };
-const withValue = { id: "a", value: "from-spread" };
+// Widened so TS cannot see the duplicate `value` key (TS2783) — the collision
+// between the explicit attribute and the spread is the case under test.
+const withValue: Record<string, string> = { id: "a", value: "from-spread" };
 
 describe("static text on spread elements (#3557)", () => {
   test("a static text child is escaped", () => {
