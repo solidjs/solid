@@ -1937,14 +1937,21 @@ export const createOptimisticStore: {
 }) as any;
 
 /**
- * Creates a non-tracked owner scope that doesn't auto-dispose. Pass `id`
- * to seed hydration ids for the tree it owns.
+ * Creates a reactive root — an owner scope with its own `dispose()`. A root
+ * created inside an existing owner is owned by it and is disposed when the
+ * parent is disposed; call `dispose()` to tear it down earlier. To create a
+ * root that outlives its creator, detach explicitly:
+ * `runWithOwner(null, () => createRoot(...))`. Pass `id` to seed hydration
+ * ids for the tree it owns.
  *
  * ```ts
  * const dispose = createRoot(dispose => {
  *   // ...
  *   return dispose;
  * });
+ *
+ * // Detached from the current owner (lives until `detached()` is called):
+ * const detached = runWithOwner(null, () => createRoot(d => d));
  * ```
  *
  * **Hydration:** a root created during hydration marks itself as the
