@@ -632,16 +632,34 @@ function createShadowDraft(realDraft: any, shallow?: boolean) {
   };
 }
 
+/**
+ * The hybrid handoff run's client source, as the engine consumes it (#3498,
+ * #3574). The run re-asks a question the adopted answer already answers, so
+ * it must not open a pending window: step 0 is the adopted answer itself,
+ * landed synchronously (a sync first yield is a landed first answer to
+ * `handleAsync`, and a stream is not pending between yields), and the
+ * source's real first yield — the duplicate — is step 1, discarded as
+ * before. Without the quiet step the store read pending from the handoff
+ * until that yield, and any consumer created in between — a streamed
+ * `<Loading>` resuming to claim its fragment — selected its fallback against
+ * resolved server content (#3574). A bare `yield` commits the draft as-is,
+ * so step 0's `undefined` keeps the adopted answer.
+ */
 function wrapFirstYield(iterable: any, activate: () => void) {
   const srcIt = iterable[Symbol.asyncIterator]();
-  let first = true;
+  let step = 0;
   return {
     [Symbol.asyncIterator]() {
       return {
         next() {
+          if (step === 0) {
+            step = 1;
+            return syncThenable({ done: false, value: undefined });
+          }
           const p = srcIt.next();
-          if (first) {
-            first = false;
+          if (step === 1) {
+            step = 2;
+            // The source's first yield: its writes went to the shadow draft.
             return p.then((r: any) => {
               activate();
               return r.done ? r : { done: false, value: undefined };
@@ -651,6 +669,33 @@ function wrapFirstYield(iterable: any, activate: () => void) {
         },
         return(value?: any) {
           return forwardIteratorReturn(srcIt, value);
+        }
+      };
+    }
+  };
+}
+
+/**
+ * The promise-shaped handoff run, quiet the same way: the adopted answer as
+ * a sync step 0, the promise's result as step 1 (committed when it lands, as
+ * before — a rejection settles through the engine's error path unchanged),
+ * then done.
+ */
+function quietAnswer(thenable: any) {
+  let step = 0;
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          if (step === 0) {
+            step = 1;
+            return syncThenable({ done: false, value: undefined });
+          }
+          if (step === 1) {
+            step = 2;
+            return thenable.then((v: any) => ({ done: false, value: v }));
+          }
+          return Promise.resolve({ done: true, value: undefined });
         }
       };
     }
@@ -1238,6 +1283,12 @@ function hydrateStoreLikeFn(
     //    goes live on that run — genuinely new work, not a handoff, so its
     //    first yield commits — and the abandoned flight's landing or
     //    rejection is dropped by the engine (PJ-R26) and flips nothing.
+    // 5. The handoff opens no pending window (#3574). It re-asks the question
+    //    the adopted answer already answers, and a re-ask of the same
+    //    question is silent: the store reads settled from the landing until
+    //    the client source produces something new. A consumer created in
+    //    between — a streamed <Loading> resuming to claim its fragment after
+    //    the landing — reads the answer, not a fallback.
     const id = peekNextChildId(getOwner()!);
     // Nothing serialized: no answer to wait for and nothing for a first
     // yield to duplicate — the client is authoritative from its first run.
@@ -1257,11 +1308,13 @@ function hydrateStoreLikeFn(
       (draft: any) => {
         if (live) return fn(draft);
         if (hydrated()) {
-          // The handoff run.
+          // The handoff run (rule 5: quiet through its duplicate).
           live = true;
           const { proxy, activate } = createShadowDraft(draft, options?.shallow);
           const r = fn(proxy);
-          return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
+          if (isAsyncIterable(r)) return wrapFirstYield(r, activate);
+          if (r != null && typeof r.then === "function") return quietAnswer(r);
+          return r;
         }
         if (adopted) {
           // Rule 4. The gate is down, so this is not the handoff; an adoption

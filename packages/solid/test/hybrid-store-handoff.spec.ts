@@ -24,7 +24,16 @@
 //
 // The pins for rules 1 and 3 adapt the tests Monkeylordz wrote for #3499.
 import { afterEach, describe, expect, test } from "vitest";
-import { createRoot, createSignal, flush, NotReadyError, refresh } from "@solidjs/signals";
+import {
+  createLoadingBoundary,
+  createRenderEffect,
+  createRoot,
+  createSignal,
+  flush,
+  isPending,
+  NotReadyError,
+  refresh
+} from "@solidjs/signals";
 import {
   enableHydration,
   sharedConfig,
@@ -797,6 +806,219 @@ describe("hybrid store handoff — rule 4: a dependency change before the landin
       expect(state.count).toBe(2);
       expect(runs()).toBe(2);
     } finally {
+      dispose();
+    }
+  });
+});
+
+describe("hybrid store handoff — rule 5: the handoff opens no pending window (#3574)", () => {
+  afterEach(stopHydration);
+
+  // The handoff run re-asks the question the adopted answer already answers,
+  // and a re-ask of the same question is silent (05-async-data, `isPending`):
+  // the store reads settled from the landing until the client source yields
+  // something NEW. Pinned through a consumer born after the landing — the
+  // shape of a streamed <Loading> resuming to claim its fragment while the
+  // handoff run is in flight — and through `isPending` directly.
+  function mount(state: Counter) {
+    // `isPending` reads under the boundary too: an unanswered store suspends
+    // that read the same way it suspends the value read.
+    let view: string | { text: string; pending: boolean };
+    const dispose = createRoot(d => {
+      const boundary = createLoadingBoundary(
+        () => ({ text: `content:${state.count}`, pending: isPending(() => state.count) }),
+        () => "fallback" as const
+      );
+      createRenderEffect(boundary, v => {
+        view = v;
+      });
+      return d;
+    });
+    flush();
+    return {
+      view: () => (typeof view === "string" ? view : view.text),
+      pending: () => (typeof view === "string" ? undefined : view.pending),
+      dispose
+    };
+  }
+
+  test("generator: a boundary created before the client's first yield shows the adopted answer", async () => {
+    const server = deferred<Counter>();
+    const first = deferred<void>();
+    const second = deferred<void>();
+    startHydration({ t0: server.promise });
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          async function* (draft) {
+            await first.promise;
+            draft.count = 1;
+            yield;
+            await second.promise;
+            draft.count = 2;
+            yield;
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    let consumer: ReturnType<typeof mount> | undefined;
+    try {
+      flush();
+      stopHydration();
+      await tick();
+      // Before the landing the store is genuinely unanswered: a boundary
+      // created now shows its fallback (the shell's fallback is legitimate).
+      expect(() => state.count).toThrow(NotReadyError);
+      consumer = mount(state);
+      expect(consumer.view()).toBe("fallback");
+      consumer.dispose();
+
+      server.resolve({ count: 5 });
+      await tick();
+      expect(state.count).toBe(5);
+      // The handoff run is in flight (`first` is closed). A boundary created
+      // now reads the answer, and nothing is pending — no new question is in
+      // flight, the answer is the one on screen.
+      consumer = mount(state);
+      expect(consumer.view()).toBe("content:5");
+      expect(consumer.pending()).toBe(false);
+
+      // The duplicate first yield lands silently; the next one updates.
+      first.resolve();
+      await tick();
+      expect(state.count).toBe(5);
+      expect(consumer.view()).toBe("content:5");
+      expect(consumer.pending()).toBe(false);
+      second.resolve();
+      await tick();
+      expect(state.count).toBe(2);
+      expect(consumer.view()).toBe("content:2");
+    } finally {
+      first.resolve();
+      second.resolve();
+      consumer?.dispose();
+      dispose();
+    }
+  });
+
+  test("promise: a boundary created before the client's answer shows the adopted answer", async () => {
+    const server = deferred<Counter>();
+    const gate = deferred<void>();
+    startHydration({ t0: server.promise });
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          async () => {
+            await gate.promise;
+            // The hybrid contract expects the client to reproduce the server
+            // answer; a different value here only makes the landing
+            // observable (the store reconciles what lands, as before).
+            return { count: 6 };
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    let consumer: ReturnType<typeof mount> | undefined;
+    try {
+      flush();
+      stopHydration();
+      await tick();
+      expect(() => state.count).toThrow(NotReadyError);
+
+      server.resolve({ count: 5 });
+      await tick();
+      expect(state.count).toBe(5);
+      consumer = mount(state);
+      expect(consumer.view()).toBe("content:5");
+      expect(consumer.pending()).toBe(false);
+
+      gate.resolve();
+      await tick();
+      expect(state.count).toBe(6);
+      expect(consumer.view()).toBe("content:6");
+      expect(consumer.pending()).toBe(false);
+    } finally {
+      gate.resolve();
+      consumer?.dispose();
+      dispose();
+    }
+  });
+
+  test("promise: a rejecting handoff run still surfaces its error", async () => {
+    const server = deferred<Counter>();
+    const gate = deferred<void>();
+    startHydration({ t0: server.promise });
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          async () => {
+            await gate.promise;
+            throw new Error("client failed");
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      stopHydration();
+      await tick();
+      server.resolve({ count: 5 });
+      await tick();
+      expect(state.count).toBe(5);
+      gate.resolve();
+      await tick();
+      expect(() => state.count).toThrow("client failed");
+    } finally {
+      gate.resolve();
+      dispose();
+    }
+  });
+
+  test("a client-only mount (no hydration) still shows the fallback until the first value", async () => {
+    // The quiet window is a HANDOFF property: outside hydration there is no
+    // adopted answer, so a fresh async store suspends its boundary as ever.
+    const gate = deferred<void>();
+    let dispose!: () => void;
+    const [state] = createRoot(d => {
+      dispose = d;
+      return createStore<Counter>(
+        async function* (draft) {
+          await gate.promise;
+          draft.count = 1;
+          yield;
+        },
+        { count: 0 },
+        { ssrSource: "hybrid" }
+      );
+    });
+    let consumer: ReturnType<typeof mount> | undefined;
+    try {
+      flush();
+      expect(() => state.count).toThrow(NotReadyError);
+      consumer = mount(state);
+      expect(consumer.view()).toBe("fallback");
+      gate.resolve();
+      await tick();
+      expect(state.count).toBe(1);
+      expect(consumer.view()).toBe("content:1");
+    } finally {
+      gate.resolve();
+      consumer?.dispose();
       dispose();
     }
   });

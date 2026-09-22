@@ -1189,7 +1189,11 @@ module.exports = [
     // boundary names gate the call or set `_name` after it, createStore's
     // name branch is an `__OBSERVE__` block). Verify with the same
     // normalised diff before attributing a future move here to the tier.
-    limit: "20.75 KB",
+    // Quiet hybrid handoff (#3574, 2026-09-22): 20.75 -> 20.80 KB, measured
+    // at 20,781 B against `next`'s 20,737 (+44 B), rebased over #3595 and the
+    // performance tracks. Solid only: the shared store hydration adapter's
+    // `wrapFirstYield` step 0 + `quietAnswer` (see the store-family note).
+    limit: "20.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -1446,6 +1450,15 @@ module.exports = [
     // with the gate still in place (+52) and 31,058 without it — a 13 B
     // minified removal moved brotli +105. + createStore, which retains the
     // same store engine, moved +13 B.
+    // Quiet hybrid handoff (#3574, 2026-09-22): 30,985 B against `next`'s
+    // 31,058 (-73 B: the same added source as the no-stores entry's +44 B,
+    // landing negative under brotli's layout over this larger bundle), cap
+    // unchanged at 31.1 KB. Solid
+    // only, in the shared store hydration adapter: `wrapFirstYield` lands a
+    // synchronous step 0 (the adopted answer) ahead of the source's duplicate
+    // first yield, and `quietAnswer` gives the promise-shaped handoff the same
+    // three-step shape, so the store never reads pending through the handoff
+    // (rule 5). 0 B in the signals core, the store engine, or web.
     limit: "31.1 KB",
     modifyEsbuildConfig
   },
