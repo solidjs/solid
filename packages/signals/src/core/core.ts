@@ -759,8 +759,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // #3181: a synchronous settle supersedes the old landing callback, so
     // recompute owns its pending-source sweep. An uninitialized node without
     // a replacement source still has no truth to reveal and must stay parked.
-    if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
+    if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))) {
       settlePendingSource(el);
+      // The superseded flight will not enter its waiting transactions at
+      // landing. Recheck them now so an unchanged value cannot leave their
+      // writes parked after the last pending source has settled.
+      wakeParked();
+    }
   }
   // A REPORTER whose pass stopped reading a source it reported on (a gate
   // closed) stops counting for the transaction waiting on it (A15 / #3426:

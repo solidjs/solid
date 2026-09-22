@@ -1490,7 +1490,12 @@ module.exports = [
     // source-settled predicate is `_settled` (shared with the DEV sweep,
     // whose stub and flag are the only DEV bytes left in prod). Solid:
     // `<Errored on>` is gone.
-    limit: "15.70 KB",
+    // Sync supersede wakes parked transactions (#3577, 2026-09-22): 15.70 ->
+    // 15.75 KB, measured at 15,725 B against `next`'s 15,686 (+39 B). One
+    // `wakeParked()` call on recompute's #3181 sync-settle branch (~15 B
+    // minified); the rest is brotli layout. The other scenarios stayed
+    // within their caps.
+    limit: "15.75 KB",
     modifyEsbuildConfig
   },
   {
