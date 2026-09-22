@@ -1865,6 +1865,31 @@ export function renderToStream(code, options = {}) {
   // still in flight. A render failure winds down through here too
   // (`failRender`), silently: that one is already the render error's
   // finding.
+  //
+  // The two differ in what is left alive. After a disconnect nobody is
+  // listening: the sink is never touched again (`disconnected`). After a
+  // render FAILURE the consumer is still waiting — the awaited promise, a
+  // `pipe` sink, a `pipeTo` writable — and must be completed by the
+  // wind-down itself, because nothing downstream will: seroval's `onDone`
+  // (the normal road to `onCompleteAll`/`writable.end()`) has nothing to
+  // assemble on a disposed render and returns early. Left incomplete, an
+  // awaited `renderToStream` hung the request forever (#3569). Each
+  // consumer registers its completion through `onFailure` (they chain —
+  // `then` may be called more than once, and beside a pipe); a failure that
+  // lands before the consumer claims the render runs it at registration.
+  let disconnected = false;
+  let failed = false;
+  let onFailed;
+  const onFailure = complete => {
+    if (failed) return complete(undefined);
+    const prev = onFailed;
+    onFailed = prev
+      ? sink => {
+          prev(sink);
+          complete(sink);
+        }
+      : complete;
+  };
   const abandon = disconnect => {
     if (dead) return;
     if ("_SOLID_OBSERVE_" && disconnect)
@@ -1882,12 +1907,20 @@ export function renderToStream(code, options = {}) {
       );
     dead = true;
     completed = true;
+    if (disconnect) disconnected = true;
+    // The live sink wrapper (post-shell) is handed to the failure
+    // completion below; pre-shell there is none yet.
+    const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
     if (dispose) {
       const d = dispose;
       dispose = () => {};
       d();
+    }
+    if (!disconnect) {
+      failed = true;
+      onFailed && onFailed(sink);
     }
   };
   // A retry pass that throws a REAL error (not NotReady) can have nothing on
@@ -1964,10 +1997,12 @@ export function renderToStream(code, options = {}) {
     };
   };
   // Wrap an integrator-supplied `pipe` sink: contain sync throws from
-  // `write`/`end` and treat them as disconnection.
+  // `write`/`end` and treat them as disconnection. Guarded on the CLIENT
+  // being gone, not on the render being dead: a failed render still ends
+  // the (alive) sink through this wrapper.
   const guardSink = w => ({
     write(payload) {
-      if (dead) return;
+      if (disconnected) return;
       try {
         w.write(payload);
       } catch (_) {
@@ -1975,7 +2010,7 @@ export function renderToStream(code, options = {}) {
       }
     },
     end() {
-      if (dead) return;
+      if (disconnected) return;
       try {
         w.end();
       } catch (_) {
@@ -2033,6 +2068,12 @@ export function renderToStream(code, options = {}) {
     }
   };
   const onDone = () => {
+    // An abandoned render has no shell to assemble: `dispose` cleared the
+    // trace `doShell` reads (`traceMetaMarkup(context.trace)`), and the
+    // consumer was completed by the wind-down (`abandon`) — a disconnect has
+    // nobody to complete. Serialized promises still settle after the
+    // wind-down, so seroval still reaches here; do nothing (#3569).
+    if (dead) return;
     writeTasks();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
@@ -2821,18 +2862,31 @@ export function renderToStream(code, options = {}) {
   const pipeToImpl = w => {
     let resolve;
     const p = new Promise(r => (resolve = r));
+    // A render failure (see `abandon`) completes this consumer: the promise
+    // settles and the writable — alive; the RENDER died — is closed so a
+    // `Response` built on `readable` completes instead of hanging. Post-
+    // shell the live wrapper ends (flushing what it coalesced, then the
+    // writer's own close path); pre-shell nothing was written yet.
+    onFailure(sink => {
+      try {
+        if (sink) sink.end();
+        else w.close().catch(() => {});
+      } catch (_) {}
+      resolve();
+    });
     function flush() {
       allSettled(blockingPromises).then(awaited => {
         scheduleFlush(() => {
           if (dead) return resolve();
           // Root-hole retries and shell assembly run inside this microtask —
           // a real error here (see failRender) must fail the request, not
-          // reject an unhandled promise.
+          // reject an unhandled promise. The failure completion above closes
+          // the writable and settles the promise.
           try {
             doShell();
           } catch (err) {
             failRootRender(err);
-            return resolve();
+            return;
           }
           if (!shellCompleted) return flush();
           const encoder = new TextEncoder();
@@ -2928,9 +2982,21 @@ export function renderToStream(code, options = {}) {
             complete();
           };
         } else onCompleteAll = complete;
+        // A render failure (see `abandon`) — the renderer's own retry pass
+        // below, or a boundary's resume loop through `failRender` — resolves
+        // with whatever HTML the render produced (nothing, pre-shell): the
+        // thenable never rejects, `onError` already heard the failure. The
+        // head is deliberately NOT frozen: the render died, its teardown
+        // retracts the declarations as it always did, and the consumer
+        // keeps a writable head for whatever error response it builds
+        // around the partial HTML.
+        onFailure(() => resolve(tmp));
         function flush() {
           allSettled(blockingPromises).then(awaited => {
             scheduleFlush(() => {
+              // The wind-down already completed this consumer; a re-pull on
+              // the disposed render would only find another failure.
+              if (dead) return;
               // Same gates as doShell: pending root head props are shell
               // blockers, so flushEnd must not run ahead of them (their
               // source may not be serialized, so the serializer alone
@@ -2946,15 +3012,10 @@ export function renderToStream(code, options = {}) {
                 )
                   return flush();
               } catch (err) {
-                // Contain retry-pass errors (see failRender); the thenable
-                // contract already routes render errors through onError and
-                // resolves with whatever HTML the render produced. The head
-                // is deliberately NOT frozen on this path: the render died,
-                // its teardown retracts the declarations as it always did,
-                // and the consumer keeps a writable head for whatever error
-                // response it builds around the partial HTML.
+                // Contain retry-pass errors (see failRender): the failure
+                // completion above resolves the thenable.
                 failRootRender(err);
-                return resolve(tmp);
+                return;
               }
               queue(flushEnd);
             }, awaited);
@@ -2966,6 +3027,15 @@ export function renderToStream(code, options = {}) {
     },
     pipe(w) {
       claimConsumer("pipe");
+      // A render failure (see `abandon`) ends the sink: it is still alive —
+      // the RENDER died — and leaving it open would hang the response. Post-
+      // shell through the live wrapper (coalesced bytes flush first); pre-
+      // shell nothing was written, end the raw sink.
+      onFailure(sink => {
+        try {
+          sink ? sink.end() : w.end();
+        } catch (_) {}
+      });
       function flush() {
         allSettled(blockingPromises).then(awaited => {
           scheduleFlush(() => {
@@ -2973,13 +3043,9 @@ export function renderToStream(code, options = {}) {
             try {
               doShell();
             } catch (err) {
-              // Contain retry-pass errors (see failRender) and end the sink:
-              // it is still alive — the RENDER died — and leaving it open
-              // would hang the response.
+              // Contain retry-pass errors (see failRender): the failure
+              // completion above ends the sink.
               failRootRender(err);
-              try {
-                w.end();
-              } catch (_) {}
               return;
             }
             if (!shellCompleted) return flush();
