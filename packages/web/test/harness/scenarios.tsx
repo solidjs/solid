@@ -44,6 +44,7 @@ import {
   clientOnly,
   isServer,
   ssrElement,
+  useHead,
   type JSX
 } from "@solidjs/web";
 import { makeRows, TriggerList, forms, type Row } from "./polymorphic.jsx";
@@ -1921,6 +1922,58 @@ function EffectWriteShow() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// useHead stylesheet whose sheet is still loading when hydrate() reaches it
+// (jsdom never loads sheets, so the reveal gate is always pending here). The
+// gate memo is created detached from the owner tree; it must stay out of the
+// hydration id sequence instead of peeking the next child id of a null owner.
+// The async memo after the call checks that no id was consumed.
+const headCssHref = "/parity-head.css";
+let bumpHeadCss!: () => void;
+function UseHeadStylesheetPending() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: headCssHref } });
+  const [n, setN] = createSignal(0);
+  bumpHeadCss = () => setN(v => v + 1);
+  const label = createMemo(async () => {
+    await sleep(5);
+    return "styled";
+  });
+  return (
+    <div>
+      <span>{label()}</span> n={n()}
+    </div>
+  );
+}
+
+// Same gate reached on a late streamed boundary resume.
+const headCssLateHref = "/parity-head-late.css";
+function HeadCssBoundaryContent() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: headCssLateHref } });
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "late styled";
+  });
+  return <section>{data()}</section>;
+}
+let bumpHeadCssStreamed!: () => void;
+function UseHeadStylesheetStreamed() {
+  const [n, setN] = createSignal(0);
+  bumpHeadCssStreamed = () => setN(v => v + 1);
+  return (
+    <div>
+      <span>lead </span>
+      <Loading fallback={<p>waiting</p>}>
+        <HeadCssBoundaryContent />
+      </Loading>
+      <span> tail {n()}</span>
+    </div>
+  );
+}
+const loadHeadSheets = () => {
+  for (const link of document.querySelectorAll('link[href^="/parity-head"]'))
+    link.dispatchEvent(new Event("load"));
+};
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -2639,5 +2692,30 @@ export const scenarios: Scenario[] = [
     expectedText: "toast!Hello",
     serverText: "Hello",
     stableSelector: "main"
+  },
+  {
+    name: "use-head-stylesheet-pending",
+    App: UseHeadStylesheetPending,
+    async: true,
+    expectedText: "styled n=0",
+    update: () => {
+      loadHeadSheets();
+      bumpHeadCss();
+    },
+    expectedTextAfterUpdate: "styled n=1",
+    stableSelector: "div, span"
+  },
+  {
+    name: "use-head-stylesheet-streamed-boundary",
+    App: UseHeadStylesheetStreamed,
+    async: true,
+    expectedText: "lead late styled tail 0",
+    serverText: "lead waiting tail 0",
+    update: () => {
+      loadHeadSheets();
+      bumpHeadCssStreamed();
+    },
+    expectedTextAfterUpdate: "lead late styled tail 1",
+    stableSelector: "div, span, section"
   }
 ];

@@ -1,0 +1,5 @@
+{
+  "name": "use-head-stylesheet-pending",
+  "shell": "<div _hk=1><span>styled</span> n=<!--$-->0<!--/--></div><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;($R[3]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],\"styled\");</script>",
+  "rest": ""
+}

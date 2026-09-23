@@ -21,9 +21,11 @@ import {
   App,
   AsyncApp,
   HeadShellApp,
+  StyledIsland,
   computeRuns,
   setHeadShellStarted,
-  APP_ROOT_MARKUP
+  APP_ROOT_MARKUP,
+  STYLED_LATE_CSS
 } from "../harness/document-shell.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -161,5 +163,60 @@ describe("document-shell pattern — client hydrate (#3000)", () => {
     warn.mockRestore();
     dispose();
     setHeadShellStarted(false);
+  });
+
+  test("useHead stylesheets: loading sheets neither halt hydration nor resume a gated fragment early", async () => {
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { chunks } = JSON.parse(
+      readFileSync(resolve(artifactsDir, "document-shell-styled.json"), "utf-8")
+    ) as { chunks: string[] };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    applyChunk(container, chunks[0], true);
+    const root = container.querySelector("#app-root") as HTMLElement;
+
+    // jsdom never loads sheets: the shell's sheet is pending for all of hydration.
+    const dispose = hydrate(() => <StyledIsland />, root);
+    flush();
+    await sleep(20);
+    flush();
+    root.querySelector<HTMLElement>("#shell")!.click();
+    flush();
+    expect(root.querySelector("#shell")!.textContent).toBe("shell 1");
+
+    // The late chunk settles the boundary's `_fr` record while `$dfs` holds
+    // the swap on the boundary's own sheet.
+    applyChunk(container, chunks[1], false);
+    const serverLate = container
+      .querySelector<HTMLTemplateElement>('template:not([id^="pl-"])')!
+      .content.querySelector("#late");
+    await sleep(30);
+    flush();
+    expect(root.querySelector("#waiting")).not.toBeNull();
+    expect(root.querySelector("#late")).toBeNull();
+
+    const link = container.querySelector(`link[href="${STYLED_LATE_CSS}"]`)!;
+    // jsdom runs inline handlers outside the scope the stream scripts were evaluated in.
+    (0, eval)(link.getAttribute("onload")!);
+    link.removeAttribute("onload");
+    link.dispatchEvent(new Event("load"));
+    await sleep(20);
+    flush();
+
+    expect(root.querySelectorAll("#late")).toHaveLength(1);
+    expect(root.querySelector("#late")).toBe(serverLate);
+    root.querySelector<HTMLElement>("#late")!.click();
+    flush();
+    expect(root.textContent).toBe("shell 1late 1");
+
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+    error.mockRestore();
+    dispose();
+    container.remove();
   });
 });

@@ -2399,10 +2399,7 @@ function fragmentPending(hy: any, id: string): boolean {
   if (_truncated.has(id)) return false;
   const ref = hy.r[id + "_fr"];
   if (!ref || typeof ref !== "object") return false;
-  if (!ref.s) return true;
-  if (hy.v && hy.v[id]) return false;
-  if (!document.getElementById(id)) return false;
-  return !!document.getElementById("pl-" + id);
+  return !ref.s || fragmentParked(id);
 }
 
 /**
@@ -2418,6 +2415,26 @@ function fragmentSuperseded(id: string): boolean {
   if (hy && hy.v && hy.v[id]) return false;
   if (document.getElementById(id)) return false;
   return !!document.getElementById("pl-" + id);
+}
+
+/**
+ * A settled declaration whose swap has not run yet: its content template and
+ * `pl-*` placeholder are both still in the document. `$dfs` holds a swap like
+ * this until its stylesheets load, well after the `_fr` ref settles.
+ */
+function fragmentParked(id: string): boolean {
+  const hy = (globalThis as any)._$HY;
+  if (hy && hy.v && hy.v[id]) return false;
+  return !!document.getElementById(id) && !!document.getElementById("pl-" + id);
+}
+
+function whenRevealed(id: string, cb: () => void) {
+  if (!fragmentParked(id)) return cb();
+  const unsubscribe = subscribeFragments(revealed => {
+    if (revealed !== id) return;
+    unsubscribe();
+    queueMicrotask(cb);
+  });
 }
 
 function anyFragmentPending(): boolean {
@@ -2749,8 +2766,10 @@ function hydratedCreateLoadingBoundary<T, U>(
       // land before any branch below reads the DOM — the settled branches
       // all assume $df already ran.
       replayHeldFragment(id);
+      // A parked fragment has settled but not swapped: it waits like a pending one.
+      const s = fr && typeof fr === "object" ? (fr.s === 1 && fragmentParked(id) ? 0 : fr.s) : 0;
 
-      if (fr && typeof fr === "object" && fr.s === 1 && !assetPromise && !fragmentSuperseded(id)) {
+      if (s === 1 && !assetPromise && !fragmentSuperseded(id)) {
         // Fragment already settled and swapped in ($df ran before hydration):
         // the content is in the DOM, so hydrate straight through. The fallback
         // only hydrates when it is actually showing — rendering it here would
@@ -2763,7 +2782,7 @@ function hydratedCreateLoadingBoundary<T, U>(
       settledSerializationResumeQueued = true;
       const [, resume] = initBoundaryResume(o, id);
 
-      if (fr && typeof fr === "object" && fr.s === 1 && fragmentSuperseded(id)) {
+      if (s === 1 && fragmentSuperseded(id)) {
         // SUPERSEDED (#2801's inverse): the declaration settled but its markup
         // was retired before it shipped — an outer boundary settled first and
         // its fragment carries the final branch instead, so this placeholder
@@ -2786,8 +2805,8 @@ function hydratedCreateLoadingBoundary<T, U>(
         return fallback();
       }
 
-      if (fr && typeof fr === "object" && (fr.s === 1 || fr.s === 2)) {
-        if (fr.s === 2) {
+      if (s === 1 || s === 2) {
+        if (s === 2) {
           // Rejected stream fragments swap to an empty template; any outer error fallback
           // has to be created as fresh client DOM, not claimed from server markup.
           // Nothing else consumes the settled-rejected `_fr` promise once this
@@ -2819,7 +2838,13 @@ function hydratedCreateLoadingBoundary<T, U>(
       // for this resume to claim instead of holding it; if the swap already
       // arrived and was held awaiting a claimant, replay it now.
       claimFragment(id);
-      waitAndResume(fr, resume, assetPromise, false, fragmentAbort(id));
+      waitAndResume(
+        fr,
+        shouldHydrate => (shouldHydrate ? whenRevealed(id, () => resume(true)) : resume(false)),
+        assetPromise,
+        false,
+        fragmentAbort(id)
+      );
       return fallback();
     }
 

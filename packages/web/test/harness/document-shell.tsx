@@ -118,3 +118,49 @@ export function HeadShellApp() {
     </html>
   );
 }
+
+/**
+ * Stylesheets from useHead under the document shell. The shell sheet is
+ * still loading when hydrate() runs (the default with an async entry
+ * script), and the late boundary's sheet holds its streamed swap through the
+ * server's `$dfs` gate, so the boundary's `_fr` record settles before its
+ * content is in the document.
+ */
+export const STYLED_SHELL_CSS = "/styled-shell.css";
+export const STYLED_LATE_CSS = "/styled-late.css";
+
+function LateSheet() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: STYLED_LATE_CSS } });
+  return null;
+}
+
+function LateStyled() {
+  const data = createMemo(async () => {
+    await new Promise(r => setTimeout(r, 10));
+    return "late";
+  });
+  const [n, setN] = createSignal(0);
+  return (
+    <Show when={data()}>
+      <LateSheet />
+      <button id="late" onClick={() => setN(n() + 1)}>
+        {data()} {n()}
+      </button>
+    </Show>
+  );
+}
+
+export function StyledIsland() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: STYLED_SHELL_CSS } });
+  const [n, setN] = createSignal(0);
+  return (
+    <main>
+      <button id="shell" onClick={() => setN(n() + 1)}>
+        shell {n()}
+      </button>
+      <Loading fallback={<p id="waiting">waiting</p>}>
+        <LateStyled />
+      </Loading>
+    </main>
+  );
+}
