@@ -27,7 +27,10 @@ The data tier is small by design — framing, a takeover fix, a pause. The
 substance of the stage is Phase B. Everything lands with the page of a new
 example that proves it. Existing examples (`rendering`, `hackernews`,
 `notes`, `chat`) are untouched. Apps using `live` today keep working
-unchanged.
+with the flagged differences only (ledger below): fewer yields on a
+digest-equal reconnect, a pause on hidden pages, per-scope takeover; and
+every streamed answer now rejects on a mid-body death instead of ending
+silently.
 
 ## Decisions (settled 2026-09-22/23; details in the spec/design)
 
@@ -73,8 +76,26 @@ unchanged.
 - **D9 — Hidden pages pause.** `live` closes its connections once a page
   has stayed hidden past a grace window (~30s) and reconnects conditionally
   on return. A pause is not a death: no status fires on the close, the last
-  status holds, the return reconnect reports like any other. No opt-out
-  (future, if asked for). Behavior change to a shipped export.
+  status holds, the return reconnect reports like any other. A takeover
+  that fires while hidden (page opened and hydrated in the background)
+  parks until visible; a consumer ending during a pause fires `"closed"`
+  and cancels its parked work. No opt-out (future, if asked for). Behavior
+  change to a shipped export.
+- **D12 — Digest-equal reconnect yields nothing.** A value-shaped source's
+  position is the server's digest of its last payload string, sent as the
+  event `id:`. On a reconnect whose `Last-Event-ID` equals the current
+  value's digest the server suppresses the first emission only; the client
+  iterable does not yield for that connection, later values flow. Makes the
+  takeover and pause-return reconnects free on the wire (the data-tier
+  analog of B4's hole digests). Behavior change to a shipped export: fewer
+  yields than today's `live` on reconnect.
+- **D13 — Framing is selected by the loop's request header.** The server
+  frames an answer as an event stream when the request carries the live
+  header; only the loop sends it, and only the caller holding the `live`
+  reference knows deterministically (a server-side `live(fn)` declaration
+  has `GET`'s topology caveat, so it may cross-check in dev but cannot
+  decide). Streamed answers without the header stay byte-identical to today
+  apart from the terminal record. Closes open (e).
 - **D10 — Compatibility is a requirement.** Authoring surface unchanged;
   every client and server hook applies as to any direct call; no new
   endpoint, no new server option.
@@ -90,10 +111,14 @@ unchanged.
       considered; runtime sentence and lifetime table updated. No
       transport section — there is no transport decision.
 - [x] §9.5 rewritten around D1–D10; roadmap bullet 8 and ordering note
-      aligned; §9.3 seed pointer corrected.
+      aligned; §9.3 seed pointer corrected; §9.4 grouping seed corrected.
 - [x] This plan.
-- [ ] Review by the `live` author; fold feedback; commit (changeset not
-      required — docs only).
+- [x] Review by the `live` author; audit of the three files against the
+      tree (findings F1–F4, N1–N5 folded: death-rejection flagged
+      everywhere, digest skip specified and flagged, born-hidden takeover
+      parks, (e) closed as the header, withdrawn lists aligned, multi-line
+      claim corrected, `break` during pause specified); committed (docs
+      only, no changeset).
 
 ## Phase A — data tier (`@solidjs/web/server-functions`), no server components
 
@@ -107,23 +132,32 @@ turning it off.
 
 ### A1 — framing
 
-- Live responses: `Content-Type: text/event-stream`, `Cache-Control:
-no-store`, `X-Accel-Buffering: no`; the codec's payload strings one per
-  `data:` event, multi-line split/reassembly per the SSE spec; comment
-  heartbeat every 20s. Event-stream writer beside `createChunk` and reader
-  beside `ChunkReader` in `shared.ts`. How the server knows a call is live
-  (so the framing applies) — open (e).
+- Live responses (D13: selected by the loop's live request header):
+  `Content-Type: text/event-stream`, `Cache-Control: no-store`,
+  `X-Accel-Buffering: no`; the codec's payload strings one per `data:`
+  event; comment heartbeat every 20s. Payloads are `JSON.stringify` output
+  and contain no raw CR/LF, so the SSE multi-line split/reassembly is
+  defensive only — implemented, tested with a synthetic payload. Event-stream
+  writer beside `createChunk` and reader beside `ChunkReader` in
+  `shared.ts`; the handler picks the writer off the header.
 - Terminal record on the length-prefixed framing too (a direct streamed
-  answer must also distinguish death from completion).
-- `Last-Event-ID` on reconnect: cursor sources read it; a value-shaped
-  source is issued the server's digest of its last value and emits nothing
-  on reconnect when the current value digests the same. Never an argument.
+  answer must also distinguish death from completion). This makes a
+  mid-body death reject for every streamed answer — flagged in the ledger.
+- `Last-Event-ID` on reconnect (D12): cursor sources read it; a value-shaped
+  source's events carry `id: <digest of the payload string>`; on a reconnect
+  whose `Last-Event-ID` equals the current value's digest the server skips
+  the first emission only and the client iterable does not yield for that
+  connection. Never an argument.
 - Dev: warn when a page holds more than five live connections over
   HTTP/1.1, naming them, pointing at `server.https`.
-- **Verify:** framing round-trip incl. multi-line payloads and the terminal
-  record; value-digest round trip; existing `live` tests pass unchanged;
-  non-live answers byte-identical to today apart from the terminal record;
-  `curl -N` shows an event stream; devtools EventStream tab lists events.
+- **Verify:** framing round-trip incl. a synthetic multi-line payload and
+  the terminal record; digest round trip — equal digest yields nothing and
+  later values flow, unequal digest yields at once; a header-less streamed
+  answer is byte-identical to today apart from the terminal record; a
+  header-less mid-body death rejects; existing `live` tests pass unchanged
+  except where they assert a yield on a digest-equal reconnect; `curl -N`
+  with the header shows an event stream; devtools EventStream tab lists
+  events.
 - **Demo:** presence panel over `live(GET(async function*))`, visibly an
   event stream.
 
@@ -140,7 +174,9 @@ no-store`, `X-Accel-Buffering: no`; the codec's payload strings one per
   hybrid path).
 - **D8 fix:** `armLiveTakeover` keyed per snapshot-scope owner; flips on that
   scope's release (root pass end, or the boundary's own
-  `releaseSnapshotScope`). No live node waits on another boundary.
+  `releaseSnapshotScope`). No live node waits on another boundary. The
+  shipped gate's per-pass re-arm (discarded on flip so a later hydration
+  pass — islands — arms a fresh one) must survive the re-keying.
 - Undeclared streaming death rejects the consumer's pull; `<Errored>`
   catches it.
 - Hidden-page pause (D9): `visibilitychange` → hidden starts a grace timer
@@ -149,15 +185,23 @@ no-store`, `X-Accel-Buffering: no`; the codec's payload strings one per
   Visible after a close → reconnect with position, conditional; the
   reconnect fires `"connected"` when it lands or enters the ordinary
   backoff when it does not. A source that is in backoff when the page
-  hides parks its retry until return.
+  hides parks its retry until return. A takeover whose scope releases while
+  the page is hidden parks the connect until visible (born-hidden pages
+  connect nothing). A consumer that ends its iteration during a pause
+  (`break`, disposal) fires `"closed"` and cancels its parked retry or
+  takeover — nothing is left waiting on `visibilitychange`.
 - `onstatus` otherwise unchanged.
 - **Verify:** nested-async death/reconnect/completion; SSR first value per
   nested source; a live node in the shell reconnects before a slow boundary
   lands; a live node under a boundary reconnects when that boundary
-  hydrates; undeclared death is an error; `invoke` signal ends the iteration
-  across reconnects; single-flight never requested on live calls; hidden
-  past the grace window → connections closed with no status event; hidden
-  and back inside it → nothing; visible → reconnect, `"connected"`.
+  hydrates; a later hydration pass (islands) arms its own takeover;
+  undeclared death is an error; `invoke` signal ends the iteration across
+  reconnects; single-flight never requested on live calls; hidden past the
+  grace window → connections closed with no status event; hidden and back
+  inside it → nothing; visible → reconnect, `"connected"`; page hydrated
+  while hidden → no connection, first visible → one connect per source;
+  `break` during a pause → `"closed"`, no parked work remains (asserted via
+  the visibility listener count).
 - **Demo:** room card over `live(GET(async () => ({ name, topic, messages,
 presence })))` with a projection over `messages`; summary over an
   undeclared bounded generator inside `<Errored>`; chaos shows declared
@@ -252,34 +296,35 @@ component ("summarize the room") for the bounded contrast.
 
 ## Public API ledger (flag before each lands)
 
-| Change                                                                                                                       | Kind                        | Slice |
-| ---------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----- |
-| `live` behavior over nested-async answers (response lifetime)                                                                | behavior change, shipped fn | A2    |
-| `live` takeover fires per scope, not at page-wide hydration end                                                              | behavior change, shipped fn | A2    |
-| `live` pauses on hidden pages (grace window; status held through the pause)                                                  | behavior change, shipped fn | A2    |
-| Undeclared streaming death rejects (was: indistinguishable)                                                                  | behavior change             | A2    |
-| Event-stream framing of live responses; `Last-Event-ID`                                                                      | wire                        | A1    |
-| Terminal record on the length-prefixed carrier                                                                               | wire                        | A1    |
-| `X-Accel-Buffering` / `no-store` on live responses                                                                           | wire (headers)              | A1    |
-| Dev warning: >5 live connections over HTTP/1.1                                                                               | new dev-only diagnostic     | A1    |
-| Dev chaos-reconnect knob                                                                                                     | new dev-only option         | A3    |
-| `onstatus` reachable for server-component references                                                                         | existing surface, new reach | B2    |
-| Have-list header; hole digests                                                                                               | wire                        | B4    |
-| `SERVER_WRITE` throws in persistent renders                                                                                  | behavior change             | B3+   |
-| `documentWindow` on `renderToStream` — only if open (c) says knob                                                            | new option (conditional)    | B3    |
-| `serverFunctionUrl` refusing live references — only if open (d) says                                                         | behavior change (cond.)     | B6    |
-| Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `connected`, method rule, per-page channel, `live: { transport, hold }` | —                           | —     |
+| Change                                                                                                                                                                                                  | Kind                        | Slice |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----- |
+| `live` behavior over nested-async answers (response lifetime)                                                                                                                                           | behavior change, shipped fn | A2    |
+| `live` takeover fires per scope, not at page-wide hydration end                                                                                                                                         | behavior change, shipped fn | A2    |
+| `live` pauses on hidden pages (grace window; status held through the pause; takeover parked while hidden)                                                                                               | behavior change, shipped fn | A2    |
+| `live` digest-equal reconnect yields nothing (D12)                                                                                                                                                      | behavior change, shipped fn | A1    |
+| Mid-body death of any streamed answer rejects (was: indistinguishable from completion) — not `live`-specific                                                                                            | behavior change, transport  | A1    |
+| Event-stream framing of live responses; the loop's live request header; `Last-Event-ID` (cursor or value digest as `id:`)                                                                               | wire                        | A1    |
+| Terminal record on the length-prefixed carrier                                                                                                                                                          | wire                        | A1    |
+| `X-Accel-Buffering` / `no-store` on live responses                                                                                                                                                      | wire (headers)              | A1    |
+| Dev warning: >5 live connections over HTTP/1.1                                                                                                                                                          | new dev-only diagnostic     | A1    |
+| Dev chaos-reconnect knob                                                                                                                                                                                | new dev-only option         | A3    |
+| `onstatus` reachable for server-component references                                                                                                                                                    | existing surface, new reach | B2    |
+| Have-list header; hole digests                                                                                                                                                                          | wire                        | B4    |
+| `SERVER_WRITE` throws in persistent renders                                                                                                                                                             | behavior change             | B3+   |
+| `documentWindow` on `renderToStream` — only if open (c) says knob                                                                                                                                       | new option (conditional)    | B3    |
+| `serverFunctionUrl` refusing live references — only if open (d) says                                                                                                                                    | behavior change (cond.)     | B6    |
+| Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `Accept: text/event-stream` as declaration, framing-follows-method, per-page channel, `live: { transport, hold }`, `connected` on the frame handle | —                           | —     |
 
 ## Open decisions
 
-| #   | Question                                                                                                                        | Decide in |
-| --- | ------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| (a) | `SERVER_WRITE` throw scope in persistent renders                                                                                | B3        |
-| (b) | Connection state surface — CLOSED: `onstatus`                                                                                   | —         |
-| (c) | Safety cap: `documentWindow` knob or fixed dev-only warning                                                                     | B3        |
-| (d) | `serverFunctionUrl` on a live reference: refuse or document                                                                     | B6        |
-| (e) | How the server knows a call is live so the event framing applies (request header from the loop vs. always for streamed answers) | A1        |
-| (f) | Have-list header name and budget                                                                                                | B4        |
+| #   | Question                                                                                                                                 | Decide in |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| (a) | `SERVER_WRITE` throw scope in persistent renders                                                                                         | B3        |
+| (b) | Connection state surface — CLOSED: `onstatus`                                                                                            | —         |
+| (c) | Safety cap: `documentWindow` knob or fixed dev-only warning                                                                              | B3        |
+| (d) | `serverFunctionUrl` on a live reference: refuse or document                                                                              | B6        |
+| (e) | How the server knows a call is live — CLOSED (D13): the loop's request header; a server-side `live` declaration cross-checks in dev only | —         |
+| (f) | Have-list header name and budget                                                                                                         | B4        |
 
 ## Known costs (stated, not solved here)
 

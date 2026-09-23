@@ -2239,7 +2239,7 @@ in-flight call at the same address; host retention proves the
 re-mount case, the race case is likely "second call reissues"
 today — wasteful, not wrong.
 
-### 9.5 Stage 8 design — connection-shaped transport (drafted 2026-09-22; revised the same day: liveness is `live`)
+### 9.5 Stage 8 design — connection-shaped transport (drafted 2026-09-22; revised 2026-09-23: liveness is `live`, framing is server-sent events)
 
 Builds on the §9.3 seed. This record is what the seed became once
 audited against the tree as it is today and then argued through from
@@ -2501,7 +2501,10 @@ value belonged in durable state.
    page has stayed hidden past a grace window (~30s) and
    reconnects, conditionally, on return. A pause is not a death:
    no status fires on the close, the last status holds, and the
-   return reconnect reports like any other. A background tab with
+   return reconnect reports like any other. A takeover that fires
+   while the page is hidden (a page opened and hydrated in the
+   background) parks until it is visible; a frame disposed during a
+   pause cancels its parked work. A background tab with
    live frames costs one reconnect per frame when it comes back
    and holds no server render meanwhile — a frame's server render
    is disposed with its connection, so a tab left in the
@@ -2591,12 +2594,15 @@ live in `documentation/plans/stage8-connection-transport.md`; in
 summary:
 
 - **Phase A (data):** A1 framing — event-stream writer/reader for
-  live responses, heartbeats, `Last-Event-ID` with value-digest
-  positions, terminal record on both framings, HTTP/1.1 dev warning;
-  A2 `live` = response lifetime — nested brand walk, death vs
-  completion, whole-answer re-yield, SSR first value per source,
-  per-scope takeover (the `armLiveTakeover` fix), hidden-page pause,
-  `onstatus` unchanged; A3 chaos knob.
+  live responses (selected by the loop's live request header),
+  heartbeats, `Last-Event-ID` with value-digest positions and the
+  digest-equal first-emission skip, terminal record on both
+  framings, HTTP/1.1 dev warning; A2 `live` = response lifetime —
+  nested brand walk, death vs completion, whole-answer re-yield, SSR
+  first value per source, per-scope takeover (the `armLiveTakeover`
+  fix, keeping the per-pass re-arm for islands), hidden-page pause
+  (grace window, held status, takeover parked while hidden, `break`
+  cancels the parked work), `onstatus` unchanged; A3 chaos knob.
 - **Phase B (frames):** B1 teardown on disconnect; B2 frames consume
   `live` — response lifetime through the handler, `dynamic` over
   bindings, hydration adoption into the loop, supersession as death,
@@ -2616,25 +2622,35 @@ re-derivation baseline, never the baseline, because the baseline
 must hold for sources that have none.
 
 **Public API this stage touches** (flagged, per the engineering
-standard): `live`'s behavior changes three ways on a shipped export
+standard): `live`'s behavior changes four ways on a shipped export
 — it claims nested-async answers, its post-hydration takeover fires
-per scope instead of at page-wide hydration end, and it pauses on
+per scope instead of at page-wide hydration end, it pauses on
 hidden pages (after a grace window, holding status through the
-pause); `onstatus` becomes reachable for server-component
-references through the same iterable;
+pause, parking a takeover that fires while hidden), and a
+digest-equal reconnect yields nothing; every streamed answer
+changes one way — a body that dies mid-stream rejects the
+consumer's pull instead of ending silently (the terminal record
+makes death distinguishable); `onstatus` becomes reachable for
+server-component references through the same iterable;
 `SERVER_WRITE` becomes an error in persistent renders; a dev-only
 chaos-reconnect knob and a dev-only HTTP/1.1 connection warning;
 the document window — if kept as a knob — as `documentWindow` on
-`renderToStream`. Nothing to configure on the server. New wire, not API: the event-stream
-framing of live responses, the terminal record on both framings,
-`Last-Event-ID` (cursor or value digest; ordinal for a frame), the
-have-list header, hole digests. Withdrawn before shipping:
-`SSE(fn)`, `enableEventStream()`, the framing-follows-method rule,
-the per-page channel, the `live: { transport, hold }` server
-configuration, `connected` on the frame handle.
+`renderToStream`. Nothing to configure on the server; no new
+option. New wire, not API: the event-stream framing of live
+responses, the loop's live request header, the terminal record on
+both framings, `Last-Event-ID` (cursor or value digest; ordinal for
+a frame), the have-list header, hole digests. Withdrawn before
+shipping: `SSE(fn)`, `enableEventStream()`, `Accept:
+text/event-stream` as a client declaration, the
+framing-follows-method rule, the per-page channel, the
+`live: { transport, hold }` server configuration, `connected` on
+the frame handle.
 
 **Open decisions:** (a) `SERVER_WRITE` throw scope; (b) CLOSED —
 connection state is `onstatus`; (c) safety cap: `documentWindow`
 knob or fixed dev-only warning; (d) `serverFunctionUrl` on a live
 reference — refuse, or answer and document the prefetch hazard;
-(e) and (f) are the plan's.
+(e) CLOSED — the server frames a response as an event stream when
+the request carries the loop's live header; a server-side `live`
+declaration may cross-check in dev but cannot decide (topology);
+(f) is the plan's.
