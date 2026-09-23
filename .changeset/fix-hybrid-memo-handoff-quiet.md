@@ -1,0 +1,5 @@
+---
+"solid-js": patch
+---
+
+Hybrid memo/signal handoff waits for the server answer to land and opens no pending window. An `ssrSource: "hybrid"` `createMemo` or function-form `createSignal` over an async generator re-ran the client generator at creation — a fresh flight ahead of the still-pending server answer, superseding it and reading pending from creation until the client's first yield — so a streamed `<Loading>` resuming to claim its fragment after the answer landed selected its fallback against resolved server content: a "Hydration key miss" warning and a flash of the fallback over the streamed content (the #3574 failure, on the value-shaped takeover). The handoff now follows the store's rules (#3551, #3593): it waits for the adopted answer to land, lands that answer as the handoff stream's synchronous first step, discards the client's duplicate first yield, adopts a rejected server answer, and is superseded by a dependency change before the landing. The node reads settled through the handoff, and `isPending` is false for it, until the client generator produces something new. Sync and promise-shaped hybrid computes are unchanged.
