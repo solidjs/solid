@@ -13,6 +13,8 @@ import {
 import {
   computed,
   createEffectNode,
+  enterCallback,
+  exitCallback,
   recompute,
   setStrictRead,
   staleValues,
@@ -219,6 +221,7 @@ function runEffect(node: Effect<any>, type: number): void {
   if (__DEV__) {
     prevStrictRead = setStrictRead("an effect callback");
     setEffectCallback(true);
+    enterCallback();
   }
   // Observe tier, like its `effectRunEnd` twin below: the frame the engine
   // opens here is what stamps the callback's writes as the effect's (the
@@ -248,6 +251,7 @@ function runEffect(node: Effect<any>, type: number): void {
     if (__DEV__) {
       setStrictRead(prevStrictRead);
       setEffectCallback(false);
+      exitCallback();
     }
     node._prevValue = node._value;
     node._modified = false;

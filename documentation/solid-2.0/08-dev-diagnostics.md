@@ -327,6 +327,35 @@ function AlsoGood(props) {
 
 This also fires for store property access in the same contexts.
 
+#### `UNTRACKED_READ_AFTER_AWAIT`
+
+**Message:** "[name] was first read after an `await` in an async computation, so it is not a dependency: the computation will not re-run when it changes. Read it before the first `await`, or wrap the read in untrack() if a one-time value is intended."
+
+Only reads made before the first `await` of an async computation are tracked. A signal, memo, or store property first read after it returns its current value, but the computation never re-runs when it changes, so the result goes stale silently.
+
+```js
+// Warns: query() is read after the await and never tracked
+const items = createMemo(async () => {
+  const res = await fetchItems();
+  return res.filter(item => item.tag === query());
+});
+
+// Fix: read it before the first await
+const items = createMemo(async () => {
+  const q = query();
+  const res = await fetchItems();
+  return res.filter(item => item.tag === q);
+});
+```
+
+A source that was also read before the `await` does not warn, nor does `untrack()`. Each computation warns once per signal or memo, and once per store (naming the first untracked property it reads, at any depth — a row walk such as `items.map(i => i.name)` produces one warning, not one per row; prototype methods such as `map` are ignored). A source that is still loading its first value throws instead, which is a separate error raised when the flight rejects; a source that is refetching serves its old value, so reading it after an `await` warns.
+
+Effect callbacks, cleanups, and `action()` bodies that the continuation itself triggers — by calling `flush()`, `dispose()`, or the action — are not blamed on it: their reads are imperative by design.
+
+**V8 only.** The check attributes a read to its computation through V8's async stack traces (`Error.captureStackTrace` plus the `await` frames V8 records), so it runs on V8 engines — Chromium browsers (Chrome, Edge, Brave, Arc, Electron), Node, Deno, and Bun — and is silent everywhere else (Firefox, Safari, and any SpiderMonkey- or JavaScriptCore-based runtime). Treat it as complementary to a lint rule, not a replacement: a lint rule sees the `await` and the read in the same function body, while this check follows the read into places a lint rule cannot — a sync helper called after the await, an awaited async utility, a `.then` callback, or `Promise.all` — because the runtime, not the source text, knows which computation resumed. Test on a V8 engine at least once.
+
+It covers native Promise computations. Not covered: `async function*` bodies (async-iterable computations are not wrapped, and the engine does not track between-yield reads either), other thenables and Promise subclasses, and a helper returned without `await` (`return load()`). It can occasionally miss a read (a read more than ~40 synchronous frames deep, or a continuation that resumed in the same microtask window as an unowned read that ran first); it never invents one. It is dev-only and adds nothing to production builds.
+
 #### `PENDING_ASYNC_FORBIDDEN_SCOPE`
 
 **Message:** "Reading a pending async value inside createTrackedEffect or onSettled will throw. Use createEffect instead which supports async-aware reactivity."
@@ -782,6 +811,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `INVARIANT_VIOLATION`              | error     | error          | Internal consistency check failed (throws under `__TEST__`, reported in dev)                                               |
 | `SETTLE_WALK_UNINITIALIZED_SOURCE` | error     | lifecycle      | Internal: settle walk reached a source that never produced a value (reported)                                              |
 | `STRICT_READ_UNTRACKED`            | warn      | strict-read    | Untracked reactive read in component/effect body                                                                           |
+| `UNTRACKED_READ_AFTER_AWAIT`       | warn      | async          | Async computation first read a signal/memo/store key after an `await`; never a dependency (dev; V8 engines only)           |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE`    | warn      | async          | Pending async read in trackedEffect/onSettled                                                                              |
 | `LOADING_ON_OUTSIDE_HOLD`          | warn      | async          | `<Loading on>` changed but its data is also read outside the boundary and holds the frame: the fallback can never be seen  |
 | `NO_OWNER_EFFECT`                  | warn      | lifecycle      | Effect created without reactive owner                                                                                      |

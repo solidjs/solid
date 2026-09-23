@@ -19,7 +19,7 @@ import type {
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
-import { context } from "./core.js";
+import { callbackDepth, context, disposalDepth, resetDisposalDepth } from "./core.js";
 import type { Computed, Link, Owner, Signal } from "./types.js";
 
 export interface DevHooks {
@@ -59,6 +59,7 @@ export type DiagnosticCode =
   | "INVALID_AFFECTS_TARGET"
   | "MISSING_EFFECT_FN"
   | "SYNC_NODE_RECEIVED_ASYNC"
+  | "UNTRACKED_READ_AFTER_AWAIT"
   | "REACTIVITY_HALTED"
   | "INVARIANT_VIOLATION"
   | "HUGE_FAN_OUT"
@@ -853,4 +854,194 @@ export function noteFanIn(node: Computed<any>, count: number): void {
       node
     )
   );
+}
+
+/**
+ * Dev-only: attribute reads that run after an `await` inside an async compute.
+ * JS has no async context, so a native-promise flight is consumed by a uniquely
+ * named async function instead of `.then`; V8's async stack traces then carry a
+ * `__solidAsyncCompute_<id>` frame on every read in the compute's continuation.
+ * `await` on a native promise settles on the same tick as `.then`, so dev and
+ * prod timing match. Other thenables, and engines without async frames
+ * (Firefox, Safari), are left alone and never warn.
+ */
+export let asyncTailFlights = 0;
+// Weak so a flight that never settles cannot pin its computation (the promise's
+// reactions close over it); dead or superseded entries are swept as the registry grows.
+const tailFlights = new Map<number, { el: WeakRef<Computed<any>>; flight: WeakRef<object> }>();
+const warnedTailReads = new WeakMap<object, WeakMap<object, Set<PropertyKey | undefined>>>();
+let tailFlightId = 0;
+const TAIL_FRAME = /^__solidAsyncCompute_(\d+)$/;
+
+export function watchAsyncTail<T>(el: Computed<T>, flight: PromiseLike<T>): PromiseLike<T> {
+  if (!(flight instanceof Promise) || flight.constructor !== Promise) return flight;
+  return {
+    then(onFulfilled: (value: T) => void, onRejected: (error: unknown) => void) {
+      const id = ++tailFlightId;
+      const name = `__solidAsyncCompute_${id}`;
+      // Retire the entry before settling so reads made by the landing itself stay quiet.
+      const done = () => {
+        if (tailFlights.delete(id)) asyncTailFlights--;
+      };
+      if (tailFlights.size >= nextTailSweep) sweepTailFlights();
+      asyncTailFlights++;
+      tailFlights.set(id, { el: new WeakRef(el), flight: new WeakRef(flight) });
+      ({
+        async [name]() {
+          let value: T;
+          try {
+            value = await flight;
+          } catch (error) {
+            done();
+            return onRejected(error);
+          }
+          done();
+          onFulfilled(value);
+        }
+      })[name]();
+      return undefined as any;
+    }
+  } as PromiseLike<T>;
+}
+
+/**
+ * `dep` is the node a tracked read would have linked (undefined when a store key
+ * was never tracked); `holder`/`key` identify the read for once-only reporting.
+ */
+export function checkPostAwaitRead(
+  dep: object | undefined,
+  holder: object,
+  key: PropertyKey | undefined,
+  nodeName: string | undefined,
+  throwsPending: boolean
+): void {
+  // Continuations resume with no owner; mount, flush, and effect reads always have one.
+  if (context !== null) return;
+  // Code Solid itself runs synchronously on the continuation's stack also has
+  // no owner: effect callbacks (the continuation called flush()), cleanups (it
+  // called dispose()), and an action's body (it invoked the action). Their
+  // reads are imperative by design, and the async frame below them belongs to
+  // the caller, not to them.
+  if (callbackDepth !== 0) return;
+  if (disposalDepth !== 0) {
+    // Teardown is synchronous, so a depth still raised on the next microtask
+    // was left behind by a cleanup that threw (owner.ts brackets it without
+    // try/finally, which would survive into prod). Clear it then, or every
+    // later check would stay silent.
+    if (!disposalHealQueued) {
+      disposalHealQueued = true;
+      queueMicrotask(healDisposalDepth);
+    }
+    return;
+  }
+  // One capture per microtask window answers "no flight on the stack" for
+  // every read until the queue turns: the common case — untracked reads
+  // elsewhere while a flight is open — costs one capture. A positive answer is
+  // never reused: one drain resumes every sibling continuation whose promise
+  // settled (N memos awaiting one fetch), so the flight on the stack changes
+  // between reads inside the same window. Each read inside a flight captures
+  // afresh, which is what makes the attribution causal rather than "some
+  // flight is open". The reset can land a few jobs late, so a window that
+  // opened on an unowned read hides a continuation queued before the reset
+  // (pinned as a known false negative); it can never invent a warning.
+  let id = windowFlight;
+  if (id === undefined) {
+    id = windowFlight = attributedFlight();
+    queueMicrotask(resetWindowFlight);
+  } else if (id !== 0) id = attributedFlight();
+  if (id === 0) return;
+  const entry = tailFlights.get(id!);
+  const el = entry?.el.deref();
+  // A never-resolved pending read throws, and async.ts reports it on rejection.
+  // A refetching source serves its old value instead, so that read still warns.
+  if (!el || throwsPending || el === dep) return;
+  const flight = entry!.flight.deref();
+  if (!flight || el._x?._inFlight !== flight) return;
+  if (dep !== undefined)
+    for (let d: Link | null = el._deps; d !== null; d = d._nextDep) if (d._dep === dep) return;
+  let byHolder = warnedTailReads.get(el);
+  if (!byHolder) warnedTailReads.set(el, (byHolder = new WeakMap()));
+  let keys = byHolder.get(holder);
+  if (!keys) byHolder.set(holder, (keys = new Set()));
+  if (keys.has(key)) return;
+  keys.add(key);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNTRACKED_READ_AFTER_AWAIT",
+        kind: "async",
+        severity: "warn",
+        message:
+          `[UNTRACKED_READ_AFTER_AWAIT] ${nodeName ? `"${nodeName}"` : "A reactive value"} was ` +
+          `first read after an \`await\` in an async computation, so it is not a dependency: ` +
+          `the computation will not re-run when it changes. Read it before the first \`await\`, ` +
+          `or wrap the read in untrack() if a one-time value is intended.`,
+        ownerId: el.id,
+        ownerName: (el as any)._name,
+        nodeName
+      },
+      el
+    )
+  );
+}
+
+// Sweeping only when the registry doubles keeps registration O(1) amortized.
+let nextTailSweep = 64;
+function sweepTailFlights(): void {
+  for (const [id, { el, flight }] of tailFlights) {
+    const node = el.deref();
+    const current = flight.deref();
+    if (!node || !current || node._x?._inFlight !== current) {
+      tailFlights.delete(id);
+      asyncTailFlights--;
+    }
+  }
+  nextTailSweep = Math.max(64, tailFlights.size * 2);
+}
+
+let windowFlight: number | undefined;
+function resetWindowFlight(): void {
+  windowFlight = undefined;
+}
+
+let disposalHealQueued = false;
+function healDisposalDepth(): void {
+  disposalHealQueued = false;
+  if (disposalDepth !== 0) resetDisposalDepth();
+}
+
+/** The innermost tail flight on the async stack, or 0. Reads V8 call sites, skipping `.stack` formatting. */
+function attributedFlight(): number {
+  const V8Error = Error as {
+    stackTraceLimit?: number;
+    prepareStackTrace?: unknown;
+    captureStackTrace?: (target: object, fn?: Function) => void;
+  };
+  if (!V8Error.captureStackTrace) return 0;
+  const prevPrepare = V8Error.prepareStackTrace;
+  const prevLimit = V8Error.stackTraceLimit;
+  const target: { stack?: unknown } = {};
+  let sites: unknown;
+  V8Error.prepareStackTrace = (_: unknown, callSites: unknown) => callSites;
+  // The tail frame sits BELOW every synchronous frame between the read and
+  // the continuation (helpers, array callbacks, the store trap, read() and
+  // this function itself), plus one async frame per awaited helper on the way
+  // back to the compute. Node's default of 10 loses it behind a modest helper
+  // chain; 50 covers a deep one without paying for the frame walk in the
+  // common case, where the stack is far shorter and the limit is never
+  // reached. A read more than ~40 synchronous frames deep is a false negative.
+  V8Error.stackTraceLimit = 50;
+  try {
+    V8Error.captureStackTrace(target, attributedFlight);
+    sites = target.stack;
+  } finally {
+    V8Error.prepareStackTrace = prevPrepare;
+    V8Error.stackTraceLimit = prevLimit;
+  }
+  if (!Array.isArray(sites)) return 0;
+  for (const site of sites) {
+    const match = TAIL_FRAME.exec(site.getFunctionName?.() ?? "");
+    if (match) return +match[1];
+  }
+  return 0;
 }

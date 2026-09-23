@@ -19,7 +19,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
-import { emitDiagnostic } from "./dev.js";
+import { emitDiagnostic, watchAsyncTail } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps, unobserved } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -796,7 +796,7 @@ export function handleAsync<T>(
       else if (Array.isArray(el._disposal)) el._disposal.push(fn);
       else el._disposal = [el._disposal, fn];
     };
-    (result as PromiseLike<T>).then(
+    (__DEV__ ? watchAsyncTail(el, result as PromiseLike<T>) : (result as PromiseLike<T>)).then(
       v => {
         if (isSync) {
           syncValue = v;

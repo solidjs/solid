@@ -74,8 +74,10 @@ import {
   setStoreCommitHook
 } from "../../core/scheduler.js";
 import type { Computed, Owner, Signal } from "../../core/types.js";
-import { pendingCheckActive, strictRead } from "../../core/core.js";
+import { pendingCheckActive, strictRead, untrackDepth } from "../../core/core.js";
 import {
+  asyncTailFlights,
+  checkPostAwaitRead,
   DEV,
   registerGraph,
   throwPendingUntrackedRead,
@@ -2059,6 +2061,31 @@ const traps: ProxyHandler<StoreNextTarget> = {
         return nv;
       }
     }
+    if (
+      __DEV__ &&
+      asyncTailFlights !== 0 &&
+      untrackDepth === 0 &&
+      !pendingCheckActive &&
+      !inDraft(target) &&
+      typeof key === "string" &&
+      key !== "then" &&
+      getObserver() === null &&
+      // Own data keys only: a pending backing inherits unrewritten keys from `v`.
+      (Object.prototype.hasOwnProperty.call(src, key) ||
+        Object.prototype.hasOwnProperty.call(target.v, key))
+    )
+      // Once per store per computation: the holder is the root target, so a
+      // row walk (`items.map(i => i.name)`) after an await reports the first
+      // untracked key it touched, not one warning per row proxy.
+      checkPostAwaitRead(
+        target.n?.[key as any],
+        storeRoot(target),
+        undefined,
+        key,
+        (((target.fam?.node as any)?._statusFlags ?? 0) &
+          (STATUS_PENDING | STATUS_UNINITIALIZED)) ===
+          (STATUS_PENDING | STATUS_UNINITIALIZED)
+      );
     // Dev strictRead: untracked store reads in labeled scopes (component
     // bodies, effect callbacks) warn — the value can never update the reader.
     // `then` is exempt: resolving a promise with a store proxy (refresh()'s

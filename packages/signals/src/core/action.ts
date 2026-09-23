@@ -11,6 +11,7 @@ import {
   type Transition
 } from "./scheduler.js";
 import { isThenable } from "./async.js";
+import { enterCallback, exitCallback } from "./core.js";
 import { getOwner } from "./owner.js";
 import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { emitDiagnostic } from "./dev.js";
@@ -170,14 +171,19 @@ export function action<Args extends any[], Y, R>(
         // The body is on the stack between these brackets: flush() is
         // refused inside (FLUSH_IN_ACTION, scheduler.ts).
         enterActionStep();
+        // Dev: the body's reads are imperative, not post-await reads of the
+        // continuation that invoked the action (UNTRACKED_READ_AFTER_AWAIT).
+        if (__DEV__) enterCallback();
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
           exitActionStep();
+          if (__DEV__) exitCallback();
           if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
           return done(undefined, e, true);
         }
         exitActionStep();
+        if (__DEV__) exitCallback();
         if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in

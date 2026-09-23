@@ -76,6 +76,8 @@ import {
   clearSignals,
   DEV,
   emitDiagnostic,
+  asyncTailFlights,
+  checkPostAwaitRead,
   GRAPH_SIZE_WARN_AT,
   noteFanIn,
   reportDiagnostic,
@@ -1448,6 +1450,40 @@ export function isEqual<T>(a: T, b: T): boolean {
  * scope will log a dev-mode warning. Managed automatically by `untrack(fn, strictReadLabel)`.
  */
 export let strictRead: string | false = false;
+/** Dev-only: explicit untrack() nesting, so deliberate post-await reads stay quiet. */
+export let untrackDepth = 0;
+/**
+ * Dev-only: > 0 while Solid runs user code that is imperative by construction
+ * — an effect callback (effect.ts) or an action body's synchronous slice
+ * (action.ts). Both run with no owner, exactly like an async continuation, so
+ * the post-await read check (dev.ts) consults this rather than blame the
+ * continuation that called flush() or invoked the action. Both sites bracket
+ * with try/finally, so a throw cannot leave it raised.
+ */
+export let callbackDepth = 0;
+export function enterCallback(): void {
+  callbackDepth++;
+}
+export function exitCallback(): void {
+  callbackDepth--;
+}
+/**
+ * Dev-only: > 0 while owner teardown runs cleanups (`_disposal` entries and
+ * effect-returned cleanups — owner.ts), for the same reason. Kept apart from
+ * `callbackDepth` because its sites cannot use try/finally (the frame would
+ * survive into prod): a throwing cleanup leaves it raised, and dev.ts resets
+ * it on the next microtask, which teardown — synchronous — never spans.
+ */
+export let disposalDepth = 0;
+export function enterDisposal(): void {
+  disposalDepth++;
+}
+export function exitDisposal(): void {
+  disposalDepth--;
+}
+export function resetDisposalDepth(): void {
+  disposalDepth = 0;
+}
 export function setStrictRead(v: string | false): string | false {
   const prev = strictRead;
   strictRead = v;
@@ -1480,19 +1516,25 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   if (
     GlobalQueue._externalUntrack === null &&
     !tracking &&
-    (!__DEV__ || (!strictRead && !strictReadLabel))
+    (!__DEV__ || (!strictRead && !strictReadLabel && asyncTailFlights === 0))
   )
     return fn();
   const prevTracking = tracking;
   const prevStrictRead = strictRead;
   tracking = false;
-  if (__DEV__) strictRead = strictReadLabel || false;
+  if (__DEV__) {
+    strictRead = strictReadLabel || false;
+    untrackDepth++;
+  }
   try {
     if (GlobalQueue._externalUntrack !== null) return GlobalQueue._externalUntrack(fn);
     return fn();
   } finally {
     tracking = prevTracking;
-    if (__DEV__) strictRead = prevStrictRead;
+    if (__DEV__) {
+      strictRead = prevStrictRead;
+      untrackDepth--;
+    }
   }
 }
 
@@ -1972,6 +2014,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // the _pendingSignal of _latestValueComputed (async in flight) rather
   // than the original node (which stays "pending" while held in a transition).
   if (latestReadActive) return GlobalQueue._latestRead!(el) as T;
+
+  if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0 && !pendingCheckActive)
+    checkPostAwaitRead(
+      el,
+      el,
+      undefined,
+      (el as any)._name,
+      (((el as any)._firewall || el)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) ===
+        (STATUS_PENDING | STATUS_UNINITIALIZED)
+    );
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
