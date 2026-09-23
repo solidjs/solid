@@ -19,7 +19,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Errored, renderToString } from "@solidjs/web";
-import { OBSERVE } from "solid-js";
+import { createSignal, OBSERVE } from "solid-js";
 import { scenarios } from "../harness/slot-hydration-3567.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -42,7 +42,15 @@ afterEach(() => {
 describe("JSX through a non-children prop (#3567) — server render", () => {
   for (const scenario of scenarios) {
     test(`${scenario.name}: renders and writes the artifact`, () => {
+      const error = scenario.logsCaughtError
+        ? vi.spyOn(console, "error").mockImplementation(() => {})
+        : undefined;
       const html = renderToString(() => <scenario.App />);
+      if (error) {
+        // The boundary contained a render error (`SSR_RENDER_ERROR_CONTAINED`).
+        expect(error).toHaveBeenCalled();
+        error.mockRestore();
+      }
       expect(visibleText(html)).toBe(scenario.expectedText);
       const keys = [...html.matchAll(/<(\w+) _hk=([\w-]+)/g)].map(m => `${m[1]}:${m[2]}`);
       writeFileSync(
@@ -94,14 +102,15 @@ describe("JSX through a non-children prop (#3567) — server render", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  // The finding is an allocation at a SHIFTED position, not an unscoped
-  // allocation as such. A boundary's zero-arity fallback thunk is handed
-  // back unresolved and built by the consuming hole on the enclosing counter
-  // — the same walk-order-vs-statement-order shape — yet with nothing scoped
-  // after it in the template both sides land on the same ids and the render
-  // is silent (the parity harness pins that hydration). A scoped hole after
-  // it reserves its slot before the walk reaches the thunk: reported.
-  describe("a zero-arity boundary fallback thunk built by the consuming hole", () => {
+  // A boundary's zero-arity fallback thunk (`fallback={() => <F />}`) is
+  // resolved by `<Errored>` itself, inside the boundary's own scope — the
+  // same one the `(err, reset) => X` form runs under — never handed back for
+  // the consuming hole to build on the enclosing counter (#3620 surfaced the
+  // permutation that produced when a scoped hole followed the boundary; the
+  // ruling aligns it by construction, like `<Show>` resolving a function
+  // child). Both shapes are silent, and the zero-arity form lays out the
+  // ids of everything after it exactly as the two-arity form does.
+  describe("a zero-arity boundary fallback thunk", () => {
     const Fallback = () => (
       <main>
         <button>fell</button>
@@ -115,6 +124,13 @@ describe("JSX through a non-children prop (#3567) — server render", () => {
         <Throws />
       </Errored>
     );
+    const InnerTwoArity = () => (
+      <Errored fallback={(_err, _reset) => <Fallback />}>
+        <Throws />
+      </Errored>
+    );
+    const keysOf = (html: string) =>
+      [...html.matchAll(/<(\w+) _hk=([\w-]+)/g)].map(m => `${m[1]}:${m[2]}`);
     let error: ReturnType<typeof vi.spyOn>;
     beforeEach(() => {
       error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -133,7 +149,7 @@ describe("JSX through a non-children prop (#3567) — server render", () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
-    test("is reported when a scoped hole follows it", () => {
+    test("is silent, aligned, when a scoped hole follows it", () => {
       const App = (props: { title: string }) => (
         <section>
           <Inner />
@@ -142,10 +158,60 @@ describe("JSX through a non-children prop (#3567) — server render", () => {
       );
       const html = renderToString(() => <App title="t" />);
       expect(visibleText(html)).toBe("fellt");
-      const events = capture.events.filter(e => e.code === "UNSCOPED_HOLE_ALLOCATED_IDS");
-      expect(events).toHaveLength(1);
-      expect(events[0].data!.registered).not.toBe(events[0].data!.before);
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect(capture.events.filter(e => e.code === "UNSCOPED_HOLE_ALLOCATED_IDS")).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    test("lays out the same ids as the two-arity form, for itself and for following siblings", () => {
+      const [count] = createSignal(3);
+      const layout = (Boundary: () => any) => (props: { title: string; children?: any }) => (
+        <section>
+          <Boundary />
+          <span>{props.title}</span>
+          <b>{count()}</b>
+          <p>{props.children}</p>
+        </section>
+      );
+      const ZeroArity = layout(Inner);
+      const TwoArity = layout(InnerTwoArity);
+      const zero = renderToString(() => <ZeroArity title="t">c</ZeroArity>);
+      const two = renderToString(() => <TwoArity title="t">c</TwoArity>);
+      expect(visibleText(zero)).toBe("fellt3c");
+      expect(zero).toBe(two);
+      // Every keyed element — the fallback's own and the siblings' — carries
+      // the same id in both renders; nothing of the fallback escaped to the
+      // enclosing counter.
+      const keys = keysOf(zero);
+      expect(keys).toEqual(keysOf(two));
+      expect(keys.some(k => k.startsWith("main:"))).toBe(true);
+      expect(capture.events.filter(e => e.code === "UNSCOPED_HOLE_ALLOCATED_IDS")).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    // Directly in the element (no component between the boundary and the
+    // hole that consumes it) — the same alignment.
+    test("directly under the element, followed by a scoped hole", () => {
+      const App = (props: { title: string }) => (
+        <section>
+          <Errored fallback={() => <Fallback />}>
+            <Throws />
+          </Errored>
+          <span>{props.title}</span>
+        </section>
+      );
+      const Two = (props: { title: string }) => (
+        <section>
+          <Errored fallback={(_e, _r) => <Fallback />}>
+            <Throws />
+          </Errored>
+          <span>{props.title}</span>
+        </section>
+      );
+      const zero = renderToString(() => <App title="t" />);
+      expect(visibleText(zero)).toBe("fellt");
+      expect(zero).toBe(renderToString(() => <Two title="t" />));
+      expect(capture.events.filter(e => e.code === "UNSCOPED_HOLE_ALLOCATED_IDS")).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 });

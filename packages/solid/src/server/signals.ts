@@ -3095,9 +3095,10 @@ export function createErrorBoundary<T, U>(
   let pending: { t: string[]; h: Function[]; p: Promise<any>[] } | undefined;
   // The client boundary is two computeds under `owner`: one runs `fn`, the
   // next flattens its result. A zero-arg function `fn` hands back — a nested
-  // boundary's accessor, the `fallback={() => ...}` thunk it returns
-  // unresolved, a function child — is unwrapped inside that second computed,
-  // so what it renders takes ids under `owner`'s second child. Resolving
+  // boundary's accessor, a function child — is unwrapped inside that second
+  // computed, so what it renders takes ids under `owner`'s second child.
+  // (A nested <Errored>'s `fallback={() => ...}` thunk used to be one such
+  // function; Errored now calls it inside its own output scope.) Resolving
   // inline under `owner` gave that content `owner`'s next child id instead,
   // one level up from the client's, and a server-rendered fallback hydrated
   // dead (#3414). Mirror the second computed as a virtual scope (ssrScope's

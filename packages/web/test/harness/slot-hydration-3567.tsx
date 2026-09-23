@@ -16,7 +16,16 @@
  * issue's symptom) fails the liveness assertion rather than only the key
  * check.
  */
-import { createSignal, children, omit, createContext, useContext, For, Show } from "solid-js";
+import {
+  createSignal,
+  children,
+  omit,
+  createContext,
+  useContext,
+  For,
+  Show,
+  Errored
+} from "solid-js";
 import { Dynamic, type JSX } from "@solidjs/web";
 
 export type Scenario = {
@@ -34,6 +43,12 @@ export type Scenario = {
   knownGap?: string;
   /** The dev diagnostic code the shape must raise on server render and client hydrate. */
   diagnostic?: "UNSCOPED_HOLE_ALLOCATED_IDS";
+  /**
+   * The scenario renders an `<Errored>` fallback that cannot see the error
+   * (a value or a zero-arity thunk): dev logs the caught error through
+   * `console.error` on both sides, by design. The specs silence and pin it.
+   */
+  logsCaughtError?: true;
 };
 
 function makeApp(Layout: (props: any) => any) {
@@ -348,6 +363,42 @@ const SpreadThenSlot = (props: any) => (
   </div>
 );
 
+// A boundary's ZERO-ARITY fallback thunk (`fallback={() => <F />}` — type-
+// reachable, since `() => X` is assignable to `(err, reset) => X`) followed
+// by a scoped hole in the same element. `<Errored>` used to hand a zero-arity
+// fallback back unresolved (`f.length == 0` read as a value thunk), so the
+// CONSUMING hole built it on the enclosing counter: the client at the
+// statement, the server inside the `ssr()` walk after `{props.title}` had
+// reserved its slot — the keys permuted (surfaced by #3620, which pinned it
+// as reported by `UNSCOPED_HOLE_ALLOCATED_IDS`). By ruling, `<Errored>`
+// resolves a function-valued fallback like `<Show>` resolves a function
+// child: inside its own scope, the same one the `(err, reset) => X` form
+// already runs under — so the zero-arity and two-arity forms allocate
+// identically and nothing escapes to the enclosing counter.
+const ThrowsSync = (): never => {
+  throw new Error("sync render failure");
+};
+function ErroredThunkFallbackThenScopedHoleApp() {
+  const [n, setN] = createSignal(0);
+  const Fallback = () => (
+    <button id="hdr" onClick={() => setN(n() + 1)}>
+      clicks {n()}
+    </button>
+  );
+  const Inner = () => (
+    <Errored fallback={() => <Fallback />}>
+      <ThrowsSync />
+    </Errored>
+  );
+  const Layout = (props: any) => (
+    <section>
+      <Inner />
+      <span>{props.title}</span>
+    </section>
+  );
+  return <Layout title={`t${n()}`} />;
+}
+
 const T = (expectedText: string, expectedTextAfterClick: string) => ({
   expectedText,
   expectedTextAfterClick
@@ -451,5 +502,11 @@ export const scenarios: Scenario[] = [
     name: "spread-then-slot",
     App: makeApp(SpreadThenSlot),
     ...T("clicks 0body 0", "clicks 1body 1")
+  },
+  {
+    name: "errored-thunk-fallback-followed-by-scoped-hole",
+    App: ErroredThunkFallbackThenScopedHoleApp,
+    ...T("clicks 0t0", "clicks 1t1"),
+    logsCaughtError: true
   }
 ];

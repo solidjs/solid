@@ -279,7 +279,11 @@ export function Errored(props: {
     () => props.children,
     (err, reset) => {
       const f = props.fallback;
-      return typeof f === "function" && f.length ? f(err, reset) : f;
+      // Called whatever its arity, under the boundary's output owner —
+      // mirrors the client: a zero-arity thunk handed back unresolved was
+      // built by the consuming hole inside the ssr() walk, on the enclosing
+      // counter, after every scoped sibling had reserved its slot (#3620).
+      return typeof f === "function" ? f(err, reset) : f;
     }
   ) as unknown as SolidElement;
 }

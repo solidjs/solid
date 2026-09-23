@@ -420,8 +420,18 @@ export function Errored(props: {
     () => props.children,
     (err: ErrorAccessor, reset) => {
       const f = props.fallback;
+      // A fallback that cannot see the error — a value, or a zero-arity
+      // thunk — would swallow it silently; dev logs it.
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err());
-      return typeof f === "function" && f.length ? f(err, reset) : f;
+      // A function-valued fallback is called HERE, whatever its arity, the
+      // way <Show> resolves a function child inside its own memo: this runs
+      // under the boundary's output computed, so the content's ids nest
+      // under the boundary on both sides. Handing a zero-arity thunk back
+      // unresolved left the CONSUMING hole to build it on the enclosing
+      // counter — the client at the statement, the server inside the ssr()
+      // walk after every scoped sibling had reserved its slot — and the keys
+      // permuted whenever a scoped hole followed the boundary (#3620).
+      return typeof f === "function" ? f(err, reset) : f;
     }
   ) as unknown as SolidElement;
 }

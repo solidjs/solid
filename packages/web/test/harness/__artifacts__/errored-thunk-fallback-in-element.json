@@ -1,5 +1,5 @@
 {
   "name": "errored-thunk-fallback-in-element",
-  "shell": "<section _hk=000><!--$--><main _hk=003><b>fell</b><button>Count: <!--$-->0<!--/--></button></main><!--/--><span>tail</span></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"001\"]=$R[0]=new Error(\"sync render failure\");</script>",
+  "shell": "<section _hk=000><!--$--><main _hk=0020><b>fell</b><button>Count: <!--$-->0<!--/--></button></main><!--/--><span>tail</span></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"001\"]=$R[0]=new Error(\"sync render failure\");</script>",
   "rest": ""
 }

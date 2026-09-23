@@ -1218,7 +1218,16 @@ module.exports = [
     // its creation-time gate flip on non-iterable hybrid shapes (commit 2);
     // see the with-stores note for the breakdown. Brotli layout: the same
     // source measured 20,907 against the pre-#3615 `next`'s 20,919 (-12 B).
-    limit: "20.95 KB",
+    // Errored builds a thunk fallback inside its own scope (#3620 follow-up,
+    // 2026-09-23): 20.95 -> 21.00 KB, measured at 20,981 B against `next`'s
+    // 20,907 (+74 B) with the minified bundle 10 B SMALLER (61,324 vs
+    // 61,334): the one code change is a token removal — `Errored`'s fallback
+    // call drops its `&& f.length` guard (solid only, client and server
+    // dists) — and an identifier-normalised diff of the two bundles is that
+    // single statement. The delta is esbuild's mangled-name assignment
+    // shifting under brotli (as in the performance-tracks note above); the
+    // same source measures -37 B on the with-stores app and -31 B on CSR.
+    limit: "21.00 KB",
     modifyEsbuildConfig
   },
   {
