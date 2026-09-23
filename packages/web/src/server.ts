@@ -3089,7 +3089,10 @@ export function HydrationScript(props: { nonce?: string; eventNames?: string[] }
 // components
 export function HydrationScript(props) {
   const nonce = scriptNonce(sharedConfig.context && sharedConfig.context.nonce);
-  return ssr(generateHydrationScript({ nonce, ...props }));
+  // In-render: the shell's records are spliced right after this script (the
+  // `<!--xs-->` marker), so no `p` flag — see hydrationBootstrap.
+  const { eventNames = ["click", "input"], nonce: n } = { nonce, ...props };
+  return ssr(hydrationBootstrap(eventNames, n, false));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -4733,11 +4736,40 @@ export function generateHydrationScript(options?: {
 }): string;
 
 export function generateHydrationScript({ eventNames = ["click", "input"], nonce } = {}) {
+  return hydrationBootstrap(eventNames, nonce, true);
+}
+
+// The hydration bootstrap: `_$HY`, the client runtime's page-global.
+//   events     — captured before hydration, replayed by the claim walk
+//   completed  — elements whose replay is done
+//   r          — the records: serialized hydration data, keyed by id,
+//                written by the render's classic <script>s
+//   fe         — fragment-revealed hook, installed by the client
+//   p          — records may be parser-pending (#3610). Set only by
+//                `generateHydrationScript()`: a hand-built document places
+//                this bootstrap itself, apart from the records script the
+//                render appends to its output, so a stylesheet between them
+//                can stall the records behind an `async` module entry.
+//                `hydrate()` then waits — while the parser is still running
+//                and no record has landed — for the first `_$HY.r` write or
+//                `DOMContentLoaded`, whichever comes first. `<HydrationScript />`
+//                omits it: `assembleDocument` splices the shell's records
+//                script immediately after this one at `<!--xs-->`, so the
+//                two execute back to back and nothing can be pending between
+//                them; a JSX document with no records hydrates on the spot,
+//                even mid-parse. Hosts that construct `_$HY` themselves get
+//                the same default: absent means ready.
+// Later keys (`f`, `h`, `hp`, `dq`, `dlq`, `v`, `sc`, `sd`, `sg`, `done`,
+// `modules`, `loading`) are installed by the stream's own scripts or the
+// client runtime; see REPLACE_SCRIPT and HEAD_SCRIPT.
+function hydrationBootstrap(eventNames, nonce, outOfBand) {
   return `<script${
     nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
   }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
     '","'
-  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:{},fe(){}});</script><!--xs-->`;
+  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:{},fe(){}${
+    outOfBand ? ",p:1" : ""
+  }});</script><!--xs-->`;
 }
 
 function queue(fn) {

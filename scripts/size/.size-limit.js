@@ -1211,7 +1211,16 @@ module.exports = [
     // (`fragmentParked`, `whenRevealed`; `fragmentPending` reuses the parked
     // test). 0 B in web: `waitAsset`'s `{ transparent: true }` and the
     // hydrating skip in `gateHeadResource` are not in this fixture.
-    limit: "20.95 KB",
+    // hydrate() waits for the document's records (#3610, 2026-09-23): 20.95
+    // -> 21.10 KB, measured at 21,056 B against `next`'s 20,919 (+137 B).
+    // Web only, in hydrate() itself — the one entry every hydrating app
+    // retains: the readiness gate (`_$HY.p` + parser still running + no
+    // record landed) parks the start on the first `_$HY.r` write (a Proxy
+    // that hands the object back on that write) or DOMContentLoaded, and the
+    // returned dispose cancels a parked start. The previous body moved into
+    // `hydrateRoot`; the gate is a straight-line prologue, nothing to shake.
+    // 0 B in signals or solid.
+    limit: "21.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -1489,7 +1498,11 @@ module.exports = [
     // brotli over this larger bundle). `next`'s 31,145 already carries
     // #3606's +11 B over #3605's 31,134, unbumped (see the no-stores note).
     // 0 B in the signals core, the store engine, or web.
-    limit: "31.2 KB",
+    // hydrate() waits for the document's records (#3610, 2026-09-23): 31.2
+    // -> 31.30 KB, measured at 31,284 B against `next`'s 31,155 (+129 B) —
+    // the same web-only hydrate() gate as the no-stores entry (+137 there),
+    // laid out over this larger bundle. 0 B in signals or solid.
+    limit: "31.30 KB",
     modifyEsbuildConfig
   },
   {
