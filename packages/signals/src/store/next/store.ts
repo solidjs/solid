@@ -2069,12 +2069,13 @@ const traps: ProxyHandler<StoreNextTarget> = {
       !inDraft(target) &&
       typeof key === "string" &&
       key !== "then" &&
-      getObserver() === null
+      getObserver() === null &&
+      Object.prototype.hasOwnProperty.call(src, key)
     )
       checkPostAwaitRead(
         target.n?.[key as any],
         target,
-        key,
+        undefined,
         key,
         !!(((target.fam?.node as any)?._statusFlags ?? 0) & STATUS_PENDING)
       );

@@ -10,6 +10,7 @@ import {
   type SourceAccessor,
   OBSERVE
 } from "../src/index.js";
+import { asyncTailFlights } from "../src/core/dev.js";
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -214,6 +215,17 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
     dispose();
   });
 
+  it("releases a flight that never settles once its computation is disposed", async () => {
+    const baseline = asyncTailFlights;
+    const { dispose } = mount(() => new Promise<number>(() => {}));
+    expect(asyncTailFlights).toBe(baseline + 1);
+    dispose();
+    const { dispose: disposeNext } = mount(async () => 1);
+    await settle();
+    expect(asyncTailFlights).toBe(baseline);
+    disposeNext();
+  });
+
   it("warns once per computation and source", async () => {
     const stop = captureWarnings();
     const [a] = createSignal(1, { name: "a" });
@@ -334,6 +346,19 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
       });
       await settle();
       expect(stop().map(e => e.nodeName)).toEqual(["user", "name"]);
+      dispose();
+    });
+
+    it("warns once for an array read after await, never for prototype methods", async () => {
+      const stop = captureWarnings();
+      const [state] = createStore({ items: [1, 2, 3, 4, 5] });
+      const { dispose } = mount(async () => {
+        const items = state.items;
+        await null;
+        return items.map(x => x * 2).length;
+      });
+      await settle();
+      expect(stop().map(e => e.nodeName)).toEqual(["length"]);
       dispose();
     });
 

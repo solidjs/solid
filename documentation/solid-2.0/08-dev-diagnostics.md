@@ -348,7 +348,7 @@ const items = createMemo(async () => {
 });
 ```
 
-A source that was also read before the `await` does not warn, nor does `untrack()`. Each computation and source pair warns once. A pending source read after an `await` is a separate error, raised when the flight rejects.
+A source that was also read before the `await` does not warn, nor does `untrack()`. Each computation warns once per signal or memo, and once per store object (naming the first untracked property it reads; prototype methods such as `map` are ignored). A pending source read after an `await` is a separate error, raised when the flight rejects.
 
 The check relies on V8 async stack traces, so it runs in Chrome, Edge, and Node, and stays silent elsewhere. It covers native Promise computations: async-iterable computations, other thenables, and a helper returned without `await` (`return load()`) are not checked, and it can occasionally miss a read. It is dev-only and adds nothing to production builds.
 

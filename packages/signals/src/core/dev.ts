@@ -866,7 +866,9 @@ export function noteFanIn(node: Computed<any>, count: number): void {
  * (Firefox, Safari), are left alone and never warn.
  */
 export let asyncTailFlights = 0;
-const tailFlights = new Map<number, { el: Computed<any>; flight: PromiseLike<any> }>();
+// Weak so a flight that never settles cannot pin its computation (the promise's
+// reactions close over it); dead or superseded entries are swept on registration.
+const tailFlights = new Map<number, { el: WeakRef<Computed<any>>; flight: WeakRef<object> }>();
 const warnedTailReads = new WeakMap<object, WeakMap<object, Set<PropertyKey | undefined>>>();
 let tailFlightId = 0;
 const TAIL_FRAME = /^__solidAsyncCompute_(\d+)$/;
@@ -879,11 +881,11 @@ export function watchAsyncTail<T>(el: Computed<T>, flight: PromiseLike<T>): Prom
       const name = `__solidAsyncCompute_${id}`;
       // Retire the entry before settling so reads made by the landing itself stay quiet.
       const done = () => {
-        tailFlights.delete(id);
-        asyncTailFlights--;
+        if (tailFlights.delete(id)) asyncTailFlights--;
       };
+      sweepTailFlights();
       asyncTailFlights++;
-      tailFlights.set(id, { el, flight });
+      tailFlights.set(id, { el: new WeakRef(el), flight: new WeakRef(flight) });
       ({
         async [name]() {
           let value: T;
@@ -926,10 +928,11 @@ export function checkPostAwaitRead(
   }
   if (id === 0) return;
   const entry = tailFlights.get(id!);
+  const el = entry?.el.deref();
   // Pending reads already fail through the async.ts post-await diagnostic.
-  if (!entry || pending || entry.el === dep) return;
-  const { el, flight } = entry;
-  if (el._x?._inFlight !== flight) return;
+  if (!el || pending || el === dep) return;
+  const flight = entry!.flight.deref();
+  if (!flight || el._x?._inFlight !== flight) return;
   if (dep !== undefined)
     for (let d: Link | null = el._deps; d !== null; d = d._nextDep) if (d._dep === dep) return;
   let byHolder = warnedTailReads.get(el);
@@ -956,6 +959,17 @@ export function checkPostAwaitRead(
       el
     )
   );
+}
+
+function sweepTailFlights(): void {
+  for (const [id, { el, flight }] of tailFlights) {
+    const node = el.deref();
+    const current = flight.deref();
+    if (!node || !current || node._x?._inFlight !== current) {
+      tailFlights.delete(id);
+      asyncTailFlights--;
+    }
+  }
 }
 
 let windowFlight: number | undefined;
