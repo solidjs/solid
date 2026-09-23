@@ -1,0 +1,5 @@
+{
+  "name": "spread-siblings-member-hole",
+  "shell": "<div _hk=0><!--$--><a _hk=1 class=\"nav\">link <!--$-->0<!--/--></a><!--/--><!--$--><a _hk=3 class=\"nav\">link <!--$-->0<!--/--></a><!--/--><span>tail</span></div>",
+  "rest": ""
+}

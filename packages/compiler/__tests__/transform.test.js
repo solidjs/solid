@@ -685,6 +685,72 @@ describe("@solidjs/compiler transform", () => {
     expect(csr.code).not.toContain("_$scope(");
   });
 
+  it("scope-wraps property-read holes in hydratable mode (both generates)", () => {
+    // A property read can be a getter that builds JSX at read time, so it
+    // takes a hole scope like `props.children` always did (#3567); only
+    // provably-primitive holes stay unscoped.
+    const source = `
+      const a = <main>{props.header}{props.children}</main>;
+      const b = <main>{p.slots.header}{p.slots[name]}</main>;
+      const c = <main>{p.renderItem?.("x")}{rows() || "none"}</main>;
+      const d = <main>{cond() ? [<b />, " text"] : null}</main>;
+      const e = <main>{props.title + "!"}{-props.count()}{\`n=\${props.n}\`}{props.a === props.b}</main>;
+      const f = <main>{(track(), props.header)}{cond() ? renderHead : null}</main>;
+      `;
+
+    const flat = code => code.replace(/\s+/g, " ");
+    const ssr = flat(
+      transform(source, {
+        filename: "prop-holes.jsx",
+        moduleName: "r-server",
+        generate: "ssr",
+        hydratable: true
+      }).code
+    );
+    expect(ssr).toContain("_$scope(() => { return _$escape(props.header); })");
+    expect(ssr).toContain("_$scope(() => { return _$escape(p.slots[name]); })");
+    expect(ssr).toContain('_$scope(() => { return _$escape(p.renderItem?.("x")); })');
+    expect(ssr).toContain('_$scope(() => { return _$escape(rows() || "none"); })');
+    expect(ssr).toContain("_$scope(() => { return _$escape((track(), props.header)); })");
+    expect(ssr.match(/_\$scope\(/g)).toHaveLength(9);
+
+    const dom = flat(
+      transform(source, {
+        filename: "prop-holes.jsx",
+        moduleName: "r-dom",
+        generate: "dom",
+        hydratable: true
+      }).code
+    );
+    expect(dom).toContain("_$scope(() => { return props.header; })");
+    expect(dom).toContain("_$scope(() => { return p.slots[name]; })");
+    expect(dom).toContain('_$scope(() => { return p.renderItem?.("x"); })');
+    expect(dom).toContain('_$scope(() => { return rows() || "none"; })');
+    expect(dom).toContain("_$scope(() => { return track(), props.header; })");
+    expect(dom.match(/_\$scope\(/g)).toHaveLength(9);
+
+    // Holes that can only yield a primitive stay unscoped on both sides.
+    expect(ssr).toContain('_v$13 = () => { return _$escape(props.title) + "!"; }');
+    expect(ssr).toContain("_v$14 = () => { return -props.count(); }");
+    expect(dom).toContain('_$insert(_el$23, () => { return props.title + "!"; }');
+    expect(dom).toContain("_$insert(_el$23, () => { return -props.count(); }");
+    expect(dom).toContain("_$insert(_el$23, () => { return \`n=\${props.n}\`; }");
+    expect(dom).toContain("_$insert(_el$23, () => { return props.a === props.b; }");
+
+    // `#x in obj` is a boolean; oxc parses it as its own node kind.
+    const privateIn = flat(
+      transform("class A { #b; m() { return <main>{#b in this.p}{this.count()}</main>; } }", {
+        filename: "private-in.jsx",
+        moduleName: "r-dom",
+        generate: "dom",
+        hydratable: true
+      }).code
+    );
+    expect(privateIn).toContain("_$insert(_el$, () => { return #b in _self$.p; }");
+    expect(privateIn).toContain("_$scope(() => { return _self$.count(); })");
+    expect(privateIn.match(/_\$scope\(/g)).toHaveLength(1);
+  });
+
   it("lowers dynamic children in SSR mode through escape", () => {
     const result = transform("const view = <div>Hello {name}</div>;", {
       filename: "input.jsx",

@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -10,9 +11,9 @@ var _tmpl$ = [
 ];
 var _tmpl$2 = ["<div", "></div>"];
 var _tmpl$3 = ["<span", "></span>"];
-var _v$ = _$ssrHydrationKey(), _v$2 = _$escape(Component({})), _v$3 = () => {
+var _v$ = _$ssrHydrationKey(), _v$2 = _$escape(Component({})), _v$3 = _$scope(() => {
 	return _$escape(state.interpolation);
-};
+});
 const template = _$ssr(_tmpl$, _v$, _v$2, _v$3);
 const template2 = Component({ get children() {
 	return _v$4 = _$ssrHydrationKey(), _$ssr(_tmpl$2, _v$4);

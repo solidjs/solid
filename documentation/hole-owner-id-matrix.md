@@ -16,7 +16,7 @@ one namespace.
 |---|---|---|---|---|
 | Hydratable element (template root) | `getNextElement` → registry claim by key | `ssrHydrationKey()` → parent counter | registration / registration | yes |
 | Elements inside one template | single root `_hk`, walked structurally | single `_hk` per `ssr()` call | — | yes |
-| Text-only child hole (`{state.name}`) | `insert(el, thunk)` → transparent effect, allocates nothing | `_v$ = () => escape(...)`, evaluated in `ssr()`, allocates nothing | n/a | yes (0 ids both sides) |
+| Text-only child hole (`{state.name}`) | `insert(el, thunk)` → transparent effect, allocates nothing | `_v$ = () => escape(...)`, evaluated in `ssr()`, allocates nothing | n/a | yes (0 ids both sides) — since #3567 a property read is scoped like an id-allocating hole (one slot both sides); only provably-primitive holes (`{a + b}`, `` {`${x}`} ``) stay slot-free |
 | Id-allocating child hole (`{cond ? <A/> : <B/>}`, `{props.children}`, `{render()}`) | transparent insert effect → content allocates from **parent counter at first compute** | bare thunk → content allocates from **parent counter at evaluation/retry time** | sync source order / **eval order, shifts on deferral** | **NO — the bug** |
 | Condition memo, statement form (element child) | `var _c$ = _$memo(...)` in IIFE at template setup → parent slot | same shape, evaluated during ssr-arg evaluation → parent slot | registration / registration | yes |
 | Condition memo, inline form (component/fragment child, nested branch) | `_$memo(...)()` inside accessor body → owner active at read | same | read time / read time | yes, becomes hole-owner-scoped on both sides after change |
@@ -50,6 +50,11 @@ content nests under it):
 - Predicates: `canChildSlotAllocateIds` (shared in
   `babel-plugin/src/shared/utils.ts`) + the transform's own `dynamic`
   flag, used identically by **both** generates so marking cannot desync.
+  Since #3567 the predicate is a denylist: a hole is scoped unless its value
+  is provably a primitive (literals, template literals, unary/binary/update
+  expressions), so a member-read text hole such as `{state.name}` also
+  reserves one slot on both sides — the price of not knowing statically
+  which getters build JSX.
   (An earlier `isDeferredChildSlotExpression` predicate keyed off the
   *transformed* expression shape and desynced: the dom generate simplifies
   `{sig()}` to the bare getter `sig`, which the predicate didn't count as
@@ -91,8 +96,11 @@ sibling ids because a hole's counter is its own.
 - Runtime-internal `insert` callers outside the compiler (Portal, Dynamic,
   `@solidjs/h`, `solid-html`) receive no marker → stay transparent, matching
   their unwrapped server counterparts.
-- Arbitrary getters that lazily construct JSX are invisible to the predicate —
-  same envelope as the previous `orderedInsert` approximation.
+- Property reads of any name are scoped (#3567): the earlier `props.children`-only
+  rule missed every slot prop, object of slots and context getter. Still
+  unscoped: a bare identifier hole (`{renderHead}`), which never classifies
+  as `dynamic`, so the scope gate skips it on both sides even though the
+  predicate now says yes.
 - Virtual scope means failed-attempt children attach to the (parent) owner and
   are not disposed per retry — identical leak envelope to pre-change behavior;
   ids stay deterministic because each attempt re-runs with the same

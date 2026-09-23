@@ -11,6 +11,34 @@
 const { modes, compileBabel, compileOxc, normalize, unifiedDiff } = require("./parity/harness");
 
 const cases = {
+  "slot prop hole before children (#3567)": `
+const a = <main>{props.header}{props.children}</main>;
+const z = <p>P</p>;
+`,
+  "nested and computed slot holes": `
+const a = <main>{p.slots.header}{p.slots[name]}{p?.slots?.footer}</main>;
+const z = <p>P</p>;
+`,
+  "optional call and logical left holes": `
+const a = <main>{p.renderItem?.("x")}{rows() || "none"}{p.children ?? "empty"}</main>;
+const z = <p>P</p>;
+`,
+  "array literal branch hole": `
+const a = <main>{cond() ? [<b />, " text"] : null}{[...items(), " tail"]}</main>;
+const z = <p>P</p>;
+`,
+  "primitive-only holes stay unscoped": `
+const a = <main>{props.title + "!"}{-props.n}{typeof props.x}{props.a === props.b}{\`n=\${props.n}\`}{props.n++}</main>;
+const z = <p>P</p>;
+`,
+  "logical hole with primitive operands stays unscoped": `
+const a = <main>{props.a === 1 && props.b + 2}{props.n > 0 || "none"}<p>x</p></main>;
+const z = <p>P</p>;
+`,
+  "other lazy hole shapes take the scope": `
+const a = <main>{(track(), props.header)}{new Widget(props.x)}{html\`<b>\${props.t}</b>\`}{cond() ? renderHead : null}{x = props.header}</main>;
+const z = <p>P</p>;
+`,
   "two-level attribute nesting": `
 const a = <div a={<span b={<b>{x()}</b>}>{y()}</span>} />;
 const z = <p>P</p>;

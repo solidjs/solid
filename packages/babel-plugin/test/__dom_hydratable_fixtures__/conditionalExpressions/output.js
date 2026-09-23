@@ -2,8 +2,8 @@ import { template as _$template } from "r-dom";
 import { setProperty as _$setProperty } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
-import { scope as _$scope } from "r-dom";
 import { memo as _$memo } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<div>`),
@@ -12,7 +12,10 @@ var _el$ = _$getNextElement(_tmpl$);
 _$insert(_el$, simple);
 const template1 = _el$;
 var _el$2 = _$getNextElement(_tmpl$);
-_$insert(_el$2, () => state.dynamic);
+_$insert(
+  _el$2,
+  _$scope(() => state.dynamic)
+);
 const template2 = _el$2;
 var _el$3 = _$getNextElement(_tmpl$);
 _$insert(_el$3, simple ? good : bad);
@@ -24,7 +27,10 @@ _$insert(
 );
 const template4 = _el$4;
 var _el$5 = _$getNextElement(_tmpl$);
-_$insert(_el$5, () => (simple ? good.good : bad));
+_$insert(
+  _el$5,
+  _$scope(() => (simple ? good.good : bad))
+);
 const template4a = _el$5;
 var _el$6 = _$getNextElement(_tmpl$);
 _$insert(
@@ -40,10 +46,12 @@ const template5 = _el$6;
 var _el$7 = _$getNextElement(_tmpl$);
 _$insert(
   _el$7,
-  (() => {
-    var _c$2 = _$memo(() => !!state.dynamic);
-    return () => (_c$2() ? good.good : bad);
-  })()
+  _$scope(
+    (() => {
+      var _c$2 = _$memo(() => !!state.dynamic);
+      return () => (_c$2() ? good.good : bad);
+    })()
+  )
 );
 const template5a = _el$7;
 var _el$8 = _$getNextElement(_tmpl$);
@@ -60,10 +68,12 @@ const template6 = _el$8;
 var _el$9 = _$getNextElement(_tmpl$);
 _$insert(
   _el$9,
-  (() => {
-    var _c$4 = _$memo(() => !!state.dynamic);
-    return () => (_c$4() ? good.good : state.dynamic);
-  })()
+  _$scope(
+    (() => {
+      var _c$4 = _$memo(() => !!state.dynamic);
+      return () => (_c$4() ? good.good : state.dynamic);
+    })()
+  )
 );
 const template6a = _el$9;
 var _el$0 = _$getNextElement(_tmpl$);
@@ -80,10 +90,12 @@ const template7 = _el$0;
 var _el$1 = _$getNextElement(_tmpl$);
 _$insert(
   _el$1,
-  (() => {
-    var _c$6 = _$memo(() => state.count > 5);
-    return () => (_c$6() ? (_$memo(() => !!state.dynamic)() ? best : good.good) : bad);
-  })()
+  _$scope(
+    (() => {
+      var _c$6 = _$memo(() => state.count > 5);
+      return () => (_c$6() ? (_$memo(() => !!state.dynamic)() ? best : good.good) : bad);
+    })()
+  )
 );
 const template7a = _el$1;
 var _el$10 = _$getNextElement(_tmpl$);
@@ -100,28 +112,34 @@ const template8 = _el$10;
 var _el$11 = _$getNextElement(_tmpl$);
 _$insert(
   _el$11,
-  (() => {
-    var _c$8 = _$memo(() => !!(state.dynamic && state.something));
-    return () => (_c$8() ? good.good : state.dynamic && state.something);
-  })()
+  _$scope(
+    (() => {
+      var _c$8 = _$memo(() => !!(state.dynamic && state.something));
+      return () => (_c$8() ? good.good : state.dynamic && state.something);
+    })()
+  )
 );
 const template8a = _el$11;
 var _el$12 = _$getNextElement(_tmpl$);
 _$insert(
   _el$12,
-  (() => {
-    var _c$9 = _$memo(() => !!state.dynamic);
-    return () => (_c$9() ? good() : state.dynamic) || bad;
-  })()
+  _$scope(
+    (() => {
+      var _c$9 = _$memo(() => !!state.dynamic);
+      return () => (_c$9() ? good() : state.dynamic) || bad;
+    })()
+  )
 );
 const template9 = _el$12;
 var _el$13 = _$getNextElement(_tmpl$);
 _$insert(
   _el$13,
-  (() => {
-    var _c$0 = _$memo(() => !!state.dynamic);
-    return () => (_c$0() ? good.good : state.dynamic) || bad;
-  })()
+  _$scope(
+    (() => {
+      var _c$0 = _$memo(() => !!state.dynamic);
+      return () => (_c$0() ? good.good : state.dynamic) || bad;
+    })()
+  )
 );
 const template9a = _el$13;
 var _el$14 = _$getNextElement(_tmpl$);
@@ -147,10 +165,12 @@ const template11 = _el$15;
 var _el$16 = _$getNextElement(_tmpl$);
 _$insert(
   _el$16,
-  (() => {
-    var _c$11 = _$memo(() => !!state.a);
-    return () => (_c$11() ? a.a : _$memo(() => !!state.b)() ? b.b : state.c ? "c" : "fallback");
-  })()
+  _$scope(
+    (() => {
+      var _c$11 = _$memo(() => !!state.a);
+      return () => (_c$11() ? a.a : _$memo(() => !!state.b)() ? b.b : state.c ? "c" : "fallback");
+    })()
+  )
 );
 const template11a = _el$16;
 const template12 = _$createComponent(Comp, {
@@ -289,10 +309,12 @@ const template29 = _el$23;
 var _el$24 = _$getNextElement(_tmpl$);
 _$insert(
   _el$24,
-  (() => {
-    var _c$14 = _$memo(() => !!thing.thing);
-    return () => (_c$14() ? thing1.thing1 : thing.thing) ?? thing2.thing2 ?? thing3.thing3;
-  })()
+  _$scope(
+    (() => {
+      var _c$14 = _$memo(() => !!thing.thing);
+      return () => (_c$14() ? thing1.thing1 : thing.thing) ?? thing2.thing2 ?? thing3.thing3;
+    })()
+  )
 );
 const template29a = _el$24;
 var _el$25 = _$getNextElement(_tmpl$);
@@ -302,7 +324,10 @@ _$insert(
 );
 const template30 = _el$25;
 var _el$26 = _$getNextElement(_tmpl$);
-_$insert(_el$26, () => thing.thing || thing1.thing1 || thing2.thing2);
+_$insert(
+  _el$26,
+  _$scope(() => thing.thing || thing1.thing1 || thing2.thing2)
+);
 const template30a = _el$26;
 const template31 = _$createComponent(Comp, {
   get value() {
@@ -319,7 +344,10 @@ const template31a = _$createComponent(Comp, {
   }
 });
 var _el$27 = _$getNextElement(_tmpl$);
-_$insert(_el$27, () => something?.());
+_$insert(
+  _el$27,
+  _$scope(() => something?.())
+);
 const template32 = _el$27;
 const template33 = _$createComponent(Comp, {
   get children() {

@@ -31,7 +31,9 @@ describe("Spread element hydration key alignment", () => {
 
     // With the bug, memo() in ssrElement children consumes an extra parent slot
     // per spread element, shifting the second <a>'s _hk value.
-    // The two <a> elements should have consecutive last-segment IDs.
+    // Each <a> takes exactly two parent slots: its own key and the scope of
+    // its `{props.count}` hole (a property read reserves a hole scope on both
+    // sides, #3567), so the last segments advance by two and nothing more.
     const anchorKeys = keys.filter((_, i) => i > 0); // skip the outer <div>
     expect(anchorKeys).toHaveLength(2);
 
@@ -39,7 +41,7 @@ describe("Spread element hydration key alignment", () => {
     const secondParts = anchorKeys[1].split("-");
     const firstLast = parseInt(firstParts[firstParts.length - 1]);
     const secondLast = parseInt(secondParts[secondParts.length - 1]);
-    expect(secondLast - firstLast).toBe(1);
+    expect(secondLast - firstLast).toBe(2);
   });
 
   test("spread element followed by another spread sibling — three siblings", () => {
@@ -68,11 +70,13 @@ describe("Spread element hydration key alignment", () => {
     // 4 _hk values: 1 for <div> + 3 for <a> elements
     expect(keys).toHaveLength(4);
 
-    // All three <a> elements should have consecutive last-segment IDs
+    // Each <a> takes its own key plus one scope slot per member-read hole
+    // (`{props.label} {props.count}` is two, #3567), so the last segments
+    // advance by a fixed three per sibling.
     const anchorKeys = keys.slice(1);
     const lastSegments = anchorKeys.map(k => parseInt(k.split("-").pop()!));
-    expect(lastSegments[1] - lastSegments[0]).toBe(1);
-    expect(lastSegments[2] - lastSegments[1]).toBe(1);
+    expect(lastSegments[1] - lastSegments[0]).toBe(3);
+    expect(lastSegments[2] - lastSegments[1]).toBe(3);
   });
 
   // #3313: `<a {...props} />` — children arrive INSIDE the spread, so the

@@ -1316,16 +1316,18 @@ function transformChildren(
             `Fragments can only be used top level in JSX. Not used under a <${tagName}>.`
           );
         }
+        // Classify the source expression: transformNode rewrites `a && b` into a
+        // memo ternary in place, and the ssr generate classifies the original.
+        const allocatesIds = config.hydratable && canChildSlotAllocateIds(child);
+        const functionHole = isFunctionShapedHole(child);
         const transformed = transformNode(child, {
           toBeClosed: results.toBeClosed,
           lastElement: index === lastElement,
           skipId: !results.id || !detectExpressions(filteredChildren, index, config)
         });
         if (!transformed) return memo;
-        (transformed as TransformResult & { allocatesIds?: boolean }).allocatesIds =
-          config.hydratable && canChildSlotAllocateIds(child);
-        (transformed as TransformResult & { functionHole?: boolean }).functionHole =
-          isFunctionShapedHole(child);
+        (transformed as TransformResult & { allocatesIds?: boolean }).allocatesIds = allocatesIds;
+        (transformed as TransformResult & { functionHole?: boolean }).functionHole = functionHole;
         const i = memo.length;
         if (transformed.text && i && memo[i - 1].text) {
           memo[i - 1].template =

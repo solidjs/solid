@@ -1,0 +1,5 @@
+{
+  "name": "logical-primitive-before-sibling",
+  "shell": "<div _hk=0><!--$-->2<!--/--><!--$--><span _hk=2>1</span><!--/--></div>",
+  "rest": ""
+}

@@ -31,9 +31,9 @@ const Child = (props) => {
 		typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 			return _ref$;
 		}, _el$) : props.ref = _el$;
-		_$insert(_el$, () => {
+		_$insert(_el$, _$scope(() => {
 			return props.name;
-		}, _el$4, _el$5);
+		}), _el$4, _el$5);
 		return _el$;
 	})(), (() => {
 		var _el$6 = _$getNextElement(_tmpl$2);

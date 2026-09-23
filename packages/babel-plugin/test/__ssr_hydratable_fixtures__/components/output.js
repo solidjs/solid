@@ -3,8 +3,8 @@ import { memo as _$memo } from "r-server";
 import { For as _$For } from "r-server";
 import { mergeProps as _$mergeProps } from "r-server";
 import { applyRef as _$applyRef } from "r-server";
-import { scope as _$scope } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
 var _v$10, _v$11, _v$12, _v$14, _v$32, _v$33, _v$34, _v$35, _v$36, _v$37, _v$38;
@@ -125,7 +125,7 @@ const Child = props => {
   return [
     ((_v$ = _$ssrHydrationKey()),
     (_ref$ = props.ref),
-    (_v$2 = () => _$escape(props.name)),
+    (_v$2 = _$scope(() => _$escape(props.name))),
     _$ssr(_tmpl$, _v$, _v$2)),
     ((_v$3 = _$ssrHydrationKey()),
     (_ref$2 = set),
