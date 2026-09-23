@@ -1,0 +1,9 @@
+{
+  "name": "two-slots",
+  "html": "<div _hk=0><header><button _hk=10 id=\"hdr\">clicks <!--$-->0<!--/--></button></header><footer><i _hk=20 id=\"ftr\">footer <!--$-->0<!--/--></i></footer></div>",
+  "keys": [
+    "div:0",
+    "button:10",
+    "i:20"
+  ]
+}

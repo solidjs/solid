@@ -1,0 +1,8 @@
+{
+  "name": "slot-unused",
+  "html": "<div _hk=0><main><p _hk=10 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:0",
+    "p:10"
+  ]
+}

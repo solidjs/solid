@@ -1,0 +1,9 @@
+{
+  "name": "children-then-slot",
+  "html": "<div _hk=0><main><p _hk=10 id=\"body\">body <!--$-->0<!--/--></p></main><footer><i _hk=20 id=\"ftr\">footer <!--$-->0<!--/--></i></footer></div>",
+  "keys": [
+    "div:0",
+    "p:10",
+    "i:20"
+  ]
+}

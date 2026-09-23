@@ -1,0 +1,8 @@
+{
+  "name": "slot-alone",
+  "html": "<div _hk=0><header><button _hk=10 id=\"hdr\">clicks <!--$-->0<!--/--></button></header></div>",
+  "keys": [
+    "div:0",
+    "button:10"
+  ]
+}

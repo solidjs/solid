@@ -1,0 +1,9 @@
+{
+  "name": "context-slot",
+  "html": "<div _hk=000><header><button _hk=0010 id=\"hdr\">clicks <!--$-->0<!--/--></button></header><main><p _hk=0020 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:000",
+    "button:0010",
+    "p:0020"
+  ]
+}

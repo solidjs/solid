@@ -1,0 +1,8 @@
+{
+  "name": "explicit-children-attr-only",
+  "html": "<div _hk=0><main><button _hk=10 id=\"hdr\">clicks <!--$-->0<!--/--></button></main></div>",
+  "keys": [
+    "div:0",
+    "button:10"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "destructured-props",
+  "html": "<div _hk=4><header><button _hk=0 id=\"hdr\">clicks <!--$-->0<!--/--></button></header><main><p _hk=2 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:4",
+    "button:0",
+    "p:2"
+  ]
+}

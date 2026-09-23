@@ -1,0 +1,9 @@
+{
+  "name": "children-helper-then-children",
+  "html": "<div _hk=2><header><button _hk=00 id=\"hdr\">clicks <!--$-->0<!--/--></button></header><main><p _hk=40 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:2",
+    "button:00",
+    "p:40"
+  ]
+}
