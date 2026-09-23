@@ -660,10 +660,10 @@ function interactionStart(ref: InteractionRef): void {
   openInteraction(origin, opened);
 }
 
-function interactionEnd(): void {
+function interactionEnd(returned?: unknown): void {
   const closing = currentInteraction;
   currentInteraction = interactionStack.length ? interactionStack.pop()! : null;
-  if (closing !== null) closeInteraction(closing);
+  if (closing !== null) closeInteraction(closing, returned);
 }
 
 /** The interaction an origin runs under (itself, when it is one). */
@@ -3210,6 +3210,15 @@ export interface InteractionEvent {
   settledMs?: number;
   outcome?: "idle" | "committed" | "held";
   /**
+   * The handler returned a thenable (`async () => { await save(); … }`) and
+   * the record waited for it: handler return → the promise settling, in
+   * milliseconds, capped at `ASYNC_HANDLER_CAP_MS`. The continuation runs
+   * with no frame on the stack, so writes it makes are not attributed to
+   * this interaction — only its duration is. Absent when the handler
+   * returned synchronously.
+   */
+  continuationMs?: number;
+  /**
    * The frame object every downstream fact carries — `ChangeOrigin.interaction`
    * on writes and frames, `RerunEvent.interaction`, `HoldEvent.interaction`,
    * `NavigationEvent.interaction`. Join key, by identity.
@@ -3231,6 +3240,10 @@ interface InteractionState {
   held: boolean;
   /** Root writes to excluded subjects (the observer's own store): not the app's. */
   excludedWrites: number;
+  /** The handler returned a thenable that has not settled; the record waits for it. */
+  awaiting: boolean;
+  /** An action step ran under the frame: the handler's async work is an action's, tracked as such. */
+  actioned: boolean;
 }
 const interactionStates = new WeakMap<ChangeOrigin, InteractionState>();
 /** Opened, not yet settled. */
@@ -3262,7 +3275,9 @@ function openInteraction(frame: ChangeOrigin, opened: number): void {
     writeDrain: drainSeq,
     heldIn: new Set(),
     held: false,
-    excludedWrites: 0
+    excludedWrites: 0,
+    awaiting: false,
+    actioned: false
   };
   interactionStates.set(frame, state);
   openInteractions.add(state);
@@ -3270,14 +3285,88 @@ function openInteraction(frame: ChangeOrigin, opened: number): void {
   if (interactionLog.length > options.historyLimit) interactionLog.shift();
 }
 
+/**
+ * How long the record waits on a handler's returned promise before settling
+ * without it: a promise that never settles (a hung request, a listener
+ * awaiting an event that never comes) must not keep the record open forever.
+ */
+const ASYNC_HANDLER_CAP_MS = 10_000;
+
 /** interactionEnd: the handler returned. */
-function closeInteraction(frame: ChangeOrigin): void {
+function closeInteraction(frame: ChangeOrigin, returned?: unknown): void {
   const state = interactionStates.get(frame);
   if (state === undefined) return;
   state.open = false;
   const end = now();
   state.event.handlerMs = end - state.opened;
+  // `async () => { await save(); set(…) }` returns a promise and continues
+  // past the frame; the person's wait is that continuation. The record stays
+  // open until it settles (or the cap), then judges whether anything on
+  // screen could have shown the wait.
+  const thenable =
+    returned !== null &&
+    (typeof returned === "object" || typeof returned === "function") &&
+    typeof (returned as PromiseLike<unknown>).then === "function"
+      ? (returned as PromiseLike<unknown>)
+      : null;
+  if (thenable !== null) {
+    state.awaiting = true;
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (): void => {
+      if (done) return;
+      done = true;
+      if (timer !== undefined) clearTimeout(timer);
+      if (!openInteractions.has(state)) return;
+      state.awaiting = false;
+      const at = now();
+      state.event.continuationMs = at - end;
+      checkUntrackedAsyncHandler(state);
+      maybeSettleInteraction(state, at);
+    };
+    timer = setTimeout(settle, ASYNC_HANDLER_CAP_MS);
+    // A pending cap must not hold a Node process (tests, SSR harnesses) open.
+    (timer as { unref?: () => void }).unref?.();
+    // Both branches: a rejected handler promise still ended the wait.
+    thenable.then(settle, settle);
+    return;
+  }
   maybeSettleInteraction(state, end);
+}
+
+/**
+ * The handler awaited past its frame with nothing in the graph carrying the
+ * wait: no root write before the `await` (a pending flag, an optimistic
+ * value) and no action step (an action's steps stay attributed across
+ * yields, and its holds are judged by SILENT_HOLD). From the person's side
+ * the click did nothing for `continuationMs`; from the engine's side the
+ * wait is invisible — no hold opened, so no hold could be acknowledged.
+ * Thresholds are the hold thresholds: it is the same wait.
+ */
+function checkUntrackedAsyncHandler(state: InteractionState): void {
+  const cfg = options.holds;
+  if (cfg === false) return;
+  const event = state.event;
+  const ms = event.continuationMs!;
+  if (state.actioned || event.writes > 0 || ms < cfg.infoMs) return;
+  const actor = formatOrigin(event.origin);
+  const message =
+    `[UNTRACKED_ASYNC_HANDLER] ${actor}'s handler awaited ${ms.toFixed(0)}ms past its frame with no ` +
+    `write before the await: no hold opened, so nothing on screen could show the wait — the ` +
+    `interaction was dead for ${ms.toFixed(0)}ms. Make the async work an action() (its steps stay ` +
+    `attributed across yields and its hold is judged), or write the pending state first: a ` +
+    `createOptimistic(false) "saving" flag the UI reads.`;
+  const severity = ms >= cfg.warnMs ? "warn" : "info";
+  const data: Record<string, unknown> = {
+    interaction: { type: event.name, target: event.target },
+    continuationMs: ms,
+    capped: ms >= ASYNC_HANDLER_CAP_MS
+  };
+  const entry = emitDiagnostic(
+    { code: "UNTRACKED_ASYNC_HANDLER", kind: "responsiveness", severity, message, data },
+    null
+  );
+  if (severity === "warn") reportDiagnostic(entry);
 }
 
 /** The open record a frame runs under, if any. */
@@ -3347,7 +3436,7 @@ function settleInteractionsHeld(t: Transition, hold: HoldEvent | undefined): voi
 
 function maybeSettleInteraction(state: InteractionState, end: number = now()): void {
   const event = state.event;
-  if (state.open || state.heldIn.size > 0) return;
+  if (state.open || state.awaiting || state.heldIn.size > 0) return;
   // A drain must have committed the last write (the handler's, or a redirect
   // hop's after the click's own drain) — the handler returning is not the
   // screen having it.
@@ -3579,6 +3668,9 @@ const engineHooks: AttributionHooks = {
     if (interaction === undefined && !actionInteractions.has(it)) {
       interaction = currentInteraction ?? undefined;
       actionInteractions.set(it, interaction);
+      // The handler's async work is an action's: tracked across yields.
+      const state = interaction !== undefined ? interactionStates.get(interaction) : undefined;
+      if (state !== undefined) state.actioned = true;
     }
     pushFrame("action", name, interaction);
   },

@@ -2131,7 +2131,14 @@ module.exports = [
     // void-pass arm (see the core floor note) plus, on this tier, its paired
     // `recomputeEnd` call — the one early return recompute has, and the hook
     // contract says start and end always pair. 0 B in the engine.
-    limit: "29.05 KB",
+    // UNTRACKED_ASYNC_HANDLER (2026-09-23, rebased): 29.05 -> 29.45 KB, measured at
+    // 29,368 B on a full build (+369 B over next's 28,999; 80 B of Linux headroom). A handler that returns a thenable keeps
+    // its InteractionEvent open until it settles (a 10s cap timer, `continuationMs`),
+    // then the check: no write before the await and no action step under the frame
+    // means no hold could have shown the wait — the message carries the two repairs.
+    // Most of the bytes are that text. The tier moved 65 B for the return value
+    // through `interactionEnd(returned)`; under its cap.
+    limit: "29.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -19,6 +19,7 @@ import type {
   RerunEvent
 } from "../src/attribution.js";
 import {
+  action,
   createEffect,
   createMemo,
   createRenderEffect,
@@ -27,6 +28,7 @@ import {
   flush,
   OBSERVE
 } from "../src/index.js";
+import type { DiagnosticEvent } from "../src/core/dev.js";
 
 afterEach(() => {
   attribution.disable();
@@ -283,6 +285,138 @@ describe("InteractionEvent", () => {
     expect(attribution.interactions()).toHaveLength(2);
     expect(feedback().interactions).toHaveLength(1);
     expect(feedback().interactions[0].dispatches).toBe(2);
+  });
+});
+
+describe("a handler that returns a promise", () => {
+  function armWithFindings(
+    holds: { infoMs: number; warnMs: number } | false = { infoMs: 0, warnMs: 0 }
+  ) {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false, holds });
+    const records: InteractionEvent[] = [];
+    attribution.subscribe("interaction", r => records.push(r));
+    const findings: DiagnosticEvent[] = [];
+    const off = OBSERVE!.diagnostics.subscribe(e => {
+      if (e.code === "UNTRACKED_ASYNC_HANDLER") findings.push(e);
+    });
+    offs.push(off);
+    return { interactions: () => records, findings };
+  }
+  const offs: (() => void)[] = [];
+  afterEach(() => {
+    for (const off of offs) off();
+    offs.length = 0;
+  });
+
+  it("keeps the record open until the promise settles and reports the continuation", async () => {
+    const { interactions } = armWithFindings();
+    let resolve!: () => void;
+    const pending = new Promise<void>(r => (resolve = r));
+    OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      await pending;
+    });
+    flush();
+    // The frame closed, but the person is still waiting.
+    expect(interactions()).toHaveLength(0);
+    expect(attribution.interactions()[0]?.settledMs).toBeUndefined();
+    await wait(30);
+    resolve();
+    await until(() => interactions().length === 1, "the handler's promise to settle the record");
+    const [e] = interactions();
+    expect(e.continuationMs).toBeGreaterThanOrEqual(25);
+    expect(e.settledMs).toBeGreaterThanOrEqual(
+      (e.inputDelayMs ?? 0) + e.handlerMs + e.continuationMs!
+    );
+    expect(e.outcome).toBe("idle");
+  });
+
+  it("a rejected handler promise ends the wait too", async () => {
+    const { interactions } = armWithFindings();
+    const failing = OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      await wait(5);
+      throw new Error("save failed");
+    });
+    await failing.catch(() => {});
+    await until(() => interactions().length === 1, "the rejected promise to settle the record");
+    expect(interactions()[0].continuationMs).toBeGreaterThanOrEqual(4);
+  });
+
+  it("finds a handler that awaited with nothing on screen able to show it", async () => {
+    const { interactions, findings } = armWithFindings({ infoMs: 10, warnMs: 20 });
+    const [, setResult] = createSignal("", { name: "result" });
+    // `onClick={async () => setResult(await save())}`: no write before the await.
+    OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      await wait(30);
+      setResult("saved");
+    });
+    await until(() => interactions().length === 1, "the record to settle");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      code: "UNTRACKED_ASYNC_HANDLER",
+      kind: "responsiveness",
+      severity: "warn",
+      data: { interaction: { type: "click", target: CLICK.target }, capped: false }
+    });
+    expect(findings[0].message).toContain("click on button#next");
+    expect(findings[0].message).toContain("action()");
+    expect((findings[0].data as { continuationMs: number }).continuationMs).toBeGreaterThanOrEqual(
+      25
+    );
+  });
+
+  it("stays quiet below the hold threshold, and info between the two", async () => {
+    const { interactions, findings } = armWithFindings({ infoMs: 10, warnMs: 1000 });
+    OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      await wait(1);
+    });
+    await until(() => interactions().length === 1, "the fast handler to settle");
+    expect(findings).toHaveLength(0);
+    OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      await wait(30);
+    });
+    await until(() => interactions().length === 2, "the slow handler to settle");
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("info");
+  });
+
+  it("a write before the await is the acknowledgement: no finding", async () => {
+    const { interactions, findings } = armWithFindings({ infoMs: 10, warnMs: 20 });
+    const [saving, setSaving] = createSignal(false, { name: "saving" });
+    createRoot(() => createRenderEffect(saving, () => {}, { name: "spinner" }));
+    flush();
+    OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      setSaving(true);
+      await wait(30);
+      setSaving(false);
+    });
+    await until(() => interactions().length === 1, "the record to settle");
+    expect(findings).toHaveLength(0);
+    expect(interactions()[0]).toMatchObject({ writes: 1, outcome: "committed" });
+    expect(interactions()[0].continuationMs).toBeGreaterThanOrEqual(25);
+  });
+
+  it("an action started in the handler is tracked work: no finding", async () => {
+    const { interactions, findings } = armWithFindings({ infoMs: 10, warnMs: 20 });
+    const [, setResult] = createSignal("", { name: "result" });
+    const save = action(function* save() {
+      yield wait(30);
+      setResult("saved");
+    });
+    OBSERVE!.attribution.withInteraction(CLICK, () => save());
+    await until(() => interactions().length === 1, "the action-backed handler to settle");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("with hold tracking off, the record still waits but nothing is judged", async () => {
+    const { interactions, findings } = armWithFindings(false);
+    OBSERVE!.attribution.withInteraction(CLICK, async () => {
+      await wait(20);
+    });
+    await until(() => interactions().length === 1, "the record to settle");
+    expect(interactions()[0].continuationMs).toBeGreaterThanOrEqual(15);
+    expect(findings).toHaveLength(0);
   });
 });
 

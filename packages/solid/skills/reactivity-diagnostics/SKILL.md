@@ -419,6 +419,35 @@ that keeps taking input (typing) is judged by each wait, not by the sum.
 `feedback().sources[].long`/`longMs` counts these at the table level,
 acknowledged or not.
 
+### UNTRACKED_ASYNC_HANDLER
+
+The dead click that is not a hold. The handler was `async` and awaited
+something — `onClick={async () => setResult(await save())}` — but wrote
+nothing before its first `await`. No hold opened (there was no write to
+hold), so `SILENT_HOLD` could not see the wait, yet from the user's side the
+click did nothing for `data.continuationMs` (handler return → the promise
+settling). The interaction record stayed open for the wait, so
+`attribution.interactions()` shows it with `continuationMs` set. Same
+thresholds as `SILENT_HOLD` (`holds.infoMs`/`warnMs`; off with `holds:
+false`); the wait is capped at 10s for a promise that never settles
+(`data.capped`). Two repairs, in order of preference:
+
+- Make the async work an action: `const save = action(function* () { const
+r = yield api.save(); setResult(r); })` and call `save()` from the handler.
+  An action's steps stay attributed to the click across yields, its writes
+  are held while it runs, and that hold is judged — so if the screen still
+  shows nothing you get `SILENT_HOLD` with the action repair (an optimistic
+  value, an `isPending()` reader), which is the real fix.
+- Or acknowledge before awaiting: write a `createOptimistic(false)` "saving"
+  flag (or `setSaving(true)` on a signal the UI reads) as the handler's first
+  line. Any root write before the `await` clears this finding; whether the
+  screen then shows the wait is the hold's question.
+
+Do NOT: keep the plain `await` and add a `try/finally` — nothing reactive
+learns about the wait either way. The finding names the interaction
+(`click on button#save`), not a node; there is no scope to name because no
+scope ran.
+
 ### Where to start: `feedback()`
 
 Before chasing individual `SILENT_HOLD` events, read the ranked tables — the
