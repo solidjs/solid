@@ -8,6 +8,7 @@ import {
   createSignal,
   createStore,
   flush,
+  latest,
   onCleanup,
   untrack,
   type SourceAccessor,
@@ -337,6 +338,45 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
       m1.dispose();
       m2.dispose();
     });
+  });
+
+  it("warns after a timer-backed await, and never for the timer callback itself", async () => {
+    const stop = captureWarnings();
+    const [count] = createSignal(1, { name: "count" });
+    const [other] = createSignal(2, { name: "other" });
+    let fromTimer = 0;
+    const { dispose: disposeEarly } = mount(async () => {
+      const before = count();
+      await new Promise(r => setTimeout(r, 0));
+      return before + count();
+    }, "reads-before");
+    const { dispose } = mount(async () => {
+      await new Promise(r => setTimeout(r, 0));
+      return count();
+    }, "reads-after");
+    await new Promise<void>(r =>
+      setTimeout(() => {
+        fromTimer = other();
+        r();
+      }, 5)
+    );
+    await settle();
+    expect(fromTimer).toBe(2);
+    expect(stop().map(e => [e.ownerName, e.nodeName])).toEqual([["reads-after", "count"]]);
+    dispose();
+    disposeEarly();
+  });
+
+  it("names the source, not a bare shadow, for a latest() read after await", async () => {
+    const stop = captureWarnings();
+    const [a] = createSignal(1, { name: "a" });
+    const { dispose } = mount(async () => {
+      await null;
+      return latest(a);
+    });
+    await settle();
+    expect(stop().map(e => e.nodeName)).toEqual(["latest(a)"]);
+    dispose();
   });
 
   it("does not blame a later microtask on the continuation that ran before it", async () => {

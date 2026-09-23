@@ -470,6 +470,10 @@ function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     } finally {
       GlobalQueue._verdictPull = false;
     }
+    // Dev: name the shadow after its source. A diagnostic raised on a read
+    // through it (UNTRACKED_READ_AFTER_AWAIT on `latest(a)` after an await)
+    // then names `latest(a)`, not the default "computed" every memo shares.
+    if (__DEV__) (lvc as any)._name = `latest(${(el as any)._name})`;
     ext(el)._latestValueComputed = lvc;
     el._config |= CONFIG_HAS_COMPANIONS;
     markFirewallChildCompanions(el);

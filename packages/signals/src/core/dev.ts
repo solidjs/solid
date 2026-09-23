@@ -1023,6 +1023,13 @@ function attributedFlight(): number {
   const target: { stack?: unknown } = {};
   let sites: unknown;
   V8Error.prepareStackTrace = (_: unknown, callSites: unknown) => callSites;
+  // The tail frame sits BELOW every synchronous frame between the read and
+  // the continuation (helpers, array callbacks, the store trap, read() and
+  // this function itself), plus one async frame per awaited helper on the way
+  // back to the compute. Node's default of 10 loses it behind a modest helper
+  // chain; 50 covers a deep one without paying for the frame walk in the
+  // common case, where the stack is far shorter and the limit is never
+  // reached. A read more than ~40 synchronous frames deep is a false negative.
   V8Error.stackTraceLimit = 50;
   try {
     V8Error.captureStackTrace(target, attributedFlight);
