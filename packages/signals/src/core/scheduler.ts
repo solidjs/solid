@@ -406,6 +406,10 @@ function stealEntangledCargo(carrier: Signal<any>[], target: Transition): boolea
   return true;
 }
 
+/** `schedule()` armed `scheduled` but withheld the microtask because a
+ * projection draft was writing (see below). Consumed by `scheduleWithheld`. */
+let withheld = false;
+
 export function schedule() {
   if (halted) {
     notifyHalted();
@@ -413,7 +417,30 @@ export function schedule() {
   }
   if (scheduled) return;
   scheduled = true;
-  if (!syncDepth && !globalQueue._running && !projectionWriteActive) queueMicrotask(flush);
+  if (!syncDepth && !globalQueue._running) {
+    // A projection draft's writes withhold the microtask: a flight's landing
+    // drains them (asyncWrite's flush), and a drain BEFORE the landing tears
+    // the pre- and post-await halves of the run apart (createProjection.async
+    // "notifies only changed paths"). A draft write that no landing will
+    // follow re-arms through scheduleWithheld (proj R37).
+    withheld = projectionWriteActive;
+    if (!withheld) queueMicrotask(flush);
+  }
+}
+
+/** Arm the microtask `schedule()` withheld under projectionWriteActive. The
+ * projection draft calls this after a write made outside its run with no
+ * flight up (proj R37): nothing else will drain, and leaving `scheduled`
+ * armed with no microtask strands the whole scheduler — every later
+ * `schedule()` early-returns — until something calls `flush()` by hand.
+ * (`withheld` was set in the same synchronous slice as this call, so the
+ * syncDepth/_running gates it passed still hold; a stale mark left by a
+ * landing's own flush arms at worst one no-op drain.) */
+export function scheduleWithheld(): void {
+  if (withheld) {
+    withheld = false;
+    queueMicrotask(flush);
+  }
 }
 
 /**

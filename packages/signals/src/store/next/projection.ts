@@ -14,18 +14,23 @@
  * primitives; the generic draft write-traps are reused from the legacy
  * module unchanged.
  */
-import { ext } from "../../core/core.js";
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
   getOwner,
   handleAsync,
+  isDisposed,
+  STATUS_PENDING,
   suppressComputedRecompute,
   type Computed,
   type Refreshable
 } from "../../core/index.js";
 
-import { projectionWriteActive, setProjectionWriteActive } from "../../core/scheduler.js";
+import {
+  projectionWriteActive,
+  scheduleWithheld,
+  setProjectionWriteActive
+} from "../../core/scheduler.js";
 import {
   $TARGET,
   markRawIngest,
@@ -63,11 +68,32 @@ import type { StoreNextFamily } from "./target.js";
  */
 function wrapDraft(
   inner: any,
-  isActive?: () => boolean,
+  isActive: () => boolean,
   aroundWrite?: (op: () => void) => void,
-  shallow?: boolean
+  shallow?: boolean,
+  afterWrite?: () => void
 ): any {
-  const write = (op: () => void) => (aroundWrite ? aroundWrite(op) : op());
+  // One bracket for the three mutating traps. A write to a superseded or
+  // disposed draft is dropped silently (proj R37 — the same fate as a
+  // superseded async run's pending draft writes, R26). `afterWrite` runs
+  // once the bracket has closed — outside it, so the scheduler's
+  // projectionWriteActive guard no longer applies — and only for the
+  // outermost bracket (a draft driven from inside an enclosing authoritative
+  // scope, the optimistic derive, leaves scheduling to that scope's caller).
+  const mutate = (op: () => void): true => {
+    if (!isActive()) return true;
+    const was = projectionWriteActive;
+    setWriteOverride(true);
+    setProjectionWriteActive(true);
+    try {
+      aroundWrite ? aroundWrite(op) : op();
+    } finally {
+      setWriteOverride(false);
+      setProjectionWriteActive(was);
+    }
+    if (!was && afterWrite) afterWrite();
+    return true;
+  };
   const traps: ProxyHandler<any> = {
     get(_, prop) {
       let value;
@@ -83,7 +109,7 @@ function wrapDraft(
       // A shallow store's leaves are raw by contract (#3498): no draft proxy
       // over them, so identity holds and a frozen leaf is never trapped.
       return !shallow && typeof value === "object" && value !== null && prop !== $TARGET
-        ? wrapDraft(value, isActive, aroundWrite)
+        ? wrapDraft(value, isActive, aroundWrite, false, afterWrite)
         : value;
     },
     has(_, prop) {
@@ -99,36 +125,14 @@ function wrapDraft(
       }
       return value;
     },
-    set(_, prop, value) {
-      if (isActive && !isActive()) return true;
-      const was = projectionWriteActive;
-      setWriteOverride(true);
-      setProjectionWriteActive(true);
-      try {
-        write(() => {
-          inner[prop] = value;
-        });
-      } finally {
-        setWriteOverride(false);
-        setProjectionWriteActive(was);
-      }
-      return true;
-    },
-    deleteProperty(_, prop) {
-      if (isActive && !isActive()) return true;
-      const was = projectionWriteActive;
-      setWriteOverride(true);
-      setProjectionWriteActive(true);
-      try {
-        write(() => {
-          delete inner[prop];
-        });
-      } finally {
-        setWriteOverride(false);
-        setProjectionWriteActive(was);
-      }
-      return true;
-    },
+    set: (_, prop, value) =>
+      mutate(() => {
+        inner[prop] = value;
+      }),
+    deleteProperty: (_, prop) =>
+      mutate(() => {
+        delete inner[prop];
+      }),
     ownKeys() {
       const was = projectionWriteActive;
       setWriteOverride(true);
@@ -157,21 +161,10 @@ function wrapDraft(
       if (d) d.configurable = true;
       return d;
     },
-    defineProperty(_, prop, desc) {
-      if (isActive && !isActive()) return true;
-      const was = projectionWriteActive;
-      setWriteOverride(true);
-      setProjectionWriteActive(true);
-      try {
-        write(() => {
-          Reflect.defineProperty(inner, prop, desc);
-        });
-      } finally {
-        setWriteOverride(false);
-        setProjectionWriteActive(was);
-      }
-      return true;
-    }
+    defineProperty: (_, prop, desc) =>
+      mutate(() => {
+        Reflect.defineProperty(inner, prop, desc);
+      })
   };
   // Matching-kind dummy so Array.isArray(draft) answers like the store.
   return new Proxy(Array.isArray(inner) ? [] : {}, traps);
@@ -257,24 +250,49 @@ export function runProjectionComputedNext<T extends object>(
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
   const target = (wrappedStore as any)[$TARGET];
-  let settled = false;
+  const fam: StoreNextFamily = target.fam;
+  // Draft validity is per run (R37): live from here until the NEXT run starts
+  // — this counter moves, whatever that run does (lands, throws NotReady,
+  // awaits) — or the owner is disposed. Not "until no longer in flight": a
+  // sync derive that subscribes to an external source and pushes into the
+  // draft from the callback (#3585) is the model use, and the old gate
+  // (`owner._x?._inFlight === result`) only admitted it by accident — while
+  // nothing had read the projection yet (no `_x`), `undefined === undefined`.
+  const run = (fam.run = (fam.run || 0) + 1);
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the
   // seed so draft writes cannot tear through to readers (#2988). Every commit
-  // point reconciles the shadow through the normal commit path.
+  // point reconciles the shadow through the normal commit path. (A callback
+  // that closes over the shadow writes into a dead clone once the window has
+  // closed — the one carve-out from R37's one-draft-per-run model.)
   const shadow = owner._loading ? cloneState(target[STORE_VALUE] as T, target.s) : null;
   const draft = wrapDraft(
     wrappedStore,
-    () => !settled || owner._x?._inFlight === result,
+    () => fam.run === run && !isDisposed(owner),
     aroundDraftWrite,
-    target.s
+    target.s,
+    // A write after the run returned takes the override channel (pending
+    // backing + per-op notify + fold) and arms the drain itself when no
+    // landing will: a flight still up — pending, or the loading window's
+    // first flight — drains at its landing, and must not be drained early.
+    // Not gated on the run having returned: the body's own writes withhold
+    // the microtask too, and a derive body only ever runs outside a flush at
+    // creation (reruns are flush-driven) — a top-level sync projection in a
+    // createRoot stranded the scheduler until an explicit flush(). Arming
+    // mid-body is safe: the microtask fires after this synchronous slice,
+    // when the body has returned or parked, and an initial async run's
+    // pre-await half drains before its landing exactly as it does when the
+    // creation ran inside a flush — nothing reads it before the landing
+    // (the node is uninitialized, proj R23).
+    () => {
+      if (!(owner._statusFlags & STATUS_PENDING) && !owner._loading) scheduleWithheld();
+    }
   );
   storeSetterNext(
     draft,
     s => {
       result = fn((shadow ?? s) as T);
-      settled = true;
       const commit = (v: void | T) => {
         // Shadow run: commit a detached snapshot, never the shadow itself
         // (adoption takes the value by identity — handing it the live shadow

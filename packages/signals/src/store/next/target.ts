@@ -53,6 +53,9 @@ export interface StoreNextFamily {
   /** The projection computed — assigned after creation (accessor pattern). */
   node: Computed<any> | null;
   shallow?: boolean;
+  /** Derive run counter (proj R37): the run whose draft is live. A draft
+   * compares its own run against this — the next run's start supersedes it. */
+  run?: number;
 }
 
 export interface StoreNextTarget {
