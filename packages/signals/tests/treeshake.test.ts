@@ -410,7 +410,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // frame parked as zombies, #3404) before setting REACTIVE_DISPOSED, since
     // the commit's drain returns on that flag. Gated on `self` and not
     // `zombie`: a rerun's `disposeChildren(el)` leaves the frame rendering.
-    expect(minifiedBytes).toBeLessThan(26_230);
+    // A node disposed during its own pass stays disposed and the pass is void
+    // (#3621, 2026-09-23): +72 B core-retained (26,193 -> 26,265) — recompute's
+    // `finally` mask (and updateIfNecessary's) carries REACTIVE_DISPOSED, and
+    // recompute returns on it after the body: `clearDeps` (the reads after the
+    // `dispose()` call re-linked the dead node), the flight retire, and the
+    // lane restore. The mask bits are free; the bytes are the void-pass arm.
+    expect(minifiedBytes).toBeLessThan(26_300);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

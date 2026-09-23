@@ -54,7 +54,8 @@ export interface AttributionHooks {
   flushEnd(): void;
   /**
    * A recompute is starting; `el._deps` still holds the previous run's links.
-   * Always paired with `recomputeEnd` (recompute has no early returns).
+   * Always paired with `recomputeEnd` (recompute's one early return — a node
+   * disposed during its own pass, #3621 — fires it before leaving).
    */
   recomputeStart(el: Computed<any>, create: boolean): void;
   /**

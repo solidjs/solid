@@ -338,6 +338,16 @@ module.exports = [
     // minified in the in-package floor (26,117 -> 26,127); the rest is brotli
     // layout. The store twin (`heldTruthMasked`) is in the store module:
     // + createStore is -5 B, isPending/latest -45 B (mangler/brotli layout).
+    // A node disposed during its own pass stays disposed, the pass void
+    // (#3621, 2026-09-23): 9,733 B against `next`'s 9,724 (+9 B; 17 B under
+    // the cap, which is unchanged). Core-retained: recompute's `finally` mask
+    // (and updateIfNecessary's) carries REACTIVE_DISPOSED — the bits are
+    // free — and recompute returns on it after the body: `clearDeps` (the
+    // reads after the `dispose()` call re-linked the dead node to its
+    // sources), the flight retire (`_inFlight = null`, so a promise the body
+    // returned after disposing lands on a retired identity), and the lane
+    // restore. +72 B minified in the in-package floor (26,193 -> 26,265).
+    // + createStore is -22 B, isPending/latest -5 B (mangler/brotli layout).
     limit: "9.75 KB",
     modifyEsbuildConfig
   },
@@ -978,7 +988,13 @@ module.exports = [
     // disposeChildren's post-disposal sibling read (+63 B minified in the
     // signals core, see the core floor note); the rest is mangler/brotli
     // layout. 0 B in solid and web.
-    limit: "12.55 KB",
+    // A node disposed during its own pass stays disposed, the pass void
+    // (#3621, 2026-09-23): 12.55 -> 12.60 KB, measured at 12,552 B against
+    // `next`'s 12,522 (+30 B; +2 over the cap). The signals core's +72 B
+    // minified (see the core floor note): recompute's `finally` mask carries
+    // REACTIVE_DISPOSED and the pass returns on it — `clearDeps`, the flight
+    // retire, the lane restore. 0 B in solid and web.
+    limit: "12.60 KB",
     modifyEsbuildConfig
   },
   {
@@ -1528,7 +1544,14 @@ module.exports = [
     // 31.2 -> 31.25 KB, measured at 31,220 B (#3616's own +65 B over the
     // pre-#3615 31,155, as its note above recorded). The no-stores entry
     // returns to its pre-#3615 20.95 KB cap, measured at 20,907 B.
-    limit: "31.25 KB",
+    // A node disposed during its own pass stays disposed (#3621, 2026-09-23):
+    // 31.25 -> 31.30 KB, measured at 31,230 B against `next`'s 31,183 (+47 B,
+    // 20 B under the cap — ratcheted for Linux headroom). The signals core's
+    // +72 B minified void-pass arm (see the core floor note); the no-stores
+    // companion moved +5 B (20,981 -> 20,986) on the same build, so the rest
+    // here is brotli layout over the larger bundle. 0 B in the store engine,
+    // solid, or web.
+    limit: "31.30 KB",
     modifyEsbuildConfig
   },
   {
@@ -2063,7 +2086,13 @@ module.exports = [
     // — booleans OR, `historyLimit` max, a config over `false`, between
     // configs the lower bound and the longer `windowMs` — so the result is
     // independent of the order holds were taken. Engine-only.
-    limit: "29.00 KB",
+    // A node disposed during its own pass stays disposed (#3621, 2026-09-23):
+    // 29.00 -> 29.05 KB, measured at 28,999 B against `next`'s 28,965 (+34 B,
+    // 1 B under the cap — ratcheted for Linux headroom). The signals core's
+    // void-pass arm (see the core floor note) plus, on this tier, its paired
+    // `recomputeEnd` call — the one early return recompute has, and the hook
+    // contract says start and end always pair. 0 B in the engine.
+    limit: "29.05 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
