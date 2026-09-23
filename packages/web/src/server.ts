@@ -718,16 +718,18 @@ function unrecognizedInsert(node) {
 // the walk EVALUATED it, after every later argument of the template ran.
 // Equal positions hydrate fine even when the hole allocated (a zero-arity
 // boundary fallback thunk with nothing scoped after it); the finding is an
-// allocation at a shifted position. `undefined` outside an id tree. Once per
-// hole position per template: a row template evaluates its holes once per
-// row and the site is the same every time.
+// allocation at a shifted position. `undefined` outside an id tree. The
+// `ssr()` loop pays one `$reg` read per function hole and takes the bracket
+// only for a carrier (dev renders are benchmarked too). Once per hole
+// position per template: a row template evaluates its holes once per row
+// and the site is the same every time.
 let reportedHoles;
 function devPeekId() {
   const peek = sharedConfig.devPeekNextContextId;
   return peek === undefined ? undefined : peek();
 }
 function checkUnscopedHole(before, template, index, hole) {
-  if (before === undefined || hole.$reg === undefined || hole.$reg === before) return;
+  if (hole.$reg === before) return;
   const after = devPeekId();
   if (after === before) return;
   let seen = (reportedHoles || (reportedHoles = new WeakMap())).get(template);
@@ -3895,12 +3897,11 @@ export function ssr(t) {
         }
       }
     } else if (ht === "function") {
-      // Dev: bracket the evaluation. A scoped hole (`ssrScope`) restores the
-      // enclosing counter; a memo/component accessor allocates under its own
-      // owner; only an unscoped function that built content moves it, and
-      // `checkUnscopedHole` reports it when this position is not the one the
-      // hole was registered at.
-      const devNext = "_SOLID_DEV_" ? devPeekId() : undefined;
+      // Dev: bracket the evaluation of an `escape`d function value (`$reg`,
+      // set by `escapeLate`; scope wrappers and group fns are not candidates
+      // and skip the read). `checkUnscopedHole` reports a hole that built
+      // content at a position other than the one it was registered at.
+      const devNext = "_SOLID_DEV_" && hole.$reg !== undefined ? devPeekId() : undefined;
       // Live frame renders route thunk content holes through the live-hole
       // engine (mark + ledger binding). In-tag positions must never be
       // intercepted — a comment cannot sit inside a tag — including by the
@@ -3956,7 +3957,7 @@ export function ssr(t) {
           appendResolvedNode(result, r);
         }
       }
-      if ("_SOLID_DEV_") checkUnscopedHole(devNext, t, i - 1, hole);
+      if ("_SOLID_DEV_" && devNext !== undefined) checkUnscopedHole(devNext, t, i - 1, hole);
     } else if (result !== null) {
       resolveSSRNode(hole, result);
     } else {
