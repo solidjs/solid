@@ -74,8 +74,10 @@ import {
   setStoreCommitHook
 } from "../../core/scheduler.js";
 import type { Computed, Owner, Signal } from "../../core/types.js";
-import { pendingCheckActive, strictRead } from "../../core/core.js";
+import { pendingCheckActive, strictRead, untrackDepth } from "../../core/core.js";
 import {
+  asyncTailFlights,
+  checkPostAwaitRead,
   DEV,
   registerGraph,
   throwPendingUntrackedRead,
@@ -2059,6 +2061,23 @@ const traps: ProxyHandler<StoreNextTarget> = {
         return nv;
       }
     }
+    if (
+      __DEV__ &&
+      asyncTailFlights !== 0 &&
+      untrackDepth === 0 &&
+      !pendingCheckActive &&
+      !inDraft(target) &&
+      typeof key === "string" &&
+      key !== "then" &&
+      getObserver() === null
+    )
+      checkPostAwaitRead(
+        target.n?.[key as any],
+        target,
+        key,
+        key,
+        !!(((target.fam?.node as any)?._statusFlags ?? 0) & STATUS_PENDING)
+      );
     // Dev strictRead: untracked store reads in labeled scopes (component
     // bodies, effect callbacks) warn — the value can never update the reader.
     // `then` is exempt: resolving a promise with a store proxy (refresh()'s

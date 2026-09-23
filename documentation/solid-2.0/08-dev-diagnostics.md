@@ -327,6 +327,31 @@ function AlsoGood(props) {
 
 This also fires for store property access in the same contexts.
 
+#### `UNTRACKED_READ_AFTER_AWAIT`
+
+**Message:** "[name] was first read after an `await` in an async computation, so it is not a dependency: the computation will not re-run when it changes. Read it before the first `await`, or wrap the read in untrack() if a one-time value is intended."
+
+Only reads made before the first `await` of an async computation are tracked. A signal, memo, or store property first read after it returns its current value, but the computation never re-runs when it changes, so the result goes stale silently.
+
+```js
+// Warns: query() is read after the await and never tracked
+const items = createMemo(async () => {
+  const res = await fetchItems();
+  return res.filter(item => item.tag === query());
+});
+
+// Fix: read it before the first await
+const items = createMemo(async () => {
+  const q = query();
+  const res = await fetchItems();
+  return res.filter(item => item.tag === q);
+});
+```
+
+A source that was also read before the `await` does not warn, nor does `untrack()`. Each computation and source pair warns once. A pending source read after an `await` is a separate error, raised when the flight rejects.
+
+The check relies on V8 async stack traces, so it runs in Chrome, Edge, and Node, and stays silent elsewhere. It covers native Promise computations: async-iterable computations, other thenables, and a helper returned without `await` (`return load()`) are not checked, and it can occasionally miss a read. It is dev-only and adds nothing to production builds.
+
 #### `PENDING_ASYNC_FORBIDDEN_SCOPE`
 
 **Message:** "Reading a pending async value inside createTrackedEffect or onSettled will throw. Use createEffect instead which supports async-aware reactivity."

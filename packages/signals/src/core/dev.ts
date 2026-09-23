@@ -59,6 +59,7 @@ export type DiagnosticCode =
   | "INVALID_AFFECTS_TARGET"
   | "MISSING_EFFECT_FN"
   | "SYNC_NODE_RECEIVED_ASYNC"
+  | "UNTRACKED_READ_AFTER_AWAIT"
   | "REACTIVITY_HALTED"
   | "INVARIANT_VIOLATION"
   | "HUGE_FAN_OUT"
@@ -853,4 +854,140 @@ export function noteFanIn(node: Computed<any>, count: number): void {
       node
     )
   );
+}
+
+/**
+ * Dev-only: attribute reads that run after an `await` inside an async compute.
+ * JS has no async context, so a native-promise flight is consumed by a uniquely
+ * named async function instead of `.then`; V8's async stack traces then carry a
+ * `__solidAsyncCompute_<id>` frame on every read in the compute's continuation.
+ * `await` on a native promise settles on the same tick as `.then`, so dev and
+ * prod timing match. Other thenables, and engines without async frames
+ * (Firefox, Safari), are left alone and never warn.
+ */
+export let asyncTailFlights = 0;
+const tailFlights = new Map<number, { el: Computed<any>; flight: PromiseLike<any> }>();
+const warnedTailReads = new WeakMap<object, WeakMap<object, Set<PropertyKey | undefined>>>();
+let tailFlightId = 0;
+const TAIL_FRAME = /^__solidAsyncCompute_(\d+)$/;
+
+export function watchAsyncTail<T>(el: Computed<T>, flight: PromiseLike<T>): PromiseLike<T> {
+  if (!(flight instanceof Promise) || flight.constructor !== Promise) return flight;
+  return {
+    then(onFulfilled: (value: T) => void, onRejected: (error: unknown) => void) {
+      const id = ++tailFlightId;
+      const name = `__solidAsyncCompute_${id}`;
+      // Retire the entry before settling so reads made by the landing itself stay quiet.
+      const done = () => {
+        tailFlights.delete(id);
+        asyncTailFlights--;
+      };
+      asyncTailFlights++;
+      tailFlights.set(id, { el, flight });
+      ({
+        async [name]() {
+          let value: T;
+          try {
+            value = await flight;
+          } catch (error) {
+            done();
+            return onRejected(error);
+          }
+          done();
+          onFulfilled(value);
+        }
+      })[name]();
+      return undefined as any;
+    }
+  } as PromiseLike<T>;
+}
+
+/**
+ * `dep` is the node a tracked read would have linked (undefined when a store key
+ * was never tracked); `holder`/`key` identify the read for once-only reporting.
+ */
+export function checkPostAwaitRead(
+  dep: object | undefined,
+  holder: object,
+  key: PropertyKey | undefined,
+  nodeName: string | undefined,
+  pending: boolean
+): void {
+  // A microtask resumes at most one async function, so one capture answers for
+  // every read until the queue turns. The reset can land a few jobs late, which
+  // may miss a warning; a cached hit is re-verified below, so it never invents one.
+  // Continuations resume with no owner; mount, flush, and effect reads always have one.
+  if (context !== null) return;
+  let id = windowFlight;
+  const cached = id !== undefined;
+  if (!cached) {
+    id = windowFlight = attributedFlight();
+    queueMicrotask(resetWindowFlight);
+  }
+  if (id === 0) return;
+  const entry = tailFlights.get(id!);
+  // Pending reads already fail through the async.ts post-await diagnostic.
+  if (!entry || pending || entry.el === dep) return;
+  const { el, flight } = entry;
+  if (el._x?._inFlight !== flight) return;
+  if (dep !== undefined)
+    for (let d: Link | null = el._deps; d !== null; d = d._nextDep) if (d._dep === dep) return;
+  let byHolder = warnedTailReads.get(el);
+  if (!byHolder) warnedTailReads.set(el, (byHolder = new WeakMap()));
+  let keys = byHolder.get(holder);
+  if (!keys) byHolder.set(holder, (keys = new Set()));
+  if (keys.has(key) || (cached && attributedFlight() !== id)) return;
+  keys.add(key);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNTRACKED_READ_AFTER_AWAIT",
+        kind: "async",
+        severity: "warn",
+        message:
+          `[UNTRACKED_READ_AFTER_AWAIT] ${nodeName ? `"${nodeName}"` : "A reactive value"} was ` +
+          `first read after an \`await\` in an async computation, so it is not a dependency: ` +
+          `the computation will not re-run when it changes. Read it before the first \`await\`, ` +
+          `or wrap the read in untrack() if a one-time value is intended.`,
+        ownerId: el.id,
+        ownerName: (el as any)._name,
+        nodeName
+      },
+      el
+    )
+  );
+}
+
+let windowFlight: number | undefined;
+function resetWindowFlight(): void {
+  windowFlight = undefined;
+}
+
+/** The innermost tail flight on the async stack, or 0. Reads V8 call sites, skipping `.stack` formatting. */
+function attributedFlight(): number {
+  const V8Error = Error as {
+    stackTraceLimit?: number;
+    prepareStackTrace?: unknown;
+    captureStackTrace?: (target: object, fn?: Function) => void;
+  };
+  if (!V8Error.captureStackTrace) return 0;
+  const prevPrepare = V8Error.prepareStackTrace;
+  const prevLimit = V8Error.stackTraceLimit;
+  const target: { stack?: unknown } = {};
+  let sites: unknown;
+  V8Error.prepareStackTrace = (_: unknown, callSites: unknown) => callSites;
+  V8Error.stackTraceLimit = 50;
+  try {
+    V8Error.captureStackTrace(target, attributedFlight);
+    sites = target.stack;
+  } finally {
+    V8Error.prepareStackTrace = prevPrepare;
+    V8Error.stackTraceLimit = prevLimit;
+  }
+  if (!Array.isArray(sites)) return 0;
+  for (const site of sites) {
+    const match = TAIL_FRAME.exec(site.getFunctionName?.() ?? "");
+    if (match) return +match[1];
+  }
+  return 0;
 }
