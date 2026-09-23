@@ -11,7 +11,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
-import { App, AsyncApp, Shell, HeadShellApp, APP_ROOT_MARKUP } from "../harness/document-shell.jsx";
+import {
+  App,
+  AsyncApp,
+  Shell,
+  HeadShellApp,
+  StyledIsland,
+  APP_ROOT_MARKUP,
+  STYLED_SHELL_CSS,
+  STYLED_LATE_CSS
+} from "../harness/document-shell.jsx";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -93,5 +102,29 @@ describe("document-shell pattern — server render (#3000)", () => {
       resolve(artifactsDir, "document-shell-usehead.json"),
       JSON.stringify({ html }, null, 2)
     );
+  });
+
+  test("useHead stylesheets: shell sheet in the head, late sheet gates its fragment swap", async () => {
+    const chunks = await collectChunks(() => (
+      <Shell>
+        <StyledIsland />
+      </Shell>
+    ));
+    const [shell, ...late] = chunks;
+    const rest = late.join("");
+
+    mkdirSync(artifactsDir, { recursive: true });
+    writeFileSync(
+      resolve(artifactsDir, "document-shell-styled.json"),
+      JSON.stringify({ chunks: [shell, rest] }, null, 2)
+    );
+
+    expect(shell).toContain(`<link rel="stylesheet" href="${STYLED_SHELL_CSS}">`);
+    expect(shell).toContain("waiting");
+    // The fragment's swap waits on the sheet's onload, but its `_fr` record
+    // settles in the same chunk: the client must not resume before the swap.
+    expect(rest).toContain(`href="${STYLED_LATE_CSS}" onload="$dfc('`);
+    expect(rest).toMatch(/\$dfs\("[^"]+",1,0\)/);
+    expect(rest).not.toMatch(/\$df\("/);
   });
 });

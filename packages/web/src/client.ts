@@ -155,8 +155,9 @@ export const waitAsset = (promise: Promise<unknown>): void => {
   if (!gate) {
     runWithOwner(null, () => {
       // NOT sync: the node must be async-aware (the promise is the value
-      // being awaited; sync nodes reject thenable returns).
-      gate = createMemo(() => promise);
+      // being awaited; sync nodes reject thenable returns). Transparent: the
+      // hydrating memo wrapper would otherwise peek an id off the null owner.
+      gate = createMemo(() => promise, { transparent: true });
     });
     assetGates.set(promise, gate);
   }
@@ -1914,7 +1915,13 @@ function gateHeadResource(props) {
       // errored) sheet must acquire synchronously — cached sheets add zero
       // wait, adopted server-emitted sheets never stall — and even a
       // settled promise costs a microtask through the async machinery.
-      if (gateable && entry.loadState === "pending" && typeof waitAsset === "function")
+      // Hydrating content is already visible; the server gated its reveal.
+      if (
+        gateable &&
+        !sharedConfig.hydrating &&
+        entry.loadState === "pending" &&
+        typeof waitAsset === "function"
+      )
         waitAsset(entry.loadPromise);
     },
     () => acquireAsset(descriptor)
