@@ -61,7 +61,7 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { dormantNodes, link, trimStaleDeps } from "./graph.js";
+import { clearDeps, dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
   enqueueSub,
@@ -514,7 +514,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (markNode(c) in read()) marks the running node as part of ordinary
     // bookkeeping, and those marks are correctly discarded here.
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
-    el._flags = (el._flags & REACTIVE_ZOMBIE) | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
+    // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
+    // own owner (a memo calling its root's `dispose()`, a cleanup doing so
+    // #3601/#3606), and `disposeChildren` set the flag on this node
+    // reentrantly. Dropped, the node read as live — `refresh()` re-ran it
+    // and `isDisposed()` lied.
+    el._flags =
+      (el._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) |
+      (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
   }
   // The cast re-widens: TS narrowed `stagedEntry` to `null` at the reset
@@ -522,6 +529,26 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // `enterStagedRead` runs under. No emitted code.
   const bornHeld = stagedEntry as Transition | null;
   stagedEntry = prevStagedEntry;
+
+  // A node that died during its own pass (#3621) is dead at the end of it,
+  // and the pass is void. Its owner's teardown already unlinked its deps,
+  // removed it from the heap and ran its cleanups; what remains is what the
+  // body did AFTER the `dispose()` call: reads that re-linked the dead node
+  // to its sources (unlinked here — the leak that kept it re-running in a
+  // torn-down tree), a flight it may have started (retired: the landing
+  // checks `_inFlight` identity), and the value it returned. That value is
+  // NOT published: a dead node freezes at its last committed value (#3024),
+  // so nothing is staged, committed, or propagated to subscribers, and an
+  // effect's run is not enqueued (runEffect would refuse it anyway). The
+  // attribution frame opened at the top is still closed.
+  if (el._flags & REACTIVE_DISPOSED) {
+    clearDeps(el);
+    if (el._x !== null) el._x._inFlight = null;
+    if (__OBSERVE__ && attrHooks !== null)
+      attrHooks.recomputeEnd(el, create, false, false, false, false);
+    currentOptimisticLane = prevLane;
+    return;
+  }
 
   if (!el._x?._error) {
     // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
@@ -914,9 +941,15 @@ function updateIfNecessary(el: Computed<unknown>): void {
     recompute(el);
   }
 
+  // The guard above refused an already-disposed node; the recompute it just
+  // ran may have disposed it (#3621) — carry the flag, or it comes back alive.
   el._flags =
     el._flags &
-    (REACTIVE_SNAPSHOT_STALE | REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT | REACTIVE_ZOMBIE);
+    (REACTIVE_SNAPSHOT_STALE |
+      REACTIVE_IN_HEAP |
+      REACTIVE_IN_HEAP_HEIGHT |
+      REACTIVE_ZOMBIE |
+      REACTIVE_DISPOSED);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
