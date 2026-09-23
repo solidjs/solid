@@ -548,6 +548,24 @@ The dead click that is not a hold. `onClick={async () => setResult(await save())
 
 The finding fires at settle when the handler took no other road: no root write before returning (a write is the acknowledgement — a pending flag, an optimistic value — and its hold, if any, is judged by `SILENT_HOLD`), and no `action()` step under the frame (an action's steps stay attributed across yields and its holds are judged). Same thresholds as holds — it is the same wait: `info` from `holds.infoMs` (100ms), `warn` from `holds.warnMs` (200ms); off with `holds: false`. `data`: `interaction` (`type`, `target`), `continuationMs`, `capped`. No subject: an interaction has no node.
 
+#### `ABANDONED_FLIGHTS`
+
+**Message:** "`"posts"` abandoned 3 flights in 1000ms (`keydown on input#search` started the first): each was superseded by the next before it landed, so every input asked again and the answers were discarded. Put a debounced or equality-gated derivation between the input and the fetch, or key the fetch on what changes rather than on every keystroke; a preload the flights share (`markFlight`) reads as one flight, not many."
+
+The request-per-keystroke signature `feedback().flights[].abandoned` counts, as a finding while it happens. One async source abandoned `abandonedFlights.count` flights (default 3) within `windowMs` (default 1000ms) — each superseded by the node's next flight before it landed. `warn`, once per window per source; the window lives in the engine, not on the node. `data`: `source`, `abandoned`, `windowMs`, `interaction` (the one whose write started the flight that was abandoned, when known). Subject: the async node. `false` disables.
+
+#### `FALLBACK_FLASH`
+
+**Message:** "`click on button#next`: the Loading fallback at `<App> › <Feed>` showed for 40ms — a spinner that appeared and vanished, feedback for a wait too short to need it. Preload or cache the data so it is there before the boundary asks, or lift the read above the boundary; a fallback under 150ms reads as a flicker."
+
+The other end of the `SILENT_HOLD` spectrum: too much feedback for too little wait. A `Loading` boundary's fallback was displayed (timed from the drain that rendered the swap, as the `fallback` record and `feedback().fallbacks[].flashes` are) and hidden again inside `FALLBACK_FLASH_MS` (150ms, exported). `info`, one per flash, structured channel only. `data`: `shownMs`, `interaction`. Subject: the boundary's subtree, so `ownerPath` names the boundary. `fallbackFlashes: false` disables; the fold's count is unaffected.
+
+#### `STACKED_HOLDS`
+
+**Message:** "3 interactions queued behind one hold waiting on `posts` for 640ms: the person kept clicking while the first answer was in the air, and every repeat waited on the same source. Acknowledge the wait where the control is (`isPending()` to disable or dim it) so the repeats stop, or debounce the input; the hold itself is judged by `SILENT_HOLD`/`LONG_HOLD`."
+
+When a hold commits, `stackedHolds.count` or more interactions (default 3) were waiting in it — the person clicked or typed again while the first answer was still in the air, and the runtime folded every repeat into the same wait. The pile is the symptom; the hold's own verdict is the cause, so the repair is the acknowledgement plus a control that does not accept the repeat. `warn`, once per hold. `data`: the hold's data (`holdMs`, `blockers`, `heldWrites`, `interaction`, `navigation`) plus `interactions`, the count. Subject: the first held write's node. `false` disables.
+
 ### Server rendering (`ssr`, `head`)
 
 The server runtime reports on the same channel. Two groups, two tiers. **Findings** are facts about a render whichever tier is running — an error a boundary contained, work the stream threw away, an error the server-function wire replaced. They ride `OBSERVE.diagnostics` in observe and dev builds (a production observability consumer subscribes to them; in dev they also print) and fold out of prod entirely. **Checks** are guidance for a developer at a console — a write on the server, an invalid preload descriptor — and exist only in the dev build, where they print like any client warning. Every entry carries `ownerPath` when it fired inside a component: on the server the component wrapper labels its owner `<Name>` exactly as the client's does, so `in <App> › <Page>` reads the same on both sides. Codes that already exist on the client (`ASYNC_OUTSIDE_LOADING_BOUNDARY`, `UNRECOGNIZED_INSERT_VALUE`) are shared, not duplicated; `data.side` or the message tells the platforms apart where it matters.
@@ -880,6 +898,9 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `SILENT_HOLD`                      | info/warn | responsiveness | Write held 100ms+/200ms+ by pending async with no on-screen acknowledgement (attribution enabled)                          |
 | `LONG_HOLD`                        | info/warn | responsiveness | Acknowledged hold whose tail (last input → commit) ran 500ms+/1000ms+ (attribution enabled)                                |
 | `UNTRACKED_ASYNC_HANDLER`          | info/warn | responsiveness | Handler awaited 100ms+/200ms+ past its frame with no write before the `await` and no `action()`: a dead click no hold could judge (attribution enabled) |
+| `ABANDONED_FLIGHTS`                | warn      | responsiveness | One async source abandoned 3+ flights in 1s, each superseded before landing — the request-per-keystroke signature (attribution enabled) |
+| `FALLBACK_FLASH`                   | info      | responsiveness | A `Loading` fallback showed for under 150ms — feedback for a wait too short to need it (attribution enabled)               |
+| `STACKED_HOLDS`                    | warn      | responsiveness | 3+ interactions were waiting in one hold when it committed — repeats piled behind the same source (attribution enabled)   |
 | `SSR_RENDER_ERROR_CONTAINED`       | error     | ssr            | Server render error routed by a boundary: `data.handling` fallback / client / failed (observe + dev)                       |
 | `SSR_SUBTREE_ABANDONED`            | warn      | ssr            | A failed fragment's pending descendants were discarded (observe + dev)                                                     |
 | `SSR_STREAM_ABANDONED`             | warn      | ssr            | Response stream cancelled or sink failed with fragments pending (observe + dev)                                            |

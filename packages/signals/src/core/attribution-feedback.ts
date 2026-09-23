@@ -10,6 +10,7 @@
  * `enable()`/`disable()`.
  */
 import {
+  FALLBACK_FLASH_MS,
   formatOrigin,
   isLongHold,
   isSilentHold,
@@ -177,7 +178,6 @@ interface FallbackBucket {
   shownAt: number | null;
 }
 const fallbackStats = new Map<object, FallbackBucket>();
-const FALLBACK_FLASH_MS = 150;
 
 function flightBucket(el: Computed<any>): FlightStats {
   let row = flightStats.get(el);

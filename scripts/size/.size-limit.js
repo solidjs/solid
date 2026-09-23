@@ -2195,6 +2195,12 @@ module.exports = [
     // c25d69f41 (+924 B — the PR's own +928, on the base that now carries the
     // three checks above). The tier is 17,618 against `next`'s 17,471 (+147 B)
     // under the 17.65 KB cap set above.
+    // Feedback findings (2026-09-23, rebased): 29.05 -> 29.85 KB, measured at
+    // 29,768 B on a full build (+769 B over next's 28,999). ABANDONED_FLIGHTS (a
+    // per-source window in a WeakMap, once per window), FALLBACK_FLASH (the open is
+    // now kept for the check, judged at hide) and STACKED_HOLDS (a count over the
+    // open interactions at hold settle), their three options and merge entries, and
+    // the repair text of each — the text is most of it. Tier under its cap.
     limit: "30.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },

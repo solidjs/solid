@@ -474,7 +474,32 @@ export interface AttributionOptions {
    * finds. The count is a walk at settle, never per node. `false` disables.
    */
   graphGrowth?: { visits: number; ratio: number } | false;
+  /**
+   * Abandoned-flights warning: emit ABANDONED_FLIGHTS when one async source
+   * abandons `count` flights within `windowMs` — each superseded by the
+   * next before it landed (default 3 / 1000ms: the request-per-keystroke
+   * signature, every input asking again and the answers discarded). Once
+   * per window per source. `false` disables.
+   */
+  abandonedFlights?: { count: number; windowMs: number } | false;
+  /**
+   * Fallback-flash finding: emit FALLBACK_FLASH (`info`) when a `Loading`
+   * boundary's fallback shows for less than `FALLBACK_FLASH_MS` (150ms) — a
+   * spinner that appeared and vanished, too much feedback for too little
+   * wait (default true). `false` disables.
+   */
+  fallbackFlashes?: boolean;
+  /**
+   * Stacked-holds warning: emit STACKED_HOLDS when `count` or more
+   * interactions are waiting in one hold when it commits (default 3) — the
+   * person kept clicking or typing while the first answer was in the air,
+   * and every one of them waited on the same source. `false` disables.
+   */
+  stackedHolds?: { count: number } | false;
 }
+
+/** A fallback shown for less than this is a flash: feedback for a wait too short to need it. */
+export const FALLBACK_FLASH_MS = 150;
 
 interface AttributedNode {
   _devChange?: ChangeRecord;
@@ -544,7 +569,10 @@ const defaultOptions = {
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
   holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
   longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false,
-  graphGrowth: { visits: 3, ratio: 1.25 } as { visits: number; ratio: number } | false
+  graphGrowth: { visits: 3, ratio: 1.25 } as { visits: number; ratio: number } | false,
+  abandonedFlights: { count: 3, windowMs: 1000 } as { count: number; windowMs: number } | false,
+  fallbackFlashes: true,
+  stackedHolds: { count: 3 } as { count: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 let history: RerunEvent[] = [];
@@ -2300,7 +2328,10 @@ function trackFlightStart(el: Computed<any>, flight: object): void {
   // superseded — its answer will be discarded.
   const superseded = liveFlights.get(el);
   for (const f of folds) f.flightStart?.(el, superseded !== undefined);
-  if (superseded !== undefined && listened("flight")) emitFlight(el, superseded, at, "abandoned");
+  if (superseded !== undefined) {
+    if (listened("flight")) emitFlight(el, superseded, at, "abandoned");
+    checkAbandonedFlights(el, superseded);
+  }
   const causes = enclosingCauses();
   const live: LiveFlight = { origin, startSeq: changeSeq, chain: [] };
   // Provenance: the flight belongs to whatever interaction caused the
@@ -2717,6 +2748,7 @@ function trackHoldSettled(t: Transition): void {
   // Bottom-up delivery: the hold, then the navigations it held, then the
   // interactions those belong to — each record complete when its parent is.
   emitRecord("hold", event);
+  checkStackedHolds(t, event, subject!);
   settleNavigations(t, event);
   settleInteractionsHeld(t, event);
   for (const f of folds) f.hold?.(event);
@@ -3003,6 +3035,129 @@ function trackGraph(navigation: NavigationEvent): void {
   // Judged once for the graph, not once per route: the next verdict needs
   // another `visits` climbing settles.
   routeCounts.clear();
+}
+
+// --- Feedback-table findings -----------------------------------------------------
+
+/** Per async source: abandoned flights inside the current window. Engine-side; the node carries nothing. */
+const abandonWindows = new WeakMap<
+  Computed<any>,
+  { start: number; count: number; warned: boolean }
+>();
+
+/**
+ * One source abandoning flight after flight inside a window: every input
+ * asked again and the earlier answers were thrown away — the
+ * request-per-keystroke signature `feedback().flights[].abandoned` counts,
+ * as a finding while it happens. Warned once per window per source.
+ */
+function checkAbandonedFlights(el: Computed<any>, abandoned: LiveFlight): void {
+  const cfg = options.abandonedFlights;
+  if (cfg === false || excludedNode(el)) return;
+  const at = Date.now();
+  let win = abandonWindows.get(el);
+  if (win === undefined || at - win.start > cfg.windowMs) {
+    win = { start: at, count: 0, warned: false };
+    abandonWindows.set(el, win);
+  }
+  win.count++;
+  if (win.warned || win.count < cfg.count) return;
+  win.warned = true;
+  const source = nodeName(el);
+  const who =
+    abandoned.interaction !== undefined
+      ? ` (${formatOrigin(abandoned.interaction)} started the first)`
+      : "";
+  const message =
+    `[ABANDONED_FLIGHTS] "${source}" abandoned ${win.count} flights in ${cfg.windowMs}ms` +
+    `${who}: each was superseded by the next before it landed, so every input asked again and the ` +
+    `answers were discarded. Put a debounced or equality-gated derivation between the input and ` +
+    `the fetch, or key the fetch on what changes rather than on every keystroke; a preload the ` +
+    `flights share (markFlight) reads as one flight, not many.`;
+  const data: Record<string, unknown> = {
+    source,
+    abandoned: win.count,
+    windowMs: cfg.windowMs
+  };
+  if (abandoned.interaction !== undefined)
+    data.interaction = { type: abandoned.interaction.name, target: abandoned.interaction.target };
+  const entry = emitDiagnostic(
+    {
+      code: "ABANDONED_FLIGHTS",
+      kind: "responsiveness",
+      severity: "warn",
+      message,
+      nodeName: source,
+      data
+    },
+    el
+  );
+  reportDiagnostic(entry);
+}
+
+/**
+ * A fallback that appeared and vanished: the other end of the SILENT_HOLD
+ * spectrum — feedback for a wait too short to need it, which reads as a
+ * flicker. `info`, once per flash; `feedback().fallbacks[].flashes` is the
+ * count. The repair is a preload, a cache, or lifting the fetch above the
+ * boundary so the data is there before the boundary asks.
+ */
+function checkFallbackFlash(
+  subtree: Computed<any> | undefined,
+  shownMs: number,
+  interaction: ChangeOrigin | undefined
+): void {
+  if (subtree !== undefined && excludedNode(subtree)) return;
+  const where = subtree !== undefined ? ownerPath(subtree)?.join(" › ") : undefined;
+  const who = interaction !== undefined ? `${formatOrigin(interaction)}: ` : "";
+  const message =
+    `[FALLBACK_FLASH] ${who}the Loading fallback${where ? ` at ${where}` : ""} showed for ` +
+    `${shownMs.toFixed(0)}ms — a spinner that appeared and vanished, feedback for a wait too short ` +
+    `to need it. Preload or cache the data so it is there before the boundary asks, or lift the ` +
+    `read above the boundary; a fallback under ${FALLBACK_FLASH_MS}ms reads as a flicker.`;
+  const data: Record<string, unknown> = { shownMs };
+  if (interaction !== undefined)
+    data.interaction = { type: interaction.name, target: interaction.target };
+  emitDiagnostic(
+    { code: "FALLBACK_FLASH", kind: "responsiveness", severity: "info", message, data },
+    subtree ?? null
+  );
+}
+
+/**
+ * Several interactions waiting in one hold when it commits: the person kept
+ * clicking or typing while the first answer was in the air, and all of them
+ * waited on the same source. The pile is the symptom; the hold's own verdict
+ * (SILENT_HOLD / LONG_HOLD) is the cause, so the repair is the same
+ * acknowledgement, plus a control that does not accept the repeat.
+ */
+function checkStackedHolds(t: Transition, hold: HoldEvent, subject: Signal<any>): void {
+  const cfg = options.stackedHolds;
+  if (cfg === false) return;
+  let stacked = 0;
+  for (const state of openInteractions) if (state.heldIn.has(t)) stacked++;
+  if (stacked < cfg.count) return;
+  const waitedOn = describeBlockers(hold, "waiting on");
+  const message =
+    `[STACKED_HOLDS] ${stacked} interactions queued behind one hold${waitedOn} for ` +
+    `${hold.holdMs.toFixed(0)}ms: the person kept ${hold.interaction?.name === "input" ? "typing" : "clicking"} ` +
+    `while the first answer was in the air, and every repeat waited on the same source. ` +
+    `Acknowledge the wait where the control is (isPending() to disable or dim it) so the repeats ` +
+    `stop, or debounce the input; the hold itself is judged by SILENT_HOLD/LONG_HOLD.`;
+  const data = holdData(hold);
+  data.interactions = stacked;
+  const entry = emitDiagnostic(
+    {
+      code: "STACKED_HOLDS",
+      kind: "responsiveness",
+      severity: "warn",
+      message,
+      nodeName: nodeName(subject),
+      data
+    },
+    subject
+  );
+  reportDiagnostic(entry);
 }
 
 // --- Navigations ------------------------------------------------------------------
@@ -3299,9 +3454,10 @@ function trackFallback(
   transition: Transition | null
 ): void {
   if (shown) {
-    // Folds count showings too: an open is kept for either audience.
+    // Folds count showings too, and the flash finding needs the show's
+    // clock: an open is kept for any of the three audiences.
     const record = listened("fallback");
-    if (!record && folds.length === 0) return;
+    if (!record && folds.length === 0 && options.fallbackFlashes === false) return;
     // The wait is the enclosing recompute's cause's interaction — the read
     // that registered the pending source runs inside one — else the ambient.
     const causes = enclosingCauses();
@@ -3335,8 +3491,11 @@ function trackFallback(
   // The hide has the subtree the first show may have lacked.
   const subtree = tree ?? open.tree;
   for (const f of folds) f.fallback?.(boundary, subtree, false);
+  const shownMs = now() - open.at;
+  if (options.fallbackFlashes !== false && shownMs < FALLBACK_FLASH_MS)
+    checkFallbackFlash(subtree, shownMs, open.interaction);
   if (!open.record) return;
-  const event: FallbackEvent = { at: open.at, shownMs: now() - open.at };
+  const event: FallbackEvent = { at: open.at, shownMs };
   const path = subtree !== undefined ? ownerPath(subtree) : undefined;
   if (path !== undefined) event.ownerPath = path;
   if (open.interaction !== undefined) event.interaction = open.interaction;

@@ -125,7 +125,14 @@ any pre-await write opens the hold path, which `SILENT_HOLD` judges.
 - **Proof:** an optimistic write of `"saved"` whose action settles to
   `"queued"` fires once; one that settles to `"saved"` fires nothing.
 
-### 4. Promote the feedback-table facts to findings
+### 4. Promote the feedback-table facts to findings — LANDED
+
+Shipped as `ABANDONED_FLIGHTS` (warn, per-source window in the engine),
+`FALLBACK_FLASH` (info, per flash, judged at hide on the same display
+clock the `fallback` record uses) and `STACKED_HOLDS` (warn, count over the
+open interactions at hold settle), with `abandonedFlights`,
+`fallbackFlashes` and `stackedHolds` options merged most-demanding like the
+others. `FALLBACK_FLASH_MS` is exported and shared with the feedback fold.
 
 - **Known:** `feedback()` already counts `flights.abandoned` (started and
   superseded before landing — the request-per-keystroke signature),
