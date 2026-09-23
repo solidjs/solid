@@ -320,7 +320,7 @@ export interface AttributionOptions {
   /**
    * Run the cost checks — the thresholded findings over the engine's own
    * accounting: `hotRuns`, `hotTime`, `wideDeps`, `unstableMemos`,
-   * `wideWrites` (default true). `false` turns all five off at once, whatever
+   * `wideWrites`, `wastedRecompute` (default true). `false` turns all six off at once, whatever
    * their individual settings, so a consumer that wants records only (an
    * exporter, a profiler track) pays for none of their per-node bookkeeping.
    * Hold, long-hold and waterfall tracking are records with verdicts on top,
@@ -360,6 +360,18 @@ export interface AttributionOptions {
    * `false` disables.
    */
   unstableMemos?: number | false;
+  /**
+   * Wasted-recompute warning: emit WASTED_RECOMPUTE when a scope re-ran at
+   * least `minRuns` times within `windowMs` and `ratio` or more of those
+   * runs produced an unchanged value while costing `budgetMs` or more of
+   * compute in all (default 5 runs / 80% / 2ms / 1000ms). The equality gate
+   * closed every time: the scope's inputs changed without changing its
+   * result, so the runs were pure cost — the profiler-shaped fact
+   * `costs().wastedMs` sums, as a finding. Held and overlay runs are not
+   * counted (they may be replayed). Once per window per scope. `false`
+   * disables.
+   */
+  wastedRecompute?: { minRuns: number; ratio: number; budgetMs: number; windowMs: number } | false;
   /**
    * Written-fan-out warning: emit a diagnostic when a committed root
    * invalidation (write, refresh, async landing) reaches a node with at
@@ -473,6 +485,9 @@ const defaultOptions = {
   wideDeps: 30 as number | false,
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
+  wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 2, windowMs: 1000 } as
+    | { minRuns: number; ratio: number; budgetMs: number; windowMs: number }
+    | false,
   wideWrites: 250 as number | false,
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
   holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
@@ -1193,6 +1208,72 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
   );
 }
 
+/** Per scope: the runs inside the current window and how many were no-ops. Engine-side. */
+const wasteWindows = new WeakMap<
+  Computed<any>,
+  { start: number; runs: number; wasted: number; wastedMs: number; warned: boolean }
+>();
+
+/**
+ * A scope whose equality gate closes almost every time: it re-ran because
+ * an input changed, computed, compared equal to its last value and told
+ * nobody — the run was pure cost. `costs().wastedMs` sums this; the finding
+ * names it while it happens, with the input that keeps triggering it. The
+ * fix is upstream: an equality boundary on the part of the input the scope
+ * depends on, or a narrower read. Plain runs only — a held or overlay run
+ * may be replayed and is never blamed as waste.
+ */
+function checkWastedRecompute(el: Computed<any>, event: RerunEvent): void {
+  const cfg = options.wastedRecompute;
+  if (cfg === false || event.phase !== "plain") return;
+  const at = now();
+  let win = wasteWindows.get(el);
+  if (win === undefined || at - win.start > cfg.windowMs) {
+    win = { start: at, runs: 0, wasted: 0, wastedMs: 0, warned: false };
+    wasteWindows.set(el, win);
+  }
+  win.runs++;
+  if (!event.changed) {
+    win.wasted++;
+    win.wastedMs += event.selfMs;
+  }
+  if (
+    win.warned ||
+    win.runs < cfg.minRuns ||
+    win.wasted / win.runs < cfg.ratio ||
+    win.wastedMs < cfg.budgetMs
+  )
+    return;
+  win.warned = true;
+  const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+  const message =
+    `[WASTED_RECOMPUTE] ${event.nodeKind} "${event.nodeName}" re-ran ${win.runs} times in ` +
+    `${cfg.windowMs}ms and ${win.wasted} of those produced the same value — ` +
+    `${win.wastedMs.toFixed(1)}ms of compute the equality gate then discarded. Its inputs ` +
+    `change without changing its result: put an equality boundary upstream (a memo over the ` +
+    `part of the input it reads, or an \`equals\` on the source), or read a narrower slice ` +
+    `(the property, not the object). Latest cause: ${rootCause || "(untracked pull)"}`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "WASTED_RECOMPUTE",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: event.nodeName,
+        data: {
+          runs: win.runs,
+          wasted: win.wasted,
+          wastedMs: win.wastedMs,
+          windowMs: cfg.windowMs,
+          causes: event.causes.map(c => c.name)
+        }
+      },
+      el
+    )
+  );
+}
+
 function recordRerun(
   el: Computed<any>,
   frame: RunFrame,
@@ -1261,6 +1342,7 @@ function recordRerun(
   checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, event);
   checkHotTime(el, event);
+  checkWastedRecompute(el, event);
   checkDepWidth(el);
   emitRecord("rerun", event);
   if (options.log) logRerun(event);
@@ -3776,6 +3858,7 @@ function resolveHold(opts: AttributionOptions | undefined): Options {
     out.wideDeps = false;
     out.unstableMemos = false;
     out.wideWrites = false;
+    out.wastedRecompute = false;
   }
   return out;
 }

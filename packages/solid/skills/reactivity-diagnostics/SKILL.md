@@ -255,6 +255,29 @@ objects/arrays, so its equality gate never closes and every subscriber
 re-runs on every upstream change. Return stable references or pass an
 `equals` option.
 
+### WASTED_RECOMPUTE
+
+The mirror of `UNSTABLE_MEMO_OUTPUT`: this scope's equality gate closes
+almost every time. `data.wasted` of `data.runs` runs in the window produced
+the same value as before — the scope re-ran because an input changed, did
+its work, compared equal, and told nobody. The compute (`data.wastedMs`)
+bought nothing. `data.causes` names the input that keeps triggering it.
+Fix upstream, where the change originates:
+
+- Read a narrower slice: `user().name` re-runs on every `user` write; if
+  `user` is a store, `user.name` re-runs only when the name changes. For a
+  signal holding an object, derive the field first —
+  `const name = createMemo(() => user().name)` — and read the memo.
+- Put an equality boundary on the source: an `equals` option that compares
+  the part that matters, so writes that do not change it never notify.
+- If the scope is expensive and the input legitimately churns, split it:
+  a cheap memo that extracts what it needs, feeding the expensive one.
+
+Do NOT add an `equals` to the wasted scope itself — its gate already
+closes; the cost is the run before the gate. The run is the problem, so
+stop the notification that starts it. Held and overlay runs are never
+counted here; see `costs().scopes[].wastedMs` for the total per scope.
+
 ### ASYNC_WATERFALL
 
 Async flights ran in sequence when they might have run in parallel: each

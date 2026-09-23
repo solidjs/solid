@@ -468,6 +468,12 @@ If a preloading layer hands out wrapper promises (e.g. `.then()` chains over a c
 
 Attribution-engine only. A memo returned a fresh container that is shallowly equivalent to its previous value on `unstableMemos` consecutive runs (default 4). The equality cutoff that normally absorbs no-op recomputes never fires, so the memo's whole subtree re-runs for nothing. Return stable references (memoize the container, mutate a store) or pass an `equals` option that compares by content.
 
+#### `WASTED_RECOMPUTE`
+
+**Message:** "memo `greeting` re-ran 12 times in 1000ms and 11 of those produced the same value — 9.4ms of compute the equality gate then discarded. Its inputs change without changing its result: put an equality boundary upstream (a memo over the part of the input it reads, or an `equals` on the source), or read a narrower slice (the property, not the object). Latest cause: `user` (write)"
+
+Attribution-engine only; the mirror image of `UNSTABLE_MEMO_OUTPUT`. There the gate never closes; here it closes almost every time: the scope re-ran because an input changed, computed, compared equal to its last value and notified nobody — pure cost. `costs().wastedMs` sums the same fact; this names it while it happens, with the input that keeps triggering it. Fires once per window per scope when, within `wastedRecompute.windowMs` (default 1000ms), the scope ran at least `minRuns` times (5), `ratio` or more of them unchanged (0.8), for `budgetMs` or more of compute in all (2ms). Plain runs only — a held or overlay run may be replayed and is never blamed as waste; a side-effect-only compute (`undefined` output) reports `changed: true` and is exempt (see `RerunEvent.changed`). `data`: `runs`, `wasted`, `wastedMs`, `windowMs`, `causes`. One of the six cost checks `checks: false` folds off.
+
 #### `EFFECT_WRITES_OWN_SOURCE`
 
 **Message:** "effect [name] re-ran because of its own write: it [wrote signal X 3 → 5], which fed back into its inputs [via memo Y]. Two flushes to settle, and the screen rendered the pre-write value in between. …"
@@ -857,6 +863,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `WIDE_WRITE`                       | warn      | perf           | Committed write reached 250+ subscribers (attribution enabled)                                                             |
 | `ASYNC_WATERFALL`                  | info/warn | perf           | 2+/3+ sequential async flights: origin-proven (attribution enabled), or a `<Loading>` boundary's passes (server, dev)      |
 | `UNSTABLE_MEMO_OUTPUT`             | warn      | perf           | Memo returned a new-but-equivalent container 4+ runs running (attribution enabled)                                         |
+| `WASTED_RECOMPUTE`                 | warn      | perf           | 80%+ of a scope's 5+ runs in a second produced an unchanged value for 2ms+ of compute — inputs change, result does not (attribution enabled) |
 | `EFFECT_WRITES_OWN_SOURCE`         | info/warn | perf           | Effect's write provably feeds back into its own inputs; `info` for multi-effect rings (attribution enabled)                |
 | `EFFECT_RELAY_TEAR`                | info/warn | perf           | Reader ran twice for one root change because an effect relayed it; `warn` when derivable or repeated (attribution enabled) |
 | `IMMUTABLE_UPDATE_IN_STORE`        | warn      | perf           | Store container replaced by a mostly-identical copy (attribution enabled)                                                  |

@@ -163,7 +163,12 @@ any pre-await write opens the hold path, which `SILENT_HOLD` judges.
   boundary and the function; a test in `@solidjs/diagnostics` server
   scenario asserting the join.
 
-### 6. Wasted recomputation, measured
+### 6. Wasted recomputation, measured — LANDED
+
+Shipped as `WASTED_RECOMPUTE` (warn, perf), the sixth cost check under
+`checks`, with `wastedRecompute: { minRuns, ratio, budgetMs, windowMs }`
+(defaults 5 / 0.8 / 2ms / 1000ms). Plain runs only; the per-scope window is
+an engine `WeakMap`.
 
 - **Known:** `ScopeCost.wastedMs` — time spent on runs whose result
   compared equal — is accumulated by the costs fold; `UNSTABLE_MEMO_OUTPUT`
