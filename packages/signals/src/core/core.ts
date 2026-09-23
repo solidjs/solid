@@ -1989,7 +1989,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       el,
       undefined,
       (el as any)._name,
-      !!(((el as any)._firewall || el)._statusFlags & STATUS_PENDING)
+      (((el as any)._firewall || el)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) ===
+        (STATUS_PENDING | STATUS_UNINITIALIZED)
     );
 
   let c = context;

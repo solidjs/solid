@@ -2079,7 +2079,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
         target,
         undefined,
         key,
-        !!(((target.fam?.node as any)?._statusFlags ?? 0) & STATUS_PENDING)
+        (((target.fam?.node as any)?._statusFlags ?? 0) &
+          (STATUS_PENDING | STATUS_UNINITIALIZED)) ===
+          (STATUS_PENDING | STATUS_UNINITIALIZED)
       );
     // Dev strictRead: untracked store reads in labeled scopes (component
     // bodies, effect callbacks) warn — the value can never update the reader.

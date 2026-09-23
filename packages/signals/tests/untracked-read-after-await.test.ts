@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   action,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   createStore,
@@ -220,10 +221,39 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
     const { dispose } = mount(() => new Promise<number>(() => {}));
     expect(asyncTailFlights).toBe(baseline + 1);
     dispose();
-    const { dispose: disposeNext } = mount(async () => 1);
+    // Registration sweeps once the registry has grown, which retires the dead entry.
+    const others = Array.from({ length: 70 }, () => mount(async () => 1));
     await settle();
     expect(asyncTailFlights).toBe(baseline);
-    disposeNext();
+    for (const other of others) other.dispose();
+  });
+
+  it("warns for a refetching source, which serves its old value instead of throwing", async () => {
+    const stop = captureWarnings();
+    const gate = deferred<number>();
+    const [key, setKey] = createSignal(0);
+    let source!: SourceAccessor<number>;
+    const disposeSource = createRoot(dispose => {
+      source = createMemo(() => (key() === 0 ? 1 : gate.promise), { name: "source" });
+      createRenderEffect(source, () => {});
+      return dispose;
+    });
+    flush();
+    setKey(1);
+    flush();
+    const { memo, dispose } = mount(async () => {
+      await null;
+      return source();
+    });
+    await settle();
+    expect(memo()).toBe(1);
+    gate.resolve(2);
+    await settle();
+    expect(source()).toBe(2);
+    expect(memo()).toBe(1);
+    expect(stop().map(e => e.nodeName)).toEqual(["source"]);
+    dispose();
+    disposeSource();
   });
 
   it("warns once per computation and source", async () => {

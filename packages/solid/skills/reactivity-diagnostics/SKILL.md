@@ -63,6 +63,15 @@ Same shape as above but the value was a pending async computation, so there
 is nothing to read yet at all. Async values must be read where tracking can
 suspend and resume: JSX, a memo, or an effect's compute function.
 
+### UNTRACKED_READ_AFTER_AWAIT
+
+An async computation read a signal, memo, or store property for the first
+time after an `await`. Only reads before the first `await` are tracked, so
+the computation keeps its old result when that value changes. Read the value
+before the first `await` (capture it in a local), or wrap the read in
+`untrack()` if a one-time value is intended. Dev-only and V8-only (Chrome,
+Edge, Node); other engines never report it.
+
 ### PENDING_ASYNC_FORBIDDEN_SCOPE
 
 A pending async value was read inside `createTrackedEffect` or `onSettled`,

@@ -867,7 +867,7 @@ export function noteFanIn(node: Computed<any>, count: number): void {
  */
 export let asyncTailFlights = 0;
 // Weak so a flight that never settles cannot pin its computation (the promise's
-// reactions close over it); dead or superseded entries are swept on registration.
+// reactions close over it); dead or superseded entries are swept as the registry grows.
 const tailFlights = new Map<number, { el: WeakRef<Computed<any>>; flight: WeakRef<object> }>();
 const warnedTailReads = new WeakMap<object, WeakMap<object, Set<PropertyKey | undefined>>>();
 let tailFlightId = 0;
@@ -883,7 +883,7 @@ export function watchAsyncTail<T>(el: Computed<T>, flight: PromiseLike<T>): Prom
       const done = () => {
         if (tailFlights.delete(id)) asyncTailFlights--;
       };
-      sweepTailFlights();
+      if (tailFlights.size >= nextTailSweep) sweepTailFlights();
       asyncTailFlights++;
       tailFlights.set(id, { el: new WeakRef(el), flight: new WeakRef(flight) });
       ({
@@ -913,7 +913,7 @@ export function checkPostAwaitRead(
   holder: object,
   key: PropertyKey | undefined,
   nodeName: string | undefined,
-  pending: boolean
+  throwsPending: boolean
 ): void {
   // A microtask resumes at most one async function, so one capture answers for
   // every read until the queue turns. The reset can land a few jobs late, which
@@ -929,8 +929,9 @@ export function checkPostAwaitRead(
   if (id === 0) return;
   const entry = tailFlights.get(id!);
   const el = entry?.el.deref();
-  // Pending reads already fail through the async.ts post-await diagnostic.
-  if (!el || pending || el === dep) return;
+  // A never-resolved pending read throws, and async.ts reports it on rejection.
+  // A refetching source serves its old value instead, so that read still warns.
+  if (!el || throwsPending || el === dep) return;
   const flight = entry!.flight.deref();
   if (!flight || el._x?._inFlight !== flight) return;
   if (dep !== undefined)
@@ -961,6 +962,8 @@ export function checkPostAwaitRead(
   );
 }
 
+// Sweeping only when the registry doubles keeps registration O(1) amortized.
+let nextTailSweep = 64;
 function sweepTailFlights(): void {
   for (const [id, { el, flight }] of tailFlights) {
     const node = el.deref();
@@ -970,6 +973,7 @@ function sweepTailFlights(): void {
       asyncTailFlights--;
     }
   }
+  nextTailSweep = Math.max(64, tailFlights.size * 2);
 }
 
 let windowFlight: number | undefined;
