@@ -1201,7 +1201,17 @@ module.exports = [
     // withHydrationGate creation flip; the quiet run reuses wrapFirstYield
     // with the adopted value as its `quiet` parameter (+1 optional
     // parameter, shared with the store adapter). 0 B in signals or web.
-    limit: "20.85 KB",
+    // Style-gated fragment resume (#3600, 2026-09-23): 20.85 -> 20.95 KB,
+    // measured at 20,919 B against `next`'s 20,883 (+36 B). Two parts.
+    // Inherited: `next` at ed60f054a already measures 20,883 (33 B over
+    // this cap) — #3606's `runDisposal` detach-before-run in the signals
+    // core landed over #3605's 20,843 without a bump (its PR CI ran on the
+    // pre-#3605 base). This PR: +36 B, solid only — the fragment ledger
+    // holds a boundary's resume until a `$dfs`-parked swap lands
+    // (`fragmentParked`, `whenRevealed`; `fragmentPending` reuses the parked
+    // test). 0 B in web: `waitAsset`'s `{ transparent: true }` and the
+    // hydrating skip in `gateHeadResource` are not in this fixture.
+    limit: "20.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -1473,7 +1483,13 @@ module.exports = [
     // prior entry's brotli layout swing over this bundle reversing, so the
     // two handoff PRs net +76 B here against +106 B no-stores). Solid only,
     // in hydrateSignalLike (see the no-stores note).
-    limit: "31.15 KB",
+    // Style-gated fragment resume (#3600, 2026-09-23): 31.15 -> 31.2 KB,
+    // measured at 31,155 B against `next`'s 31,145 (+10 B; the same solid
+    // ledger source as the no-stores entry's +36 B, laid out differently by
+    // brotli over this larger bundle). `next`'s 31,145 already carries
+    // #3606's +11 B over #3605's 31,134, unbumped (see the no-stores note).
+    // 0 B in the signals core, the store engine, or web.
+    limit: "31.2 KB",
     modifyEsbuildConfig
   },
   {
@@ -1793,7 +1809,14 @@ module.exports = [
     // Fallback records time the display, not the swap (#3575 rebase): 17,402 B
     // (+72 B) — the two boundaryFallback show sites pass the transaction the
     // swap is staged in (`activeTransition`, or null for a lane swap).
-    limit: "17.45 KB",
+    // Inherited from `next` (#3606, recorded 2026-09-23 while landing #3600):
+    // 17.45 -> 17.50 KB, measured at 17,455 B on `next` at ed60f054a (17.43
+    // KB at #3605's a10d33ba3) and 17,455 with #3600 on top (0 B from
+    // #3600). #3606's `runDisposal`
+    // detach-before-run in the signals core landed over #3605 without a
+    // bump (its PR CI ran on the pre-#3605 base) and left this scenario 5 B
+    // over. Prod CSR is 15,819, byte-identical either way.
+    limit: "17.5 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
