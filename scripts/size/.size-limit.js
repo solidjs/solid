@@ -1211,15 +1211,6 @@ module.exports = [
     // (`fragmentParked`, `whenRevealed`; `fragmentPending` reuses the parked
     // test). 0 B in web: `waitAsset`'s `{ transparent: true }` and the
     // hydrating skip in `gateHeadResource` are not in this fixture.
-    // hydrate() waits for the document's records (#3610, 2026-09-23): 20.95
-    // -> 21.10 KB, measured at 21,056 B against `next`'s 20,919 (+137 B).
-    // Web only, in hydrate() itself — the one entry every hydrating app
-    // retains: the readiness gate (`_$HY.p` + parser still running + no
-    // record landed) parks the start on the first `_$HY.r` write (a Proxy
-    // that hands the object back on that write) or DOMContentLoaded, and the
-    // returned dispose cancels a parked start. The previous body moved into
-    // `hydrateRoot`; the gate is a straight-line prologue, nothing to shake.
-    // 0 B in signals or solid.
     // Null owner takes the transparent path; hybrid latches for non-stream
     // shapes (#3609, 2026-09-23): no bump, measured at 21,088 B against
     // `next`'s 21,056 (+32 B) rebased over #3615. Solid only — the
@@ -1227,7 +1218,7 @@ module.exports = [
     // its creation-time gate flip on non-iterable hybrid shapes (commit 2);
     // see the with-stores note for the breakdown. Brotli layout: the same
     // source measured 20,907 against the pre-#3615 `next`'s 20,919 (-12 B).
-    limit: "21.10 KB",
+    limit: "20.95 KB",
     modifyEsbuildConfig
   },
   {
@@ -1505,10 +1496,6 @@ module.exports = [
     // brotli over this larger bundle). `next`'s 31,145 already carries
     // #3606's +11 B over #3605's 31,134, unbumped (see the no-stores note).
     // 0 B in the signals core, the store engine, or web.
-    // hydrate() waits for the document's records (#3610, 2026-09-23): 31.2
-    // -> 31.30 KB, measured at 31,284 B against `next`'s 31,155 (+129 B) —
-    // the same web-only hydrate() gate as the no-stores entry (+137 there),
-    // laid out over this larger bundle. 0 B in signals or solid.
     // Null owner takes the transparent path; hybrid latches for non-stream
     // shapes (#3609, 2026-09-23): 31.30 -> 31.35 KB, measured at 31,328 B
     // against `next`'s 31,284 (+44 B, 28 B over the old cap) rebased over
@@ -1527,7 +1514,7 @@ module.exports = [
     // the ruling forbids. The no-stores companion carries the same source at
     // +32 B (-12 B before the rebase — brotli layout over the smaller
     // bundle). 0 B in the signals core, the store engine, or web.
-    limit: "31.35 KB",
+    limit: "31.2 KB",
     modifyEsbuildConfig
   },
   {

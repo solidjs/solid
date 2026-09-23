@@ -28,8 +28,6 @@ Server (`@solidjs/web` under the `node`/`deno`/`worker` conditions):
 
 For hydration, the document needs the hydration script ahead of the app markup: `generateHydrationScript({ nonce?, eventNames? })` returns it as a string for hand-built documents, and `<HydrationScript />` renders it in JSX documents.
 
-The serialized hydration records (`_$HY.r`) are written by classic inline `<script>`s; a still-loading `<link rel="stylesheet">` blocks every parser-inserted classic script after it but not an `async` module entry, so `hydrate()` can run before the records have. `hydrate()` therefore has a readiness gate (#3610). In a JSX document the shell's records script is spliced immediately after `<HydrationScript />`, so the two can never be separated and hydration starts on the spot — with or without records, even mid-parse. A hand-built document places `generateHydrationScript()` itself, apart from the records script appended to the render output; its bootstrap declares that records may still be pending (`_$HY.p`), and when `hydrate()` runs while the parser is still working and no record has landed, it parks its start until the first record write or `DOMContentLoaded`, whichever comes first — the parser finishing is the proof that no records script is coming. Deferred and module (non-`async`) entries run after parsing and never wait; islands integrations that only ship the bootstrap and hydrate after load are unaffected. `hydrate()` still returns its dispose function synchronously, and disposing cancels a parked start.
-
 ### Consuming the stream: `pipe`, `pipeTo`, `readable`
 
 `renderToStream` returns a result with three consumption surfaces — **exactly one may be used per render** (a second consumer throws with a directed message):
