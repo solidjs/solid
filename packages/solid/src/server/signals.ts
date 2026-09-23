@@ -125,7 +125,7 @@ import type { DiagnosticSubject } from "@solidjs/signals";
 //   * context lookup via lazily-cloned record (matches upstream semantics)
 //   * runWithOwner / getOwner / isDisposed / createRoot
 //
-// Compared to the upstream `Owner` shape (~14 fields), `SSROwner` carries 9
+// Compared to the upstream `Owner` shape (~14 fields), `SSROwner` carries 10
 // — no `_queue`, `_pendingDisposal`, `_pendingFirstChild`, `_prevSibling`,
 // `_config`, `_snapshotScope`, `_flags`. Smaller object → less per-render
 // allocation and faster GC.
@@ -133,6 +133,11 @@ import type { DiagnosticSubject } from "@solidjs/signals";
 type Disposable = () => void;
 
 interface SSROwner {
+  /**
+   * The hydration id, or — while `_scopeSlot >= 0` — the PREFIX of a
+   * pending one (see `ssrScope`). Read it for id derivation only through
+   * `materializeId` / `ownerId`, never directly.
+   */
   id?: string;
   _transparent: boolean;
   _disposal: Disposable | Disposable[] | null;
@@ -143,12 +148,21 @@ interface SSROwner {
   _nextSibling: SSROwner | null;
   _disposed: boolean;
   /**
+   * A reserved-but-unformatted hole slot (`ssrScope`), or -1. While a hole
+   * scope is swapped onto this owner, its id is the pair (`id` = the
+   * enclosing owner's id, `_scopeSlot` = the slot the hole reserved) and
+   * the string `formatChildId(id, _scopeSlot)` is only built on demand —
+   * a text hole never asks for one. Owned by the swap: set and restored
+   * around every evaluation; -1 in every literal and on pool reuse.
+   */
+  _scopeSlot: number;
+  /**
    * Observe/dev tiers only: the label the core's `ownerPath` walk reads
    * (`<Name>` on a component's owner — see `createComponentOwner`), the
    * same field and the same walk as client owners, so a server finding
    * locates itself as `<App> › <Page>` without the core learning this
    * shape. Prod owners never carry the slot (a second literal, like the
-   * signals node shapes), so the 9-field layout above is untouched there.
+   * signals node shapes), so the 10-field layout above is untouched there.
    */
   _name?: string;
 }
@@ -173,11 +187,47 @@ function formatChildId(prefix: string, id: number): string {
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
 }
 
+/**
+ * The owner's id, folding a pending hole slot (`ssrScope`) into it on first
+ * demand: `id` becomes `formatChildId(prefix, slot)` — the exact string the
+ * eager reservation used to build up front — and the slot clears. Every read
+ * that DERIVES from an owner's id (a child id, a transparent child's copy)
+ * goes through here, so a scoped text hole that never derives anything
+ * never pays for the string. Idempotent; the string is byte-identical
+ * whenever it is built.
+ */
+function materializeId(owner: SSROwner): string | undefined {
+  if (owner._scopeSlot >= 0) {
+    owner.id = formatChildId(owner.id!, owner._scopeSlot);
+    owner._scopeSlot = -1;
+  }
+  return owner.id;
+}
+
+/**
+ * The owner's id for a reader that is NEVER a pending hole scope — its own
+ * freshly created owner (boundaries, rows, Reveal, an async node's
+ * serialization key). The direct field read is the prod build; the dev
+ * build asserts the premise, so a future reader that lands on a swapped
+ * owner fails loudly instead of deriving from the bare prefix. Readers that
+ * CAN see a pending owner use `materializeId`.
+ */
+export function ownerId(owner: Owner | SSROwner): string | undefined {
+  const o = owner as unknown as SSROwner;
+  if (IS_DEV && o._scopeSlot >= 0) {
+    throw new Error(
+      "Internal: read of a hole-scoped owner's id without materializing it — use materializeId"
+    );
+  }
+  return o.id;
+}
+
 function nextChildIdFor(owner: SSROwner, consume: boolean): string {
   let counter = owner;
   while (counter._transparent && counter._parent) counter = counter._parent;
   if (counter.id != null) {
-    return formatChildId(counter.id, consume ? counter._childCount++ : counter._childCount);
+    const prefix = counter._scopeSlot >= 0 ? materializeId(counter)! : counter.id;
+    return formatChildId(prefix, consume ? counter._childCount++ : counter._childCount);
   }
   throw new Error("Cannot get child id from owner without an id");
 }
@@ -229,15 +279,24 @@ export function createComponentOwner(name: string): Owner {
 
 function allocateOwner(explicitId: string | undefined, transparent: boolean): SSROwner {
   const parent = currentOwner;
+  // A transparent child COPIES the parent's id (ids keep walking up to it),
+  // so a pending hole slot on the parent must be folded in first — the copy
+  // is read directly later (an async node's serialization key).
   const id =
     explicitId ??
-    (transparent ? parent?.id : parent?.id != null ? nextChildIdFor(parent, true) : undefined);
+    (transparent
+      ? parent && parent._scopeSlot >= 0
+        ? materializeId(parent)
+        : parent?.id
+      : parent?.id != null
+        ? nextChildIdFor(parent, true)
+        : undefined);
   const ctx = parent?._context ?? defaultSSRContext;
   let owner: SSROwner;
   if (ownerPool.length) {
     // Reuse a recycled owner. Reset all fields so the hidden class stays
     // monomorphic and we don't carry stale references. (Allocation is the
-    // hot path — re-initializing 9 slots is much cheaper than `new`.)
+    // hot path — re-initializing 10 slots is much cheaper than `new`.)
     owner = ownerPool.pop()!;
     owner.id = id;
     owner._transparent = transparent;
@@ -248,12 +307,13 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
     owner._firstChild = null;
     owner._nextSibling = null;
     owner._disposed = false;
+    owner._scopeSlot = -1;
     if (IS_OBSERVE) owner._name = undefined;
   } else {
     // Two literals, one per tier: the observe/dev shape carries the label
     // slot so every owner of the tier shares a hidden class (a pooled
-    // component owner reused as a plain one included); prod's 9-field
-    // literal is byte-identical to before.
+    // component owner reused as a plain one included); prod's 10-field
+    // literal is the same shape in every allocation site.
     owner = IS_OBSERVE
       ? {
           id,
@@ -265,6 +325,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
+          _scopeSlot: -1,
           _name: undefined
         }
       : {
@@ -276,7 +337,8 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _childCount: 0,
           _firstChild: null,
           _nextSibling: null,
-          _disposed: false
+          _disposed: false,
+          _scopeSlot: -1
         };
   }
   if (parent) {
@@ -427,6 +489,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
       // every boundary discovery pass drifts the ids of the eventual
       // successful run past the client's (#2900).
       node._childCount = 0;
+      node._scopeSlot = -1;
     }
     return;
   }
@@ -439,6 +502,10 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   }
   node._firstChild = null;
   node._childCount = 0;
+  // Defensive: a kept-alive owner (`self=false`) re-runs from its own,
+  // settled id. The slot is swap-owned (`ssrScope` restores it in `finally`),
+  // so this is never observed set here — pinned by `ownerId`'s dev check.
+  node._scopeSlot = -1;
   // Detached before it runs, mirroring the client `runDisposal` (#3601): a
   // cleanup that re-enters this owner's disposal must find nothing to re-run.
   const d = node._disposal;
@@ -477,6 +544,7 @@ export function resetOwnerForRerun(owner: Owner): void {
   const node = owner as unknown as SSROwner;
   if (node._firstChild || node._disposal) disposeOwner(owner, false);
   node._childCount = 0;
+  node._scopeSlot = -1;
 }
 
 export function createRoot<T>(
@@ -512,17 +580,30 @@ export function createRoot<T>(
  * invisible to it and the hole's content would take fresh ids from the
  * enclosing counter — a different id than the client, which scopes the
  * hole by its own insert effect regardless of what sits between.
+ *
+ * The reservation is a counter increment; the scope's id STRING is not
+ * built here. Most scoped holes are text (`{row.label}` — since #3599 every
+ * hole that is not provably primitive is scoped) and nothing inside them
+ * ever asks for a child id, so formatting `prefix + slot` up front was the
+ * dominant per-hole cost. Instead the swap installs the pair
+ * (`id = prefix`, `_scopeSlot = slot`) and `materializeId` folds it into the
+ * string on the first derivation — the same string the eager form built.
+ * `prefix` is the enclosing owner's id at reservation time, materialized
+ * once if that owner is itself a pending scope (a hole inside a hole).
  */
 export function ssrScope<T>(fn: () => T): () => unknown {
   let parent = currentOwner;
   // No id plumbing to protect (non-hydrating SSR / owner-less evaluation).
   if (!parent || parent.id == null) return fn;
   while (parent._transparent && parent._parent) parent = parent._parent;
-  const scopeId = nextChildIdFor(parent, true);
+  const prefix = parent._scopeSlot >= 0 ? materializeId(parent)! : parent.id!;
+  const slot = parent._childCount++;
   return () => {
     const prevId = parent.id;
+    const prevSlot = parent._scopeSlot;
     const prevCount = parent._childCount;
-    parent.id = scopeId;
+    parent.id = prefix;
+    parent._scopeSlot = slot;
     parent._childCount = 0;
     try {
       let v: unknown = fn();
@@ -534,6 +615,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       return v;
     } finally {
       parent.id = prevId;
+      parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
     }
   };
@@ -1254,7 +1336,9 @@ function processResult<T>(
   loadingState?: { value: T; served: boolean }
 ) {
   if (comp.disposed) return;
-  const id = owner.id;
+  // The node's own owner, read after its compute unwound — never a swapped
+  // hole scope (the swap is restored in `finally` before the result is seen).
+  const id = ownerId(owner);
   // Every (re)process resets the sync mark; only the synchronous tail sets
   // it. An epoch recompute that turned async must not stay epoch-cached.
   comp.sync = false;
@@ -2132,6 +2216,8 @@ export function createProjection<T extends object = {}>(
 ): Store<T> {
   const ctx = sharedConfig.context;
   const owner = createOwner();
+  // The projection's own owner, read at creation — never a swapped hole scope.
+  const id = ownerId(owner);
   // Slot memory (#3068), the projection flavor of the memo slots above
   // (#3003): retry loops converge by re-running creation scopes, and an
   // async projection can NEVER be ready at creation-scope read time (a
@@ -2148,7 +2234,7 @@ export function createProjection<T extends object = {}>(
   // passes read through it synchronously. Only async shapes record (the
   // four pending-proxy returns below); sync derives re-run like any other
   // sync code in a retried scope.
-  const slotId = ctx && owner.id;
+  const slotId = ctx && id;
   const slots: Record<string, Store<T>> | undefined = slotId
     ? ((ctx as any)[PROJECTION_SLOTS] ||= Object.create(null))
     : undefined;
@@ -2240,8 +2326,8 @@ export function createProjection<T extends object = {}>(
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
-      ctx.serialize(owner.id, deferred.promise, options?.deferStream);
+    if (ctx?.async && !getContext(NoHydrateContext) && id)
+      ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
@@ -2273,8 +2359,8 @@ export function createProjection<T extends object = {}>(
         () => disposed
       );
       registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-      if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
-        ctx.serialize(owner.id, deferred.promise, options?.deferStream);
+      if (ctx?.async && !getContext(NoHydrateContext) && id)
+        ctx.serialize(id, deferred.promise, options?.deferStream);
       return recordSlot(pending);
     } else {
       // Full streaming: eagerly start first iteration. Tapped wrapper replays
@@ -2396,8 +2482,8 @@ export function createProjection<T extends object = {}>(
       };
       projectionTraces.set(pending, { subscribe, array: Array.isArray(state) });
 
-      if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
-        ctx.serialize(owner.id, subscribe(), options?.deferStream);
+      if (ctx?.async && !getContext(NoHydrateContext) && id) {
+        ctx.serialize(id, subscribe(), options?.deferStream);
       }
       return recordSlot(pending);
     }
@@ -2422,8 +2508,8 @@ export function createProjection<T extends object = {}>(
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
-      ctx.serialize(owner.id, deferred.promise, options?.deferStream);
+    if (ctx?.async && !getContext(NoHydrateContext) && id)
+      ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
@@ -2552,7 +2638,9 @@ export function mapArray<T, U>(
       rowOwner._childCount = 0;
       if (items && items.length) {
         runWithOwner(rowOwner as unknown as Owner, () => {
-          const origId = rowOwner.id;
+          // Own owner, not a swapped hole scope: a row's holes swap it only
+          // inside `mapFn`, and restore before the next iteration.
+          const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
               if (origId !== undefined) {
@@ -2613,7 +2701,7 @@ export function repeat<T>(
       }
       const out: T[] = new Array(len);
       runWithOwner(rowOwner as unknown as Owner, () => {
-        const origId = rowOwner.id;
+        const origId = ownerId(rowOwner);
         try {
           for (let i = 0; i < len; i++) {
             if (origId !== undefined) {
@@ -3002,7 +3090,7 @@ export function createErrorBoundary<T, U>(
   let resolveCount = 0;
   const resolveIn = <R>(run: () => R): R => {
     if (resolveId === undefined) return run();
-    const prevId = idOwner.id;
+    const prevId = ownerId(idOwner);
     const prevCount = idOwner._childCount;
     idOwner.id = resolveId;
     idOwner._childCount = resolveCount;
@@ -3052,7 +3140,7 @@ export function createErrorBoundary<T, U>(
   // The boundary's own id, read once: an error lands mid-resolve, while
   // `owner.id` is rewritten to the resolve scope's (see `resolveIn`), and the
   // client looks the record up at the boundary id.
-  const boundaryId = owner.id;
+  const boundaryId = ownerId(idOwner);
   const serializeError = (err: any) => {
     if (ctx && boundaryId && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
       ctx.serialize(boundaryId, err);

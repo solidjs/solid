@@ -10,7 +10,8 @@ import {
   getNextChildId,
   runWithOwner,
   setContext,
-  RevealGroupContext
+  RevealGroupContext,
+  ownerId
 } from "./signals.js";
 import { createLoadingBoundary } from "./hydration.js";
 import { IS_DEV, IS_OBSERVE, devCheck } from "./diagnostics.js";
@@ -342,7 +343,8 @@ export type RevealProps = {
  */
 export function Reveal(props: RevealProps): SolidElement {
   const o = createOwner();
-  const id = o.id!;
+  // Own, just-created owner — never a swapped hole scope.
+  const id = ownerId(o)!;
   const order: RevealOrder = props.order ?? "sequential";
   const collapsed = order === "sequential" && !!props.collapsed;
 
