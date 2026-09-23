@@ -2074,9 +2074,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
       (Object.prototype.hasOwnProperty.call(src, key) ||
         Object.prototype.hasOwnProperty.call(target.v, key))
     )
+      // Once per store per computation: the holder is the root target, so a
+      // row walk (`items.map(i => i.name)`) after an await reports the first
+      // untracked key it touched, not one warning per row proxy.
       checkPostAwaitRead(
         target.n?.[key as any],
-        target,
+        storeRoot(target),
         undefined,
         key,
         (((target.fam?.node as any)?._statusFlags ?? 0) &

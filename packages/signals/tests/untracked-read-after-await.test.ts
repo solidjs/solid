@@ -525,7 +525,7 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
       dispose();
     });
 
-    it("reports each untracked segment of a nested path", async () => {
+    it("warns once for a nested path, naming its first untracked segment", async () => {
       const stop = captureWarnings();
       const [state] = createStore({ user: { name: "Ada" } });
       const { dispose } = mount(async () => {
@@ -533,7 +533,38 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
         return state.user.name;
       });
       await settle();
-      expect(stop().map(e => e.nodeName)).toEqual(["user", "name"]);
+      expect(stop().map(e => e.nodeName)).toEqual(["user"]);
+      dispose();
+    });
+
+    it("warns once per store per computation, however many properties it reads", async () => {
+      const stop = captureWarnings();
+      const [state] = createStore({
+        a: 1,
+        b: 2,
+        c: 3,
+        items: [{ name: "x" }, { name: "y" }, { name: "z" }]
+      });
+      const { memo, dispose } = mount(async () => {
+        await null;
+        return state.a + state.b + state.c + state.items.map(i => i.name).join("");
+      });
+      await settle();
+      expect(memo()).toBe("6xyz");
+      expect(stop().map(e => e.nodeName)).toEqual(["a"]);
+      dispose();
+    });
+
+    it("warns once per distinct store", async () => {
+      const stop = captureWarnings();
+      const [first] = createStore({ p: 1 });
+      const [second] = createStore({ q: 2 });
+      const { dispose } = mount(async () => {
+        await null;
+        return first.p + second.q;
+      });
+      await settle();
+      expect(stop().map(e => e.nodeName)).toEqual(["p", "q"]);
       dispose();
     });
 
