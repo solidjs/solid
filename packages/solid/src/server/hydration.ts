@@ -118,9 +118,30 @@ function ssrLoadingBoundary(
   const record = (outcome: BoundaryEvent["outcome"], streamed: boolean, error?: unknown) => {
     if (recorded) return;
     recorded = true;
-    if (IS_DEV) checkWaited(outcome, timed ? performance.now() - discoveredAt : 0);
+    const settledAt = timed ? performance.now() : 0;
+    if (IS_DEV) checkWaited(outcome, settledAt - discoveredAt);
+    // The document's `Server-Timing` (the web runtime's seam on the render
+    // context — see `_timing`): a boundary the shell WAITED on — a pass past
+    // discovery, settled before the flush — labelled by its owner path, the
+    // label the client's `fallback` record and the findings carry. One that
+    // streams settled after the head left and cannot ride the header; one
+    // decided on its first pass (a renderToString fallback, a client hole)
+    // held nothing up.
+    const timing = timed && !streamed && passes > 1 ? ctx._timing : undefined;
+    // The core's walk (`_parent` + `_name`), the same one its diagnostics
+    // make over these owners, so the record, the finding it may pair with
+    // and the metric locate to the same `<App> › <Page>`.
+    const path = observed || timing !== undefined ? ownerPath(o) : undefined;
+    if (timing !== undefined) {
+      // ASCII on the wire (a header value is a byte string); the adapter
+      // renders the path with the artifact's ` › `.
+      timing.push({
+        name: "solid-boundary",
+        dur: settledAt - discoveredAt,
+        desc: path ? path.join(" > ") : id
+      });
+    }
     if (!observed) return;
-    const settledAt = performance.now();
     const event: BoundaryEvent = {
       id,
       at: discoveredAt,
@@ -131,10 +152,6 @@ function ssrLoadingBoundary(
       streamed
     };
     if (revealGroup) event.revealGroup = revealGroup.id;
-    // The core's walk (`_parent` + `_name`), the same one its diagnostics
-    // make over these owners, so the record and the finding it may pair with
-    // locate to the same `<App> › <Page>`.
-    const path = ownerPath(o);
     if (path) event.ownerPath = path;
     const live: BoundaryLive = {};
     if (outcome === "error") live.error = error;

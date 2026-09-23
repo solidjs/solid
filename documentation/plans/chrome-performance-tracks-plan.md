@@ -1,8 +1,8 @@
 # Chrome Performance Tracks — Solid's records on the Performance panel
 
 _Drafted 2026-09-18 as a Cursor plan; landed in the repo 2026-09-21 with the
-work. Status: SHIPPED through Stage 4 on the `perf-tracks` branch; Stage 5
-deferred. Sibling of `responsiveness-findings-plan.md` (the findings and the
+work. Status: SHIPPED through Stage 4 (#3580); Stage 5 (server spans over
+`Server-Timing`) implemented on `feat/performance-tracks-server`, PR pending. Sibling of `responsiveness-findings-plan.md` (the findings and the
 interaction-contract decisions D1/D2; its "↔ Tracks" marks are the meeting
 points) and second consumer, beside `@sentry/solid-2`, of the observe-tier
 contract in `proposals/production-observability-sketch.md` §7. Owner: Ryan._
@@ -196,18 +196,82 @@ transition)`. Shape: `{ ownerPath?, at, shownMs, interaction? }` (item 4's
   compiler release carrying `sourceNames` — the compiler rejects unknown
   options, so the plugin's `@solidjs/compiler` range must move with it.
 
-## Stage 5 (deferred): server spans in the browser panel
+## Stage 5: server spans in the browser panel
 
-Ride the existing `Server-Timing` carrier (`packages/web/src/trace.ts`,
-`appendTraceServerTiming`) rather than a custom debug chunk: in dev/observe,
-append `dur=` metrics per `invocation` and `boundary` to the document and
-server-function responses. Chrome renders `Server-Timing` in the Network
-track's request details with no client code, and the adapter can read them
-via `PerformanceResourceTiming.serverTiming` and draw them on the `Server`
-track beside the matching `call`, joined by function `id`. Server waterfall
-/ N+1 per request stays a consumer-side join over `invocation`/`boundary`
-records (responsiveness item 5b). Not part of this delivery; the record
-shapes stay serializable and the header stays the one carrier.
+The client-side `Server` track shows a server-function call as the browser
+saw it: request out, answer decoded. What the server did inside that span —
+how long the function itself ran, and for the document, how long the shell
+render waited on which `<Loading>` boundary before the head could leave —
+is the server's `invocation` and `boundary` records, which never reach the
+browser. Stage 5 carries the durations over and paints them under the
+matching client span. React 19.2's server tracks do the equivalent for
+Flight only, dev-only; this works on any Solid response, in observe too.
+
+**Carrier: `Server-Timing`, the header the trace already rides.** One
+metric per timed thing, standard `dur` and `desc` params, appended at head
+commit by the same path as the trace entries (`appendTraceServerTiming`;
+`commitResponseStub` / `commitEventResponse`). No custom chunk, no `<meta>`:
+the header is what Chrome's Network details already show with no client
+code, what `PerformanceResourceTiming.serverTiming` and
+`PerformanceNavigationTiming.serverTiming` expose to the page, and the one
+place a metric can land for a redirect, an RPC response or a frame stream
+as much as for the document. The consequence is accepted, not worked
+around: a header is frozen when the head leaves, so only what the server
+knew by then rides it. For a server-function response that is everything
+(the function ran before the response was built). For a streamed document
+it is the shell: the render up to the flush, and the boundaries that
+settled inside it. Boundaries that stream after the shell cannot be on the
+header; they stay server-side records (the diagnostics artifact has them,
+`SSR_*` findings judge them). A later stage could carry them in the swap
+chunk the client already applies; that is a new carrier and a new decision.
+
+| Metric             | On                             | `dur`                                                   | `desc`                                                        |
+| ------------------ | ------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------- |
+| `solid-invocation` | the response the call produced | the execution (`InvocationEvent.durationMs`)            | the function `id` (a direct SSR-time call: on the document)   |
+| `solid-shell`      | the document                   | render start → head commit (`renderToString`: complete) | —                                                             |
+| `solid-boundary`   | the document                   | discovery → settle, boundaries settled before the head  | the boundary's nearest component label, else its hydration id |
+
+**Gate — when the header changes.** The trace precedent holds: an app with
+no observer sees zero wire change in the observe build. Metrics ride the
+header exactly when the runtime is already measuring for a listener —
+`OBSERVE.records.observed("invocation")` / `observed("boundary")` on the
+server (a diagnostics capture, an APM adapter) — because the measurement is
+the same one the record carries; the header is a second reader of it, not
+a second clock. Dev builds carry them always: dev is where the panel is
+used, `enablePerformanceTracks()` runs in the browser and has no server
+half to switch on, and the boundary already measures in dev for its own
+checks. (`observeInvocation` gains the same `IS_DEV || observed` timing
+gate `ssrLoadingBoundary` has.) No new server API: an observe deployment
+that wants server spans in the panel installs an observer, the same way it
+gets the trace advertised.
+
+**Client — the adapter.** Nothing new on the wire from the browser and no
+change to the `call` record: the adapter reads the metrics off
+`CallLive.response` (the transport's own `Response`; same-origin headers are
+readable, cross-origin ones when `Timing-Allow-Origin` allows) and places
+them with the fetch's `PerformanceResourceTiming` entry — the server span
+ends at the entry's `responseStart` (the head left the server right after
+the function returned) and runs back `dur`. The entry lands in the
+performance timeline after the body is read, so it can arrive after the
+`call` record: the adapter keeps a `PerformanceObserver` on `resource`
+entries while enabled and paints when the entry for the call's URL and time
+window shows up (entries are historical stamps, so painting late is exact;
+the observer sees entries the buffer would have dropped). Without a
+resource entry (no `PerformanceObserver`, a `responseStart` of `0` under a
+missing `Timing-Allow-Origin`) the server span is placed centred in the
+call span and its tooltip says so. Pending calls with no entry are dropped
+after thirty seconds. For the document, at enable, the navigation entry's
+`serverTiming` paints `solid-shell` ending at its `responseStart` and each
+`solid-boundary` inside it, ending where the shell ends (their settle is at
+or before the flush; the exact offset is not carried — the last one to
+settle is what releases the shell, the others are earlier by an unknown
+margin, stated in the tooltip). Server spans are `tertiary` on the `Server`
+track, labelled `<id> · server` / `shell · server` / `<Page> · boundary`,
+beneath the `secondary` client spans, so the wire is the visible gap
+between them.
+
+Server waterfall / N+1 per request stays a consumer-side join over
+`invocation`/`boundary` records (responsiveness item 5b).
 
 ## Where Solid beats React
 

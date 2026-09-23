@@ -47,7 +47,7 @@ import type {
   Observe,
   RerunEvent
 } from "solid-js";
-import type { CallEvent, FrameEvent } from "@solidjs/web";
+import type { CallEvent, CallLive, FrameEvent } from "@solidjs/web";
 import {
   attribution,
   formatOrigin,
@@ -189,8 +189,10 @@ const noop = (): void => {};
 
 /**
  * Paint the attribution engine's records — and the web runtime's
- * server-function `call` and `frame` records — as tracks in the Chrome
- * Performance panel, from now until the returned function is called. The
+ * server-function `call` and `frame` records, with the server's own timing
+ * for each response under them (its `Server-Timing` metrics, placed by the
+ * browser's resource timing; the document's at enable) — as tracks in the
+ * Chrome Performance panel, from now until the returned function is called. The
  * tracks themselves are Chrome's (its `detail.devtools` extension); in rich
  * mode the spans are standard User Timing measures underneath, so any tool
  * that reads those — Firefox's profiler, Lighthouse, RUM — sees the same
@@ -230,8 +232,11 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   const minMs = options.minMs ?? (IS_DEV ? 0 : 0.05);
   const scrub = options.scrub ?? !IS_DEV;
   const painter = new Painter(observe, emitter, minMs, scrub);
+  const server = new ServerSpans(emitter);
+  server.start();
 
   const releases = [
+    () => server.dispose(),
     attribution.enable({ log: false, ...options.attribution }),
     attribution.subscribe("rerun", e => painter.rerun(e)),
     attribution.subscribe("create", e => painter.create(e)),
@@ -242,7 +247,10 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
     attribution.subscribe("interaction", e => painter.interaction(e)),
     attribution.subscribe("hold", e => painter.hold(e)),
     attribution.subscribe("navigation", e => painter.navigation(e)),
-    observe.records.subscribe("call", e => painter.call(e)),
+    observe.records.subscribe("call", (e, live) => {
+      painter.call(e);
+      server.call(e, live);
+    }),
     observe.records.subscribe("frame", e => painter.frame(e)),
     observe.diagnostics.subscribe(e => painter.diagnostic(e))
   ];
@@ -1116,6 +1124,290 @@ function bySelfTime(selfMs: number): TrackColor {
       : selfMs < 100
         ? "primary-dark"
         : "error";
+}
+
+// --- Server spans --------------------------------------------------------------
+//
+// What the server did inside a client span. The server runtime puts its
+// timed work on the response's `Server-Timing` header (trace.ts
+// `TimingMetric`: `solid-invocation` on a server-function response —
+// `solid-shell` and the `solid-boundary`s that settled inside it on the
+// document), and this paints those durations on the `Server` track under
+// the client span they belong to, so the wire is the visible gap between
+// the two. Placement comes from the browser's own resource timing: the
+// head left the server right after the function returned, so a server
+// span ENDS at the fetch's `responseStart` and runs back its `dur`. The
+// resource entry is queued after the body is read and can land after the
+// `call` record, so calls wait for it under a `PerformanceObserver`
+// (painting late is exact — every stamp is historical). Without one, the
+// span is centred in the call and says so.
+
+/** A `Server-Timing` metric as the header carries it (and as `PerformanceServerTiming` exposes it). */
+interface ServerMetric {
+  name: string;
+  duration: number;
+  description: string;
+}
+
+/** A call whose resource entry has not arrived. */
+interface PendingCall {
+  event: CallEvent;
+  url: string;
+  metrics: ServerMetric[];
+  expires: number;
+}
+
+/** The runtime's metric names; anything else on the header is the app's. */
+const SOLID_METRIC = /^solid-(invocation|shell|boundary)$/;
+/** How long a call waits for its resource entry before it is forgotten. */
+const PENDING_MS = 30_000;
+
+class ServerSpans {
+  private readonly pending: PendingCall[] = [];
+  private observer: PerformanceObserver | undefined;
+  constructor(private readonly emit: Emitter) {}
+
+  /** The document's own server spans, and the observer that places the calls'. */
+  start(): void {
+    this.navigation();
+    if (typeof PerformanceObserver !== "function") return;
+    try {
+      const observer = new PerformanceObserver(list => this.resources(list.getEntries()));
+      observer.observe({ type: "resource", buffered: true });
+      this.observer = observer;
+    } catch {
+      // `resource` not observable here: calls are placed by the fallback.
+      this.observer = undefined;
+    }
+  }
+
+  dispose(): void {
+    if (this.observer !== undefined) this.observer.disconnect();
+    this.observer = undefined;
+    this.pending.length = 0;
+  }
+
+  /** A server-function call settled: read its metrics, place them when the entry allows. */
+  call(event: CallEvent, live: CallLive): void {
+    const response = live.response;
+    if (response === undefined) return;
+    let header: string | null;
+    try {
+      header = response.headers.get("server-timing");
+    } catch {
+      return;
+    }
+    if (!header) return;
+    const metrics = parseServerTiming(header).filter(m => SOLID_METRIC.test(m.name));
+    if (metrics.length === 0) return;
+    if (this.observer === undefined) {
+      this.paint(metrics, event, undefined);
+      return;
+    }
+    // Often already in the timeline by the time the caller has its answer.
+    if (typeof performance.getEntriesByName === "function") {
+      const entry = findResource(performance.getEntriesByName(response.url, "resource"), event);
+      if (entry !== undefined) {
+        this.paint(metrics, event, entry);
+        return;
+      }
+    }
+    this.pending.push({
+      event,
+      url: response.url,
+      metrics,
+      expires: performance.now() + PENDING_MS
+    });
+  }
+
+  /** Resource entries as the observer delivers them: place the calls waiting for them. */
+  private resources(entries: PerformanceEntryList): void {
+    const pending = this.pending;
+    if (pending.length === 0) return;
+    const now = performance.now();
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const call = pending[i];
+      if (call.expires <= now) {
+        pending.splice(i, 1);
+        continue;
+      }
+      const entry = findResource(
+        entries.filter(e => e.name === call.url),
+        call.event
+      );
+      if (entry === undefined) continue;
+      pending.splice(i, 1);
+      this.paint(call.metrics, call.event, entry);
+    }
+  }
+
+  /**
+   * The document: `solid-shell` ends where the response head arrived
+   * (`responseStart`); its boundaries settled at or before the flush — the
+   * last one is what released the shell, the others some unknown margin
+   * earlier (the header carries durations, not offsets) — so they end
+   * there too.
+   */
+  private navigation(): void {
+    if (typeof performance.getEntriesByType !== "function") return;
+    const [nav] = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+    if (nav === undefined || !Array.isArray(nav.serverTiming) || !(nav.responseStart > 0)) return;
+    const end = nav.responseStart;
+    const rich = this.emit.rich;
+    for (const metric of nav.serverTiming) {
+      if (!SOLID_METRIC.test(metric.name)) continue;
+      const kind = metric.name.slice(6);
+      // The boundary's `desc` is its owner path — ASCII ` > ` on the wire —
+      // shown the way the Async track's `fallback` spans label the same
+      // boundary on the client.
+      const label =
+        kind === "shell"
+          ? "shell · server"
+          : kind === "boundary"
+            ? `boundary ${metric.description.split(" > ").join(" › ")} · server`
+            : `${metric.description} · server`;
+      let properties: Properties | undefined;
+      if (rich) {
+        properties = [
+          ["Duration", ms(metric.duration)],
+          ["Source", "Server-Timing on the document"],
+          [
+            "Placement",
+            kind === "shell"
+              ? "ends at responseStart — the head left when the shell was ready"
+              : "ends with the shell — settled at or before the flush"
+          ]
+        ];
+      }
+      this.emit.span(
+        label,
+        end - metric.duration,
+        end,
+        TRACKS.server,
+        kind === "shell" ? "tertiary" : "tertiary-light",
+        undefined,
+        properties
+      );
+    }
+  }
+
+  /** The server spans of one call, placed by its resource entry when there is one. */
+  private paint(
+    metrics: ServerMetric[],
+    event: CallEvent,
+    entry: PerformanceResourceTiming | undefined
+  ): void {
+    const rich = this.emit.rich;
+    // `responseStart` is `0` when timing is withheld (a cross-origin fetch
+    // without `Timing-Allow-Origin`): the entry places nothing then.
+    const end = entry !== undefined && entry.responseStart > 0 ? entry.responseStart : undefined;
+    const mid = event.at + event.durationMs / 2;
+    for (const metric of metrics) {
+      const start = end !== undefined ? end - metric.duration : mid - metric.duration / 2;
+      const stop = end !== undefined ? end : mid + metric.duration / 2;
+      const label = `${metric.description || event.id} · server`;
+      let properties: Properties | undefined;
+      if (rich) {
+        properties = [
+          ["Duration", ms(metric.duration)],
+          ["Wire", ms(Math.max(0, event.durationMs - metric.duration))],
+          ["Source", "Server-Timing"],
+          [
+            "Placement",
+            end !== undefined
+              ? "ends at the response's responseStart"
+              : "centred in the call — no resource timing for this fetch"
+          ]
+        ];
+      }
+      this.emit.span(label, start, stop, TRACKS.server, "tertiary", undefined, properties);
+    }
+  }
+}
+
+/** The fetch's resource entry: same URL, started inside the call. */
+function findResource(
+  entries: PerformanceEntryList,
+  event: CallEvent
+): PerformanceResourceTiming | undefined {
+  const from = event.at - 1;
+  const to = event.at + event.durationMs + 1;
+  for (const entry of entries) {
+    if (entry.startTime >= from && entry.startTime <= to) {
+      return entry as PerformanceResourceTiming;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `Server-Timing` (RFC 9110 list): `name;dur=12.3;desc="x"`, entries split
+ * on the commas outside quoted strings, `desc` unescaped. Entries without a
+ * `dur` are the trace's (`traceparent;desc=…`) and are not spans.
+ */
+function parseServerTiming(value: string): ServerMetric[] {
+  const out: ServerMetric[] = [];
+  let start = 0;
+  let quoted = false;
+  const take = (end: number) => {
+    const entry = value.slice(start, end).trim();
+    if (entry === "") return;
+    const parts = splitParams(entry);
+    const name = parts[0].trim().toLowerCase();
+    if (name === "") return;
+    let duration: number | undefined;
+    let description = "";
+    for (let i = 1; i < parts.length; i++) {
+      const eq = parts[i].indexOf("=");
+      if (eq === -1) continue;
+      const key = parts[i].slice(0, eq).trim().toLowerCase();
+      const raw = parts[i].slice(eq + 1).trim();
+      if (key === "dur") duration = Number(raw);
+      else if (key === "desc") description = unquote(raw);
+    }
+    if (duration === undefined || !(duration >= 0)) return;
+    out.push({ name, duration, description });
+  };
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (quoted) {
+      if (c === "\\") i++;
+      else if (c === '"') quoted = false;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") {
+      take(i);
+      start = i + 1;
+    }
+  }
+  take(value.length);
+  return out;
+}
+
+/** One metric's `;`-separated params, semicolons inside quotes kept. */
+function splitParams(entry: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let quoted = false;
+  for (let i = 0; i < entry.length; i++) {
+    const c = entry[i];
+    if (quoted) {
+      if (c === "\\") i++;
+      else if (c === '"') quoted = false;
+    } else if (c === '"') quoted = true;
+    else if (c === ";") {
+      parts.push(entry.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(entry.slice(start));
+  return parts;
+}
+
+function unquote(raw: string): string {
+  if (raw.length >= 2 && raw[0] === '"' && raw[raw.length - 1] === '"') {
+    return raw.slice(1, -1).replace(/\\(.)/g, "$1");
+  }
+  return raw;
 }
 
 function ms(value: number): string {

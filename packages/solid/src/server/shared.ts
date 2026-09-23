@@ -66,6 +66,15 @@ export type HydrationContext = {
   /** @internal Tracks which Loading boundary is currently rendering. Set by @solidjs/web via applyAssetTracking(). */
   _currentBoundaryId?: string | null;
   /**
+   * @internal The document's timed server work for its response's
+   * `Server-Timing`, in completion order. Set by @solidjs/web at render
+   * start while it times the document (dev; observe with a `"boundary"`
+   * listener); `ssrLoadingBoundary` pushes a `solid-boundary` metric for
+   * each boundary that waited and settled before the shell. Absent when
+   * the document is not timed — the boundary then pushes nothing.
+   */
+  _timing?: { name: string; dur: number; desc?: string }[];
+  /**
    * @internal Containment channel for errors surfacing in async resume loops
    * (boundary retries, flush passes), where nothing is on the stack to catch
    * a throw. Set by @solidjs/web's renderToStream: reports through the

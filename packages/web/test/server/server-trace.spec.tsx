@@ -18,6 +18,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeAll, afterAll, describe, expect, test, vi } from "vitest";
 import {
+  Loading,
   commitEventResponse,
   createRequestEvent,
   createSSRResponse,
@@ -27,6 +28,7 @@ import {
   renderToString,
   useHead
 } from "@solidjs/web";
+import { createMemo } from "solid-js";
 import type { RequestEvent, ResponseStub, TraceContext, TraceProvider } from "@solidjs/web";
 // Server-only integration seam with no client mock; the same module the
 // `@solidjs/web` alias resolves through (index.server.ts re-exports it).
@@ -44,11 +46,20 @@ let storage: AsyncLocalStorage<HttpEvent>;
 
 const webRoot = resolve(import.meta.dirname, "../..");
 let prod: typeof import("@solidjs/web");
+// The OBSERVE-tier artifacts (`_SOLID_DEV_` false), for the timing metrics'
+// gate: the source this suite runs as is the dev tier, which carries them
+// always.
+let observeWeb: typeof import("@solidjs/web");
+let observeFns: typeof import("@solidjs/web/server-functions/server");
 
 beforeAll(async () => {
   storage = new AsyncLocalStorage();
   (globalThis as any)[RequestContext] = storage;
-  prod = await import(/* @vite-ignore */ pathToFileURL(resolve(webRoot, "dist/server.js")).href);
+  const load = (path: string) =>
+    import(/* @vite-ignore */ pathToFileURL(resolve(webRoot, path)).href);
+  prod = await load("dist/server.js");
+  observeWeb = await load("dist/server.observe.js");
+  observeFns = await load("server-functions/dist/server.observe.js");
 });
 
 afterAll(() => {
@@ -80,17 +91,16 @@ function inScope<T>(evt: HttpEvent, fn: () => T): T {
   return storage.run(evt, fn);
 }
 
-// The stub's `Server-Timing` split on the commas outside quoted strings,
-// as `name -> full entry`.
-function serverTiming(headers: Headers): Map<string, string> {
+// The `Server-Timing` list split on the commas outside quoted strings.
+function serverTimingEntries(headers: Headers): string[] {
   const value = headers.get("server-timing");
-  const out = new Map<string, string>();
+  const out: string[] = [];
   if (value === null) return out;
   let start = 0;
   let quoted = false;
   const push = (end: number) => {
     const entry = value.slice(start, end).trim();
-    if (entry) out.set(entry.split(";")[0].trim(), entry);
+    if (entry) out.push(entry);
   };
   for (let i = 0; i < value.length; i++) {
     const c = value[i];
@@ -104,6 +114,35 @@ function serverTiming(headers: Headers): Map<string, string> {
     }
   }
   push(value.length);
+  return out;
+}
+
+// The TRACE's entries on the stub's `Server-Timing`, as `name -> full
+// entry` — the runtime's timing metrics (`solid-*`, the dev tier this
+// suite runs as always carries them; see "the request's timed work" below)
+// are set aside so these tests read the trace half alone.
+function serverTiming(headers: Headers): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const entry of serverTimingEntries(headers)) {
+    const name = entry.split(";")[0].trim();
+    if (!name.startsWith("solid-")) out.set(name, entry);
+  }
+  return out;
+}
+
+/** The runtime's timing metrics (`solid-*`), in list order, as `{ name, dur, desc }`. */
+function timingMetrics(headers: Headers): { name: string; dur: number; desc?: string }[] {
+  const out: { name: string; dur: number; desc?: string }[] = [];
+  for (const entry of serverTimingEntries(headers)) {
+    const [name, ...params] = entry.split(";").map(s => s.trim());
+    if (!name.startsWith("solid-")) continue;
+    const metric: { name: string; dur: number; desc?: string } = { name, dur: NaN };
+    for (const param of params) {
+      if (param.startsWith("dur=")) metric.dur = Number(param.slice(4));
+      else if (param.startsWith("desc=")) metric.desc = param.slice(6, -1);
+    }
+    out.push(metric);
+  }
   return out;
 }
 
@@ -328,7 +367,9 @@ describe("Server-Timing at head commit", () => {
     const evt = event();
     const html = inScope(evt, () => renderToString(() => <Doc />));
     const response = createSSRResponse(html, evt);
-    expect(response.headers.has("server-timing")).toBe(false);
+    // No trace entry on the head (the dev tier's own timing metrics ride
+    // regardless — the request's timed work, not the trace).
+    expect(serverTiming(response.headers).size).toBe(0);
     expect(html).not.toContain('name="traceparent"');
     // ...but it exists for the server's own use (downstream propagation, logs).
     expect(inScope(evt, () => getTraceContext())).toBeDefined();
@@ -344,7 +385,7 @@ describe("Server-Timing at head commit", () => {
     const evt = event({ traceparent: infra });
     const html = inScope(evt, () => renderToString(() => <Doc />));
     const response = createSSRResponse(html, evt);
-    expect(response.headers.has("server-timing")).toBe(false);
+    expect(serverTiming(response.headers).size).toBe(0);
     expect(html).not.toContain("traceparent");
     // Still the request's trace, continued, for downstream forwarding.
     const ctx = inScope(evt, () => getTraceContext())!;
@@ -559,5 +600,183 @@ describe("<meta> tags in the shell", () => {
     const html = inScope(evt, () => renderToString(() => <Page />));
     expect(html).toContain('name="description"');
     expect(html).toContain('name="traceparent"');
+  });
+});
+
+// The request's timed server work as `Server-Timing` metrics
+// (`TimingMetric` in trace.ts; painted by `@solidjs/web/performance-tracks`
+// under the matching client span): `solid-shell` and the `solid-boundary`s
+// the shell waited on, on the document; `solid-invocation` on a
+// server-function response. Gated like the trace: the dev tier carries them
+// always; an observe build only while a listener is on the record the same
+// measurement feeds, so an app with no observer sees no wire change.
+describe("Server-Timing: the request's timed work", () => {
+  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const unsubscribes: Array<() => void> = [];
+  afterEach(() => {
+    for (const off of unsubscribes.splice(0)) off();
+  });
+  const listen = (type: "boundary" | "invocation") => {
+    unsubscribes.push(OBSERVE!.records.subscribe(type, () => {}));
+  };
+
+  /** A boundary that waits, and holds the shell for its content (`deferStream`). */
+  function Held(props: { ms: number; children: string }) {
+    const data = createMemo(
+      async () => {
+        await delay(props.ms);
+        return props.children;
+      },
+      { deferStream: true }
+    );
+    return <div>{data()}</div>;
+  }
+  /** A boundary that waits past the shell and streams. */
+  function Late(props: { ms: number; children: string }) {
+    const data = createMemo(async () => {
+      await delay(props.ms);
+      return props.children;
+    });
+    return <div>{data()}</div>;
+  }
+
+  /**
+   * The document as a response: the head commits when the shell reaches
+   * the sink, which is what `createSSRResponse`'s promise waits for.
+   */
+  async function respond(
+    web: typeof import("@solidjs/web"),
+    evt: HttpEvent,
+    page: () => any
+  ): Promise<Headers> {
+    const stream = inScope(evt, () => web.renderToStream(page));
+    const response = await web.createSSRResponse(stream, evt);
+    return response.headers;
+  }
+
+  test("the document: solid-shell first, then each boundary the shell waited on, by owner path", async () => {
+    function Page() {
+      return (
+        <Doc>
+          <Loading fallback={<i>…</i>}>
+            <Held ms={15}>in-shell</Held>
+          </Loading>
+          <Loading fallback={<i>…</i>}>
+            <Late ms={40}>streamed</Late>
+          </Loading>
+        </Doc>
+      );
+    }
+    const evt = event();
+    const headers = await respond({ renderToStream, createSSRResponse } as any, evt, () => (
+      <Page />
+    ));
+    const metrics = timingMetrics(headers);
+    expect(metrics.map(m => m.name)).toEqual(["solid-shell", "solid-boundary"]);
+    const [shell, boundary] = metrics;
+    // The shell spans the wait it made; the streamed boundary settled after
+    // the head left and is not on it.
+    expect(boundary.dur).toBeGreaterThanOrEqual(14);
+    expect(shell.dur).toBeGreaterThanOrEqual(boundary.dur);
+    expect(shell.desc).toBeUndefined();
+    // Labelled by owner path, as the client's `fallback` record and the
+    // findings label the same boundary (`sourceNames` compiles the component
+    // calls) — ASCII ` > ` on the wire, a header value being a byte string.
+    expect(boundary.desc).toBe("<Page> > <Doc> > <Loading>");
+    // A trace nobody records is still not advertised beside them.
+    expect(serverTiming(headers).size).toBe(0);
+  });
+
+  test("a boundary decided on its first pass held nothing up and is not a metric", () => {
+    function Page() {
+      return (
+        <Doc>
+          <Loading fallback={<i>…</i>}>
+            <Late ms={5}>never-on-server</Late>
+          </Loading>
+        </Doc>
+      );
+    }
+    // renderToString: the fallback ships final, no pass past discovery.
+    const evt = event();
+    const html = inScope(evt, () => renderToString(() => <Page />));
+    const response = createSSRResponse(html, evt);
+    expect(timingMetrics(response.headers).map(m => m.name)).toEqual(["solid-shell"]);
+  });
+
+  test("a server-function response: solid-invocation with the function id, on the observe tier only while observed", async () => {
+    observeFns.registerServerFunction("timing#work", async () => {
+      await delay(10);
+      return "done";
+    });
+    const call = () =>
+      observeFns.handleServerFunctionRequest(
+        new Request("https://app.example/_server/data/timing%23work", {
+          method: "POST",
+          headers: {
+            "Sec-Fetch-Site": "same-origin",
+            "content-type": "application/json",
+            "X-Server-Function-Format": "1"
+          },
+          body: "[]"
+        }),
+        { createEvent: createRequestEvent }
+      );
+
+    // No listener on `"invocation"`: the observe build measures nothing and
+    // the wire is unchanged.
+    const quiet = await call();
+    expect(quiet.status).toBe(200);
+    expect(quiet.headers.has("server-timing")).toBe(false);
+
+    listen("invocation");
+    const observed = await call();
+    expect(observed.status).toBe(200);
+    const metrics = timingMetrics(observed.headers);
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]).toMatchObject({ name: "solid-invocation", desc: "timing#work" });
+    expect(metrics[0].dur).toBeGreaterThanOrEqual(9);
+    expect(serverTiming(observed.headers).size).toBe(0);
+  });
+
+  test("the document on the observe tier: nothing without a boundary listener, the shell and its boundaries with one", async () => {
+    function Page() {
+      return (
+        <Doc>
+          <Loading fallback={<i>…</i>}>
+            <Held ms={5}>in-shell</Held>
+          </Loading>
+        </Doc>
+      );
+    }
+    const quiet = await respond(observeWeb, event(), () => <Page />);
+    expect(quiet.has("server-timing")).toBe(false);
+
+    listen("boundary");
+    const observed = await respond(observeWeb, event(), () => <Page />);
+    expect(timingMetrics(observed).map(m => m.name)).toEqual(["solid-shell", "solid-boundary"]);
+  });
+
+  test("metrics fold beside a response's own Server-Timing, repeated names included", () => {
+    const evt = event();
+    // Two boundaries' worth of metrics on the stub, the app's metric on the
+    // response: the fold keeps every one (the by-name skip is against what
+    // the response had, not what the fold added).
+    evt.response.headers.append("Server-Timing", 'solid-boundary;dur=5;desc="<A>"');
+    evt.response.headers.append("Server-Timing", 'solid-boundary;dur=7;desc="<B>"');
+    const out = inScope(evt, () =>
+      commitEventResponse(new Response("ok", { headers: { "Server-Timing": "db;dur=53" } }), evt)
+    );
+    const entries = serverTimingEntries(out.headers);
+    expect(entries).toContain("db;dur=53");
+    expect(entries.filter(e => e.startsWith("solid-boundary"))).toHaveLength(2);
+  });
+
+  test("dur is rounded to a tenth; desc is quoted", () => {
+    const evt = event();
+    const html = inScope(evt, () => renderToString(() => <Doc />));
+    const response = createSSRResponse(html, evt);
+    const [shell] = serverTimingEntries(response.headers);
+    expect(shell).toMatch(/^solid-shell;dur=\d+(\.\d)?$/);
   });
 });
