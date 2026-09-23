@@ -589,6 +589,22 @@ function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";
 }
 
+/**
+ * Whether the current owner has no hydration id counter to consume — no
+ * owner at all (`runWithOwner(null, …)`, a detached creation), or an owner
+ * under an id-less tree (a detached `createRoot` without `id`). Positional
+ * hydration peeks the next child id off the owner, which throws for both
+ * (`childId`: `null._config`, "owner without an id"); and the server
+ * serializes nothing for such a node (its `owner.id` guard), so there is
+ * nothing to look up. Every facade takes the same non-hydrating path
+ * `transparent` takes (#3609) — the predicate lazyHydrationLookup already
+ * applied. Owned nodes under an id-carrying owner are unaffected.
+ */
+function noHydrationId(): boolean {
+  const o = getOwner();
+  return !o || o.id == null;
+}
+
 function createShadowDraft(realDraft: any, shallow?: boolean) {
   // A shallow store's leaves are raw by contract: copy the root only (#3498).
   const shadow = shallow
@@ -1152,6 +1168,10 @@ function withHydrationGate(create: (hydrated: () => boolean) => any) {
 // _hydrateSignalLike slot precisely so the wrapper does not statically couple
 // the optimistic engine to this body (which would drag it into CSR bundles).
 function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
+  // Not hydrating positionally: a transparent node (invisible to the id
+  // scheme — it must not peek, and adopt, the NEXT sibling's slot), or no id
+  // counter to peek from (#3609). Straight to the core primitive.
+  if (options?.transparent || noHydrationId()) return coreFn(fn, options);
   markTopLevelSnapshotScope();
 
   const ssrSource = options?.ssrSource;
@@ -1266,9 +1286,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
-  if (!sharedConfig.hydrating || options?.transparent) {
-    return coreMemo(compute, options);
-  }
+  if (!sharedConfig.hydrating) return coreMemo(compute, options);
   return hydrateSignalLike(coreMemo, compute, options);
 }
 
@@ -1281,7 +1299,7 @@ function hydratedCreateErrorBoundary<T, U>(
   fn: () => T,
   fallback: (error: () => unknown, reset: () => void) => U
 ): Accessor<T | U> {
-  if (!sharedConfig.hydrating) return coreErrorBoundary(fn, fallback);
+  if (!sharedConfig.hydrating || noHydrationId()) return coreErrorBoundary(fn, fallback);
   markTopLevelSnapshotScope();
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
@@ -1448,6 +1466,8 @@ function hydrateStoreLikeFn(
 // onHydrationEnd it defers through) is unchanged — only how the code is
 // reached moved.
 function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?: any) {
+  // No id counter to peek from: not hydrating positionally (#3609).
+  if (noHydrationId()) return coreFn(fn, initialValue, options);
   markTopLevelSnapshotScope();
   return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
 }
@@ -1478,7 +1498,8 @@ function hydratedCreateRoot(init: Function, options?: { id?: string; transparent
 // --- Hydration-aware effect implementations ---
 
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
-  if (!sharedConfig.hydrating || options?.transparent) return coreFn(compute, effectFn, options);
+  if (!sharedConfig.hydrating || options?.transparent || noHydrationId())
+    return coreFn(compute, effectFn, options);
 
   const ssrSource = options?.ssrSource;
 
@@ -1708,7 +1729,10 @@ export function enableHydration() {
  * **Hydration:** `MemoOptions` accepts an `ssrSource` field
  * (`"server"` | `"hybrid"` | `"client"`) that controls what initial
  * value the client uses and whether `compute` re-runs. See
- * {@link HydrationSsrFields}.
+ * {@link HydrationSsrFields}. `transparent: true` opts a memo out of
+ * hydration (it consumes no id slot and computes live); a memo created
+ * with no owner, or under a root without an `id`, has no id to consume
+ * and takes that path on its own.
  *
  * @param compute receives the previous value, returns the new value
  * @param options `MemoOptions` — `id`, `name`, `equals`, `unobserved`,
@@ -1763,7 +1787,8 @@ export const createMemo: {
  * **Hydration:** in the function form, `SignalOptions & MemoOptions`
  * accepts an `ssrSource` field (`"server"` | `"hybrid"` | `"client"`)
  * that controls what initial value the client uses and whether `fn`
- * re-runs. See {@link HydrationSsrFields}.
+ * re-runs. See {@link HydrationSsrFields}. `transparent: true` and the
+ * ownerless / id-less cases behave as for `createMemo`.
  *
  * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
@@ -2114,7 +2139,9 @@ export const createRoot: typeof coreRoot = ((...args: any[]) =>
  * `transparent: true` makes the effect invisible to hydration entirely —
  * it consumes no hydration id slot and its compute runs live rather than
  * adopting the serialized server value — for client-only effects the
- * server never created.
+ * server never created. An effect created with no owner, or under a
+ * root without an `id`, has no id slot to consume and takes that path on
+ * its own.
  *
  * @example
  * ```ts
@@ -2186,7 +2213,9 @@ export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
  * `transparent: true` makes the effect invisible to hydration entirely —
  * it consumes no hydration id slot and its compute runs live rather than
  * adopting the serialized server value — for client-only effects the
- * server never created.
+ * server never created. An effect created with no owner, or under a
+ * root without an `id`, has no id slot to consume and takes that path on
+ * its own.
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
@@ -2685,7 +2714,7 @@ function hydratedCreateLoadingBoundary<T, U>(
   fallback: () => U,
   options?: { on?: () => any }
 ): Accessor<T | U> {
-  if (!sharedConfig.hydrating) return coreLoadingBoundary(fn, fallback, options);
+  if (!sharedConfig.hydrating || noHydrationId()) return coreLoadingBoundary(fn, fallback, options);
 
   let settledSerializationResumeQueued = false;
 
