@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   action,
+  createEffect,
   createMemo,
   createRenderEffect,
   createRoot,
   createSignal,
   createStore,
   flush,
+  onCleanup,
   untrack,
   type SourceAccessor,
   OBSERVE
@@ -36,10 +38,10 @@ function captureWarnings() {
   };
 }
 
-function mount<T>(fn: () => T | Promise<T>) {
+function mount<T>(fn: () => T | Promise<T>, name = "result") {
   let memo!: SourceAccessor<T>;
   const dispose = createRoot(dispose => {
-    memo = createMemo(fn as () => Promise<T>, { name: "result" });
+    memo = createMemo(fn as () => Promise<T>, { name });
     try {
       memo();
     } catch {}
@@ -179,6 +181,110 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
     await settle();
     expect(stop()).toEqual([]);
     dispose();
+  });
+
+  describe("Solid-run callbacks on the continuation's stack", () => {
+    it("does not blame an effect callback run by a flush() the continuation called", async () => {
+      const stop = captureWarnings();
+      const [x] = createSignal(7, { name: "x" });
+      const [tick, setTick] = createSignal(0, { name: "tick" });
+      let seen = -1;
+      const disposeEffect = createRoot(dispose => {
+        createEffect(tick, () => {
+          seen = x();
+        });
+        return dispose;
+      });
+      flush();
+      const { memo, dispose } = mount(async () => {
+        await null;
+        setTick(1);
+        flush();
+        return seen;
+      });
+      await settle();
+      expect(memo()).toBe(7);
+      expect(stop()).toEqual([]);
+      dispose();
+      disposeEffect();
+    });
+
+    it("does not blame cleanups run by a dispose() the continuation called", async () => {
+      const stop = captureWarnings();
+      const [x] = createSignal(1, { name: "x" });
+      const [y] = createSignal(2, { name: "y" });
+      const seen: number[] = [];
+      const disposeOther = createRoot(dispose => {
+        onCleanup(() => seen.push(x()));
+        createEffect(
+          () => 0,
+          () => () => seen.push(y())
+        );
+        return dispose;
+      });
+      flush();
+      const { dispose } = mount(async () => {
+        await null;
+        disposeOther();
+        return seen.length;
+      });
+      await settle();
+      expect(seen.sort()).toEqual([1, 2]);
+      expect(stop()).toEqual([]);
+      dispose();
+    });
+
+    it("recovers when a cleanup throws out of a dispose() the continuation called", async () => {
+      const stop = captureWarnings();
+      const [x] = createSignal(1, { name: "x" });
+      const disposeOther = createRoot(dispose => {
+        onCleanup(() => {
+          throw new Error("cleanup failed");
+        });
+        return dispose;
+      });
+      const { dispose } = mount(async () => {
+        await null;
+        disposeOther();
+        return 1;
+      }, "thrower");
+      await settle();
+      // The throw skipped the depth's exit. The first check to see the stale
+      // depth is muted and schedules the repair; the next continuation warns.
+      const first = mount(async () => {
+        await null;
+        return x();
+      }, "first-after");
+      await settle();
+      const second = mount(async () => {
+        await null;
+        return x();
+      }, "second-after");
+      await settle();
+      expect(stop().map(e => [e.ownerName, e.nodeName])).toEqual([["second-after", "x"]]);
+      dispose();
+      first.dispose();
+      second.dispose();
+    });
+
+    it("does not blame an action body the continuation invoked", async () => {
+      const stop = captureWarnings();
+      const [count, setCount] = createSignal(0, { name: "count" });
+      const bump = action(function* () {
+        const before = count();
+        yield Promise.resolve();
+        setCount(count() + before + 1);
+      });
+      const { dispose } = mount(async () => {
+        await null;
+        await bump();
+        return 1;
+      });
+      await settle();
+      expect(count()).toBe(1);
+      expect(stop()).toEqual([]);
+      dispose();
+    });
   });
 
   it("does not blame a later microtask on the continuation that ran before it", async () => {

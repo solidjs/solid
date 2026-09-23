@@ -19,7 +19,7 @@ import type {
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
-import { context } from "./core.js";
+import { callbackDepth, context, disposalDepth, resetDisposalDepth } from "./core.js";
 import type { Computed, Link, Owner, Signal } from "./types.js";
 
 export interface DevHooks {
@@ -920,6 +920,23 @@ export function checkPostAwaitRead(
   // may miss a warning; a cached hit is re-verified below, so it never invents one.
   // Continuations resume with no owner; mount, flush, and effect reads always have one.
   if (context !== null) return;
+  // Code Solid itself runs synchronously on the continuation's stack also has
+  // no owner: effect callbacks (the continuation called flush()), cleanups (it
+  // called dispose()), and an action's body (it invoked the action). Their
+  // reads are imperative by design, and the async frame below them belongs to
+  // the caller, not to them.
+  if (callbackDepth !== 0) return;
+  if (disposalDepth !== 0) {
+    // Teardown is synchronous, so a depth still raised on the next microtask
+    // was left behind by a cleanup that threw (owner.ts brackets it without
+    // try/finally, which would survive into prod). Clear it then, or every
+    // later check would stay silent.
+    if (!disposalHealQueued) {
+      disposalHealQueued = true;
+      queueMicrotask(healDisposalDepth);
+    }
+    return;
+  }
   let id = windowFlight;
   const cached = id !== undefined;
   if (!cached) {
@@ -979,6 +996,12 @@ function sweepTailFlights(): void {
 let windowFlight: number | undefined;
 function resetWindowFlight(): void {
   windowFlight = undefined;
+}
+
+let disposalHealQueued = false;
+function healDisposalDepth(): void {
+  disposalHealQueued = false;
+  if (disposalDepth !== 0) resetDisposalDepth();
 }
 
 /** The innermost tail flight on the async stack, or 0. Reads V8 call sites, skipping `.stack` formatting. */

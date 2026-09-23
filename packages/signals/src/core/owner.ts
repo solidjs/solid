@@ -12,6 +12,8 @@ import {
 } from "./constants.js";
 import {
   context,
+  enterDisposal,
+  exitDisposal,
   latestReadActive,
   pendingCheckActive,
   PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
@@ -179,7 +181,9 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   if (self && node._cleanup) {
     const effectCleanup = node._cleanup;
     node._cleanup = undefined;
+    if (__DEV__) enterDisposal();
     effectCleanup();
+    if (__DEV__) exitDisposal();
   }
 }
 
@@ -203,6 +207,10 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   if (zombie) node._x!._pendingDisposal = null;
   else node._disposal = null;
 
+  // No try/finally: it would survive into prod (rollup keeps the frame). A
+  // throw leaves the depth raised; dev.ts clears the stale count on the next
+  // microtask, since teardown never spans one (core.ts).
+  if (__DEV__) enterDisposal();
   if (Array.isArray(disposal)) {
     // Unwind order (#3572, restores 1.x #1562): later registrations run
     // before earlier ones. Children have already been disposed by the caller,
@@ -215,6 +223,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   } else {
     disposal.call(disposal);
   }
+  if (__DEV__) exitDisposal();
 }
 
 function childId(owner: Owner, consume: boolean): string {

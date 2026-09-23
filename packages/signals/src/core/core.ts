@@ -1452,6 +1452,38 @@ export function isEqual<T>(a: T, b: T): boolean {
 export let strictRead: string | false = false;
 /** Dev-only: explicit untrack() nesting, so deliberate post-await reads stay quiet. */
 export let untrackDepth = 0;
+/**
+ * Dev-only: > 0 while Solid runs user code that is imperative by construction
+ * — an effect callback (effect.ts) or an action body's synchronous slice
+ * (action.ts). Both run with no owner, exactly like an async continuation, so
+ * the post-await read check (dev.ts) consults this rather than blame the
+ * continuation that called flush() or invoked the action. Both sites bracket
+ * with try/finally, so a throw cannot leave it raised.
+ */
+export let callbackDepth = 0;
+export function enterCallback(): void {
+  callbackDepth++;
+}
+export function exitCallback(): void {
+  callbackDepth--;
+}
+/**
+ * Dev-only: > 0 while owner teardown runs cleanups (`_disposal` entries and
+ * effect-returned cleanups — owner.ts), for the same reason. Kept apart from
+ * `callbackDepth` because its sites cannot use try/finally (the frame would
+ * survive into prod): a throwing cleanup leaves it raised, and dev.ts resets
+ * it on the next microtask, which teardown — synchronous — never spans.
+ */
+export let disposalDepth = 0;
+export function enterDisposal(): void {
+  disposalDepth++;
+}
+export function exitDisposal(): void {
+  disposalDepth--;
+}
+export function resetDisposalDepth(): void {
+  disposalDepth = 0;
+}
 export function setStrictRead(v: string | false): string | false {
   const prev = strictRead;
   strictRead = v;
