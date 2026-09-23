@@ -1514,7 +1514,12 @@ module.exports = [
     // the ruling forbids. The no-stores companion carries the same source at
     // +32 B (-12 B before the rebase — brotli layout over the smaller
     // bundle). 0 B in the signals core, the store engine, or web.
-    limit: "31.2 KB",
+    // Revert of #3615 (#3618, 2026-09-23): the hydrate() gate's +129 B is
+    // gone, and #3616's bump is re-expressed over the pre-#3615 baseline:
+    // 31.2 -> 31.25 KB, measured at 31,220 B (#3616's own +65 B over the
+    // pre-#3615 31,155, as its note above recorded). The no-stores entry
+    // returns to its pre-#3615 20.95 KB cap, measured at 20,907 B.
+    limit: "31.25 KB",
     modifyEsbuildConfig
   },
   {

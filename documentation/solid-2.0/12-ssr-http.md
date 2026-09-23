@@ -28,6 +28,8 @@ Server (`@solidjs/web` under the `node`/`deno`/`worker` conditions):
 
 For hydration, the document needs the hydration script ahead of the app markup: `generateHydrationScript({ nonce?, eventNames? })` returns it as a string for hand-built documents, and `<HydrationScript />` renders it in JSX documents.
 
+In a hand-built document the render output ends with the serialized hydration records (`_$HY.r`), written by a classic inline `<script>`. The client entry must execute after that script: make it a deferred `<script type="module">` (or a `defer` classic script), or place it after the render output — never `async`, which may run before the records have been parsed and hydrate against an empty document. `<HydrationScript />` documents handle the ordering themselves: the records script is spliced immediately after the bootstrap, so the entry may be `async` there.
+
 ### Consuming the stream: `pipe`, `pipeTo`, `readable`
 
 `renderToStream` returns a result with three consumption surfaces — **exactly one may be used per render** (a second consumer throws with a directed message):
