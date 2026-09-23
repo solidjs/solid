@@ -634,8 +634,8 @@ function createShadowDraft(realDraft: any, shallow?: boolean) {
 
 /**
  * The hybrid handoff run's client source, as the engine consumes it (#3498,
- * #3574). The run re-asks a question the adopted answer already answers, so
- * it must not open a pending window: step 0 is the adopted answer itself,
+ * #3574). The run continues the adopted answer's stream (rule 5), so it must
+ * not open a pending window: step 0 is the adopted answer itself,
  * landed synchronously (a sync first yield is a landed first answer to
  * `handleAsync`, and a stream is not pending between yields), and the
  * source's real first yield — the duplicate — is step 1, discarded as
@@ -1283,12 +1283,16 @@ function hydrateStoreLikeFn(
     //    goes live on that run — genuinely new work, not a handoff, so its
     //    first yield commits — and the abandoned flight's landing or
     //    rejection is dropped by the engine (PJ-R26) and flips nothing.
-    // 5. The handoff opens no pending window (#3574). It re-asks the question
-    //    the adopted answer already answers, and a re-ask of the same
-    //    question is silent: the store reads settled from the landing until
-    //    the client source produces something new. A consumer created in
-    //    between — a streamed <Loading> resuming to claim its fragment after
-    //    the landing — reads the answer, not a fallback.
+    // 5. The handoff opens no pending window (#3574). The contract is ONE stream
+    //    — the server consumes exactly one yield, the client continues the
+    //    iteration (adoptedAnswerStream): the adopted answer is step 0, the
+    //    client's first yield its duplicate (rule 2), and a stream is not pending
+    //    between yields (handleAsync's sync-first-yield rule). The engine read
+    //    pending only because the continuation arrived as a fresh recompute whose
+    //    first step looked like a first flight; wrapFirstYield and quietAnswer
+    //    give the run the contract's shape, so the store reads settled until the
+    //    client source produces something new. Maintainer ruling: isPending does
+    //    not read true over the initial load; the handoff is its tail.
     const id = peekNextChildId(getOwner()!);
     // Nothing serialized: no answer to wait for and nothing for a first
     // yield to duplicate — the client is authoritative from its first run.

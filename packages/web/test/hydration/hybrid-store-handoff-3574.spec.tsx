@@ -18,9 +18,11 @@
  *   (template: <span>loading)
  *
  * with the resolved content replaced by the fallback until the client's first
- * yield landed. The ruling this pins (05-async-data.md, `isPending`): a
- * re-ask of the same question is silent — the data on screen still answers
- * what is being asked. The handoff run is exactly that re-ask.
+ * yield landed. The contract this pins (#3551, `adoptedAnswerStream`): the
+ * server consumes exactly one yield and the client continues the iteration —
+ * the adopted answer is step 0, the client's first yield its duplicate, and a
+ * stream is not pending between yields. Maintainer ruling: `isPending` does
+ * not read true over the initial load; the handoff is its tail.
  *
  * Replays the chunk artifacts test/server/hybrid-store-handoff-3574.spec.tsx
  * writes, with the fixture's await points swapped for gates, in both replay

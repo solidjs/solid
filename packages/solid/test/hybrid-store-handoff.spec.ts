@@ -814,10 +814,13 @@ describe("hybrid store handoff — rule 4: a dependency change before the landin
 describe("hybrid store handoff — rule 5: the handoff opens no pending window (#3574)", () => {
   afterEach(stopHydration);
 
-  // The handoff run re-asks the question the adopted answer already answers,
-  // and a re-ask of the same question is silent (05-async-data, `isPending`):
-  // the store reads settled from the landing until the client source yields
-  // something NEW. Pinned through a consumer born after the landing — the
+  // The handoff run continues the adopted answer's stream (#3551: the server
+  // consumes one yield, the client continues the iteration), and a stream is
+  // not pending between yields — the adopted answer is step 0, the client's
+  // first yield its duplicate. So the store reads settled from the landing
+  // until the client source yields something NEW; `isPending` does not read
+  // true over the initial load, and the handoff is its tail (maintainer
+  // ruling). Pinned through a consumer born after the landing — the
   // shape of a streamed <Loading> resuming to claim its fragment while the
   // handoff run is in flight — and through `isPending` directly.
   function mount(state: Counter) {
