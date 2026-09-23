@@ -437,9 +437,9 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // hydration is `done`, always compute.
   if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
   // Divergence arming is a "server"/default-mode contract only: the hybrid
-  // signal-like wrapper runs this path under withHydrationGate, whose
-  // synchronous flip guarantees one internal re-entry that is not user
-  // divergence — and hybrid's sync/promise flavor deliberately latches
+  // signal-like wrapper runs this path behind a gate whose creation flip (for
+  // the sync/promise shapes) guarantees one internal re-entry that is not
+  // user divergence — and hybrid's sync/promise flavor deliberately latches
   // (re-running its compute at done would clobber the adopted value).
   if (latchedOnce.has(o)) {
     if (options?.ssrSource !== "hybrid") armLiveTakeover();
@@ -642,10 +642,16 @@ function createShadowDraft(realDraft: any, shallow?: boolean) {
  * before. Without the quiet step the store read pending from the handoff
  * until that yield, and any consumer created in between — a streamed
  * `<Loading>` resuming to claim its fragment — selected its fallback against
- * resolved server content (#3574). A bare `yield` commits the draft as-is,
- * so step 0's `undefined` keeps the adopted answer.
+ * resolved server content (#3574).
+ *
+ * `quiet` is what steps 0 and 1 yield — the adopted answer in the node's own
+ * terms. A store yields `undefined`: a bare `yield` commits the draft as-is,
+ * and the duplicate's writes went to the shadow draft (`activate` switches
+ * the proxy to the real draft once they have). A signal-shaped node
+ * (hydrateSignalLike) yields the adopted value itself — its `prev` — so the
+ * duplicate lands as an equal write, a no-op at the node.
  */
-function wrapFirstYield(iterable: any, activate: () => void) {
+function wrapFirstYield(iterable: any, activate?: () => void, quiet?: any) {
   const srcIt = iterable[Symbol.asyncIterator]();
   let step = 0;
   return {
@@ -654,15 +660,15 @@ function wrapFirstYield(iterable: any, activate: () => void) {
         next() {
           if (step === 0) {
             step = 1;
-            return syncThenable({ done: false, value: undefined });
+            return syncThenable({ done: false, value: quiet });
           }
           const p = srcIt.next();
           if (step === 1) {
             step = 2;
-            // The source's first yield: its writes went to the shadow draft.
+            // The source's first yield, the duplicate.
             return p.then((r: any) => {
-              activate();
-              return r.done ? r : { done: false, value: undefined };
+              activate?.();
+              return r.done ? r : { done: false, value: quiet };
             });
           }
           return p;
@@ -703,13 +709,14 @@ function quietAnswer(thenable: any) {
 }
 
 /**
- * A hybrid store's still-pending server answer, adopted as a ONE-yield stream
- * (#3498). The hybrid contract is that the server consumes exactly one yield
- * and the client continues the iteration — this is that first yield, and
- * the engine's pull for the next one is the handoff.
+ * A hybrid node's still-pending server answer, adopted as a ONE-yield stream
+ * (#3498; store and signal-shaped alike). The hybrid contract is that the
+ * server consumes exactly one yield and the client continues the iteration —
+ * this is that first yield, and the engine's pull for the next one is the
+ * handoff.
  *
  * Why a stream and not the thenable itself: the handoff must run only once
- * the answer has actually LANDED in the store. This relies on the engine's
+ * the answer has actually LANDED in the node. This relies on the engine's
  * flight contract — latest-run-wins supersession (PJ-R26 in the signals
  * RULES-INDEX; flight-identity cancellation, #3122): `handleAsync` pulls a
  * stream's next step only from the previous step's commit (`asyncWrite`'s
@@ -1126,11 +1133,12 @@ export function materializeContainerTrace(marker: {
 // --- Hydration-aware implementations ---
 
 // The shared pre-hydration gate lifecycle for the ssrSource branches
-// (signal × client/hybrid, store × client): create the node with a compute
-// that branches on the gate, then flip it — the flip's recompute is the
-// node's first real run. `ownedWrite` because the write happens inside the
-// node's own creation scope. (The hybrid STORE branch flips its own gate at
-// the adopted answer's landing instead — see hydrateStoreLikeFn, #3498.)
+// (signal × client, store × client): create the node with a compute that
+// branches on the gate, then flip it — the flip's recompute is the node's
+// first real run. `ownedWrite` because the write happens inside the node's
+// own creation scope. (The hybrid branches flip their own gate at the
+// adopted answer's landing instead — see hydrateStoreLikeFn, #3498, and
+// hydrateSignalLike's hybrid branch.)
 function withHydrationGate(create: (hydrated: () => boolean) => any) {
   const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
   const result = create(hydrated);
@@ -1160,33 +1168,94 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
     );
   }
 
-  // Hybrid async-iterable takeover (#2993). The server consumes exactly one
+  // Hybrid async-iterable handoff (#2993). The server consumes exactly one
   // yield from its iterator and serializes it as a plain promise — the
-  // contract is that the CLIENT continues the iteration. Stores get that
-  // through hydrateStoreLikeFn's shadow-draft re-run; without this branch a
-  // signal-shaped node would adopt the first yield and latch there forever
-  // (readSerializedOrCompute only re-runs the compute on invalidation).
-  // Value semantics make the takeover simpler than the store's: re-run the
-  // generator plainly — its first yield reproduces the value the server
-  // rendered (hybrid's determinism contract, same assumption the store path
-  // makes), so nothing needs discarding; equal values dedupe at the node.
-  // The takeover only ARMS when the adoption pass saw an async-iterable
+  // contract is that the CLIENT continues the iteration. Without this branch
+  // a signal-shaped node would adopt the first yield and latch there forever
+  // (readSerializedOrCompute only re-runs the compute on invalidation). The
+  // handoff follows the store's rules 1–5 (see the rule block in
+  // hydrateStoreLikeFn): it waits for the adopted answer to LAND (rule 1 —
+  // the gate flips at the landing, never at creation: a creation flip ran
+  // the client generator as a fresh flight ahead of the pending server
+  // answer, superseding it and reading pending from creation until the
+  // client's first yield — #3574's key miss on a streamed <Loading>, with a
+  // wider window than the store's); only the handoff run's first yield is
+  // the duplicate (rule 2); a rejected answer is adopted (rule 3); a
+  // dependency change before the landing supersedes it (rule 4); and the
+  // handoff opens no pending window (rule 5). Value semantics make the run
+  // simpler than the store's — no shadow draft: the adopted answer is the
+  // node's `prev`, so wrapFirstYield yields it as the quiet steps and the
+  // duplicate lands as an equal write.
+  //
+  // The handoff only ARMS when the adoption pass saw an async-iterable
   // compute: sync and promise-shaped hybrid computes keep their documented
   // adopt-the-serialized-value semantics (re-running those would clobber the
-  // server value / trigger a client refetch).
+  // server value / trigger a client refetch) — for those the gate flips at
+  // creation and the flip's recompute re-adopts, as withHydrationGate always
+  // did here.
   if (ssrSource === "hybrid" && sharedConfig.has!(peekNextChildId(getOwner()!))) {
-    let takeover = false;
+    // undefined until the trace has completed once: a sync NotReady from the
+    // trace (the compute read a pending sibling before returning) leaves the
+    // shape unknown, and the retry decides.
+    let takeover: boolean | undefined;
     const detect = (prev: any) => {
       const r = fn(prev);
       takeover = isAsyncIterable(r);
       return r;
     };
-    return withHydrationGate(hydrated =>
-      coreFn((prev: any) => {
-        if (hydrated() && takeover) return fn(prev);
-        return readSerializedOrCompute(detect, prev, options);
-      }, options)
-    );
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
+    let live = false;
+    const flip = () => {
+      if (!live) setHydrated(true);
+    };
+    let adopted = false;
+    let creating = true;
+    let landedOnCreate = false;
+    const result = coreFn((prev: any) => {
+      if (live) return fn(prev);
+      if (hydrated()) {
+        if (!takeover) return readSerializedOrCompute(detect, prev, options);
+        // The handoff run (rule 5: quiet through its duplicate).
+        live = true;
+        const r = fn(prev);
+        return isAsyncIterable(r) ? wrapFirstYield(r, undefined, prev) : r;
+      }
+      if (adopted) {
+        // Rule 4: the gate is down and an adoption already returned, so a
+        // dependency changed. The recompute released the adopted flight, so
+        // the server's late landing is dropped and its flip never comes.
+        live = true;
+        return fn(prev);
+      }
+      // Adoption; the trace inside detects the compute's shape. Re-entered
+      // only by a NotReady retry of the trace (nothing adopted yet).
+      let answer: any;
+      try {
+        answer = readSerializedOrCompute(detect, prev, options);
+      } catch (e) {
+        // The trace completed (an async-iterable compute cannot throw
+        // synchronously), so this is the settled rejection — the adopted
+        // answer (rule 3): authority transfers without a handoff run.
+        if (takeover) live = true;
+        throw e;
+      }
+      if (!takeover) return answer;
+      adopted = true;
+      if (answer != null && typeof answer.then === "function")
+        return adoptedAnswerStream(answer, flip, () => (live = true));
+      // Settled, landing synchronously in this run: flip after construction
+      // (creation) or on a microtask (a retry inside a flush).
+      if (creating) landedOnCreate = true;
+      else queueMicrotask(flip);
+      return answer;
+    }, options);
+    creating = false;
+    // The creation flip: the handoff for a synchronously landed answer, or
+    // the non-handoff shapes' one re-adopting recompute (as before). An
+    // untraced node (NotReady) has no shape yet; for a non-handoff shape the
+    // retry's adoption is already the run the flip would have produced.
+    if (landedOnCreate || takeover === false) flip();
+    return result;
   }
 
   // "server", "hybrid", or undefined — use serialized value from server
@@ -1293,6 +1362,12 @@ function hydrateStoreLikeFn(
     //    give the run the contract's shape, so the store reads settled until the
     //    client source produces something new. Maintainer ruling: isPending does
     //    not read true over the initial load; the handoff is its tail.
+    //
+    // The signal-shaped hybrid handoff (hydrateSignalLike: createMemo,
+    // function-form createSignal, createOptimistic over an async generator)
+    // follows the same rules 1–5 on the same helpers — adoptedAnswerStream
+    // for the landing, wrapFirstYield for the quiet run — with the node's
+    // `prev` as the adopted answer in place of the draft.
     const id = peekNextChildId(getOwner()!);
     // Nothing serialized: no answer to wait for and nothing for a first
     // yield to duplicate — the client is authoritative from its first run.

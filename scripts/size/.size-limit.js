@@ -1193,7 +1193,15 @@ module.exports = [
     // at 20,781 B against `next`'s 20,737 (+44 B), rebased over #3595 and the
     // performance tracks. Solid only: the shared store hydration adapter's
     // `wrapFirstYield` step 0 + `quietAnswer` (see the store-family note).
-    limit: "20.80 KB",
+    // Memo/signal hybrid handoff waits for the landing (memo-shaped #3574,
+    // 2026-09-22): 20.80 -> 20.85 KB, measured at 20,843 B against `next`'s
+    // 20,781 (+62 B). Solid only: hydrateSignalLike's hybrid branch grows
+    // the store's landing-gated adoption (adoptedAnswerStream, rule-4
+    // supersession, rule-3 authority transfer) in place of the
+    // withHydrationGate creation flip; the quiet run reuses wrapFirstYield
+    // with the adopted value as its `quiet` parameter (+1 optional
+    // parameter, shared with the store adapter). 0 B in signals or web.
+    limit: "20.85 KB",
     modifyEsbuildConfig
   },
   {
@@ -1459,7 +1467,13 @@ module.exports = [
     // first yield, and `quietAnswer` gives the promise-shaped handoff the same
     // three-step shape, so the store never reads pending through the handoff
     // (rule 5). 0 B in the signals core, the store engine, or web.
-    limit: "31.1 KB",
+    // Memo/signal hybrid handoff waits for the landing (memo-shaped #3574,
+    // 2026-09-22): 31.1 -> 31.15 KB, measured at 31,134 B against `next`'s
+    // 30,985 (+149 B; the same +62 B of source as the no-stores entry — the
+    // prior entry's brotli layout swing over this bundle reversing, so the
+    // two handoff PRs net +76 B here against +106 B no-stores). Solid only,
+    // in hydrateSignalLike (see the no-stores note).
+    limit: "31.15 KB",
     modifyEsbuildConfig
   },
   {
