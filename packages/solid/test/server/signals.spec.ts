@@ -39,6 +39,7 @@ import {
 import {
   createErrorBoundary,
   createLoadingBoundary,
+  resetOwnerForRerun,
   NotReadyError as NotReadyErrorClass,
   type Owner
 } from "../../src/server/signals.js";
@@ -655,6 +656,51 @@ describe("Server owner tree", () => {
     );
     dispose();
     expect(order).toEqual(["C", "B", "A"]);
+  });
+
+  test("a cleanup that disposes its own root during a rerun reset runs once (#3601)", () => {
+    // Twin of the client `runDisposal` ruling: `disposeOwner` detaches the
+    // list before running it. A rerun reset (`self=false`, the server's
+    // recompute-disposal) doesn't mark the owner disposed, so a cleanup that
+    // calls the root's `dispose()` re-enters the same owner mid-loop — with
+    // the list still attached it ran every entry again.
+    const log: string[] = [];
+    let dispose!: () => void;
+    let owner!: Owner;
+    createRoot(
+      d => {
+        dispose = d;
+        owner = getOwner()!;
+        onCleanup(() => log.push("a"));
+        onCleanup(() => {
+          log.push("b");
+          dispose();
+        });
+        onCleanup(() => log.push("c"));
+      },
+      { id: "test" }
+    );
+    resetOwnerForRerun(owner);
+    expect(log).toEqual(["c", "b", "a"]);
+  });
+
+  test("a child cleanup that disposes the root runs once (#3601)", () => {
+    let cleanups = 0;
+    let dispose!: () => void;
+    createRoot(
+      d => {
+        dispose = d;
+        createRoot(() =>
+          onCleanup(() => {
+            cleanups++;
+            dispose();
+          })
+        );
+      },
+      { id: "test" }
+    );
+    dispose();
+    expect(cleanups).toBe(1);
   });
 
   test("disposing a parent does not dispose an owner recycled into another root", () => {
