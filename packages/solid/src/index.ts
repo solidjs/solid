@@ -222,6 +222,7 @@ export type {
   BoundaryListener,
   ServerTrace
 } from "./server/observe.js";
+export type { RecoveryEvent, RecoveryLive, RecoveryListener } from "./recovery.js";
 export type {
   Acknowledgement,
   AttributionRecords,

@@ -40,6 +40,7 @@
 // imports only `solid-js` types its listener — which is why this module
 // imports nothing of the server runtime.
 import type { ServerObserve } from "@solidjs/signals";
+import type { RecoveryEvent, RecoveryLive } from "../recovery.js";
 
 const SERVER_SLOTS = Symbol.for("solid-js/observe/server");
 const SERVER_PROVIDER = Symbol.for("solid-js/observe/server/provider");
@@ -142,6 +143,8 @@ declare module "@solidjs/signals" {
   interface RecordTypes {
     /** `<Loading>` boundaries that waited during a server render — see `BoundaryEvent`. */
     boundary: { event: BoundaryEvent; live: BoundaryLive };
+    /** The client rendering a boundary the server handed over — see `RecoveryEvent`. */
+    recovery: { event: RecoveryEvent; live: RecoveryLive };
   }
   interface ServerObserve {
     /** The trace-context provider slot — see `ServerTrace`. */

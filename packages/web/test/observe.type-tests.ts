@@ -20,6 +20,8 @@ import {
   type ChangeOrigin,
   type RecordType,
   type Records,
+  type RecoveryEvent,
+  type RecoveryLive,
   type ServerTrace
 } from "solid-js";
 import type {
@@ -45,7 +47,7 @@ observe.records satisfies Records;
 
 // The catalogue is the union of what the loaded runtimes declared — through
 // both augmentation paths.
-type Declared = "boundary" | "invocation" | "call" | "frame";
+type Declared = "boundary" | "recovery" | "invocation" | "call" | "frame";
 const declared: Declared = "boundary" as RecordType;
 declared;
 const known: RecordType = "call" as Declared;
@@ -79,6 +81,16 @@ observe.records.subscribe("boundary", (event, live) => {
   event.revealGroup satisfies string | undefined;
   event.ownerPath satisfies string[] | undefined;
   live.error satisfies unknown;
+});
+
+// The client's recovery record — the other end of a boundary the server handed over.
+observe.records.subscribe("recovery", (event, live) => {
+  event satisfies RecoveryEvent;
+  live satisfies RecoveryLive;
+  event.id satisfies string;
+  event.at satisfies number;
+  event.waitedMs satisfies number;
+  event.renderMs satisfies number;
 });
 
 // The client's call record.
