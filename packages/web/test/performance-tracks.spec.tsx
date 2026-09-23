@@ -15,7 +15,11 @@
 // tooltips and properties; plain mode (`console.timeStamp`, six arguments)
 // carries the span alone. Disabling releases the adapter's engine hold and
 // nothing more; the prod artifact is a no-op.
-import { afterEach, describe, expect, test, vi } from "vitest";
+//
+// Every duration here is exact: the tests run on a clock of their own (see
+// `clock`), so a threshold is crossed because a test advanced past it, never
+// because the runner was slow.
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { render } from "@solidjs/web";
 import {
   OBSERVE,
@@ -28,7 +32,7 @@ import {
   createSignal,
   flush
 } from "solid-js";
-import { attribution, formatOrigin, formatRerun } from "solid-js/attribution";
+import { attribution, formatOrigin, formatRerun, isLongHold } from "solid-js/attribution";
 import type { InteractionEvent, RerunEvent, HoldEvent } from "solid-js/attribution";
 import type { CallEvent } from "@solidjs/web";
 import { enablePerformanceTracks } from "../performance-tracks/src/index.js";
@@ -57,6 +61,7 @@ afterEach(() => {
 // install recording stand-ins per test and take them down after.
 const originals = (
   [
+    [performance, "now"],
     [performance, "measure"],
     [performance, "clearMeasures"],
     [performance, "mark"],
@@ -75,6 +80,40 @@ function restorePerformance() {
 function define(target: object, name: string, value: unknown) {
   Object.defineProperty(target, name, { configurable: true, writable: true, value });
 }
+
+/**
+ * The engine's clock, in the test's hand. Every number the adapter paints
+ * from — a run's `at` and `totalMs`, a drain's `durationMs`, an
+ * interaction's `handlerMs` and `settledMs`, a hold's `holdMs` and `tailMs`,
+ * a flight's `durationMs`, a fallback's `shownMs` — is a `performance.now()`
+ * read in the attribution core (its `now()` reads it on every call), and the
+ * adapter's colour thresholds (`< 16` on a wave, `< 10` / `< 100` on a
+ * callback, the self-time palette) and the engine's own hold verdicts
+ * (`longHolds.infoMs`) are cut against those numbers. On the wall clock a
+ * loaded CI runner crossed them at random: a two-run drain read `>= 16ms`
+ * and its wave came out `primary-dark` (#3594). Here the clock stands still
+ * unless a test advances it — inside a compute, a callback, a handler, or
+ * while a flight is in the air — to give that step an exact cost, so every
+ * duration is the sum of the advances the test made, and each threshold is
+ * exercised on both sides by choice. Real timers are untouched: `setTimeout`
+ * still drives the async flights; only the stamps are ours.
+ *
+ * Starts at 1000: jsdom dates a dispatched event with epoch milliseconds,
+ * which the runtime discards as an interaction start when it is ahead of
+ * `performance.now()` (as it always is on the real clock too), so no input
+ * delay is inferred.
+ */
+let clock: { now(): number; advance(ms: number): void };
+beforeEach(() => {
+  let t = 1000;
+  define(performance, "now", () => t);
+  clock = {
+    now: () => t,
+    advance(ms) {
+      t += ms;
+    }
+  };
+});
 
 /** A marker (`performance.mark` with `detail.devtools`), decoded. */
 interface Marker {
@@ -263,11 +302,18 @@ describe("enablePerformanceTracks", () => {
     const [n, setN] = createSignal(0, { name: "count" });
     const container = document.createElement("div");
     document.body.appendChild(container);
+    // The handler costs 3ms, the memo 5ms a run, the effect nothing.
     const dispose = render(() => {
-      const doubled = createMemo(() => n() * 2, { name: "doubled" });
+      const doubled = createMemo(() => (clock.advance(5), n() * 2), { name: "doubled" });
       createEffect(doubled, () => {}, { name: "paint" });
       return (
-        <button id="next" onClick={() => setN(v => v + 1)}>
+        <button
+          id="next"
+          onClick={() => {
+            clock.advance(3);
+            setN(v => v + 1);
+          }}
+        >
           Next
         </button>
       );
@@ -275,34 +321,49 @@ describe("enablePerformanceTracks", () => {
     disposers.push(dispose, () => container.remove());
     flush();
 
+    const clicked = clock.now();
     container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     flush();
 
-    // The interaction: labelled by the shared formatter, start/end from the record.
+    // The interaction: labelled by the shared formatter, start/end from the
+    // record — the handler's 3ms, then the settle through the 5ms drain.
     const [interaction] = interactions;
-    expect(interaction.outcome).toBe("committed");
+    expect(interaction).toMatchObject({
+      outcome: "committed",
+      at: clicked,
+      handlerMs: 3,
+      settledMs: 8
+    });
+    expect(interaction.inputDelayMs).toBeUndefined();
     const spans = on("Interactions").filter(m => m.label !== "Interactions");
     expect(spans[0]).toMatchObject({
       label: formatOrigin(interaction.origin),
-      start: interaction.at + (interaction.inputDelayMs ?? 0),
+      start: interaction.at,
+      end: interaction.at + interaction.handlerMs,
       color: "primary"
     });
-    expect(spans[0].end).toBeCloseTo(spans[0].start + interaction.handlerMs, 6);
     expect(spans[0].properties).toEqual(
       expect.arrayContaining([
+        ["Handler", "3.00ms"],
         ["Writes", "1"],
         ["Re-runs", expect.stringMatching(/^2 \(/)],
         ["Outcome", "committed"]
       ])
     );
     // The settle: from the handler's return to the drain that committed the write.
-    expect(spans[1]).toMatchObject({ label: "committed", color: "secondary-light" });
-    expect(spans[1].start).toBe(spans[0].end);
-    expect(spans[1].end).toBeCloseTo(interaction.at + interaction.settledMs!, 6);
+    expect(spans[1]).toMatchObject({
+      label: "committed",
+      start: spans[0].end,
+      end: interaction.at + interaction.settledMs!,
+      color: "secondary-light"
+    });
+    expect(spans).toHaveLength(2); // no input delay was inferred (see `clock`)
 
     // The memo and the effect: on their tracks, `at → at + totalMs`, why-chain as tooltip.
     const memo = reruns.find(r => r.nodeName === "doubled")!;
     const effect = reruns.find(r => r.nodeName === "paint")!;
+    expect(memo).toMatchObject({ at: clicked + 3, totalMs: 5, selfMs: 5 });
+    expect(effect).toMatchObject({ at: clicked + 8, totalMs: 0 });
     const [memoSpan] = rerunSpans(on("Memos"), "Memos");
     const [effectSpan] = rerunSpans(on("Effects"), "Effects");
     expect(memoSpan).toMatchObject({
@@ -351,6 +412,39 @@ describe("enablePerformanceTracks", () => {
     );
   });
 
+  test("cost colours: the self-time palette, on both sides of each of its cuts", () => {
+    const { on } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    let cost = 0;
+    createRoot(() => {
+      const work = createMemo(() => (clock.advance(cost), n()), { name: "work" });
+      createRenderEffect(work, () => {}, { name: "reader" });
+    });
+    flush();
+    // `bySelfTime`: `< 0.5` light, `< 10` primary, `< 100` dark, else error.
+    const costs = [0.25, 0.5, 9, 10, 99, 100];
+    for (const ms of costs) {
+      cost = ms;
+      setN(v => v + 1);
+      flush();
+    }
+    const spans = rerunSpans(on("Memos"), "Memos");
+    expect(spans.map(m => [m.end - m.start, m.color])).toEqual([
+      [0.25, "primary-light"],
+      [0.5, "primary"],
+      [9, "primary"],
+      [10, "primary-dark"],
+      [99, "primary-dark"],
+      [100, "error"]
+    ]);
+    for (const [i, m] of spans.entries()) {
+      expect(m.properties).toEqual(
+        expect.arrayContaining([["Self time", `${costs[i].toFixed(2)}ms`]])
+      );
+    }
+  });
+
   test("a run under the minMs floor is not painted", () => {
     const { on } = measures();
     enable({ minMs: 1000 });
@@ -367,35 +461,38 @@ describe("enablePerformanceTracks", () => {
     enable();
     const { reruns: runs } = records();
     const [n, setN] = createSignal(0, { name: "count" });
+    // The memo costs 2ms a run; the effect's compute and callback nothing.
+    const mounted = clock.now();
     createRoot(() => {
-      const doubled = createMemo(() => n() * 2, { name: "doubled" });
+      const doubled = createMemo(() => (clock.advance(2), n() * 2), { name: "doubled" });
       createRenderEffect(doubled, () => {}, { name: "paint" });
     });
     flush();
     // Creation: one span per node born, on its kind's track, labelled `· create`.
     const memoCreate = on("Memos").find(m => m.label.endsWith("doubled · create"))!;
     const effectCreate = on("Effects").find(m => m.label.endsWith("paint · create"))!;
-    expect(memoCreate).toBeDefined();
-    expect(effectCreate).toBeDefined();
-    expect(memoCreate.end).toBeGreaterThanOrEqual(memoCreate.start);
+    expect(memoCreate).toMatchObject({ start: mounted, end: mounted + 2, color: "primary" });
+    expect(effectCreate).toMatchObject({ start: mounted + 2, end: mounted + 2 });
     expect(memoCreate.properties).toEqual(
       expect.arrayContaining([
+        ["Self time", "2.00ms"],
         ["Deps", "1"],
         ["Phase", "plain"]
       ])
     );
     // The first callback: after its compute, no run to join to.
     const firstCallback = on("Effects").find(m => m.label.endsWith("paint · callback"))!;
-    expect(firstCallback).toBeDefined();
-    expect(firstCallback.start).toBeGreaterThanOrEqual(effectCreate.start);
+    expect(firstCallback).toMatchObject({ start: effectCreate.end, end: effectCreate.end });
     expect(firstCallback.properties!.some(([k]) => k === "Run")).toBe(false);
 
+    const clicked = clock.now();
     OBSERVE!.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, () =>
       setN(1)
     );
     flush();
     // The re-run's callback joins its compute run by number and follows it in time.
     const rerun = runs.find(r => r.nodeName === "paint")!;
+    expect(rerun).toMatchObject({ at: clicked + 2, totalMs: 0 });
     const callbacks = on("Effects").filter(m => m.label.endsWith("paint · callback"));
     expect(callbacks).toHaveLength(2);
     expect(callbacks[1].properties).toEqual(
@@ -404,22 +501,28 @@ describe("enablePerformanceTracks", () => {
         ["Interaction", formatOrigin(rerun.interaction!)]
       ])
     );
-    expect(callbacks[1].start).toBeGreaterThanOrEqual(rerun.at + rerun.totalMs - 0.001);
-    expect(callbacks[1].color).toBe("secondary-light");
+    expect(callbacks[1]).toMatchObject({
+      start: rerun.at + rerun.totalMs,
+      end: rerun.at + rerun.totalMs,
+      color: "secondary-light" // 0ms: under the callback palette's 10ms cut
+    });
     // The wave that served the click: named by the write and the click,
-    // two re-runs, nothing created, not held. (The mount itself ran
-    // synchronously under createRoot — no drain, so no wave.)
+    // two re-runs, nothing created, not held; 2ms — the memo — so under the
+    // 16ms cut, `primary`. (The mount itself ran synchronously under
+    // createRoot — no drain, so no wave.)
     const waves = waveSpans(on("Propagation"));
     expect(waves).toHaveLength(1);
     const [wave] = waves;
     expect(wave).toMatchObject({
       label: `count 0 → 1 — ${formatOrigin(rerun.interaction!)} · 2 runs`,
+      start: clicked,
+      end: clicked + 2,
       color: "primary"
     });
-    expect(wave.start).toBeLessThanOrEqual(rerun.at);
-    expect(wave.end).toBeGreaterThanOrEqual(callbacks[1].end);
+    expect(wave.end).toBe(callbacks[1].end);
     expect(wave.properties).toEqual(
       expect.arrayContaining([
+        ["Duration", "2.00ms"],
         ["Writes", "count 0 → 1"],
         ["Re-runs", "2"],
         ["Unchanged", "0 (wasted)"],
@@ -428,6 +531,56 @@ describe("enablePerformanceTracks", () => {
         ["Interaction", formatOrigin(rerun.interaction!)]
       ])
     );
+  });
+
+  test("Propagation: a wave's colour follows the drain's duration — under 16ms primary, from 16ms primary-dark", () => {
+    const { on } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    let cost = 0;
+    createRoot(() => createRenderEffect(n, () => clock.advance(cost), { name: "reader" }));
+    flush();
+    // One drain per write, each exactly as long as its callback.
+    for (const ms of [0, 15, 16, 40]) {
+      cost = ms;
+      setN(v => v + 1);
+      flush();
+    }
+    const waves = waveSpans(on("Propagation"));
+    expect(waves.map(w => [w.end - w.start, w.color])).toEqual([
+      [0, "primary"],
+      [15, "primary"],
+      [16, "primary-dark"],
+      [40, "primary-dark"]
+    ]);
+    expect(waves.map(w => w.properties!.find(([k]) => k === "Duration")![1])).toEqual([
+      "0.00ms",
+      "15.00ms",
+      "16.00ms",
+      "40.00ms"
+    ]);
+  });
+
+  test("Effects: a callback's colour follows its duration — under 10ms light, under 100ms secondary, from 100ms error", () => {
+    const { on } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    let cost = 0;
+    createRoot(() => createRenderEffect(n, () => clock.advance(cost), { name: "reader" }));
+    flush();
+    for (const ms of [9, 10, 99, 100]) {
+      cost = ms;
+      setN(v => v + 1);
+      flush();
+    }
+    const callbacks = on("Effects").filter(m => m.label.endsWith("reader · callback"));
+    expect(callbacks.map(m => [m.end - m.start, m.color])).toEqual([
+      [0, "secondary-light"], // the mount
+      [9, "secondary-light"],
+      [10, "secondary"],
+      [99, "secondary"],
+      [100, "error"]
+    ]);
   });
 
   test("Propagation: the runs inside a wave are labelled by what made them run, callbacks as the leaves", () => {
@@ -605,18 +758,23 @@ describe("enablePerformanceTracks", () => {
     });
     flush();
     expect(shown).toEqual(["loading…"]);
-    await new Promise(r => setTimeout(r, 10));
+    const took = clock.now(); // the flight's origin and the fallback's appearance, both at mount
+    // 10ms in the air, on the engine's clock, before the answer.
+    clock.advance(10);
     resolve("a");
     await until(() => shown.includes("a-p1"));
     const spans = on("Async").filter(m => m.label !== "Async");
     const landed = spans.find(m => m.label === "posts")!;
     const fallback = spans.find(m => m.label.startsWith("fallback"))!;
-    expect(landed).toMatchObject({ color: "secondary" });
-    expect(landed.end - landed.start).toBeGreaterThanOrEqual(8);
-    expect(landed.properties).toEqual(expect.arrayContaining([["Outcome", "landed"]]));
-    expect(fallback).toMatchObject({ color: "tertiary" });
-    expect(fallback.end - fallback.start).toBeGreaterThanOrEqual(8);
-    expect(fallback.properties![0][0]).toBe("Shown");
+    expect(landed).toMatchObject({ start: took, end: took + 10, color: "secondary" });
+    expect(landed.properties).toEqual(
+      expect.arrayContaining([
+        ["In the air", "10.00ms"],
+        ["Outcome", "landed"]
+      ])
+    );
+    expect(fallback).toMatchObject({ start: took, end: took + 10, color: "tertiary" });
+    expect(fallback.properties![0]).toEqual(["Shown", "10.00ms"]);
 
     // Two re-asks before an answer: the first flight is thrown away.
     setPage(2);
@@ -658,17 +816,26 @@ describe("enablePerformanceTracks", () => {
     resolve("a");
     await until(() => shown.includes("a-p1"));
 
+    const clicked = clock.now();
     OBSERVE!.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, () =>
       setPage(2)
     );
     flush();
-    await new Promise(r => setTimeout(r, 10));
+    // 10ms held, on the engine's clock, before the answer commits it.
+    clock.advance(10);
     resolve("b");
     await until(() => shown.includes("b-p2"));
 
     const [hold] = holds;
     const [interaction] = interactions;
-    expect(interaction.outcome).toBe("held");
+    expect(interaction).toMatchObject({
+      outcome: "held",
+      at: clicked,
+      handlerMs: 0,
+      settledMs: 10
+    });
+    expect(hold).toMatchObject({ at: clicked, holdMs: 10, tailMs: 10 });
+    expect(isLongHold(hold)).toBe(false); // 10ms tail: under `longHolds.infoMs`
     const [holdSpan] = on("Holds").filter(m => m.label !== "Holds");
     expect(holdSpan).toMatchObject({
       label: "waiting on posts",
@@ -678,23 +845,88 @@ describe("enablePerformanceTracks", () => {
     });
     expect(holdSpan.properties).toEqual(
       expect.arrayContaining([
+        ["Held", "10.00ms"],
         ["Held writes", "page 1 → 2"], // dev: previews shown (see the scrub test)
         ["Acknowledged by", "nothing"],
         ["Verdict", "silent hold — no feedback while waiting"],
         ["Interaction", formatOrigin(interaction.origin)]
       ])
     );
+    expect(holdSpan.properties!.some(([k, v]) => k === "Verdict" && v === "long hold")).toBe(false);
     const settle = on("Interactions").find(m => m.label === "held")!;
-    expect(settle.color).toBe("warning");
-    expect(settle.end).toBeCloseTo(interaction.at + interaction.settledMs!, 6);
+    expect(settle).toMatchObject({
+      start: clicked,
+      end: interaction.at + interaction.settledMs!,
+      color: "warning"
+    });
+  });
+
+  test("a hold: the engine's long-hold verdict is the colour, on both sides of its threshold", async () => {
+    const { on } = measures();
+    enable({
+      attribution: { holds: { infoMs: 0, warnMs: 0 }, longHolds: { infoMs: 500, warnMs: 1000 } }
+    });
+    const { holds } = records();
+
+    const [page, setPage] = createSignal(1, { name: "page" });
+    let resolve!: (v: string) => void;
+    const shown: string[] = [];
+    createRoot(() => {
+      const posts = createMemo(
+        () => {
+          const p = page();
+          return new Promise<string>(r => (resolve = v => r(`${v}-p${p}`)));
+        },
+        { name: "posts" }
+      );
+      createRenderEffect(
+        posts,
+        v => {
+          shown.push(String(v));
+        },
+        { name: "feed" }
+      );
+    });
+    flush();
+    resolve("a");
+    await until(() => shown.includes("a-p1"));
+
+    // Two holds, each silent (nothing acknowledges the wait): one a hair
+    // under the long-hold threshold, one exactly on it.
+    setPage(2);
+    flush();
+    clock.advance(499);
+    resolve("b");
+    await until(() => shown.includes("b-p2"));
+    setPage(3);
+    flush();
+    clock.advance(500);
+    resolve("c");
+    await until(() => shown.includes("c-p3"));
+
+    expect(holds.map(h => [h.holdMs, h.tailMs, isLongHold(h)])).toEqual([
+      [499, 499, false],
+      [500, 500, true]
+    ]);
+    const spans = on("Holds").filter(m => m.label !== "Holds");
+    expect(spans.map(m => [m.end - m.start, m.color])).toEqual([
+      [499, "warning"], // silent, not long
+      [500, "error"] // long: the verdict outranks silent
+    ]);
+    const verdicts = (m: Measure) =>
+      m.properties!.filter(([k]) => k === "Verdict").map(([, v]) => v);
+    expect(verdicts(spans[0])).toEqual(["silent hold — no feedback while waiting"]);
+    expect(verdicts(spans[1])).toEqual(["silent hold — no feedback while waiting", "long hold"]);
   });
 
   test("a navigation: request → settle on the Navigations track, named by route", () => {
     const { on } = measures();
     enable();
     const [location, setLocation] = createSignal("/users", { name: "location" });
-    createRoot(() => createRenderEffect(location, () => {}, { name: "router" }));
+    // The router's callback costs 4ms: the navigation settles 4ms after its request.
+    createRoot(() => createRenderEffect(location, () => clock.advance(4), { name: "router" }));
     flush();
+    const requested = clock.now();
     OBSERVE!.attribution.withOrigin(
       {
         kind: "navigation",
@@ -709,11 +941,13 @@ describe("enablePerformanceTracks", () => {
     const [span] = on("Navigations").filter(m => m.label !== "Navigations");
     expect(span).toMatchObject({
       label: "navigation to /users/:id (/users/42)",
+      start: requested,
+      end: requested + 4,
       color: "secondary"
     });
-    expect(span.end).toBeGreaterThan(span.start);
     expect(span.properties).toEqual(
       expect.arrayContaining([
+        ["Settled", "4.00ms"],
         ["To", "/users/42"],
         ["From", "/users"],
         ["Params", "id=42"],
