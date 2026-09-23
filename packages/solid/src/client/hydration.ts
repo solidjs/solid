@@ -1265,15 +1265,19 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options), options);
 }
 
+// No owner is the same escape as `transparent`: there is no id counter to
+// consume, and peeking one throws reading `_config` (#3609). Function-form
+// signals honor `transparent` here too — effects already did.
 function hydratedCreateMemo(compute: any, options?: any) {
-  if (!sharedConfig.hydrating || options?.transparent) {
+  if (!sharedConfig.hydrating || options?.transparent || !getOwner()) {
     return coreMemo(compute, options);
   }
   return hydrateSignalLike(coreMemo, compute, options);
 }
 
 function hydratedCreateSignal(fn?: any, second?: any) {
-  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreSignal(fn, second);
+  if (typeof fn !== "function" || !sharedConfig.hydrating || second?.transparent || !getOwner())
+    return coreSignal(fn, second);
   return hydrateSignalLike(coreSignal, fn, second);
 }
 
