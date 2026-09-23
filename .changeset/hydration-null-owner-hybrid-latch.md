@@ -1,0 +1,6 @@
+---
+"solid-js": patch
+---
+
+- Hydration facades (`createMemo`, function-form `createSignal`/`createOptimistic`, function-form `createStore`/`createOptimisticStore`, `createProjection`, `createErrorBoundary`, `createLoadingBoundary`, effects) no longer throw when created with no owner (`runWithOwner(null, …)`) or under a root without an `id` while hydrating. A node with no id counter to consume has nothing to hydrate positionally, so it takes the same non-hydrating path as `transparent: true`. Function-form `createSignal` now honors `transparent` like `createMemo` does (#3609).
+- `ssrSource: "hybrid"` on a sync or promise-shaped compute is now identical to `"server"` for function-form stores, `createOptimisticStore` and `createProjection`, matching memos and function-form signals: the serialized value is adopted and the compute does not re-run on the client (no refetch) until a dependency changes or `refresh()`. The handoff — the client continuing the server's stream from the adopted answer — only arms when the compute returns an async iterable. The creation-time gate flip that memos and signals made for non-iterable shapes is gone too: its write was held by the hydration snapshot scope and replayed after hydration completed, which re-ran the compute live.

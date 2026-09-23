@@ -54,7 +54,7 @@ export function GeneratorApp() {
   );
 }
 
-/** Promise-shaped (RETURN-style) source: one answer. */
+/** Promise-shaped (RETURN-style) source: one answer, adopted — no handoff. */
 export function PromiseApp() {
   const [state] = createStore<State>(
     async () => {
@@ -74,7 +74,24 @@ export function PromiseApp() {
   );
 }
 
+/**
+ * `takeover`: whether the client source continues the adopted answer at its
+ * landing. Generator-shaped hybrid sources hand off to the client iteration
+ * (#3498); promise-shaped ones adopt the serialized value and do not hand
+ * off — a handoff run would be a client refetch — so for them `"hybrid"` is
+ * identical to `"server"` (maintainer ruling: hybrid is only for streams).
+ */
 export const variants = [
-  { name: "hybrid-store-handoff-3574-generator", App: GeneratorApp, steps: ["true:0", "true:10"] },
-  { name: "hybrid-store-handoff-3574-promise", App: PromiseApp, steps: ["true:0"] }
+  {
+    name: "hybrid-store-handoff-3574-generator",
+    App: GeneratorApp,
+    steps: ["true:0", "true:10"],
+    takeover: true
+  },
+  {
+    name: "hybrid-store-handoff-3574-promise",
+    App: PromiseApp,
+    steps: ["true:0"],
+    takeover: false
+  }
 ] as const;

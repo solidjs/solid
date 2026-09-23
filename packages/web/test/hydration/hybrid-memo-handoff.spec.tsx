@@ -29,12 +29,13 @@
  * yields. Maintainer ruling: `isPending` does not read true over the initial
  * load; the handoff is its tail.
  *
- * Promise-shaped hybrid memos/signals do not hand off at the landing (#2993:
+ * Promise-shaped hybrid memos/signals do not hand off at all (#2993:
  * adopting the serialized value is their semantics — a handoff would refetch
- * on the client); they are pinned here so the two shapes keep agreeing on
- * the observable outcome (no key miss, no flash, the server span claimed).
- * Whether they re-run once hydration is DONE is readSerializedOrCompute's
- * pre-existing behavior, outside the handoff contract, and not asserted.
+ * on the client; maintainer ruling: for non-stream shapes "hybrid" is
+ * identical to "server"). They are pinned here so the two shapes keep
+ * agreeing on the observable outcome (no key miss, no flash, the server span
+ * claimed), and — in loaded mode, where nothing keeps hydration open — that
+ * the client compute never runs, not even after hydration is DONE.
  *
  * Replays the chunk artifacts test/server/hybrid-memo-handoff.spec.tsx
  * writes, with the fixture's await points swapped for gates, in both replay
@@ -120,9 +121,10 @@ async function run(variant: Variant, mode: "streamed" | "loaded") {
   };
   // Generator-shaped sources hand off to the client iteration once the
   // answer lands — exactly one start, exactly then. Promise-shaped sources
-  // have no handoff (#2993); their start count is not part of the contract.
+  // have no handoff (#2993): the adopted answer is final and the client
+  // compute never starts.
   const expectStarts = (n: number, message: string) => {
-    if (variant.takeover) expect(starts, message).toBe(n);
+    expect(starts, message).toBe(variant.takeover ? n : 0);
   };
 
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };

@@ -16,6 +16,14 @@
 //    handoff), and the abandoned server flight's landing or rejection is
 //    dropped.
 //
+// The handoff is for STREAMS. A sync or promise-shaped hybrid source has no
+// iteration for the client to continue — a handoff run would only refetch
+// what the server serialized — so for those shapes `"hybrid"` is identical
+// to `"server"`: the adopted answer is final until a dependency changes or
+// `refresh()` (maintainer ruling: hybrid is only for streams realistically;
+// memos and function-form signals already behaved this way). The adoption
+// pass detects the shape and arms the handoff only for an async iterable.
+//
 // Harness notes: `stopHydration()` ends the synchronous claim pass (the
 // snapshot scope releases, as `hydrate()` does at the end of its pass). With
 // a streamed <Loading> boundary still pending, hydration is NOT done after
@@ -38,6 +46,7 @@ import {
   enableHydration,
   sharedConfig,
   createMemo,
+  createProjection,
   createStore,
   createOptimisticStore
 } from "../src/client/hydration.js";
@@ -84,6 +93,11 @@ function pendingBoundary() {
   });
   return { promise, resolve };
 }
+
+// The adoption pass runs the source once as a TRACE under a MockPromise swap
+// of the global (subFetch). That run is never consumed, so it is not a
+// start: count only runs under the real Promise.
+const RealPromise = Promise;
 
 type Counter = { count: number };
 const families = [
@@ -361,11 +375,11 @@ describe("hybrid store handoff — rule 1: waits for the first server answer to 
 
   test("a settled answer whose adoption retries (NotReady trace) still hands off after it lands", async () => {
     startHydration({ t1: { v: { count: 5 }, s: 1 } });
-    // The client source's promise-shaped answer, released by the test. (Not a
-    // timer: the handoff run starts on a microtask after the retry's flush,
-    // so a `sleep(1)` inside the source raced the test's own `sleep(10)` —
-    // one stalled scheduling tick of ≥9ms on a loaded CI runner and the
-    // longer timer, created first, fired first.)
+    // The client source's await point, released by the test. (Not a timer:
+    // the handoff run starts on a microtask after the retry's flush, so a
+    // `sleep(1)` inside the source raced the test's own `sleep(10)` — one
+    // stalled scheduling tick of ≥9ms on a loaded CI runner and the longer
+    // timer, created first, fired first.)
     const answer = deferred<void>();
     let dispose!: () => void;
     const [state] = createRoot(
@@ -373,12 +387,21 @@ describe("hybrid store handoff — rule 1: waits for the first server answer to 
         dispose = d;
         // A client-only sibling is unasked through the claim pass: the hybrid
         // store's trace reads it synchronously and suspends, so the creation
-        // run does not land the server answer — a later retry run does.
+        // run does not land the server answer — a later retry run does. The
+        // read happens OUTSIDE the generator (a generator body's throw is a
+        // rejected step, not a sync throw), and the source is a stream: only
+        // an async-iterable shape hands off.
         const clientOnly = createMemo(() => 40, { ssrSource: "client" });
         return createStore<Counter>(
-          () => {
+          draft => {
             const base = clientOnly();
-            return answer.promise.then(() => ({ count: base + 1 }));
+            return (async function* () {
+              await answer.promise;
+              draft.count = base + 1;
+              yield;
+              draft.count = base + 2;
+              yield;
+            })();
           },
           { count: 0 },
           { ssrSource: "hybrid" }
@@ -396,12 +419,55 @@ describe("hybrid store handoff — rule 1: waits for the first server answer to 
       expect(state.count).toBe(5);
       await tick();
       expect(state.count).toBe(5);
-      // The handoff run's promise-shaped answer commits when it lands.
+      // The handoff run's first yield is the duplicate; the second commits.
       answer.resolve();
       await tick();
-      expect(state.count).toBe(41);
+      expect(state.count).toBe(42);
     } finally {
       answer.resolve();
+      dispose();
+    }
+  });
+
+  test("a promise-shaped source whose adoption retries (NotReady trace) adopts and latches: no handoff", async () => {
+    startHydration({ t1: { v: { count: 5 }, s: 1 } });
+    const [version, setVersion] = createSignal(1);
+    let starts = 0;
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        const clientOnly = createMemo(() => 40, { ssrSource: "client" });
+        return createStore<Counter>(
+          // The sibling read is synchronous (outside any async body) so the
+          // trace suspends synchronously; the answer is promise-shaped.
+          () => {
+            const base = clientOnly() + version();
+            if (Promise === RealPromise) starts++;
+            return Promise.resolve({ count: base });
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      expect(() => state.count).toThrow(NotReadyError);
+      stopHydration();
+      flush();
+      expect(state.count).toBe(5);
+      await tick();
+      // The retry's adoption is final: no client run follows it.
+      expect(state.count).toBe(5);
+      expect(starts).toBe(0);
+      // A dependency change is a real run, as under "server".
+      setVersion(2);
+      await tick();
+      expect(state.count).toBe(42);
+      expect(starts).toBe(1);
+    } finally {
       dispose();
     }
   });
@@ -471,12 +537,15 @@ describe("hybrid store handoff — rule 2: only the handoff run's first yield is
     });
   }
 
-  test("a later run of a promise-shaped mutation source writes to the real draft", async () => {
+  test("a later run of a promise-shaped mutation source writes to the real draft (no handoff run precedes it)", async () => {
     startHydration({ t0: { v: { count: 5 }, s: 1 } });
     const [version, setVersion] = createSignal(1);
-    // One gate per run, resolved by the test: the runs start on a microtask
-    // after the test's own step, so a real timer inside the source would race
-    // a real timer in the test (the CI flake in rule 1's NotReady case).
+    // One gate per real run, resolved by the test: the runs start on a
+    // microtask after the test's own step, so a real timer inside the source
+    // would race a real timer in the test (the CI flake in rule 1's NotReady
+    // case). The hydration trace runs execute the source under a MockPromise
+    // swap (subFetch); their gates are inert — never consumed — and not
+    // recorded.
     const gates: Array<ReturnType<typeof deferred<void>>> = [];
     let dispose!: () => void;
     const [state] = createRoot(
@@ -486,7 +555,7 @@ describe("hybrid store handoff — rule 2: only the handoff run's first yield is
           async draft => {
             const v = version();
             const gate = deferred<void>();
-            gates.push(gate);
+            if (Promise === RealPromise) gates.push(gate);
             await gate.promise;
             draft.count = v;
           },
@@ -501,20 +570,15 @@ describe("hybrid store handoff — rule 2: only the handoff run's first yield is
       expect(state.count).toBe(5);
       stopHydration();
       await tick();
-      // Handoff run (and the creation run's, absorbed): every run so far
-      // reproduces the server answer. The hydration trace run executes the
-      // source under a MockPromise swap (subFetch), so ITS gate is inert —
-      // never consumed, nothing to resolve.
-      const release = () =>
-        gates.splice(0).forEach(g => typeof g.resolve === "function" && g.resolve());
-      expect(gates.length).toBeGreaterThanOrEqual(1);
-      release();
-      await tick();
+      // Promise-shaped: no handoff run. The adopted answer stands and the
+      // client source has not started.
+      expect(gates.length).toBe(0);
       expect(state.count).toBe(5);
+      // The first real run is the dependency change; it writes the real draft.
       setVersion(2);
       await tick();
-      expect(gates.length).toBeGreaterThanOrEqual(1);
-      release();
+      expect(gates.length).toBe(1);
+      gates.splice(0).forEach(g => g.resolve());
       await tick();
       expect(state.count).toBe(2);
     } finally {
@@ -909,20 +973,19 @@ describe("hybrid store handoff — rule 5: the handoff opens no pending window (
     }
   });
 
-  test("promise: a boundary created before the client's answer shows the adopted answer", async () => {
+  test("promise: no handoff — the adopted answer is final, nothing is pending, the client source never starts", async () => {
     const server = deferred<Counter>();
-    const gate = deferred<void>();
     startHydration({ t0: server.promise });
+    let starts = 0;
     let dispose!: () => void;
     const [state] = createRoot(
       d => {
         dispose = d;
         return createStore<Counter>(
           async () => {
-            await gate.promise;
-            // The hybrid contract expects the client to reproduce the server
-            // answer; a different value here only makes the landing
-            // observable (the store reconciles what lands, as before).
+            if (Promise === RealPromise) starts++;
+            // A handoff run would land this and be observable; the ruling is
+            // that there is no such run for a promise-shaped source.
             return { count: 6 };
           },
           { count: 0 },
@@ -937,6 +1000,7 @@ describe("hybrid store handoff — rule 5: the handoff opens no pending window (
       stopHydration();
       await tick();
       expect(() => state.count).toThrow(NotReadyError);
+      expect(starts).toBe(0);
 
       server.resolve({ count: 5 });
       await tick();
@@ -945,21 +1009,20 @@ describe("hybrid store handoff — rule 5: the handoff opens no pending window (
       expect(consumer.view()).toBe("content:5");
       expect(consumer.pending()).toBe(false);
 
-      gate.resolve();
       await tick();
-      expect(state.count).toBe(6);
-      expect(consumer.view()).toBe("content:6");
+      await tick();
+      expect(state.count).toBe(5);
+      expect(consumer.view()).toBe("content:5");
       expect(consumer.pending()).toBe(false);
+      expect(starts).toBe(0);
     } finally {
-      gate.resolve();
       consumer?.dispose();
       dispose();
     }
   });
 
-  test("promise: a rejecting handoff run still surfaces its error", async () => {
+  test("promise: a rejecting client run after the adoption (refresh) still surfaces its error", async () => {
     const server = deferred<Counter>();
-    const gate = deferred<void>();
     startHydration({ t0: server.promise });
     let dispose!: () => void;
     const [state] = createRoot(
@@ -967,7 +1030,6 @@ describe("hybrid store handoff — rule 5: the handoff opens no pending window (
         dispose = d;
         return createStore<Counter>(
           async () => {
-            await gate.promise;
             throw new Error("client failed");
           },
           { count: 0 },
@@ -982,12 +1044,16 @@ describe("hybrid store handoff — rule 5: the handoff opens no pending window (
       await tick();
       server.resolve({ count: 5 });
       await tick();
+      // No handoff run: the client source's rejection does not replace the
+      // adopted answer on its own.
       expect(state.count).toBe(5);
-      gate.resolve();
+      await tick();
+      expect(state.count).toBe(5);
+      // A real run (refresh) does, as under "server".
+      await refresh(state).catch(() => {});
       await tick();
       expect(() => state.count).toThrow("client failed");
     } finally {
-      gate.resolve();
       dispose();
     }
   });
@@ -1022,6 +1088,289 @@ describe("hybrid store handoff — rule 5: the handoff opens no pending window (
     } finally {
       gate.resolve();
       consumer?.dispose();
+      dispose();
+    }
+  });
+});
+
+describe('hybrid store — non-iterable shapes latch: identical to "server" (maintainer ruling)', () => {
+  afterEach(stopHydration);
+
+  // A `version`-reading source of each non-iterable shape. Real runs are
+  // counted under the real Promise only (the adoption pass traces the source
+  // under subFetch's MockPromise swap; a trace is not a run).
+  type Shape = readonly [
+    string,
+    (version: () => number, starts: () => void) => (draft: Counter) => any
+  ];
+  const shapes: readonly Shape[] = [
+    [
+      "sync mutation",
+      (version, starts) => draft => {
+        if (Promise === RealPromise) starts();
+        draft.count = version();
+      }
+    ],
+    [
+      "sync return",
+      (version, starts) => () => {
+        if (Promise === RealPromise) starts();
+        return { count: version() };
+      }
+    ],
+    [
+      "promise",
+      (version, starts) => async () => {
+        if (Promise === RealPromise) starts();
+        return { count: version() };
+      }
+    ]
+  ];
+
+  // The observable sequence of a store through hydration and its first
+  // post-hydration change: what it reads at each step and how many real runs
+  // the client source has made.
+  async function observe(
+    create: (typeof families)[number][1],
+    shape: Shape[1],
+    ssrSource: "server" | "hybrid",
+    serialized: any
+  ) {
+    startHydration({ t0: serialized });
+    const [version, setVersion] = createSignal(1);
+    let starts = 0;
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return create<Counter>(
+          shape(version, () => starts++),
+          { count: 0 },
+          { ssrSource }
+        );
+      },
+      { id: "t" }
+    );
+    const read = () => {
+      try {
+        return state.count;
+      } catch (e) {
+        return e instanceof NotReadyError ? "pending" : `error:${(e as Error).message}`;
+      }
+    };
+    const seq: Array<[string, any, number]> = [];
+    try {
+      flush();
+      seq.push(["claim pass", read(), starts]);
+      stopHydration();
+      await tick();
+      seq.push(["hydration done", read(), starts]);
+      await tick();
+      await tick();
+      seq.push(["settled", read(), starts]);
+      setVersion(2);
+      await tick();
+      seq.push(["dependency change", read(), starts]);
+      await refresh(state).catch(() => {});
+      await tick();
+      seq.push(["refresh", read(), starts]);
+    } finally {
+      stopHydration();
+      dispose();
+    }
+    return seq;
+  }
+
+  for (const [family, create] of families) {
+    for (const [shapeName, shape] of shapes) {
+      test(`${family} / ${shapeName}: settled answer — adopted, no client run until a dependency changes`, async () => {
+        const hybrid = await observe(create, shape, "hybrid", { v: { count: 5 }, s: 1 });
+        expect(hybrid).toEqual([
+          ["claim pass", 5, 0],
+          ["hydration done", 5, 0],
+          ["settled", 5, 0],
+          ["dependency change", 2, 1],
+          ["refresh", 2, 2]
+        ]);
+        const server = await observe(create, shape, "server", { v: { count: 5 }, s: 1 });
+        expect(hybrid).toEqual(server);
+      });
+
+      test(`${family} / ${shapeName}: rejected answer — adopted, no client run until refresh`, async () => {
+        const rejected = { v: new Error("server failed"), s: 2 };
+        const hybrid = await observe(create, shape, "hybrid", rejected);
+        expect(hybrid).toEqual([
+          ["claim pass", "error:server failed", 0],
+          ["hydration done", "error:server failed", 0],
+          ["settled", "error:server failed", 0],
+          ["dependency change", 2, 1],
+          ["refresh", 2, 2]
+        ]);
+        const server = await observe(create, shape, "server", rejected);
+        expect(hybrid).toEqual(server);
+      });
+    }
+  }
+
+  test("createProjection / promise: settled answer — adopted, no client run until a dependency changes", async () => {
+    startHydration({ t0: { v: { count: 5 }, s: 1 } });
+    const [version, setVersion] = createSignal(1);
+    let starts = 0;
+    let dispose!: () => void;
+    const state = createRoot(
+      d => {
+        dispose = d;
+        return createProjection<Counter>(
+          async () => {
+            if (Promise === RealPromise) starts++;
+            return { count: version() };
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      expect(state.count).toBe(5);
+      stopHydration();
+      await tick();
+      await tick();
+      expect(state.count).toBe(5);
+      expect(starts).toBe(0);
+      setVersion(2);
+      await tick();
+      expect(state.count).toBe(2);
+      expect(starts).toBe(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("promise: a still-pending answer lands and latches; isPending reads false through the landing", async () => {
+    const server = deferred<Counter>();
+    startHydration({ t0: server.promise });
+    let starts = 0;
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          async () => {
+            if (Promise === RealPromise) starts++;
+            return { count: 6 };
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    let view: any;
+    let consumerDispose: (() => void) | undefined;
+    try {
+      flush();
+      stopHydration();
+      await tick();
+      expect(() => state.count).toThrow(NotReadyError);
+      server.resolve({ count: 5 });
+      await tick();
+      expect(state.count).toBe(5);
+      consumerDispose = createRoot(d => {
+        createRenderEffect(
+          () => ({ count: state.count, pending: isPending(() => state.count) }),
+          v => {
+            view = v;
+          }
+        );
+        return d;
+      });
+      flush();
+      expect(view).toEqual({ count: 5, pending: false });
+      await tick();
+      await tick();
+      expect(view).toEqual({ count: 5, pending: false });
+      expect(starts).toBe(0);
+    } finally {
+      consumerDispose?.();
+      dispose();
+    }
+  });
+
+  test("promise + seedLoadingValue: the deferred settled landing is adopted, not superseded by a client run", async () => {
+    // The settled ref's landing is deferred past the claim walk under a
+    // loading window (readHydratedValue). Before the ruling the creation flip
+    // ran the client source as a handoff that superseded that landing; now
+    // the landing itself is the answer and the source does not run.
+    const settled: any = Promise.resolve({ count: 5 });
+    settled.s = 1;
+    settled.v = { count: 5 };
+    startHydration({ t0: settled });
+    const [version, setVersion] = createSignal(1);
+    let starts = 0;
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          async () => {
+            if (Promise === RealPromise) starts++;
+            return { count: version() };
+          },
+          { count: 0 },
+          { ssrSource: "hybrid", seedLoadingValue: true }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      expect(state.count).toBe(0);
+      stopHydration();
+      await tick();
+      expect(state.count).toBe(5);
+      await tick();
+      expect(state.count).toBe(5);
+      expect(starts).toBe(0);
+      setVersion(2);
+      await tick();
+      expect(state.count).toBe(2);
+      expect(starts).toBe(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("the async-iterable shape still hands off (the trace decides the shape, not the option)", async () => {
+    startHydration({ t0: { v: { count: 5 }, s: 1 } });
+    let starts = 0;
+    let dispose!: () => void;
+    const [state] = createRoot(
+      d => {
+        dispose = d;
+        return createStore<Counter>(
+          async function* (draft) {
+            if (Promise === RealPromise) starts++;
+            draft.count = 1;
+            yield;
+            draft.count = 2;
+            yield;
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    try {
+      flush();
+      expect(state.count).toBe(5);
+      stopHydration();
+      await tick();
+      expect(starts).toBe(1);
+      expect(state.count).toBe(2);
+    } finally {
       dispose();
     }
   });

@@ -61,10 +61,15 @@ type HydrationSsrFields = {
    *   as initial state. Compute does **not** re-run for the initial
    *   value — the serialized result is authoritative. Choose this when
    *   the compute is deterministic from server-available inputs.
-   * - `"hybrid"`: client uses the serialized server value, then
-   *   re-runs the compute to take over. Choose this for computes that
-   *   mix server data with client-only signals (e.g. window size,
-   *   user-locale).
+   * - `"hybrid"`: client uses the serialized server value first; then,
+   *   for a compute that returns an **async iterable**, the client
+   *   continues the stream from it (the server consumed exactly one
+   *   yield; the client's first yield duplicates it and is discarded,
+   *   later yields update the node). For a sync or promise-shaped
+   *   compute, `"hybrid"` is identical to `"server"`: the serialized
+   *   value is adopted and the compute does not re-run until a
+   *   dependency changes or `refresh()`. Choose this for streaming
+   *   sources the client should keep consuming after hydration.
    * - `"client"`: skip the server value entirely. Compute is deferred
    *   until hydration completes, then runs as if first-mounted.
    *   Choose this for client-only state where serialization is
@@ -95,8 +100,9 @@ declare module "@solidjs/signals" {
  *
  * - `"server"` *(default)*: client uses the serialized server value
  *   as initial state.
- * - `"hybrid"`: serialized value first, then re-run the compute on
- *   the client to take over.
+ * - `"hybrid"`: serialized value first; for an async-iterable derive
+ *   the client then continues the stream from it. For a sync or
+ *   promise-shaped derive, identical to `"server"`.
  * - `"client"`: skip serialization; compute runs only after hydration
  *   completes. Bare = suspends on the server (nearest `<Loading>`
  *   renders its fallback and hands the position to the client);
@@ -436,11 +442,11 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // So short-circuit to the server value whenever one is still waiting; once
   // hydration is `done`, always compute.
   if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
-  // Divergence arming is a "server"/default-mode contract only: the hybrid
-  // signal-like wrapper runs this path behind a gate whose creation flip (for
-  // the sync/promise shapes) guarantees one internal re-entry that is not
-  // user divergence — and hybrid's sync/promise flavor deliberately latches
-  // (re-running its compute at done would clobber the adopted value).
+  // Divergence arming is a "server"/default-mode contract only: hybrid's
+  // sync/promise flavor deliberately latches (re-running its compute at done
+  // would clobber the adopted value — the refetch the hybrid wrappers' rule 6
+  // rules out), and the hybrid wrappers re-enter this path for every later
+  // run of such a node, not only on divergence.
   if (latchedOnce.has(o)) {
     if (options?.ssrSource !== "hybrid") armLiveTakeover();
   } else latchedOnce.add(o);
@@ -587,6 +593,22 @@ function applyPatches(target: any, patches: any[]) {
 
 function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";
+}
+
+/**
+ * Whether the current owner has no hydration id counter to consume — no
+ * owner at all (`runWithOwner(null, …)`, a detached creation), or an owner
+ * under an id-less tree (a detached `createRoot` without `id`). Positional
+ * hydration peeks the next child id off the owner, which throws for both
+ * (`childId`: `null._config`, "owner without an id"); and the server
+ * serializes nothing for such a node (its `owner.id` guard), so there is
+ * nothing to look up. Every facade takes the same non-hydrating path
+ * `transparent` takes (#3609) — the predicate lazyHydrationLookup already
+ * applied. Owned nodes under an id-carrying owner are unaffected.
+ */
+function noHydrationId(): boolean {
+  const o = getOwner();
+  return !o || o.id == null;
 }
 
 function createShadowDraft(realDraft: any, shallow?: boolean) {
@@ -1152,6 +1174,10 @@ function withHydrationGate(create: (hydrated: () => boolean) => any) {
 // _hydrateSignalLike slot precisely so the wrapper does not statically couple
 // the optimistic engine to this body (which would drag it into CSR bundles).
 function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
+  // Not hydrating positionally: a transparent node (invisible to the id
+  // scheme — it must not peek, and adopt, the NEXT sibling's slot), or no id
+  // counter to peek from (#3609). Straight to the core primitive.
+  if (options?.transparent || noHydrationId()) return coreFn(fn, options);
   markTopLevelSnapshotScope();
 
   const ssrSource = options?.ssrSource;
@@ -1188,11 +1214,17 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   // duplicate lands as an equal write.
   //
   // The handoff only ARMS when the adoption pass saw an async-iterable
-  // compute: sync and promise-shaped hybrid computes keep their documented
-  // adopt-the-serialized-value semantics (re-running those would clobber the
-  // server value / trigger a client refetch) — for those the gate flips at
-  // creation and the flip's recompute re-adopts, as withHydrationGate always
-  // did here.
+  // compute (rule 6 in the store's block): sync and promise-shaped hybrid
+  // computes keep their documented adopt-the-serialized-value semantics
+  // (re-running those would clobber the server value / trigger a client
+  // refetch). For those nothing flips: the adoption IS the answer, and every
+  // later run re-enters the adoption path — readSerializedOrCompute, the
+  // "server" body, which re-adopts while hydration is open and runs the
+  // compute live once it is done. (The creation flip this path used to make
+  // for them was not a free re-adopt: the gate write is held by the snapshot
+  // scope and replays at its release, AFTER `done` flips in the plain
+  // hydrate() path — so the recompute ran the compute live, refetching what
+  // the server had serialized.)
   if (ssrSource === "hybrid" && sharedConfig.has!(peekNextChildId(getOwner()!))) {
     // undefined until the trace has completed once: a sync NotReady from the
     // trace (the compute read a pending sibling before returning) leaves the
@@ -1214,8 +1246,8 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
     const result = coreFn((prev: any) => {
       if (live) return fn(prev);
       if (hydrated()) {
-        if (!takeover) return readSerializedOrCompute(detect, prev, options);
-        // The handoff run (rule 5: quiet through its duplicate).
+        // The handoff run (rule 5: quiet through its duplicate). The gate
+        // only ever flips for an async-iterable compute.
         live = true;
         const r = fn(prev);
         return isAsyncIterable(r) ? wrapFirstYield(r, undefined, prev) : r;
@@ -1228,7 +1260,8 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
         return fn(prev);
       }
       // Adoption; the trace inside detects the compute's shape. Re-entered
-      // only by a NotReady retry of the trace (nothing adopted yet).
+      // by a NotReady retry of the trace (nothing adopted yet), and — for a
+      // non-iterable compute, which never arms — by every later run.
       let answer: any;
       try {
         answer = readSerializedOrCompute(detect, prev, options);
@@ -1239,6 +1272,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
         if (takeover) live = true;
         throw e;
       }
+      // Rule 6: a non-iterable compute's adoption is the answer.
       if (!takeover) return answer;
       adopted = true;
       if (answer != null && typeof answer.then === "function")
@@ -1250,11 +1284,10 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
       return answer;
     }, options);
     creating = false;
-    // The creation flip: the handoff for a synchronously landed answer, or
-    // the non-handoff shapes' one re-adopting recompute (as before). An
-    // untraced node (NotReady) has no shape yet; for a non-handoff shape the
-    // retry's adoption is already the run the flip would have produced.
-    if (landedOnCreate || takeover === false) flip();
+    // The creation flip: the handoff for a synchronously landed answer. An
+    // untraced node (NotReady) has no shape yet, and a non-iterable compute
+    // has nothing to hand off (rule 6).
+    if (landedOnCreate) flip();
     return result;
   }
 
@@ -1266,9 +1299,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
-  if (!sharedConfig.hydrating || options?.transparent) {
-    return coreMemo(compute, options);
-  }
+  if (!sharedConfig.hydrating) return coreMemo(compute, options);
   return hydrateSignalLike(coreMemo, compute, options);
 }
 
@@ -1281,7 +1312,7 @@ function hydratedCreateErrorBoundary<T, U>(
   fn: () => T,
   fallback: (error: () => unknown, reset: () => void) => U
 ): Accessor<T | U> {
-  if (!sharedConfig.hydrating) return coreErrorBoundary(fn, fallback);
+  if (!sharedConfig.hydrating || noHydrationId()) return coreErrorBoundary(fn, fallback);
   markTopLevelSnapshotScope();
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
@@ -1331,7 +1362,7 @@ function hydrateStoreLikeFn(
     // Hybrid handoff (#3498). Server is truth: the store adopts the
     // serialized answer, and the client source takes over from it in ONE
     // handoff run whose first yield is discarded as the duplicate of what
-    // the server serialized. Three rules order that handoff:
+    // the server serialized. These rules order that handoff:
     //
     // 1. It waits for the first server answer to LAND. Synchronous when the
     //    serialized value is already settled (the flip below, as before);
@@ -1363,9 +1394,19 @@ function hydrateStoreLikeFn(
     //    client source produces something new. Maintainer ruling: isPending does
     //    not read true over the initial load; the handoff is its tail.
     //
+    // 6. The handoff is for STREAMS. It only ARMS when the adoption pass saw
+    //    an async-iterable source: a sync or promise-shaped source has no
+    //    iteration for the client to continue, so a handoff run would only
+    //    re-run (refetch) what the server serialized and clobber the adopted
+    //    answer. For those shapes "hybrid" is identical to "server" — the
+    //    adopted answer is final until a dependency changes or refresh() —
+    //    exactly as hydrateSignalLike already treated them. Maintainer
+    //    ruling: hybrid is only for streams realistically. The shape is
+    //    the trace's finding, not the option's: the source decides.
+    //
     // The signal-shaped hybrid handoff (hydrateSignalLike: createMemo,
     // function-form createSignal, createOptimistic over an async generator)
-    // follows the same rules 1–5 on the same helpers — adoptedAnswerStream
+    // follows the same rules 1–6 on the same helpers — adoptedAnswerStream
     // for the landing, wrapFirstYield for the quiet run — with the node's
     // `prev` as the adopted answer in place of the draft.
     const id = peekNextChildId(getOwner()!);
@@ -1373,6 +1414,15 @@ function hydrateStoreLikeFn(
     // yield to duplicate — the client is authoritative from its first run.
     if (!sharedConfig.has!(id)) return coreFn(fn, initialValue, options);
     const initP = sharedConfig.load!(id);
+    // undefined until the trace has completed once: a sync NotReady from the
+    // trace (the source read a pending sibling before returning) leaves the
+    // shape unknown, and the retry decides (rule 6).
+    let takeover: boolean | undefined;
+    const detect = (draft: any) => {
+      const r = fn(draft);
+      takeover = isAsyncIterable(r);
+      return r;
+    };
     const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     let live = false;
     // A late flip — a queued microtask, or a landing the engine kept for a
@@ -1386,6 +1436,11 @@ function hydrateStoreLikeFn(
     const result = coreFn(
       (draft: any) => {
         if (live) return fn(draft);
+        // Rule 6: a non-iterable source, decided by the trace. No handoff —
+        // from here the store IS a "server" store (wrapStoreFn's body): every
+        // later run (dependency change, refresh()) re-adopts the serialized
+        // answer while hydration is open and runs fn live once it is done.
+        if (takeover === false) return readSerializedOrCompute(() => fn(draft), draft, options);
         if (hydrated()) {
           // The handoff run (rule 5: quiet through its duplicate).
           live = true;
@@ -1405,19 +1460,26 @@ function hydrateStoreLikeFn(
           live = true;
           return fn(draft);
         }
-        // Adoption. Re-entered only by a NotReady retry of the trace (the
-        // pending sibling settled; nothing was adopted yet, so adopt now).
-        subFetch(fn, draft);
+        // Adoption; the trace inside detects the source's shape. Re-entered
+        // only by a NotReady retry of the trace (the pending sibling settled;
+        // nothing was adopted yet, so adopt now).
+        subFetch(detect, draft);
         let answer: any;
         try {
           answer = readHydratedValue(initP, () => {}, options);
         } catch (e) {
           // The trace above completed, so this is the settled rejection —
-          // the adopted answer (rule 3). (A NotReady from the trace is a
-          // retry of this same adoption and never reaches here.)
-          live = true;
+          // the adopted answer (rule 3): authority transfers without a
+          // handoff run. A non-iterable source has no handoff to skip; it
+          // re-adopts (and re-throws) like "server" until a real run. (A
+          // NotReady from the trace is a retry of this same adoption and
+          // never reaches here.)
+          if (takeover) live = true;
           throw e;
         }
+        // Rule 6: a non-iterable source's adoption is the answer — nothing
+        // flips, and later runs take the `takeover === false` branch above.
+        if (!takeover) return answer;
         adopted = true;
         if (answer != null && typeof answer.then === "function")
           return adoptedAnswerStream(answer, flip, () => (live = true));
@@ -1433,6 +1495,12 @@ function hydrateStoreLikeFn(
       options
     );
     creating = false;
+    // The creation flip: the handoff for a synchronously landed answer. An
+    // untraced source (NotReady) has no shape yet, and a non-iterable source
+    // has nothing to hand off (rule 6). (Nor is a flip a free re-adopt for
+    // it: the gate write is held by the snapshot scope and replays at its
+    // release, AFTER `done` flips in the plain hydrate() path, so the
+    // recompute would run fn live — the very refetch rule 6 rules out.)
     if (landedOnCreate) flip();
     return result;
   }
@@ -1448,6 +1516,8 @@ function hydrateStoreLikeFn(
 // onHydrationEnd it defers through) is unchanged — only how the code is
 // reached moved.
 function hydrateStoreLike(coreFn: Function, fn: any, initialValue: any, options?: any) {
+  // No id counter to peek from: not hydrating positionally (#3609).
+  if (noHydrationId()) return coreFn(fn, initialValue, options);
   markTopLevelSnapshotScope();
   return hydrateStoreLikeFn(coreFn, fn, initialValue, options, options?.ssrSource);
 }
@@ -1478,7 +1548,8 @@ function hydratedCreateRoot(init: Function, options?: { id?: string; transparent
 // --- Hydration-aware effect implementations ---
 
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
-  if (!sharedConfig.hydrating || options?.transparent) return coreFn(compute, effectFn, options);
+  if (!sharedConfig.hydrating || options?.transparent || noHydrationId())
+    return coreFn(compute, effectFn, options);
 
   const ssrSource = options?.ssrSource;
 
@@ -1708,7 +1779,10 @@ export function enableHydration() {
  * **Hydration:** `MemoOptions` accepts an `ssrSource` field
  * (`"server"` | `"hybrid"` | `"client"`) that controls what initial
  * value the client uses and whether `compute` re-runs. See
- * {@link HydrationSsrFields}.
+ * {@link HydrationSsrFields}. `transparent: true` opts a memo out of
+ * hydration (it consumes no id slot and computes live); a memo created
+ * with no owner, or under a root without an `id`, has no id to consume
+ * and takes that path on its own.
  *
  * @param compute receives the previous value, returns the new value
  * @param options `MemoOptions` — `id`, `name`, `equals`, `unobserved`,
@@ -1763,7 +1837,8 @@ export const createMemo: {
  * **Hydration:** in the function form, `SignalOptions & MemoOptions`
  * accepts an `ssrSource` field (`"server"` | `"hybrid"` | `"client"`)
  * that controls what initial value the client uses and whether `fn`
- * re-runs. See {@link HydrationSsrFields}.
+ * re-runs. See {@link HydrationSsrFields}. `transparent: true` and the
+ * ownerless / id-less cases behave as for `createMemo`.
  *
  * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
@@ -2114,7 +2189,9 @@ export const createRoot: typeof coreRoot = ((...args: any[]) =>
  * `transparent: true` makes the effect invisible to hydration entirely —
  * it consumes no hydration id slot and its compute runs live rather than
  * adopting the serialized server value — for client-only effects the
- * server never created.
+ * server never created. An effect created with no owner, or under a
+ * root without an `id`, has no id slot to consume and takes that path on
+ * its own.
  *
  * @example
  * ```ts
@@ -2186,7 +2263,9 @@ export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
  * `transparent: true` makes the effect invisible to hydration entirely —
  * it consumes no hydration id slot and its compute runs live rather than
  * adopting the serialized server value — for client-only effects the
- * server never created.
+ * server never created. An effect created with no owner, or under a
+ * root without an `id`, has no id slot to consume and takes that path on
+ * its own.
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
@@ -2685,7 +2764,7 @@ function hydratedCreateLoadingBoundary<T, U>(
   fallback: () => U,
   options?: { on?: () => any }
 ): Accessor<T | U> {
-  if (!sharedConfig.hydrating) return coreLoadingBoundary(fn, fallback, options);
+  if (!sharedConfig.hydrating || noHydrationId()) return coreLoadingBoundary(fn, fallback, options);
 
   let settledSerializationResumeQueued = false;
 
