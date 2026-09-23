@@ -1,0 +1,9 @@
+{
+  "name": "component-hole-then-children",
+  "html": "<div _hk=0><header><button _hk=30 id=\"hdr\">clicks <!--$-->0<!--/--></button></header><main><p _hk=40 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:0",
+    "button:30",
+    "p:40"
+  ]
+}

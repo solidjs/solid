@@ -1,0 +1,10 @@
+{
+  "name": "for-rows-then-children",
+  "html": "<div _hk=0><ul><li _hk=100>t0-a</li><li _hk=110>t0-b</li></ul><main><p _hk=30 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:0",
+    "li:100",
+    "li:110",
+    "p:30"
+  ]
+}

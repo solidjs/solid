@@ -55,6 +55,65 @@ export function devCheck(finding: Finding, subject?: unknown): void {
   if (IS_DEV) emitFinding(finding, subject);
 }
 
+/**
+ * Dev CHECK, one code on both platforms: a hole the compiler left unscoped
+ * (a bare identifier — `{renderHead}` — is the one shape that can be a
+ * function at runtime without the compiler seeing an expression to scope)
+ * evaluated to a function that built hydratable content, and that content
+ * took its ids from the ENCLOSING owner's counter. A scoped hole reserves
+ * its slot at registration and nests its content under it, so it moves the
+ * counter by exactly one, at the same point on both sides; an unscoped one
+ * moves it by however much it built, when it ran — statement order on the
+ * client, walk order on the server — and every id after it permutes. The
+ * shape is unreachable from type-checked code (`JSX.Element` excludes
+ * functions) and is not scoped in production; this check is its cost.
+ *
+ * Unscoped allocation alone is not the finding — a function hole that runs
+ * at the same counter position on both sides (nothing scoped after it in
+ * its template; a boundary's zero-arity fallback thunk at the end of an
+ * element) hydrates fine. Each side reports the permutation it can see:
+ * the server knows the position the hole was REGISTERED at (`registered`,
+ * where the client builds it in statement order) and the one it EVALUATED
+ * it at (`before`, walk order, after the scoped holes that follow it
+ * reserved theirs) and reports when they differ; the client, which always
+ * builds in place, reports when the content it built inside the hole
+ * missed its server-rendered keys. `before`/`after` are the counter's next
+ * id around the evaluation; `site` names the hole (`data.name` the
+ * function, `data.hole` the position). Callers dedupe per site so a row
+ * template reports once.
+ */
+export function unscopedHoleAllocatedIds(
+  before: string,
+  after: string,
+  site: { name?: string; hole?: number; registered?: string },
+  subject?: unknown
+): void {
+  const fn = site.name ? `\`${site.name}\`` : "a function";
+  const where =
+    site.registered !== undefined
+      ? `the server evaluated it at ${before} (→ ${after}), after the scoped holes that follow it ` +
+        `had reserved theirs, but it was registered at ${site.registered}, where the client builds ` +
+        `it in place`
+      : `the client built it in place at ${before} (→ ${after}) and its content missed its ` +
+        `server-rendered keys, because the server evaluates it after the scoped holes that follow it`;
+  devCheck(
+    {
+      code: "UNSCOPED_HOLE_ALLOCATED_IDS",
+      kind: "render",
+      severity: "warn",
+      message:
+        `[UNSCOPED_HOLE_ALLOCATED_IDS] A JSX hole received ${fn} instead of a value, and calling it ` +
+        `built hydratable content. The hole is unscoped, so that content took ids from the enclosing ` +
+        `scope's counter: ${where}. The hydration keys of this hole's content and of the holes after it ` +
+        `permute between server and client. Pass the built value — call it at the hole ` +
+        `(\`{${site.name || "render"}()}\`) or assign the result first — rather than the function; a ` +
+        `function is not a JSX.Element, so this shape is reached only from JavaScript or through a cast.`,
+      data: { before, after, ...site }
+    },
+    subject
+  );
+}
+
 /** `Name: message` for an Error, `String(value)` otherwise. */
 export function errorText(error: unknown): string {
   if (error instanceof Error) return error.message ? `${error.name}: ${error.message}` : error.name;

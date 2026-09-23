@@ -179,7 +179,7 @@ import {
   qualifierValue,
   STYLESHEET_FETCH_META
 } from "./head.js";
-import { devCheck } from "./diagnostics.js";
+import { devCheck, unscopedHoleAllocatedIds } from "./diagnostics.js";
 export {
   DOMWithState,
   ChildProperties,
@@ -969,6 +969,9 @@ export function spread(node, props, skipChildren, skip, name) {
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
     assign(node, newProps, true, prevProps, true);
   };
+  // The children inserts below are transparent by design (see
+  // `unscopedByDesign`); the mark spans their synchronous first compute.
+  if ("_SOLID_DEV_") unscopedByDesign = node;
   if (Array.isArray(props)) {
     if (!skipChildren && !(skip !== undefined && skip("children")))
       insert(node, () => {
@@ -977,6 +980,7 @@ export function spread(node, props, skipChildren, skip, name) {
           if (s != null && entryHas(s, "children")) return entryGet(s, "children");
         }
       });
+    if ("_SOLID_DEV_") unscopedByDesign = null;
     effect(() => collectSources({}, props, undefined, skip), apply);
     return prevProps;
   }
@@ -1001,6 +1005,7 @@ export function spread(node, props, skipChildren, skip, name) {
           : undefined;
       });
   }
+  if ("_SOLID_DEV_") unscopedByDesign = null;
   effect(() => {
     const source = resolveSource(props);
     const newProps = {};
@@ -1167,6 +1172,47 @@ export function scope(fn) {
 }
 
 const SCOPE_OPTIONS = { scope: true };
+
+// Dev CHECK: an unscoped hole built content on the enclosing id counter
+// while hydrating, and that content missed its server-rendered keys —
+// `UNSCOPED_HOLE_ALLOCATED_IDS` (diagnostics.ts; the server's `ssr()` hole
+// loop runs its half). `insert`'s outer effect is transparent unless the
+// compiler tagged the accessor (`$s`), so a bare function it was handed
+// (`{renderHead}`) builds its content on the enclosing counter at statement
+// time, where the server builds it in walk order — after the scoped holes
+// that follow it reserved theirs. Allocation alone is not the finding (a
+// function hole with nothing scoped after it lands on the same ids both
+// sides); the client cannot see the server's template, so it reports the
+// permutation it can observe: a key miss (`getNextElement`) inside the
+// bracket. The snapshot is taken only while hydrating, for an untagged
+// accessor, and outside a runtime children insert: `spread`'s is
+// transparent BY DESIGN — the server's `ssrElement` evaluates the same
+// children inline in the same position — and marks its element in
+// `unscopedByDesign` for the duration of the (synchronous) first compute.
+// Once per site: the owner labels, the element, the function name.
+let unscopedByDesign = null;
+let reportedHoleSites = null;
+let hydrationKeyMisses = 0;
+function unscopedHoleSnapshot(accessor, parent) {
+  if (
+    accessor.$s ||
+    !sharedConfig.hydrating ||
+    parent === unscopedByDesign ||
+    sharedConfig.devPeekNextContextId === undefined
+  )
+    return undefined;
+  return { next: sharedConfig.devPeekNextContextId(), misses: hydrationKeyMisses };
+}
+function checkUnscopedHole(snapshot, accessor, parent) {
+  if (snapshot === undefined || hydrationKeyMisses === snapshot.misses) return;
+  const after = sharedConfig.devPeekNextContextId();
+  if (after === snapshot.next) return;
+  let site = parent.nodeName + "|" + accessor.name;
+  for (let o = getOwner(); o !== null; o = o._parent) if (o._name) site = o._name + "|" + site;
+  if ((reportedHoleSites || (reportedHoleSites = new Set())).has(site)) return;
+  reportedHoleSites.add(site);
+  unscopedHoleAllocatedIds(snapshot.next, after, accessor.name ? { name: accessor.name } : {});
+}
 
 // Hydration-time behaviors reached from the hot insert/event paths, installed
 // by hydrate() so client-only bundles shake the implementations. Call sites
@@ -1343,7 +1389,15 @@ export function insert(parent, accessor, marker, initial, options) {
   effect(
     prev => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
+      // Dev: bracket an unscoped accessor's evaluation while hydrating — a
+      // scoped one owns its ids; this effect is transparent, so anything an
+      // unscoped one builds takes ids from the enclosing counter, and a key
+      // miss inside the bracket is the permutation. Checked again after the
+      // inner effect below, whose synchronous first compute unwraps an
+      // accessor that returned a function (one report per site).
+      const devNext = "_SOLID_DEV_" ? unscopedHoleSnapshot(accessor, parent) : undefined;
       const value = normalize(accessor(), current, multi, true);
+      if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       if (typeof value !== "function") return value;
       effect(
         () => (
@@ -1358,6 +1412,7 @@ export function insert(parent, accessor, marker, initial, options) {
           ? { ...options, schedule: true }
           : options
       );
+      if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       return INNER_OWNED;
     },
     value => {
@@ -2246,6 +2301,7 @@ export function getNextElement(template) {
     // in the document — without a report that reads as a silently frozen
     // page (solidjs/solid#3000).
     if ("_SOLID_DEV_" && hydrating) {
+      hydrationKeyMisses++;
       console.warn(
         `Hydration key miss for "${key}": no server-rendered element carries this key` +
           (template._html ? ` (template: ${template._html.slice(0, 60)})` : "") +

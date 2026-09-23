@@ -240,6 +240,27 @@ export function peekNextChildId(owner: Owner): string {
   return nextChildIdFor(owner as unknown as SSROwner, false);
 }
 
+/**
+ * Dev only — installed as `sharedConfig.devPeekNextContextId`, never
+ * exported from the entry (the prod and observe artifacts carry none of it).
+ * The id the NEXT child of the current owner would take, read with no side
+ * effect: a pending hole slot (`ssrScope`) is folded into the prefix
+ * arithmetically — the same string `materializeId` would build — without
+ * materializing it onto the owner. `undefined` outside an id-carrying tree.
+ * `@solidjs/web` snapshots it around an unscoped hole's evaluation: a hole
+ * that moved it took ids from the enclosing counter, which the client
+ * allocates at a different time (`UNSCOPED_HOLE_ALLOCATED_IDS`).
+ */
+export function devPeekNextChildId(): string | undefined {
+  let counter = currentOwner;
+  if (!counter) return undefined;
+  while (counter._transparent && counter._parent) counter = counter._parent;
+  if (counter.id == null) return undefined;
+  const prefix =
+    counter._scopeSlot >= 0 ? formatChildId(counter.id, counter._scopeSlot) : counter.id;
+  return formatChildId(prefix, counter._childCount);
+}
+
 // Monotonic count of owner creations in this process — the reactive-scope
 // creation stamp. The live-hole engine (`@solidjs/web` server runtime)
 // diffs it around a hole evaluation to detect render-once work: memos,

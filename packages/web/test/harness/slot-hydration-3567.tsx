@@ -16,7 +16,7 @@
  * issue's symptom) fails the liveness assertion rather than only the key
  * check.
  */
-import { createSignal, children, omit, createContext, useContext } from "solid-js";
+import { createSignal, children, omit, createContext, useContext, For, Show } from "solid-js";
 import { Dynamic, type JSX } from "@solidjs/web";
 
 export type Scenario = {
@@ -27,10 +27,13 @@ export type Scenario = {
   /** textContent after clicking the server-rendered `#hdr` button (if any) */
   expectedTextAfterClick: string;
   /**
-   * Documents a shape the compiler still cannot align; the hydrate half
-   * registers it with `test.fails` so the gap is pinned, not hidden.
+   * Documents a shape the compiler does not align, by ruling: the hydrate
+   * half asserts the keys still permute (so a fix is noticed) and that the
+   * dev diagnostic named in `diagnostic` fires on both sides.
    */
   knownGap?: string;
+  /** The dev diagnostic code the shape must raise on server render and client hydrate. */
+  diagnostic?: "UNSCOPED_HOLE_ALLOCATED_IDS";
 };
 
 function makeApp(Layout: (props: any) => any) {
@@ -252,14 +255,18 @@ const OptionalCall = (props: any) => (
   </div>
 );
 
-// KNOWN GAP: a bare identifier bound to a FUNCTION that returns JSX. The hole
-// never classifies as `dynamic`, so neither generate scopes it; the client
-// inserts it as a deferred effect at the statement while the server resolves
-// the function late inside the `ssr()` walk, after the children scope has
-// reserved its slot. To be caught by a dev-only "unscoped hole moved the id
-// counter" assertion (follow-up to #3599). Note 2.0's `JSX.Element` excludes
-// functions, so type-checked code reaches this shape only through a cast (or
-// from JS); the runtime still unwraps a function hole, hence the pin.
+// KNOWN GAP, BY RULING: a bare identifier bound to a FUNCTION that returns
+// JSX. The hole never classifies as `dynamic`, so neither generate scopes it;
+// the client inserts it as a transparent effect at the statement while the
+// server resolves the function late inside the `ssr()` walk, after the
+// children scope has reserved its slot — the keys permute. 2.0's
+// `JSX.Element` excludes functions, so type-checked code reaches this shape
+// only through a cast (or from JS), and it is NOT scoped (no production
+// cost). Instead both runtimes raise `UNSCOPED_HOLE_ALLOCATED_IDS` in dev
+// when the hole takes ids from the enclosing counter at a position the other
+// side does not share (the server: registered vs. evaluated; the client: the
+// content it built in place missed its keys) — pinned here, with the
+// permutation, so a change to either is noticed.
 const FunctionIdentifier = (props: any) => {
   const renderHead = () => props.header;
   return (
@@ -269,6 +276,44 @@ const FunctionIdentifier = (props: any) => {
     </div>
   );
 };
+
+// The fix the diagnostic prescribes: CALL the function at the hole. A call
+// hole is scoped on both sides, so nothing escapes to the enclosing counter.
+const FunctionIdentifierCalled = (props: any) => {
+  const renderHead = () => props.header;
+  return (
+    <div>
+      <header>{renderHead()}</header>
+      <main>{props.children}</main>
+    </div>
+  );
+};
+
+// Controls for the diagnostic: function-valued holes that own their ids.
+// A component whose result is an accessor (`<Show>` returns a memo) is a
+// function at the hole, but the memo allocated its owner at creation and
+// its content nests there; the enclosing counter does not move.
+const ShowHead = (props: any) => <Show when={true}>{props.header}</Show>;
+const ComponentHoleThenChildren = (props: any) => (
+  <div>
+    <header>
+      <ShowHead header={props.header} />
+    </header>
+    <main>{props.children}</main>
+  </div>
+);
+
+// `<For>` is a `mapArray` accessor at the hole: rows live under its owner.
+// Each row's template-literal hole is unscoped too (provably primitive) and
+// must stay silent — it allocates nothing.
+const ForRowsThenChildren = (props: any) => (
+  <div>
+    <ul>
+      <For each={["a", "b"]}>{i => <li>{`${props.title}-${i}`}</li>}</For>
+    </ul>
+    <main>{props.children}</main>
+  </div>
+);
 
 // A bare identifier holding an already-built JSX value is passed eagerly on
 // both sides (`insert(el, h)` / `escape(h)`), so it is safe unscoped.
@@ -373,7 +418,24 @@ export const scenarios: Scenario[] = [
     ...T("clicks 0body 0", "clicks 1body 1"),
     knownGap:
       "a bare identifier hole never classifies as dynamic, so a function-valued one is deferred " +
-      "unscoped on both sides and the server resolves it after the children scope reserved its slot"
+      "unscoped on both sides and the server resolves it after the children scope reserved its slot; " +
+      "TS-unreachable, not scoped by ruling — UNSCOPED_HOLE_ALLOCATED_IDS fires instead",
+    diagnostic: "UNSCOPED_HOLE_ALLOCATED_IDS"
+  },
+  {
+    name: "function-identifier-called",
+    App: makeApp(FunctionIdentifierCalled),
+    ...T("clicks 0body 0", "clicks 1body 1")
+  },
+  {
+    name: "component-hole-then-children",
+    App: makeApp(ComponentHoleThenChildren),
+    ...T("clicks 0body 0", "clicks 1body 1")
+  },
+  {
+    name: "for-rows-then-children",
+    App: makeApp(ForRowsThenChildren),
+    ...T("t0-at0-bbody 0", "t0-at0-bbody 0")
   },
   {
     name: "value-identifier",

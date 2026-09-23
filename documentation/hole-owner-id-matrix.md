@@ -111,11 +111,39 @@ sibling ids because a hole's counter is its own.
     sees a function and runs a transparent effect at the statement, while the
     server's `escapeLate` resolves it inside the `ssr()` walk, after every
     scoped sibling has reserved its slot. Followed by a scoped hole it
-    misaligns exactly like the pre-#3567 member hole. **Known open gap** —
-    pinned by the `function-identifier` scenario in
-    `packages/web/test/harness/slot-hydration-3567.tsx` (`test.fails`); to be
-    caught by a dev-only "unscoped hole moved the id counter" assertion on
-    both runtimes (follow-up).
+    misaligns exactly like the pre-#3567 member hole. **Ruled: not scoped.**
+    2.0's `JSX.Element` excludes functions, so type-checked code cannot write
+    this hole — it is reached only from JavaScript or through a cast — and
+    scoping every bare identifier to cover it would put a slot reservation on
+    every `{h}` in production for a shape the types already reject. Instead
+    the dev builds detect the permutation itself: an unscoped function hole
+    that built content on the enclosing owner's counter at a position the
+    other side does not share. Both runtimes bracket an unscoped function
+    hole's evaluation with the counter's next id
+    (`sharedConfig.devPeekNextContextId`, installed under the dev gate on
+    both facades). The server (`ssr()`'s function-hole branch) also records
+    the position the hole was registered at (`escapeLate`, argument
+    evaluation — where the client builds it) and reports when the walk
+    evaluated an allocating hole at a different one; the client (`insert`'s
+    transparent outer effect while hydrating) always builds in place, so it
+    reports when the content it built inside the bracket moved the counter
+    and missed a server-rendered key. Either raises
+    [`UNSCOPED_HOLE_ALLOCATED_IDS`](solid-2.0/08-dev-diagnostics.md#unscoped_hole_allocated_ids)
+    (`warn`, kind `render`, once per site), naming the function and the fix:
+    call it at the hole (`{renderHead()}`) or pass the built value. The
+    finding is the shift, not the allocation: a function hole with nothing
+    scoped after it in its template lands on the same ids on both sides and
+    is silent — a boundary's zero-arity `fallback={() => <F />}` thunk,
+    handed back unresolved and built by the consuming hole, is that shape
+    and hydrates (the parity harness pins it); followed by a scoped hole it
+    is the same gap and is reported. A scoped hole restores the counter
+    (server) or owns its ids (client); a memo or component accessor
+    allocates under its own owner; `spread`'s runtime children insert is
+    transparent by design on both sides and is excluded. Zero bytes in the
+    prod and observe artifacts. Pinned by the `function-identifier` scenario
+    in `packages/web/test/harness/slot-hydration-3567.tsx`: the diagnostic
+    fires on server render and client hydrate, AND the keys still permute —
+    so a change to either half is noticed.
 - Virtual scope means failed-attempt children attach to the (parent) owner and
   are not disposed per retry — identical leak envelope to pre-change behavior;
   ids stay deterministic because each attempt re-runs with the same
