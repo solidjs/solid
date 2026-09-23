@@ -133,10 +133,18 @@ sibling ids because a hole's counter is its own.
     call it at the hole (`{renderHead()}`) or pass the built value. The
     finding is the shift, not the allocation: a function hole with nothing
     scoped after it in its template lands on the same ids on both sides and
-    is silent — a boundary's zero-arity `fallback={() => <F />}` thunk,
-    handed back unresolved and built by the consuming hole, is that shape
-    and hydrates (the parity harness pins it); followed by a scoped hole it
-    is the same gap and is reported. A scoped hole restores the counter
+    is silent; followed by a scoped hole it is the same gap and is reported.
+    (`<Errored>`'s zero-arity `fallback={() => <F />}` thunk — type-reachable,
+    `() => X` being assignable to `(err, reset) => X` — used to be handed back
+    unresolved and built by the consuming hole, exactly this shape: silent
+    with nothing scoped after the boundary, reported otherwise. Ruled to work
+    like `<Show>`'s function child: `<Errored>` calls a function-valued
+    fallback inside its own scope whatever its arity — the boundary's output
+    computed on the client, the mirroring output owner on the server, where
+    the `(err, reset) => X` form always ran — so both arities allocate
+    identically and nothing reaches the hole. Pinned by
+    `errored-thunk-fallback-followed-by-scoped-hole` in the #3567 harness.)
+    A scoped hole restores the counter
     (server) or owns its ids (client); a memo or component accessor
     allocates under its own owner; `spread`'s runtime children insert is
     transparent by design on both sides and is excluded. Zero bytes in the

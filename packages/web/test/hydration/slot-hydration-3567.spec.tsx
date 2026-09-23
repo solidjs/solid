@@ -78,6 +78,10 @@ async function run(scenario: Scenario) {
     warnings.push(args.map(String).join(" "));
   });
   const capture = OBSERVE!.diagnostics.capture();
+  // A boundary whose fallback cannot see the error: dev logs the caught error.
+  const error = scenario.logsCaughtError
+    ? vi.spyOn(console, "error").mockImplementation(() => {})
+    : undefined;
   let dispose: (() => void) | undefined;
   try {
     // Markup first, then the inline scripts — what a browser parse does.
@@ -129,6 +133,7 @@ async function run(scenario: Scenario) {
 
     expect(holeEvents).toEqual([]);
     expect(warnings, warnings.join("\n")).toEqual([]);
+    if (error) expect(error).toHaveBeenCalled();
     expect(container.textContent).toBe(scenario.expectedText);
     for (const el of serverKeyed) {
       expect(
@@ -151,6 +156,7 @@ async function run(scenario: Scenario) {
   } finally {
     capture.stop();
     warn.mockRestore();
+    error?.mockRestore();
     dispose?.();
     // let queued hydration-event microtasks drain before tearing down _$HY
     await sleep(0);

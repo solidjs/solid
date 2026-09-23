@@ -1478,12 +1478,14 @@ function PreflushRejection() {
 // ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
-// returns the thunk unresolved and the enclosing boundary is the consumer
-// that unwraps it — the client inside the boundary's flatten computed, the
-// server (pre-fix) inline under the boundary owner, so the fallback's element
-// keys disagreed and the hydrated fallback went dead (its button never
-// claimed the server node). The server now resolves in a scope mirroring
-// that computed.
+// used to return the thunk unresolved for the enclosing boundary to unwrap —
+// the client inside the boundary's flatten computed, the server (pre-fix)
+// inline under the boundary owner, so the fallback's element keys disagreed
+// and the hydrated fallback went dead (its button never claimed the server
+// node). The server then resolved in a scope mirroring that computed; since
+// #3620's follow-up, Errored calls a function-valued fallback inside its own
+// output scope whatever its arity, so nothing is handed back at all. These
+// scenarios keep pinning the consumers' alignment.
 let setErroredFallbackCount!: (v: number) => void;
 function ThunkFallback() {
   const [count, set] = createSignal(0);

@@ -1,0 +1,8 @@
+{
+  "name": "errored-thunk-fallback-followed-by-scoped-hole",
+  "html": "<section _hk=0><!--$--><button _hk=20 id=\"hdr\">clicks <!--$-->0<!--/--></button><!--/--><span>t0</span></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"1\"]=($R=>$R[0]=new Error(\"sync render failure\"))($R[\"\"]);</script>",
+  "keys": [
+    "section:0",
+    "button:20"
+  ]
+}

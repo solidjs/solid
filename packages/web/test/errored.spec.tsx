@@ -2,8 +2,18 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-import { describe, expect, test } from "vitest";
-import { createMemo, createRoot, Errored, Loading, Show, isPending, flush } from "solid-js";
+import { describe, expect, test, vi } from "vitest";
+import {
+  createMemo,
+  createRoot,
+  createSignal,
+  getOwner,
+  Errored,
+  Loading,
+  Show,
+  isPending,
+  flush
+} from "solid-js";
 import { render } from "../src/index.js";
 
 describe("Testing Errored control flow", () => {
@@ -101,6 +111,209 @@ describe("Testing Errored control flow", () => {
   });
 
   test("dispose", () => disposer());
+});
+
+/**
+ * A function-valued `fallback` is resolved by `<Errored>` itself, inside the
+ * boundary's own scope, whatever its arity — like `<Show>` resolving a
+ * function child inside its own memo. A zero-arity thunk
+ * (`fallback={() => <F />}`, type-reachable since `() => X` is assignable to
+ * `(err, reset) => X`) used to be handed back unresolved for the consuming
+ * hole to build on the enclosing owner, which permuted hydration keys when a
+ * scoped hole followed the boundary (#3620). Pins the client semantics the
+ * change must keep: the two-arity form is untouched, a zero-arity fallback
+ * that reads signals still re-renders, reset still recovers, and the
+ * fallback's owner is the boundary's, not the hole's.
+ */
+describe("Errored function-valued fallback resolves inside the boundary", () => {
+  const Throws = (): never => {
+    throw new Error("Failure");
+  };
+
+  test("zero-arity fallback thunk renders", () => {
+    const div = document.createElement("div");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const dispose = render(
+      () => (
+        <Errored fallback={() => <b>fell</b>}>
+          <Throws />
+        </Errored>
+      ),
+      div
+    );
+    flush();
+    expect(div.innerHTML).toBe("<b>fell</b>");
+    // Dev logs the error a fallback cannot see (a value or a zero-arity thunk).
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: "Failure" }));
+    error.mockRestore();
+    dispose();
+  });
+
+  test("zero-arity fallback that reads a signal re-renders when it changes", () => {
+    const div = document.createElement("div");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const [count, setCount] = createSignal(0);
+    let runs = 0;
+    const dispose = render(
+      () => (
+        <Errored
+          fallback={() => {
+            runs++;
+            // Read in the fallback body itself — not through a compiled hole —
+            // so the re-render is the boundary's, not a text effect's.
+            return count() > 0 ? <b>many {count()}</b> : <i>none</i>;
+          }}
+        >
+          <Throws />
+        </Errored>
+      ),
+      div
+    );
+    flush();
+    expect(div.innerHTML).toBe("<i>none</i>");
+    expect(runs).toBe(1);
+    setCount(2);
+    flush();
+    expect(div.innerHTML).toBe("<b>many 2</b>");
+    expect(runs).toBe(2);
+    setCount(3);
+    flush();
+    expect(div.innerHTML).toBe("<b>many 3</b>");
+    error.mockRestore();
+    dispose();
+  });
+
+  test("zero-arity fallback runs under the boundary's owner, not the consuming hole's", () => {
+    const div = document.createElement("div");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    type O = ReturnType<typeof getOwner>;
+    let zeroParent: O = null,
+      zeroFallbackOwner: O = null;
+    let twoParent: O = null,
+      twoFallbackOwner: O = null;
+    // Each component returns its boundary directly (no conditional memo in
+    // between), so the boundary's nodes hang off the component owner.
+    const Zero = () => {
+      zeroParent = getOwner();
+      return (
+        <Errored
+          fallback={() => {
+            zeroFallbackOwner = getOwner();
+            return <b>fell</b>;
+          }}
+        >
+          <Throws />
+        </Errored>
+      );
+    };
+    const Two = () => {
+      twoParent = getOwner();
+      return (
+        <Errored
+          fallback={(_err, _reset) => {
+            twoFallbackOwner = getOwner();
+            return <b>fell</b>;
+          }}
+        >
+          <Throws />
+        </Errored>
+      );
+    };
+    const dispose = render(
+      () => (
+        <section>
+          <Zero />
+          <Two />
+        </section>
+      ),
+      div
+    );
+    flush();
+    expect(div.textContent).toBe("fellfell");
+    // Both fallbacks ran under a node the boundary created below the
+    // component owner — its output computed — at the same depth, not under
+    // the insert effect of the hole that consumes the boundary (a child of
+    // the render root, not of the component). Hops from the fallback's owner
+    // up to the component owner; -1 when the component is not an ancestor.
+    const hopsTo = (o: O, ancestor: O) => {
+      for (let n: any = o, d = 0; n; n = n._parent, d++) if (n === ancestor) return d;
+      return -1;
+    };
+    const zeroHops = hopsTo(zeroFallbackOwner, zeroParent);
+    expect(zeroHops).toBeGreaterThan(0);
+    expect(zeroHops).toBe(hopsTo(twoFallbackOwner, twoParent));
+    error.mockRestore();
+    dispose();
+  });
+
+  test("a rest-parameter fallback (length 0) still receives the error and reset", () => {
+    const div = document.createElement("div");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    let first = true;
+    const Flaky = () => {
+      if (first) {
+        first = false;
+        throw new Error("Failure");
+      }
+      return <b>ok</b>;
+    };
+    let reset: (() => void) | undefined;
+    const dispose = render(
+      () => (
+        <Errored
+          fallback={(...args: [() => unknown, () => void]) => {
+            reset = args[1];
+            return <i>{String(args[0]())}</i>;
+          }}
+        >
+          <Flaky />
+        </Errored>
+      ),
+      div
+    );
+    flush();
+    expect(div.innerHTML).toBe("<i>Error: Failure</i>");
+    reset!();
+    flush();
+    expect(div.innerHTML).toBe("<b>ok</b>");
+    error.mockRestore();
+    dispose();
+  });
+
+  test("two-arity fallback is unchanged: error accessor, reset, no dev error log", () => {
+    const div = document.createElement("div");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    let first = true;
+    const Flaky = () => {
+      if (first) {
+        first = false;
+        throw new Error("Failure");
+      }
+      return <b>ok</b>;
+    };
+    let reset: (() => void) | undefined;
+    const dispose = render(
+      () => (
+        <Errored
+          fallback={(err, r) => {
+            reset = r;
+            return <i>{String(err())}</i>;
+          }}
+        >
+          <Flaky />
+        </Errored>
+      ),
+      div
+    );
+    flush();
+    expect(div.innerHTML).toBe("<i>Error: Failure</i>");
+    expect(error).not.toHaveBeenCalled();
+    reset!();
+    flush();
+    expect(div.innerHTML).toBe("<b>ok</b>");
+    error.mockRestore();
+    dispose();
+  });
 });
 
 /**
