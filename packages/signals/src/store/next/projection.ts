@@ -259,7 +259,6 @@ export function runProjectionComputedNext<T extends object>(
   // (`owner._x?._inFlight === result`) only admitted it by accident — while
   // nothing had read the projection yet (no `_x`), `undefined === undefined`.
   const run = (fam.run = (fam.run || 0) + 1);
-  let settled = false;
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the
@@ -277,15 +276,23 @@ export function runProjectionComputedNext<T extends object>(
     // backing + per-op notify + fold) and arms the drain itself when no
     // landing will: a flight still up — pending, or the loading window's
     // first flight — drains at its landing, and must not be drained early.
+    // Not gated on the run having returned: the body's own writes withhold
+    // the microtask too, and a derive body only ever runs outside a flush at
+    // creation (reruns are flush-driven) — a top-level sync projection in a
+    // createRoot stranded the scheduler until an explicit flush(). Arming
+    // mid-body is safe: the microtask fires after this synchronous slice,
+    // when the body has returned or parked, and an initial async run's
+    // pre-await half drains before its landing exactly as it does when the
+    // creation ran inside a flush — nothing reads it before the landing
+    // (the node is uninitialized, proj R23).
     () => {
-      if (settled && !(owner._statusFlags & STATUS_PENDING) && !owner._loading) scheduleWithheld();
+      if (!(owner._statusFlags & STATUS_PENDING) && !owner._loading) scheduleWithheld();
     }
   );
   storeSetterNext(
     draft,
     s => {
       result = fn((shadow ?? s) as T);
-      settled = true;
       const commit = (v: void | T) => {
         // Shadow run: commit a detached snapshot, never the shadow itself
         // (adoption takes the value by identity — handing it the live shadow

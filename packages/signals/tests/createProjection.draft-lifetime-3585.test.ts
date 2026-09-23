@@ -581,7 +581,7 @@ describe("#3585 draft lifetime: valid until superseded or disposed", () => {
     });
   });
 
-  describe("seedLoadingValue carve-out (ruled with R37)", () => {
+  describe("seedLoadingValue carve-out (ruled with proj R37)", () => {
     it("a loading-window run works a detached shadow; a late write to it after the first commit is lost", async () => {
       // The one place the one-draft-per-run model does not hold: in the open
       // loading window the derive receives a detached clone of the seed (the
@@ -613,6 +613,92 @@ describe("#3585 draft lifetime: valid until superseded or disposed", () => {
       await tick();
       expect(proj.n).toBe(1);
       dispose();
+    });
+  });
+
+  describe("a run's own writes do not strand the scheduler", () => {
+    // Pre-existing (on `next` before proj R37), fixed in the same mechanism: a
+    // derive run OUTSIDE any flush — a projection created in a top-level
+    // createRoot — made schedule() withhold its microtask for its own draft
+    // writes (projectionWriteActive), then returned with no landing to drain
+    // them. `scheduled` stayed set with no microtask, so every later
+    // schedule() early-returned: the root's own effects, and any unrelated
+    // effect or write anywhere, waited for an explicit flush().
+    it("a sync projection created in a top-level root outside any flush leaves the scheduler armed", async () => {
+      let proj!: { x: number };
+      const seenX: number[] = [];
+      const dispose = createRoot(dispose => {
+        proj = createProjection<{ x: number }>(
+          draft => {
+            draft.x = 1;
+          },
+          { x: 0 }
+        );
+        createEffect(
+          () => proj.x,
+          x => {
+            seenX.push(x);
+          }
+        );
+        return dispose;
+      });
+      // No explicit flush anywhere in this test.
+      const [s, setS] = createSignal(0);
+      const seenS: number[] = [];
+      const dispose2 = createRoot(dispose => {
+        createEffect(s, v => void seenS.push(v));
+        return dispose;
+      });
+      await tick();
+      expect(seenX).toEqual([1]);
+      expect(seenS).toEqual([0]);
+      setS(1);
+      await tick();
+      expect(seenS).toEqual([0, 1]);
+      dispose();
+      dispose2();
+    });
+
+    it("an async projection with a pre-await write, created outside any flush, does not strand unrelated work until its landing", async () => {
+      let release!: () => void;
+      let proj!: { a: number; b: number };
+      const seen: Array<[number, number]> = [];
+      const dispose = createRoot(dispose => {
+        proj = createProjection<{ a: number; b: number }>(
+          async draft => {
+            draft.a = 1;
+            await new Promise<void>(r => (release = r));
+            draft.b = 1;
+          },
+          { a: 0, b: 0 }
+        );
+        createEffect(
+          () => [proj.a, proj.b] as [number, number],
+          v => {
+            seen.push(v);
+          }
+        );
+        return dispose;
+      });
+      const [s, setS] = createSignal(0);
+      const seenS: number[] = [];
+      const dispose2 = createRoot(dispose => {
+        createEffect(s, v => void seenS.push(v));
+        return dispose;
+      });
+      await tick();
+      // The flight is still up; unrelated work is not held behind it.
+      expect(seenS).toEqual([0]);
+      setS(1);
+      await tick();
+      expect(seenS).toEqual([0, 1]);
+      // The projection's first landing still reveals both halves together.
+      expect(seen).toEqual([]);
+      release();
+      for (let i = 0; i < 6; i++) await tick();
+      expect(seen).toEqual([[1, 1]]);
+      dispose();
+      dispose2();
     });
   });
 });
