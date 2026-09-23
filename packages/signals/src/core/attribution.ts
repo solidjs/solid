@@ -446,6 +446,12 @@ interface AttributedNode {
   _devWideWriteWarnedAt?: number;
   /** Longest sequential-flight chain already warned for this node. */
   _devWaterfallWarnedAt?: number;
+  /** WASTED_RECOMPUTE window: runs, no-op runs and their self-time since `_devWasteWinStart`. */
+  _devWasteWinStart?: number;
+  _devWasteRuns?: number;
+  _devWasted?: number;
+  _devWastedMs?: number;
+  _devWasteWarned?: boolean;
   /** Interaction the node's latest compute run traced to — inherited by its effect phase. */
   _devRunInteraction?: ChangeOrigin;
   /** Sequence and causes of the node's latest recorded run (undefined after a create run). */
@@ -1208,12 +1214,6 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
   );
 }
 
-/** Per scope: the runs inside the current window and how many were no-ops. Engine-side. */
-const wasteWindows = new WeakMap<
-  Computed<any>,
-  { start: number; runs: number; wasted: number; wastedMs: number; warned: boolean }
->();
-
 /**
  * A scope whose equality gate closes almost every time: it re-ran because
  * an input changed, computed, compared equal to its last value and told
@@ -1226,25 +1226,31 @@ const wasteWindows = new WeakMap<
 function checkWastedRecompute(el: Computed<any>, event: RerunEvent): void {
   const cfg = options.wastedRecompute;
   if (cfg === false || event.phase !== "plain") return;
-  const at = now();
-  let win = wasteWindows.get(el);
-  if (win === undefined || at - win.start > cfg.windowMs) {
-    win = { start: at, runs: 0, wasted: 0, wastedMs: 0, warned: false };
-    wasteWindows.set(el, win);
+  // This runs on every re-run: fields on the node (one property read each,
+  // like hotRuns) and the run's own `at` — no clock read, no map lookup.
+  const node = el as AttributedNode;
+  const at = event.at;
+  if (node._devWasteWinStart === undefined || at - node._devWasteWinStart > cfg.windowMs) {
+    node._devWasteWinStart = at;
+    node._devWasteRuns = 0;
+    node._devWasted = 0;
+    node._devWastedMs = 0;
+    node._devWasteWarned = false;
   }
-  win.runs++;
+  node._devWasteRuns = node._devWasteRuns! + 1;
   if (!event.changed) {
-    win.wasted++;
-    win.wastedMs += event.selfMs;
+    node._devWasted = node._devWasted! + 1;
+    node._devWastedMs = node._devWastedMs! + event.selfMs;
   }
   if (
-    win.warned ||
-    win.runs < cfg.minRuns ||
-    win.wasted / win.runs < cfg.ratio ||
-    win.wastedMs < cfg.budgetMs
+    node._devWasteWarned ||
+    node._devWasteRuns < cfg.minRuns ||
+    node._devWasted! / node._devWasteRuns < cfg.ratio ||
+    node._devWastedMs! < cfg.budgetMs
   )
     return;
-  win.warned = true;
+  node._devWasteWarned = true;
+  const win = { runs: node._devWasteRuns, wasted: node._devWasted!, wastedMs: node._devWastedMs! };
   const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
   const message =
     `[WASTED_RECOMPUTE] ${event.nodeKind} "${event.nodeName}" re-ran ${win.runs} times in ` +

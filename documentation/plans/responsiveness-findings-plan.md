@@ -223,6 +223,84 @@ the clock is read only when something is subscribed.
 - **Proof:** a boundary whose server read rejects produces a server record
   (`client`) and a client record with the same id and a positive duration.
 
+## Cost — observe has to work well in production
+
+Measured 2026-09-23 (M-series, observe artifacts, 200 memos + 200 effects
+re-running per write, best of 5, `flush()` per write), ns per re-run:
+
+| Configuration                                         | ns/re-run |
+| ----------------------------------------------------- | --------- |
+| observe build, engine not enabled (idle)              | 55        |
+| engine enabled, `checks: false`, holds/waterfalls off | 490       |
+| engine enabled, `checks: false`                       | 490       |
+| engine enabled, defaults (all six checks)             | 530–545   |
+
+Three facts, in order of weight:
+
+- **Items 1–8 are not the cost.** All six checks together are ~50 ns; item
+  6 was ~15 of those as first written (a `WeakMap` get and a clock read on
+  the re-run path) and ~2 after moving its window onto node fields and
+  reusing `RerunEvent.at`. Nothing in 1–8 adds per-edge or per-read work;
+  item 7 reads the edge counters the tier already keeps for
+  `HUGE_FAN_OUT`/`HUGE_FAN_IN`. Idle is untouched by construction.
+- **Every check that touches the re-run path is a field read and a compare,
+  or it does not go there.** `hotRuns`, `hotTime`, `wastedRecompute` each
+  keep their window on the node (`_dev*` fields); a per-run `WeakMap`,
+  `now()` or allocation is the shape to refuse in review. The
+  `attribution-engine-cost` tripwire (enabled/idle ratio, best-of-k,
+  interleaved, cap 14 against a measured ~10) is what catches it.
+- **The engine's fixed per-re-run cost is the number that matters**: ~435 ns
+  above idle with every check off, ~9× idle. It is the `RerunEvent` — the
+  `causes` array, `depsAdded`/`depsRemoved` name arrays, `preview()` strings
+  on writes — plus the history ring buffer push, `recordSubject`, and
+  `emitRecord`. A click that re-runs 1,000 scopes pays 0.5 ms; a 10k-row
+  update pays 5 ms and the GC pressure of 10k records. It is paid by every
+  adapter that holds the engine for interaction/hold tracing, whether or
+  not it reads a re-run.
+
+### Lean posture — proposal, needs a decision
+
+Build the `RerunEvent` only when someone can read it. The engine knows at
+`recomputeEnd` whether anyone can: a `rerun` subscriber, a registered fold
+(`costs`/`feedback`/`why`/`subscriptions` import), `log: true`, or a
+consumer that will call `history()`. When none holds, keep only what the
+other records need — the frame's interaction for `runs`/`runMs` on
+`InteractionEvent`, the cause→interaction link for holds and flights, the
+per-node counters the checks read — and skip the record: no causes array,
+no dep-name diffs, no previews, no ring-buffer push, no `recordSubject`.
+Expected: enabled cost for a records-only consumer falls from ~9× idle
+toward 3–4×; measure before promising.
+
+What it changes, and therefore what to decide:
+
+- `history()`, `why()`, `subscriptions()` on a lean engine return nothing
+  for runs that happened before a consumer of them appeared. Either
+  document that (they are dev-console tools; the observe consumer that
+  wants them subscribes to `rerun` or imports a fold, which turns records
+  on from that moment), or add an explicit `enable({ reruns: true })` that
+  forces record-building — the most-demanding merge makes that compose.
+- `subscribe("rerun", …)` must turn record-building on, the way the
+  `create`/`effect`/`flush`/`flight`/`fallback` timeline records already
+  work ("subscribing is what turns them on"). The bare-form `subscribe(fn)`
+  is the same subscription.
+- The checks that read the record today (`checkHotRuns` reads
+  `event.causes` for its cause key and message; `checkWastedRecompute`
+  reads `changed`, `selfMs`, `phase`, `at`) need those facts from the frame
+  instead of the record — they are all on the frame before the record is
+  built.
+- `@sentry/solid-2` subscribes to `rerun` only to fold a per-interaction
+  hot list; `InteractionEvent.runs`/`runMs` and the `HOT_SCOPE_*` /
+  `WASTED_RECOMPUTE` findings cover that, so the adapter can drop the
+  subscription and become a lean consumer. The Performance Tracks adapter
+  needs re-run records by design and stays a full one.
+
+Not a shortcut: the record is the engine's unit of truth for the
+dev-console tools, and a lean engine must produce the identical record the
+moment a consumer asks. The proof is the existing attribution suite run
+twice — once with a `rerun` subscriber armed, once without — and the
+engine-cost tripwire's ratio dropping, with its cap ratcheted to hold the
+gain.
+
 ## Consumers — showing the facts where developers already look
 
 These are not runtime changes; they are the places the records should
