@@ -2908,6 +2908,46 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
   if (severity === "warn") reportDiagnostic(entry);
 }
 
+/**
+ * The person saw the guess, then the correction. An optimistic value is a
+ * promise the UI makes about the outcome; when the outcome differs — the
+ * action failed and the override lifted back to the old value, or the
+ * source answered with something else — the screen changes twice for one
+ * intent. Expected on failure and correct by construction (the override
+ * reverts; that is the feature), so `info`: a count that grows for one
+ * source is what says the guess, or the failure rate, is wrong. Judged by
+ * the node's own equality, so a structurally equal replacement is not a
+ * revert.
+ */
+function checkOptimisticRevert(
+  el: Signal<any> | Computed<any>,
+  shown: unknown,
+  truth: unknown,
+  how: "superseded" | "reverted"
+): void {
+  const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;
+  if (equals && equals(shown, truth)) return;
+  const source = nodeName(el);
+  const message =
+    `[OPTIMISTIC_REVERTED] the optimistic value of ${source} showed ${preview(shown)}; it ` +
+    `${how === "superseded" ? "settled to" : "reverted to"} ${preview(truth)}. The person saw ` +
+    `the guess, then the correction. A revert on failure is the feature; one that recurs says ` +
+    `the guess is wrong for this input or the action fails often — show the failure where the ` +
+    `value renders (the action's catch, an Errored boundary) rather than letting the value ` +
+    `snap back on its own.`;
+  emitDiagnostic(
+    {
+      code: "OPTIMISTIC_REVERTED",
+      kind: "responsiveness",
+      severity: "info",
+      message,
+      nodeName: source,
+      data: { source, shown: preview(shown), truth: preview(truth), how }
+    },
+    el
+  );
+}
+
 // --- Graph growth -----------------------------------------------------------------
 
 /** Per route: the graph's size at its last `visits` settles, oldest first. */
@@ -4128,6 +4168,9 @@ const engineHooks: AttributionHooks = {
   boundaryFallback(boundary, tree, shown, transition) {
     // The folds hear the show at its display (see trackFallback), not here.
     trackFallback(boundary, tree, shown, transition ?? null);
+  },
+  optimisticReverted(el, shown, truth, how) {
+    checkOptimisticRevert(el, shown, truth, how);
   },
   currentOrigin() {
     return ambientOrigin();

@@ -256,7 +256,13 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
       node._value !== unwrapOverride(prevOverride)
     ) {
       if (derived) node._value = unwrapOverride(prevOverride);
-      else insertSubs(node, true);
+      else {
+        // The guess lifts and what was beneath it differs: the screen
+        // changes from the override to the committed value.
+        if (__OBSERVE__ && attrHooks !== null)
+          attrHooks.optimisticReverted(node, unwrapOverride(prevOverride), node._value, "reverted");
+        insertSubs(node, true);
+      }
     }
     node._transition = null;
     if (node._x !== null) node._x._overrideOwner = null;
@@ -323,6 +329,16 @@ function supersedeOverride(el: OptimisticNode, value: unknown): void {
     // 0 is mainline (no action): always the current question.
     if (origin && origin < el._x!._overrideStamp) return;
     el._config |= CONFIG_OVERRIDE_SUPERSEDED;
+    // A fresh landing is staged in `_pendingValue` (landOnOverride) or is the
+    // truth endOptimism read from it; the committed value with nothing staged
+    // is the value the guess covered — the screen goes back, not forward.
+    if (__OBSERVE__ && attrHooks !== null)
+      attrHooks.optimisticReverted(
+        el,
+        unwrapOverride(el._x!._overrideValue),
+        value,
+        el._pendingValue === NOT_PENDING && value === el._value ? "reverted" : "superseded"
+      );
     const lane = el._x?._optimisticLane;
     if (lane) {
       const root = findLane(lane);

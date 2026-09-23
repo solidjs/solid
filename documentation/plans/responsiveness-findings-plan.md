@@ -92,7 +92,14 @@ any pre-await write opens the hold path, which `SILENT_HOLD` judges.
   once and its interaction record's `settledMs` covers the await; the same
   handler with `isPending(source)` read in JSX fires nothing.
 
-### 2. Stamp the browser's `interactionId` on the interaction
+### 2. Stamp the browser's `interactionId` on the interaction — SATISFIED BY #3580
+
+`interactionId` lives on the `PerformanceEventTiming` entry, delivered by a
+`PerformanceObserver` after the fact; it is not readable during dispatch, so
+a stamp was never available. #3580 made `InteractionEvent.at` the event's
+`timeStamp`, which equals the entry's `startTime`: the join is by equality
+on `at`. Nothing further to do in the runtime; the adapter recipe belongs
+in the docs.
 
 - **Known:** the web runtime is inside the event dispatch when it opens
   the frame; Event Timing (`PerformanceEventTiming.interactionId`) assigns
@@ -112,7 +119,15 @@ any pre-await write opens the hold path, which `SILENT_HOLD` judges.
 - **Proof:** a click whose Event Timing entry reports 480 ms produces an
   interaction record with the same id and a hold that names the blocker.
 
-### 3. Optimistic reverts
+### 3. Optimistic reverts — LANDED (signals; stores follow)
+
+Shipped as `AttributionHooks.optimisticReverted` (two sites in
+`optimistic.ts`: supersession, and the drop at settle) and
+`OPTIMISTIC_REVERTED` (see RFC 08). Left for a follow-up: optimistic
+_stores_ (the overlay folds off per path in `_clearOptimisticStores`), and
+naming the interaction that wrote the guess — optimistic writes bypass the
+`write` hook today, so the node carries no origin stamp; stamping them
+touches the interaction accounting and is its own change.
 
 - **Known:** the optimistic lane knows the shown value and the settled
   value; `asyncEnd`'s `prev`/`value` and the lane commit see both.

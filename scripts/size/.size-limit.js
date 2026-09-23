@@ -2206,6 +2206,11 @@ module.exports = [
     // 30,649 (+719 B; the PR's own +769 was against the pre-#3604 28,999 —
     // the repair texts share more back-references with four more findings
     // in the bundle). The tier did not move: 17,618 either way.
+    // OPTIMISTIC_REVERTED (2026-09-23, rebased): 29.05 -> 29.35 KB, measured at
+    // 29,262 B on a full build (+263 B over next's 28,999). The `optimisticReverted`
+    // hook, the node-equality gate, and the finding with its two-road text
+    // (reverted / superseded). The tier moved 38 B for the two hook sites in
+    // optimistic.ts; under its cap.
     limit: "31.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
