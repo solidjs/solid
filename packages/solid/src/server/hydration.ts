@@ -11,7 +11,8 @@ import {
   runWithBoundaryErrorContext,
   RevealGroupContext,
   reportServerError,
-  throwerOf
+  throwerOf,
+  ownerId
 } from "./signals.js";
 import { OBSERVE, ownerPath } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
@@ -87,7 +88,8 @@ function ssrLoadingBoundary(
   // setContext clones the context map, so only pay it when there IS a group
   // in scope to sever — without one, children read null regardless.
   if (revealGroup) setContext(RevealGroupContext, null, o);
-  const id = o.id!;
+  // The boundary's own, just-created owner — never a swapped hole scope.
+  const id = ownerId(o)!;
   (o as any).id = id + "00"; // fake depth to match client's createLoadingBoundary nesting
 
   let done: ((value?: string, error?: any) => boolean) | undefined;
