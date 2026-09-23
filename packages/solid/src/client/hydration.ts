@@ -155,6 +155,17 @@ type SharedConfig = {
   // `sharedConfig.hydrating` check, which can never be true before that.
   getNextContextId?: () => string;
   /**
+   * Dev builds only (assigned by enableHydration() under the dev gate): the
+   * id `getNextContextId()` would hand out next, read without consuming it
+   * (`undefined` outside an id-carrying tree). The web runtime brackets an
+   * unscoped hole's evaluation with it to detect one that took ids from the
+   * enclosing counter (`UNSCOPED_HOLE_ALLOCATED_IDS`). Callers gate on
+   * `_SOLID_DEV_`; prod and observe builds never carry it.
+   *
+   * @internal
+   */
+  devPeekNextContextId?: () => string | undefined;
+  /**
    * Whether a hydration pass is still claiming server-rendered DOM — true
    * from hydrate()'s synchronous walk until every streamed boundary has
    * resumed or been cancelled. Consumed by dev tooling (the refresh runtime
@@ -214,6 +225,14 @@ function hydrationGetNextContextId(): string {
   if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
   if (getContext(NoHydrateContext)) return undefined as unknown as string;
   return getNextChildId(o);
+}
+
+// Dev only — the peek twin of hydrationGetNextContextId (see the slot's doc).
+// Referenced only under the dev gate in enableHydration(), so the prod and
+// observe builds shake it.
+function hydrationDevPeekNextContextId(): string | undefined {
+  const o = getOwner();
+  return o && o.id != null ? peekNextChildId(o) : undefined;
 }
 
 // === Hydration phase API ===
@@ -1664,6 +1683,7 @@ export function enableHydration() {
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
   _lazyHydrationLookup = lazyHydrationLookup;
   sharedConfig.getNextContextId = hydrationGetNextContextId;
+  if (IS_DEV) sharedConfig.devPeekNextContextId = hydrationDevPeekNextContextId;
   // Installed here rather than in the sharedConfig literal so CSR bundles
   // shake the hydration-phase bookkeeping these close over. Consumers treat
   // absence as "not hydrating": the refresh runtime optional-chains

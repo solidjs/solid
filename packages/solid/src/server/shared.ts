@@ -1,4 +1,4 @@
-import { getOwner, getNextChildId, getContext } from "./signals.js";
+import { getOwner, getNextChildId, getContext, devPeekNextChildId } from "./signals.js";
 import type { Context } from "./signals.js";
 
 export type SSRTemplateObject =
@@ -137,6 +137,16 @@ export const NoHydrateContext: Context<boolean> = {
 type SharedConfig = {
   context?: HydrationContext;
   getNextContextId(): string | undefined;
+  /**
+   * Dev builds only: the id `getNextContextId()` would hand out next, read
+   * without consuming it (`undefined` outside an id-carrying tree). The web
+   * runtime brackets an unscoped hole's evaluation with it to detect one that
+   * took ids from the enclosing counter (`UNSCOPED_HOLE_ALLOCATED_IDS`).
+   * Absent in prod and observe builds — callers gate on `_SOLID_DEV_`.
+   *
+   * @internal
+   */
+  devPeekNextContextId?: () => string | undefined;
 };
 
 export const sharedConfig: SharedConfig = {
@@ -147,3 +157,10 @@ export const sharedConfig: SharedConfig = {
     return getNextChildId(o);
   }
 };
+// Installed here, not in the literal, so the dev gate can fold the helper
+// out of the prod and observe artifacts along with this statement. The gate
+// is a local of this module (not `IS_DEV` from diagnostics.ts): the two sit
+// in an import cycle, and a hoisted function reference is the one thing
+// safe to touch at top level from every entry order.
+const IS_DEV = "_SOLID_DEV_" as string | boolean;
+if (IS_DEV) sharedConfig.devPeekNextContextId = devPeekNextChildId;

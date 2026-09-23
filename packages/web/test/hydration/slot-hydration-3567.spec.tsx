@@ -25,14 +25,20 @@
  *  4. textContent matches, and a click on the SERVER-rendered `#hdr` button
  *     reaches the handler (liveness — the issue's user-visible symptom).
  *
- * Scenarios with `knownGap` run under test.fails: the shape is pinned as a
- * documented gap, and the test flips when a fix lands.
+ *  5. no `UNSCOPED_HOLE_ALLOCATED_IDS` on `OBSERVE.diagnostics` — the scoped,
+ *     call, component-accessor, `children()` and `<For>` shapes are silent.
+ *
+ * A scenario with `knownGap` is a shape the compiler leaves unscoped BY
+ * RULING (TS-unreachable; not worth a production cost). Its test asserts the
+ * opposite of 2/3 — the keys still permute — so a change is noticed, and
+ * that the dev diagnostic in `scenario.diagnostic` fires during hydration
+ * with the same code the server raised for the same render.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { flush } from "solid-js";
+import { flush, OBSERVE } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { scenarios, type Scenario } from "../harness/slot-hydration-3567.jsx";
 
@@ -71,6 +77,7 @@ async function run(scenario: Scenario) {
   const warn = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
     warnings.push(args.map(String).join(" "));
   });
+  const capture = OBSERVE!.diagnostics.capture();
   let dispose: (() => void) | undefined;
   try {
     // Markup first, then the inline scripts — what a browser parse does.
@@ -89,6 +96,38 @@ async function run(scenario: Scenario) {
     await sleep(10);
     flush();
 
+    const holeEvents = capture.events.filter(e => e.code === "UNSCOPED_HOLE_ALLOCATED_IDS");
+    if (scenario.knownGap) {
+      // The ruling's two halves: the diagnostic fired for the hole, and the
+      // keys still permute. A future change that aligns the shape fails the
+      // second assertion — flip this scenario to a regular one then.
+      expect(holeEvents).toHaveLength(1);
+      expect(holeEvents[0].kind).toBe("render");
+      expect(holeEvents[0].severity).toBe("warn");
+      expect(holeEvents[0].data).toMatchObject({ name: "renderHead" });
+      expect(holeEvents[0].data!.before).not.toBe(holeEvents[0].data!.after);
+      expect(holeEvents[0].message).toContain("{renderHead()}");
+      expect(
+        warnings.filter(w => w.includes("[UNSCOPED_HOLE_ALLOCATED_IDS]")),
+        warnings.join("\n")
+      ).toHaveLength(1);
+      expect(container.textContent).toBe(scenario.expectedText);
+      // The permutation's symptoms: the client's keys miss the server's
+      // elements (detached copies are built instead), and the handler is
+      // bound to a copy, so the server-rendered button is dead.
+      const closed = `${scenario.name} hydrated aligned — the ruling's gap closed; flip the scenario`;
+      expect(
+        warnings.filter(w => w.startsWith("Hydration key miss")).length,
+        closed
+      ).toBeGreaterThan(0);
+      expect(serverButton, "the pinned shape renders the #hdr button").not.toBeNull();
+      serverButton!.click();
+      flush();
+      expect(container.textContent, closed).toBe(scenario.expectedText);
+      return;
+    }
+
+    expect(holeEvents).toEqual([]);
     expect(warnings, warnings.join("\n")).toEqual([]);
     expect(container.textContent).toBe(scenario.expectedText);
     for (const el of serverKeyed) {
@@ -110,6 +149,7 @@ async function run(scenario: Scenario) {
     expect(container.textContent).toBe(scenario.expectedTextAfterClick);
     expect(warnings, warnings.join("\n")).toEqual([]);
   } finally {
+    capture.stop();
     warn.mockRestore();
     dispose?.();
     // let queued hydration-event microtasks drain before tearing down _$HY
@@ -127,8 +167,7 @@ describe("JSX through a non-children prop (#3567) — client hydrate", () => {
   });
 
   for (const scenario of scenarios) {
-    const testFn = scenario.knownGap ? test.fails : test;
     const title = scenario.name + (scenario.knownGap ? ` (known gap: ${scenario.knownGap})` : "");
-    testFn(title, () => run(scenario));
+    test(title, () => run(scenario));
   }
 });

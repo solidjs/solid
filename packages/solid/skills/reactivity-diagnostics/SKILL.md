@@ -617,6 +617,28 @@ A value the renderer cannot render (a plain object, a symbol —
 Usually a component function inserted where its call was meant, or an object
 where one of its properties was.
 
+### UNSCOPED_HOLE_ALLOCATED_IDS
+
+A JSX hole was handed a **function** (`data.name`) instead of a value —
+`const renderHead = () => props.header; <div>{renderHead}</div>` — and
+calling it built hydratable content. The compiler scopes every hole that
+could build JSX so server and client agree on hydration ids, but a bare
+identifier bound to a function is a value to the compiler and a thunk to the
+runtime: unscoped, its content takes ids from the enclosing counter where
+each side happens to evaluate it — the client at the statement, the server in
+the walk after the scoped holes that follow it reserved theirs — and the keys
+of its content and of the holes after it permute: detached copies on
+hydration, dead handlers. A function hole with nothing scoped after it lands
+on the same ids both sides and is silent; the finding is the shift. The
+server reports it structurally (`data.registered` ≠ `data.before`, the
+counter's next id when the hole was registered vs. evaluated; `data.after`
+after it ran), the client when the content it built in place
+(`data.before` → `data.after`) missed a server-rendered key. Once per site.
+`JSX.Element` excludes functions, so this shape is reached only from
+JavaScript or through a cast. Fix: call the function at the hole
+(`{renderHead()}` — a call hole is scoped on both sides) or assign the built
+value first and insert that.
+
 ### BEHAVIOR_CLAIM_DROPPED
 
 A behavior position (an event handler) on a server-rendered element got

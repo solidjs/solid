@@ -75,7 +75,13 @@ import {
 // Findings on `OBSERVE.diagnostics` — wiring (`emitFinding`, `recordFinding`)
 // in every observing tier, dev checks (`devCheck`) in dev only; see
 // diagnostics.ts for the two gates.
-import { devCheck, emitFinding, errorText, recordFinding } from "./diagnostics.js";
+import {
+  devCheck,
+  emitFinding,
+  errorText,
+  recordFinding,
+  unscopedHoleAllocatedIds
+} from "./diagnostics.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -701,6 +707,37 @@ function unrecognizedInsert(node) {
     message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof node}).`,
     data: { type: typeof node, value: node }
   });
+}
+// Dev CHECK: an unscoped function hole built content at a counter position
+// the client does not share — `UNSCOPED_HOLE_ALLOCATED_IDS` (diagnostics.ts;
+// the client's `insert` runs its half around its transparent effect). Only
+// an `escape`d function value qualifies (`$esc`; scope wrappers restore the
+// counter, accessors own their ids): `escapeLate` records the counter's
+// next id when the hole was REGISTERED (`$reg`, argument evaluation — where
+// the client builds it in statement order); `before` is the next id when
+// the walk EVALUATED it, after every later argument of the template ran.
+// Equal positions hydrate fine even when the hole allocated (a zero-arity
+// boundary fallback thunk with nothing scoped after it); the finding is an
+// allocation at a shifted position. `undefined` outside an id tree. Once per
+// hole position per template: a row template evaluates its holes once per
+// row and the site is the same every time.
+let reportedHoles;
+function devPeekId() {
+  const peek = sharedConfig.devPeekNextContextId;
+  return peek === undefined ? undefined : peek();
+}
+function checkUnscopedHole(before, template, index, hole) {
+  if (before === undefined || hole.$reg === undefined || hole.$reg === before) return;
+  const after = devPeekId();
+  if (after === before) return;
+  let seen = (reportedHoles || (reportedHoles = new WeakMap())).get(template);
+  if (seen === undefined) reportedHoles.set(template, (seen = new Set()));
+  if (seen.has(index)) return;
+  seen.add(index);
+  const name = hole.$fn.name;
+  const site = { hole: index, registered: hole.$reg };
+  if (name) site.name = name;
+  unscopedHoleAllocatedIds(before, after, site);
 }
 // Dev CHECK: a `useHead` registration the render could not honor —
 // `HEAD_TAG_INVALID`, `data.reason` the rule it broke (`non-head-tag`,
@@ -3858,6 +3895,12 @@ export function ssr(t) {
         }
       }
     } else if (ht === "function") {
+      // Dev: bracket the evaluation. A scoped hole (`ssrScope`) restores the
+      // enclosing counter; a memo/component accessor allocates under its own
+      // owner; only an unscoped function that built content moves it, and
+      // `checkUnscopedHole` reports it when this position is not the one the
+      // hole was registered at.
+      const devNext = "_SOLID_DEV_" ? devPeekId() : undefined;
       // Live frame renders route thunk content holes through the live-hole
       // engine (mark + ledger binding). In-tag positions must never be
       // intercepted — a comment cannot sit inside a tag — including by the
@@ -3913,6 +3956,7 @@ export function ssr(t) {
           appendResolvedNode(result, r);
         }
       }
+      if ("_SOLID_DEV_") checkUnscopedHole(devNext, t, i - 1, hole);
     } else if (result !== null) {
       resolveSSRNode(hole, result);
     } else {
@@ -4605,6 +4649,12 @@ function escapeLate(fn) {
   if (fn.$esc) return fn;
   const w = () => escape(fn());
   w.$esc = true;
+  // Dev: the wrapped function and the counter position it was registered
+  // at, for `UNSCOPED_HOLE_ALLOCATED_IDS` (`checkUnscopedHole`).
+  if ("_SOLID_DEV_") {
+    w.$fn = fn;
+    w.$reg = devPeekId();
+  }
   if (fn.$lhSkip) w.$lhSkip = true;
   if (fn.$lhSuppress) w.$lhSuppress = true;
   if (fn.$lhBinding) w.$lhBinding = fn.$lhBinding;
