@@ -17,7 +17,8 @@ import {
   createRoot,
   createSignal,
   flush,
-  OBSERVE
+  OBSERVE,
+  runWithOwner
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
@@ -48,22 +49,37 @@ function arm(graphGrowth: { visits: number; ratio: number } | false = { visits: 
   return { graphs, navigations, findings, warn };
 }
 
-/** An app root with a location and a synchronous page; `leak` mounts a root per visit that nobody disposes. */
-function app(leak: boolean) {
+/**
+ * An app root with a location and a synchronous page. `leak: "root"` mounts
+ * a root per visit that nobody disposes; `leak: "ownerless"` creates an
+ * effect per visit with no owner at all — no chain holds it, only the
+ * long-lived `shared` signal it reads.
+ */
+function app(leak: false | "root" | "ownerless") {
   const [location, setLocation] = createSignal("/", { name: "location" });
+  const [shared] = createSignal(0, { name: "shared" });
   const leaked: (() => void)[] = [];
   const dispose = createRoot(dispose => {
     const page = createMemo(() => location(), { name: "page" });
+    // The app reads `shared` too: that is how the walk reaches it, and through
+    // its subscriber list the effects nobody owns.
+    createEffect(shared, () => {}, { name: "sharedReader" });
     createEffect(
       page,
       route => {
-        if (leak && route === "/orders") {
+        if (route !== "/orders" || leak === false) return;
+        if (leak === "root") {
           // The mistake: a detached root per visit, never disposed.
           createRoot(d => {
             leaked.push(d);
             const [n] = createSignal(0);
             createEffect(n, () => {});
             createMemo(() => n() + 1);
+          });
+        } else {
+          // The other mistake: an effect with no owner, kept alive by `shared`.
+          runWithOwner(null, () => {
+            createEffect(shared, () => {});
           });
         }
       },
@@ -81,7 +97,7 @@ function navigate(setLocation: (v: string) => void, to: string, name = to) {
 }
 
 describe("graphSize()", () => {
-  it("counts the owners reachable from the live top-level roots, and the roots", () => {
+  it("counts the owner tree, then the computations, signals and edges it reaches", () => {
     const before = graphSize();
     const dispose = createRoot(dispose => {
       const [a] = createSignal(0);
@@ -95,10 +111,36 @@ describe("graphSize()", () => {
     expect(during.roots).toBe(before.roots + 1);
     // root + memo + effect (its compute node) + the owned nested root + its memo.
     expect(during.owners - before.owners).toBeGreaterThanOrEqual(4);
+    // b, the effect's compute, the nested memo (at least).
+    expect(during.computations - before.computations).toBeGreaterThanOrEqual(3);
+    // `a`, reached through b's dependency.
+    expect(during.signals - before.signals).toBeGreaterThanOrEqual(1);
+    // b←a, effect←b, nested←a.
+    expect(during.edges - before.edges).toBeGreaterThanOrEqual(3);
     dispose();
     const after = graphSize();
-    expect(after.roots).toBe(before.roots);
-    expect(after.owners).toBe(before.owners);
+    expect(after).toEqual(before);
+  });
+
+  it("finds a computation no owner holds, through the source that keeps it alive", () => {
+    const [s] = createSignal(0, { name: "s" });
+    const dispose = createRoot(dispose => {
+      createEffect(s, () => {});
+      return dispose;
+    });
+    flush();
+    const owned = graphSize();
+    runWithOwner(null, () => {
+      createEffect(s, () => {});
+    });
+    flush();
+    const withOrphan = graphSize();
+    // The orphan is not in any owner chain…
+    expect(withOrphan.owners).toBe(owned.owners);
+    // …but `s` is reached from the owned effect, and the orphan reads `s`.
+    expect(withOrphan.computations).toBe(owned.computations + 1);
+    expect(withOrphan.edges).toBe(owned.edges + 1);
+    dispose();
   });
 });
 
@@ -118,7 +160,7 @@ describe("GRAPH_GROWTH", () => {
 
   it("warns when the count at the same route climbs on consecutive visits", () => {
     const { findings, warn } = arm({ visits: 3, ratio: 1.25 });
-    const { setLocation, dispose, leaked } = app(true);
+    const { setLocation, dispose, leaked } = app("root");
     for (let i = 0; i < 3; i++) {
       navigate(setLocation, "/orders");
       navigate(setLocation, "/", "/");
@@ -128,16 +170,17 @@ describe("GRAPH_GROWTH", () => {
     expect(findings[0]).toMatchObject({ code: "GRAPH_GROWTH", kind: "perf", severity: "warn" });
     const data = findings[0].data as {
       route: string;
-      owners: number[];
-      roots: number;
+      grew: string[];
+      history: { owners: number }[];
       routes: string[];
     };
     // The count is the graph's: the first route to complete its climb reports, naming the others.
     expect(data.route).toBe("/orders");
     expect(data.routes).toEqual(["/orders", "/"]);
-    expect(data.owners).toHaveLength(3);
-    expect(data.owners[1]).toBeGreaterThan(data.owners[0]);
-    expect(data.owners[2]).toBeGreaterThan(data.owners[1]);
+    expect(data.grew).toContain("owners");
+    expect(data.history).toHaveLength(3);
+    expect(data.history[1].owners).toBeGreaterThan(data.history[0].owners);
+    expect(data.history[2].owners).toBeGreaterThan(data.history[1].owners);
     expect(findings[0].message).toContain("3 consecutive visits to /orders");
     expect(findings[0].message).toContain("createRoot()");
     expect(warn).toHaveBeenCalled();
@@ -146,6 +189,23 @@ describe("GRAPH_GROWTH", () => {
     navigate(setLocation, "/", "/");
     expect(findings).toHaveLength(1);
     for (const d of leaked) d();
+    dispose();
+  });
+
+  it("an ownerless effect per visit grows computations and edges while owners stay flat", () => {
+    const { findings } = arm({ visits: 3, ratio: 1.25 });
+    const { setLocation, dispose } = app("ownerless");
+    for (let i = 0; i < 3; i++) {
+      navigate(setLocation, "/orders");
+      navigate(setLocation, "/", "/");
+    }
+    expect(findings).toHaveLength(1);
+    const data = findings[0].data as { grew: string[]; history: { owners: number }[] };
+    expect(data.grew).toContain("computations");
+    expect(data.grew).toContain("edges");
+    expect(data.grew).not.toContain("owners");
+    expect(new Set(data.history.map(h => h.owners)).size).toBe(1);
+    expect(findings[0].message).toContain("no owner");
     dispose();
   });
 
@@ -172,7 +232,7 @@ describe("GRAPH_GROWTH", () => {
     OBSERVE!.diagnostics.subscribe(e => {
       if (e.code === "GRAPH_GROWTH") diag.push(e);
     });
-    const { setLocation, dispose, leaked } = app(true);
+    const { setLocation, dispose, leaked } = app("root");
     for (let i = 0; i < 4; i++) {
       navigate(setLocation, "/orders");
       navigate(setLocation, "/", "/");

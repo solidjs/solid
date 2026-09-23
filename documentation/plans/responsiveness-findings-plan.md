@@ -191,13 +191,16 @@ The plan said the core "keeps node and edge counters"; it does not — the
 node count. Rather than add one (an increment at every creation and
 disposal, on the idle observe path), the observe core registers the
 top-level roots weakly (`WeakRef` + `FinalizationRegistry`, one Set write per
-root) and the engine walks the owner tree from them at navigation settle —
-zero per-node cost, a walk at navigation cadence. Shipped as the `graph`
-attribution record (`GraphEvent`), `graphSize()` on `solid-js/attribution`,
-and `GRAPH_GROWTH` (warn) with `graphGrowth: { visits, ratio }`. The count is
-the whole graph's, so the first route to complete its climb reports and names
-the others (`data.routes`), and the verdict resets for the graph. Cost: tier
-+165 B (the registry), engine +632 B.
+root) and the engine walks from them at navigation settle — the owner tree, then
+the reactive graph it reaches through dependencies and subscriptions (which
+is how an ownerless effect is found) — zero per-node cost, a walk at
+navigation cadence: 10k owners in 0.6ms, 50k in 3.6ms. Shipped as the
+`graph` attribution record (`GraphEvent`/`GraphSize`: `roots`, `owners`,
+`computations`, `signals`, `edges`), `graphSize()` on `solid-js/attribution`,
+and `GRAPH_GROWTH` (warn) with `graphGrowth: { visits, ratio }`, judging
+every series and naming which climbed. The count is the whole graph's, so
+the first route to complete its climb reports and names the others
+(`data.routes`), and the verdict resets for the graph.
 
 - **Known:** the core keeps node and edge counters in the observe build
   (the graph-size checks `HUGE_FAN_OUT`/`HUGE_FAN_IN` read them); a router

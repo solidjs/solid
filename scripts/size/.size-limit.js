@@ -1927,14 +1927,15 @@ module.exports = [
     // byte-identical to `next`; the engine scenario below moved -15 B of
     // layout. (#3604 had already brought this scenario to 17,487 against
     // the old 17.50 KB cap, 13 B under.)
-    // GRAPH_GROWTH root registry (2026-09-23): 17.5 -> 17.60 KB, measured at
-    // 17,577 B against 17,412 on next (+165 B). `createOwner` with no parent
+    // GRAPH_GROWTH root registry (2026-09-23): 17.5 -> 17.65 KB, measured at
+    // 17,613 B against 17,412 on next (+165 B of registry, the rest mangler
+    // drift from the engine's property usage). `createOwner` with no parent
     // registers the root in a WeakRef Set reaped by a FinalizationRegistry,
     // and its disposal unregisters it; `liveRootOwners()` hands them to the
     // engine's walk. Nothing per node — the alternative, a live counter,
     // would have been an increment on every creation and disposal. Prod CSR
     // is 15,821, byte-identical either way (the bodies fold to a return).
-    limit: "17.60 KB",
+    limit: "17.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -227,11 +227,15 @@ what they need. The message lists the sources — start with those.
 
 ### GRAPH_GROWTH
 
-The live graph got bigger on every one of the last `data.owners.length`
-visits to `data.route` (`data.owners` lists the counts), and it did not
-shrink on the visits in between — something each visit creates is never
-disposed. This is the leak a heap snapshot finds; the engine finds it by
-counting the owner tree at each navigation's settle. The count is the whole
+The live graph got bigger on every one of the last `data.history.length`
+visits to `data.route`, and it did not shrink on the visits in between —
+something each visit creates is never disposed. This is the leak a heap
+snapshot finds; the engine finds it by measuring the reactive graph at each
+navigation's settle. `data.grew` says which measure climbed, and that names
+the leak: `owners` is an undisposed root or a Portal mounted per visit;
+`computations` with `owners` flat is an effect or memo created with no
+owner, kept alive only by the sources it reads; `edges` alone is a
+subscription per visit to something long-lived. The count is the whole
 app's, so `data.routes` names every route seen while it climbed; the
 culprit is on one of them. Look for, in order:
 

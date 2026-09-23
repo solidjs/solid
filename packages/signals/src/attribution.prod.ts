@@ -44,7 +44,13 @@ export const formatOrigin: typeof Engine.formatOrigin = () => "";
 export const isSilentHold: typeof Engine.isSilentHold = () => false;
 export const isLongHold: typeof Engine.isLongHold = () => false;
 // Prod registers no roots: the graph has no observable size.
-export const graphSize: typeof Engine.graphSize = () => ({ owners: 0, roots: 0 });
+export const graphSize: typeof Engine.graphSize = () => ({
+  roots: 0,
+  owners: 0,
+  computations: 0,
+  signals: 0,
+  edges: 0
+});
 
 export type {
   Acknowledgement,
@@ -62,6 +68,7 @@ export type {
   FlightLink,
   FlushEvent,
   GraphEvent,
+  GraphSize,
   HeldWrite,
   HoldEvent,
   InteractionEvent,

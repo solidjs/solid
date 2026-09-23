@@ -41,6 +41,7 @@ export type {
   FlightLink,
   FlushEvent,
   GraphEvent,
+  GraphSize,
   HeldWrite,
   HoldEvent,
   InteractionEvent,
