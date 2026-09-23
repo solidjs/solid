@@ -2065,6 +2065,12 @@ function loadModuleAssets(mapping) {
  * Pass `options.renderId` to hydrate one of multiple roots emitted by a
  * server render that used the same id.
  *
+ * The start may be deferred: in a hand-built document (bootstrapped by
+ * `generateHydrationScript()`) whose records `<script>` has not run yet
+ * while the parser is still working, hydration begins once the records land
+ * or the parser finishes. The returned dispose is synchronous either way and
+ * cancels a deferred start.
+ *
  * When the server renders a full document but the client hydrates only the
  * app subtree, the server must give that subtree its own id namespace: wrap
  * the document shell in `<NoHydration>` and re-enter with `<Hydration>`
@@ -2080,6 +2086,73 @@ export function hydrate(
 export function hydrate(code, element, options = {}) {
   enableHydration();
   installHydrationRuntime();
+  const hy = globalThis._$HY;
+  // Readiness gate (#3610). The bootstrap of a hand-built document
+  // (`generateHydrationScript()`, `_$HY.p`) is placed by the host, apart from
+  // the records script the render appends to its output — so a stylesheet
+  // between them blocks the classic records script while an `async` module
+  // entry runs on arrival, and this call would claim against an empty
+  // `_$HY.r`: a streamed <Loading> finds neither its record nor its `_fr`
+  // declaration and falls through to a fresh boundary (key miss on the
+  // fallback, a client refetch, a `$df` swap nobody claims). The bootstrap
+  // cannot know whether records follow, but the parser can prove it either
+  // way: while `readyState` is "loading" a parser-inserted script may still
+  // be pending, and once the parser finishes none can be (the same proof the
+  // truncation sweep rests on). So with the flag set, mid-parse, and no
+  // record landed yet, park the start on whichever comes first — the first
+  // `_$HY.r` write (the records script executing; a microtask later, so the
+  // whole script's writes are visible to the claim walk) or
+  // `DOMContentLoaded`. The dispose function is still returned synchronously
+  // and cancels a parked start. Nothing else holds hydration open: a
+  // JSX document's `<HydrationScript />` omits the flag (its records are
+  // spliced right after it and cannot be separated from it), every post-load
+  // `hydrate()` sees the parser finished, and later `$df`/record scripts
+  // register into a runtime that is already live.
+  if (hy.p && !hy.done && document.readyState === "loading" && !hasRecords(hy.r)) {
+    const records = hy.r;
+    let started = false;
+    let disposer;
+    const release = () => {
+      hy.r = records;
+      document.removeEventListener("DOMContentLoaded", start);
+    };
+    const start = () => {
+      if (started) return;
+      started = true;
+      release();
+      disposer = hydrateRoot(code, element, options);
+    };
+    // The records script writes `_$HY.r[key]` statement by statement (and
+    // re-reads `_$HY.r` each time), so intercept only the first write and
+    // hand the bootstrap's own object straight back.
+    hy.r = new Proxy(records, {
+      set(target, key, value) {
+        target[key] = value;
+        if (hy.r !== target) {
+          hy.r = target;
+          queueMicrotask(start);
+        }
+        return true;
+      }
+    });
+    document.addEventListener("DOMContentLoaded", start, { once: true });
+    return () => {
+      if (!started) {
+        started = true;
+        release();
+      }
+      disposer && disposer();
+    };
+  }
+  return hydrateRoot(code, element, options);
+}
+
+function hasRecords(r) {
+  for (const key in r) return true;
+  return false;
+}
+
+function hydrateRoot(code, element, options) {
   if (globalThis._$HY.done) return render(code, element, [...element.childNodes], options);
   // #3081: the server splices useHead's charset/base prelude immediately
   // after the <head> open tag — a byte-placement constraint (charset within
