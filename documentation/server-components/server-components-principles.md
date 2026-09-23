@@ -2325,15 +2325,20 @@ value belonged in durable state.
 - **Same chunk protocol.** The one semantic shift: `complete` is the
   BOUNDED signal. A body that ends without it is a **death** — the
   resume trigger — never a completion. Bounded renders are untouched.
-  This is the frames instance of RFC 10's terminal record.
+  This is the frames instance of the codec's own rule (RFC 10,
+  Lifetime): completion is a record the producer writes, and a body
+  that ends without it fails what it left open.
 - **One SSE response per source (RFC 10, `live(fn)` → Framing).** `live`
   is for backends that hold connections — the feature's
   precondition, as it is for LiveView, Datastar, and SvelteKit's
   `query.live` — and there is nothing to configure. A live frame is
-  its own request to its own data address, as today, with the
-  response framed as server-sent events (codec payloads as `data:`
-  events, heartbeats, `no-store`, `X-Accel-Buffering: no`) so
-  buffering middleboxes pass it through. Subscribing is a request;
+  its own request, as today, addressed to the live address
+  (`<endpoint>/live/<id>`, the sibling of `/data/<id>`: a third
+  caller kind receiving a third answer shape gets its own path, the
+  #3094 rule), with the response framed as server-sent events
+  (codec payloads as `data:` events, heartbeats, `no-store`,
+  `X-Accel-Buffering: no`) so buffering middleboxes pass it
+  through. Subscribing is a request;
   unsubscribing closes it, which is how teardown (below) is
   signalled; a frame under a streamed boundary connects when that
   boundary hydrates and a frame mounting after navigation connects
@@ -2342,9 +2347,9 @@ value belonged in durable state.
   HTTP/1.1; the dev server speaks HTTP/2 with `server.https`; dev
   warns past five live connections otherwise). Frames own no
   transport vocabulary: `serverComponentResponse` writes through
-  the shared event-stream writer, `applyFrames` reads through the
-  shared reader off the content type, `isFrameStreamResponse` stays
-  `X-Frame-Stream`-based. On a backend that kills a response at a
+  the   shared event-stream writer when the call arrived at the live
+  address, `applyFrames` reads through the shared reader off the
+  content type, `isFrameStreamResponse` stays `X-Frame-Stream`-based. On a backend that kills a response at a
   ceiling the stream dies there and `live` does what it does on any
   death — backoff, reconnect with its position, `onstatus` showing
   it — which is `query.live`'s behavior on the same platform and
@@ -2593,11 +2598,11 @@ The full sequence, verification per slice, and the example mapping
 live in `documentation/plans/stage8-connection-transport.md`; in
 summary:
 
-- **Phase A (data):** A1 framing — event-stream writer/reader for
-  live responses (selected by the loop's live request header),
-  heartbeats, `Last-Event-ID` with value-digest positions and the
-  digest-equal first-emission skip, terminal record on both
-  framings, HTTP/1.1 dev warning; A2 `live` = response lifetime —
+- **Phase A (data):** A1 framing — the live address
+  (`<endpoint>/live/<id>`) on both ends, event-stream writer/reader
+  for what it answers, heartbeats, `Last-Event-ID` with value-digest
+  positions and the digest-equal first-emission skip, HTTP/1.1 dev
+  warning; A2 `live` = response lifetime —
   nested brand walk, death vs completion, whole-answer re-yield, SSR
   first value per source, per-scope takeover (the `armLiveTakeover`
   fix, keeping the per-pass re-arm for islands), hidden-page pause
@@ -2627,19 +2632,20 @@ standard): `live`'s behavior changes four ways on a shipped export
 per scope instead of at page-wide hydration end, it pauses on
 hidden pages (after a grace window, holding status through the
 pause, parking a takeover that fires while hidden), and a
-digest-equal reconnect yields nothing; every streamed answer
-changes one way — a body that dies mid-stream rejects the
-consumer's pull instead of ending silently (the terminal record
-makes death distinguishable); `onstatus` becomes reachable for
+digest-equal reconnect yields nothing (a dying body already
+rejects what it left open — that is the decoder's end-of-body
+sweep today, not a change); `onstatus` becomes reachable for
 server-component references through the same iterable;
 `SERVER_WRITE` becomes an error in persistent renders; a dev-only
 chaos-reconnect knob and a dev-only HTTP/1.1 connection warning;
 the document window — if kept as a knob — as `documentWindow` on
 `renderToStream`. Nothing to configure on the server; no new
-option. New wire, not API: the event-stream framing of live
-responses, the loop's live request header, the terminal record on
-both framings, `Last-Event-ID` (cursor or value digest; ordinal for
-a frame), the have-list header, hole digests. Withdrawn before
+option. New wire, not API: the live address `<endpoint>/live/<id>`
+(live calls move there from the data address; a client and server
+versioned apart miss each other on live calls until both are
+current), the event-stream framing of what it answers,
+`Last-Event-ID` (value digest; ordinal for a frame), the have-list
+header, hole digests. Withdrawn before
 shipping: `SSE(fn)`, `enableEventStream()`, `Accept:
 text/event-stream` as a client declaration, the
 framing-follows-method rule, the per-page channel, the
@@ -2650,7 +2656,9 @@ the frame handle.
 connection state is `onstatus`; (c) safety cap: `documentWindow`
 knob or fixed dev-only warning; (d) `serverFunctionUrl` on a live
 reference — refuse, or answer and document the prefetch hazard;
-(e) CLOSED — the server frames a response as an event stream when
-the request carries the loop's live header; a server-side `live`
-declaration may cross-check in dev but cannot decide (topology);
-(f) is the plan's.
+(e) CLOSED — the address decides: the loop calls
+`<endpoint>/live/<id>` and the server frames what it answers there
+as an event stream (a header would put a third answer shape behind
+a URL caches already hold for the second — #3094 — and reads carry
+no transport header — #3406); a server-side `live` declaration may
+cross-check in dev but cannot decide (topology); (f) is the plan's.
