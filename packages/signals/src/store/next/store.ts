@@ -2070,7 +2070,9 @@ const traps: ProxyHandler<StoreNextTarget> = {
       typeof key === "string" &&
       key !== "then" &&
       getObserver() === null &&
-      Object.prototype.hasOwnProperty.call(src, key)
+      // Own data keys only: a pending backing inherits unrewritten keys from `v`.
+      (Object.prototype.hasOwnProperty.call(src, key) ||
+        Object.prototype.hasOwnProperty.call(target.v, key))
     )
       checkPostAwaitRead(
         target.n?.[key as any],
