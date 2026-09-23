@@ -1341,12 +1341,11 @@ function LoadingSeedClientStore() {
 }
 
 // ssrSource "hybrid" + seedLoadingValue: shell locks at the seed, the landed
-// state serializes as the hybrid handoff value; the hydrating client serves
-// the seed through the claim (the settled ref must stay a thenable), and the
-// hybrid takeover re-run — which supersedes the deferred adoption — lands the
-// same data itself. RETURN-style derive: hybrid's promise-shaped takeover
-// hands values back by returning them (draft mutations on the takeover run go
-// to the discarded shadow draft — a pre-existing hybrid constraint).
+// state serializes as the hybrid value; the hydrating client serves the seed
+// through the claim (the settled ref must stay a thenable), and the deferred
+// adoption lands the serialized data itself. Promise-shaped: no handoff run —
+// for a non-stream source "hybrid" is identical to "server", so the derive
+// does not run on the client until `update` changes its dependency.
 let refreshLoadingSeedHybrid!: () => void;
 function LoadingSeedHybridStore() {
   const [version, setVersion] = createSignal(0);

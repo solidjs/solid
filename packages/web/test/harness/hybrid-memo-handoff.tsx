@@ -81,9 +81,9 @@ export function SignalPromiseApp() {
  * `takeover`: whether the client source continues the adopted answer at its
  * landing. Generator-shaped hybrid computes hand off to the client iteration
  * (#2993); promise-shaped ones adopt the serialized value and do not hand off
- * (#2993 — a handoff would be a client refetch). Whether a promise-shaped
- * compute re-runs once hydration is DONE is readSerializedOrCompute's
- * pre-existing behavior and not part of the handoff contract pinned here.
+ * (#2993 — a handoff would be a client refetch): for them "hybrid" is
+ * identical to "server", and the client compute does not run until a
+ * dependency changes or refresh() — not at the landing, not at hydration end.
  */
 export const variants = [
   {

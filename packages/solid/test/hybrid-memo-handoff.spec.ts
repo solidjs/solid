@@ -424,6 +424,50 @@ describe("hybrid memo/signal handoff — rule 1: waits for the first server answ
       dispose();
     }
   });
+
+  for (const [name, create] of families) {
+    test(`${name}: a promise-shaped compute latches past hydration END — no client run until a dependency changes`, async () => {
+      // The plain hydrate() path: nothing keeps hydration open, so `done`
+      // flips at the end of the claim pass. The old creation flip for this
+      // shape was a gate write held by the snapshot scope; it replayed at the
+      // release, after `done`, and the recompute ran the compute live — a
+      // client refetch of the serialized value. Nothing flips now.
+      startHydration({ t0: { v: 5, s: 1 } });
+      const [version, setVersion] = createSignal(1);
+      let starts = 0;
+      let dispose!: () => void;
+      const read = createRoot(
+        d => {
+          dispose = d;
+          return create(
+            async () => {
+              if (Promise === RealPromise) starts++;
+              return version();
+            },
+            { ssrSource: "hybrid" }
+          );
+        },
+        { id: "t" }
+      );
+      try {
+        flush();
+        expect(read()).toBe(5);
+        stopHydration();
+        expect(sharedConfig.done).toBe(true);
+        await tick();
+        await tick();
+        expect(read()).toBe(5);
+        expect(starts).toBe(0);
+        // Identical to "server": the first client run is the dependency change.
+        setVersion(2);
+        await tick();
+        expect(read()).toBe(2);
+        expect(starts).toBe(1);
+      } finally {
+        dispose();
+      }
+    });
+  }
 });
 
 describe("hybrid memo/signal handoff — rule 2: only the handoff run's first yield is the duplicate", () => {

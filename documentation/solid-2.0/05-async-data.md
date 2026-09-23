@@ -189,7 +189,7 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 **`ssrSource`** is the hydration policy: what initial value the client uses, and whether the compute re-runs.
 
 - `"server"` _(default)_ — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
-- `"hybrid"` — the client seeds from the serialized server value, then re-runs the compute to take over. Choose this for computes that mix server data with client-only signals (window size, user locale). For function-form stores, and for memos and function-form signals over an async generator, the takeover is the tail of the initial load, not a refetch: it waits for the server answer to land, and the node reads settled through it — `isPending` is `false`, and a `<Loading>` created in that window shows content — until the re-run produces something new.
+- `"hybrid"` — the client seeds from the serialized server value; then, for a compute that returns an **async iterable**, the client continues the stream from it. The server consumed exactly one yield; the client re-runs the generator once the adopted answer has landed, its first yield duplicates that answer and is discarded, and later yields update the node. That handoff is the tail of the initial load, not a refetch: the node reads settled through it — `isPending` is `false`, and a `<Loading>` created in that window shows content — until the stream produces something new. For a **sync or promise-shaped** compute, `"hybrid"` is identical to `"server"`: there is no stream for the client to continue, so the serialized value is adopted and the compute does not re-run until a dependency changes or `refresh()`. Choose `"hybrid"` for streaming sources (live feeds, subscriptions) the client should keep consuming after hydration; for computes over client-only inputs use `"client"`.
 - `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. What the server renders in the compute's place is the author's choice of channel:
   - **Bare (structural)** — with no declaration, the source is a hole the server can never fill. Reads suspend _finally_: the nearest `Loading` boundary flushes its fallback into the HTML and hands the position to the client, which renders the content fresh after hydration. Read outside a `Loading` boundary this is a render error (the stream would otherwise hang), so bare client sources must sit under a boundary.
   - **Declared (`loadingValue` / `seedLoadingValue`, above)** — the server renders the declared first paint instead of suspending; the client serves the same value while hydrating, then runs the compute. `loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it; store-family sources declare `seedLoadingValue: true` (the seed is what the pre-compute window renders).
@@ -198,8 +198,13 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 // Default ("server"): serialized value is authoritative; no client refetch on load.
 const user = createMemo(() => fetchUser(id()));
 
-// Server renders from the signal's default; client re-runs with the live viewport.
-const columns = createMemo(() => Math.ceil(viewportWidth() / 240), { ssrSource: "hybrid" });
+// Server serializes the first tick; the client continues the stream from it.
+const price = createMemo(
+  async function* () {
+    for await (const tick of priceTicks(symbol())) yield tick;
+  },
+  { ssrSource: "hybrid" }
+);
 
 // Never serialized; computed fresh once hydration completes. The declared
 // commit #0 (null) is what renders until then.
@@ -215,7 +220,7 @@ const widget = createMemo(() => measureBrowserThing(), { ssrSource: "client" });
 
 **`deferStream: true`** defers the SSR stream flush until this primitive's first value has resolved. It lets a late-resolving source hold the document open rather than forcing the surrounding `<Loading>` boundary to render its fallback into the HTML. Server-only; ignored on the client.
 
-**`transparent: true`** (integration tier — accepted by effects and memos) makes the node invisible to hydration: it inherits its parent's id instead of consuming a child slot, and its compute runs live during hydration instead of adopting the serialized server value. It exists for **client-only reactive nodes created while hydrating** — nodes the server never rendered, so an id-consuming owner would shift every later sibling's hydration id and break serialized lookups and template claims (this is how `@solidjs/router` wires link state and scroll restoration). It is also the supported alternative to branching on hydration state (`if (hydrating) createEffect(...)`), which freezes the first run's decision: create the node unconditionally and mark it `transparent` so it observes live state. SSR ignores the option (server-side nodes always allocate their id slot), so only mark nodes the server does not create; outside hydration it is a no-op.
+**`transparent: true`** (integration tier — accepted by effects and memos) makes the node invisible to hydration: it inherits its parent's id instead of consuming a child slot, and its compute runs live during hydration instead of adopting the serialized server value. It exists for **client-only reactive nodes created while hydrating** — nodes the server never rendered, so an id-consuming owner would shift every later sibling's hydration id and break serialized lookups and template claims (this is how `@solidjs/router` wires link state and scroll restoration). It is also the supported alternative to branching on hydration state (`if (hydrating) createEffect(...)`), which freezes the first run's decision: create the node unconditionally and mark it `transparent` so it observes live state. SSR ignores the option (server-side nodes always allocate their id slot), so only mark nodes the server does not create; outside hydration it is a no-op. A node created with no owner (`runWithOwner(null, …)`), or under a root without an `id`, has no id slot to consume and takes this path on its own.
 
 ## Migration / replacement
 

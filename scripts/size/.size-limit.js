@@ -1220,6 +1220,13 @@ module.exports = [
     // returned dispose cancels a parked start. The previous body moved into
     // `hydrateRoot`; the gate is a straight-line prologue, nothing to shake.
     // 0 B in signals or solid.
+    // Null owner takes the transparent path; hybrid latches for non-stream
+    // shapes (#3609, 2026-09-23): no bump, measured at 21,088 B against
+    // `next`'s 21,056 (+32 B) rebased over #3615. Solid only — the
+    // `noHydrationId()` guards (commit 1) and hydrateSignalLike dropping
+    // its creation-time gate flip on non-iterable hybrid shapes (commit 2);
+    // see the with-stores note for the breakdown. Brotli layout: the same
+    // source measured 20,907 against the pre-#3615 `next`'s 20,919 (-12 B).
     limit: "21.10 KB",
     modifyEsbuildConfig
   },
@@ -1502,7 +1509,25 @@ module.exports = [
     // -> 31.30 KB, measured at 31,284 B against `next`'s 31,155 (+129 B) —
     // the same web-only hydrate() gate as the no-stores entry (+137 there),
     // laid out over this larger bundle. 0 B in signals or solid.
-    limit: "31.30 KB",
+    // Null owner takes the transparent path; hybrid latches for non-stream
+    // shapes (#3609, 2026-09-23): 31.30 -> 31.35 KB, measured at 31,328 B
+    // against `next`'s 31,284 (+44 B, 28 B over the old cap) rebased over
+    // #3615; the same source measured 31,220 against the pre-#3615 `next`'s
+    // 31,155 (+65 B — the commit split below is from that run). Solid only,
+    // in hydration.ts. Commit 1 (+50 B, 31,205): `noHydrationId()` — the
+    // `!owner || owner.id == null` guard mirroring the server's serialize
+    // predicate — at the top of every hydration facade body (signal-like,
+    // store-like, effect, error boundary, loading boundary), plus
+    // hydrateSignalLike honoring `transparent`. Commit 2 (+15 B): the
+    // store adapter's hybrid branch gains memo's detect-then-arm shape
+    // (`takeover` from the adoption trace; non-iterable runs route through
+    // readSerializedOrCompute) while both wrappers drop the creation-time
+    // gate flip for non-iterable shapes — the snapshot scope held that
+    // write past `done` and replayed it as a live re-run, the very refetch
+    // the ruling forbids. The no-stores companion carries the same source at
+    // +32 B (-12 B before the rebase — brotli layout over the smaller
+    // bundle). 0 B in the signals core, the store engine, or web.
+    limit: "31.35 KB",
     modifyEsbuildConfig
   },
   {

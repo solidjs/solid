@@ -24,6 +24,11 @@
  * stream is not pending between yields. Maintainer ruling: `isPending` does
  * not read true over the initial load; the handoff is its tail.
  *
+ * The promise-shaped variant has no handoff at all: a promise is not a stream
+ * the client could continue, so the adopted answer is final and the client
+ * source never runs (maintainer ruling — for non-stream shapes "hybrid" is
+ * identical to "server"); it is pinned here for the same observable outcome.
+ *
  * Replays the chunk artifacts test/server/hybrid-store-handoff-3574.spec.tsx
  * writes, with the fixture's await points swapped for gates, in both replay
  * modes of the parity harness:
@@ -106,6 +111,15 @@ async function run(variant: Variant, mode: "streamed" | "loaded") {
   control.onStart = () => {
     if (Promise === RealPromise) starts++;
   };
+  // Generator-shaped sources hand off to the client iteration once the
+  // answer lands — exactly one start, exactly then. Promise-shaped sources
+  // have no handoff: the adopted answer is final, and the client source
+  // never starts (maintainer ruling — for non-stream shapes "hybrid" is
+  // identical to "server"). In loaded mode nothing keeps hydration open, so
+  // this also pins that no run follows hydration END.
+  const expectStarts = (n: number, message: string) => {
+    expect(starts, message).toBe(variant.takeover ? n : 0);
+  };
 
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
   const container = document.createElement("div");
@@ -141,7 +155,7 @@ async function run(variant: Variant, mode: "streamed" | "loaded") {
       // on screen, and the client source has not started (rule 1 — the
       // handoff waits for the answer to land, never runs ahead of it).
       expect(container.querySelector("section")!.textContent).toBe("loading");
-      expect(starts, "the client source must not start before the answer lands").toBe(0);
+      expectStarts(0, "the client source must not start before the answer lands");
 
       // The late chunk: answer resolver → $df fragment swap → _fr resolver.
       applyChunk(container, rest, false);
@@ -166,7 +180,7 @@ async function run(variant: Variant, mode: "streamed" | "loaded") {
       warnings.filter(w => w.includes("Hydration key miss")),
       "no hydration key miss"
     ).toEqual([]);
-    expect(starts, "the handoff run started once the answer landed").toBe(1);
+    expectStarts(1, "the handoff run started once the answer landed");
     expect(container.querySelector("section")!.textContent).toBe("true:0");
     expect(container.querySelector("span[_hk='2000']")).toBe(serverSpan);
     expect(shown).toEqual(settled);
@@ -189,6 +203,7 @@ async function run(variant: Variant, mode: "streamed" | "loaded") {
       expect(shown).toEqual([...settled, variant.steps[1]]);
     }
 
+    expectStarts(1, "no further client runs");
     expect(warnings, "no warnings at all").toEqual([]);
   } finally {
     mo.disconnect();
