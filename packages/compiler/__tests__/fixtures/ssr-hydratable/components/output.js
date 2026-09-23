@@ -136,9 +136,9 @@ import { Show } from "somewhere";
 const Child = (props) => {
 	var _v$, _ref$, _v$2, _v$3, _ref$2, _v$4;
 	const [s, set] = createSignal();
-	return [(_v$ = _$ssrHydrationKey(), _ref$ = props.ref, _v$2 = () => {
+	return [(_v$ = _$ssrHydrationKey(), _ref$ = props.ref, _v$2 = _$scope(() => {
 		return _$escape(props.name);
-	}, _$ssr(_tmpl$, _v$, _v$2)), (_v$3 = _$ssrHydrationKey(), _ref$2 = set, _v$4 = _$scope(() => {
+	}), _$ssr(_tmpl$, _v$, _v$2)), (_v$3 = _$ssrHydrationKey(), _ref$2 = set, _v$4 = _$scope(() => {
 		return _$escape(props.children);
 	}), _$ssr(_tmpl$2, _v$3, _v$4))];
 };

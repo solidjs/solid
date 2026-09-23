@@ -1,5 +1,6 @@
 import { template as _$template } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
@@ -25,7 +26,10 @@ _$effect(
   () =>
     (() => {
       var _el$0 = _$getNextElement(_tmpl$5);
-      _$insert(_el$0, () => state.value);
+      _$insert(
+        _el$0,
+        _$scope(() => state.value)
+      );
       return _el$0;
     })(),
   _v$ => {
@@ -46,12 +50,18 @@ _$effect(
   () => ({
     e: (() => {
       var _el$1 = _$getNextElement(_tmpl$5);
-      _$insert(_el$1, () => state.first);
+      _$insert(
+        _el$1,
+        _$scope(() => state.first)
+      );
       return _el$1;
     })(),
     t: (() => {
       var _el$10 = _$getNextElement(_tmpl$6);
-      _$insert(_el$10, () => state.second);
+      _$insert(
+        _el$10,
+        _$scope(() => state.second)
+      );
       return _el$10;
     })()
   }),
@@ -76,7 +86,10 @@ _$spread(
     {
       get data() {
         var _el$13 = _$getNextElement(_tmpl$5);
-        _$insert(_el$13, () => state.value);
+        _$insert(
+          _el$13,
+          _$scope(() => state.value)
+        );
         return _el$13;
       }
     }

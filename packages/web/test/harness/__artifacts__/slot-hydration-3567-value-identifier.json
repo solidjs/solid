@@ -1,0 +1,9 @@
+{
+  "name": "value-identifier",
+  "html": "<div _hk=2><header><button _hk=0 id=\"hdr\">clicks <!--$-->0<!--/--></button></header><main><p _hk=30 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:2",
+    "button:0",
+    "p:30"
+  ]
+}

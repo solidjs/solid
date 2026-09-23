@@ -1,0 +1,9 @@
+{
+  "name": "array-branch-then-children",
+  "html": "<div _hk=0><header><button _hk=20 id=\"hdr\">clicks <!--$-->0<!--/--></button> x</header><main><p _hk=30 id=\"body\">body <!--$-->0<!--/--></p></main></div>",
+  "keys": [
+    "div:0",
+    "button:20",
+    "p:30"
+  ]
+}

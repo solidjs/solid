@@ -1974,6 +1974,136 @@ const loadHeadSheets = () => {
     link.dispatchEvent(new Event("load"));
 };
 
+// ---------------------------------------------------------------------------
+// JSX passed through a non-`children` prop (#3567): the slot getter builds its
+// elements lazily, so the hole needs a scope like `{props.children}` has.
+let setSlotCount!: (v: number) => void;
+const SlotLayout = (props: { header: JSX.Element; children: JSX.Element }) => (
+  <div>
+    <header>{props.header}</header>
+    <main>{props.children}</main>
+  </div>
+);
+function SlotPropBeforeChildren() {
+  const [n, set] = createSignal(0);
+  setSlotCount = set;
+  return (
+    <SlotLayout header={<button>clicks {n()}</button>}>
+      <p>body {n()}</p>
+    </SlotLayout>
+  );
+}
+
+// Same slot, followed by a plain signal-read hole instead of children.
+let setIconCount!: (v: number) => void;
+const IconCard = (p: { icon: JSX.Element; count: () => number }) => (
+  <section>
+    {p.icon}
+    <span>{p.count()}</span>
+  </section>
+);
+function SlotPropBeforeSignalHole() {
+  const [n, set] = createSignal(0);
+  setIconCount = set;
+  return <IconCard icon={<button>icon {n()}</button>} count={n} />;
+}
+
+// Object-of-slots and computed access reach lazy JSX the same way.
+let setSlotsCount!: (v: number) => void;
+const SlotsLayout = (p: {
+  slots: Record<string, JSX.Element>;
+  name: string;
+  count: () => number;
+}) => (
+  <div>
+    {p.slots.header}
+    {p.slots[p.name]}
+    <span>{p.count()}</span>
+  </div>
+);
+function NestedSlotsBeforeSibling() {
+  const [n, set] = createSignal(0);
+  setSlotsCount = set;
+  const slots = {
+    get header() {
+      return <b>head {n()}</b>;
+    },
+    get footer() {
+      return <i>foot {n()}</i>;
+    }
+  };
+  return <SlotsLayout slots={slots} name="footer" count={n} />;
+}
+
+// Call-shaped holes the predicate must also see: optional call, logical left.
+let setCallTail!: (v: number) => void;
+const CallHoles = (p: {
+  renderItem?: (x: string) => JSX.Element;
+  rows: () => string[];
+  tail: () => number;
+}) => (
+  <ul>
+    {p.renderItem?.("first")}
+    {p.rows().map(x => <li>{x}</li>) || "no rows"}
+    <li>tail {p.tail()}</li>
+  </ul>
+);
+// Array-literal branch holding a component: the items' ids nest under the
+// hole scope on both sides, so the call hole after it stays aligned.
+let setArrayTail!: (v: number) => void;
+const ArrayBadge = (p: { label: string }) => <b>{p.label}</b>;
+const ArrayBranch = (p: { on: () => boolean; tail: () => number }) => (
+  <div>
+    {p.on() ? [<ArrayBadge label="one" />, " and ", <ArrayBadge label="two" />] : null}
+    <span>{p.tail()}</span>
+  </div>
+);
+function ArrayBranchBeforeSibling() {
+  const [tail, set] = createSignal(0);
+  setArrayTail = set;
+  return <ArrayBranch on={() => true} tail={tail} />;
+}
+
+// A logical hole whose operands are both primitives takes no scope; the dom
+// generate must classify the source expression, not its memo-ternary rewrite.
+let setLogicalCount!: (v: number) => void;
+const LogicalTail = (p: { count: number }) => <span>{p.count}</span>;
+function LogicalPrimitiveBeforeSibling() {
+  const [n, set] = createSignal(1);
+  setLogicalCount = set;
+  return (
+    <div>
+      {n() > 0 && n() + 1}
+      <LogicalTail count={n()} />
+    </div>
+  );
+}
+
+function OptionalCallAndLogicalLeft() {
+  const [tail, set] = createSignal(0);
+  setCallTail = set;
+  return <CallHoles renderItem={x => <li>{x}</li>} rows={() => ["a", "b"]} tail={tail} />;
+}
+
+// Spread-element siblings reading a prop (test/server/spread-hydration.spec.tsx):
+// the `{props.count}` hole reserves its scope slot on both sides.
+let setSpreadCount!: (v: number) => void;
+const SpreadLink = (props: { linkProps: any; count: number }) => (
+  <a {...props.linkProps}>link {props.count}</a>
+);
+function SpreadSiblingsMemberHole() {
+  const [n, set] = createSignal(0);
+  setSpreadCount = set;
+  const linkProps = { class: "nav" };
+  return (
+    <div>
+      <SpreadLink linkProps={linkProps} count={n()} />
+      <SpreadLink linkProps={linkProps} count={n()} />
+      <span>tail</span>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -2717,5 +2847,68 @@ export const scenarios: Scenario[] = [
     },
     expectedTextAfterUpdate: "lead late styled tail 1",
     stableSelector: "div, span, section"
+  },
+  {
+    name: "slot-prop-before-children",
+    App: SlotPropBeforeChildren,
+    expectedText: "clicks 0body 0",
+    update: () => setSlotCount(1),
+    expectedTextAfterUpdate: "clicks 1body 1",
+    stableSelector: "button, p",
+    adoptAll: true
+  },
+  {
+    name: "slot-prop-before-signal-hole",
+    App: SlotPropBeforeSignalHole,
+    expectedText: "icon 00",
+    update: () => setIconCount(1),
+    expectedTextAfterUpdate: "icon 11",
+    stableSelector: "button, span",
+    adoptAll: true
+  },
+  {
+    name: "nested-slots-before-sibling",
+    App: NestedSlotsBeforeSibling,
+    expectedText: "head 0foot 00",
+    update: () => setSlotsCount(1),
+    expectedTextAfterUpdate: "head 1foot 11",
+    stableSelector: "b, i, span",
+    adoptAll: true
+  },
+  {
+    name: "spread-siblings-member-hole",
+    App: SpreadSiblingsMemberHole,
+    expectedText: "link 0link 0tail",
+    update: () => setSpreadCount(1),
+    expectedTextAfterUpdate: "link 1link 1tail",
+    stableSelector: "a, span",
+    adoptAll: true
+  },
+  {
+    name: "array-branch-before-sibling",
+    App: ArrayBranchBeforeSibling,
+    expectedText: "one and two0",
+    update: () => setArrayTail(1),
+    expectedTextAfterUpdate: "one and two1",
+    stableSelector: "b, span",
+    adoptAll: true
+  },
+  {
+    name: "logical-primitive-before-sibling",
+    App: LogicalPrimitiveBeforeSibling,
+    expectedText: "21",
+    update: () => setLogicalCount(2),
+    expectedTextAfterUpdate: "32",
+    stableSelector: "span",
+    adoptAll: true
+  },
+  {
+    name: "optional-call-and-logical-left",
+    App: OptionalCallAndLogicalLeft,
+    expectedText: "firstabtail 0",
+    update: () => setCallTail(1),
+    expectedTextAfterUpdate: "firstabtail 1",
+    stableSelector: "ul, li",
+    adoptAll: true
   }
 ];

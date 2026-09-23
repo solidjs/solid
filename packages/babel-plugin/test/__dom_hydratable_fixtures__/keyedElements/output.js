@@ -3,6 +3,7 @@ import { createComponent as _$createComponent } from "r-dom";
 import { className as _$className } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { effect as _$effect } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<ul><li>Apple`),
@@ -15,7 +16,10 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<ul><li>Apple`),
 const staticKey = _$getNextElement(_tmpl$);
 var _el$2 = _$getNextElement(_tmpl$2),
   _el$3 = _el$2.firstChild;
-_$insert(_el$3, () => item.text);
+_$insert(
+  _el$3,
+  _$scope(() => item.text)
+);
 _$effect(
   () => _$readShallow(item.cls),
   (_v$, _$p) => {

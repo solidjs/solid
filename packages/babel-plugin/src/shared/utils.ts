@@ -290,20 +290,40 @@ export function toEventName(name: string): string {
 // generates must agree exactly on which holes qualify, so the predicates
 // live here.
 
+// A hole is scoped unless its value is provably a primitive: any other shape
+// (a call, a property read behind a getter, an array) can build JSX at read
+// time, and only `props.children` used to count (#3567).
 function canReturnHydratableChild(node: t.Node): boolean {
-  if (t.isTSNonNullExpression(node) || t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node))
+  if (
+    t.isTSNonNullExpression(node) ||
+    t.isTSAsExpression(node) ||
+    t.isTSSatisfiesExpression(node) ||
+    t.isParenthesizedExpression(node)
+  )
     return canReturnHydratableChild(node.expression);
-  if (t.isJSXElement(node) || t.isJSXFragment(node) || t.isCallExpression(node)) return true;
-  // A function child is a deferred hole: whatever it returns renders inside
-  // the hole, so it can always mint hydratable content.
-  if (t.isFunction(node)) return true;
-  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
-    return !node.computed && t.isIdentifier(node.property, { name: "children" });
-  }
   if (t.isConditionalExpression(node)) {
     return canReturnHydratableChild(node.consequent) || canReturnHydratableChild(node.alternate);
   }
-  return t.isLogicalExpression(node) && canReturnHydratableChild(node.right);
+  if (t.isLogicalExpression(node)) {
+    return canReturnHydratableChild(node.left) || canReturnHydratableChild(node.right);
+  }
+  if (t.isSequenceExpression(node)) {
+    return canReturnHydratableChild(node.expressions[node.expressions.length - 1]);
+  }
+  if (t.isAssignmentExpression(node)) return canReturnHydratableChild(node.right);
+  if (t.isArrayExpression(node)) {
+    return node.elements.some(
+      element =>
+        element !== null &&
+        canReturnHydratableChild(t.isSpreadElement(element) ? element.argument : element)
+    );
+  }
+  return !(
+    t.isLiteral(node) ||
+    t.isUnaryExpression(node) ||
+    t.isBinaryExpression(node) ||
+    t.isUpdateExpression(node)
+  );
 }
 
 export function canChildSlotAllocateIds(node: NodePath): boolean {

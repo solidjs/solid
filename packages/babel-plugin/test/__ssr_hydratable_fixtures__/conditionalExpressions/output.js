@@ -1,5 +1,5 @@
-import { scope as _$scope } from "r-server";
 import { memo as _$memo } from "r-server";
+import { scope as _$scope } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -9,7 +9,7 @@ var _v$ = _$ssrHydrationKey(),
   _v$2 = _$escape(simple);
 const template1 = _$ssr(_tmpl$, _v$, _v$2);
 var _v$3 = _$ssrHydrationKey(),
-  _v$4 = () => _$escape(state.dynamic);
+  _v$4 = _$scope(() => _$escape(state.dynamic));
 const template2 = _$ssr(_tmpl$, _v$3, _v$4);
 var _v$5 = _$ssrHydrationKey(),
   _v$6 = simple ? _$escape(good) : _$escape(bad);
@@ -18,7 +18,7 @@ var _v$7 = _$ssrHydrationKey(),
   _v$8 = _$scope(() => (simple ? _$escape(good()) : _$escape(bad)));
 const template4 = _$ssr(_tmpl$, _v$7, _v$8);
 var _v$9 = _$ssrHydrationKey(),
-  _v$0 = () => (simple ? _$escape(good.good) : _$escape(bad));
+  _v$0 = _$scope(() => (simple ? _$escape(good.good) : _$escape(bad)));
 const template4a = _$ssr(_tmpl$, _v$9, _v$0);
 var _v$1 = _$ssrHydrationKey(),
   _v$10 = _$scope(
@@ -29,10 +29,12 @@ var _v$1 = _$ssrHydrationKey(),
   );
 const template5 = _$ssr(_tmpl$, _v$1, _v$10);
 var _v$11 = _$ssrHydrationKey(),
-  _v$12 = (() => {
-    var _c$2 = _$memo(() => !!state.dynamic);
-    return () => (_c$2() ? _$escape(good.good) : _$escape(bad));
-  })();
+  _v$12 = _$scope(
+    (() => {
+      var _c$2 = _$memo(() => !!state.dynamic);
+      return () => (_c$2() ? _$escape(good.good) : _$escape(bad));
+    })()
+  );
 const template5a = _$ssr(_tmpl$, _v$11, _v$12);
 var _v$13 = _$ssrHydrationKey(),
   _v$14 = _$scope(
@@ -43,10 +45,12 @@ var _v$13 = _$ssrHydrationKey(),
   );
 const template6 = _$ssr(_tmpl$, _v$13, _v$14);
 var _v$15 = _$ssrHydrationKey(),
-  _v$16 = (() => {
-    var _c$4 = _$memo(() => !!state.dynamic);
-    return () => (_c$4() ? _$escape(good.good) : _$escape(state.dynamic));
-  })();
+  _v$16 = _$scope(
+    (() => {
+      var _c$4 = _$memo(() => !!state.dynamic);
+      return () => (_c$4() ? _$escape(good.good) : _$escape(state.dynamic));
+    })()
+  );
 const template6a = _$ssr(_tmpl$, _v$15, _v$16);
 var _v$17 = _$ssrHydrationKey(),
   _v$18 = _$scope(
@@ -62,15 +66,17 @@ var _v$17 = _$ssrHydrationKey(),
   );
 const template7 = _$ssr(_tmpl$, _v$17, _v$18);
 var _v$19 = _$ssrHydrationKey(),
-  _v$20 = (() => {
-    var _c$6 = _$memo(() => state.count > 5);
-    return () =>
-      _c$6()
-        ? _$memo(() => !!state.dynamic)()
-          ? _$escape(best)
-          : _$escape(good.good)
-        : _$escape(bad);
-  })();
+  _v$20 = _$scope(
+    (() => {
+      var _c$6 = _$memo(() => state.count > 5);
+      return () =>
+        _c$6()
+          ? _$memo(() => !!state.dynamic)()
+            ? _$escape(best)
+            : _$escape(good.good)
+          : _$escape(bad);
+    })()
+  );
 const template7a = _$ssr(_tmpl$, _v$19, _v$20);
 var _v$21 = _$ssrHydrationKey(),
   _v$22 = _$scope(
@@ -81,22 +87,28 @@ var _v$21 = _$ssrHydrationKey(),
   );
 const template8 = _$ssr(_tmpl$, _v$21, _v$22);
 var _v$23 = _$ssrHydrationKey(),
-  _v$24 = (() => {
-    var _c$8 = _$memo(() => !!(state.dynamic && state.something));
-    return () => (_c$8() ? _$escape(good.good) : state.dynamic && _$escape(state.something));
-  })();
+  _v$24 = _$scope(
+    (() => {
+      var _c$8 = _$memo(() => !!(state.dynamic && state.something));
+      return () => (_c$8() ? _$escape(good.good) : state.dynamic && _$escape(state.something));
+    })()
+  );
 const template8a = _$ssr(_tmpl$, _v$23, _v$24);
 var _v$25 = _$ssrHydrationKey(),
-  _v$26 = (() => {
-    var _c$9 = _$memo(() => !!state.dynamic);
-    return () => _$escape((_c$9() ? good() : state.dynamic) || bad);
-  })();
+  _v$26 = _$scope(
+    (() => {
+      var _c$9 = _$memo(() => !!state.dynamic);
+      return () => _$escape((_c$9() ? good() : state.dynamic) || bad);
+    })()
+  );
 const template9 = _$ssr(_tmpl$, _v$25, _v$26);
 var _v$27 = _$ssrHydrationKey(),
-  _v$28 = (() => {
-    var _c$0 = _$memo(() => !!state.dynamic);
-    return () => _$escape((_c$0() ? good.good : state.dynamic) || bad);
-  })();
+  _v$28 = _$scope(
+    (() => {
+      var _c$0 = _$memo(() => !!state.dynamic);
+      return () => _$escape((_c$0() ? good.good : state.dynamic) || bad);
+    })()
+  );
 const template9a = _$ssr(_tmpl$, _v$27, _v$28);
 var _v$29 = _$ssrHydrationKey(),
   _v$30 = (() => {
@@ -120,17 +132,19 @@ var _v$31 = _$ssrHydrationKey(),
   );
 const template11 = _$ssr(_tmpl$, _v$31, _v$32);
 var _v$33 = _$ssrHydrationKey(),
-  _v$34 = (() => {
-    var _c$11 = _$memo(() => !!state.a);
-    return () =>
-      _c$11()
-        ? _$escape(a.a)
-        : _$memo(() => !!state.b)()
-          ? _$escape(b.b)
-          : state.c
-            ? "c"
-            : "fallback";
-  })();
+  _v$34 = _$scope(
+    (() => {
+      var _c$11 = _$memo(() => !!state.a);
+      return () =>
+        _c$11()
+          ? _$escape(a.a)
+          : _$memo(() => !!state.b)()
+            ? _$escape(b.b)
+            : state.c
+              ? "c"
+              : "fallback";
+    })()
+  );
 const template11a = _$ssr(_tmpl$, _v$33, _v$34);
 const template12 = Comp({
   get render() {
@@ -241,17 +255,19 @@ var _v$47 = _$ssrHydrationKey(),
   );
 const template29 = _$ssr(_tmpl$, _v$47, _v$48);
 var _v$49 = _$ssrHydrationKey(),
-  _v$50 = (() => {
-    var _c$15 = _$memo(() => !!thing.thing);
-    return () =>
-      _$escape((_c$15() ? thing1.thing1 : thing.thing) ?? thing2.thing2 ?? thing3.thing3);
-  })();
+  _v$50 = _$scope(
+    (() => {
+      var _c$15 = _$memo(() => !!thing.thing);
+      return () =>
+        _$escape((_c$15() ? thing1.thing1 : thing.thing) ?? thing2.thing2 ?? thing3.thing3);
+    })()
+  );
 const template29a = _$ssr(_tmpl$, _v$49, _v$50);
 var _v$51 = _$ssrHydrationKey(),
   _v$52 = _$scope(() => _$escape(thing() || thing1() || thing2()));
 const template30 = _$ssr(_tmpl$, _v$51, _v$52);
 var _v$53 = _$ssrHydrationKey(),
-  _v$54 = () => _$escape(thing.thing || thing1.thing1 || thing2.thing2);
+  _v$54 = _$scope(() => _$escape(thing.thing || thing1.thing1 || thing2.thing2));
 const template30a = _$ssr(_tmpl$, _v$53, _v$54);
 const template31 = Comp({
   get value() {
@@ -268,7 +284,7 @@ const template31a = Comp({
   }
 });
 var _v$55 = _$ssrHydrationKey(),
-  _v$56 = () => _$escape(something?.());
+  _v$56 = _$scope(() => _$escape(something?.()));
 const template32 = _$ssr(_tmpl$, _v$55, _v$56);
 const template33 = Comp({
   get children() {

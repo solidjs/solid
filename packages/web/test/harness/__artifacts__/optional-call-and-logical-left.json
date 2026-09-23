@@ -1,0 +1,5 @@
+{
+  "name": "optional-call-and-logical-left",
+  "shell": "<ul _hk=0><!--$--><li _hk=10>first</li><!--/--><!--$--><li _hk=20>a</li><li _hk=21>b</li><!--/--><li>tail <!--$-->0<!--/--></li></ul>",
+  "rest": ""
+}

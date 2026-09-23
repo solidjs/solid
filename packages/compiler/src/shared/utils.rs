@@ -557,29 +557,47 @@ fn unwrap_ts_wrappers<'e, 'a>(mut expression: &'e Expression<'a>) -> &'e Express
     }
 }
 
+/// A hole is scoped unless its value is provably a primitive: any other
+/// shape (a call, a property read behind a getter, an array) can build JSX
+/// at read time, and only `props.children` used to count (#3567).
 pub(crate) fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
     match unwrap_ts_wrappers(expression) {
-        Expression::JSXElement(_) | Expression::JSXFragment(_) | Expression::CallExpression(_) => {
-            true
-        }
-        // A function child is a deferred hole: whatever it returns renders
-        // inside the hole, so it can always mint hydratable content.
-        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => true,
-        Expression::StaticMemberExpression(member) => member.property.name == "children",
-        Expression::ChainExpression(chain) => match &chain.expression {
-            oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
-                member.property.name == "children"
-            }
-            _ => false,
-        },
         Expression::ConditionalExpression(conditional) => {
             expression_can_return_hydratable_child(&conditional.consequent)
                 || expression_can_return_hydratable_child(&conditional.alternate)
         }
         Expression::LogicalExpression(logical) => {
-            expression_can_return_hydratable_child(&logical.right)
+            expression_can_return_hydratable_child(&logical.left)
+                || expression_can_return_hydratable_child(&logical.right)
         }
-        _ => false,
+        Expression::SequenceExpression(sequence) => sequence
+            .expressions
+            .last()
+            .is_some_and(expression_can_return_hydratable_child),
+        Expression::AssignmentExpression(assignment) => {
+            expression_can_return_hydratable_child(&assignment.right)
+        }
+        Expression::ArrayExpression(array) => array.elements.iter().any(|element| match element {
+            oxc_ast::ast::ArrayExpressionElement::SpreadElement(spread) => {
+                expression_can_return_hydratable_child(&spread.argument)
+            }
+            oxc_ast::ast::ArrayExpressionElement::Elision(_) => false,
+            _ => element
+                .as_expression()
+                .is_some_and(expression_can_return_hydratable_child),
+        }),
+        Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::UnaryExpression(_)
+        | Expression::BinaryExpression(_)
+        | Expression::PrivateInExpression(_)
+        | Expression::UpdateExpression(_) => false,
+        _ => true,
     }
 }
 

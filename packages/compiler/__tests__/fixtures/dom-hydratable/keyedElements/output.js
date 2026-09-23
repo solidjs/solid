@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
@@ -15,9 +16,9 @@ var _tmpl$2 = /* @__PURE__ */ _$template(`<ul><li>`);
 const staticKey = _$getNextElement(_tmpl$);
 var _el$2 = _$getNextElement(_tmpl$2);
 var _el$3 = _el$2.firstChild;
-_$insert(_el$3, () => {
+_$insert(_el$3, _$scope(() => {
 	return item.text;
-});
+}));
 _$effect(() => _$readShallow(item.cls), (_v$, _$p) => {
 	_$className(_el$3, _v$, _$p);
 });

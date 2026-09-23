@@ -1,0 +1,5 @@
+{
+  "name": "slot-prop-before-children",
+  "shell": "<div _hk=0><header><button _hk=10>clicks <!--$-->0<!--/--></button></header><main><p _hk=20>body <!--$-->0<!--/--></p></main></div>",
+  "rest": ""
+}

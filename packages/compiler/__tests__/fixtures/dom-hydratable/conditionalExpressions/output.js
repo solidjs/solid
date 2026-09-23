@@ -12,9 +12,9 @@ var _el$ = _$getNextElement(_tmpl$);
 _$insert(_el$, simple);
 const template1 = _el$;
 var _el$2 = _$getNextElement(_tmpl$);
-_$insert(_el$2, () => {
+_$insert(_el$2, _$scope(() => {
 	return state.dynamic;
-});
+}));
 const template2 = _el$2;
 var _el$3 = _$getNextElement(_tmpl$);
 _$insert(_el$3, simple ? good : bad);
@@ -25,9 +25,9 @@ _$insert(_el$4, _$scope(() => {
 }));
 const template4 = _el$4;
 var _el$5 = _$getNextElement(_tmpl$);
-_$insert(_el$5, () => {
+_$insert(_el$5, _$scope(() => {
 	return simple ? good.good : bad;
-});
+}));
 const template4a = _el$5;
 var _el$6 = _$getNextElement(_tmpl$);
 _$insert(_el$6, _$scope((() => {
@@ -40,14 +40,14 @@ _$insert(_el$6, _$scope((() => {
 })()));
 const template5 = _el$6;
 var _el$7 = _$getNextElement(_tmpl$);
-_$insert(_el$7, (() => {
+_$insert(_el$7, _$scope((() => {
 	var _c$2 = _$memo(() => {
 		return !!state.dynamic;
 	});
 	return () => {
 		return _c$2() ? good.good : bad;
 	};
-})());
+})()));
 const template5a = _el$7;
 var _el$8 = _$getNextElement(_tmpl$);
 _$insert(_el$8, _$scope((() => {
@@ -60,14 +60,14 @@ _$insert(_el$8, _$scope((() => {
 })()));
 const template6 = _el$8;
 var _el$9 = _$getNextElement(_tmpl$);
-_$insert(_el$9, (() => {
+_$insert(_el$9, _$scope((() => {
 	var _c$4 = _$memo(() => {
 		return !!state.dynamic;
 	});
 	return () => {
 		return _c$4() ? good.good : state.dynamic;
 	};
-})());
+})()));
 const template6a = _el$9;
 var _el$10 = _$getNextElement(_tmpl$);
 _$insert(_el$10, _$scope((() => {
@@ -82,7 +82,7 @@ _$insert(_el$10, _$scope((() => {
 })()));
 const template7 = _el$10;
 var _el$11 = _$getNextElement(_tmpl$);
-_$insert(_el$11, (() => {
+_$insert(_el$11, _$scope((() => {
 	var _c$6 = _$memo(() => {
 		return state.count > 5;
 	});
@@ -91,7 +91,7 @@ _$insert(_el$11, (() => {
 			return !!state.dynamic;
 		})() ? best : good.good : bad;
 	};
-})());
+})()));
 const template7a = _el$11;
 var _el$12 = _$getNextElement(_tmpl$);
 _$insert(_el$12, _$scope((() => {
@@ -104,34 +104,34 @@ _$insert(_el$12, _$scope((() => {
 })()));
 const template8 = _el$12;
 var _el$13 = _$getNextElement(_tmpl$);
-_$insert(_el$13, (() => {
+_$insert(_el$13, _$scope((() => {
 	var _c$8 = _$memo(() => {
 		return !!(state.dynamic && state.something);
 	});
 	return () => {
 		return _c$8() ? good.good : state.dynamic && state.something;
 	};
-})());
+})()));
 const template8a = _el$13;
 var _el$14 = _$getNextElement(_tmpl$);
-_$insert(_el$14, (() => {
+_$insert(_el$14, _$scope((() => {
 	var _c$9 = _$memo(() => {
 		return !!state.dynamic;
 	});
 	return () => {
 		return (_c$9() ? good() : state.dynamic) || bad;
 	};
-})());
+})()));
 const template9 = _el$14;
 var _el$15 = _$getNextElement(_tmpl$);
-_$insert(_el$15, (() => {
+_$insert(_el$15, _$scope((() => {
 	var _c$10 = _$memo(() => {
 		return !!state.dynamic;
 	});
 	return () => {
 		return (_c$10() ? good.good : state.dynamic) || bad;
 	};
-})());
+})()));
 const template9a = _el$15;
 var _el$16 = _$getNextElement(_tmpl$);
 _$insert(_el$16, (() => {
@@ -158,7 +158,7 @@ _$insert(_el$17, _$scope((() => {
 })()));
 const template11 = _el$17;
 var _el$18 = _$getNextElement(_tmpl$);
-_$insert(_el$18, (() => {
+_$insert(_el$18, _$scope((() => {
 	var _c$13 = _$memo(() => {
 		return !!state.a;
 	});
@@ -167,7 +167,7 @@ _$insert(_el$18, (() => {
 			return !!state.b;
 		})() ? b.b : state.c ? "c" : "fallback";
 	};
-})());
+})()));
 const template11a = _el$18;
 const template12 = _$createComponent(Comp, { get render() {
 	return _$memo(() => {
@@ -271,14 +271,14 @@ _$insert(_el$25, _$scope((() => {
 })()));
 const template29 = _el$25;
 var _el$26 = _$getNextElement(_tmpl$);
-_$insert(_el$26, (() => {
+_$insert(_el$26, _$scope((() => {
 	var _c$16 = _$memo(() => {
 		return !!thing.thing;
 	});
 	return () => {
 		return (_c$16() ? thing1.thing1 : thing.thing) ?? thing2.thing2 ?? thing3.thing3;
 	};
-})());
+})()));
 const template29a = _el$26;
 var _el$27 = _$getNextElement(_tmpl$);
 _$insert(_el$27, _$scope(() => {
@@ -286,9 +286,9 @@ _$insert(_el$27, _$scope(() => {
 }));
 const template30 = _el$27;
 var _el$28 = _$getNextElement(_tmpl$);
-_$insert(_el$28, () => {
+_$insert(_el$28, _$scope(() => {
 	return thing.thing || thing1.thing1 || thing2.thing2;
-});
+}));
 const template30a = _el$28;
 const template31 = _$createComponent(Comp, { get value() {
 	return _$memo(() => {
@@ -305,9 +305,9 @@ const template31a = _$createComponent(Comp, { get value() {
 	})() ? count.count : count.count : count.count;
 } });
 var _el$29 = _$getNextElement(_tmpl$);
-_$insert(_el$29, () => {
+_$insert(_el$29, _$scope(() => {
 	return something?.();
-});
+}));
 const template32 = _el$29;
 const template33 = _$createComponent(Comp, { get children() {
 	return something?.();

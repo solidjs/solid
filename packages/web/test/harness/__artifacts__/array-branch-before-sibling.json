@@ -1,0 +1,5 @@
+{
+  "name": "array-branch-before-sibling",
+  "shell": "<div _hk=0><!--$--><b _hk=20>one</b> and <b _hk=22>two</b><!--/--><span>0</span></div>",
+  "rest": ""
+}

@@ -1,0 +1,5 @@
+{
+  "name": "nested-slots-before-sibling",
+  "shell": "<div _hk=0><!--$--><b _hk=10>head <!--$-->0<!--/--></b><!--/--><!--$--><i _hk=20>foot <!--$-->0<!--/--></i><!--/--><span>0</span></div>",
+  "rest": ""
+}
