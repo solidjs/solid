@@ -225,6 +225,31 @@ One computation reads very many sources, so it re-runs when any of them
 change. Narrow its reads or split it into smaller memos that each track only
 what they need. The message lists the sources — start with those.
 
+### GRAPH_GROWTH
+
+The live graph got bigger on every one of the last `data.owners.length`
+visits to `data.route` (`data.owners` lists the counts), and it did not
+shrink on the visits in between — something each visit creates is never
+disposed. This is the leak a heap snapshot finds; the engine finds it by
+counting the owner tree at each navigation's settle. The count is the whole
+app's, so `data.routes` names every route seen while it climbed; the
+culprit is on one of them. Look for, in order:
+
+- A `createRoot()` in an effect, an event handler, or a module-level helper
+  whose disposer is dropped. Return it from `onSettled` (the component's
+  setup-and-teardown), or call it in `onCleanup`.
+- A subscription registered outside the owner that should tear it down — an
+  `addEventListener`, an observer, a store subscription — made in a plain
+  function rather than under the component. Move it under the owner and
+  pair it with `onCleanup`.
+- A `Portal`, a panel or a modal mounted on each visit into a long-lived
+  root, never removed when the route leaves.
+
+Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
+ownership — create the thing under the owner whose lifetime it should share.
+`graphSize()` from `solid-js/attribution` gives the count on demand;
+`subscribe("graph", …)` gives it at every navigation's settle.
+
 ### HOT_SCOPE_RERUNS
 
 A scope re-ran far more often than any UI cadence justifies — a hot signal

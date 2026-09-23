@@ -9,6 +9,7 @@ import {
   anyExcluded,
   emitDiagnostic,
   GRAPH_SIZE_WARN_AT,
+  liveRootOwners,
   isExcluded,
   isSuppressed,
   ownerPath,
@@ -314,6 +315,27 @@ export interface FallbackEvent {
   interaction?: ChangeOrigin;
 }
 
+/**
+ * The live graph's size at a navigation's settle — the moment an app has
+ * finished moving between two screens, so a count that climbs visit after
+ * visit is a root or a subscription the previous screen left behind.
+ * Delivered on `subscribe("graph", …)` per settled navigation; a walk of the
+ * owner tree from the registered top-level roots, made only when something
+ * listens or `graphGrowth` is on.
+ */
+export interface GraphEvent {
+  /** When the navigation settled (`performance.now()` clock). */
+  at: number;
+  /** Owners and computations reachable from the live roots. */
+  owners: number;
+  /** Top-level roots alive (`render()`'s, module-scope `createRoot()`s, panels). */
+  roots: number;
+  /** The route pattern the navigation matched (`name`), else its `to`. */
+  route?: string;
+  /** The navigation this count belongs to. */
+  navigation: NavigationEvent;
+}
+
 export interface AttributionOptions {
   /** Pretty-print each re-run to the console (default true). */
   log?: boolean;
@@ -428,6 +450,14 @@ export interface AttributionOptions {
    * `false` disables.
    */
   longHolds?: { infoMs: number; warnMs: number } | false;
+  /**
+   * Graph-growth warning: emit GRAPH_GROWTH when the live owner count at the
+   * settle of the same route has climbed on `visits` consecutive visits
+   * (default 3) to `ratio` or more of the first (default 1.25) — a root or a
+   * subscription each visit leaves behind, the leak class a heap snapshot
+   * finds. The count is a walk at settle, never per node. `false` disables.
+   */
+  graphGrowth?: { visits: number; ratio: number } | false;
 }
 
 interface AttributedNode {
@@ -497,7 +527,8 @@ const defaultOptions = {
   wideWrites: 250 as number | false,
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
   holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
-  longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false
+  longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false,
+  graphGrowth: { visits: 3, ratio: 1.25 } as { visits: number; ratio: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 let history: RerunEvent[] = [];
@@ -523,6 +554,8 @@ export interface AttributionRecords {
   interaction: InteractionEvent;
   hold: HoldEvent;
   navigation: NavigationEvent;
+  /** Listener-gated (or on while `graphGrowth` is) — see `GraphEvent`. */
+  graph: GraphEvent;
 }
 export type AttributionRecordType = keyof AttributionRecords;
 type RecordListeners = {
@@ -537,7 +570,8 @@ const recordListeners: RecordListeners = {
   fallback: new Set(),
   interaction: new Set(),
   hold: new Set(),
-  navigation: new Set()
+  navigation: new Set(),
+  graph: new Set()
 };
 /** Whether anything listens for `type` — the pre-check the listener-gated records cost nothing without. */
 function listened(type: AttributionRecordType): boolean {
@@ -2826,6 +2860,88 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
   if (severity === "warn") reportDiagnostic(entry);
 }
 
+// --- Graph growth -----------------------------------------------------------------
+
+/** Per route: the owner counts at its last `visits` settles, oldest first. */
+const routeCounts = new Map<string, number[]>();
+
+/**
+ * The live graph's size: a walk of the owner tree from the registered
+ * top-level roots — `owners` counts every owner and computation still in a
+ * chain, `roots` the roots. A walk, not a counter: nothing is charged at
+ * node creation or disposal; the engine asks at a navigation's settle.
+ * Dormant nodes are spliced out of their chain and are not counted.
+ */
+export function graphSize(): { owners: number; roots: number } {
+  let owners = 0;
+  const roots = liveRootOwners();
+  const stack: Owner[] = [];
+  for (const root of roots) {
+    owners++;
+    // Iterative: a deep tree must not grow the call stack.
+    let child = root._firstChild;
+    for (;;) {
+      while (child !== null) {
+        owners++;
+        if (child._firstChild !== null) stack.push(child);
+        child = child._nextSibling;
+      }
+      const next = stack.pop();
+      if (next === undefined) break;
+      child = next._firstChild;
+    }
+  }
+  return { owners, roots: roots.length };
+}
+
+/**
+ * settleNavigation: the app has finished moving to a route — count the live
+ * graph. One record per settle for a listener; the growth check compares
+ * this settle of the route with its previous ones. A count that climbs on
+ * consecutive visits is something the previous visit left behind: a
+ * `createRoot` in an effect with no dispose, a subscription a component
+ * registered outside its owner. Nothing here runs per node; the walk is
+ * the cost, at navigation cadence.
+ */
+function trackGraph(navigation: NavigationEvent): void {
+  const cfg = options.graphGrowth;
+  if (cfg === false && !listened("graph")) return;
+  const size = graphSize();
+  const route = navigation.name ?? navigation.to;
+  const event: GraphEvent = { at: now(), owners: size.owners, roots: size.roots, navigation };
+  if (route !== undefined) event.route = route;
+  emitRecord("graph", event);
+  if (cfg === false || route === undefined) return;
+  let counts = routeCounts.get(route);
+  if (counts === undefined) routeCounts.set(route, (counts = []));
+  counts.push(size.owners);
+  if (counts.length > cfg.visits) counts.shift();
+  if (counts.length < cfg.visits) return;
+  for (let i = 1; i < counts.length; i++) if (counts[i] <= counts[i - 1]) return;
+  if (counts[counts.length - 1] < counts[0] * cfg.ratio) return;
+  // The count is the whole graph's, so a leak shows at every route's settle;
+  // the first route to complete its climb reports, naming the others seen.
+  const routes = [...routeCounts.keys()];
+  const message =
+    `[GRAPH_GROWTH] the live graph grew on ${cfg.visits} consecutive visits to ${route}: ` +
+    `${counts.join(" → ")} owners (${size.roots} roots)` +
+    `${routes.length > 1 ? `, across visits to ${routes.join(", ")}` : ""}. Each visit left ` +
+    `something behind that the next did not reclaim — a createRoot() in an effect or handler ` +
+    `with no dispose, a subscription registered outside the owner that should tear it down, a ` +
+    `Portal or panel mounted per visit. Dispose what a visit creates (onCleanup, or return the ` +
+    `disposer from onSettled) and own it under the route's component so leaving the route ` +
+    `tears it down.`;
+  const data: Record<string, unknown> = { route, owners: [...counts], roots: size.roots, routes };
+  if (navigation.interaction !== undefined)
+    data.interaction = { type: navigation.interaction.name, target: navigation.interaction.target };
+  reportDiagnostic(
+    emitDiagnostic({ code: "GRAPH_GROWTH", kind: "perf", severity: "warn", message, data }, null)
+  );
+  // Judged once for the graph, not once per route: the next verdict needs
+  // another `visits` climbing settles.
+  routeCounts.clear();
+}
+
 // --- Navigations ------------------------------------------------------------------
 //
 // A navigation in Solid 2 is not a primitive: it is a plain write to the
@@ -3230,6 +3346,7 @@ function settleNavigation(
   if (hold !== undefined) event.hold = hold;
   for (const f of folds) f.navigation?.(event);
   emitRecord("navigation", event);
+  trackGraph(event);
   // The interaction that performed it may have been waiting only on this.
   const under = openInteractionOf(event.interaction);
   if (under !== undefined) maybeSettleInteraction(under);
@@ -3836,6 +3953,7 @@ function resetTracking(): void {
   trackingGen++;
   openNavs.clear();
   openInteractions.clear();
+  routeCounts.clear();
   drainSeq = 0;
   originFrames.length = 0;
   effectStack.length = 0;

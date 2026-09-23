@@ -426,6 +426,14 @@ One recompute pass tracked an unusually large number of distinct sources (same t
 
 Related: `WIDE_SCOPE_DEPS` (below) fires at a much lower threshold, but only while the attribution engine is enabled — it names the offending sources. `HUGE_FAN_IN` is the always-on backstop for the pathological case.
 
+#### `GRAPH_GROWTH`
+
+**Message:** "the live graph grew on 3 consecutive visits to `/orders`: 412 → 431 → 450 owners (2 roots), across visits to `/orders`, `/`. Each visit left something behind that the next did not reclaim — a `createRoot()` in an effect or handler with no dispose, a subscription registered outside the owner that should tear it down, a Portal or panel mounted per visit. Dispose what a visit creates (`onCleanup`, or return the disposer from `onSettled`) and own it under the route's component so leaving the route tears it down."
+
+Attribution-engine only; the leak class a heap snapshot finds, as a finding. At every navigation's settle (`withOrigin({ kind: "navigation" })`) the engine counts the live graph — a **walk** of the owner tree from the registered top-level roots, never a per-node counter — and emits a `graph` record (`GraphEvent`: `at`, `owners`, `roots`, `route`, `navigation`) for a `subscribe("graph", …)` listener. The check keeps the count at each settle of the same route; when it has climbed on `graphGrowth.visits` consecutive visits (default 3) to `ratio` or more of the first (default 1.25), the route reports. The count is the whole graph's, so a leak shows at every route's settle: the first route to complete its climb reports and `data.routes` names the others seen; the verdict then resets, so another `visits` climbing settles are needed before it speaks again. `data`: `route`, `owners` (the counts, oldest first), `roots`, `routes`, `interaction`. No subject.
+
+The observe core's part is the root registry: `createOwner` with no parent registers the root (weakly — a `WeakRef`, reaped by a `FinalizationRegistry` — so an undisposed root nothing references still collects; one a subscription keeps alive is exactly what the walk counts), and its disposal unregisters it. One Set write per top-level root, nothing per node; the walk runs at navigation cadence, only when the check is on or something listens for `graph` records. `graphSize()` is exported from `solid-js/attribution` for a consumer that wants the count on its own schedule. Dormant nodes are spliced out of their chain and are not counted. `false` disables.
+
 #### `HOT_SCOPE_RERUNS`, `HOT_SCOPE_TIME`, `WIDE_SCOPE_DEPS`
 
 Perf-kind warnings emitted by the **attribution engine** — they only fire while the attribution engine (`solid-js/attribution`) is enabled (see the next section). Defaults:
@@ -856,6 +864,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `FLUSH_IN_EFFECT_CALLBACK`         | warn      | lifecycle      | `flush()` from an effect callback (no-op; the drain is already running)                                                    |
 | `HUGE_FAN_OUT`                     | warn      | graph          | One change reached 2000 live subscribers (always on)                                                                       |
 | `HUGE_FAN_IN`                      | warn      | graph          | One recompute tracked 2000 sources (always on)                                                                             |
+| `GRAPH_GROWTH`                     | warn      | perf           | The live owner count at the same route's settle climbed on 3 consecutive visits to 1.25× — something each visit leaves behind (attribution enabled) |
 | `HOT_SCOPE_RERUNS`                 | warn      | perf           | 120+ re-runs of one scope in 1s (attribution enabled)                                                                      |
 | `HOT_SCOPE_FANOUT`                 | warn      | perf           | 5+/50+/500+ scopes hot from one root cause (attribution enabled)                                                           |
 | `HOT_SCOPE_TIME`                   | warn      | perf           | 8ms+ self-time in one scope in 1s (attribution enabled)                                                                    |
