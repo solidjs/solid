@@ -439,7 +439,10 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   }
   node._firstChild = null;
   node._childCount = 0;
+  // Detached before it runs, mirroring the client `runDisposal` (#3601): a
+  // cleanup that re-enters this owner's disposal must find nothing to re-run.
   const d = node._disposal;
+  node._disposal = null;
   if (d) {
     if (Array.isArray(d)) {
       // Unwind order, mirroring the client `runDisposal` (#3572): later
@@ -448,7 +451,6 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     } else {
       d();
     }
-    node._disposal = null;
   }
   if (self) unlinkOwner(node);
   // Recycle the disposed owner. Skip the root case (`self=false`) and the
