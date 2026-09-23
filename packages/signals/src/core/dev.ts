@@ -915,9 +915,6 @@ export function checkPostAwaitRead(
   nodeName: string | undefined,
   throwsPending: boolean
 ): void {
-  // A microtask resumes at most one async function, so one capture answers for
-  // every read until the queue turns. The reset can land a few jobs late, which
-  // may miss a warning; a cached hit is re-verified below, so it never invents one.
   // Continuations resume with no owner; mount, flush, and effect reads always have one.
   if (context !== null) return;
   // Code Solid itself runs synchronously on the continuation's stack also has
@@ -937,12 +934,21 @@ export function checkPostAwaitRead(
     }
     return;
   }
+  // One capture per microtask window answers "no flight on the stack" for
+  // every read until the queue turns: the common case — untracked reads
+  // elsewhere while a flight is open — costs one capture. A positive answer is
+  // never reused: one drain resumes every sibling continuation whose promise
+  // settled (N memos awaiting one fetch), so the flight on the stack changes
+  // between reads inside the same window. Each read inside a flight captures
+  // afresh, which is what makes the attribution causal rather than "some
+  // flight is open". The reset can land a few jobs late, so a window that
+  // opened on an unowned read hides a continuation queued before the reset
+  // (pinned as a known false negative); it can never invent a warning.
   let id = windowFlight;
-  const cached = id !== undefined;
-  if (!cached) {
+  if (id === undefined) {
     id = windowFlight = attributedFlight();
     queueMicrotask(resetWindowFlight);
-  }
+  } else if (id !== 0) id = attributedFlight();
   if (id === 0) return;
   const entry = tailFlights.get(id!);
   const el = entry?.el.deref();
@@ -957,7 +963,7 @@ export function checkPostAwaitRead(
   if (!byHolder) warnedTailReads.set(el, (byHolder = new WeakMap()));
   let keys = byHolder.get(holder);
   if (!keys) byHolder.set(holder, (keys = new Set()));
-  if (keys.has(key) || (cached && attributedFlight() !== id)) return;
+  if (keys.has(key)) return;
   keys.add(key);
   reportDiagnostic(
     emitDiagnostic(

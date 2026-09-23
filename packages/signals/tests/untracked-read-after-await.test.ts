@@ -287,6 +287,58 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
     });
   });
 
+  describe("sibling continuations in one microtask drain", () => {
+    it("attributes each continuation to its own computation", async () => {
+      const stop = captureWarnings();
+      const [a] = createSignal(1, { name: "a" });
+      const [b] = createSignal(2, { name: "b" });
+      const [c] = createSignal(3, { name: "c" });
+      const gate = deferred();
+      const m1 = mount(async () => {
+        await gate.promise;
+        return a();
+      }, "m1");
+      const m2 = mount(async () => {
+        await gate.promise;
+        return b();
+      }, "m2");
+      const m3 = mount(async () => {
+        await gate.promise;
+        return c();
+      }, "m3");
+      gate.resolve();
+      await settle();
+      expect(stop().map(e => [e.ownerName, e.nodeName])).toEqual([
+        ["m1", "a"],
+        ["m2", "b"],
+        ["m3", "c"]
+      ]);
+      m1.dispose();
+      m2.dispose();
+      m3.dispose();
+    });
+
+    it("warns for each computation when siblings read the same source", async () => {
+      const stop = captureWarnings();
+      const [a] = createSignal(1, { name: "a" });
+      const m1 = mount(async () => {
+        await null;
+        return a();
+      }, "m1");
+      const m2 = mount(async () => {
+        await null;
+        return a();
+      }, "m2");
+      await settle();
+      expect(stop().map(e => [e.ownerName, e.nodeName])).toEqual([
+        ["m1", "a"],
+        ["m2", "a"]
+      ]);
+      m1.dispose();
+      m2.dispose();
+    });
+  });
+
   it("does not blame a later microtask on the continuation that ran before it", async () => {
     const stop = captureWarnings();
     const [a] = createSignal(1, { name: "a" });
