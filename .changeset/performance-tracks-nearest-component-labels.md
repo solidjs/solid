@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+`@solidjs/web/performance-tracks`: track-entry labels now start at the nearest component the developer wrote (`<Search> › results`) instead of the full folded owner path (`<Document> › body › <App> › <Router> › … › <Search> › results`), which the Performance panel elided in the middle — losing exactly the segment that says which component the node belongs to. Solid's own flow and platform components (`<Show>`, `<For>`, `<Repeat>`, `<Switch>`, `<Match>`, `<Errored>`, `<Loading>`, `<Reveal>`, `<Portal>`, `<Dynamic>`) are not anchors, so a node under `<Card> › <Show>` still labels `<Card> › <Show> › effect`. The same cut applies to `Effects`/`Memos`/`Propagation` spans, `Async` flights and fallbacks, Timings markers for findings (`SILENT_HOLD — <Search>`) and the `Server` track's `solid-boundary` spans; wherever the label is shorter than the path, the full runtime owner path is the span's `Owner path` property. Presentation only: the records the engine delivers are unchanged.

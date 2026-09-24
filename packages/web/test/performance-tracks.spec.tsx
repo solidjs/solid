@@ -1499,7 +1499,7 @@ describe("enablePerformanceTracks", () => {
     expect(marks).toHaveLength(2);
     const [hold, hot] = marks;
     expect(hold).toMatchObject({
-      label: "SILENT_HOLD — <App> › <Search>",
+      label: "SILENT_HOLD — <Search>",
       color: "warning",
       tooltip: 'click on button#save "Save" waited 412ms with no feedback'
     });
@@ -1605,7 +1605,7 @@ describe("enablePerformanceTracks", () => {
       subject
     );
     expect(marks.at(-1)).toMatchObject({
-      label: "HOT_SCOPE_RERUNS — <App> › <Row> › reader",
+      label: "HOT_SCOPE_RERUNS — <Row> › reader",
       task: "<Row>"
     });
     // Nothing outside a component carries a task.
@@ -1639,6 +1639,57 @@ describe("enablePerformanceTracks", () => {
     expect(props["Owner path"]).toMatch(/<Show> › /);
     expect(props["Owner path"].endsWith(props.Node)).toBe(true);
     expect(props["Node id"]).toMatch(/^\d+$/);
+  });
+
+  test("a label starts at the nearest component the developer wrote; flow controls are not anchors", () => {
+    const { on } = measures();
+    enable();
+    const [n, setN] = createSignal(0, { name: "n" });
+    function Row() {
+      const doubled = createMemo(() => n() * 2, { name: "doubled" });
+      createEffect(doubled, () => {}, { name: "paint" });
+      return <b>{doubled()}</b>;
+    }
+    // `<Page>` owns a `<Show>` with a binding of its own beside `<Row>`.
+    const Page = () => (
+      <Show when={true}>
+        <span>{n()}</span>
+        <Row />
+      </Show>
+    );
+    const App = () => <Page />;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(() => <App />, container);
+    disposers.push(dispose, () => container.remove());
+    flush();
+    setN(1);
+    flush();
+
+    // The memo inside <Row>: labelled from <Row>, not from <App> › <Page> › <Show> › …
+    const doubled = rerunSpans(on("Memos"), "Memos").find(m => m.label.endsWith("doubled"))!;
+    expect(doubled.label).toBe("<Row> › doubled");
+    const doubledPath = Object.fromEntries(doubled.properties!)["Owner path"];
+    expect(doubledPath).toMatch(/^<App> › <Page> › <Show> › /);
+    expect(doubledPath).toMatch(/<Row> › doubled$/);
+    // The effect too, on its track and on Propagation — where its cause is
+    // named by the short form its own run was painted with.
+    const paint = rerunSpans(on("Effects"), "Effects").find(m => m.label.endsWith("paint"))!;
+    expect(paint.label).toBe("<Row> › paint");
+    expect(Object.fromEntries(paint.properties!)["Owner path"]).toMatch(
+      /^<App> › <Page> › <Show> › .*<Row> › paint$/
+    );
+    expect(on("Propagation").some(m => m.label === "<Row> › paint ← doubled")).toBe(true);
+    // A binding directly under the <Show> belongs to <Page>: a flow control
+    // is a tag the developer wrote, never the component a node belongs to.
+    const binding = rerunSpans(on("Effects"), "Effects").find(m =>
+      m.label.endsWith("<Show> › effect")
+    )!;
+    expect(binding.label).toBe("<Page> › <Show> › effect");
+    expect(Object.fromEntries(binding.properties!)["Owner path"]).toMatch(
+      /^<App> › <Page> › <Show> › /
+    );
+    expect(on("Propagation").some(m => m.label === "<Page> › <Show> › effect ← n")).toBe(true);
   });
 
   test("without console.timeStamp or performance.measure it does nothing", () => {
