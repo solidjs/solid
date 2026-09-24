@@ -2206,7 +2206,22 @@ module.exports = [
     // 30,649 (+719 B; the PR's own +769 was against the pre-#3604 28,999 —
     // the repair texts share more back-references with four more findings
     // in the bundle). The tier did not move: 17,618 either way.
-    limit: "31.45 KB",
+    // OPTIMISTIC_REVERTED (2026-09-23, rebased): 29.05 -> 29.35 KB, measured at
+    // 29,262 B on a full build (+263 B over next's 28,999). The `optimisticReverted`
+    // hook, the node-equality gate, and the finding with its two-road text
+    // (reverted / superseded). The tier moved 38 B for the two hook sites in
+    // optimistic.ts; under its cap.
+    // Re-measured at landing (#3607 rebased over #3604/#3623/#3613/#3619/#3608,
+    // 2026-09-23): 31.45 -> 31.65 KB, measured at 31,590 B against `next`'s
+    // 31,368 (+222 B; the PR's own +263 was against the pre-#3604 28,999).
+    // The tier did not move on this base: 17,618 either way — the 38 B the
+    // note above saw was nameCache drift, the hook sites fold to the same
+    // minified shape. The companion guard (2026-09-24: `optimisticReverts`
+    // option + the `isCompanion` skip in checkOptimisticRevert, so isPending/
+    // latest companions and derived overrides are never judged) is +35 B:
+    // 31,625 B, under the same cap (25 B of headroom; the next finding moves
+    // it). Tier unchanged at 17,618.
+    limit: "31.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

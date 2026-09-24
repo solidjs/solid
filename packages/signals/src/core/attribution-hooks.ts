@@ -200,6 +200,21 @@ export interface AttributionHooks {
     transition?: Transition | null
   ): void;
   /**
+   * An optimistic override the screen displayed is being replaced by a
+   * different value. `"superseded"`: a new authoritative value landed that
+   * differs from the guess (tracked readers re-derive to it). `"reverted"`:
+   * nothing new landed and the guess lifts back to the committed value it
+   * covered (the action failed, or never wrote what it promised). `shown`
+   * is the override as displayed. Fired when the two differ by identity;
+   * the engine applies the node's own equality before judging.
+   */
+  optimisticReverted(
+    el: Signal<any> | Computed<any>,
+    shown: unknown,
+    truth: unknown,
+    how: "superseded" | "reverted"
+  ): void;
+  /**
    * The one query on the surface: the provenance a root write performed at
    * this moment would be stamped with — the innermost open frame (an effect
    * callback, an action step, a navigation), the interaction the handler

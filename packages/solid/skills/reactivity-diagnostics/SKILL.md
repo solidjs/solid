@@ -558,6 +558,33 @@ Do NOT block input by removing the hold or making the write synchronous; the
 repeats are a reaction to silence, and the hold is what keeps the screen
 consistent while the answer arrives.
 
+### OPTIMISTIC_REVERTED
+
+An optimistic value the screen showed was replaced by a different one: the
+person saw the guess, then the correction. `data.how` says which road:
+`reverted` — the action ended without the guess coming true and the value
+snapped back to what it covered; `superseded` — the real value landed and
+differed from the guess (the server counted differently, rejected part of
+the input). Both are the runtime doing exactly what optimistic UI promises,
+which is why this is `info` and never reaches the console; it is a count to
+read, not a warning to silence. Read it two ways:
+
+- One source, many reverts: the failure is common and the UI is hiding it.
+  Show the failure where the value renders — catch in the action and write
+  an error the UI reads, or put the reader behind an `Errored` boundary — so
+  the snap-back is explained rather than silent.
+- One source, many supersessions: the guess is systematically wrong for this
+  input (it ignores what the server adds or normalizes). Guess less: write
+  only the part of the value the client can know, or none, and read
+  `isPending()` for the rest.
+
+Do NOT "fix" a revert by writing the guess to the authoritative signal so it
+cannot revert — that is not optimistic UI, it is lying to the user about what
+happened. The runtime's own optimistic nodes — the `isPending()`/`latest()`
+companions that acknowledge a hold — are never reported; only values you
+wrote optimistically are. Optimistic stores are not covered yet; a store-path revert shows
+up only as the reader's re-run.
+
 ### Where to start: `feedback()`
 
 Before chasing individual `SILENT_HOLD` events, read the ranked tables — the

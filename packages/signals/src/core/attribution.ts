@@ -496,6 +496,15 @@ export interface AttributionOptions {
    * and every one of them waited on the same source. `false` disables.
    */
   stackedHolds?: { count: number } | false;
+  /**
+   * Optimistic-revert finding: emit OPTIMISTIC_REVERTED (`info`) when an
+   * optimistic value the screen showed is replaced by a different one —
+   * reverted at settle, or superseded by the truth (default true). The
+   * runtime's own optimistic nodes — `isPending`/`latest` companions and
+   * derived overrides — are never judged: they are the acknowledgement
+   * machinery, not a guess the person saw. `false` disables.
+   */
+  optimisticReverts?: boolean;
 }
 
 /** A fallback shown for less than this is a flash: feedback for a wait too short to need it. */
@@ -572,6 +581,7 @@ const defaultOptions = {
   graphGrowth: { visits: 3, ratio: 1.25 } as { visits: number; ratio: number } | false,
   abandonedFlights: { count: 3, windowMs: 1000 } as { count: number; windowMs: number } | false,
   fallbackFlashes: true,
+  optimisticReverts: true,
   stackedHolds: { count: 3 } as { count: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
@@ -2908,6 +2918,52 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
   if (severity === "warn") reportDiagnostic(entry);
 }
 
+/**
+ * The person saw the guess, then the correction. An optimistic value is a
+ * promise the UI makes about the outcome; when the outcome differs — the
+ * action failed and the override lifted back to the old value, or the
+ * source answered with something else — the screen changes twice for one
+ * intent. Expected on failure and correct by construction (the override
+ * reverts; that is the feature), so `info`: a count that grows for one
+ * source is what says the guess, or the failure rate, is wrong. Judged by
+ * the node's own equality, so a structurally equal replacement is not a
+ * revert.
+ */
+function checkOptimisticRevert(
+  el: Signal<any> | Computed<any>,
+  shown: unknown,
+  truth: unknown,
+  how: "superseded" | "reverted"
+): void {
+  // The runtime's own optimistic nodes are not guesses the person saw: an
+  // `isPending()` companion goes true while pending and back to false at
+  // commit by design — the acknowledgement SILENT_HOLD asks for — and a
+  // derived override promotes rather than reverts. Same predicate the hold
+  // census uses to skip them.
+  if (!options.optimisticReverts || isCompanion(el)) return;
+  const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;
+  if (equals && equals(shown, truth)) return;
+  const source = nodeName(el);
+  const message =
+    `[OPTIMISTIC_REVERTED] the optimistic value of ${source} showed ${preview(shown)}; it ` +
+    `${how === "superseded" ? "settled to" : "reverted to"} ${preview(truth)}. The person saw ` +
+    `the guess, then the correction. A revert on failure is the feature; one that recurs says ` +
+    `the guess is wrong for this input or the action fails often — show the failure where the ` +
+    `value renders (the action's catch, an Errored boundary) rather than letting the value ` +
+    `snap back on its own.`;
+  emitDiagnostic(
+    {
+      code: "OPTIMISTIC_REVERTED",
+      kind: "responsiveness",
+      severity: "info",
+      message,
+      nodeName: source,
+      data: { source, shown: preview(shown), truth: preview(truth), how }
+    },
+    el
+  );
+}
+
 // --- Graph growth -----------------------------------------------------------------
 
 /** Per route: the graph's size at its last `visits` settles, oldest first. */
@@ -4128,6 +4184,9 @@ const engineHooks: AttributionHooks = {
   boundaryFallback(boundary, tree, shown, transition) {
     // The folds hear the show at its display (see trackFallback), not here.
     trackFallback(boundary, tree, shown, transition ?? null);
+  },
+  optimisticReverted(el, shown, truth, how) {
+    checkOptimisticRevert(el, shown, truth, how);
   },
   currentOrigin() {
     return ambientOrigin();
