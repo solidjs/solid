@@ -21,7 +21,14 @@ import {
   tracking,
   ext
 } from "./core.js";
-import { assertInvariant, clearSignals, DEV, emitDiagnostic } from "./dev.js";
+import {
+  assertInvariant,
+  clearSignals,
+  DEV,
+  emitDiagnostic,
+  registerRoot,
+  unregisterRoot
+} from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
 import {
@@ -87,6 +94,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     disposeChildren(node, false, true);
   if (self) {
     (node as any)._flags = flags | REACTIVE_DISPOSED;
+    if (__OBSERVE__ && node._parent === null && (node as Root)._root) unregisterRoot(node);
     // Companions are created detached and outlive their owner, but a verdict
     // must not: a disposed source can never settle, so an isPending companion
     // latched `true` here would hold a spinner forever (INV-9, the PR #2845
@@ -417,6 +425,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     throw new Error(PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE);
   }
   if (parent) linkChild(parent, owner);
+  else if (__OBSERVE__) registerRoot(owner);
   if (__DEV__) DEV.hooks.onOwner?.(owner);
   return owner;
 }

@@ -64,6 +64,7 @@ export type DiagnosticCode =
   | "INVARIANT_VIOLATION"
   | "HUGE_FAN_OUT"
   | "HUGE_FAN_IN"
+  | "GRAPH_GROWTH"
   | "HOT_SCOPE_RERUNS"
   | "HOT_SCOPE_TIME"
   | "WIDE_SCOPE_DEPS"
@@ -738,6 +739,55 @@ export function registerGraph(value: any, owner: Owner | null): void {
 
 export function clearSignals(node: Owner): void {
   (node as any)._signals = undefined;
+}
+
+/**
+ * Observe-tier: the live top-level roots — owners created with no parent
+ * (`render()`'s root, a `createRoot()` at module scope, a devtools panel).
+ * Held weakly so an undisposed root nothing references still collects; a
+ * root a subscription keeps alive is exactly the leak `graphSize()` exists
+ * to count. Registered by `createOwner` and released by its disposal, so
+ * the cost is one Set write per top-level root, never per node.
+ */
+const liveRoots = new Set<WeakRef<Owner>>();
+const rootRefs = new WeakMap<Owner, WeakRef<Owner>>();
+const rootReaper =
+  __OBSERVE__ && typeof FinalizationRegistry === "function"
+    ? new FinalizationRegistry<WeakRef<Owner>>(ref => liveRoots.delete(ref))
+    : null;
+
+export function registerRoot(owner: Owner): void {
+  // Observe-tier bodies: folded to a bare return in prod so the mangler and
+  // the bundle never see the walk.
+  if (!__OBSERVE__ || typeof WeakRef !== "function") return;
+  const ref = new WeakRef(owner);
+  rootRefs.set(owner, ref);
+  liveRoots.add(ref);
+  rootReaper?.register(owner, ref, ref);
+}
+
+export function unregisterRoot(owner: Owner): void {
+  if (!__OBSERVE__) return;
+  const ref = rootRefs.get(owner);
+  if (ref === undefined) return;
+  rootRefs.delete(owner);
+  liveRoots.delete(ref);
+  rootReaper?.unregister(ref);
+}
+
+/**
+ * The live top-level roots, for a walk of the owner tree (the engine's
+ * `graphSize`): dead refs are dropped as they are met. Empty in prod.
+ */
+export function liveRootOwners(): Owner[] {
+  const out: Owner[] = [];
+  if (!__OBSERVE__) return out;
+  for (const ref of liveRoots) {
+    const root = ref.deref();
+    if (root === undefined) liveRoots.delete(ref);
+    else out.push(root);
+  }
+  return out;
 }
 
 // Graph traversal helpers

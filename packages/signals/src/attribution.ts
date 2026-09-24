@@ -14,6 +14,7 @@ export {
   attribution,
   formatOrigin,
   formatRerun,
+  graphSize,
   isLongHold,
   isSilentHold
 } from "./core/attribution.js";
@@ -39,6 +40,8 @@ export type {
   FlightEvent,
   FlightLink,
   FlushEvent,
+  GraphEvent,
+  GraphSize,
   HeldWrite,
   HoldEvent,
   InteractionEvent,

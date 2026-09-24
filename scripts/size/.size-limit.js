@@ -1927,7 +1927,24 @@ module.exports = [
     // byte-identical to `next`; the engine scenario below moved -15 B of
     // layout. (#3604 had already brought this scenario to 17,487 against
     // the old 17.50 KB cap, 13 B under.)
-    limit: "17.55 KB",
+    // GRAPH_GROWTH root registry (2026-09-23): 17.5 -> 17.65 KB, measured at
+    // 17,613 B against 17,412 on next (+165 B of registry, the rest mangler
+    // drift from the engine's property usage). `createOwner` with no parent
+    // registers the root in a WeakRef Set reaped by a FinalizationRegistry,
+    // and its disposal unregisters it; `liveRootOwners()` hands them to the
+    // engine's walk. Nothing per node — the alternative, a live counter,
+    // would have been an increment on every creation and disposal. Prod CSR
+    // is 15,821, byte-identical either way (the bodies fold to a return).
+    // GRAPH_GROWTH (2026-09-23, rebased): measured on a full build against next.
+    // Tier 17.5 -> 17.65 KB at 17,570 B: the root registry — createOwner with no
+    // parent adds a WeakRef to a Set reaped by a FinalizationRegistry, disposal
+    // removes it; liveRootOwners() hands them to the engine's walk. Nothing per
+    // node; prod byte-identical (the bodies fold to a return). Engine 29.05 ->
+    // 30.00 KB at 29,927 B (+928 B over 28,999): the walk (graphSize: the owner tree,
+    // then the reactive graph it reaches through deps and subs, with a Set of the met
+    // nodes), the graph record at navigation settle, the per-route size history judged
+    // series by series, the option and its merge, and the finding's three leak shapes.
+    limit: "17.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2164,7 +2181,21 @@ module.exports = [
     // 28,999). The tier is 17,471 against `next`'s 17,514 (-43 B): the
     // nameCache drift the #3608 note describes, here in the other direction,
     // with byte-count-identical core artifacts.
-    limit: "29.80 KB",
+    // GRAPH_GROWTH (2026-09-23, rebased): measured on a full build against next.
+    // Tier 17.5 -> 17.65 KB at 17,570 B: the root registry — createOwner with no
+    // parent adds a WeakRef to a Set reaped by a FinalizationRegistry, disposal
+    // removes it; liveRootOwners() hands them to the engine's walk. Nothing per
+    // node; prod byte-identical (the bodies fold to a return). Engine 29.05 ->
+    // 30.00 KB at 29,927 B (+928 B over 28,999): the walk (graphSize: the owner tree,
+    // then the reactive graph it reaches through deps and subs, with a Set of the met
+    // nodes), the graph record at navigation settle, the per-route size history judged
+    // series by series, the option and its merge, and the finding's three leak shapes.
+    // Re-measured at landing (#3619 rebased over #3604/#3623/#3613, 2026-09-23):
+    // 29.80 -> 30.70 KB, measured at 30,649 B against `next`'s 29,725 at
+    // c25d69f41 (+924 B — the PR's own +928, on the base that now carries the
+    // three checks above). The tier is 17,618 against `next`'s 17,471 (+147 B)
+    // under the 17.65 KB cap set above.
+    limit: "30.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

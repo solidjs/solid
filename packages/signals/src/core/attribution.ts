@@ -9,6 +9,7 @@ import {
   anyExcluded,
   emitDiagnostic,
   GRAPH_SIZE_WARN_AT,
+  liveRootOwners,
   isExcluded,
   isSuppressed,
   ownerPath,
@@ -314,6 +315,43 @@ export interface FallbackEvent {
   interaction?: ChangeOrigin;
 }
 
+/**
+ * The live graph's size at a navigation's settle — the moment an app has
+ * finished moving between two screens, so a count that climbs visit after
+ * visit is a root or a subscription the previous screen left behind.
+ * Delivered on `subscribe("graph", …)` per settled navigation; a walk of the
+ * owner tree from the registered top-level roots, made only when something
+ * listens or `graphGrowth` is on.
+ */
+export interface GraphEvent extends GraphSize {
+  /** When the navigation settled (`performance.now()` clock). */
+  at: number;
+  /** The route pattern the navigation matched (`name`), else its `to`. */
+  route?: string;
+  /** The navigation this count belongs to. */
+  navigation: NavigationEvent;
+}
+
+/**
+ * The live reactive graph's size, as `graphSize()` counts it: the owner tree
+ * from the registered top-level roots, then every computation and signal
+ * reachable from it through dependencies and subscriptions — which is how
+ * an ownerless effect (created with no owner, kept alive by its sources)
+ * is found — and the edges between them.
+ */
+export interface GraphSize {
+  /** Top-level roots alive (`render()`'s, module-scope `createRoot()`s, panels). */
+  roots: number;
+  /** Owners in the tree: roots, component owners, owned computations. */
+  owners: number;
+  /** Computations (memos, effects, boundaries), owned or reached through a subscription. */
+  computations: number;
+  /** Signals reached through a computation's dependencies. */
+  signals: number;
+  /** Dependency links — each computation's sources, counted once. */
+  edges: number;
+}
+
 export interface AttributionOptions {
   /** Pretty-print each re-run to the console (default true). */
   log?: boolean;
@@ -428,6 +466,14 @@ export interface AttributionOptions {
    * `false` disables.
    */
   longHolds?: { infoMs: number; warnMs: number } | false;
+  /**
+   * Graph-growth warning: emit GRAPH_GROWTH when the live owner count at the
+   * settle of the same route has climbed on `visits` consecutive visits
+   * (default 3) to `ratio` or more of the first (default 1.25) — a root or a
+   * subscription each visit leaves behind, the leak class a heap snapshot
+   * finds. The count is a walk at settle, never per node. `false` disables.
+   */
+  graphGrowth?: { visits: number; ratio: number } | false;
 }
 
 interface AttributedNode {
@@ -497,7 +543,8 @@ const defaultOptions = {
   wideWrites: 250 as number | false,
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
   holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
-  longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false
+  longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false,
+  graphGrowth: { visits: 3, ratio: 1.25 } as { visits: number; ratio: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
 let history: RerunEvent[] = [];
@@ -523,6 +570,8 @@ export interface AttributionRecords {
   interaction: InteractionEvent;
   hold: HoldEvent;
   navigation: NavigationEvent;
+  /** Listener-gated (or on while `graphGrowth` is) — see `GraphEvent`. */
+  graph: GraphEvent;
 }
 export type AttributionRecordType = keyof AttributionRecords;
 type RecordListeners = {
@@ -537,7 +586,8 @@ const recordListeners: RecordListeners = {
   fallback: new Set(),
   interaction: new Set(),
   hold: new Set(),
-  navigation: new Set()
+  navigation: new Set(),
+  graph: new Set()
 };
 /** Whether anything listens for `type` — the pre-check the listener-gated records cost nothing without. */
 function listened(type: AttributionRecordType): boolean {
@@ -2826,6 +2876,135 @@ function checkLongHold(event: HoldEvent, subject: Signal<any>): void {
   if (severity === "warn") reportDiagnostic(entry);
 }
 
+// --- Graph growth -----------------------------------------------------------------
+
+/** Per route: the graph's size at its last `visits` settles, oldest first. */
+const routeCounts = new Map<string, GraphSize[]>();
+
+/**
+ * The live graph's size — a walk, not a counter: nothing is charged at node
+ * creation, disposal, write or re-run; the engine asks at a navigation's
+ * settle. Two passes. The owner tree from the registered top-level roots
+ * gives `owners` and seeds the computations. Then each computation's
+ * dependency links give `edges` and the `signals` and computations they
+ * reach, and each newly met source's subscriber list gives the computations
+ * that read it — including one created with no owner, which no chain holds
+ * and only its sources keep alive: the subscription leak a heap snapshot
+ * finds. Measured at 5–10 ns per link; a 50k-owner graph walks in under a
+ * millisecond. Dormant nodes are spliced out of their chain and are not
+ * counted unless a subscription still reaches them.
+ */
+export function graphSize(): GraphSize {
+  const roots = liveRootOwners();
+  const size: GraphSize = { roots: roots.length, owners: 0, computations: 0, signals: 0, edges: 0 };
+  const seen = new Set<object>();
+  // A worklist, not recursion: a subscriber chain can be thousands deep.
+  const work: (Signal<any> | Computed<any>)[] = [];
+  const stack: Owner[] = [];
+  const meet = (node: Signal<any> | Computed<any>): void => {
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (typeof (node as Computed<any>)._fn === "function") size.computations++;
+    else size.signals++;
+    work.push(node);
+  };
+  for (const root of roots) {
+    size.owners++;
+    // Iterative: a deep tree must not grow the call stack.
+    let child = root._firstChild;
+    for (;;) {
+      while (child !== null) {
+        size.owners++;
+        if (typeof (child as Computed<any>)._fn === "function") meet(child as Computed<any>);
+        if (child._firstChild !== null) stack.push(child);
+        child = child._nextSibling;
+      }
+      const next = stack.pop();
+      if (next === undefined) break;
+      child = next._firstChild;
+    }
+  }
+  for (let i = 0; i < work.length; i++) {
+    const node = work[i];
+    // Whoever reads this node: owned computations are already known; an
+    // ownerless one is met only here.
+    for (let s = node._subs; s !== null; s = s._nextSub) meet(s._sub);
+    if (typeof (node as Computed<any>)._fn === "function")
+      for (let link = (node as Computed<any>)._deps; link !== null; link = link._nextDep) {
+        size.edges++;
+        meet(link._dep);
+      }
+  }
+  return size;
+}
+
+/**
+ * settleNavigation: the app has finished moving to a route — count the live
+ * graph. One record per settle for a listener; the growth check compares
+ * this settle of the route with its previous ones. A count that climbs on
+ * consecutive visits is something the previous visit left behind: a
+ * `createRoot` in an effect with no dispose, a subscription a component
+ * registered outside its owner. Nothing here runs per node; the walk is
+ * the cost, at navigation cadence.
+ */
+const GRAPH_SERIES: (keyof GraphSize)[] = ["owners", "computations", "signals", "edges"];
+
+function trackGraph(navigation: NavigationEvent): void {
+  const cfg = options.graphGrowth;
+  if (cfg === false && !listened("graph")) return;
+  const size = graphSize();
+  const route = navigation.name ?? navigation.to;
+  const event: GraphEvent = { at: now(), ...size, navigation };
+  if (route !== undefined) event.route = route;
+  emitRecord("graph", event);
+  if (cfg === false || route === undefined) return;
+  let history = routeCounts.get(route);
+  if (history === undefined) routeCounts.set(route, (history = []));
+  history.push(size);
+  if (history.length > cfg.visits) history.shift();
+  if (history.length < cfg.visits) return;
+  // Any series climbing on every visit to the ratio is growth; which ones
+  // did says what leaked — computations with owners flat is an ownerless
+  // effect per visit, edges alone is a subscription per visit to something
+  // long-lived, owners is an undisposed root.
+  const grew = GRAPH_SERIES.filter(key => {
+    for (let i = 1; i < history!.length; i++)
+      if (history![i][key] <= history![i - 1][key]) return false;
+    return history![history!.length - 1][key] >= history![0][key] * cfg.ratio;
+  });
+  if (grew.length === 0) return;
+  // The count is the whole graph's, so a leak shows at every route's settle;
+  // the first route to complete its climb reports, naming the others seen.
+  const routes = [...routeCounts.keys()];
+  const series = grew.map(key => `${key} ${history!.map(h => h[key]).join(" → ")}`).join("; ");
+  const shape = grew.includes("owners")
+    ? "a createRoot() in an effect or handler with no dispose, or a Portal or panel mounted per visit"
+    : grew.includes("computations")
+      ? "an effect or memo created with no owner (a module-level or callback createEffect) that only its sources keep alive"
+      : "a subscription per visit to something long-lived — a global store or signal read by a computation that outlives the visit";
+  const message =
+    `[GRAPH_GROWTH] the live graph grew on ${cfg.visits} consecutive visits to ${route}: ${series} ` +
+    `(${size.roots} roots)${routes.length > 1 ? `, across visits to ${routes.join(", ")}` : ""}. Each ` +
+    `visit left something behind that the next did not reclaim — the shape says ${shape}. Dispose ` +
+    `what a visit creates (onCleanup, or return the disposer from onSettled) and own it under the ` +
+    `route's component so leaving the route tears it down.`;
+  const data: Record<string, unknown> = {
+    route,
+    grew,
+    history: history.map(h => ({ ...h })),
+    roots: size.roots,
+    routes
+  };
+  if (navigation.interaction !== undefined)
+    data.interaction = { type: navigation.interaction.name, target: navigation.interaction.target };
+  reportDiagnostic(
+    emitDiagnostic({ code: "GRAPH_GROWTH", kind: "perf", severity: "warn", message, data }, null)
+  );
+  // Judged once for the graph, not once per route: the next verdict needs
+  // another `visits` climbing settles.
+  routeCounts.clear();
+}
+
 // --- Navigations ------------------------------------------------------------------
 //
 // A navigation in Solid 2 is not a primitive: it is a plain write to the
@@ -3230,6 +3409,7 @@ function settleNavigation(
   if (hold !== undefined) event.hold = hold;
   for (const f of folds) f.navigation?.(event);
   emitRecord("navigation", event);
+  trackGraph(event);
   // The interaction that performed it may have been waiting only on this.
   const under = openInteractionOf(event.interaction);
   if (under !== undefined) maybeSettleInteraction(under);
@@ -3836,6 +4016,7 @@ function resetTracking(): void {
   trackingGen++;
   openNavs.clear();
   openInteractions.clear();
+  routeCounts.clear();
   drainSeq = 0;
   originFrames.length = 0;
   effectStack.length = 0;
