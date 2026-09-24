@@ -1917,7 +1917,17 @@ module.exports = [
     // detach-before-run in the signals core landed over #3605 without a
     // bump (its PR CI ran on the pre-#3605 base) and left this scenario 5 B
     // over. Prod CSR is 15,819, byte-identical either way.
-    limit: "17.5 KB",
+    // Recovery record (#3623, 2026-09-23): 17.50 -> 17.55 KB, measured at
+    // 17,514 B against `next`'s 17,487 at c1b68d9d4 (+27 B). The client
+    // hydration runtime's `recover()` — the `s === 2` and `waitAndResume`
+    // rejection paths emit a `"recovery"` record ({ id, at, waitedMs,
+    // renderMs }) when `OBSERVE.records.observed("recovery")` — and its
+    // `registeredAt` stamp, both selected only under `IS_OBSERVE`. Prod
+    // hydrating (21,055), hydrating + stores (31,350) and CSR (15,854) are
+    // byte-identical to `next`; the engine scenario below moved -15 B of
+    // layout. (#3604 had already brought this scenario to 17,487 against
+    // the old 17.50 KB cap, 13 B under.)
+    limit: "17.55 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
