@@ -416,7 +416,14 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // recompute returns on it after the body: `clearDeps` (the reads after the
     // `dispose()` call re-linked the dead node), the flight retire, and the
     // lane restore. The mask bits are free; the bytes are the void-pass arm.
-    expect(minifiedBytes).toBeLessThan(26_300);
+    // A held derivation is not a proposal (#3612, 2026-09-23): +150 B
+    // core-retained (26,265 -> 26,415) — `setMemo` asks `heldDerivation`
+    // (stamped by another transaction, no REACTIVE_MANUAL_WRITE on the node
+    // or its `_firewall`) before the write, resolves an updater against the
+    // committed value on a hit, and `rederiveHeld`s (DIRTY + enqueue) in
+    // place of the mask; updateIfNecessary's post-pull wipe carries the mask.
+    // `setMemo` is core-retained through createSignal's derived overload.
+    expect(minifiedBytes).toBeLessThan(26_450);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

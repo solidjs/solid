@@ -350,10 +350,14 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
  *
  * @example
  * ```ts
- * // Writable memo: starts as `fn()`, can be locally overwritten by setter.
+ * // Writable memo: derives from `fn()` and can be written like a signal.
  * const [user, setUser] = createSignal(() => fetchUser(userId()));
  *
- * setUser({ ...user(), name: "Alice" }); // optimistic local edit
+ * // Within the frame the write wins over a same-tick recompute; the next
+ * // change to `userId` re-derives (the compute receives the written value
+ * // as `prev`). While a transaction holds a re-derived value, a write from
+ * // outside it does not replace that derivation — it becomes its `prev`.
+ * setUser({ ...user(), name: "Alice" });
  * ```
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal

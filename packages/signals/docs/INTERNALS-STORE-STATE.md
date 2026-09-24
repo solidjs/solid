@@ -665,7 +665,9 @@ implementation, deduplicated across reports.
   writes must not entangle lanes (opt R38); equal-value action writes must
   still register ownership and dirty downstream (lanes R17); same-value
   manual writes on derived stores must mask the recompute for the tick (core
-  R31) despite equality-checked core signals.
+  R31; within a synchronous frame — across a hold the write is the
+  re-derivation's `prev`, A34 (3), #3612) despite equality-checked core
+  signals.
 - **RUL-11 — SPEC'D (2026-08-17): §6d.** Sticky descendants flag ported from
   `STORE_DESC`; reference-skip precedes reachability; monotone by design.
 - **RUL-12 — Smaller rulings, each with a proposed default** (proceeding on

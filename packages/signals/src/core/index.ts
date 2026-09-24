@@ -8,7 +8,6 @@ export {
   read,
   setSignal,
   setMemo,
-  suppressComputedRecompute,
   optimisticSignal,
   optimisticComputed,
   installAuthoritativeRead,

@@ -21,7 +21,6 @@ import {
   handleAsync,
   isDisposed,
   STATUS_PENDING,
-  suppressComputedRecompute,
   type Computed,
   type Refreshable
 } from "../../core/index.js";
@@ -41,7 +40,7 @@ import {
   type Store
 } from "../store.js";
 import { reconcileNextState } from "./reconcile.js";
-import { nameStore, storeSetterNext, wrapNext } from "./store.js";
+import { derivedStoreWrite, nameStore, storeSetterNext, wrapNext } from "./store.js";
 import type { StoreNextFamily } from "./target.js";
 
 /**
@@ -217,7 +216,10 @@ export function createProjectionNext<T extends object = {}>(
 
 /** Derived writable store (legacy parity): a projection whose public setter
  * masks the recompute for the tick (core R31 — the manual write wins over a
- * same-flush dependency change). */
+ * same-flush dependency change). Across a hold the write is not a proposal:
+ * a leaf another transaction holds as the fold's result re-runs the fold
+ * under it, the write being the draft's prior state (A34 amendment, #3612;
+ * core derivedWrite). */
 export function createStoreDerivedNext<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: Partial<T> | Store<NoFn<T>>,
@@ -226,11 +228,7 @@ export function createStoreDerivedNext<T extends object = {}>(
   const { store, node } = createProjectionNextInternal(fn, seed, options);
   return [
     store,
-    (f: (draft: T) => T | void): void => {
-      // Mark the projection as manually written before notifying nodes.
-      suppressComputedRecompute(node as Computed<unknown>);
-      storeSetterNext(store, f);
-    }
+    (f: (draft: T) => T | void): void => derivedStoreWrite(node as Computed<unknown>, store, f)
   ];
 }
 

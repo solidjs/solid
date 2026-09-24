@@ -943,13 +943,19 @@ function updateIfNecessary(el: Computed<unknown>): void {
 
   // The guard above refused an already-disposed node; the recompute it just
   // ran may have disposed it (#3621) — carry the flag, or it comes back alive.
+  // The manual-write mask is state, not scheduling (#3612): it says the
+  // node's staging is a PROPOSAL, and only the commit (or a later-tick
+  // refresh, #3026) lifts it — a pull that recomputed nothing must not, or
+  // an isPending()/latest() probe decided whether a later write to a held
+  // node was a second proposal or the derivation's `prev`.
   el._flags =
     el._flags &
     (REACTIVE_SNAPSHOT_STALE |
       REACTIVE_IN_HEAP |
       REACTIVE_IN_HEAP_HEIGHT |
       REACTIVE_ZOMBIE |
-      REACTIVE_DISPOSED);
+      REACTIVE_DISPOSED |
+      REACTIVE_MANUAL_WRITE);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
@@ -2464,6 +2470,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // gate below: repeating the held value proposes it too — and that repeat
   // leaves through the gate, so the join schedules its own flush here; left
   // for the next flush to find, it adopted an unrelated tick (#3519 review).
+  // A held DERIVATION is not a proposal (A34 amendment, #3612): the user
+  // setters of derived nodes (setMemo, the derived store's setter) classify
+  // the write before it reaches here — see heldDerivation — and re-derive
+  // under the hold instead of masking; the join stands either way.
   if (el._transition && activeTransition !== el._transition) {
     if (globalQueue._running) globalQueue.initTransition(el._transition);
     else {
@@ -2556,15 +2566,50 @@ export function suppressComputedRecompute(el: Computed<unknown>): void {
   el._manualWriteTime = clock;
 }
 
+/** A34 amendment (#3612) — is `el`'s staging a DERIVATION another transaction
+ * holds: stamped by a transaction that is not the writer's, and not a manual
+ * proposal (the mask, on the node or — a store leaf — its firewall)? #2692's
+ * "manual write wins" is a rule for one synchronous frame; across a hold the
+ * held pass result is nobody's proposal, and a user setter reaching it
+ * composes on the committed frame it was written against and becomes `prev`
+ * for the transaction's re-derivation (rederiveHeld) instead of replacing it.
+ * Writes made under the holding transaction masked the node and keep
+ * A34(1)'s last-write-wins. Only the user setters ask; an async landing or a
+ * companion writing a stamped node is the transaction's own work. */
+export function heldDerivation(el: Signal<any> | Computed<any>): boolean {
+  return (
+    el._transition !== null &&
+    activeTransition !== el._transition &&
+    !(
+      (((el as FirewallSignal<any>)._firewall || el) as Computed<any>)._flags &
+      REACTIVE_MANUAL_WRITE
+    )
+  );
+}
+
+/** The held-derivation write's second half: the node re-derives under its
+ * hold with the written staging as the pass's `prev`. Nothing is masked. The
+ * write took the A34 join (setSignal), which scheduled the flush that drains
+ * this; recompute re-enters the stamp. */
+export function rederiveHeld(el: Computed<unknown>): void {
+  el._flags |= REACTIVE_DIRTY; // over CHECK: the heap visit recomputes, not re-checks
+  enqueueSub(el);
+}
+
 /**
  * User-facing setter for the memo form of `createSignal(fn)`. Behaves like
  * `setSignal`, but also cancels any pending recompute of the memo so the
  * manual value wins over a value that would otherwise be produced by an
- * upstream change in the same tick.
+ * upstream change in the same tick. Across a hold the write is not a
+ * proposal: a memo another transaction holds as a pass result composes on the
+ * committed value and re-derives under the hold with the write as `prev`
+ * (A34 amendment, #3612; heldDerivation).
  */
 export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
+  const held = heldDerivation(el);
+  if (held && typeof v === "function") v = (v as (prev: T) => T)(el._value);
   const result = setSignal(el, v);
-  suppressComputedRecompute(el as Computed<unknown>);
+  held ? rederiveHeld(el as Computed<unknown>) : suppressComputedRecompute(el as Computed<unknown>);
   return result;
 }
 

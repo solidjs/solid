@@ -42,7 +42,9 @@ import {
   visibleOverride,
   recordStaleReplay,
   enterStagedRead,
+  heldDerivation,
   ownsHold,
+  rederiveHeld,
   serve,
   prepareComputed,
   read as readNode,
@@ -51,6 +53,7 @@ import {
   setLatestReadActive,
   setSignal,
   setSlotUnobserved,
+  suppressComputedRecompute,
   signal,
   slotSignal,
   unlinkFirewallChild,
@@ -1307,6 +1310,14 @@ function notifyWrites(t: StoreNextTarget): void {
       // node's OWN current value is the true old side, and setSignal's
       // internal equality already checks exactly that.
       const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
+      // The derived store's setter reaching a leaf its own fold staged under
+      // another transaction: not a proposal — the fold re-runs (#3612).
+      if (
+        derivedSetter !== null &&
+        (node as any)._firewall === derivedSetter &&
+        heldDerivation(node)
+      )
+        heldDerivationHit = true;
       setSignal(node, () => nv);
     }
   }
@@ -2383,6 +2394,34 @@ export type SetStoreNextFunction<T> = (fn: (draft: T) => T | void) => void;
  * write, thenable result) — projection recomputes legitimately write from
  * inside their computed, and their async derive is handled by the recompute,
  * not returned through here. */
+/** The derived store (`createStore(fn)`) whose user setter is running, and
+ * whether one of its leaf notifications hit a staging another transaction
+ * holds as the fold's result (A34 amendment, #3612; core heldDerivation). */
+let derivedSetter: Computed<unknown> | null = null;
+let heldDerivationHit = false;
+
+/** The derived store's setter (CS-R31): within a synchronous frame the manual
+ * write wins — the projection's recompute is masked for the tick. Across a
+ * hold the write is not a proposal: a leaf the fold staged under another
+ * transaction re-runs the fold under it, the write being the draft's prior
+ * state (#3612). Decided from the leaf notifications, so the mask lands
+ * after them (in the `finally`: a throwing setter's writes before the throw
+ * were notified, and are masked as before). */
+export function derivedStoreWrite<T>(
+  node: Computed<unknown>,
+  proxy: T,
+  fn: (draft: T) => T | void
+): void {
+  derivedSetter = node;
+  heldDerivationHit = false;
+  try {
+    storeSetterNext(proxy, fn);
+  } finally {
+    derivedSetter = null;
+    heldDerivationHit ? rederiveHeld(node) : suppressComputedRecompute(node);
+  }
+}
+
 export function storeSetterNext<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreNextTarget = (proxy as any)[$TARGET];

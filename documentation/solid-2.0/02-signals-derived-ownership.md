@@ -20,9 +20,9 @@ In 2.0, a root created inside an existing owned scope is itself owned by that pa
 
 ```js
 function Widget() {
-  createRoot((dispose) => {
+  createRoot(dispose => {
     const [count, setCount] = createSignal(0);
-    const id = setInterval(() => setCount((c) => c + 1), 1000);
+    const id = setInterval(() => setCount(c => c + 1), 1000);
     onCleanup(() => clearInterval(id));
   });
   return null;
@@ -32,7 +32,7 @@ function Widget() {
 
 #### Disposal order is unwind
 
-Cleanups run in unwind order: an owner's children are disposed before its own cleanups, and within one owner later registrations run before earlier ones (the same LIFO rule 1.x had). In production a component body shares its enclosing owner rather than getting one of its own, so a parent that registers `onCleanup` before rendering its children tears down after them — the same order the dev build's per-component owner gives. Register cleanup before creating children when the order between them matters; a parent that registers `onCleanup` *after* creating its children runs before them in production (and after them in dev).
+Cleanups run in unwind order: an owner's children are disposed before its own cleanups, and within one owner later registrations run before earlier ones (the same LIFO rule 1.x had). In production a component body shares its enclosing owner rather than getting one of its own, so a parent that registers `onCleanup` before rendering its children tears down after them — the same order the dev build's per-component owner gives. Register cleanup before creating children when the order between them matters; a parent that registers `onCleanup` _after_ creating its children runs before them in production (and after them in dev).
 
 #### Detaching is explicit: `runWithOwner(null, ...)`
 
@@ -90,7 +90,7 @@ const [todos, { addTodo }] = useContext(TodosContext);
 
 The default form `createContext<T>(defaultValue)` is unchanged: `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config). For any context carrying reactive state, prefer the default-less form.
 
-> If you want truly app-wide state, **don't use Context** — a module-scope signal/store *is* a global. Context is for scoping state to a subtree, which is why a Provider is mandatory in the default-less form.
+> If you want truly app-wide state, **don't use Context** — a module-scope signal/store _is_ a global. Context is for scoping state to a subtree, which is why a Provider is mandatory in the default-less form.
 
 **Migration:** drop `useX`-with-throw wrappers and call `useContext` directly. If you actively relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch.
 
@@ -110,6 +110,8 @@ const [cached, setCached] = createSignal((prev = props.something) => prev);
 // setValue(...) writes like a normal signal; the compute receives prev on recompute.
 ```
 
+Within a synchronous frame the write wins over a recompute queued in the same tick (either order). Across a hold it is not a proposal: while a transaction holds a value the compute derived (an async dependent of the source is still in flight), a write from outside that transaction joins it and becomes the `prev` of the transaction's re-derivation instead of replacing it — the frame that reveals is `fn(inputs)`, never a value the writer computed against the old frame. Writes made inside the transaction keep last-write-wins. The same holds for the derived `createStore` below.
+
 #### Function-form `createStore` (derived/projection store)
 
 `createStore(fn, seed, options?)` creates a derived store driven by mutation in `fn(draft)` (and may also return a value / Promise / async iterable). It’s the store analogue for derived shapes and underpins patterns like “selector-like” updates without notifying everything.
@@ -118,7 +120,7 @@ Unlike memo/effect `prev`, the second argument here is a real backing host objec
 
 ```js
 // Example: derived store that only flips the active key
-const [selected, setSelected] = createStore((draft) => {
+const [selected, setSelected] = createStore(draft => {
   const id = selectedId();
   draft[id] = true;
   if (draft._prev != null) delete draft[draft._prev];
@@ -157,10 +159,10 @@ If you used `createComputed` to “write back”:
 
 ## Removals
 
-| Removed | Replacement |
-|--------|-------------|
-| `createComputed` | `createEffect` (split), function-form `createSignal`/`createStore`, or `createMemo` |
-| `Context.Provider` | Use the context directly as the provider component (`<Context value={...}>`) |
+| Removed            | Replacement                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `createComputed`   | `createEffect` (split), function-form `createSignal`/`createStore`, or `createMemo` |
+| `Context.Provider` | Use the context directly as the provider component (`<Context value={...}>`)        |
 
 ## Alternatives considered
 
