@@ -5,8 +5,9 @@
  * The attribution engine (`solid-js/attribution`) already knows why every
  * effect and memo ran, what each click cost until the screen settled, which
  * holds the user waited in and what they waited on, which route a
- * navigation was, and — through `OBSERVE.records` — every server-function
- * call the browser made. This module is a second RENDERING of those same
+ * navigation was; the web runtime knows every server-function call the
+ * browser made — and all of it arrives on one channel, `OBSERVE.records`.
+ * This module is a second RENDERING of those same
  * records: where `@solidjs/diagnostics` writes them into an artifact an
  * agent reads, this paints them as custom tracks (group `Solid`) beside
  * Chrome's own main-thread and network tracks, using the panel's
@@ -36,6 +37,7 @@ import type {
   ChangeRecord,
   CreateEvent,
   DiagnosticEvent,
+  DiagnosticSubject,
   EffectRunEvent,
   FallbackEvent,
   FlightEvent,
@@ -44,7 +46,6 @@ import type {
   HoldEvent,
   InteractionEvent,
   NavigationEvent,
-  Observe,
   RerunEvent
 } from "solid-js";
 import type { CallEvent, CallLive, FrameEvent } from "@solidjs/web";
@@ -52,8 +53,6 @@ import {
   attribution,
   formatOrigin,
   formatRerun,
-  isLongHold,
-  isSilentHold,
   type AttributionOptions
 } from "solid-js/attribution";
 
@@ -231,28 +230,29 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
 
   const minMs = options.minMs ?? (IS_DEV ? 0 : 0.05);
   const scrub = options.scrub ?? !IS_DEV;
-  const painter = new Painter(observe, emitter, minMs, scrub);
+  const painter = new Painter(emitter, minMs, scrub);
   const server = new ServerSpans(emitter);
   server.start();
 
+  const { records } = observe;
   const releases = [
     () => server.dispose(),
     attribution.enable({ log: false, ...options.attribution }),
-    attribution.subscribe("rerun", e => painter.rerun(e)),
-    attribution.subscribe("create", e => painter.create(e)),
-    attribution.subscribe("effect", e => painter.effect(e)),
-    attribution.subscribe("flush", e => painter.flush(e)),
-    attribution.subscribe("flight", e => painter.flight(e)),
-    attribution.subscribe("fallback", e => painter.fallback(e)),
-    attribution.subscribe("interaction", e => painter.interaction(e)),
-    attribution.subscribe("hold", e => painter.hold(e)),
-    attribution.subscribe("navigation", e => painter.navigation(e)),
-    observe.records.subscribe("call", (e, live) => {
+    records.subscribe("rerun", (e, node) => painter.rerun(e, node)),
+    records.subscribe("create", (e, node) => painter.create(e, node)),
+    records.subscribe("effect", (e, node) => painter.effect(e, node)),
+    records.subscribe("flush", e => painter.flush(e)),
+    records.subscribe("flight", (e, node) => painter.flight(e, node)),
+    records.subscribe("fallback", (e, subtree) => painter.fallback(e, subtree)),
+    records.subscribe("interaction", e => painter.interaction(e)),
+    records.subscribe("hold", e => painter.hold(e)),
+    records.subscribe("navigation", e => painter.navigation(e)),
+    records.subscribe("call", (e, live) => {
       painter.call(e);
       server.call(e, live);
     }),
-    observe.records.subscribe("frame", e => painter.frame(e)),
-    observe.diagnostics.subscribe(e => painter.diagnostic(e))
+    records.subscribe("frame", e => painter.frame(e)),
+    observe.diagnostics.subscribe((e, subject) => painter.diagnostic(e, subject))
   ];
   const active: Instance = {
     holders: 0,
@@ -431,7 +431,6 @@ class Painter {
    */
   private readonly names = new Map<number, string>();
   constructor(
-    private readonly observe: Observe,
     private readonly emit: Emitter,
     private readonly minMs: number,
     private readonly scrub: boolean
@@ -453,10 +452,9 @@ class Painter {
    * depends on; a deep one is a chain of memos; a `warning` node with no
    * dependants after it is the equality cutoff doing its job.
    */
-  rerun(event: RerunEvent): void {
+  rerun(event: RerunEvent, subject: DiagnosticSubject): void {
     collectRoots(event.causes, this.roots);
     if (!event.changed) this.unchanged++;
-    const subject = this.observe.subjectOf(event);
     const node = describe(event.nodeName, ownerPath(subject));
     this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
@@ -513,8 +511,7 @@ class Painter {
    * `Propagation` too: a wave that builds nodes (a `<Show>` flipping, a
    * `<For>` growing) shows what it mounted beside what it re-ran.
    */
-  create(event: CreateEvent): void {
-    const subject = this.observe.subjectOf(event);
+  create(event: CreateEvent, subject: DiagnosticSubject): void {
     const node = describe(event.nodeName, ownerPath(subject));
     this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
@@ -553,9 +550,8 @@ class Painter {
    * palette so the two halves read apart. On `Propagation` it is the leaf
    * of the wave: where the write finally reached the screen.
    */
-  effect(event: EffectRunEvent): void {
+  effect(event: EffectRunEvent, subject: DiagnosticSubject): void {
     if (event.durationMs < this.minMs) return;
-    const subject = this.observe.subjectOf(event);
     const node = describe(event.nodeName, ownerPath(subject));
     let properties: Properties | undefined;
     if (this.rich) {
@@ -584,7 +580,7 @@ class Painter {
    * only the code, kind and owner are carried (a responsiveness finding's
    * sentence names the element the user hit).
    */
-  diagnostic(event: DiagnosticEvent): void {
+  diagnostic(event: DiagnosticEvent, subject: DiagnosticSubject | undefined): void {
     const owner = event.ownerPath?.join(" › ");
     const label =
       event.ownerPath !== undefined
@@ -631,15 +627,15 @@ class Painter {
         };
       }
     }
-    this.emit.mark(label, color, tooltip, properties, issue, taskOf(this.observe.subjectOf(event)));
+    this.emit.mark(label, color, tooltip, properties, issue, taskOf(subject));
   }
 
   /**
    * The identity properties every node span carries in rich mode: the
    * runtime's full owner path (the label folds flow internals and composed
    * primitives — this is the unfolded truth), the folded node's runtime
-   * name when there is one, and the engine's node id (what `why()` and
-   * `subjectOf` key on).
+   * name when there is one, and the engine's node id (what `why()` keys
+   * on, and what joins a node's records offline).
    */
   private identity(properties: Properties, node: Described, nodeId: number): void {
     if (node.path !== undefined) properties.push(["Owner path", node.path]);
@@ -706,7 +702,7 @@ class Painter {
    * path; `warning` when it was abandoned (superseded before it landed —
    * the re-ask storm's signature).
    */
-  flight(event: FlightEvent): void {
+  flight(event: FlightEvent, subject: DiagnosticSubject): void {
     const node = describe(event.nodeName, event.ownerPath);
     let properties: Properties | undefined;
     if (this.rich) {
@@ -727,7 +723,7 @@ class Painter {
       event.outcome === "abandoned" ? "warning" : "secondary",
       undefined,
       properties,
-      taskOf(this.observe.subjectOf(event))
+      taskOf(subject)
     );
   }
 
@@ -735,7 +731,7 @@ class Painter {
    * `Async`: a loading boundary's fallback, show → hide, named by the
    * boundary from its nearest component (`fallback <Page> › <Loading>`).
    */
-  fallback(event: FallbackEvent): void {
+  fallback(event: FallbackEvent, subject: DiagnosticSubject | undefined): void {
     const path = event.ownerPath;
     const label = `fallback${path !== undefined ? ` ${nearest(path).join(" › ")}` : ""}`;
     let properties: Properties | undefined;
@@ -754,7 +750,7 @@ class Painter {
       "tertiary",
       undefined,
       properties,
-      taskOf(this.observe.subjectOf(event))
+      taskOf(subject)
     );
   }
 
@@ -804,7 +800,7 @@ class Painter {
     if (event.settledMs === undefined || outcome === undefined || outcome === "idle") return;
     const settleEnd = event.at + event.settledMs;
     if (settleEnd <= handlerEnd) return;
-    const silent = outcome === "held" && event.holds.some(isSilentHold);
+    const silent = outcome === "held" && event.holds.some(h => h.silent);
     this.emit.span(
       outcome,
       handlerEnd,
@@ -823,8 +819,7 @@ class Painter {
    * verdicts, not thresholds of this adapter's.
    */
   hold(event: HoldEvent): void {
-    const long = isLongHold(event);
-    const silent = isSilentHold(event);
+    const { long, silent } = event;
     const what = event.blockers.length > 0 ? event.blockers.join(", ") : "a transition";
     const label =
       event.origin !== undefined
@@ -1137,7 +1132,7 @@ function describe(nodeName: string, path: string[] | undefined): Described {
  * exists only there; elsewhere the walk finds nothing and costs a few
  * pointer reads per painted span.
  */
-function taskOf(subject: ReturnType<Observe["subjectOf"]>): ConsoleTask | undefined {
+function taskOf(subject: DiagnosticSubject | undefined): ConsoleTask | undefined {
   if (!IS_DEV || !subject) return undefined;
   let owner: any = "_parent" in subject ? subject : (subject as any)._owner;
   for (; owner != null; owner = owner._parent) {

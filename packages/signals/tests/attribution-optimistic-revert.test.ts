@@ -230,6 +230,6 @@ describe("OPTIMISTIC_REVERTED", () => {
     await p;
     flush();
     expect(status()).toBe("idle");
-    expect(attribution.history()).toEqual([]);
+    expect(attribution.history("rerun")).toEqual([]);
   });
 });

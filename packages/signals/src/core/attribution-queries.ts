@@ -3,9 +3,8 @@
  * one scope. Their own module so a records-only consumer never ships them;
  * they read the engine's ring buffer and the graph, and register nothing.
  */
-import { attribution, nodeName, type RerunEvent } from "./attribution.js";
+import { attribution, nodeIdOf, nodeName, type RerunEvent } from "./attribution.js";
 import { $REFRESH } from "./constants.js";
-import { subjectOf } from "./dev.js";
 import type { Computed } from "./types.js";
 
 /** The node behind a memo/effect accessor, or the raw node passed through. */
@@ -13,10 +12,15 @@ function nodeOf(target: unknown): Computed<any> {
   return ((target as Record<symbol, unknown>)?.[$REFRESH] ?? target) as Computed<any>;
 }
 
-/** Re-run history for one node — pass a memo/effect accessor or raw node. */
+/**
+ * Re-run history for one node — pass a memo/effect accessor or raw node.
+ * Records name their scope by `nodeId`; a node that has never run under the
+ * engine has none, and no history.
+ */
 export function why(target: unknown): RerunEvent[] {
-  const node = nodeOf(target);
-  return attribution.history().filter(event => subjectOf(event) === node);
+  const id = nodeIdOf(nodeOf(target));
+  if (id === undefined) return [];
+  return attribution.history("rerun").filter(event => event.nodeId === id);
 }
 
 /** Current dependency names of one scope — the devtools subscription view. */

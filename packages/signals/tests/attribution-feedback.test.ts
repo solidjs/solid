@@ -2,7 +2,7 @@
  * feedback(): what the user waited on, as ranked tables.
  *
  * Claim under test: feedback() is a pure fold over the records the engine
- * already keeps — holds() and the interaction on each re-run — with no
+ * already keeps — `history("hold")` and the interaction on each re-run — with no
  * measurement of its own. `sources` ranks async sources by the silent time
  * writes spent held behind them and shows which affordances answered and how
  * often, so a source acknowledged on one screen and silent on another reads as
@@ -386,7 +386,7 @@ describe("feedback()", () => {
     const [row] = feedback().sources;
     expect(row).toMatchObject({ holds: 1, silent: 0, long: 1 });
     // One write: the tail is the whole hold.
-    const [hold] = attribution.holds();
+    const [hold] = attribution.history("hold");
     expect(row.longMs).toBe(hold.tailMs);
     expect(hold.tailMs).toBeLessThanOrEqual(hold.holdMs);
   });

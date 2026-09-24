@@ -129,7 +129,7 @@ measured from the event and keyed by it. A router that wraps its location
 write in `OBSERVE.attribution.withOrigin({ kind: "navigation", name, to, from, params }, () => …)`
 names holds by route as well — `SILENT_HOLD` then reads "click on a.nav
 (navigation to /users/:id) wrote …", and `feedback.navigations` /
-`attribution.navigations()` give the per-route view. A redirect declared
+`attribution.history("navigation")` give the per-route view. A redirect declared
 with `redirect: n` folds onto the pending navigation (one record, timed from
 the click, the abandoned destination in `redirects`) rather than superseding it.
 

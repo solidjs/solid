@@ -45,9 +45,25 @@ declare const observe: NonNullable<typeof OBSERVE>;
 // interface.
 observe.records satisfies Records;
 
-// The catalogue is the union of what the loaded runtimes declared — through
-// both augmentation paths.
-type Declared = "boundary" | "recovery" | "invocation" | "call" | "frame";
+// The catalogue is the union of the attribution engine's records (declared by
+// the core beside the channel) and what the loaded runtimes declared —
+// through both augmentation paths.
+type Declared =
+  | "rerun"
+  | "create"
+  | "effect"
+  | "flush"
+  | "flight"
+  | "fallback"
+  | "interaction"
+  | "hold"
+  | "navigation"
+  | "graph"
+  | "boundary"
+  | "recovery"
+  | "invocation"
+  | "call"
+  | "frame";
 const declared: Declared = "boundary" as RecordType;
 declared;
 const known: RecordType = "call" as Declared;

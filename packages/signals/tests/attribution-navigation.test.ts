@@ -27,9 +27,17 @@ import {
 } from "../src/index.js";
 import type { NavigationRef } from "../src/index.js";
 import type { RerunEvent } from "../src/core/attribution.js";
-import type { DiagnosticEvent } from "../src/core/dev.js";
+import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
+
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
 
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -57,7 +65,7 @@ function arm(opts: { holds?: false } = {}) {
     holds: opts.holds ?? { infoMs: 0, warnMs: 0 }
   });
   const runs: RerunEvent[] = [];
-  attribution.subscribe(e => runs.push(e));
+  on("rerun", e => runs.push(e));
   const silent: DiagnosticEvent[] = [];
   OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "SILENT_HOLD") silent.push(e);
@@ -166,7 +174,7 @@ describe("withOrigin — navigation provenance", () => {
       name: "/todos/:id",
       interaction: { kind: "interaction", name: "click" }
     });
-    expect(attribution.navigations().at(-1)!.interaction).toMatchObject({ name: "click" });
+    expect(attribution.history("navigation").at(-1)!.interaction).toMatchObject({ name: "click" });
   });
 
   it("is a plain call when no engine is installed", () => {
@@ -180,11 +188,11 @@ describe("withOrigin — navigation provenance", () => {
     expect(result).toBe(42);
     flush();
     expect(location()).toBe("/b");
-    expect(attribution.navigations()).toEqual([]);
+    expect(attribution.history("navigation")).toEqual([]);
   });
 });
 
-describe("navigations() — one settled record per frame", () => {
+describe('history("navigation") — one settled record per frame', () => {
   it("settles a navigation no transition held as committed at the end of the drain", () => {
     arm();
     const [location, setLocation] = createSignal("/users", { name: "location" });
@@ -193,7 +201,7 @@ describe("navigations() — one settled record per frame", () => {
     OBSERVE!.attribution.withInteraction(CLICK, () =>
       OBSERVE!.attribution.withOrigin(NAV, () => setLocation("/users/42"))
     );
-    const [open] = attribution.navigations();
+    const [open] = attribution.history("navigation");
     expect(open).toMatchObject({
       name: "/users/:id",
       to: "/users/42",
@@ -208,7 +216,7 @@ describe("navigations() — one settled record per frame", () => {
     expect(open.outcome).toBe("committed");
     expect(open.settledMs).toBeGreaterThanOrEqual(0);
     expect(open.hold).toBeUndefined();
-    expect(attribution.navigations()).toHaveLength(1);
+    expect(attribution.history("navigation")).toHaveLength(1);
   });
 
   it("settles immediately when no write survived the equality gate", () => {
@@ -217,7 +225,7 @@ describe("navigations() — one settled record per frame", () => {
     OBSERVE!.attribution.withOrigin({ kind: "navigation", name: "/users", to: "/users" }, () =>
       setLocation("/users")
     );
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav.writes).toBe(0);
     expect(nav.outcome).toBe("committed");
   });
@@ -230,7 +238,7 @@ describe("navigations() — one settled record per frame", () => {
     OBSERVE!.attribution.withOrigin({ kind: "navigation", name: "/b", to: "/b" }, () =>
       flush(() => setLocation("/b"))
     );
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav.writes).toBe(1);
     expect(nav.outcome).toBe("committed");
   });
@@ -257,7 +265,7 @@ describe("navigations() — one settled record per frame", () => {
     setAuthed(false);
     flush();
     expect(location()).toBe("/login");
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav).toMatchObject({ name: "/login", writes: 1, outcome: "committed" });
     expect(nav.origin.interaction).toBeUndefined();
   });
@@ -274,7 +282,7 @@ describe("navigations() — one settled record per frame", () => {
     );
     flush();
     expect(app.shown).toEqual(["alice@/users"]); // held: nothing painted
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav.outcome).toBeUndefined(); // still waiting on the page
     // Bracket the wait on the engine's own clock: a 10ms timer can fire a
     // hair under 10ms of `performance.now()`.
@@ -287,7 +295,7 @@ describe("navigations() — one settled record per frame", () => {
     expect(nav.outcome).toBe("held");
     expect(nav.hold).toBeDefined();
     expect(nav.settledMs).toBeGreaterThanOrEqual(waited);
-    const [hold] = attribution.holds();
+    const [hold] = attribution.history("hold");
     expect(nav.hold).toBe(hold);
     // The hold names the navigation, and joins to it by identity.
     expect(hold.origin).toBe(nav.origin);
@@ -321,7 +329,7 @@ describe("navigations() — one settled record per frame", () => {
     expect(silent[0].message).toContain(
       `[SILENT_HOLD] navigation to /users/:id (/users/42) wrote "location"`
     );
-    expect(attribution.holds()[0].interaction).toBeUndefined();
+    expect(attribution.history("hold")[0].interaction).toBeUndefined();
   });
 
   it("still settles a held navigation when hold tracking is off", async () => {
@@ -333,7 +341,7 @@ describe("navigations() — one settled record per frame", () => {
 
     OBSERVE!.attribution.withOrigin(NAV, () => app.setLocation("/users/42"));
     flush();
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav.outcome).toBeUndefined();
     await wait(10);
     app.resolve("b");
@@ -341,7 +349,7 @@ describe("navigations() — one settled record per frame", () => {
 
     expect(nav.outcome).toBe("held");
     expect(nav.hold).toBeUndefined(); // nothing recorded it
-    expect(attribution.holds()).toEqual([]);
+    expect(attribution.history("hold")).toEqual([]);
   });
 
   it("marks a navigation superseded when a later one replaces its write before it lands", async () => {
@@ -358,7 +366,7 @@ describe("navigations() — one settled record per frame", () => {
       () => app.setLocation("/users/43")
     );
     flush();
-    const [first, second] = attribution.navigations();
+    const [first, second] = attribution.history("navigation");
     expect(first.outcome).toBe("superseded");
     expect(first.hold).toBeUndefined();
     expect(second.outcome).toBeUndefined();
@@ -367,7 +375,7 @@ describe("navigations() — one settled record per frame", () => {
     await until(() => app.shown.includes("b@/users/43"), "the second page to land");
     expect(second.outcome).toBe("held");
     expect(second.hold!.origin).toBe(second.origin);
-    expect(attribution.navigations()).toHaveLength(2);
+    expect(attribution.history("navigation")).toHaveLength(2);
   });
 
   it("folds settled navigations into feedback().navigations by route", async () => {
@@ -431,7 +439,7 @@ describe("navigations() — one settled record per frame", () => {
       OBSERVE!.attribution.withOrigin(ref, () => app.setLocation("/admin/users/42"))
     );
     flush();
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav.name).toBe("/admin/*");
     expect(nav.params).toBeUndefined();
     // The subtree resolves inside the hold; the router fills in the exact match.
@@ -462,11 +470,11 @@ describe("navigations() — one settled record per frame", () => {
       setLocation("/b")
     );
     flush();
-    expect(attribution.navigations()).toHaveLength(1);
+    expect(attribution.history("navigation")).toHaveLength(1);
     attribution.disable();
-    expect(attribution.navigations()).toEqual([]);
+    expect(attribution.history("navigation")).toEqual([]);
     arm();
-    expect(attribution.navigations()).toEqual([]);
+    expect(attribution.history("navigation")).toEqual([]);
     expect(feedback().navigations).toEqual([]);
   });
 });
@@ -495,15 +503,15 @@ describe("redirects — one navigation, several destinations", () => {
     const hopAt = performance.now();
     OBSERVE!.attribution.withOrigin(LOGIN, () => app.setLocation("/login"));
     flush();
-    expect(attribution.navigations()).toHaveLength(1);
-    const [nav] = attribution.navigations();
+    expect(attribution.history("navigation")).toHaveLength(1);
+    const [nav] = attribution.history("navigation");
     expect(nav.outcome).toBeUndefined();
     await wait(10);
     const waited = performance.now() - armed;
     app.resolve("b");
     await until(() => app.shown.includes("b@/login"), "the redirect target to land");
 
-    expect(attribution.navigations()).toHaveLength(1);
+    expect(attribution.history("navigation")).toHaveLength(1);
     expect(nav).toMatchObject({
       name: "/login",
       to: "/login",
@@ -522,7 +530,7 @@ describe("redirects — one navigation, several destinations", () => {
     expect(nav.at).toBeLessThan(hopAt);
     expect(nav.settledMs).toBeGreaterThanOrEqual(waited);
     // One hold, joined by identity, named by the whole chain.
-    const [hold] = attribution.holds();
+    const [hold] = attribution.history("hold");
     expect(nav.hold).toBe(hold);
     expect(hold.origin).toBe(nav.origin);
     expect(formatOrigin(nav.origin)).toBe("navigation to /login (redirected from /users/42)");
@@ -561,8 +569,8 @@ describe("redirects — one navigation, several destinations", () => {
     app.resolve("b");
     await until(() => app.shown.includes("b@/sso?next=%2Flogin"), "the final target to land");
 
-    const [nav] = attribution.navigations();
-    expect(attribution.navigations()).toHaveLength(1);
+    const [nav] = attribution.history("navigation");
+    expect(attribution.history("navigation")).toHaveLength(1);
     expect(nav).toMatchObject({ name: "/sso", writes: 3, outcome: "held" });
     expect(nav.redirects!.map(h => h.to)).toEqual(["/users/42", "/login"]);
     expect(formatOrigin(nav.origin)).toBe(
@@ -588,11 +596,11 @@ describe("redirects — one navigation, several destinations", () => {
         }
       )
     );
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     // Neither close settled it early: the outer frame was still open.
     expect(nav.outcome).toBeUndefined();
     flush();
-    expect(attribution.navigations()).toHaveLength(1);
+    expect(attribution.history("navigation")).toHaveLength(1);
     expect(nav).toMatchObject({
       name: "/dashboard",
       from: "/start",
@@ -612,7 +620,7 @@ describe("redirects — one navigation, several destinations", () => {
     flush();
     OBSERVE!.attribution.withOrigin(LOGIN, () => setLocation("/login"));
     flush();
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav).toMatchObject({ name: "/login", writes: 1, outcome: "committed" });
     expect(nav.redirects).toBeUndefined();
     expect(feedback().navigations[0].redirected).toBe(0);
@@ -652,7 +660,7 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     r.resolve("b");
     await until(() => r.shown.includes("b@/users/42"), "the held page to land");
 
-    const [hold] = attribution.holds();
+    const [hold] = attribution.history("hold");
     expect(hold.acknowledgements).toEqual([]);
     expect(silent).toHaveLength(1);
     const [source] = feedback().sources;
@@ -674,7 +682,7 @@ describe("hold census — a router's own reads are not acknowledgement", () => {
     r.resolve("b");
     await until(() => r.shown.includes("b@/users/42"), "the held page to land");
 
-    const [hold] = attribution.holds();
+    const [hold] = attribution.history("hold");
     expect(hold.acknowledgements).toContainEqual(
       expect.objectContaining({ kind: "isPending", source: "location" })
     );
@@ -699,7 +707,7 @@ describe("at — a router whose request predates the write it wraps", () => {
     const waited = performance.now() - requested;
     OBSERVE!.attribution.withOrigin({ ...NAV, at: requested }, () => app.setLocation("/users/42"));
     flush();
-    const [nav] = attribution.navigations();
+    const [nav] = attribution.history("navigation");
     expect(nav.at).toBe(requested);
     expect(nav.origin.at).toBe(requested);
     app.resolve("b");

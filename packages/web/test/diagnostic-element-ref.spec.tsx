@@ -13,7 +13,10 @@ import { attribution } from "solid-js/attribution";
  * element as a second argument — a live reference beside the message.
  */
 
+// The channel's subscriptions are the consumer's — not dropped by `disable()`.
+const offs: Array<() => void> = [];
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -33,9 +36,9 @@ describe("diagnostic element references", () => {
     document.body.appendChild(container);
     const dispose = render(() => <div id="target" class={cls()} />, container);
     flush();
-    // Records never carry the node; the observe surface hands it back in-process.
+    // Records never carry the node; the channel delivers it beside each record.
     const nodes: any[] = [];
-    attribution.subscribe(e => nodes.push(OBSERVE!.subjectOf(e)));
+    offs.push(OBSERVE!.records.subscribe("rerun", (e, live) => nodes.push(live)));
 
     for (let i = 0; i < 6; i++) {
       setCls(`c${i}`);

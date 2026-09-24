@@ -16,12 +16,7 @@ const noop = () => {};
 export const attribution: Attribution = {
   enable: () => noop,
   disable: noop,
-  subscribe: () => noop,
   history: () => EMPTY,
-  waterfalls: () => EMPTY,
-  holds: () => EMPTY,
-  navigations: () => EMPTY,
-  interactions: () => EMPTY,
   markFlight: noop
 };
 
@@ -40,9 +35,6 @@ export const why: typeof Engine.why = () => [];
 export const subscriptions: typeof Engine.subscriptions = () => [];
 export const formatRerun: typeof Engine.formatRerun = () => "";
 export const formatOrigin: typeof Engine.formatOrigin = () => "";
-// No hold is ever recorded in prod, so no hold is ever silent or long.
-export const isSilentHold: typeof Engine.isSilentHold = () => false;
-export const isLongHold: typeof Engine.isLongHold = () => false;
 // Prod registers no roots: the graph has no observable size.
 export const graphSize: typeof Engine.graphSize = () => ({
   roots: 0,
@@ -56,8 +48,6 @@ export type {
   Acknowledgement,
   Attribution,
   AttributionOptions,
-  AttributionRecords,
-  AttributionRecordType,
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,
@@ -70,6 +60,8 @@ export type {
   GraphEvent,
   GraphSize,
   HeldWrite,
+  HistoryRecords,
+  HistoryType,
   HoldEvent,
   InteractionEvent,
   NavigationEvent,

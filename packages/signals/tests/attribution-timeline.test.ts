@@ -4,7 +4,8 @@
  * Claim under test: each is one record per run/callback/drain/flight/show
  * carrying the engine's own timings and the interaction the work traced to,
  * built only while a listener for its type exists, and entering no ring
- * buffer — `history()` stays re-runs only however many creations happen.
+ * buffer — `history("rerun")` stays re-runs only however many creations
+ * happen. The live node the record is about is delivered beside it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -13,7 +14,8 @@ import {
   type EffectRunEvent,
   type FallbackEvent,
   type FlightEvent,
-  type FlushEvent
+  type FlushEvent,
+  type RerunEvent
 } from "../src/attribution.js";
 import {
   createLoadingBoundary,
@@ -24,8 +26,18 @@ import {
   flush,
   OBSERVE
 } from "../src/index.js";
+import type { RecordListener, RecordType } from "../src/core/dev.js";
+import type { Computed } from "../src/core/types.js";
+
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
 
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -73,7 +85,11 @@ describe("create records", () => {
   it("delivers one record per creation run with the interaction that built the node", () => {
     arm();
     const creates: CreateEvent[] = [];
-    attribution.subscribe("create", e => creates.push(e));
+    const liveOf = new WeakMap<CreateEvent, Computed<any>>();
+    on("create", (e, live) => {
+      creates.push(e);
+      liveOf.set(e, live);
+    });
     const [count] = createSignal(1, { name: "count" });
     click(() => {
       createRoot(() => {
@@ -96,19 +112,19 @@ describe("create records", () => {
     expect(double.interaction).toMatchObject({ kind: "interaction", name: "click" });
     expect(paint.interaction).toBe(double.interaction);
     expect(typeof double.nodeId).toBe("number");
-    expect(OBSERVE!.subjectOf(double)).toBeDefined();
+    expect(liveOf.get(double)).toBeDefined();
     // Creations never enter the re-run history.
-    expect(attribution.history()).toEqual([]);
+    expect(attribution.history("rerun")).toEqual([]);
   });
 
-  it("is listener-gated and never enters history()", () => {
+  it('is listener-gated and never enters history("rerun")', () => {
     arm();
     const { setCount } = counter();
-    expect(attribution.history()).toEqual([]);
+    expect(attribution.history("rerun")).toEqual([]);
     setCount(1);
     flush();
     // The re-run is in history; no creation record was ever built.
-    expect(attribution.history().map(r => r.nodeName)).toEqual(["double", "paint"]);
+    expect(attribution.history("rerun").map(r => r.nodeName)).toEqual(["double", "paint"]);
   });
 });
 
@@ -116,7 +132,12 @@ describe("effect records", () => {
   it("times each effect callback and joins a re-run's callback to its compute run", () => {
     arm();
     const effects: EffectRunEvent[] = [];
-    attribution.subscribe("effect", e => effects.push(e));
+    const liveOf = new WeakMap<EffectRunEvent | RerunEvent, Computed<any>>();
+    on("effect", (e, live) => {
+      effects.push(e);
+      liveOf.set(e, live);
+    });
+    on("rerun", (e, live) => liveOf.set(e, live));
     const { setCount } = counter();
     // The creation's first callback: timed, no run to join to.
     expect(effects).toHaveLength(1);
@@ -127,19 +148,21 @@ describe("effect records", () => {
     flush();
     expect(effects).toHaveLength(2);
     const callback = effects[1];
-    const rerun = attribution.history().find(r => r.nodeName === "paint")!;
+    const rerun = attribution.history("rerun").find(r => r.nodeName === "paint")!;
     expect(callback.run).toBe(rerun.run);
     expect(callback.nodeId).toBe(rerun.nodeId);
     expect(callback.at).toBeGreaterThanOrEqual(rerun.at);
     expect(callback.interaction).toBe(rerun.interaction);
     expect(callback.interaction).toMatchObject({ kind: "interaction", name: "click" });
-    expect(OBSERVE!.subjectOf(callback)).toBe(OBSERVE!.subjectOf(rerun));
+    // Both records were delivered beside the same live node.
+    expect(liveOf.get(callback)).toBeDefined();
+    expect(liveOf.get(callback)).toBe(liveOf.get(rerun));
   });
 
   it("hands a creation's first callback the interaction that built the node", () => {
     arm();
     const effects: EffectRunEvent[] = [];
-    attribution.subscribe("effect", e => effects.push(e));
+    on("effect", e => effects.push(e));
     const [count] = createSignal(1, { name: "count" });
     click(() => {
       createRoot(() => createRenderEffect(count, () => {}, { name: "paint" }));
@@ -157,7 +180,7 @@ describe("effect records", () => {
       createRenderEffect(
         count,
         v => {
-          if (v === 1) attribution.subscribe("effect", e => effects.push(e));
+          if (v === 1) on("effect", e => effects.push(e));
         },
         { name: "paint" }
       )
@@ -176,7 +199,7 @@ describe("flush records", () => {
   it("delivers one record per drain with its run counts and the one interaction it served", () => {
     arm();
     const flushes: FlushEvent[] = [];
-    attribution.subscribe("flush", e => flushes.push(e));
+    on("flush", e => flushes.push(e));
     const { setCount } = counter();
     expect(flushes).toEqual([]);
     click(() => setCount(1));
@@ -193,7 +216,7 @@ describe("flush records", () => {
   it("counts creations, and drops the interaction when runs for two share a drain", () => {
     arm();
     const flushes: FlushEvent[] = [];
-    attribution.subscribe("flush", e => flushes.push(e));
+    on("flush", e => flushes.push(e));
     const a = counter();
     const b = counter();
     flushes.length = 0;
@@ -226,7 +249,7 @@ describe("flush records", () => {
   it("marks a drain that parked a transition as held", async () => {
     arm();
     const flushes: FlushEvent[] = [];
-    attribution.subscribe("flush", e => flushes.push(e));
+    on("flush", e => flushes.push(e));
     const [page, setPage] = createSignal(1, { name: "page" });
     let resolve!: (v: string) => void;
     const shown: string[] = [];
@@ -289,7 +312,11 @@ describe("flight records", () => {
   it("delivers a landed record per flight with its wall time and interaction", async () => {
     arm();
     const flights: FlightEvent[] = [];
-    attribution.subscribe("flight", e => flights.push(e));
+    const nodes: Computed<any>[] = [];
+    on("flight", (e, live) => {
+      flights.push(e);
+      nodes.push(live);
+    });
     const feed = pagedFeed();
     await wait(10);
     feed.resolve("a");
@@ -298,7 +325,7 @@ describe("flight records", () => {
     expect(flights[0]).toMatchObject({ nodeName: "posts", outcome: "landed" });
     expect(flights[0].durationMs).toBeGreaterThanOrEqual(8);
     expect(flights[0].interaction).toBeUndefined();
-    expect(OBSERVE!.subjectOf(flights[0])).toBeDefined();
+    expect(nodes[0]).toBeDefined();
     click(() => feed.setPage(2));
     flush();
     feed.resolve("b");
@@ -312,7 +339,7 @@ describe("flight records", () => {
   it("delivers an abandoned record when the node's next flight supersedes one in the air", async () => {
     arm();
     const flights: FlightEvent[] = [];
-    attribution.subscribe("flight", e => flights.push(e));
+    on("flight", e => flights.push(e));
     const feed = pagedFeed();
     feed.setPage(2);
     flush();
@@ -331,7 +358,7 @@ describe("fallback records", () => {
   it("delivers one record per showing, when the fallback hides", async () => {
     arm();
     const fallbacks: FallbackEvent[] = [];
-    attribution.subscribe("fallback", e => fallbacks.push(e));
+    on("fallback", e => fallbacks.push(e));
     const [page, setPage] = createSignal(1, { name: "page" });
     let resolve!: (v: string) => void;
     const shown: string[] = [];
@@ -410,7 +437,7 @@ describe("fallback records", () => {
   it("a re-arm whose swap the frame never committed (content landed first) is not a showing", async () => {
     arm();
     const fallbacks: FallbackEvent[] = [];
-    attribution.subscribe("fallback", e => fallbacks.push(e));
+    on("fallback", e => fallbacks.push(e));
     const t = productPage();
     flush();
     t.land("product");
@@ -442,7 +469,7 @@ describe("fallback records", () => {
   it("a re-arm whose swap the frame committed (shell landed first) is one showing, from the commit", async () => {
     arm();
     const fallbacks: FallbackEvent[] = [];
-    attribution.subscribe("fallback", e => fallbacks.push(e));
+    on("fallback", e => fallbacks.push(e));
     const t = productPage();
     flush();
     t.land("product");
@@ -490,7 +517,7 @@ describe("fallback records", () => {
       );
     });
     flush();
-    attribution.subscribe("fallback", e => fallbacks.push(e));
+    on("fallback", e => fallbacks.push(e));
     resolve("a");
     await until(() => shown.includes("a"), "content");
     expect(fallbacks).toEqual([]);

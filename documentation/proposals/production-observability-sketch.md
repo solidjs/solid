@@ -287,8 +287,8 @@ build.
 ### 4.4 Rerun record (from `RerunEvent`)
 
 Serialized as-is: since observe-tier-plan PR B the event carries `nodeId`
-instead of the live `node` (`OBSERVE.subjectOf(event)` for in-process
-consumers), so `@solidjs/diagnostics`'s `RerunRecord` is the same shape. Attached to the interaction
+instead of the live `node` (in-process consumers get the node as the
+listener's second argument, `live`), so `@solidjs/diagnostics`'s `RerunRecord` is the same shape. Attached to the interaction
 span only above thresholds (4.1); otherwise folded into the span's aggregates.
 
 ### 4.5 Cause chain (from `ChangeRecord`)
@@ -366,13 +366,14 @@ interface ObservabilityAdapter {
 
 Inside `install`, the adapter subscribes to the three feeds:
 
-- `dev.attribution.subscribe(rerun => ...)` — aggregate into the current
-  interaction span (keyed by `rerun.interaction`), emit rerun children above
-  thresholds.
-- `dev.diagnostics.subscribe(event => ...)` — `warn` → finding (4.3).
-- Holds: today only via `dev.attribution.holds()` polling; a `holdEnd`
-  subscription (`subscribeHolds`) is a small engine addition and should be
-  made before the first adapter exists rather than after.
+- `OBSERVE.records.subscribe("rerun", (rerun, node) => ...)` — aggregate
+  into the current interaction span (keyed by `rerun.interaction`), emit
+  rerun children above thresholds.
+- `OBSERVE.diagnostics.subscribe((event, subject) => ...)` — `warn` →
+  finding (4.3).
+- Holds: `OBSERVE.records.subscribe("hold", (hold, signal) => ...)` as each
+  settles (the `holdEnd` subscription this sketch originally asked for);
+  `attribution.history("hold")` is the ring buffer for polling.
 
 Interaction boundaries: the web runtime's `withInteraction` already brackets
 dispatch. The adapter does not wrap events itself — doing so would double-count
@@ -398,7 +399,8 @@ Solid (this repo):
 1. Observe build flavor + export condition for `@solidjs/signals`, `solid-js`,
    `@solidjs/web` (§3A). Size scenario and cap for it.
 2. `subscribeHolds` on the engine; confirm every feed is subscribable, not
-   poll-only.
+   poll-only. (Done: every engine record, `hold` included, is a type on
+   `OBSERVE.records`.)
 3. Component-root labeling in the observe build; compiler `name` emission for
    user primitives (already a plan item).
 4. Serializable projections as exported types (`RerunRecord` exists in

@@ -42,8 +42,8 @@ export function installConsoleFooter(dev: Dev): void {
     return event.kind === "perf" || event.kind === "graph" || event.kind === "responsiveness"
       ? base +
           `\n[${event.code}] deeper evidence: import { attribution } from "solid-js/attribution"; ` +
-          `attribution.enable() explains every re-run — why-chains, costs(), waterfalls(), ` +
-          `holds(), feedback() — agent loop: ` +
+          `attribution.enable() explains every re-run — why-chains, costs(), feedback(), ` +
+          `history("hold" | "waterfall") — agent loop: ` +
           `node_modules/@solidjs/diagnostics/skills/agent-loops/SKILL.md — ` +
           `${SKILLS_URL}/diagnostics/skills/agent-loops/SKILL.md`
       : base;

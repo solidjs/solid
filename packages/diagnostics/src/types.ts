@@ -35,7 +35,8 @@ export type AttributionFeedback = AttributionFeedbackTables;
 /**
  * A re-run as the artifact stores it. The engine's `RerunEvent` is
  * serializable as emitted — it names its scope by `nodeId` and never carries
- * the live node (in-process consumers ask `OBSERVE.subjectOf(event)`) — so
+ * the live node (in-process consumers get it as `live` beside the record on
+ * `OBSERVE.records`) — so
  * the artifact copies records verbatim; the alias is the artifact's
  * vocabulary for the same shape.
  */

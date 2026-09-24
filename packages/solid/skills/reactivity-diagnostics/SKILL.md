@@ -252,7 +252,7 @@ culprit is on one of them. Look for, in order:
 Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
 ownership — create the thing under the owner whose lifetime it should share.
 `graphSize()` from `solid-js/attribution` gives the count on demand;
-`subscribe("graph", …)` gives it at every navigation's settle.
+`OBSERVE.records.subscribe("graph", …)` gives it at every navigation's settle.
 
 ### HOT_SCOPE_RERUNS
 
@@ -312,7 +312,7 @@ counted here; see `costs().scopes[].wastedMs` for the total per scope.
 Async flights ran in sequence when they might have run in parallel: each
 named flight provably could not start until the previous one resolved, and
 each took real time (the per-link durations are in the message/data). Read
-the chain from `attribution.waterfalls()` if you need more than the
+the chain from `attribution.history("waterfall")` if you need more than the
 warning shows. Repairs, in order of preference:
 
 1. If a later request does not need the earlier response, derive both from
@@ -437,9 +437,10 @@ Thresholds sit at the strict end of the band on purpose: the engine measures
 to the commit, not the paint, so every number is a floor on what the user
 saw. From `holds.infoMs` (default 100ms — past "feels instant") the event is
 `info`-severity, structured channel only; from `holds.warnMs` (default 200ms —
-the INP "good" ceiling) it reaches the console. `attribution.holds()`
+the INP "good" ceiling) it reaches the console. `attribution.history("hold")`
 lists every hold (acknowledged or not) with what was held, what blocked it,
-and which affordances answered it. When the silent hold's tail also crossed
+and which affordances answered it; each carries the engine's verdicts as
+`silent`/`long` fields. When the silent hold's tail also crossed
 the long-hold threshold (`data.long: true`) the message carries the
 `LONG_HOLD` repair as well — the fallback is the honest UI at that length.
 
@@ -479,7 +480,7 @@ nothing before its first `await`. No hold opened (there was no write to
 hold), so `SILENT_HOLD` could not see the wait, yet from the user's side the
 click did nothing for `data.continuationMs` (handler return → the promise
 settling). The interaction record stayed open for the wait, so
-`attribution.interactions()` shows it with `continuationMs` set. Same
+`attribution.history("interaction")` shows it with `continuationMs` set. Same
 thresholds as `SILENT_HOLD` (`holds.infoMs`/`warnMs`; off with `holds:
 false`); the wait is capped at 10s for a promise that never settles
 (`data.capped`). Two repairs, in order of preference:
@@ -622,7 +623,7 @@ them as `artifact.attribution.feedback` / `.costs` already.
   silent needs the affordances above where the route's data renders; a route
   with many superseded navigations is one users give up on — make its data
   fast or preload it on hover/intent; a route that is always `redirected`
-  into is paying a hop the link could skip. `attribution.navigations()`
+  into is paying a hop the link could skip. `attribution.history("navigation")`
   lists each navigation with its `outcome`, its `redirects` (the abandoned
   destinations) and, when held, the `HoldEvent` itself.
 - `flights` — one row per async source: `flights` started, `landed`,

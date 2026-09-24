@@ -48,7 +48,8 @@ function expectObserveLive(mod: Tier) {
   expect(typeof observe.attribution.withOrigin).toBe("function");
   expect(observe.attribution.installed).toBeNull();
   expect(observe.attribution.enable).toBeUndefined();
-  expect(typeof observe.subjectOf).toBe("function");
+  // The live subject rides beside each record and diagnostic; no lookup.
+  expect(observe.subjectOf).toBeUndefined();
 }
 
 /**
@@ -61,17 +62,20 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
   const { attribution } = engine;
   const observe = core.OBSERVE;
   attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
+  const offs: (() => void)[] = [];
   try {
     expect(observe.attribution.installed).not.toBeNull();
+    // The records arrive on the core's channel — the one this engine emits
+    // into, or a second core would be delivering into an empty room.
     const runs: any[] = [];
-    attribution.subscribe((e: any) => runs.push(e));
+    offs.push(observe.records.subscribe("rerun", (e: any) => runs.push(e)));
     // The timeline records ride core hooks of their own: `flushStart` in the
     // scheduler, `effectRunStart`/`End` around the callback — both must be
     // live in the observe core, not only in dev.
     const flushes: any[] = [];
-    attribution.subscribe("flush", (e: any) => flushes.push(e));
+    offs.push(observe.records.subscribe("flush", (e: any) => flushes.push(e)));
     const effects: any[] = [];
-    attribution.subscribe("effect", (e: any) => effects.push(e));
+    offs.push(observe.records.subscribe("effect", (e: any) => effects.push(e)));
     const setCount = core.createRoot(() => {
       const [count, set] = core.createSignal(0, { name: "count" });
       core.createEffect(count, () => {}, { name: "reader" });
@@ -90,7 +94,10 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
     expect(rerun.causes[0].origin).toMatchObject({ kind: "navigation", name: "/go" });
     expect(rerun.interaction).toMatchObject({ kind: "interaction", name: "click" });
     // The drain's flushEnd reached the engine: the navigation settled.
-    expect(attribution.navigations()[0]).toMatchObject({ name: "/go", outcome: "committed" });
+    expect(attribution.history("navigation")[0]).toMatchObject({
+      name: "/go",
+      outcome: "committed"
+    });
     // …and its flushStart: the drain is one record, serving the click.
     expect(flushes.at(-1)).toMatchObject({ runs: 1, held: false });
     expect(flushes.at(-1).interaction).toMatchObject({ kind: "interaction", name: "click" });
@@ -100,6 +107,7 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
     expect(callback.nodeId).toBe(rerun.nodeId);
     expect(callback.interaction).toBe(rerun.interaction);
   } finally {
+    for (const off of offs) off();
     attribution.disable();
   }
   expect(observe.attribution.installed).toBeNull();
@@ -109,10 +117,10 @@ function expectEngineDrivesCore(core: any, engine: Engine) {
 function expectEngineInert(engine: Engine) {
   const { attribution } = engine;
   expect(() => attribution.enable()).not.toThrow();
-  expect(attribution.history()).toEqual([]);
+  expect(attribution.history("rerun")).toEqual([]);
   expect(engine.costs()).toEqual({ scopes: [], writes: [] });
-  expect(attribution.holds()).toEqual([]);
-  expect(attribution.navigations()).toEqual([]);
+  expect(attribution.history("hold")).toEqual([]);
+  expect(attribution.history("navigation")).toEqual([]);
   expect(engine.feedback()).toEqual({
     sources: [],
     interactions: [],
@@ -460,16 +468,24 @@ describe("@solidjs/signals engine per tier", () => {
     // if `_name` were not reserved the label would land on a property
     // ownerPath never reads.
     const capture = OBSERVE.diagnostics.capture();
+    const subjects: unknown[] = [];
+    const off = OBSERVE.diagnostics.subscribe((_: unknown, subject: unknown) =>
+      subjects.push(subject)
+    );
+    let emitted: unknown;
     createRoot(() => {
       const owner = getOwner();
       owner._name = "<App>";
+      emitted = owner;
       OBSERVE.diagnostics.emit(
         { code: "INVARIANT_VIOLATION", kind: "error", severity: "error", message: "probe" },
         owner
       );
     });
+    off();
     const [event] = capture.stop();
     expect(event.ownerPath).toEqual(["<App>"]);
-    expect(OBSERVE.subjectOf(event)).toBeDefined();
+    // The subject rides beside the event to every listener.
+    expect(subjects).toEqual([emitted]);
   });
 });

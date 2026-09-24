@@ -216,8 +216,10 @@ describe("the call record's origin", () => {
     attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
     const interactions: InteractionEvent[] = [];
     const navigations: NavigationEvent[] = [];
-    attribution.subscribe("interaction", e => interactions.push(e));
-    attribution.subscribe("navigation", e => navigations.push(e));
+    unsubscribes.push(
+      OBSERVE!.records.subscribe("interaction", e => interactions.push(e)),
+      OBSERVE!.records.subscribe("navigation", e => navigations.push(e))
+    );
     return { interactions, navigations };
   }
 

@@ -23,7 +23,10 @@ import {
 import type { DiagnosticEvent } from "../src/core/dev.js";
 import type { Owner } from "../src/core/types.js";
 
+const offs: (() => void)[] = [];
+
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -113,7 +116,7 @@ describe("OBSERVE.exclude", () => {
   it("forgets an interaction whose only writes went to the panel's own store", () => {
     arm();
     const delivered: unknown[] = [];
-    attribution.subscribe("interaction", e => delivered.push(e));
+    offs.push(OBSERVE!.records.subscribe("interaction", e => delivered.push(e)));
     const { result: setPanel } = excludedRoot(() => {
       const [panel, setPanel] = createStore<{ items: number[] }>({ items: [] });
       // The panel renders its list, so the store has live nodes to write.
@@ -132,7 +135,7 @@ describe("OBSERVE.exclude", () => {
       setPanel(s => void s.items.push(1))
     );
     flush();
-    expect(attribution.interactions()).toHaveLength(0);
+    expect(attribution.history("interaction")).toHaveLength(0);
     expect(delivered).toHaveLength(0);
 
     // A click that also writes the app is the app's: recorded, with the
@@ -143,9 +146,9 @@ describe("OBSERVE.exclude", () => {
       setApp(1);
     });
     flush();
-    expect(attribution.interactions()).toHaveLength(1);
+    expect(attribution.history("interaction")).toHaveLength(1);
     expect(delivered).toHaveLength(1);
-    expect(attribution.interactions()[0].writes).toBe(1);
+    expect(attribution.history("interaction")[0].writes).toBe(1);
   });
 
   it("records no runs for the panel's computations", () => {
@@ -156,10 +159,10 @@ describe("OBSERVE.exclude", () => {
     flush();
     OBSERVE!.attribution.withInteraction({ type: "click" }, () => setTick(1));
     flush();
-    const names = attribution.history().map(r => r.nodeName);
+    const names = attribution.history("rerun").map(r => r.nodeName);
     expect(names).toEqual(["app"]);
     expect(costs().scopes.map(s => s.name)).toEqual(["app"]);
-    const [click] = attribution.interactions();
+    const [click] = attribution.history("interaction");
     expect(click.runs).toBe(1);
   });
 });

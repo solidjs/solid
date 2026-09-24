@@ -1,9 +1,11 @@
 /**
  * `OBSERVE.records` — the one channel every runtime record rides, on either
- * platform: solid-js's `"boundary"`, @solidjs/web's `"invocation"`, `"frame"`
- * and `"call"`. The core owns the container and knows no record type; the
- * runtimes declare theirs onto it (type-level, `RecordTypes` /
- * `HostRecordTypes`) and emit through it.
+ * platform: the attribution engine's `"rerun"`, `"hold"`, `"interaction"` and
+ * the rest of its timeline, solid-js's `"boundary"`, @solidjs/web's
+ * `"invocation"`, `"frame"` and `"call"`. The core owns the container and
+ * knows no record type beyond declaring the engine's; the runtimes declare
+ * theirs onto it (type-level, `RecordTypes` / `HostRecordTypes`) and emit
+ * through it.
  *
  * Claims under test:
  *  - one per PROCESS, registered on `globalThis`: a second copy of the core
@@ -14,6 +16,10 @@
  *    record built, not even a clock read;
  *  - a listener cannot alter the emit: it is snapshotted per emit, a
  *    throwing listener is reported and the rest still run.
+ *
+ * The emit allocates nothing: the listener list is copied on subscribe and
+ * unsubscribe, never on delivery, so the loop walks the array it started
+ * with; one try/catch around it resumes past a throwing listener.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OBSERVE } from "../src/index.js";
@@ -79,6 +85,36 @@ describe("OBSERVE.records", () => {
     expect(seen).toEqual(["after"]);
     expect(error).toHaveBeenCalledTimes(1);
     expect(String(error.mock.calls[0][0])).toContain("listener broke");
+  });
+
+  it("every throwing listener is reported and delivery resumes after each", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const seen: string[] = [];
+    on("probe", () => {
+      throw new Error("first");
+    });
+    on("probe", () => seen.push("between"));
+    on("probe", () => {
+      throw new Error("second");
+    });
+    on("probe", () => seen.push("after"));
+    records.emit("probe", {}, {});
+    expect(seen).toEqual(["between", "after"]);
+    expect(error.mock.calls.map(c => String(c[0]))).toEqual([
+      expect.stringContaining("first"),
+      expect.stringContaining("second")
+    ]);
+  });
+
+  it("the same listener subscribed twice is one subscription", () => {
+    const seen: string[] = [];
+    const listener = () => seen.push("a");
+    const off1 = on("probe", listener);
+    on("probe", listener);
+    records.emit("probe", {}, {});
+    expect(seen).toEqual(["a"]);
+    off1();
+    expect(records.observed("probe")).toBe(false);
   });
 
   it("the listener set is snapshotted per emit: subscribing or unsubscribing inside does not affect this delivery", () => {

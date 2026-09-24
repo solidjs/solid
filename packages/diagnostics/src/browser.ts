@@ -127,9 +127,9 @@ export function installDiagnosticsBridge(
       let attribution: DiagnosticsArtifact["attribution"] = null;
       if (active.release) {
         attribution = {
-          reruns: [...engine.history()],
+          reruns: [...engine.history("rerun")],
           costs: costs(),
-          holds: [...engine.holds()],
+          holds: [...engine.history("hold")],
           feedback: feedback()
         };
         active.release();
@@ -150,7 +150,7 @@ export function installDiagnosticsBridge(
     },
     whyDidRun(name) {
       requireAttributionSession("whyDidRun");
-      return toSerializable(engine.history().filter(event => event.nodeName === name));
+      return toSerializable(engine.history("rerun").filter(event => event.nodeName === name));
     },
     costs() {
       requireAttributionSession("costs");
@@ -158,7 +158,7 @@ export function installDiagnosticsBridge(
     },
     holds() {
       requireAttributionSession("holds");
-      return toSerializable([...engine.holds()]);
+      return toSerializable([...engine.history("hold")]);
     },
     feedback() {
       requireAttributionSession("feedback");

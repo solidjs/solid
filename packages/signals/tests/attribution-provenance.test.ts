@@ -22,9 +22,17 @@ import {
   OBSERVE
 } from "../src/index.js";
 import type { ChangeOrigin, RerunEvent } from "../src/core/attribution.js";
-import type { DiagnosticEvent } from "../src/core/dev.js";
+import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
+
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
 
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -46,7 +54,7 @@ function arm() {
   vi.spyOn(console, "info").mockImplementation(() => {});
   attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
   const runs: RerunEvent[] = [];
-  attribution.subscribe(e => runs.push(e));
+  on("rerun", e => runs.push(e));
   return runs;
 }
 
@@ -263,7 +271,7 @@ describe("holds carry their interaction", () => {
     resolve("b");
     await until(() => shown.includes("b-p2"), "the held page to land");
 
-    const [hold] = attribution.holds();
+    const [hold] = attribution.history("hold");
     expect(hold.interaction).toMatchObject({ kind: "interaction", name: "click", at });
     expect(hold.holdMs).toBeGreaterThanOrEqual(1000);
     expect(hold.heldWrites[0].origin).toBe(hold.interaction);
