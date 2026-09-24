@@ -22,6 +22,7 @@ import {
   markSnapshotScope,
   releaseSnapshotScope,
   clearSnapshots,
+  OBSERVE,
   type Accessor,
   type ComputeFunction,
   type MemoOptions,
@@ -43,7 +44,7 @@ import {
   type Context
 } from "@solidjs/signals";
 import type { Element as SolidElement } from "../types.js";
-import { IS_DEV } from "./core.js";
+import { IS_DEV, IS_OBSERVE } from "./core.js";
 
 type HydrationSsrFields = {
   /**
@@ -2360,6 +2361,32 @@ function resumeBoundaryHydration(
   checkHydrationComplete();
 }
 
+/**
+ * The client renders a boundary the server could not finish — its fragment
+ * rejected, or the stream was cut before it arrived — as fresh DOM, and the
+ * observe build records it: how long the fallback stood while the server
+ * still tried, and what the fresh render cost. Joins the server's
+ * `"boundary"` record by `id`. Nothing but `resume(false)` when no one
+ * listens (`registeredAt` is -1 then; the clock was never read).
+ */
+function recover(
+  id: string,
+  registeredAt: number,
+  resume: (shouldHydrate?: boolean) => void
+): void {
+  if (registeredAt < 0 || !OBSERVE!.records.observed("recovery")) {
+    resume(false);
+    return;
+  }
+  const start = performance.now();
+  resume(false);
+  OBSERVE!.records.emit(
+    "recovery",
+    { id, at: registeredAt, waitedMs: start - registeredAt, renderMs: performance.now() - start },
+    {}
+  );
+}
+
 function initBoundaryResume(
   o: Owner,
   id: string
@@ -2884,6 +2911,10 @@ function hydratedCreateLoadingBoundary<T, U>(
 
       settledSerializationResumeQueued = true;
       const [, resume] = initBoundaryResume(o, id);
+      // Observe: the clock for a recovery record, read only when someone
+      // will hear it (a listener on "recovery"). Prod: a dead constant.
+      const registeredAt =
+        IS_OBSERVE && OBSERVE!.records.observed("recovery") ? performance.now() : -1;
 
       if (s === 1 && fragmentSuperseded(id)) {
         // SUPERSEDED (#2801's inverse): the declaration settled but its markup
@@ -2917,7 +2948,11 @@ function hydratedCreateLoadingBoundary<T, U>(
           // finalize or a client-hole handoff) doesn't surface as an
           // unhandled rejection.
           (fr as Promise<never>).catch?.(() => {});
-          const resumeRejected = () => resume(false);
+          // Observe: the fresh render is a "recovery" record; prod folds the
+          // branch and `recover` with it.
+          const resumeRejected = IS_OBSERVE
+            ? () => recover(id, registeredAt, resume)
+            : () => resume(false);
           if (assetPromise)
             assetPromise.then(
               () => queueMicrotask(resumeRejected),
@@ -2943,7 +2978,12 @@ function hydratedCreateLoadingBoundary<T, U>(
       claimFragment(id);
       waitAndResume(
         fr,
-        shouldHydrate => (shouldHydrate ? whenRevealed(id, () => resume(true)) : resume(false)),
+        shouldHydrate =>
+          shouldHydrate
+            ? whenRevealed(id, () => resume(true))
+            : IS_OBSERVE
+              ? recover(id, registeredAt, resume)
+              : resume(false),
         assetPromise,
         false,
         fragmentAbort(id)

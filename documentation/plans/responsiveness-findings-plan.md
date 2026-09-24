@@ -196,7 +196,14 @@ any pre-await write opens the hold path, which `SILENT_HOLD` judges.
   it fires after three visits; the same route with `onCleanup` fires
   nothing.
 
-### 8. Client recovery from `render/client`
+### 8. Client recovery from `render/client` — LANDED
+
+Shipped as the `"recovery"` record on `OBSERVE.records` (`RecoveryEvent`:
+`id`, `at`, `waitedMs`, `renderMs`), emitted by the client hydration
+runtime when a boundary's fragment rejected or the stream was cut and the
+children rendered as fresh DOM; joins the server's `"boundary"` record by
+`id`. Prod byte-identical (the branch and its helper fold on `IS_OBSERVE`);
+the clock is read only when something is subscribed.
 
 - **Known:** the server `"boundary"` record with `outcome: "client"` and
   the server error hook's `handling: "client"` say the server handed a
