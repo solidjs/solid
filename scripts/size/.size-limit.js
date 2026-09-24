@@ -2211,7 +2211,13 @@ module.exports = [
     // hook, the node-equality gate, and the finding with its two-road text
     // (reverted / superseded). The tier moved 38 B for the two hook sites in
     // optimistic.ts; under its cap.
-    limit: "31.45 KB",
+    // Re-measured at landing (#3607 rebased over #3604/#3623/#3613/#3619/#3608,
+    // 2026-09-23): 31.45 -> 31.65 KB, measured at 31,590 B against `next`'s
+    // 31,368 (+222 B; the PR's own +263 was against the pre-#3604 28,999).
+    // The tier did not move on this base: 17,618 either way — the 38 B the
+    // note above saw was nameCache drift, the hook sites fold to the same
+    // minified shape.
+    limit: "31.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
