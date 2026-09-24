@@ -68,7 +68,7 @@ export const inServerComponentScope: () => boolean = core.inServerComponentScope
  * Server: the value the client may see in place of a render failure about to
  * be serialized or rendered for it — the value itself in the dev build or
  * when branded with `markSafeError`, else one generic `Error` per original
- * (recorded once as `SSR_ERROR_SANITIZED`). `subject` locates the finding;
+ * (recorded once as `SERVER_ERROR_SANITIZED`, `data.source: "ssr"`). `subject` locates the finding;
  * `null` from a serialization funnel. Client: identity.
  */
 export const ssrSanitizeError: (

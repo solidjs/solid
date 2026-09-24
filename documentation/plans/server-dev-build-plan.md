@@ -189,8 +189,8 @@ Decision: **reuse `@solidjs/signals`'s channel, do not fork it.**
 > boundary's routing, `failed` from the root), `SSR_SUBTREE_ABANDONED`
 > (`abandonSubtree` with pending work discarded), `SSR_STREAM_ABANDONED`
 > (`abandon("consumer" | "sink")`), `LATE_HEADER_WRITE` (recorded, then the
-> existing dev throw / prod log), `SERVER_FN_ERROR_SANITIZED`
-> (`sanitizeServerError`, `data.error` the original). The server entry also
+> existing dev throw / prod log), `SERVER_ERROR_SANITIZED`
+> (`sanitizeServerError`, `data.source: "server-function"`, `data.error` the original). The server entry also
 > installs the client's repair-guide console footer (`src/console-footer.ts`,
 > shared). Specs: `packages/solid/test/server/server-diagnostics.spec.ts`,
 > `packages/web/test/server/server-diagnostics.spec.tsx`,
@@ -334,7 +334,7 @@ becomes the contract test for server codes.
 >
 > **(b) Checks off the record.** `ssrLoadingBoundary` derives two dev checks
 > from the same facts the `"boundary"` record carries (the clock now runs in
-> dev without a listener): `ASYNC_WATERFALL` with `data.side: "server"` —
+> dev without a listener): `SSR_BOUNDARY_WATERFALL` —
 > `passes - 1` sequential flights, exact where the client's proof is
 > inferred, same thresholds (2 → `info`, structured only; 3+ → `warn`) — and
 > a new `SSR_CLIENT_CONTENT_MASKED` (`warn`, `ssr`) for a client-only outcome

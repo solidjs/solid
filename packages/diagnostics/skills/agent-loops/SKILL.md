@@ -189,8 +189,8 @@ record type:
 Read them together: a boundary's `durationMs` is the sum of its passes'
 waits, and the invocations with its `id` are what those waits were spent on.
 A boundary with `passes: 3` and two invocations under it in sequence is a
-waterfall; the runtime already says so (`ASYNC_WATERFALL` with
-`data.side: "server"`, `warn` from three flights), and `SSR_CLIENT_CONTENT_MASKED`
+waterfall; the runtime already says so (`SSR_BOUNDARY_WATERFALL`, `warn`
+from three waits), and `SSR_CLIENT_CONTENT_MASKED`
 when a client-only read surfaced only after a wait — so Loop 1's rule holds
 on the server: capture, read the codes, repair, re-capture. Use
 `attribution: false` here; the engine has nothing to see in a server render.

@@ -13,7 +13,12 @@ var _el$ = _$getNextElement(_tmpl$),
   _el$2 = _$getFirstChild(_el$, "span");
 _$insert(
   _el$2,
-  _$scope(() => name())
+  _$scope(() => name()),
+  undefined,
+  undefined,
+  {
+    name: "span.children"
+  }
 );
 const singleChild = _el$;
 var _el$3 = _$getNextElement(_tmpl$2),
@@ -21,7 +26,12 @@ var _el$3 = _$getNextElement(_tmpl$2),
   _el$5 = _$getNextSibling(_el$4, "main");
 _$insert(
   _el$5,
-  _$scope(() => name())
+  _$scope(() => name()),
+  undefined,
+  undefined,
+  {
+    name: "main.children"
+  }
 );
 const siblingElements = _el$3;
 var _el$6 = _$getNextElement(_tmpl$3),
@@ -29,7 +39,12 @@ var _el$6 = _$getNextElement(_tmpl$3),
   _el$8 = _$getNextSibling(_el$7, "b");
 _$insert(
   _el$8,
-  _$scope(() => name())
+  _$scope(() => name()),
+  undefined,
+  undefined,
+  {
+    name: "b.children"
+  }
 );
 const mixedTextAndElements = _el$6;
 var _el$9 = _$getNextElement(_tmpl$4),
@@ -37,6 +52,11 @@ var _el$9 = _$getNextElement(_tmpl$4),
   _el$1 = _$getFirstChild(_el$0, "li");
 _$insert(
   _el$1,
-  _$scope(() => name())
+  _$scope(() => name()),
+  undefined,
+  undefined,
+  {
+    name: "li.children"
+  }
 );
 const nestedWalk = _el$9;

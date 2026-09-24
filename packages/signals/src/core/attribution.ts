@@ -12,6 +12,7 @@ import {
   liveRootOwners,
   isExcluded,
   isSuppressed,
+  noteFanOut,
   OBSERVE,
   ownerPath,
   reportDiagnostic
@@ -359,7 +360,7 @@ export interface AttributionOptions {
   /**
    * Run the cost checks — the thresholded findings over the engine's own
    * accounting: `hotRuns`, `hotTime`, `wideDeps`, `unstableMemos`,
-   * `wideWrites`, `wastedRecompute` (default true). `false` turns all six off at once, whatever
+   * `fanOut`, `wastedRecompute` (default true). `false` turns all six off at once, whatever
    * their individual settings, so a consumer that wants records only (an
    * exporter, a profiler track) pays for none of their per-node bookkeeping.
    * Hold, long-hold and waterfall tracking are records with verdicts on top,
@@ -412,15 +413,16 @@ export interface AttributionOptions {
    */
   wastedRecompute?: { minRuns: number; ratio: number; budgetMs: number; windowMs: number } | false;
   /**
-   * Written-fan-out warning: emit a diagnostic when a committed root
-   * invalidation (write, refresh, async landing) reaches a node with at
-   * least this many subscribers (default 250). The lower-bar, opt-in sibling
-   * of the always-on HUGE_FAN_OUT graph-size warning, which fires on the
-   * same kind of write from GRAPH_SIZE_WARN_AT (2000) up; this one hands
-   * over to it there, so a write never carries both. Once per node,
-   * re-warning only on 2x subscriber growth. `false` disables.
+   * HUGE_FAN_OUT threshold while the engine is enabled: emit the finding
+   * when a committed root invalidation (write, refresh, async landing)
+   * reaches a node with at least this many subscribers (default 250). The
+   * same code the always-on core check emits from GRAPH_SIZE_WARN_AT (2000)
+   * up, with `data.write` naming the invalidation; the engine hands over to
+   * the core there, so one change never carries two findings. Once per
+   * node, re-warning once the count has grown by another 500. `false`
+   * leaves only the always-on threshold.
    */
-  wideWrites?: number | false;
+  fanOut?: number | false;
   /**
    * Async-waterfall warning: emit a diagnostic when an async flight that
    * could only start after an upstream flight resolved (its recompute's
@@ -524,7 +526,6 @@ interface AttributedNode {
   _devTimeWarned?: boolean;
   _devUnstableRuns?: number;
   _devUnstableWarned?: boolean;
-  _devWideWriteWarnedAt?: number;
   /** Longest sequential-flight chain already warned for this node. */
   _devWaterfallWarnedAt?: number;
   /** WASTED_RECOMPUTE window: runs, no-op runs and their self-time since `_devWasteWinStart`. */
@@ -579,7 +580,7 @@ const defaultOptions = {
   wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 2, windowMs: 1000 } as
     | { minRuns: number; ratio: number; budgetMs: number; windowMs: number }
     | false,
-  wideWrites: 250 as number | false,
+  fanOut: 250 as number | false,
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
   holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
   longHolds: { infoMs: 500, warnMs: 1000 } as { infoMs: number; warnMs: number } | false,
@@ -999,46 +1000,23 @@ function countSubscribers(node: Signal<any> | Computed<any>): number {
 }
 
 /**
- * Written-fan-out warning — the engine's lower-bar sibling of the always-on
- * HUGE_FAN_OUT (see dev.ts): a committed root invalidation reaching hundreds
- * of subscribers re-runs all of them this flush. Counts the subscriber list
- * itself (an engine-only walk, on the write; the core keeps no per-node
- * count — a live `_subCount` was a post-construction field that forked node
- * shapes). Once per node; re-warns only when the subscriber count has
- * doubled since the last warning. Stops at GRAPH_SIZE_WARN_AT, where
- * HUGE_FAN_OUT takes over, so the two never fire for the same write.
+ * HUGE_FAN_OUT from the engine's lower `fanOut` threshold (see dev.ts): a
+ * committed root invalidation reaching hundreds of subscribers re-runs all
+ * of them this flush. Counts the subscriber list itself (an engine-only
+ * walk, on the write; the core keeps no per-node count — a live `_subCount`
+ * was a post-construction field that forked node shapes). Stops at
+ * GRAPH_SIZE_WARN_AT, where the always-on core check takes over, so the two
+ * never fire for the same write; the once-per-node dedupe is the core's.
  */
-function checkWideWrite(
+function checkFanOut(
   node: Signal<any> | Computed<any>,
   kind: Exclude<ChangeKind, "derived">
 ): void {
-  const limit = options.wideWrites;
+  const limit = options.fanOut;
   if (typeof limit !== "number") return;
   const subs = countSubscribers(node);
-  const attributed = node as AttributedNode;
   if (subs < limit || subs >= GRAPH_SIZE_WARN_AT) return;
-  if (subs < (attributed._devWideWriteWarnedAt ?? 0) * 2) return;
-  attributed._devWideWriteWarnedAt = subs;
-  const verb =
-    kind === "refresh" ? "refresh of" : kind === "async" ? "async landing on" : "write to";
-  const message =
-    `[WIDE_WRITE] ${verb} "${nodeName(node)}" reached ${subs} subscribers — every one ` +
-    `re-runs this flush. If consumers ask keyed questions of this value (for example every ` +
-    `row comparing against one selected id), invert it: keep the answer in a store used as a ` +
-    `map keyed by id, so each consumer reads its own key and only the keys that flipped update.`;
-  reportDiagnostic(
-    emitDiagnostic(
-      {
-        code: "WIDE_WRITE",
-        kind: "perf",
-        severity: "warn",
-        message,
-        nodeName: nodeName(node),
-        data: { subscribers: subs, write: kind }
-      },
-      node
-    )
-  );
+  noteFanOut(node, subs, kind);
 }
 
 function stampWrite(
@@ -1067,8 +1045,8 @@ function stampWrite(
   if (kind === "write") trackEffectWrite(node, record, value);
   // stampWrite is the single funnel for committed root invalidations (sync
   // writes, refresh(), async landings), which makes it the one place the
-  // written-fan-out check needs to live.
-  checkWideWrite(node, kind);
+  // engine's fan-out check needs to live.
+  checkFanOut(node, kind);
 }
 
 /** Record a derived change (memo produced a new value) with its causes. */
@@ -4265,7 +4243,7 @@ function resolveHold(opts: AttributionOptions | undefined): Options {
     out.hotTime = false;
     out.wideDeps = false;
     out.unstableMemos = false;
-    out.wideWrites = false;
+    out.fanOut = false;
     out.wastedRecompute = false;
   }
   return out;

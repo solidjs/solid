@@ -713,7 +713,7 @@ describe("enablePerformanceTracks", () => {
     // shown under `<Show>`. (The other effect re-run is render's own
     // insert at the root, re-placing the Show's output — no owner path.)
     const effects = rerunSpans(on("Effects"), "Effects");
-    expect(effects.map(m => m.label)).toEqual(["effect", "<Card> › <Show> › effect"]);
+    expect(effects.map(m => m.label)).toEqual(["effect", "<Card> › <Show> › span"]);
     // On Propagation every cause reads as the Show, never as `value`.
     const propagation = on("Propagation").filter(m => / ← /.test(m.label));
     expect(propagation.map(m => m.label)).toEqual([
@@ -721,7 +721,7 @@ describe("enablePerformanceTracks", () => {
       "<Card> › <Show> ← <Show>",
       "<Card> › <Show> ← <Show>",
       "effect ← <Show>",
-      "<Card> › <Show> › effect ← n"
+      "<Card> › <Show> › span ← n"
     ]);
   });
 

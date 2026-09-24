@@ -177,26 +177,27 @@ function ssrLoadingBoundary(
   // that waited — the verdicts an agent would otherwise derive from the
   // artifact, coded so the console and `expectNoDiagnostics` see them.
   const checkWaited = (outcome: BoundaryEvent["outcome"], durationMs: number) => {
-    // Sequential flights: each pass past the first is a wait that could
-    // only start once the previous answered. Same code and thresholds as
-    // the client's graph-proved verdict — depth 2 advisory (a dependent
-    // fetch is sometimes intrinsic), depth 3+ earns the console — but the
-    // proof here is exact: the pass structure IS the chain.
+    // Sequential render passes: each pass past the first is a wait that
+    // could only start once the previous answered. Same thresholds as the
+    // client's graph-proved ASYNC_WATERFALL — depth 2 advisory (a dependent
+    // fetch is sometimes intrinsic), depth 3+ earns the console — but its
+    // own code: the proof here is the boundary's pass structure, not a
+    // flight chain, and the repair is read off the boundary record.
     const flights = passes - 1;
     if (flights >= 2) {
       const severity = flights > 2 ? "warn" : "info";
       devCheck(
         {
-          code: "ASYNC_WATERFALL",
-          kind: "perf",
+          code: "SSR_BOUNDARY_WATERFALL",
+          kind: "ssr",
           severity,
           message:
-            `[ASYNC_WATERFALL] ${flights} sequential async flights in a <Loading> boundary — ` +
-            `${durationMs.toFixed(0)}ms over ${passes} render passes: each read could start ` +
-            `only after the previous one answered. If a later read doesn't need the earlier ` +
-            `answer, derive both from the same inputs so they start together; if the ` +
-            `dependency is intrinsic, preload the dependent data or join the requests.`,
-          data: { side: "server", boundary: id, passes, sequentialMs: durationMs }
+            `[SSR_BOUNDARY_WATERFALL] A <Loading> boundary took ${passes} render passes — ` +
+            `${flights} sequential async waits, ${durationMs.toFixed(0)}ms end to end: each ` +
+            `read could start only after the previous one answered. If a later read doesn't ` +
+            `need the earlier answer, derive both from the same inputs so they start together; ` +
+            `if the dependency is intrinsic, preload the dependent data or join the requests.`,
+          data: { boundary: id, passes, sequentialMs: durationMs }
         },
         o
       );

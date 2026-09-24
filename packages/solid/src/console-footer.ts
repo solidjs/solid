@@ -4,8 +4,8 @@
 // fix lives without any prior knowledge of the skill system.
 //
 // Perf/graph/responsiveness codes additionally name the attribution surface.
-// This breaks a discovery circularity: the sensitive detectors (WIDE_WRITE,
-// HOT_SCOPE_*, ASYNC_WATERFALL, SILENT_HOLD, …) only fire while the
+// This breaks a discovery circularity: the sensitive detectors (HUGE_FAN_OUT
+// at the engine's threshold, HOT_SCOPE_*, ASYNC_WATERFALL, SILENT_HOLD, …) only fire while the
 // `solid-js/attribution` engine is enabled, and a reader who doesn't know the
 // entry exists never enables it — so the always-on graph warnings (and any such
 // code that does fire) are the moments to teach that deeper evidence is one

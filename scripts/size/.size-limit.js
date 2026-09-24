@@ -1986,8 +1986,9 @@ module.exports = [
     // Observe node shapes (#3324, 2026-09-09): 24.08 -> 24.14 KB, measured
     // at 24.079 (1 B under the old ratchet). The literal duplication above
     // is offset here by the engine dropping the live `_subCount`/`_depCount`
-    // machinery: WIDE_WRITE counts the subscriber list on the write and
-    // hands over to HUGE_FAN_OUT at 2000. Ratchet restores headroom only.
+    // machinery: the engine's HUGE_FAN_OUT check counts the subscriber list
+    // on the write and hands over to the core's at 2000. Ratchet restores
+    // headroom only.
     //
     // Navigations (2026-09-09): 24.14 -> 24.90 KB, measured at 24.86. The
     // engine's navigation records: the `navigation` origin kind and its

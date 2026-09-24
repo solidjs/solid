@@ -513,7 +513,7 @@ describe("dev checks off the record", () => {
     return <div>{data() && (props.depth > 1 ? <Chain depth={props.depth - 1} /> : "leaf")}</div>;
   }
 
-  test("ASYNC_WATERFALL: two sequential flights are advisory (structured only)", async () => {
+  test("SSR_BOUNDARY_WATERFALL: two sequential waits are advisory (structured only)", async () => {
     function App() {
       return (
         <Loading fallback={<i>loading</i>}>
@@ -523,20 +523,24 @@ describe("dev checks off the record", () => {
     }
     const html = await stream(() => <App />);
     expect(html).toContain("leaf");
-    const [event, ...rest] = byCode("ASYNC_WATERFALL");
+    const [event, ...rest] = byCode("SSR_BOUNDARY_WATERFALL");
     expect(rest).toHaveLength(0);
-    expect(event.kind).toBe("perf");
+    expect(event.kind).toBe("ssr");
     expect(event.severity).toBe("info");
-    expect(event.data).toMatchObject({ side: "server", passes: 3 });
-    expect(typeof event.data!.sequentialMs).toBe("number");
+    expect(event.data).toEqual({
+      boundary: placeholderIds(html)[0],
+      passes: 3,
+      sequentialMs: expect.any(Number)
+    });
     // Located by component and keyed by the boundary, like the record.
     expect(event.ownerPath).toEqual(["<App>", "<Loading>"]);
-    expect(event.data!.boundary).toBe(placeholderIds(html)[0]);
-    expect(event.message).toContain("2 sequential async flights");
+    expect(event.message).toContain("3 render passes — 2 sequential async waits");
     expect(warn).not.toHaveBeenCalled();
+    // The client's graph-proved verdict is its own code.
+    expect(byCode("ASYNC_WATERFALL")).toHaveLength(0);
   });
 
-  test("ASYNC_WATERFALL: three sequential flights earn the console, once", async () => {
+  test("SSR_BOUNDARY_WATERFALL: three sequential waits earn the console, once", async () => {
     function App() {
       return (
         <Loading fallback={<i>loading</i>}>
@@ -545,13 +549,13 @@ describe("dev checks off the record", () => {
       );
     }
     await stream(() => <App />);
-    const [event, ...rest] = byCode("ASYNC_WATERFALL");
+    const [event, ...rest] = byCode("SSR_BOUNDARY_WATERFALL");
     expect(rest).toHaveLength(0);
     expect(event.severity).toBe("warn");
-    expect(event.data).toMatchObject({ side: "server", passes: 4 });
-    expect(event.message).toContain("3 sequential async flights");
+    expect(event.data).toMatchObject({ passes: 4 });
+    expect(event.message).toContain("4 render passes — 3 sequential async waits");
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("[ASYNC_WATERFALL]");
+    expect(String(warn.mock.calls[0][0])).toContain("[SSR_BOUNDARY_WATERFALL]");
     expect(String(warn.mock.calls[0][0])).toContain("in <App> › <Loading>");
   });
 
@@ -564,7 +568,7 @@ describe("dev checks off the record", () => {
       );
     }
     await stream(() => <App />);
-    expect(byCode("ASYNC_WATERFALL")).toHaveLength(0);
+    expect(byCode("SSR_BOUNDARY_WATERFALL")).toHaveLength(0);
     expect(byCode("SSR_CLIENT_CONTENT_MASKED")).toHaveLength(0);
   });
 

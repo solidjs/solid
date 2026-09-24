@@ -221,7 +221,7 @@ describe("Deferred root mount", () => {
       .map(args => String(args[0]))
       .filter(text => text.includes("Loading boundary"));
     expect(reports).toHaveLength(1);
-    expect(reports[0]).toContain("\n  in <Inner> › effect");
+    expect(reports[0]).toContain("\n  in <Inner> › span.children");
 
     resolveFn("ready");
     await promise;

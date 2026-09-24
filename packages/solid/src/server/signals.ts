@@ -3042,9 +3042,10 @@ function ownerChainLabels(subject: DiagnosticSubject): string[] | undefined {
  * build or when branded safe, else one generic `Error` per original. The
  * verdict is cached on the object, so every road hands the client the same
  * value. Outside dev a replacement is recorded once as
- * `SSR_ERROR_SANITIZED` (observe/dev), the original in `data.error` —
- * advisory (`info`): the failure itself is the `SSR_RENDER_ERROR_CONTAINED`
- * finding's, and this is the record of what the wire carried instead.
+ * `SERVER_ERROR_SANITIZED` (observe/dev) with `data.source: "ssr"`, the
+ * original in `data.error` — advisory (`info`): the failure itself is the
+ * `SSR_RENDER_ERROR_CONTAINED` finding's, and this is the record of what
+ * the wire carried instead.
  * `subject` locates it (the boundary's owner; `null` from a funnel).
  * @internal
  */
@@ -3082,11 +3083,11 @@ function record(
   if (IS_OBSERVE)
     emitFinding(
       {
-        code: "SSR_ERROR_SANITIZED",
+        code: "SERVER_ERROR_SANITIZED",
         kind: "ssr",
         severity: "info",
-        message: `[SSR_ERROR_SANITIZED] Render error replaced before reaching the client: ${errorText(value)}`,
-        data: { error: value, wire }
+        message: `[SERVER_ERROR_SANITIZED] Render error replaced before reaching the client: ${errorText(value)}`,
+        data: { source: "ssr", error: value, wire }
       },
       subject === undefined ? getOwner() : subject
     );

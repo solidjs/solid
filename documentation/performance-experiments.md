@@ -7079,9 +7079,9 @@ null)` leaves a `...false` spread in prod (rollup folds the conditional
   pass with a module counter bumped per first-touch link, and CodSpeed
   priced that). `HUGE_FAN_OUT` / `HUGE_FAN_IN` therefore
   fire on the change / the recompute rather than the link, deduped through a
-  `WeakMap` (once per node, again after +500). `WIDE_WRITE` counts the
-  subscriber list itself on the write (engine-only walk) and hands over to
-  `HUGE_FAN_OUT` at 2000.
+  `WeakMap` (once per node, again after +500). The attribution engine's
+  lower-threshold `HUGE_FAN_OUT` check counts the subscriber list itself on
+  the write (engine-only walk) and hands over to the core's at 2000.
 - **Prod byte-identical** modulo comments and the removed `...false ? {…} :
 options` spread (`diff -w` of `dist/prod` before/after, comment lines
   stripped: only that hunk).

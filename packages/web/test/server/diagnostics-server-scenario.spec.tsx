@@ -235,14 +235,14 @@ describe("captureArtifact over a server render", () => {
       const { artifact } = await captureArtifact(() => stream(() => <App />), {
         attribution: false
       });
-      expectDiagnostic(artifact, "ASYNC_WATERFALL", { count: 1 });
+      expectDiagnostic(artifact, "SSR_BOUNDARY_WATERFALL", { count: 1 });
       const [boundary] = artifact.records.boundary;
       expect(boundary.passes).toBe(4);
       // The finding and the record are the same boundary.
-      const finding = artifact.diagnostics.find(e => e.code === "ASYNC_WATERFALL")!;
+      const finding = artifact.diagnostics.find(e => e.code === "SSR_BOUNDARY_WATERFALL")!;
       expect(finding.data!.boundary).toBe(boundary.id);
       expect(finding.severity).toBe("warn");
-      expect(() => expectNoDiagnostics(artifact)).toThrow(/ASYNC_WATERFALL/);
+      expect(() => expectNoDiagnostics(artifact)).toThrow(/SSR_BOUNDARY_WATERFALL/);
     } finally {
       warn.mockRestore();
     }

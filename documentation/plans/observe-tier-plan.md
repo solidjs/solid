@@ -107,7 +107,7 @@ Site migration `__DEV__` → `__OBSERVE__` (everything not listed stays
 | `core/scheduler.ts`                                            | 223, 488, 1259, 1290                                                                  | hooks                             |
 | `core/action.ts`                                               | 140, 144, 147                                                                         | hooks                             |
 | `core/effect.ts`                                               | 210                                                                                   | hooks                             |
-| `core/graph.ts`                                                | 18, 194                                                                               | edge counters (`WIDE_WRITE`)      |
+| `core/graph.ts`                                                | 18, 194                                                                               | edge counters (`HUGE_FAN_OUT`)    |
 | `boundaries.ts`                                                | 334, 372                                                                              | hooks                             |
 | `map.ts`                                                       | 281, 290, 331 (hooks); 76, 102, 370 (name plumbing)                                   | hooks; labels                     |
 | `signals.ts`                                                   | 373, 1085 (`registerGraph` → `_owner` half); 515, 557, 612, 677, 1189 (name defaults) | labels                            |
