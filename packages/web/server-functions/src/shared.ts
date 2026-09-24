@@ -54,6 +54,7 @@ export {
   hasFlashCookie,
   matchFlashCookie
 } from "../../src/cookies.js";
+import { REVALIDATE_HEADER } from "../../src/response.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
@@ -360,6 +361,58 @@ export function getFlightDataSourceIds(): string[];
 /** The source ids with a registered consumer. */
 export function getFlightDataSourceIds() {
   return [...flightConfig.consumers.keys()];
+}
+
+/**
+ * Whether a mutation response carries integration metadata — the redirect
+ * carrier or `X-Revalidate` keys. Metadata is envelope-level (it describes
+ * what the mutation did to every cache on the page), so a response carrying
+ * it is delivered to every registered flight consumer, folded or not.
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function hasFlightMetadata(response: Response): boolean;
+
+/** Whether a mutation response carries the redirect carrier or revalidation keys. */
+export function hasFlightMetadata(response) {
+  return response.headers.has(REDIRECT_HEADER) || response.headers.has(REVALIDATE_HEADER);
+}
+
+/**
+ * Delivers a decoded single-flight envelope's `data` to the registered
+ * consumers — THE delivery path, shared by every transport that can carry
+ * the envelope (the plain server-function client and the frames client's
+ * flight application), so a mutation reads identically whichever body
+ * shape it arrived in.
+ *
+ * `data` is the keyed envelope, `{ [source]: slice }` (the unnamed
+ * registration's slice under the reserved id "true"); `response` is the
+ * envelope context, whose `SINGLE_FLIGHT_HEADER` names the folded sources.
+ * Each registered consumer receives its own slice, in registration order,
+ * awaited sequentially so caches are seeded before the caller sees the
+ * value. A consumer whose source was not folded is skipped — unless the
+ * response carries integration metadata, in which case it runs with `data`
+ * `undefined` to apply the metadata. Consumers are looked up per delivery:
+ * an awaited consumer may unsubscribe another (a provider tearing down
+ * under a navigation).
+ *
+ * Transport building block; not meant for hand-written code.
+ * @internal
+ */
+export function deliverFlightData(response: Response, data: unknown): Promise<void>;
+
+/** Delivers each consumer its slice of a single-flight envelope's `data`. */
+export async function deliverFlightData(response, data) {
+  // An absent header splits to [""], which names no source (ids are never
+  // empty — see assertFlightSource), so no consumer matches it.
+  const folded = (response.headers.get(SINGLE_FLIGHT_HEADER) || "").split(",");
+  const metadata = hasFlightMetadata(response);
+  for (const source of getFlightDataSourceIds()) {
+    if (!metadata && !folded.includes(source)) continue;
+    const consumer = getFlightDataConsumer(source);
+    if (consumer) await consumer(data ? data[source] : undefined, { response });
+  }
 } /**
  * The intrinsic wire address of a server-component call: the function id,
  * suffixed with a realm-stable hash of the arguments when there are any.

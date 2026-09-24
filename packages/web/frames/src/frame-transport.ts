@@ -15,12 +15,12 @@ import {
   ERROR_HEADER,
   SINGLE_FLIGHT_HEADER,
   createChunk,
+  deliverFlightData,
   deserializeStream,
   frameAddress,
-  getFlightDataConsumer,
-  getServerFunctionsCodec
+  getServerFunctionsCodec,
+  hasFlightMetadata
 } from "../../server-functions/src/shared.js";
-import { REVALIDATE_HEADER } from "../../src/response.js";
 import { observeFrameApply } from "../../src/observe.js";
 
 // Replaced per build (see src/observe.ts): the observe emitters fold out of
@@ -34,12 +34,6 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 import { FrameChunk, FrameHost } from "./frame-client.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
-
-// Structural mirror of server-functions/shared.js's FlightDataConsumer:
-// this file may only reference siblings that ship with it when integrations
-// copy the frames declaration set (solid-web's types build), and the
-// server-functions declarations are copied to a different root.
-type FlightConsumer = (data: unknown, context: { response: Response }) => void | Promise<void>;
 
 /**
  * Options for `applyFrameResponse`.
@@ -110,18 +104,6 @@ export interface ServerComponentHandlerOptions<C = unknown> {
    * never observes a pending beat.
    */
   intercept?(info: { id: string; meta: unknown; args: unknown[] }): C | undefined;
-  /**
-   * Reads the registered single-flight consumer at delivery time. The
-   * consumer is module state in the server-function client's SHARED
-   * instance; pass a getter reading that instance when your bundling gives
-   * this module a private copy. Defaults to the local copy's reader.
-   */
-  consumer?(): FlightConsumer | undefined;
-  /**
-   * Reads the configured codec options at decode time — same instance-
-   * identity contract as `consumer`. Defaults to the local copy's reader.
-   */
-  codec?(): JSONCodecOptions | undefined;
 }
 
 /**
@@ -465,19 +447,7 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
  * updates on delivery; calling the binding directly (a non-gated mount)
  * passes the binding's own constant address.
  */
-export function createServerComponentHandler({
-  host,
-  component,
-  onStream,
-  intercept,
-  // The flight consumer and codec are module state in the server-function
-  // client's SHARED instance; a bundler may give this module a private copy
-  // (solid-web's frames client does), so an integrator whose bundle splits
-  // them passes getters that read the built instance. The defaults read the
-  // local copy — correct whenever there is only one.
-  consumer = getFlightDataConsumer,
-  codec = getServerFunctionsCodec
-}) {
+export function createServerComponentHandler({ host, component, onStream, intercept }) {
   // Mount components, one per FUNCTION (the equals-gate identity).
   const byFn = new Map();
   const componentFor = fnId => {
@@ -588,9 +558,11 @@ export function createServerComponentHandler({
    * while the `outcome` chunks carry the `{ value, data }` envelope a plain
    * single-flight body would have held, component-valued entries included
    * (as flight references resolving to the very components those boundaries
-   * hold). Data reaches the integration through the same consumer, and the
-   * caller gets the same value, so a mutation reads identically whether or
-   * not any of what it invalidated was markup.
+   * hold). The decoded envelope then takes the SAME delivery path a plain
+   * body takes (`deliverFlightData`: each registered consumer receives its
+   * source's slice, in registration order), and the caller gets the same
+   * value, so a mutation reads identically whether or not any of what it
+   * invalidated was markup.
    */
   async function applyFlightResponse(response, address, binding) {
     // The mutation's own markup (when it returned a component) belongs to
@@ -612,7 +584,7 @@ export function createServerComponentHandler({
         feed = controller;
       }
     });
-    const payload = deserializeStream(new Response(source), flightCodec(codec()));
+    const payload = deserializeStream(new Response(source), flightCodec(getServerFunctionsCodec()));
     let carried = false;
 
     await applyFrameResponse(response, host, {
@@ -637,16 +609,13 @@ export function createServerComponentHandler({
     if (!carried) throw new Error("Single-flight frame response carried no outcome");
 
     const envelope = await payload;
-    const deliver = consumer();
-    if (deliver) await deliver(envelope.data, { response });
+    // The one delivery path (see server-functions/shared.js): the response
+    // header names the folded sources, each consumer gets its slice.
+    await deliverFlightData(response, envelope.data);
     // Mirrors the data-only path: responses carrying integration metadata
-    // are control flow for the consumer to interpret; a bare error-tagged
-    // one throws.
-    if (
-      response.headers.has(ERROR_HEADER) &&
-      !response.headers.has("Location") &&
-      !response.headers.has(REVALIDATE_HEADER)
-    ) {
+    // (the redirect carrier, `X-Revalidate`) are control flow for the
+    // consumers to interpret; a bare error-tagged one throws.
+    if (response.headers.has(ERROR_HEADER) && !hasFlightMetadata(response)) {
       throw envelope.value;
     }
     // A mutation that answered with markup for its own boundary resolves to

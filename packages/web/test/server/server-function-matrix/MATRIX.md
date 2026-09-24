@@ -59,6 +59,7 @@ Status legend: **pass** (ordinary green guard) · **audit** (reported by
 | Each requested source id executes at most once | #3251 **audit** | `server-functions-single-flight` |
 | One failed/unencodable slice cannot erase the mutation result or healthy slices | **pass** / #3243 **audit** | `server-functions-single-flight`, `server-functions-open-gaps` |
 | Redirecting mutations preserve folding without trusting attacker-controlled navigation metadata | #3252 **ruling** | contract decision required |
+| The envelope is one shape on every body — `data` keyed by source, the header naming the folded sources — and consumers receive their slice identically over the plain and the frames transport | #3638 **pass** | `server-functions-flight-markup`, `frames-flight-delivery` |
 
 ## No-JS form and flash replay
 

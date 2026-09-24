@@ -2292,8 +2292,22 @@ module.exports = [
     // statement, which brotli cannot share with the first; the module is
     // external either way. The price of taking the view protocol and the
     // server-scope seams off the public `solid-js` surface.
+    //
+    // One shared single-flight delivery path (#3638, 2026-09-24): 11.45 ->
+    // 11.50 KB, measured at 11484 B against `next`'s 11384 (+100 B). The
+    // frames transport used to carry its own two-line consumer hand-off
+    // (`consumer(envelope.data)` + a `Location`/`X-Revalidate` peek) and
+    // never retained the plain client's per-source routing loop, which
+    // lives on `dispatchServerFunction`; this scenario does not import it.
+    // The loop now lives once in shared.ts (`deliverFlightData` +
+    // `hasFlightMetadata`) and both transports call it, so this bundle
+    // newly retains the loop, the folded-header split, and the
+    // `X-Server-Function-Redirect` header name. An app that imports both
+    // transports carries one copy instead of two — the growth is this
+    // scenario's accounting, not the app's. The `consumer`/`codec` handler
+    // hooks and their defaults left with it.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.45 KB",
+    limit: "11.50 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

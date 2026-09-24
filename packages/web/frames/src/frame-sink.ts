@@ -143,7 +143,6 @@ import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { envelopeContainerTraces, isContainerTraced } from "./frame-container-plugin.js";
 import {
   ChunkReader,
-  SINGLE_FLIGHT_HEADER,
   createChunk,
   frameAddress,
   serializeStream
@@ -1950,15 +1949,20 @@ export function frameTransformFlightResult(
  * some of what a mutation invalidated is *markup*, the frame stream carries
  * the whole payload.
  *
- * A component-valued entry is not a different KIND of payload, just a
- * different representation of one: it stays in the `{ value, data }`
- * envelope like any other value — serialized as a flight reference (see
- * `ServerComponentPlugin`) that resolves client-side to the very component
- * the boundary showing that call holds, so the integration seeds its cache
- * through its ordinary path and freshness falls out for free. Its CONTENT
- * rides alongside as a region addressed by the call (`frameAddress` — the
- * one name both peers derive independently), so markup travels as html
- * exactly once and the envelope carries only a pointer to it.
+ * `data` is the fold's keyed envelope, `{ [source]: slice }` — one slice per
+ * flight-data source, the unnamed collector's under its reserved id "true"
+ * (see `foldFlightData`). Markup lives one level down: a slice is an
+ * integration's map of invalidated keys to values, and a component-valued
+ * entry in it is not a different KIND of payload, just a different
+ * representation of one. It stays in its slice like any other value —
+ * serialized as a flight reference (see `ServerComponentPlugin`) that
+ * resolves client-side to the very component the boundary showing that
+ * call holds, so the integration seeds its cache through its ordinary path
+ * and freshness falls out for free. Its CONTENT rides alongside as a region
+ * addressed by the call (`frameAddress` — the one name both peers derive
+ * independently), so markup travels as html exactly once and the envelope
+ * carries only a pointer to it. The source keys are preserved: the client
+ * routes each slice to its consumer by them, exactly as for a plain body.
  *
  * With nothing to frame this returns `undefined`, and the response is the
  * plain single-flight envelope, byte for byte.
@@ -1969,29 +1973,51 @@ export async function frameTransformFlightResult(event, outcome, context) {
   let serialized = data;
   if (data && typeof data === "object") {
     serialized = {};
-    // Collected entries arrive unresolved (an integration's cache stores the
-    // in-flight promise), and a value has to be in hand to know whether it is
-    // markup. So a mutation's payload settles before its response starts,
-    // where a data-only one streams as the codec produces it — the cost of
-    // knowing what kind of thing each entry is.
-    const keys = Object.keys(data);
-    const values = await Promise.all(keys.map(key => data[key]));
-    for (let i = 0; i < keys.length; i++) {
-      const entry = values[i];
-      // A component-valued entry is not a different KIND of payload, just a
-      // different representation of one: it stays in the map like any other
-      // value, serialized by reference (see `ServerComponentPlugin`) so the
-      // client seeds its cache with the boundary component and re-stamps
-      // freshness through the ordinary path. Its content rides alongside as a
-      // region addressed by the CALL — the address both peers derive
-      // independently — so markup ships once as html and the map carries only
-      // a pointer to it.
-      serialized[keys[i]] = entry;
-      if (typeof entry === "function") {
-        regions.push({
-          id: entry[SERVER_COMPONENT_ADDRESS] || keys[i],
-          component: entry[SERVER_COMPONENT_SOURCE] || entry
-        });
+    for (const source of Object.keys(data)) {
+      const slice = data[source];
+      // Only a keyed map is scanned: a slice can be any codec-serializable
+      // value, and nothing but an integration's key -> value map holds
+      // components. Everything else rides through untouched.
+      if (!slice || typeof slice !== "object" || Array.isArray(slice)) {
+        serialized[source] = slice;
+        continue;
+      }
+      // Collected entries arrive unresolved (an integration's cache stores
+      // the in-flight promise), and a value has to be in hand to know
+      // whether it is markup. So a mutation's payload settles before its
+      // response starts, where a data-only one streams as the codec
+      // produces it — the cost of knowing what kind of thing each entry is.
+      // A rejected entry keeps riding as its rejected promise: the codec's
+      // failure guard sanitizes it for the client like any other, and one
+      // failed key never costs the mutation's outcome or the other keys.
+      const keys = Object.keys(slice);
+      const settled = await Promise.allSettled(keys.map(key => slice[key]));
+      const out = (serialized[source] = {});
+      for (let i = 0; i < keys.length; i++) {
+        const result = settled[i];
+        const entry = result.status === "fulfilled" ? result.value : slice[keys[i]];
+        if (typeof entry !== "function") {
+          out[keys[i]] = entry;
+          continue;
+        }
+        // A branded component (a direct call's result through
+        // `frameTransformDirectResult`) carries its call address and the
+        // component it wraps: the region is addressed by the call, and the
+        // entry itself serializes as the reference. A BARE function — the
+        // "a function is a server component" convention applied to a flight
+        // entry — has no call to be addressed by, so its key is its address
+        // (the one name the integration and this response share), and a
+        // branded stand-in carries that address through the codec.
+        const address = entry[SERVER_COMPONENT_ADDRESS] || keys[i];
+        regions.push({ id: address, component: entry[SERVER_COMPONENT_SOURCE] || entry });
+        if (SERVER_COMPONENT in entry) {
+          out[keys[i]] = entry;
+        } else {
+          const reference = () => undefined;
+          reference[SERVER_COMPONENT] = keys[i];
+          reference[SERVER_COMPONENT_ADDRESS] = address;
+          out[keys[i]] = reference;
+        }
       }
     }
   }
@@ -2031,7 +2057,9 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
   headers.set("Content-Type", "application/x-frame-stream");
   headers.set(FRAME_STREAM_HEADER, primary ? primary.id : "");
   headers.set("X-Content-Raw", "1");
-  headers.set(SINGLE_FLIGHT_HEADER, "true");
+  // The single-flight header is the FOLD's (`foldFlightData`): its value is
+  // the folded source list the client routes slices by, which only the fold
+  // knows — it stamps every body shape, this one included.
   // Same disconnect guard as serverComponentResponse: post-cancel writes
   // drop instead of throwing through a serializer flush.
   let closed = false;
