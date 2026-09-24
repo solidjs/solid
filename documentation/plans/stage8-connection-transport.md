@@ -17,20 +17,19 @@ loop, and one status surface across both tiers:
 
 - **Data tier:** `live` claims the whole response — nested streams, not just
   the top-level iterable — over the per-source stream it already uses, now
-  framed as server-sent events; its post-hydration takeover fires per scope;
-  it pauses on hidden pages.
+  framed as server-sent events; its post-hydration takeover fires per scope.
 - **Frames:** server components consume `live` (no loop of their own), take
   first values from the document render and hand off, reconnect
   conditionally by hole hash, and tear down when the client goes away.
 
-The data tier is small by design — framing, a takeover fix, a pause. The
+The data tier is small by design — framing and a takeover fix. The
 substance of the stage is Phase B. Everything lands with the page of a new
 example that proves it. Existing examples (`rendering`, `hackernews`,
 `notes`, `chat`) are untouched. Apps using `live` today keep working
 with the flagged differences only (ledger below): fewer yields on a
-digest-equal reconnect, a pause on hidden pages, per-scope takeover; live
-calls move to the live address, so a client and server versioned apart
-miss each other on live calls until both are current.
+digest-equal reconnect, per-scope takeover; live calls move to the live
+address, so a client and server versioned apart miss each other on live
+calls until both are current.
 
 ## Decisions (settled 2026-09-22/23; details in the spec/design)
 
@@ -75,21 +74,23 @@ miss each other on live calls until both are current.
   `releaseSnapshotScope`), not at page-wide `onHydrationEnd`. The shipped
   `armLiveTakeover` gate is re-keyed per scope owner. Behavior change to a
   shipped export; arguably its own fix ahead of the rest.
-- **D9 — Hidden pages pause.** `live` closes its connections once a page
-  has stayed hidden past a grace window (~30s) and reconnects conditionally
-  on return. A pause is not a death: no status fires on the close, the last
-  status holds, the return reconnect reports like any other. A takeover
-  that fires while hidden (page opened and hydrated in the background)
-  parks until visible; a consumer ending during a pause fires `"closed"`
-  and cancels its parked work. No opt-out (future, if asked for). Behavior
-  change to a shipped export.
+- **D9 — Hidden pages hold their connections (pause deferred, 2026-09-23).**
+  A background tab keeps its live connections open, as an `EventSource`
+  does; the cost is one held connection per source on a backend whose
+  precondition is that it holds connections. The pause designed here (grace
+  window ~30s, no status on the close, last status held, a takeover firing
+  while hidden parked until visible, a consumer ending during a pause
+  firing `"closed"` and cancelling its parked work, no opt-out) moves to
+  Future-if-asked-for whole: the most intricate state machine on the data
+  tier, a behavior change to a shipped export, buying server cost only.
+  The D12 skip already makes a return reconnect free on the wire.
 - **D12 — Digest-equal reconnect yields nothing.** A value-shaped source's
   position is the server's digest of its last payload string, sent as the
   event `id:`. On a reconnect whose `Last-Event-ID` equals the current
   value's digest the server suppresses the first emission only; the client
   iterable does not yield for that connection, later values flow. Makes the
-  takeover and pause-return reconnects free on the wire (the data-tier
-  analog of B4's hole digests). Behavior change to a shipped export: fewer
+  takeover reconnect free on the wire (the data-tier analog of B4's hole
+  digests). Behavior change to a shipped export: fewer
   yields than today's `live` on reconnect.
 - **D13 — Framing is selected by the address.** The loop calls
   `<endpoint>/live/<id>`, a sibling of the scripted `/data/<id>`, and the
@@ -197,7 +198,7 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
 - **Demo:** presence panel over `live(GET(async function*))`, visibly an
   event stream.
 
-### A2 — `live` = response lifetime, per-scope takeover, pause
+### A2 — `live` = response lifetime, per-scope takeover
 
 - Client loop: lifetime observed through the stream's end + how it ended;
   death → backoff → re-invoke → re-yield the whole answer; completion →
@@ -215,37 +216,21 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
   pass — islands — arms a fresh one) must survive the re-keying.
 - Undeclared streaming death rejects the consumer's pull; `<Errored>`
   catches it.
-- Hidden-page pause (D9): `visibilitychange` → hidden starts a grace timer
-  (~30s); visible before it fires cancels it and nothing happens; firing
-  closes every live connection on the page without a status event.
-  Visible after a close → reconnect with position, conditional; the
-  reconnect fires `"connected"` when it lands or enters the ordinary
-  backoff when it does not. A source that is in backoff when the page
-  hides parks its retry until return. A takeover whose scope releases while
-  the page is hidden parks the connect until visible (born-hidden pages
-  connect nothing). A consumer that ends its iteration during a pause
-  (`break`, disposal) fires `"closed"` and cancels its parked retry or
-  takeover — nothing is left waiting on `visibilitychange`.
+- No hidden-page handling (D9): a background tab's connections stay open.
 - `onstatus` otherwise unchanged.
 - **Verify:** nested-async death/reconnect/completion; SSR first value per
   nested source; a live node in the shell reconnects before a slow boundary
   lands; a live node under a boundary reconnects when that boundary
   hydrates; a later hydration pass (islands) arms its own takeover;
   undeclared death is an error; `invoke` signal ends the iteration across
-  reconnects; single-flight never requested on live calls; hidden past the
-  grace window → connections closed with no status event; hidden and back
-  inside it → nothing; visible → reconnect, `"connected"`; page hydrated
-  while hidden → no connection, first visible → one connect per source;
-  `break` during a pause → `"closed"`, no parked work remains (asserted via
-  the visibility listener count).
+  reconnects; single-flight never requested on live calls.
 - **Demo:** room card over `live(GET(async () => ({ name, topic, messages,
 presence })))` with a projection over `messages`; summary over an
   undeclared bounded generator inside `<Errored>`; chaos shows declared
   sources reconnect (status pill) and the undeclared one errors; a slow
   `Loading` boundary elsewhere on the page does not delay the header's live
   source; two tabs see each other's presence; closing a tab removes it
-  (teardown); a tab hidden past the grace window drops its connections
-  and its presence, and both return with it.
+  (teardown); a tab in the background keeps its presence.
 
 ### A3 — dev chaos-reconnect knob
 
@@ -336,7 +321,6 @@ component ("summarize the room") for the bounded contrast.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----- |
 | `live` behavior over nested-async answers (response lifetime)                                                                                                                                           | behavior change, shipped fn | A2    |
 | `live` takeover fires per scope, not at page-wide hydration end                                                                                                                                         | behavior change, shipped fn | A2    |
-| `live` pauses on hidden pages (grace window; status held through the pause; takeover parked while hidden)                                                                                               | behavior change, shipped fn | A2    |
 | `live` digest-equal reconnect yields nothing (D12)                                                                                                                                                      | behavior change, shipped fn | A1    |
 | Live calls move from the data address to `<endpoint>/live/<id>` — a client and server versioned apart miss each other on live calls until both are current                                              | wire (address)              | A1    |
 | Event-stream framing of what the live address answers; `Last-Event-ID` (value digest as `id:`; cursor sources read the header)                                                                          | wire                        | A1    |
@@ -388,11 +372,28 @@ component ("summarize the room") for the bounded contrast.
 - `reconnect()` of a live source inside a mutation's single flight
   (`query.live` has it) for sources that depend on something the mutation
   changed.
-- A declaration-level opt-out of the hidden-page pause for sources that
-  must be heard in the background — notifications, a call ringing
-  (Datastar's `openWhenHidden`). It is a property of the source, so it
-  would live on `live`'s declaration, not per call. Only if something needs
-  it.
+- The hidden-page pause (deferred 2026-09-23; designed in full, unbuilt):
+  `visibilitychange` → hidden starts a grace timer (~30s); visible before
+  it fires cancels it and nothing happens; firing closes every live
+  connection on the page without a status event and the last status holds.
+  Visible after a close → reconnect with position, conditional (the D12
+  skip makes it free when nothing changed); the reconnect fires
+  `"connected"` when it lands or enters the ordinary backoff when it does
+  not. A source in backoff when the page hides parks its retry until
+  return. A takeover whose scope releases while the page is hidden parks
+  the connect until visible (born-hidden pages connect nothing). A
+  consumer that ends its iteration during a pause (`break`, disposal)
+  fires `"closed"` and cancels its parked retry or takeover — nothing is
+  left waiting on `visibilitychange`. Datastar's default; `EventSource`
+  and `query.live` do not pause. Deferred because it buys server cost only
+  — one held connection per source in a background tab, on a backend
+  whose precondition is that it holds connections — for the most
+  intricate state machine on the data tier and a behavior change to a
+  shipped export. Build it if a real server-cost problem shows up; it is
+  additive. With it would come the declaration-level opt-out for sources
+  that must be heard in the background — notifications, a call ringing
+  (Datastar's `openWhenHidden`) — a property of the source, on `live`'s
+  declaration, not per call.
 
 ## Out of scope
 

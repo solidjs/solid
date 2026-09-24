@@ -2502,21 +2502,19 @@ value belonged in durable state.
    `onstatus` on the reference's iterable — the same three states,
    the same hook, for data and frames. Open decision (b) closes with
    no new surface.
-7. **Hidden pages pause.** `live` closes its connections once a
-   page has stayed hidden past a grace window (~30s) and
-   reconnects, conditionally, on return. A pause is not a death:
-   no status fires on the close, the last status holds, and the
-   return reconnect reports like any other. A takeover that fires
-   while the page is hidden (a page opened and hydrated in the
-   background) parks until it is visible; a frame disposed during a
-   pause cancels its parked work. A background tab with
-   live frames costs one reconnect per frame when it comes back
-   and holds no server render meanwhile — a frame's server render
-   is disposed with its connection, so a tab left in the
-   background is not a render held on the server. An opt-out for
-   sources that must be heard in the background is not built
-   (future, if asked for). RFC 10's rule; frames inherit it
-   through the loop.
+7. **Hidden pages hold their connections.** A live frame in a
+   background tab keeps its connection and its server render, as
+   an `EventSource` keeps its connection — the platform does not
+   pause, and neither does `live`. The cost is one held render per
+   frame on a backend whose precondition is that it holds
+   connections. A pause (grace window, status held through it, a
+   takeover that fires while hidden parked until visible, disposal
+   during a pause cancelling the parked work) was designed and
+   deferred unbuilt (2026-09-23): the most intricate state machine
+   on the data tier, a behavior change to shipped `live`, buying
+   server cost only. Additive if asked for; the digest-equal skip
+   (and B4's hole digests) already make a return reconnect free on
+   the wire. RFC 10's rule; frames inherit it through the loop.
 
 #### Projections pump too — a symmetry the tree currently breaks
 
@@ -2605,9 +2603,9 @@ summary:
   warning; A2 `live` = response lifetime —
   nested brand walk, death vs completion, whole-answer re-yield, SSR
   first value per source, per-scope takeover (the `armLiveTakeover`
-  fix, keeping the per-pass re-arm for islands), hidden-page pause
-  (grace window, held status, takeover parked while hidden, `break`
-  cancels the parked work), `onstatus` unchanged; A3 chaos knob.
+  fix, keeping the per-pass re-arm for islands), `onstatus`
+  unchanged (the hidden-page pause deferred unbuilt — item 7); A3
+  chaos knob.
 - **Phase B (frames):** B1 teardown on disconnect; B2 frames consume
   `live` — response lifetime through the handler, `dynamic` over
   bindings, hydration adoption into the loop, supersession as death,
@@ -2627,11 +2625,9 @@ re-derivation baseline, never the baseline, because the baseline
 must hold for sources that have none.
 
 **Public API this stage touches** (flagged, per the engineering
-standard): `live`'s behavior changes four ways on a shipped export
+standard): `live`'s behavior changes three ways on a shipped export
 — it claims nested-async answers, its post-hydration takeover fires
-per scope instead of at page-wide hydration end, it pauses on
-hidden pages (after a grace window, holding status through the
-pause, parking a takeover that fires while hidden), and a
+per scope instead of at page-wide hydration end, and a
 digest-equal reconnect yields nothing (a dying body already
 rejects what it left open — that is the decoder's end-of-body
 sweep today, not a change); `onstatus` becomes reachable for
@@ -2650,7 +2646,7 @@ shipping: `SSE(fn)`, `enableEventStream()`, `Accept:
 text/event-stream` as a client declaration, the
 framing-follows-method rule, the per-page channel, the
 `live: { transport, hold }` server configuration, `connected` on
-the frame handle.
+the frame handle. Deferred unbuilt: the hidden-page pause.
 
 **Open decisions:** (a) `SERVER_WRITE` throw scope; (b) CLOSED —
 connection state is `onstatus`; (c) safety cap: `documentWindow`
