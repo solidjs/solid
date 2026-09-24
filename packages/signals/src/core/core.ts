@@ -24,6 +24,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_NO_SNAPSHOT,
+  CONFIG_PLUMBING,
   CONFIG_OPTIMISTIC,
   CONFIG_DERIVED_OVERRIDE,
   CONFIG_OVERRIDE_SUPERSEDED,
@@ -989,6 +990,9 @@ export function computed<T>(
           (!context || options?.lazy ? CONFIG_AUTO_DISPOSE : 0) |
           (options?.sync ? CONFIG_SYNC : 0) |
           (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0) |
+          // Plumbing is an observe-tier notion (a name and records to
+          // withhold); the prod literal never carries the bit.
+          (options?._plumbing ? CONFIG_PLUMBING : 0) |
           (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
         _equals: options?.equals ?? isEqual,
         _disposal: null,
@@ -1017,7 +1021,9 @@ export function computed<T>(
         _notifiedAt: -1,
         _loading: loading,
         _x: null,
-        _name: options?.name ?? "computed"
+        // The slot is always present (hidden class); plumbing leaves it
+        // unset, which `ownerPath` skips.
+        _name: options?._plumbing ? undefined : (options?.name ?? "computed")
       } as Computed<T>)
     : ({
         id: inheritId(options, transparent, context),

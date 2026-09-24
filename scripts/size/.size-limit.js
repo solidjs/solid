@@ -1944,7 +1944,13 @@ module.exports = [
     // then the reactive graph it reaches through deps and subs, with a Set of the met
     // nodes), the graph record at navigation settle, the per-route size history judged
     // series by series, the option and its merge, and the finding's three leak shapes.
-    limit: "17.65 KB",
+    // CONFIG_PLUMBING (2026-09-24): 17.65 -> 17.70 KB, measured at 17,670 B
+    // against 17,618 on next (+52 B). The observe `computed()` literal reads
+    // one more option (`_plumbing`) into a config bit and withholds `_name`
+    // for it — the solid-js/refresh HMR memo, so it is no owner-path segment
+    // and the engine records nothing about it (`excludedNode` reads the bit).
+    // Prod literal untouched; prod scenarios byte-identical.
+    limit: "17.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2221,7 +2227,12 @@ module.exports = [
     // latest companions and derived overrides are never judged) is +35 B:
     // 31,625 B, under the same cap (25 B of headroom; the next finding moves
     // it). Tier unchanged at 17,618.
-    limit: "31.65 KB",
+    // CONFIG_PLUMBING (2026-09-24): 31.65 -> 31.70 KB, measured at 31,664 B
+    // against 31,625 on next (+39 B): `excludedNode` reads the bit before the
+    // observer-exclusion walk, so the solid-js/refresh HMR memo is recorded
+    // nowhere (creation, re-run, checks) while what it owns stays observed.
+    // The tier's own +52 B is charged in the scenario above.
+    limit: "31.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

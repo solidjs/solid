@@ -290,7 +290,7 @@ describe("Strict Read Warning", () => {
             }
             return undefined;
           },
-          { name: "", transparent: true }
+          { _plumbing: true, transparent: true }
         );
       }
       return s(props);

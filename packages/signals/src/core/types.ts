@@ -38,6 +38,10 @@ export interface NodeOptions<T> {
    * CONFIG_DIRECT_COMMIT / CONFIG_AUTHORITATIVE_READ, keeping the per-flag
    * option arms out of the core creation path. */
   _extraConfig?: number;
+  /** Observe tiers: framework plumbing — no name, no owner-path segment, no
+   * attribution records of its own; its children stay observed (internal —
+   * not part of public API; see CONFIG_PLUMBING). */
+  _plumbing?: boolean;
   unobserved?: () => void;
   lazy?: boolean;
   sync?: boolean;

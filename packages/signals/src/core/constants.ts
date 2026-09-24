@@ -195,6 +195,12 @@ export const CONFIG_ADOPTED_UNFLUSHED = 1 << 24;
  * (`transitionBlocked`) skip it; the revert drops the override and re-derives
  * it (`resolveOptimisticNodes`). Cleared with the override. */
 export const CONFIG_DERIVED_OVERRIDE = 1 << 23;
+/** Observe tiers only: the node is framework plumbing (the `solid-js/refresh`
+ * HMR memo between a component's root and its body) — it has no name, is no
+ * segment of any owner path, and the attribution engine records nothing about
+ * it (creation, re-runs, checks), while the nodes it owns stay fully observed.
+ * Set from the internal `_plumbing` option at creation; never set in prod. */
+export const CONFIG_PLUMBING = 1 << 25;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
