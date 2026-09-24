@@ -2216,7 +2216,11 @@ module.exports = [
     // 31,368 (+222 B; the PR's own +263 was against the pre-#3604 28,999).
     // The tier did not move on this base: 17,618 either way — the 38 B the
     // note above saw was nameCache drift, the hook sites fold to the same
-    // minified shape.
+    // minified shape. The companion guard (2026-09-24: `optimisticReverts`
+    // option + the `isCompanion` skip in checkOptimisticRevert, so isPending/
+    // latest companions and derived overrides are never judged) is +35 B:
+    // 31,625 B, under the same cap (25 B of headroom; the next finding moves
+    // it). Tier unchanged at 17,618.
     limit: "31.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
