@@ -1510,6 +1510,7 @@ function processResult<T>(
             return {
               [Symbol.asyncIterator]: () => ({
                 next() {
+                  if (comp.disposed) return closeTappedIterator(iter);
                   if (tappedFirst) {
                     tappedFirst = false;
                     return Promise.resolve(r);
@@ -1731,6 +1732,7 @@ function processResult<T>(
         const tapped = {
           [Symbol.asyncIterator]: () => ({
             next() {
+              if (comp.disposed) return closeTappedIterator(iter);
               if (tappedFirst) {
                 tappedFirst = false;
                 return deferred.promise.then(() =>
@@ -1837,6 +1839,11 @@ function closeAsyncIterator(iter: any, value?: any) {
   if (returned && typeof returned.then === "function") {
     returned.then(undefined, () => {});
   }
+}
+
+function closeTappedIterator<T>(iter: AsyncIterator<T>): Promise<IteratorResult<T>> {
+  closeAsyncIterator(iter);
+  return Promise.resolve({ done: true, value: undefined });
 }
 
 // === Effects ===
@@ -2456,6 +2463,7 @@ export function createProjection<T extends object = {}>(
             pumping = null;
             if (disposed || r.done) {
               logDone = true;
+              if (!r.done) closeAsyncIterator(iter);
               return;
             }
             // Apply the replacement through the patch-recording draft BEFORE
