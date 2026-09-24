@@ -2454,6 +2454,29 @@ describe("latched divergence — mid-stream dependency changes commit at hydrati
 // ssrSource "hybrid" — post-hydration transition with async generators
 // ============================================================================
 
+// The client source's await points are gates the test releases, not timers:
+// the handoff run and every step after it ride microtasks (the generator's
+// continuation, handleAsync's pull, the scheduler's queued flush), so a
+// timer inside the source raced the test's own wait — on a loaded CI runner
+// the source's ticks stalled past the test's budget and the assertion saw a
+// yield still in flight. Same shape as hybrid-{memo,store}-handoff.spec.ts.
+function deferred<T = void>() {
+  let resolve!: (value: T) => void, reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  promise.catch(() => {});
+  return { promise, resolve, reject };
+}
+// Drains the microtask chain between a released gate and the node's commit,
+// then flushes: every hop on that path is a microtask, so the drain is a
+// property of the code, not of the clock.
+const tick = async () => {
+  for (let i = 0; i < 40; i++) await Promise.resolve();
+  flush();
+};
+
 describe("ssrSource 'hybrid' — async generator transition", () => {
   afterEach(() => {
     stopHydration();
@@ -2464,22 +2487,22 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     startHydration({ t0: { v: [{ id: 1, text: "first" }], s: 1 } });
 
     let store: any;
-    let yieldCount = 0;
     const values = [
       { id: 1, text: "first" },
       { id: 2, text: "second" },
       { id: 3, text: "third" }
     ];
+    // One gate per continuation past a yield; the last releases completion.
+    const gates = values.map(() => deferred());
 
     createRoot(
       () => {
         store = createProjection(
           async function* (draft: any) {
-            for (const val of values) {
-              draft.push(val);
-              yieldCount++;
+            for (let i = 0; i < values.length; i++) {
+              draft.push(values[i]);
               yield;
-              await new Promise(r => setTimeout(r, 5));
+              await gates[i].promise;
             }
           },
           [] as any[],
@@ -2495,15 +2518,27 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(store[0].text).toBe("first");
 
     stopHydration();
-    flush();
+    await tick();
 
-    // After hydration: client generator runs with shadow draft for first iteration
-    // Wait for all yields to complete
-    await new Promise(r => setTimeout(r, 100));
-    flush();
+    // The handoff run's first push went to the shadow draft — the duplicate
+    // of what the server serialized — so item 1 is not repeated.
+    expect(store.length).toBe(1);
+    expect(store[0].text).toBe("first");
 
-    // Shadow absorbed the first push — real store should not have duplicated item 1
-    // Items 2 and 3 should be present from subsequent yields
+    // Subsequent yields land on the real store as the source continues.
+    gates[0].resolve();
+    await tick();
+    expect(store.length).toBe(2);
+    expect(store[1].text).toBe("second");
+
+    gates[1].resolve();
+    await tick();
+    expect(store.length).toBe(3);
+    expect(store[2].text).toBe("third");
+
+    // Completion changes nothing.
+    gates[2].resolve();
+    await tick();
     expect(store.length).toBe(3);
     expect(store[0].text).toBe("first");
     expect(store[1].text).toBe("second");
@@ -2518,16 +2553,17 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
       { id: 1, text: "first" },
       { id: 2, text: "second" }
     ];
+    const gates = values.map(() => deferred());
 
     createRoot(
       () => {
         store = createProjection(
           async function* () {
             const items: any[] = [];
-            for (const val of values) {
-              items.push(val);
+            for (let i = 0; i < values.length; i++) {
+              items.push(values[i]);
               yield [...items];
-              await new Promise(r => setTimeout(r, 5));
+              await gates[i].promise;
             }
           },
           [] as any[],
@@ -2542,15 +2578,22 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(store[0].text).toBe("first");
 
     stopHydration();
-    flush();
+    await tick();
 
-    await new Promise(r => setTimeout(r, 100));
-    flush();
+    // First yield's value suppressed as the duplicate.
+    expect(store.length).toBe(1);
+    expect(store[0].text).toBe("first");
 
-    // First yield's value suppressed, second yield reconciles
+    // Second yield reconciles.
+    gates[0].resolve();
+    await tick();
     expect(store.length).toBe(2);
     expect(store[0].text).toBe("first");
     expect(store[1].text).toBe("second");
+
+    gates[1].resolve();
+    await tick();
+    expect(store.length).toBe(2);
   });
 
   test("createProjection: hybrid with sync fn (non-generator) uses server value", () => {
@@ -2578,14 +2621,16 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     startHydration({ t0: { v: { items: [1] }, s: 1 } });
 
     let store: any;
+    const values = [1, 2, 3];
+    const gates = values.map(() => deferred());
     createRoot(
       () => {
         [store] = createStore(
           async function* (draft: any) {
-            for (const val of [1, 2, 3]) {
-              draft.items.push(val);
+            for (let i = 0; i < values.length; i++) {
+              draft.items.push(values[i]);
               yield;
-              await new Promise(r => setTimeout(r, 5));
+              await gates[i].promise;
             }
           },
           { items: [] as number[] },
@@ -2600,13 +2645,25 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(store.items[0]).toBe(1);
 
     stopHydration();
-    flush();
-
-    await new Promise(r => setTimeout(r, 100));
-    flush();
+    await tick();
 
     // Shadow absorbed the first push (1), so real store keeps server [1]
+    expect(store.items.length).toBe(1);
+    expect(store.items[0]).toBe(1);
+
     // Subsequent yields push 2 and 3 to the real store
+    gates[0].resolve();
+    await tick();
+    expect(store.items.length).toBe(2);
+    expect(store.items[1]).toBe(2);
+
+    gates[1].resolve();
+    await tick();
+    expect(store.items.length).toBe(3);
+    expect(store.items[2]).toBe(3);
+
+    gates[2].resolve();
+    await tick();
     expect(store.items.length).toBe(3);
     expect(store.items[0]).toBe(1);
     expect(store.items[1]).toBe(2);
@@ -2665,14 +2722,15 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     startHydration({ t0: { v: 1, s: 1 } });
 
     let memo: any;
+    const gates = [deferred(), deferred()];
     createRoot(
       () => {
         memo = createMemo(
           async function* () {
             yield 1;
-            await new Promise(r => setTimeout(r, 5));
+            await gates[0].promise;
             yield 2;
-            await new Promise(r => setTimeout(r, 5));
+            await gates[1].promise;
             yield 3;
           } as any,
           { ssrSource: "hybrid" }
@@ -2686,12 +2744,18 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(memo()).toBe(1);
 
     stopHydration();
-    flush();
+    await tick();
 
     // Takeover: the client generator re-runs; its first yield reproduces the
     // server value and the rest continue — no refetch/invalidation required.
-    await new Promise(r => setTimeout(r, 50));
-    flush();
+    expect(memo()).toBe(1);
+
+    gates[0].resolve();
+    await tick();
+    expect(memo()).toBe(2);
+
+    gates[1].resolve();
+    await tick();
     expect(memo()).toBe(3);
   });
 
@@ -2715,9 +2779,9 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(memo()).toBe("only");
 
     stopHydration();
-    flush();
-    await new Promise(r => setTimeout(r, 20));
-    flush();
+    // The handoff run's only yield is the duplicate; the source completes on
+    // microtasks with nothing further to land.
+    await tick();
     expect(memo()).toBe("only");
   });
 
@@ -2725,12 +2789,13 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     startHydration({ t0: { v: 10, s: 1 } });
 
     let read: any;
+    const gate = deferred();
     createRoot(
       () => {
         [read] = createSignal(
           async function* () {
             yield 10;
-            await new Promise(r => setTimeout(r, 5));
+            await gate.promise;
             yield 20;
           } as any,
           { ssrSource: "hybrid" }
@@ -2743,9 +2808,11 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(read()).toBe(10);
 
     stopHydration();
-    flush();
-    await new Promise(r => setTimeout(r, 30));
-    flush();
+    await tick();
+    expect(read()).toBe(10);
+
+    gate.resolve();
+    await tick();
     expect(read()).toBe(20);
   });
 });
