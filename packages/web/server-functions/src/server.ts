@@ -1578,13 +1578,7 @@ export function live(fn) {
     throw new Error("live expects a server function reference");
   }
   const metadata = { ...getServerFunctionMetadata(fn), live: true };
-  const wrapped = async (...args) => {
-    const result = await fn(...args);
-    if (result !== null && typeof result === "object" && result[Symbol.asyncIterator]) {
-      result[LIVE_SOURCE] = true;
-    }
-    return result;
-  };
+  const wrapped = async (...args) => brandLive(await fn(...args));
   wrapped[SERVER_FUNCTION_METADATA] = metadata;
   wrapped[SERVER_FUNCTION_INVOKE] = inProcessInvoker(wrapped);
   wrapped.id = fn.id;
@@ -1593,6 +1587,24 @@ export function live(fn) {
     configurable: true
   });
   return wrapped;
+}
+
+/**
+ * Brands a live declaration's answer, in process: the async iterable it IS
+ * (a standing answer — every yield the complete current value), or the
+ * function it is (a server component: its render is the stream). `live`
+ * claims the whole response (RFC 10, Lifetime), but sources NESTED in a
+ * value answer are not branded: they are bounded and end on their own —
+ * the loop holds the response for them and completes when they have.
+ */
+function brandLive(answer) {
+  if (
+    typeof answer === "function" ||
+    (answer !== null && typeof answer === "object" && answer[Symbol.asyncIterator])
+  ) {
+    answer[LIVE_SOURCE] = true;
+  }
+  return answer;
 } /**
  * Reads the in-flight server function invocation (its id) for the current
  * request event — usable inside a server function body, e.g. to key caches

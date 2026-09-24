@@ -38,6 +38,7 @@
 // import site of the shared wire layer keeps working.
 import { getServerFunctionMetadata, isServerFunction } from "./registry.js";
 export {
+  LIVE_RESUME_FROM,
   LIVE_SOURCE,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
@@ -818,7 +819,11 @@ export const LAST_EVENT_ID_HEADER = "Last-Event-ID";
  * `Last-Event-ID`, and the loop asks the reference for the LIVE address
  * when this is present. `open` builds the event-stream reader — installed
  * by `live()` itself, so a client that never imports `live` carries no
- * event-stream parser (the `provideRPC` pattern).
+ * event-stream parser (the `provideRPC` pattern). `connection` is the slot
+ * for the connection being made: the decoder sets `connection.ended`, a
+ * promise for the body's end carrying how many deferreds were still open
+ * (the lifetime signal — death or completion), the error the body ended
+ * with, and the sweep the loop may run over the open ones.
  * @internal
  */
 export const LIVE_WIRE = Symbol("solid.LiveWire");
@@ -1623,9 +1628,25 @@ export async function deserializeStream(source, codecOptions, wire) {
     // sweep no-ops, while a truncation that lands exactly on a frame
     // boundary — indistinguishable from completion — leaves stranded values
     // that can never settle once the body is done.
+    //
+    // A live loop (`wire`) is told instead of swept: the body's end is the
+    // connection's lifetime signal — a death when deferreds are still open,
+    // a completion when none are — and the loop decides what happens to the
+    // open ones. A death it will reconnect from leaves them pending (the
+    // re-yielded answer supersedes them; throwing into them would surface
+    // the death the loop exists to erase); an iteration ending for good
+    // runs the sweep it was handed so nothing hangs.
+    const connection = wire && wire.connection;
+    let endConnection;
+    if (connection) connection.ended = new Promise(resolve => (endConnection = resolve));
+    const end = error => {
+      const sweep = () => deserializeChunk.abort(error);
+      if (connection) endConnection({ open: deserializeChunk.open(), error, sweep });
+      else sweep();
+    };
     reader.drain(interpretChunk).then(
-      () => deserializeChunk.abort(new Error("Server function stream ended unexpectedly.")),
-      error => deserializeChunk.abort(error)
+      () => end(new Error("Server function stream ended unexpectedly.")),
+      error => end(error)
     );
 
     return interpretChunk(result.value);

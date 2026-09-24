@@ -21,6 +21,7 @@ import {
   ERROR_HEADER,
   EventStreamReader,
   LAST_EVENT_ID_HEADER,
+  LIVE_RESUME_FROM,
   LIVE_SOURCE,
   LIVE_WIRE,
   REDIRECT_HEADER,
@@ -41,6 +42,7 @@ import {
   isServerFunction,
   MAX_GET_URL_LENGTH,
   parseServerFunctionAddress,
+  positionDigest,
   provideServerFunctionRPC,
   serverFunctionActionUrlFor,
   serverFunctionAddress,
@@ -1222,7 +1224,12 @@ export function live(fn) {
         let connected = false; // a connect succeeded once — later deaths reconnect
         let attempts = 0;
         let stopped = false;
-        let ended = false; // "closed" fires exactly once per iteration
+        let closed = false; // "closed" fires exactly once per iteration
+        // The current connection's lifetime signal (see LIVE_WIRE): set by
+        // the decoder when the answer arrived as a codec stream, undefined
+        // for an answer with no stream behind it (a void or intercepted
+        // answer), whose local iterator's end is then the whole story.
+        let ended;
         let timer, wake; // interruptible backoff sleep
         const DONE = { done: true, value: undefined };
         // The iteration owns a controller so ending consumption (`break`)
@@ -1238,9 +1245,31 @@ export function live(fn) {
         // that named one, the runtime's value digest otherwise, which lets
         // the server skip a first emission this iteration already holds.
         // The reader is built here so that `live` is what carries it.
+        // `connection` is renewed per connect; the decoder hangs the body's
+        // end on it (see deserializeStream) — the lifetime signal below.
+        // A hydration takeover seeds the position from the value the page
+        // was served with (LIVE_RESUME_FROM, stamped by the hydrating node's
+        // compute wrapper), so a takeover that finds the same value on the
+        // server costs nothing on the wire.
         const wire = {
-          position: undefined,
+          position:
+            iterable[LIVE_RESUME_FROM] !== undefined
+              ? positionDigest(iterable[LIVE_RESUME_FROM])
+              : undefined,
+          connection: undefined,
           open: body => new EventStreamReader(body, wire)
+        };
+        // Sweeps handed over by connections that died while this iteration
+        // meant to go on: their open deferreds are left pending (the
+        // re-yielded answer supersedes them) until the iteration ends for
+        // good, when everything still open is failed so nothing hangs.
+        const sweeps = [];
+        const sweepAll = () => {
+          while (sweeps.length) {
+            try {
+              sweeps.pop()();
+            } catch {}
+          }
         };
         const wireOptions = {
           ...invokeOptions,
@@ -1274,8 +1303,14 @@ export function live(fn) {
         };
         const emitClosed = error => {
           track(false);
-          if (ended) return;
-          ended = true;
+          // Ending for good: fail whatever is still open — the deferreds
+          // outlived deaths left pending, and the current connection's once
+          // its body ends (severed by the controller, or already done) — so
+          // no consumer of a nested value hangs on an iteration that is over.
+          sweepAll();
+          if (ended) ended.then(end => end.sweep());
+          if (closed) return;
+          closed = true;
           emit("closed", error);
         };
         const closeIt = value => {
@@ -1317,8 +1352,10 @@ export function live(fn) {
           while (!stopped) {
             try {
               if (!it) {
+                const connection = (wire.connection = { ended: undefined });
                 const result = await callOnce();
                 connected = true;
+                ended = connection.ended;
                 // a plain-value answer is a one-value stream
                 it =
                   result !== null && typeof result === "object" && result[Symbol.asyncIterator]
@@ -1336,8 +1373,31 @@ export function live(fn) {
                 track(true);
                 emit("connected");
               }
-              const r = await it.next();
-              if (r.done) {
+              // The answer is alive while its RESPONSE is (RFC 10, Lifetime):
+              // a nested stream or promise inside a yielded object keeps the
+              // connection open after the top-level iterable is done, and a
+              // body that ends on open deferreds is a death whichever level
+              // they sit at. So the read races the body's end — values still
+              // buffered win the race, the loop reads them first — and a
+              // finished top-level iterator waits for the end to say which
+              // it was: completion (nothing owed) completes the iteration;
+              // death reconnects and re-yields the whole answer.
+              const r = await (ended
+                ? Promise.race([it.next(), ended.then(end => ({ end }))])
+                : it.next());
+              if (r.end || r.done) {
+                const end = r.end || (ended && (await ended));
+                if (end && end.open > 0) {
+                  // a death this iteration will outlive: the open deferreds
+                  // stay pending until it ends for good (see sweeps); the
+                  // body's error goes down the reconnect path like a
+                  // rejected read would
+                  sweeps.push(end.sweep);
+                  throw end.error;
+                }
+                // completion: nothing is open, so the sweep is a no-op, but
+                // it is what a decoder without a live loop would have run
+                if (end) end.sweep();
                 emitClosed();
                 return DONE;
               }
@@ -1388,8 +1448,7 @@ export function live(fn) {
                 emitClosed(error);
                 throw error;
               }
-              it = undefined;
-              track(false);
+              closeIt();
               emit("reconnecting", error);
               await new Promise(resolve => {
                 wake = resolve;

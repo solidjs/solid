@@ -2347,6 +2347,206 @@ describe("live-branded sources — automatic takeover", () => {
     expect(result()).toBe("server-value");
     expect(computeRuns).toBe(runsDuringHydration);
   });
+
+  test("the takeover run tells the live answer where to resume from: the adopted value", async () => {
+    startHydration({ t0: { v: "server-current", s: 1 } });
+
+    const connections = { count: 0 };
+    const iterables: any[] = [];
+    createRoot(
+      () => {
+        createMemo(() => {
+          const iterable = makeLiveSource("live-current", connections);
+          iterables.push(iterable);
+          return iterable as any;
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    // the trace run's iterable is not a takeover: nothing to resume from
+    expect(iterables).toHaveLength(1);
+    expect(iterables[0][Symbol.for("solid.LiveResumeFrom")]).toBeUndefined();
+
+    stopHydration();
+    flush();
+    // the takeover run's iterable carries the value the page was served
+    // with — the transport digests it into its first connection's position
+    expect(iterables).toHaveLength(2);
+    expect(iterables[1][Symbol.for("solid.LiveResumeFrom")]).toBe("server-current");
+  });
+
+  // --- per-scope takeover (D8) ------------------------------------------
+  //
+  // The gate a live node reads belongs to the hydration scope that created
+  // it — the root pass, or the boundary whose resume window it hydrated in
+  // — and flips when THAT scope releases, not when the whole page has
+  // hydrated. The Loading boundaries below hold a serialized promise the
+  // test resolves by hand; the id scheme is the pipeline suite's (Loading
+  // memo "t0", its children's primitive "t0000").
+
+  function makeLoadingPromise() {
+    let resolve!: () => void;
+    const p: any = new Promise<void>(r => {
+      resolve = () => {
+        p.s = 1;
+        p.v = true;
+        r();
+      };
+    });
+    return { promise: p, resolve };
+  }
+
+  function installHY(r: Record<string, any>) {
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r,
+      events: [],
+      completed: new WeakSet()
+    };
+    return () => {
+      delete (globalThis as any)._$HY;
+    };
+  }
+
+  test("a live node in the shell reconnects when the root pass ends, before a slow boundary lands", async () => {
+    const slow = makeLoadingPromise();
+    const uninstall = installHY({ t0: slow.promise });
+    startHydration({ t0: slow.promise, t1: { v: "server-current", s: 1 } });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "content" as any;
+          }
+        });
+        result = createMemo(() => makeLiveSource("live-current", connections) as any);
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server-current");
+
+    // the root pass is over (the serialized data stays reachable for the
+    // boundary, as in a real page); the boundary is still pending, so
+    // hydration as a whole is not done
+    sharedConfig.hydrating = false;
+    flush();
+    expect(sharedConfig.done).toBe(false);
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    // ...and the shell node has reconnected regardless
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(2);
+
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    expect(connections.count).toBe(2); // no second takeover at hydration end
+    uninstall();
+  });
+
+  test("a live node under a boundary reconnects when that boundary hydrates, not when the page does", async () => {
+    const boundary = makeLoadingPromise();
+    const other = makeLoadingPromise(); // never resolved: the page stays un-done
+    const uninstall = installHY({ t0: boundary.promise, t1: other.promise });
+    startHydration({
+      t0: boundary.promise,
+      t0000: { v: "server-current", s: 1 },
+      t1: other.promise
+    });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            result = createMemo(() => makeLiveSource("live-current", connections) as any);
+            return (() => result()) as any;
+          }
+        });
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "never" as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    sharedConfig.hydrating = false; // the root pass is over
+    flush();
+    expect(result).toBeUndefined(); // the boundary's content has not hydrated yet
+
+    boundary.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    // the boundary resumed: its content adopted the server value and took
+    // over as soon as its own window closed — the other boundary is still
+    // pending, so page-wide hydration has not ended
+    expect(sharedConfig.done).toBe(false);
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(2);
+
+    // let the page finish (the pending count spans roots — leave none behind)
+    other.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    expect(connections.count).toBe(2); // no second takeover at hydration end
+    uninstall();
+  });
+
+  test("a later hydration pass (islands) arms its own takeover", async () => {
+    // pass one
+    startHydration({ t0: { v: "server-one", s: 1 } });
+    const one = { count: 0 };
+    let first: any;
+    createRoot(
+      () => {
+        first = createMemo(() => makeLiveSource("live-one", one) as any);
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(first()).toBe("live-one");
+    expect(sharedConfig.done).toBe(true);
+
+    // pass two: a fresh root, hydrating again
+    startHydration({ u0: { v: "server-two", s: 1 } });
+    const two = { count: 0 };
+    let second: any;
+    createRoot(
+      () => {
+        second = createMemo(() => makeLiveSource("live-two", two) as any);
+      },
+      { id: "u" }
+    );
+    flush();
+    expect(second()).toBe("server-two");
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(second()).toBe("live-two");
+    expect(two.count).toBe(2);
+    // the first pass's node was not disturbed by the second pass
+    expect(first()).toBe("live-one");
+    expect(one.count).toBe(2);
+  });
 });
 
 // ============================================================================

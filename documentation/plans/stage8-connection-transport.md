@@ -204,11 +204,30 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
   death → backoff → re-invoke → re-yield the whole answer; completion →
   complete. Plain async functions returning nested-async objects produce an
   iterable that yields once per connection.
-- Server half (in-process): walk the resolved answer and brand nested async
-  sources live (reuse the encoder's guard walk); for a function-valued answer
-  (a component) brand the function.
-- SSR: each branded nested source takes first value and closes (existing
-  hybrid path).
+- Server half (in-process): brand the answer that IS the source — the
+  top-level iterable, or a function-valued answer (a component). Nothing
+  nested is branded: the sources inside a value answer are bounded (they
+  end on their own; a standing stream nested in a value is misuse, B3's
+  safety cap and diagnostic cover it).
+- Takeover resumes from the adopted value: hydration's takeover run stamps
+  the live answer with the SSR value it replaces (`solid.LiveResumeFrom`,
+  registered symbol, internal to solid-js ↔ `@solidjs/web`); the client
+  loop digests it into its first connection's `Last-Event-ID`, so a takeover
+  that finds the same value on the server yields nothing (D12 as promised).
+- SSR: the top-level branded source takes first value and closes (existing
+  hybrid path). A nested source needs no handoff — the serializer pumps it
+  to its end — but it does need SHARING: a generator yields to one reader,
+  and the serializer pumping the answer and a memo reading
+  `answer().progress` are two (the common case). Landed as its own commit,
+  general, not live-specific: every iterable read the runtime makes on the
+  server goes through a seat on a shared multicast of the source
+  (`shareAsyncIterable`: one pump, log trimmed to the slowest seat, last
+  seat out closes); the serializer takes its seat through the frames'
+  border walk (`toBorderForm`, formerly `envelopeContainerTraces`) applied
+  at `context.serialize` — memo values on the document face and B3's frame
+  document face — and to slot args in the frame sink, whose first-yield tap
+  uses the same seats. Projections keep their own generator; the trace is
+  their multicast.
 - **D8 fix:** `armLiveTakeover` keyed per snapshot-scope owner; flips on that
   scope's release (root pass end, or the boundary's own
   `releaseSnapshotScope`). No live node waits on another boundary. The
@@ -218,8 +237,9 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
   catches it.
 - No hidden-page handling (D9): a background tab's connections stay open.
 - `onstatus` otherwise unchanged.
-- **Verify:** nested-async death/reconnect/completion; SSR first value per
-  nested source; a live node in the shell reconnects before a slow boundary
+- **Verify:** nested-async death/reconnect/completion; a nested source read
+  by a memo and pumped by the serializer is shared (one pump, whole
+  sequence to both); a live node in the shell reconnects before a slow boundary
   lands; a live node under a boundary reconnects when that boundary
   hydrates; a later hydration pass (islands) arms its own takeover;
   undeclared death is an error; `invoke` signal ends the iteration across

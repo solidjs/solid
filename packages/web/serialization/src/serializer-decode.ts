@@ -331,14 +331,64 @@ export function createJSONDeserializer(options) {
   // hook can reach it before Node reports the rejection. Both spellings put
   // the bare promise in `refs`, so claiming promises here covers both with
   // one guard.
+  // The deferreds this decoder has minted that a later chunk may still
+  // settle: pending-promise resolvers (`{p, s, f}`) whose promise has not
+  // settled, and streams. A resolver leaves the set from a settlement
+  // handler on its promise — one microtask after the settling chunk, which
+  // is before anything that runs off the body's end can ask. Streams are
+  // asked directly (see `open`): seroval's stream replays its buffer to a
+  // new listener synchronously, ending with `return`/`throw` when it is
+  // closed, so a subscribe-and-unsubscribe answers "alive?" exactly.
+  //
+  // `refs` is not only what this decoder minted: a consumer can seed it
+  // (frames register a container's live store so `$ref`s resolve to the
+  // one instance), and such a value may be a proxy whose property reads
+  // throw (a store suspended on its fill). Classification therefore reads
+  // nothing off a value it cannot vouch for without a guard — a value that
+  // refuses to be read is not a deferred of ours.
+  const pendingResolvers = new Set();
+  const streams = new Set();
+  const STREAM = 1;
+  const RESOLVER = 2;
+  function classify(value) {
+    if (value === null || typeof value !== "object") return 0;
+    try {
+      if (value.__SEROVAL_STREAM__) return STREAM;
+      if (
+        typeof value.s === "function" &&
+        typeof value.f === "function" &&
+        value.p instanceof Promise
+      )
+        return RESOLVER;
+    } catch {}
+    return 0;
+  }
   function ownDecodedPromises() {
     if (refs.size === owned) return;
     let index = 0;
     for (const value of refs.values()) {
       if (index++ < owned) continue;
       if (value instanceof Promise) value.then(undefined, () => {});
+      else {
+        const kind = classify(value);
+        if (kind === STREAM) streams.add(value);
+        else if (kind === RESOLVER) {
+          pendingResolvers.add(value);
+          const settled = () => pendingResolvers.delete(value);
+          value.p.then(settled, settled);
+        }
+      }
     }
     owned = refs.size;
+  }
+  function isOpenStream(stream) {
+    let alive = true;
+    const close = () => {
+      alive = false;
+    };
+    const off = stream.on({ next() {}, throw: close, return: close });
+    if (typeof off === "function") off();
+    return alive;
   }
   function deserializeJSONChunk(node) {
     try {
@@ -373,18 +423,30 @@ export function createJSONDeserializer(options) {
    */
   deserializeJSONChunk.abort = function abort(error) {
     for (const value of refs.values()) {
-      if (value === null || typeof value !== "object") continue;
-      if (value.__SEROVAL_STREAM__) {
+      const kind = classify(value);
+      if (kind === STREAM) {
         value.throw(error);
-      } else if (
-        typeof value.s === "function" &&
-        typeof value.f === "function" &&
-        value.p instanceof Promise
-      ) {
+      } else if (kind === RESOLVER) {
         value.p.then(undefined, () => {});
         value.f(error);
       }
     }
+  };
+  /**
+   * How many deferreds are still waiting on chunks: open streams plus
+   * pending-promise resolvers. Zero at the end of a body means every value
+   * the stream promised has arrived — a completion; more means the body
+   * ended on values it still owed — a death. Asked from the end-of-body
+   * path, which runs after the settling chunk's microtasks (see
+   * `pendingResolvers`).
+   */
+  deserializeJSONChunk.open = function open() {
+    let count = pendingResolvers.size;
+    for (const stream of streams) {
+      if (isOpenStream(stream)) count++;
+      else streams.delete(stream);
+    }
+    return count;
   };
   return deserializeJSONChunk;
 }

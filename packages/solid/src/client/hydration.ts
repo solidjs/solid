@@ -262,6 +262,7 @@ function markTopLevelSnapshotScope() {
   if (!owner) return;
   while (owner._parent) owner = owner._parent;
   markSnapshotScope(owner);
+  openLiveScope(owner);
   _snapshotRootOwner = owner;
 }
 
@@ -455,6 +456,12 @@ const latchedOnce = new WeakSet<object>();
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration. */
 function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options?: any) {
   const o = getOwner()!;
+  // A node armed for takeover computes once its gate is open — its own
+  // section's hydration is over even if the page's is not (#D8: a live
+  // node in the shell must not wait for a slow boundary). Checked before
+  // the serialized short-circuit below, which would otherwise re-latch it.
+  const gate = nodeGate.get(o);
+  if (gate && (sharedConfig.done || gate())) return takeOver(o, gate, compute, prev);
   // A computation must adopt its serialized server value for the whole
   // hydration lifecycle (`!done`), not just inside a synchronous resume window.
   // A streamed section can recompute between chunks; running the client body
@@ -468,18 +475,36 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // rules out), and the hybrid wrappers re-enter this path for every later
   // run of such a node, not only on divergence.
   if (latchedOnce.has(o)) {
-    if (options?.ssrSource !== "hybrid") armLiveTakeover();
+    if (options?.ssrSource !== "hybrid") armLiveTakeover(o);
   } else latchedOnce.add(o);
   return readHydratedValue(
     sharedConfig.load!(o.id!),
     () => {
       const traced = subFetch(compute, prev);
       if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
-        armLiveTakeover();
+        armLiveTakeover(o);
       return traced;
     },
     options
   );
+}
+
+/**
+ * The takeover run: the real compute, against live sources. A live answer
+ * is told the value the page was served with (`prev`, the adopted SSR
+ * value) so its first connection can name it as the position it already
+ * holds — a takeover that finds the same value on the server then costs
+ * nothing on the wire (the transport's digest-equal skip). Stamped on the
+ * takeover run only; the node's later recomputes are ordinary.
+ */
+function takeOver(o: Owner, gate: () => boolean, compute: (prev: any) => any, prev: any) {
+  const result = compute(prev);
+  if (gate !== TAKEN) {
+    nodeGate.set(o, TAKEN);
+    if (result != null && typeof result === "object" && result[LIVE_SOURCE])
+      result[LIVE_RESUME_FROM] = prev;
+  }
+  return result;
 }
 
 /**
@@ -509,24 +534,70 @@ const UNASKED: PromiseLike<never> = { then() {} } as any;
  */
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 
-// One shared gate for all live-armed nodes in a hydration pass: nodes that
-// trace-detected a live compute read it (tracked); hydration end flips it,
-// recomputing exactly those nodes — whose compute wrapper now sees
-// `sharedConfig.done` and runs the real compute, reconnecting. The stale
+/**
+ * Where a takeover resumes from (registered symbol; read by the transport's
+ * `live()` iteration): the adopted SSR value, stamped on the live answer
+ * the takeover run returns so its first connection names the position the
+ * page already holds.
+ */
+const LIVE_RESUME_FROM = Symbol.for("solid.LiveResumeFrom");
+
+// Takeover gates, one per hydration scope: nodes that trace-detected a live
+// compute (or diverged while latched) read their scope's gate (tracked);
+// the scope's release flips it, recomputing exactly those nodes — whose
+// compute wrapper then runs the real compute, reconnecting. The stale
 // adopted value serves until the reconnect's first yield lands (pending
-// recomputes serve prev), so takeover is seam-free. The gate is discarded
-// on flip so a later hydration pass (islands) arms a fresh one.
-let liveGate: (() => boolean) | undefined;
-function armLiveTakeover() {
-  if (!liveGate) {
-    const [read, write] = coreSignal(false);
-    liveGate = read;
-    onHydrationEnd(() => {
-      liveGate = undefined;
-      write(true);
-    });
+// recomputes serve prev), so takeover is seam-free.
+//
+// The scope is the nearest open snapshot scope above the node — the root
+// pass, or the boundary whose resume window created it — so a live node in
+// the shell takes over when the root pass ends, not when the last boundary
+// lands, and a node under a boundary takes over when THAT boundary
+// hydrates (D8). A node armed with no scope open (re-entered between
+// streamed chunks) falls back to a gate hydration's end flips. An entry is
+// discarded on flip so a later hydration pass (islands) arms a fresh one;
+// `nodeGate` outlives it so a taken-over node keeps computing.
+const openScopes = new Set<Owner>();
+const liveGates = new Map<Owner | null, [() => boolean, (v: boolean) => void]>();
+const nodeGate = new WeakMap<Owner, () => boolean>();
+const TAKEN = () => true;
+function liveScopeOf(o: Owner): Owner | null {
+  if (openScopes.size === 0) return null;
+  let owner: Owner | null = o;
+  while (owner) {
+    if (openScopes.has(owner)) return owner;
+    owner = owner._parent;
   }
-  liveGate();
+  return null;
+}
+function armLiveTakeover(o: Owner) {
+  let gate = nodeGate.get(o);
+  if (!gate) {
+    const scope = liveScopeOf(o);
+    let entry = liveGates.get(scope);
+    if (!entry) {
+      entry = coreSignal(false);
+      liveGates.set(scope, entry);
+      if (scope === null)
+        onHydrationEnd(() => {
+          liveGates.delete(null);
+          entry![1](true);
+        });
+    }
+    gate = entry[0];
+    nodeGate.set(o, gate);
+  }
+  gate();
+}
+function openLiveScope(scope: Owner) {
+  openScopes.add(scope);
+}
+function releaseLiveScope(scope: Owner) {
+  openScopes.delete(scope);
+  const entry = liveGates.get(scope);
+  if (!entry) return;
+  liveGates.delete(scope);
+  entry[1](true);
 }
 
 /** Options carry commit #0 — the loading window must hold through the claim walk. */
@@ -1743,6 +1814,9 @@ export function enableHydration() {
       } else if (was && !v) {
         if (_snapshotRootOwner) {
           releaseSnapshotScope(_snapshotRootOwner);
+          // the root pass is over: its live nodes take over now, whatever
+          // boundaries are still pending (D8)
+          releaseLiveScope(_snapshotRootOwner);
           _snapshotRootOwner = null;
         }
         checkHydrationComplete();
@@ -2337,6 +2411,7 @@ function resumeBoundaryHydration(
     _hydratingValue = shouldHydrate;
     if (shouldHydrate) {
       markSnapshotScope(o);
+      openLiveScope(o);
       _snapshotRootOwner = o;
       // The window claims this boundary's subtree only: the rest of the
       // tree hydrated in the root pass, and a re-render it takes during the
@@ -2349,7 +2424,12 @@ function resumeBoundaryHydration(
     if (shouldHydrate) _snapshotRootOwner = null;
     _hydratingValue = false;
     _claimOwner = prevClaim;
-    if (shouldHydrate) releaseSnapshotScope(o);
+    if (shouldHydrate) {
+      releaseSnapshotScope(o);
+      // this boundary's hydration is over: its live nodes take over now,
+      // without waiting for the rest of the page (D8)
+      releaseLiveScope(o);
+    }
     flush();
   } finally {
     _claimOwner = prevClaim;
