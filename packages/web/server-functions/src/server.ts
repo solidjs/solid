@@ -57,6 +57,13 @@ import {
 } from "./shared.js";
 
 export {
+  // Wire-protocol utilities re-exported for the frame sink, the mirror of
+  // the client entry's block: the frames server artifact resolves its
+  // shared.js import HERE (rollup.config.js externalizeFramesServerRuntime)
+  // so the framing/addressing code and the streaming codec entry it uses
+  // are the handler's own instance — never a private copy. Transport
+  // building blocks, not for hand-written code.
+  ChunkReader,
   ERROR_HEADER,
   FLASH_COOKIE,
   REDIRECT_HEADER,
@@ -64,15 +71,18 @@ export {
   SINGLE_FLIGHT_HEADER,
   UNKNOWN_HEADER,
   clearFlashCookie,
+  createChunk,
   decodeErrorHeaderValue,
   decodeRedirectHeaderValue,
   decodeResponse,
   decodeResponsePayload,
   encodeErrorHeaderValue,
+  frameAddress,
   getServerFunctionMetadata,
   hasFlashCookie,
   invoke,
   isServerFunction,
+  serializeStream,
   subscribeFlightData,
   withMeta
 } from "./shared.js";

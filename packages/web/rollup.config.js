@@ -106,6 +106,48 @@ const externalizeSharedClient = {
   }
 };
 
+// The frames SERVER entry's counterpart of externalizeSharedTransport. The
+// frame sink and transport lean on three server-side modules that carry
+// module state the rest of the app writes through the PUBLIC entries:
+//
+//   - the server-function runtime: `handleServerFunctionRequest` records
+//     the in-flight invocation in a module-level WeakMap that
+//     `frameTransformFlightResult` reads back for the primary frame's id.
+//     A private copy read an always-empty map, so every single-flight
+//     server-component response left with `X-Frame-Stream: ""` and the
+//     client rendered nothing (#3641);
+//   - its shared wire layer (framing, addressing, the streaming codec
+//     entry) — same instance as the handler's by the same reasoning;
+//   - the SSR runtime itself: compiled SSR output arms the select-value
+//     gate (`ssrSelectValues`) through `@solidjs/web`, and `renderToStream`
+//     reads it when it emits html — a bundled copy never saw the arming, so
+//     `<select value>` inside a server component streamed unresolved.
+//
+// Resolving those relative imports to the public server entries keeps
+// exactly one copy of each in an app and makes every seam agree by
+// construction — the ruling #3640 applied to the client half. The observe
+// emitters (server-observe.js / observe.js) stay bundled: they are
+// import-free and keep no module state (records ride registered symbols),
+// exactly as the client entry bundles them. A name an entry stops exporting
+// fails at link time (test/dist-frames-server-instance.spec.ts imports every
+// artifact), never silently.
+const externalizeFramesServerRuntime = {
+  name: "externalize-frames-server-runtime",
+  resolveId(source, importer) {
+    if (!importer || !/[\\/]frame-(sink|transport)\.(js|ts)$/.test(importer)) return null;
+    if (
+      source === "../../server-functions/src/server.js" ||
+      source === "../../server-functions/src/shared.js"
+    ) {
+      return { id: "@solidjs/web/server-functions/server", external: true };
+    }
+    if (source === "../../src/server.js" || source === "../../src/response.js") {
+      return { id: "@solidjs/web", external: true };
+    }
+    return null;
+  }
+};
+
 const assertFramesClientTransport = {
   name: "assert-frames-client-transport",
   generateBundle(_, bundle) {
@@ -317,7 +359,9 @@ export default [
   // never calls the copy's readers, so the config write looks
   // unobservable) — which shipped a frames client with no transport in
   // beta.23/24; assertFramesClientTransport keeps that from regressing.
-  // The server half bundles the frame sink and its SSR pipeline.
+  // The server half bundles the frame sink; the server-function runtime,
+  // its wire layer and the SSR runtime it drives are external (see
+  // externalizeFramesServerRuntime).
   {
     input: "frames/src/client.ts",
     output: { file: "frames/dist/client.js", format: "es" },
@@ -377,32 +421,59 @@ export default [
       .concat(assertFramesClientTransport)
   },
   {
-    // Prod build, like the main server entry above: the frame sink bundles
-    // runtime code with `_SOLID_DEV_` gates (useHead/insert dev warnings), and
-    // without the replace babel folds the truthy literal into the dev branch
-    // — same build-mode bug as #2982, dev-only noise shipped in prod here.
+    // Prod build, like the main server entry above: the sink's own
+    // `_SOLID_DEV_` gates (and the bundled observe emitters') must strip —
+    // without the replace babel folds the truthy literal into the dev branch,
+    // the same build-mode bug as #2982. The SSR runtime and the
+    // server-function runtime come from the external entries, whose tier the
+    // same export conditions select, so the two can't disagree.
     input: "frames/src/server.ts",
     output: { file: "frames/dist/server.js", format: "es" },
-    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
-    plugins: [replaceDev(false)].concat(plugins)
+    external: [
+      "solid-js",
+      "solid-js/internal",
+      "stream",
+      "seroval",
+      "seroval-plugins/web",
+      "@solidjs/web",
+      "@solidjs/web/server-functions/server"
+    ],
+    plugins: [replaceDev(false), externalizeFramesServerRuntime].concat(plugins)
   },
   {
     // Dev server build for frames (`development` nested under node/worker/deno
-    // in the `./frames` export and the `./frames/server` subpath). Keeps the
-    // bundled SSR pipeline's `_SOLID_DEV_` gates live in dev SSR, matching the
-    // main dist/server.dev entry above.
+    // in the `./frames` export and the `./frames/server` subpath). The dev
+    // SSR runtime arrives through `@solidjs/web` under the same condition
+    // (dist/server.dev.js); this artifact keeps the sink's own gates live.
     input: "frames/src/server.ts",
     output: { file: "frames/dist/server.dev.js", format: "es" },
-    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
-    plugins: [replaceDev(true)].concat(plugins)
+    external: [
+      "solid-js",
+      "solid-js/internal",
+      "stream",
+      "seroval",
+      "seroval-plugins/web",
+      "@solidjs/web",
+      "@solidjs/web/server-functions/server"
+    ],
+    plugins: [replaceDev(true), externalizeFramesServerRuntime].concat(plugins)
   },
   {
-    // Observe server build for frames: the bundled SSR pipeline carries the
-    // `OBSERVE.server` population (and, later, the server facade's emit
-    // sites) at production speed. Same nesting as the other two.
+    // Observe server build for frames: the `"frame"` record's server half
+    // (observeFrame) survives at production speed; the runtime's own
+    // `OBSERVE.server` population rides dist/server.observe.js under the same
+    // condition. Same nesting as the other two.
     input: "frames/src/server.ts",
     output: { file: "frames/dist/server.observe.js", format: "es" },
-    external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
-    plugins: [replaceFlags(false, true)].concat(plugins)
+    external: [
+      "solid-js",
+      "solid-js/internal",
+      "stream",
+      "seroval",
+      "seroval-plugins/web",
+      "@solidjs/web",
+      "@solidjs/web/server-functions/server"
+    ],
+    plugins: [replaceFlags(false, true), externalizeFramesServerRuntime].concat(plugins)
   }
 ];
