@@ -18,6 +18,8 @@ import {
   createServerReference as createServerSideReference,
   handleServerFunctionRequest,
   live as liveServer,
+  configureServerFunctionsServer,
+  setServerFunctionsDev,
   registerServerFunction,
   registerServerReference
 } from "@solidjs/web/server-functions/server";
@@ -374,5 +376,49 @@ describe("the server half brands the answer, in process", () => {
     expect(answer[LIVE_SOURCE]).toBeUndefined();
     expect(answer.progress[LIVE_SOURCE]).toBeUndefined();
     expect(answer.parts[0][LIVE_SOURCE]).toBeUndefined();
+  });
+});
+
+describe("the dev chaos knob", () => {
+  it("ends every live response after the configured interval as a death; the loop reconnects", async () => {
+    setServerFunctionsDev(true);
+    configureServerFunctionsServer({ chaosReconnectEvery: 30 });
+    restores.push(() => {
+      configureServerFunctionsServer({ chaosReconnectEvery: 0 });
+      setServerFunctionsDev(false);
+    });
+    let connections = 0;
+    registerServerFunction("ll-chaos-0", async function* () {
+      const connection = ++connections;
+      yield { connection };
+      await new Promise(() => {}); // a standing answer: only the wire ends it
+    });
+    connectTransport();
+    const source = live(createServerReference("ll-chaos-0"));
+    const iterable = (source as any)();
+    const states: string[] = [];
+    iterable.onstatus = (state: string) => states.push(state);
+    // two connections' worth of values: the first died under the knob and
+    // the loop reconnected on its own
+    const values = await take(iterable as AsyncIterable<any>, 2);
+    expect(values).toEqual([{ connection: 1 }, { connection: 2 }]);
+    expect(connections).toBe(2);
+    expect(states.slice(0, 3)).toEqual(["connected", "reconnecting", "connected"]);
+  });
+
+  it("is inert outside the dev build", async () => {
+    configureServerFunctionsServer({ chaosReconnectEvery: 10 });
+    restores.push(() => configureServerFunctionsServer({ chaosReconnectEvery: 0 }));
+    let connections = 0;
+    registerServerFunction("ll-chaos-1", async function* () {
+      connections++;
+      yield "a";
+      await new Promise(r => setTimeout(r, 60));
+      yield "b";
+    });
+    connectTransport();
+    const source = live(createServerReference("ll-chaos-1"));
+    expect(await take((source as any)() as AsyncIterable<any>, 2)).toEqual(["a", "b"]);
+    expect(connections).toBe(1);
   });
 });

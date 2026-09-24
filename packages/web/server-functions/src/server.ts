@@ -468,6 +468,17 @@ export interface ServerFunctionsServerConfig {
    * render reads "no flash".
    */
   secret?: string;
+  /**
+   * DEV ONLY — the chaos knob: end every live response this many
+   * milliseconds after it opens, the way a dying connection ends it (the
+   * body breaks off with the stream still open). The client's `live` loop
+   * reads it as a death and reconnects — backoff, `Last-Event-ID`, the
+   * digest-equal skip, `onstatus` — so the reconnect path is exercised
+   * continuously without a network to break. Applies to every event-stream
+   * response the live address answers, data and frames alike. Ignored
+   * outside the dev build; `0`/`undefined` is off.
+   */
+  chaosReconnectEvery?: number;
 }
 
 /**
@@ -643,7 +654,8 @@ const config = {
   endpoint: "/_server",
   csrf: true,
   bodySizeLimit: 1_048_576,
-  maxArguments: 1000
+  maxArguments: 1000,
+  chaosReconnectEvery: 0
 }; /**
  * Configures the server runtime. Call once at server startup, before
  * handling requests. Only needed when deviating from the defaults (custom
@@ -683,7 +695,8 @@ export function configureServerFunctionsServer({
   codec,
   bodySizeLimit,
   maxArguments,
-  secret
+  secret,
+  chaosReconnectEvery
 } = {}) {
   if (provideEvent !== undefined) config.provideEvent = provideEvent;
   if (wrapInvocation !== undefined) config.wrapInvocation = wrapInvocation;
@@ -699,6 +712,7 @@ export function configureServerFunctionsServer({
   if (maxArguments !== undefined) config.maxArguments = maxArguments;
   // the flash codec owns the key (flash.js) — the option just names it
   if (secret !== undefined) setFlashSecret(secret);
+  if (chaosReconnectEvery !== undefined) config.chaosReconnectEvery = chaosReconnectEvery;
 }
 
 // Named flight-data collectors, keyed by source id. The unnamed
@@ -2946,6 +2960,22 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
         }, LIVE_HEARTBEAT_INTERVAL);
         if (typeof heartbeat === "object" && heartbeat && typeof heartbeat.unref === "function")
           heartbeat.unref();
+        // The chaos knob (dev only): end this response as a dying connection
+        // would — the body errors with the stream still open, so the client
+        // reads a death, not a completion. Cleared with the heartbeat; a
+        // response that completed on its own is never touched.
+        if (DEV && config.chaosReconnectEvery > 0) {
+          const chaos = setTimeout(() => {
+            if (closed) return;
+            teardown();
+            try {
+              controller.error(new Error("Live response ended by the chaos knob."));
+            } catch {}
+          }, config.chaosReconnectEvery);
+          if (typeof chaos === "object" && chaos && typeof chaos.unref === "function")
+            chaos.unref();
+          sourceClosers.add(() => clearTimeout(chaos));
+        }
       }
       if (signal) {
         if (signal.aborted) {

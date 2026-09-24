@@ -255,7 +255,15 @@ presence })))` with a projection over `messages`; summary over an
 ### A3 — dev chaos-reconnect knob
 
 - Dev-only configuration that kills live responses every N seconds, data and
-  frames alike. The harness route stays as the manual switch.
+  frames alike: `configureServerFunctionsServer({ chaosReconnectEvery: ms })`
+  — the event-stream writer errors the body N ms after the response opens
+  (a death, not a completion: the stream is still open), cleared when the
+  response completes on its own; inert outside the dev build. Frames' live
+  responses ride the same writer, so B2 is covered when it lands. The
+  harness route stays as the manual switch.
+- **Verify:** a standing answer dies under the knob and the loop reconnects
+  (`connected → reconnecting → connected`); the knob is inert in the
+  production build.
 
 ## Phase B — frames (`@solidjs/web/frames`, `solid-js/server`)
 
@@ -346,7 +354,7 @@ component ("summarize the room") for the bounded contrast.
 | Event-stream framing of what the live address answers; `Last-Event-ID` (value digest as `id:`; cursor sources read the header)                                                                          | wire                        | A1    |
 | `X-Accel-Buffering` / `no-store` on live responses                                                                                                                                                      | wire (headers)              | A1    |
 | Dev warning: >5 live connections over HTTP/1.1                                                                                                                                                          | new dev-only diagnostic     | A1    |
-| Dev chaos-reconnect knob                                                                                                                                                                                | new dev-only option         | A3    |
+| Dev chaos-reconnect knob: `chaosReconnectEvery` on `configureServerFunctionsServer`                                                                                                                     | new dev-only option         | A3    |
 | `onstatus` reachable for server-component references                                                                                                                                                    | existing surface, new reach | B2    |
 | Have-list header; hole digests                                                                                                                                                                          | wire                        | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                             | behavior change             | B3+   |
