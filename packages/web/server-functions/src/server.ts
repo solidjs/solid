@@ -52,6 +52,10 @@ import {
   serverFunctionAddress,
   serverFunctionUrlFor,
   createChunk,
+  createEventChunk,
+  EVENT_STREAM_HEARTBEAT,
+  LAST_EVENT_ID_HEADER,
+  positionDigest,
   encodeErrorTrailer,
   withMeta
 } from "./shared.js";
@@ -2826,9 +2830,33 @@ function keepGuarded(value, next, changed, state) {
  * every channel before the codec sees the value, so the demand gate and the
  * teardown registry are threaded through its state (`{ items: rows() }` —
  * a cursor beside a total — gets the same two guarantees as `return rows()`).
+ *
+ * `live` selects the event-stream framing a live address answers in (see
+ * encodeLiveResult): the same payloads one per event, a comment heartbeat
+ * while idle, and each yield's position — parked on `live.pending` by the
+ * live adapter — riding as the `id:` of the record that carries the yield.
  */
-export function serializeResponseStream(value, codecOptions, signal, scope) {
+export function serializeResponseStream(value, codecOptions, signal, scope, live) {
   let closed = false;
+  const frame = live
+    ? payload => {
+        const id = live.pending;
+        live.pending = undefined;
+        return createEventChunk(payload, id);
+      }
+    : createChunk;
+  // Heartbeat, live only: a comment every 20s while the response is open,
+  // so a proxy's idle timeout never mistakes a waiting source for a dead
+  // one. Not demand-gated — the two bytes ride ahead of any parked pull.
+  // Unref'd where the runtime allows: the connection holds the process
+  // open, not the timer.
+  let heartbeat = null;
+  const stopHeartbeat = () => {
+    if (heartbeat !== null) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+  };
   // Demand gate. seroval's pump pulls each source as fast as it resolves and
   // enqueues every node the moment it is parsed, so without this a slow
   // consumer never slows the producer: the whole result accumulates in the
@@ -2886,6 +2914,7 @@ export function serializeResponseStream(value, codecOptions, signal, scope) {
   const teardown = () => {
     if (closed) return;
     closed = true;
+    stopHeartbeat();
     if (onAbort) signal.removeEventListener("abort", onAbort);
     if (cancelSerialize) cancelSerialize();
     finishSource();
@@ -2896,6 +2925,16 @@ export function serializeResponseStream(value, codecOptions, signal, scope) {
     // promise — reads wait for it, so the stream's contract is unchanged
     async start(controller) {
       streamController = controller;
+      if (live) {
+        heartbeat = setInterval(() => {
+          if (closed) return;
+          try {
+            controller.enqueue(EVENT_STREAM_HEARTBEAT);
+          } catch {}
+        }, LIVE_HEARTBEAT_INTERVAL);
+        if (typeof heartbeat === "object" && heartbeat && typeof heartbeat.unref === "function")
+          heartbeat.unref();
+      }
       if (signal) {
         if (signal.aborted) {
           teardown();
@@ -2929,11 +2968,12 @@ export function serializeResponseStream(value, codecOptions, signal, scope) {
       cancelSerialize = serializeJSON(value, {
         ...codecOptions,
         onParse(node) {
-          if (!closed) controller.enqueue(createChunk(JSON.stringify(node)));
+          if (!closed) controller.enqueue(frame(JSON.stringify(node)));
         },
         onDone() {
           if (closed) return;
           closed = true;
+          stopHeartbeat();
           if (onAbort) signal.removeEventListener("abort", onAbort);
           finishSource();
           controller.close();
@@ -2941,6 +2981,7 @@ export function serializeResponseStream(value, codecOptions, signal, scope) {
         onError(error) {
           if (closed) return;
           closed = true;
+          stopHeartbeat();
           if (onAbort) signal.removeEventListener("abort", onAbort);
           finishSource();
           // The head is committed by the time an encode failure arrives, so
@@ -2960,7 +3001,7 @@ export function serializeResponseStream(value, codecOptions, signal, scope) {
                 : error,
               "channel"
             );
-            controller.enqueue(createChunk(encodeErrorTrailer(delivered)));
+            controller.enqueue(frame(encodeErrorTrailer(delivered)));
             controller.close();
           } catch {
             try {
@@ -2983,6 +3024,99 @@ function serializedResponse(value, headers, codec, signal, scope) {
   headers.set(BODY_FORMAT_HEADER, BodyFormat.Serialized);
   headers.set("Content-Type", "text/plain");
   return new Response(serializeResponseStream(value, codec, signal, scope), { headers });
+}
+
+// Idle heartbeat period of a live response. Under the common proxy idle
+// timeouts (30s nginx `proxy_read_timeout` is the lowest default in wide
+// use; most hosts sit at 60s+).
+const LIVE_HEARTBEAT_INTERVAL = 20000;
+
+/**
+ * The live adapter: positions and the first-emission skip (RFC 10, `live`
+ * → Position). Wraps the answer a live address dispatched so that each
+ * value-shaped yield's digest is parked for the framer to carry as the
+ * record's `id:`, and — when the reconnecting loop's `Last-Event-ID` equals
+ * the FIRST yield's digest — that yield is dropped: the client already
+ * holds it. Only the first emission is examined; every later yield is a
+ * change by definition. A yield that is not JSON-safe has no digest,
+ * carries no id and is never skipped. A cursor source ignores all of this
+ * by yielding what it likes and reading the header off the request itself.
+ *
+ * A one-value answer gets the same treatment: skipped, it is an empty
+ * stream — the iteration completes with nothing, exactly as it would have
+ * completed after one value the client already had.
+ */
+function liveSource(value, lastEventId, position, scope) {
+  const digestOf = v => (scope ? scope(() => positionDigest(v)) : positionDigest(v));
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    typeof value[Symbol.asyncIterator] !== "function"
+  ) {
+    const digest = digestOf(value);
+    if (digest !== undefined && digest === lastEventId) return (async function* () {})();
+    position.pending = digest;
+    return value;
+  }
+  const source = value;
+  return {
+    [Symbol.asyncIterator]() {
+      const iterator = source[Symbol.asyncIterator]();
+      let first = true;
+      const step = () =>
+        iterator.next().then(result => {
+          if (result.done) return result;
+          const digest = digestOf(result.value);
+          if (first) {
+            first = false;
+            if (digest !== undefined && digest === lastEventId) return step();
+          }
+          position.pending = digest;
+          return result;
+        });
+      return {
+        next: step,
+        return: v =>
+          iterator.return ? iterator.return(v) : Promise.resolve({ done: true, value: v }),
+        throw: e => (iterator.throw ? iterator.throw(e) : Promise.reject(e))
+      };
+    }
+  };
+}
+
+/**
+ * Encodes what a live address dispatched: the scripted codec stream in
+ * event-stream framing — `text/event-stream`, `no-store` (a live answer is
+ * a moment, never a cacheable value), `X-Accel-Buffering: no` (nginx's
+ * per-response buffering switch; the content type covers the rest). The
+ * format tag stays Serialized: the payloads are the same codec records, and
+ * the client's decoder picks the reader off the content type.
+ *
+ * Void answers, bodiless statuses and values with a natural HTTP encoding
+ * (a returned Response body, a Blob) take the ordinary road — there is
+ * nothing to stream and nothing to position.
+ */
+function encodeLiveResult(value, headers, status, codec, request, scope) {
+  if (NULL_BODY_STATUSES.has(status) || value === undefined || getHeadersAndBody(value)) {
+    return encodeResult(value, headers, status, codec, request.signal, scope);
+  }
+  const position = { pending: undefined };
+  const source = liveSource(value, request.headers.get(LAST_EVENT_ID_HEADER), position, scope);
+  headers.set(BODY_FORMAT_HEADER, BodyFormat.Serialized);
+  headers.set("Content-Type", "text/event-stream");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Accel-Buffering", "no");
+  try {
+    return new Response(serializeResponseStream(source, codec, request.signal, scope, position), {
+      status,
+      headers
+    });
+  } catch (error) {
+    // same attribution as encodeResult's codec road (#3160)
+    throw DEV && error instanceof Error
+      ? new Error(`Server function result could not be encoded: ${error.message}`)
+      : error;
+  }
 }
 
 function encodeResult(value, headers, status, codec, signal, scope) {
@@ -3798,16 +3932,20 @@ export async function handleServerFunctionRequest(request, options = {}) {
     return finish(protectsRequest ? withCSRFVary(response) : response);
   }
 
-  // Which of the two answer shapes this call gets — codec encodings for the
-  // client transport, plain HTTP for everyone else — is decided by the
-  // ADDRESS: the data address IS the scripted protocol, the bare address is
+  // Which of the three answer shapes this call gets — codec encodings for
+  // the client transport, the same encodings framed as an event stream for
+  // a `live` loop, plain HTTP for everyone else — is decided by the
+  // ADDRESS: the data address IS the scripted protocol, the live address is
+  // the scripted protocol in event-stream framing, the bare address is
   // plain HTTP. On the url, not a header, because shared caches key on the
   // url and store one answer per key — a header-driven shape means one
   // caller kind's cached answer can be replayed to the other (#3094). No
   // header identifies the caller either: a GET-encoded read carries none
   // of the transport's own, so to caches and preloads it is exactly its
-  // url (#3406).
-  const scripted = address.data;
+  // url (#3406). The one header the live address reads, `Last-Event-ID`,
+  // is a position within an answer that is never cached or preloaded.
+  const scripted = address.data || address.live;
+  const live = address.live;
 
   // Method allowlist: POST always dispatches (the default transport);
   // GET and HEAD dispatch only to functions that declared GET (the server
@@ -4198,6 +4336,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
       }
 
       if (status === 304) warnScripted304(functionId);
+      // A live address answers in event-stream framing — the success path
+      // only: a refusal or a thrown outcome is a whole answer, delivered as
+      // the ordinary scripted encoding (the loop's reader is chosen off the
+      // content type, so it reads either).
+      if (live) return encodeLiveResult(result, headers, status, codec, request, scope);
       return encodeResult(result, headers, status, codec, request.signal, scope);
     } catch (x) {
       // Plain-thrown tail, hoisted so the thrown-path transformResult can

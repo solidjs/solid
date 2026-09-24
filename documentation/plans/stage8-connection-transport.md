@@ -157,9 +157,11 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
   tested with a synthetic payload. Event-stream writer beside `createChunk`
   and reader beside `ChunkReader` in `shared.ts`; the handler picks the
   writer off the address; the client picks the reader off the content type.
-  The reader is installed by `live()` itself (a slot on the shared codec
-  config, the `provideRPC` pattern), so a client that never imports `live`
-  carries none.
+  The reader is built by `live()` itself — a per-iteration wire slot rides
+  the loop's invoke options under a process-local symbol, carries the
+  reader factory and the position, and is threaded through `extractBody` /
+  `deserializeStream` — so a client that never imports `live` carries no
+  event-stream parser (the `provideRPC` pattern, per iteration).
 - `Last-Event-ID` on reconnect (D12): a cursor source reads the header off
   the request; a value-shaped source's events carry `id: <digest>` where
   the digest is over `JSON.stringify(value)` of a JSON-safe yield (the codec
@@ -168,10 +170,22 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
   JSON-safe carries no id and is never skipped). On a reconnect whose
   `Last-Event-ID` equals the current value's digest the server skips the
   first emission only and the client iterable does not yield for that
-  connection. Never an argument. The position is exposed to the loop off
-  the decoded iterable (a symbol getter), never to user code.
-- Dev: warn when a page holds more than five live connections over
-  HTTP/1.1, naming them, pointing at `server.https`.
+  connection. Never an argument. The position lives on the iteration's wire
+  slot (the reader writes it, the next connect reads it), never on a value
+  and never in user code's reach. A one-value answer is positioned the same
+  way; skipped, it is an empty stream and the iteration completes with
+  nothing — as it would have after the one value the client already had.
+- Dev: warn once when a page holds more than five live connections and its
+  document came over HTTP/1.x (the navigation entry's `nextHopProtocol`
+  stands in for the origin's — a live response's own resource-timing entry
+  only exists once it has ended), naming them, pointing at `server.https`.
+- Built and verified (2026-09-23): `server-functions-live-framing.spec.tsx`
+  — 21 cases covering the verify list below except the browser-only items
+  (`curl -N` equivalent is the raw handler body; devtools EventStream tab
+  is manual). Existing `live` tests pass unchanged. Not in A1: a cursor
+  source naming its own `id:` — the header is readable off the request,
+  but nothing lets a yield carry a caller-chosen id yet (future, if asked
+  for).
 - **Verify:** framing round-trip incl. a synthetic multi-line payload;
   digest round trip — equal digest yields nothing and later values flow,
   unequal digest yields at once, a non-JSON-safe yield carries no id and

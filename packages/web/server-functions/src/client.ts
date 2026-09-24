@@ -9,6 +9,8 @@ import { observeCall } from "../../src/observe.js";
 // Replaced per build (see src/observe.ts): the observe emitter and its
 // wrapper fold out of the prod artifact behind it.
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
+// Replaced per build too; dev-only diagnostics fold out behind it.
+const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
 // emit would leave them dangling (implicit any for every consumer).
@@ -17,7 +19,10 @@ import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
+  EventStreamReader,
+  LAST_EVENT_ID_HEADER,
   LIVE_SOURCE,
+  LIVE_WIRE,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
@@ -40,6 +45,7 @@ import {
   serverFunctionActionUrlFor,
   serverFunctionAddress,
   serverFunctionDataAddress,
+  serverFunctionLiveAddress,
   serverFunctionUrlFor,
   withMeta
 } from "./shared.js";
@@ -56,13 +62,17 @@ export {
   // shared built instance by construction.
   ChunkReader,
   ERROR_HEADER,
+  EVENT_STREAM_HEARTBEAT,
+  EventStreamReader,
   FLASH_COOKIE,
+  LAST_EVENT_ID_HEADER,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
   UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
+  createEventChunk,
   decodeErrorHeaderValue,
   decodeRedirectHeaderValue,
   decodeResponse,
@@ -78,7 +88,9 @@ export {
   hasFlashCookie,
   hasFlightMetadata,
   invoke,
+  isEventStream,
   isServerFunction,
+  positionDigest,
   // the rich-args entry's codec write half: its bundled form (solid-web's
   // server-functions/dist/rich-args.js) resolves shared.js imports here so
   // the codec config it reads is the shared built instance
@@ -417,16 +429,20 @@ function provideRPC() {
 // A reconstructed callable's base is a rendered PLAIN-HTTP address
 // (`/_server/<id>?args=...`) — what a form posts to without the runtime.
 // The transport's own calls belong at the data address, where answers are
-// the codec's (#3094), so the data segment is spliced in ahead of the id;
-// mount, origin and the query (bound arguments) ride along untouched.
-function dataAddressFor(base) {
+// the codec's (#3094) — or at the live address, where they are the codec's
+// in event-stream framing — so the kind's segment is spliced in ahead of
+// the id; mount, origin and the query (bound arguments) ride along
+// untouched.
+function siblingAddressFor(base, kind) {
   const splitAt = base.search(/[?#]/);
   const path = splitAt < 0 ? base : base.slice(0, splitAt);
   const rest = splitAt < 0 ? "" : base.slice(splitAt);
   const slash = path.lastIndexOf("/");
-  if (path.endsWith("/data/", slash + 1)) return base; // already one
-  return `${path.slice(0, slash + 1)}data/${path.slice(slash + 1)}${rest}`;
+  if (path.endsWith(`/${kind}/`, slash + 1)) return base; // already one
+  return `${path.slice(0, slash + 1)}${kind}/${path.slice(slash + 1)}${rest}`;
 }
+const dataAddressFor = base => siblingAddressFor(base, "data");
+const liveAddressFor = base => siblingAddressFor(base, "live");
 
 function serverFunctionFailure(response, value) {
   // The labelled unknown-id 404 (#3110): the deployment that answered does
@@ -482,6 +498,15 @@ function isReadCall(options) {
 
 async function createRequest(base, id, options, meta) {
   const headers = { ...options.headers };
+  // A live loop's reconnect names where it left off. The one transport
+  // header a read may carry (see below): it rides only to the live address,
+  // which is `no-store` and never preloaded, so nothing keys on it.
+  const wire = options[LIVE_WIRE];
+  if (wire) {
+    options = { ...options };
+    delete options[LIVE_WIRE];
+    if (wire.position !== undefined) headers[LAST_EVENT_ID_HEADER] = wire.position;
+  }
   // A GET-encoded call's identity is its url, and nothing else: caches key
   // on it, and a `<link rel="preload" as="fetch">` is reused only by a
   // fetch matching it exactly, headers included, so a read carries no
@@ -836,7 +861,9 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // returned above — so a clone would only tee it into a branch nobody
   // reads, which queues the whole payload for the life of the read.
   // `decodeResponse` keeps its clone for integrations, who still own theirs.
-  const result = response.body ? await extractBody(response, getServerFunctionsCodec()) : undefined;
+  const result = response.body
+    ? await extractBody(response, getServerFunctionsCodec(), options[LIVE_WIRE])
+    : undefined;
   if (failed) {
     throw serverFunctionFailure(response, result);
   }
@@ -1015,7 +1042,12 @@ export function GET(fn) {
       if (hit !== undefined) return hit;
     }
     const opts = invokeOptions || {};
-    const address = serverFunctionDataAddress(config.endpoint, id);
+    // A live loop calling through the declaration is the third caller kind
+    // and gets the third address (see serverFunctionLiveAddress); the query
+    // encoding and the POST fallback are the same at either.
+    const address = opts[LIVE_WIRE]
+      ? serverFunctionLiveAddress(config.endpoint, id)
+      : serverFunctionDataAddress(config.endpoint, id);
     if (!args.length) {
       return fetchServerFunction(address, id, { ...opts, method: "GET" }, [], metadata, args);
     }
@@ -1048,6 +1080,41 @@ export function GET(fn) {
   });
   // the declaration itself is a metadata write like any other
   return withMeta(wrapped, { method: "GET" });
+}
+
+// Dev-only: the open live connections on this page, by function id. `live`
+// holds one connection per source for as long as the source is alive, and
+// a browser allows six per origin under HTTP/1.1 — the seventh request to
+// the origin (a navigation, a fetch, an image) waits behind them. HTTP/2 is
+// part of `live`'s precondition; the warning fires once, when the sixth
+// connection opens on a page whose own document came over HTTP/1.x (the
+// resource timing entry for a live response only exists once it has ended,
+// so the navigation's protocol stands in for the origin's).
+const openLiveConnections = IS_DEV ? new Map() : undefined;
+let warnedHttp1 = false;
+function trackLiveConnection(id, open) {
+  const count = openLiveConnections.get(id) || 0;
+  if (open) openLiveConnections.set(id, count + 1);
+  else if (count > 1) openLiveConnections.set(id, count - 1);
+  else openLiveConnections.delete(id);
+  if (!open || warnedHttp1) return;
+  let total = 0;
+  for (const n of openLiveConnections.values()) total += n;
+  if (total <= 5) return;
+  const navigation =
+    typeof performance !== "undefined" && typeof performance.getEntriesByType === "function"
+      ? performance.getEntriesByType("navigation")[0]
+      : undefined;
+  const protocol = navigation && navigation.nextHopProtocol;
+  if (typeof protocol !== "string" || !/^http\/1(\.[01])?$/.test(protocol)) return;
+  warnedHttp1 = true;
+  const names = [...openLiveConnections].map(([fnId, n]) => (n > 1 ? `${fnId} ×${n}` : fnId));
+  console.warn(
+    `live: ${total} live connections are open (${names.join(", ")}) and this page was served ` +
+      `over ${protocol}. Browsers allow six connections per origin under HTTP/1.1, so the next ` +
+      `request to this origin — a navigation, a fetch, an image — waits behind them. live ` +
+      `requires HTTP/2: the dev server speaks it with \`server.https\`; production hosts do by default.`
+  );
 } /**
  * A live reference: calling it opens an iteration and hands back the
  * reconnecting iterable ITSELF, synchronously — not a promise of one (the
@@ -1165,8 +1232,19 @@ export function live(fn) {
         // cancels the CURRENT connection whichever attempt it is.
         const invokeSignal = invokeOptions && invokeOptions.signal;
         const controller = new AbortController();
+        // The iteration's wire slot (see LIVE_WIRE): the reader it opens
+        // records each event's `id:` as the position, and every (re)connect
+        // sends the position back as `Last-Event-ID` — a cursor for a source
+        // that named one, the runtime's value digest otherwise, which lets
+        // the server skip a first emission this iteration already holds.
+        // The reader is built here so that `live` is what carries it.
+        const wire = {
+          position: undefined,
+          open: body => new EventStreamReader(body, wire)
+        };
         const wireOptions = {
           ...invokeOptions,
+          [LIVE_WIRE]: wire,
           signal: invokeSignal
             ? AbortSignal.any([invokeSignal, controller.signal])
             : controller.signal
@@ -1186,12 +1264,22 @@ export function live(fn) {
             iterable.onstatus && iterable.onstatus(state, error);
           } catch {}
         };
+        // dev connection accounting (see trackLiveConnection); idempotent
+        // per connection so every road a connection ends by can call it
+        let counted = false;
+        const track = open => {
+          if (!IS_DEV || open === counted) return;
+          counted = open;
+          trackLiveConnection(id, open);
+        };
         const emitClosed = error => {
+          track(false);
           if (ended) return;
           ended = true;
           emit("closed", error);
         };
         const closeIt = value => {
+          track(false);
           const current = it;
           it = undefined;
           if (current) {
@@ -1204,11 +1292,12 @@ export function live(fn) {
         const callOnce = () => {
           // A GET-composed reference is already a flight-free read with its
           // own query-string encoding — delegate through its invocation
-          // channel so the wire options (the combined signal included) reach
-          // its fetch. Otherwise call the transport directly so the POST is
-          // marked a read: live responses are streams, which have no
-          // single-flight envelope story (and flight collection is mutation
-          // policy).
+          // channel so the wire options (the combined signal and the wire
+          // slot, which moves it to the live address) reach its fetch.
+          // Otherwise call the transport directly, at the live address, with
+          // the POST marked a read: live responses are streams, which have
+          // no single-flight envelope story (and flight collection is
+          // mutation policy).
           if (metadata.method === "GET") return fn[SERVER_FUNCTION_INVOKE](args, wireOptions);
           const handler = config.responseHandler;
           if (handler && handler.intercept) {
@@ -1216,7 +1305,7 @@ export function live(fn) {
             if (hit !== undefined) return hit;
           }
           return fetchServerFunction(
-            fn.url,
+            liveAddressFor(fn.url),
             id,
             { ...wireOptions, read: true },
             args,
@@ -1244,6 +1333,7 @@ export function live(fn) {
                   controller.abort();
                   return DONE;
                 }
+                track(true);
                 emit("connected");
               }
               const r = await it.next();
@@ -1299,6 +1389,7 @@ export function live(fn) {
                 throw error;
               }
               it = undefined;
+              track(false);
               emit("reconnecting", error);
               await new Promise(resolve => {
                 wake = resolve;
