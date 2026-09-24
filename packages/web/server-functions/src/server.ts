@@ -1959,6 +1959,11 @@ async function foldFlightData(hooks, event, headers, outcome, context = {}) {
           owned.headers.set(key, value);
         }
       });
+      // The fold owns the single-flight header on every body shape: its
+      // value is the folded source list the client routes slices by, and
+      // only the fold knows it — a policy that stamped its own would drop
+      // the named sources (#3638).
+      owned.headers.set(SINGLE_FLIGHT_HEADER, headers.get(SINGLE_FLIGHT_HEADER));
       return owned;
     }
   }

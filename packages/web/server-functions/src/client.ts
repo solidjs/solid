@@ -25,10 +25,11 @@ import {
   UNKNOWN_HEADER,
   configureServerFunctionsCodec,
   decodeResponse,
+  deliverFlightData,
   extractBody,
-  getFlightDataConsumer,
   getFlightDataSourceIds,
   getHeadersAndBody,
+  hasFlightMetadata,
   getServerFunctionMetadata,
   getServerFunctionsCodec,
   isJSONSafe,
@@ -66,6 +67,7 @@ export {
   decodeRedirectHeaderValue,
   decodeResponse,
   decodeResponsePayload,
+  deliverFlightData,
   deserializeStream,
   encodeErrorHeaderValue,
   frameAddress,
@@ -74,6 +76,7 @@ export {
   getServerFunctionMetadata,
   getServerFunctionsCodec,
   hasFlashCookie,
+  hasFlightMetadata,
   invoke,
   isServerFunction,
   // the rich-args entry's codec write half: its bundled form (solid-web's
@@ -749,14 +752,18 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // it passes through whole below. Error semantics mirror that passthrough:
   // metadata-bearing responses are control flow for the consumers, bare
   // error-tagged ones throw the value.
-  const registered = isReadCall(options) ? [] : getFlightDataSourceIds();
-  if (registered.length > 0) {
-    const folded = response.headers.has(SINGLE_FLIGHT_HEADER)
-      ? response.headers.get(SINGLE_FLIGHT_HEADER).split(",")
-      : [];
-    const metadata =
-      response.headers.has(REDIRECT_HEADER) || response.headers.has(REVALIDATE_HEADER);
-    if (metadata || folded.length > 0) {
+  //
+  // The delivery itself — which consumer gets which slice, in what order —
+  // is `deliverFlightData`, the one implementation every transport that can
+  // carry the envelope shares (the frames client's flight application
+  // decodes its envelope from `outcome` chunks and then calls the same
+  // function), so a mutation reads identically whichever body shape it
+  // arrived in. What stays here is the plain body's decode and the
+  // read-call exclusion, which are this transport's.
+  if (!isReadCall(options) && getFlightDataSourceIds().length > 0) {
+    const folded = response.headers.has(SINGLE_FLIGHT_HEADER);
+    const metadata = hasFlightMetadata(response);
+    if (metadata || folded) {
       // Decoded from the response ITSELF: the transport owns this body, the
       // consumers' contract says it arrives consumed (`FlightDataContext`),
       // and a clone would tee the whole envelope into a branch nobody reads
@@ -765,19 +772,9 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
       const decoded = response.body
         ? await extractBody(response, getServerFunctionsCodec())
         : undefined;
-      const enveloped = folded.length > 0 && decoded !== undefined;
+      const enveloped = folded && decoded !== undefined;
       const value = enveloped ? decoded.value : decoded;
-      const data = enveloped ? decoded.data : undefined;
-      // Sequential, awaited delivery in registration order: caches are
-      // seeded before the caller sees the value, whichever source they
-      // subscribe through.
-      for (const source of registered) {
-        if (!metadata && !folded.includes(source)) continue;
-        // Looked up per delivery: an awaited consumer may unsubscribe
-        // another (a provider tearing down under a navigation).
-        const consumer = getFlightDataConsumer(source);
-        if (consumer) await consumer(data ? data[source] : undefined, { response });
-      }
+      await deliverFlightData(response, enveloped ? decoded.data : undefined);
       if (failed && !metadata) {
         throw serverFunctionFailure(response, value);
       }
