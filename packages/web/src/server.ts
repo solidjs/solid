@@ -2396,6 +2396,13 @@ export function renderToStream(code, options = {}) {
   const trackSerialized = (id, p) => {
     let settle;
     const raced = Promise.race([p, new Promise(r => (settle = r))]);
+    // Before the shell completes the race is parked in `stubBatch`, and seroval
+    // subscribes to it only when the batch is flushed — a macrotask later when
+    // another fragment is still pending. A source rejecting in between rejects
+    // the race with no handler attached; Node reports it as unhandled and exits.
+    // Observing the race here changes nothing for seroval, which still meets
+    // the rejection when it subscribes.
+    raced.catch(() => {});
     pendingSerialized.set(id, settle);
     // Once the source settles the entry is dead weight; drop it. The
     // rejection arm also keeps an abandoned-then-rejected source from
