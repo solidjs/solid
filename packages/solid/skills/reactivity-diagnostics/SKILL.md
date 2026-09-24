@@ -500,6 +500,64 @@ learns about the wait either way. The finding names the interaction
 (`click on button#save`), not a node; there is no scope to name because no
 scope ran.
 
+### ABANDONED_FLIGHTS
+
+One async source started flight after flight and threw most of the answers
+away: `data.abandoned` flights in `data.windowMs` were each superseded by the
+next before landing. This is the search-as-you-type shape — every keystroke
+re-asks, and only the last answer is used — and it costs a request per
+input plus a hold that keeps extending. Repairs, in order:
+
+- Put a debounced or equality-gated derivation between the input and the
+  fetch: the memo the fetch reads changes only when the query has settled
+  (a `createMemo` over a debounced signal, or one that returns the previous
+  value when the trimmed query is equal), so the flight starts once.
+- Key the fetch on what actually changes (the parsed filter, not the raw
+  text) so equal inputs do not re-ask.
+- If several readers legitimately start the same request, `markFlight` the
+  shared preload so the engine sees one flight rather than N.
+
+Do NOT "fix" it by caching the promise in a signal outside the graph; the
+hold and the acknowledgement machinery stop seeing the wait.
+
+### FALLBACK_FLASH
+
+A `Loading` fallback appeared and vanished inside 150ms
+(`data.shownMs`): the data was nearly there, and the spinner read as a
+flicker. This is the other end of `SILENT_HOLD` — too much feedback for too
+little wait — and it is `info`, a count to read (`feedback().fallbacks[]
+.flashes` has the total per boundary). Repairs:
+
+- Preload or cache the data so it is present before the boundary asks
+  (`markFlight` a preload started on hover or route match).
+- Lift the read above the boundary when the parent already waits, so the
+  child boundary never shows.
+- For a boundary that has revealed once, let a later update hold instead
+  of re-showing the fallback — that is the default; a flash on update means
+  `on` is keyed to something that changes more often than the data.
+
+Do NOT add a minimum-display timer to the fallback; that trades a flicker
+for a wait.
+
+### STACKED_HOLDS
+
+`data.interactions` interactions were waiting in the same hold when it
+committed: the person clicked or typed again while the first answer was in
+the air, and the runtime folded every repeat into one wait on the same
+source (`data.blockers`). The pile is the symptom; the hold's own verdict is
+the cause — check the `SILENT_HOLD`/`LONG_HOLD` entry for the same hold
+first. Then stop the repeats at the control:
+
+- Read `isPending(() => blocker())` where the control renders and disable or
+  dim it while the flight is out, so a second click is not possible.
+- For typed input, debounce so a burst of keystrokes is one write.
+- Show progress (`latest()` of the input, an optimistic value) so the
+  person does not click again because nothing moved.
+
+Do NOT block input by removing the hold or making the write synchronous; the
+repeats are a reaction to silence, and the hold is what keeps the screen
+consistent while the answer arrives.
+
 ### Where to start: `feedback()`
 
 Before chasing individual `SILENT_HOLD` events, read the ranked tables — the
