@@ -2190,7 +2190,12 @@ module.exports = [
     // then the reactive graph it reaches through deps and subs, with a Set of the met
     // nodes), the graph record at navigation settle, the per-route size history judged
     // series by series, the option and its merge, and the finding's three leak shapes.
-    limit: "30.00 KB",
+    // Re-measured at landing (#3619 rebased over #3604/#3623/#3613, 2026-09-23):
+    // 29.80 -> 30.70 KB, measured at 30,649 B against `next`'s 29,725 at
+    // c25d69f41 (+924 B — the PR's own +928, on the base that now carries the
+    // three checks above). The tier is 17,618 against `next`'s 17,471 (+147 B)
+    // under the 17.65 KB cap set above.
+    limit: "30.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
