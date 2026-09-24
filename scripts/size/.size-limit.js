@@ -2201,7 +2201,12 @@ module.exports = [
     // now kept for the check, judged at hide) and STACKED_HOLDS (a count over the
     // open interactions at hold settle), their three options and merge entries, and
     // the repair text of each — the text is most of it. Tier under its cap.
-    limit: "30.70 KB",
+    // Re-measured at landing (#3608 rebased over #3604/#3623/#3613/#3619,
+    // 2026-09-23): 30.70 -> 31.45 KB, measured at 31,368 B against `next`'s
+    // 30,649 (+719 B; the PR's own +769 was against the pre-#3604 28,999 —
+    // the repair texts share more back-references with four more findings
+    // in the bundle). The tier did not move: 17,618 either way.
+    limit: "31.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
