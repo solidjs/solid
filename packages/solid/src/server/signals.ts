@@ -1507,6 +1507,7 @@ function processResult<T>(
             // result, then delegate. Later yields deliberately never advance
             // comp.value — the first-value lock, same as the direct branch.
             let tappedFirst = true;
+            const close = tappedCloser(() => iter);
             return {
               [Symbol.asyncIterator]: () => ({
                 next() {
@@ -1514,11 +1515,10 @@ function processResult<T>(
                     tappedFirst = false;
                     return Promise.resolve(r);
                   }
+                  if (comp.disposed) return close();
                   return iter.next();
                 },
-                return(value?: any) {
-                  return iter.return?.(value);
-                }
+                return: close
               })
             } as any;
           }
@@ -1728,6 +1728,7 @@ function processResult<T>(
 
       if (serializes) {
         let tappedFirst = true;
+        const close = tappedCloser(() => iter);
         const tapped = {
           [Symbol.asyncIterator]: () => ({
             next() {
@@ -1739,6 +1740,7 @@ function processResult<T>(
                     : (firstResult as IteratorResult<T>)
                 );
               }
+              if (comp.disposed) return close();
               // Deliberately does NOT advance comp.value: the first-value
               // lock. Document markup rendered from V1 must keep reading V1
               // (a Loading retry re-rendering mid-stream would otherwise
@@ -1749,9 +1751,7 @@ function processResult<T>(
               // no hydration claim exists.
               return iter.next().then((r: IteratorResult<T>) => r);
             },
-            return(value?: any) {
-              return iter.return?.(value);
-            }
+            return: close
           })
         };
         ctx.serialize(id, tapped, deferStream);
@@ -1832,11 +1832,28 @@ function processResult<T>(
   comp.epoch = ctx?.commitEpoch?.();
 }
 
+// Best-effort `return()` on a source we are done with. Nothing here may
+// escape: a rejection is swallowed, and so is a synchronous throw — the
+// callers run from `.then` continuations and the tapped iterator's
+// `next`/`return`, where an uncaught throw becomes an unhandled rejection.
 function closeAsyncIterator(iter: any, value?: any) {
-  const returned = iter.return?.(value);
-  if (returned && typeof returned.then === "function") {
-    returned.then(undefined, () => {});
-  }
+  try {
+    const returned = iter.return?.(value);
+    if (returned && typeof returned.then === "function") {
+      returned.then(undefined, () => {});
+    }
+  } catch {}
+}
+
+function tappedCloser<T>(iter: () => AsyncIterator<T>) {
+  let closed = false;
+  return (value?: any): Promise<IteratorResult<T>> => {
+    if (!closed) {
+      closed = true;
+      closeAsyncIterator(iter(), value);
+    }
+    return Promise.resolve({ done: true, value });
+  };
 }
 
 // === Effects ===
@@ -2456,6 +2473,7 @@ export function createProjection<T extends object = {}>(
             pumping = null;
             if (disposed || r.done) {
               logDone = true;
+              if (!r.done) closeAsyncIterator(iter);
               return;
             }
             // Apply the replacement through the patch-recording draft BEFORE
