@@ -1507,19 +1507,18 @@ function processResult<T>(
             // result, then delegate. Later yields deliberately never advance
             // comp.value — the first-value lock, same as the direct branch.
             let tappedFirst = true;
+            const close = tappedCloser(() => iter);
             return {
               [Symbol.asyncIterator]: () => ({
                 next() {
-                  if (comp.disposed) return closeTappedIterator(iter);
                   if (tappedFirst) {
                     tappedFirst = false;
                     return Promise.resolve(r);
                   }
+                  if (comp.disposed) return close();
                   return iter.next();
                 },
-                return(value?: any) {
-                  return iter.return?.(value);
-                }
+                return: close
               })
             } as any;
           }
@@ -1729,10 +1728,10 @@ function processResult<T>(
 
       if (serializes) {
         let tappedFirst = true;
+        const close = tappedCloser(() => iter);
         const tapped = {
           [Symbol.asyncIterator]: () => ({
             next() {
-              if (comp.disposed) return closeTappedIterator(iter);
               if (tappedFirst) {
                 tappedFirst = false;
                 return deferred.promise.then(() =>
@@ -1741,6 +1740,7 @@ function processResult<T>(
                     : (firstResult as IteratorResult<T>)
                 );
               }
+              if (comp.disposed) return close();
               // Deliberately does NOT advance comp.value: the first-value
               // lock. Document markup rendered from V1 must keep reading V1
               // (a Loading retry re-rendering mid-stream would otherwise
@@ -1751,9 +1751,7 @@ function processResult<T>(
               // no hydration claim exists.
               return iter.next().then((r: IteratorResult<T>) => r);
             },
-            return(value?: any) {
-              return iter.return?.(value);
-            }
+            return: close
           })
         };
         ctx.serialize(id, tapped, deferStream);
@@ -1841,9 +1839,15 @@ function closeAsyncIterator(iter: any, value?: any) {
   }
 }
 
-function closeTappedIterator<T>(iter: AsyncIterator<T>): Promise<IteratorResult<T>> {
-  closeAsyncIterator(iter);
-  return Promise.resolve({ done: true, value: undefined });
+function tappedCloser<T>(iter: () => AsyncIterator<T>) {
+  let closed = false;
+  return (value?: any): Promise<IteratorResult<T>> => {
+    if (!closed) {
+      closed = true;
+      closeAsyncIterator(iter(), value);
+    }
+    return Promise.resolve({ done: true, value });
+  };
 }
 
 // === Effects ===

@@ -1,24 +1,32 @@
 /**
  * @jsxImportSource @solidjs/web
  */
-// Repro for solidjs/solid#3626: a serialized async iterator kept being
-// pulled after the response was abandoned. The render was disposed, but the
-// tapped iterator seroval drives never checked it, so the source generator's
-// `finally` never ran and its timers stayed alive.
 import { describe, expect, test } from "vitest";
 import { Loading, renderToStream } from "@solidjs/web";
 import { createMemo, createProjection } from "solid-js";
+
+const TICK = 10;
 
 function delay(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function makeSource() {
-  const counts = { pulls: 0, finallies: 0 };
+async function until(cond: () => boolean, limit = 2000) {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > limit) throw new Error("timed out waiting for condition");
+    await delay(TICK / 2);
+  }
+}
+
+type Counts = { pulls: number; finallies: number };
+
+function makeSource(limit = Infinity) {
+  const counts: Counts = { pulls: 0, finallies: 0 };
   async function* tokens() {
     try {
-      for (let n = 0; ; n++) {
-        await delay(10);
+      for (let n = 0; n < limit; n++) {
+        await delay(TICK);
         counts.pulls++;
         yield "tok" + n;
       }
@@ -29,23 +37,49 @@ function makeSource() {
   return { counts, tokens };
 }
 
-async function cancelAfterShell(code: () => any) {
+function makeProjectionSource(limit = Infinity) {
+  const counts: Counts = { pulls: 0, finallies: 0 };
+  const derive = async function* (draft: { n: number }) {
+    try {
+      for (let n = 0; n < limit; n++) {
+        await delay(TICK);
+        counts.pulls++;
+        draft.n = n;
+        yield;
+      }
+    } finally {
+      counts.finallies++;
+    }
+  };
+  return { counts, derive };
+}
+
+async function cancelAfterShell(code: () => any, counts: Counts) {
   const reader = renderToStream(code).readable.getReader();
   await reader.read();
-  await delay(25);
+  await until(() => counts.pulls > 0);
   await reader.cancel();
 }
 
-async function expectClosed(counts: { pulls: number; finallies: number }) {
+async function expectClosed(counts: Counts) {
   const atCancel = counts.pulls;
-  expect(atCancel).toBeGreaterThan(0);
-  await delay(100);
-  // One pull may already be in flight when the response is abandoned.
+  await until(() => counts.finallies === 1);
   expect(counts.pulls).toBeLessThanOrEqual(atCancel + 1);
-  expect(counts.finallies).toBe(1);
   const settled = counts.pulls;
-  await delay(50);
+  await delay(TICK * 10);
   expect(counts.pulls).toBe(settled);
+  expect(counts.finallies).toBe(1);
+}
+
+async function readToEnd(code: () => any) {
+  const reader = renderToStream(code).readable.getReader();
+  const decoder = new TextDecoder();
+  let html = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) return html;
+    html += decoder.decode(value);
+  }
 }
 
 describe("renderToStream closes serialized async iterators once the response is abandoned (#3626)", () => {
@@ -55,13 +89,16 @@ describe("renderToStream closes serialized async iterators once the response is 
       const v = createMemo(() => tokens());
       return <b>{v()}</b>;
     };
-    await cancelAfterShell(() => (
-      <div>
-        <Loading fallback="loading">
-          <Stream />
-        </Loading>
-      </div>
-    ));
+    await cancelAfterShell(
+      () => (
+        <div>
+          <Loading fallback="loading">
+            <Stream />
+          </Loading>
+        </div>
+      ),
+      counts
+    );
     await expectClosed(counts);
   });
 
@@ -71,43 +108,66 @@ describe("renderToStream closes serialized async iterators once the response is 
       const v = createMemo(async () => tokens());
       return <b>{v()}</b>;
     };
-    await cancelAfterShell(() => (
-      <div>
-        <Loading fallback="loading">
-          <Stream />
-        </Loading>
-      </div>
-    ));
+    await cancelAfterShell(
+      () => (
+        <div>
+          <Loading fallback="loading">
+            <Stream />
+          </Loading>
+        </div>
+      ),
+      counts
+    );
     await expectClosed(counts);
   });
 
   test("a generator projection", async () => {
-    const counts = { pulls: 0, finallies: 0 };
+    const { counts, derive } = makeProjectionSource();
     const Stream = () => {
-      const p = createProjection(
-        async function* (draft: { n: number }) {
-          try {
-            for (let n = 0; ; n++) {
-              await delay(10);
-              counts.pulls++;
-              draft.n = n;
-              yield;
-            }
-          } finally {
-            counts.finallies++;
-          }
-        },
-        { n: -1 }
-      );
+      const p = createProjection(derive, { n: -1 });
       return <b>{p.n}</b>;
     };
-    await cancelAfterShell(() => (
-      <div>
-        <Loading fallback="loading">
-          <Stream />
-        </Loading>
-      </div>
-    ));
+    await cancelAfterShell(
+      () => (
+        <div>
+          <Loading fallback="loading">
+            <Stream />
+          </Loading>
+        </div>
+      ),
+      counts
+    );
+    await expectClosed(counts);
+  });
+
+  test("the source's return() runs once", async () => {
+    const counts: Counts = { pulls: 0, finallies: 0 };
+    const source: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        async next() {
+          await delay(TICK);
+          return { done: false, value: "tok" + counts.pulls++ };
+        },
+        async return() {
+          counts.finallies++;
+          return { done: true, value: undefined };
+        }
+      })
+    };
+    const Stream = () => {
+      const v = createMemo(() => source);
+      return <b>{v()}</b>;
+    };
+    await cancelAfterShell(
+      () => (
+        <div>
+          <Loading fallback="loading">
+            <Stream />
+          </Loading>
+        </div>
+      ),
+      counts
+    );
     await expectClosed(counts);
   });
 
@@ -130,7 +190,88 @@ describe("renderToStream closes serialized async iterators once the response is 
       },
       end() {}
     });
-    await delay(35);
+    await until(() => writes > 1);
     await expectClosed(counts);
+  });
+});
+
+describe("renderToStream delivers every value of a serialized async iterator when the response is read to the end", () => {
+  const expectTokens = (html: string) => {
+    for (let n = 0; n < 5; n++) expect(html).toContain("tok" + n);
+  };
+
+  test("an iterable memo", async () => {
+    const { counts, tokens } = makeSource(5);
+    const Stream = () => {
+      const v = createMemo(() => tokens());
+      return <b>{v()}</b>;
+    };
+    const html = await readToEnd(() => (
+      <div>
+        <Loading fallback="loading">
+          <Stream />
+        </Loading>
+      </div>
+    ));
+    expectTokens(html);
+    expect(counts).toEqual({ pulls: 5, finallies: 1 });
+  });
+
+  test("an async memo that resolves to an iterable", async () => {
+    const { counts, tokens } = makeSource(5);
+    const Stream = () => {
+      const v = createMemo(async () => tokens());
+      return <b>{v()}</b>;
+    };
+    const html = await readToEnd(() => (
+      <div>
+        <Loading fallback="loading">
+          <Stream />
+        </Loading>
+      </div>
+    ));
+    expectTokens(html);
+    expect(counts).toEqual({ pulls: 5, finallies: 1 });
+  });
+
+  test("an async memo whose slot a retry pass re-creates", async () => {
+    const { counts, tokens } = makeSource(5);
+    let bodies = 0;
+    const Stream = () => {
+      bodies++;
+      const v = createMemo(async () => tokens());
+      const gate = createMemo(async () => {
+        await delay(TICK * 2);
+        return "gate";
+      });
+      const g = gate();
+      return (
+        <b>
+          {g}:{v()}
+        </b>
+      );
+    };
+    const renderStream = () => <Stream />;
+    const html = await readToEnd(() => <main>{renderStream()}</main>);
+    expect(bodies).toBe(2);
+    expectTokens(html);
+    expect(counts).toEqual({ pulls: 5, finallies: 1 });
+  });
+
+  test("a generator projection", async () => {
+    const { counts, derive } = makeProjectionSource(5);
+    const Stream = () => {
+      const p = createProjection(derive, { n: -1 });
+      return <b>{p.n}</b>;
+    };
+    const html = await readToEnd(() => (
+      <div>
+        <Loading fallback="loading">
+          <Stream />
+        </Loading>
+      </div>
+    ));
+    expect(html).toContain('["n"],4]');
+    expect(counts).toEqual({ pulls: 5, finallies: 1 });
   });
 });
