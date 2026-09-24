@@ -1849,9 +1849,13 @@ export const createMemo: {
  * setCount(1);          // explicit value
  * setCount(c => c + 1); // updater
  *
- * // Writable memo: starts as `fn()`, can be locally overwritten.
+ * // Writable memo: derives from `fn()` and can be written like a signal.
+ * // Within the frame the write wins over a same-tick recompute; the next
+ * // change to `userId` re-derives (the compute receives the written value
+ * // as `prev`). While a transaction holds a re-derived value, a write from
+ * // outside it does not replace that derivation — it becomes its `prev`.
  * const [user, setUser] = createSignal(() => fetchUser(userId()));
- * setUser({ ...user(), name: "Alice" }); // optimistic local edit
+ * setUser({ ...user(), name: "Alice" });
  * ```
  *
  * **Hydration:** in the function form, `SignalOptions & MemoOptions`

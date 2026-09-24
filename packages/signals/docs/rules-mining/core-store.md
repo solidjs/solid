@@ -135,9 +135,9 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 
 - CS "ignores prototype pollution keys in draft setters"; SP "storePath prototype pollution guard".
 
-**R31. Derived-store manual writes win over the recompute for the tick: manual setStore beats a queued recompute in the same flush; a SAME-VALUE manual write still holds against the recompute for that tick; next source change reclaims.**
+**R31. Derived-store manual writes win over the recompute within a synchronous frame: manual setStore beats a queued recompute in the same flush; a SAME-VALUE manual write still holds against the recompute for that tick; next source change reclaims. Across a hold the write is `prev` for the re-derivation: a setter reaching a leaf the fold staged under another transaction (a held pass result, not a proposal — `REACTIVE_MANUAL_WRITE` clear on the projection node) joins that transaction and re-runs the fold under it with the written draft as the prior state, instead of masking it (A34 (3), #3612).**
 
-- CS "derived store manual writes" (#2692 ×2).
+- CS "derived store manual writes" (#2692 ×2); `tests/held-derivation-not-a-proposal-3612.test.ts` (store twin).
 - **CONFLICT (framing + mechanics):** "keeps the override for the tick" — override layers deleted. Manual-write-precedence-until-next-recompute incl. same-value writes must be reproduced by node/lane precedence; equality-checked signal write would no-op yet the mask must hold.
 
 **R32. A setter-staged replacement followed by reconcile lands the reconciled value — staged writes fold into the diff.** Aligned: O7's resolution (a test already exists).

@@ -348,7 +348,18 @@ module.exports = [
     // returned after disposing lands on a retired identity), and the lane
     // restore. +72 B minified in the in-package floor (26,193 -> 26,265).
     // + createStore is -22 B, isPending/latest -5 B (mangler/brotli layout).
-    limit: "9.75 KB",
+    // A held derivation is not a proposal (#3612, 2026-09-23): 9.75 -> 9.80
+    // KB, measured at 9,792 B against `next`'s 9,733 (+59 B). Core-retained:
+    // `setMemo` asks `heldDerivation` up front — the node is stamped by
+    // another transaction and neither it nor its `_firewall` carries
+    // REACTIVE_MANUAL_WRITE — and on a hit resolves an updater against the
+    // committed value, takes the A34 join as before, and `rederiveHeld`s
+    // (DIRTY + enqueue) instead of masking; updateIfNecessary's post-pull
+    // wipe now carries the mask, which is state, not scheduling (a
+    // `latest()` probe must not decide proposal vs prev). +150 B minified
+    // in the in-package floor (26,265 -> 26,415); the store twin is in the
+    // store module (see + createStore).
+    limit: "9.80 KB",
     modifyEsbuildConfig
   },
   {
@@ -675,7 +686,16 @@ module.exports = [
     // top-level sync projection stranded the scheduler behind it): -23 B
     // minified in projection.js. The core floor does not retain
     // `scheduleWithheld` (+8 B, layout).
-    limit: "16.95 KB",
+    // A held derivation is not a proposal (#3612, 2026-09-23): 16.95 -> 17.10
+    // KB, measured at 17,060 B against `next`'s 16,927 (+133 B). Core: the
+    // `heldDerivation` / `rederiveHeld` pair behind `setMemo` (+150 B
+    // minified, see the core floor note). Store: `derivedStoreWrite` wraps
+    // the derived setter — `notifyWrites` records a leaf whose `_firewall` is
+    // the setter's node and is held by another transaction, and the wrap's
+    // `finally` re-derives on a hit, masks otherwise (the pre-existing
+    // mask-after ordering). The mask is asked per leaf so the discriminator
+    // does not live in `setSignal`, which async landings also call.
+    limit: "17.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -854,7 +874,12 @@ module.exports = [
     // signals core, see the core floor note); the verdict layer is
     // untouched, so the +41 B over the core floor's own delta is
     // mangler/brotli layout over the larger bundle.
-    limit: "12.50 KB",
+    // A held derivation is not a proposal (#3612, 2026-09-23): 12.50 -> 12.55
+    // KB, measured at 12,534 B against `next`'s 12,459 (+75 B): the signals
+    // core's `heldDerivation` / `rederiveHeld` behind `setMemo` and the
+    // mask-preserving post-pull wipe in updateIfNecessary (+150 B minified,
+    // see the core floor note); the rest is mangler/brotli layout.
+    limit: "12.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -1243,7 +1268,11 @@ module.exports = [
     // single statement. The delta is esbuild's mangled-name assignment
     // shifting under brotli (as in the performance-tracks note above); the
     // same source measures -37 B on the with-stores app and -31 B on CSR.
-    limit: "21.00 KB",
+    // A held derivation is not a proposal (#3612, 2026-09-23): 21.00 -> 21.10
+    // KB, measured at 21,055 B against `next`'s 20,986 (+69 B). The signals
+    // core's `heldDerivation` / `rederiveHeld` behind `setMemo` (+150 B
+    // minified, see the core floor note). 0 B in solid and web.
+    limit: "21.10 KB",
     modifyEsbuildConfig
   },
   {
@@ -1551,7 +1580,12 @@ module.exports = [
     // companion moved +5 B (20,981 -> 20,986) on the same build, so the rest
     // here is brotli layout over the larger bundle. 0 B in the store engine,
     // solid, or web.
-    limit: "31.30 KB",
+    // A held derivation is not a proposal (#3612, 2026-09-23): 31.30 -> 31.40
+    // KB, measured at 31,350 B against `next`'s 31,230 (+120 B). The signals
+    // core's `setMemo` arm (+150 B minified, see the core floor note) and
+    // the store engine's `derivedStoreWrite` wrap on the derived setter (see
+    // the + createStore note). 0 B in solid or web.
+    limit: "31.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -1719,7 +1753,12 @@ module.exports = [
     // bundles are 44,649 B on both sides and differ only in which short name
     // esbuild assigns where; the same brotli noise as above, now on top of
     // the upstream bytes, which those PRs left 36 B under this cap.
-    limit: "15.85 KB",
+    // A held derivation is not a proposal (#3612, 2026-09-23): 15.85 -> 15.90
+    // KB, measured at 15,854 B against `next`'s 15,780 (+74 B; 4 B over the
+    // cap). The signals core's `heldDerivation` / `rederiveHeld` behind
+    // `setMemo` (+150 B minified, see the core floor note). 0 B in solid and
+    // web.
+    limit: "15.90 KB",
     modifyEsbuildConfig
   },
   {
