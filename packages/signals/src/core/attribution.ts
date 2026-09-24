@@ -320,7 +320,7 @@ export interface AttributionOptions {
   /**
    * Run the cost checks — the thresholded findings over the engine's own
    * accounting: `hotRuns`, `hotTime`, `wideDeps`, `unstableMemos`,
-   * `wideWrites` (default true). `false` turns all five off at once, whatever
+   * `wideWrites`, `wastedRecompute` (default true). `false` turns all six off at once, whatever
    * their individual settings, so a consumer that wants records only (an
    * exporter, a profiler track) pays for none of their per-node bookkeeping.
    * Hold, long-hold and waterfall tracking are records with verdicts on top,
@@ -360,6 +360,18 @@ export interface AttributionOptions {
    * `false` disables.
    */
   unstableMemos?: number | false;
+  /**
+   * Wasted-recompute warning: emit WASTED_RECOMPUTE when a scope re-ran at
+   * least `minRuns` times within `windowMs` and `ratio` or more of those
+   * runs produced an unchanged value while costing `budgetMs` or more of
+   * compute in all (default 5 runs / 80% / 2ms / 1000ms). The equality gate
+   * closed every time: the scope's inputs changed without changing its
+   * result, so the runs were pure cost — the profiler-shaped fact
+   * `costs().wastedMs` sums, as a finding. Held and overlay runs are not
+   * counted (they may be replayed). Once per window per scope. `false`
+   * disables.
+   */
+  wastedRecompute?: { minRuns: number; ratio: number; budgetMs: number; windowMs: number } | false;
   /**
    * Written-fan-out warning: emit a diagnostic when a committed root
    * invalidation (write, refresh, async landing) reaches a node with at
@@ -434,6 +446,12 @@ interface AttributedNode {
   _devWideWriteWarnedAt?: number;
   /** Longest sequential-flight chain already warned for this node. */
   _devWaterfallWarnedAt?: number;
+  /** WASTED_RECOMPUTE window: runs, no-op runs and their self-time since `_devWasteWinStart`. */
+  _devWasteWinStart?: number;
+  _devWasteRuns?: number;
+  _devWasted?: number;
+  _devWastedMs?: number;
+  _devWasteWarned?: boolean;
   /** Interaction the node's latest compute run traced to — inherited by its effect phase. */
   _devRunInteraction?: ChangeOrigin;
   /** Sequence and causes of the node's latest recorded run (undefined after a create run). */
@@ -473,6 +491,9 @@ const defaultOptions = {
   wideDeps: 30 as number | false,
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
+  wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 2, windowMs: 1000 } as
+    | { minRuns: number; ratio: number; budgetMs: number; windowMs: number }
+    | false,
   wideWrites: 250 as number | false,
   waterfalls: { minFlightMs: 50 } as { minFlightMs: number } | false,
   holds: { infoMs: 100, warnMs: 200 } as { infoMs: number; warnMs: number } | false,
@@ -1193,6 +1214,72 @@ function checkHotTime(el: Computed<any>, event: RerunEvent): void {
   );
 }
 
+/**
+ * A scope whose equality gate closes almost every time: it re-ran because
+ * an input changed, computed, compared equal to its last value and told
+ * nobody — the run was pure cost. `costs().wastedMs` sums this; the finding
+ * names it while it happens, with the input that keeps triggering it. The
+ * fix is upstream: an equality boundary on the part of the input the scope
+ * depends on, or a narrower read. Plain runs only — a held or overlay run
+ * may be replayed and is never blamed as waste.
+ */
+function checkWastedRecompute(el: Computed<any>, event: RerunEvent): void {
+  const cfg = options.wastedRecompute;
+  if (cfg === false || event.phase !== "plain") return;
+  // This runs on every re-run: fields on the node (one property read each,
+  // like hotRuns) and the run's own `at` — no clock read, no map lookup.
+  const node = el as AttributedNode;
+  const at = event.at;
+  if (node._devWasteWinStart === undefined || at - node._devWasteWinStart > cfg.windowMs) {
+    node._devWasteWinStart = at;
+    node._devWasteRuns = 0;
+    node._devWasted = 0;
+    node._devWastedMs = 0;
+    node._devWasteWarned = false;
+  }
+  node._devWasteRuns = node._devWasteRuns! + 1;
+  if (!event.changed) {
+    node._devWasted = node._devWasted! + 1;
+    node._devWastedMs = node._devWastedMs! + event.selfMs;
+  }
+  if (
+    node._devWasteWarned ||
+    node._devWasteRuns < cfg.minRuns ||
+    node._devWasted! / node._devWasteRuns < cfg.ratio ||
+    node._devWastedMs! < cfg.budgetMs
+  )
+    return;
+  node._devWasteWarned = true;
+  const win = { runs: node._devWasteRuns, wasted: node._devWasted!, wastedMs: node._devWastedMs! };
+  const rootCause = event.causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+  const message =
+    `[WASTED_RECOMPUTE] ${event.nodeKind} "${event.nodeName}" re-ran ${win.runs} times in ` +
+    `${cfg.windowMs}ms and ${win.wasted} of those produced the same value — ` +
+    `${win.wastedMs.toFixed(1)}ms of compute the equality gate then discarded. Its inputs ` +
+    `change without changing its result: put an equality boundary upstream (a memo over the ` +
+    `part of the input it reads, or an \`equals\` on the source), or read a narrower slice ` +
+    `(the property, not the object). Latest cause: ${rootCause || "(untracked pull)"}`;
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "WASTED_RECOMPUTE",
+        kind: "perf",
+        severity: "warn",
+        message,
+        nodeName: event.nodeName,
+        data: {
+          runs: win.runs,
+          wasted: win.wasted,
+          wastedMs: win.wastedMs,
+          windowMs: cfg.windowMs,
+          causes: event.causes.map(c => c.name)
+        }
+      },
+      el
+    )
+  );
+}
+
 function recordRerun(
   el: Computed<any>,
   frame: RunFrame,
@@ -1261,6 +1348,7 @@ function recordRerun(
   checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, event);
   checkHotTime(el, event);
+  checkWastedRecompute(el, event);
   checkDepWidth(el);
   emitRecord("rerun", event);
   if (options.log) logRerun(event);
@@ -3776,6 +3864,7 @@ function resolveHold(opts: AttributionOptions | undefined): Options {
     out.wideDeps = false;
     out.unstableMemos = false;
     out.wideWrites = false;
+    out.wastedRecompute = false;
   }
   return out;
 }

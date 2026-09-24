@@ -2152,7 +2152,19 @@ module.exports = [
     // 2026-09-23): 29,408 B against `next`'s 29,018 (+390 B; 42 B of headroom
     // under the same cap). The tier is 17,487 against `next`'s 17,482 (+5 B) —
     // #3630's core bytes moved the compressor layout under both figures above.
-    limit: "29.45 KB",
+    // WASTED_RECOMPUTE (2026-09-23, rebased): 29.05 -> 29.40 KB, measured at
+    // 29,318 B on a full build (+319 B over next's 28,999). The sixth cost check: a
+    // per-scope window on the node's `_devWaste*` fields (one property read each on
+    // the re-run path — a WeakMap draft cost ~15 ns/re-run, this ~2) counting no-op
+    // runs and their self-time, the option and its fold under `checks`, and the
+    // repair text. Tier under its cap.
+    // Re-measured at landing (#3613 rebased over #3604/#3623, 2026-09-23):
+    // 29.45 -> 29.80 KB, measured at 29,725 B against `next`'s 29,393 at
+    // 21b978413 (+332 B; the PR's own +319 was taken against the pre-#3604
+    // 28,999). The tier is 17,471 against `next`'s 17,514 (-43 B): the
+    // nameCache drift the #3608 note describes, here in the other direction,
+    // with byte-count-identical core artifacts.
+    limit: "29.80 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

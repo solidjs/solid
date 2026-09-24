@@ -68,6 +68,7 @@ export type DiagnosticCode =
   | "HOT_SCOPE_TIME"
   | "WIDE_SCOPE_DEPS"
   | "UNSTABLE_MEMO_OUTPUT"
+  | "WASTED_RECOMPUTE"
   | "WIDE_WRITE"
   | "ASYNC_WATERFALL"
   | "HOT_SCOPE_FANOUT"
