@@ -26,7 +26,13 @@ export interface AttributionHooks {
    * nest strictly (synchronous dispatch), so the engine keeps a stack.
    */
   interactionStart(ref: InteractionRef): void;
-  interactionEnd(): void;
+  /**
+   * The handler returned. `returned` is its return value: a thenable means
+   * the handler continues past this frame (`async () => { await … }`), and
+   * the engine may keep the interaction's record open until it settles —
+   * the wait the person experiences is that continuation, not the frame.
+   */
+  interactionEnd(returned?: unknown): void;
   /**
    * `withOrigin` opened a declared-origin frame: root writes until the
    * matching `originEnd` are the unit of work `ref` describes (a router's
@@ -302,10 +308,11 @@ export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
   const hooks = attrHooks;
   if (hooks === null) return fn();
   hooks.interactionStart(ref);
+  let returned: T | undefined;
   try {
-    return fn();
+    return (returned = fn());
   } finally {
-    hooks.interactionEnd();
+    hooks.interactionEnd(returned);
   }
 }
 

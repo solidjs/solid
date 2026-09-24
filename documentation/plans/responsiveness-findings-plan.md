@@ -38,8 +38,13 @@ report.
 
 Two items change a contract; settle them before their code.
 
-- **D1 — Does an interaction stay open across its handler's returned
-  promise?** (↔ Tracks: the Interactions track's settle span ends at
+- **D1 — DECIDED (2026-09-22): yes, same record.** A thenable return keeps
+  the `InteractionEvent` open until it settles (cap 10s); `settledMs` covers
+  the wait and `continuationMs` names it; `outcome` is unchanged (writes in
+  the continuation are not attributed — no frame). The finding is
+  `UNTRACKED_ASYNC_HANDLER`, on the hold thresholds; an `action()` step or a
+  write before the `await` clears it. `@sentry/solid-2`'s `after_settle`
+  path is now dead and should go. Original question: (↔ Tracks: the Interactions track's settle span ends at
   `settledMs`; D1 lengthens it. Decide before Stage 1 of that plan ships a
   shape.) Today `withInteraction` closes the frame when the synchronous
   handler returns; `onClick={async () => set(await save())}` settles as
@@ -52,7 +57,9 @@ Two items change a contract; settle them before their code.
   record (one interaction, longer) or a second phase on it
   (`continuationMs`), and whether a handler that returns a promise which
   never settles caps the frame (a timeout) or leaves it open.
-- **D2 — Are cost findings on by default in the observe build?**
+- **D2 — DECIDED by #3580:** `checks?: boolean` on `enable()` (default
+  `true`), combined most-demanding across holds; a records-only consumer
+  passes `checks: false`. Item 6 lands under that switch. Original question:
   `HOT_SCOPE_RERUNS`, `UNSTABLE_MEMO_OUTPUT` and the rest fire "only while
   attribution is enabled". Item 6 adds a production-shaped one. Decide
   whether enabling the engine implies the cost checks (today's behavior) or
@@ -61,7 +68,12 @@ Two items change a contract; settle them before their code.
 
 ## Items
 
-### 1. Close the `await` escape in interactions
+### 1. Close the `await` escape in interactions — LANDED
+
+Shipped as `interactionEnd(returned)` + `InteractionEvent.continuationMs` +
+`UNTRACKED_ASYNC_HANDLER` (see RFC 08). The finding requires _no_ write
+before the await rather than "no acknowledged reader for what it wrote":
+any pre-await write opens the hold path, which `SILENT_HOLD` judges.
 
 - **Known:** `withInteraction(ref, fn)` in the web runtime's event dispatch
   opens the frame; the handler's return value is discarded. Writes after
