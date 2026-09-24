@@ -8,6 +8,7 @@ import {
   getOwner,
   ownerPath
 } from "../src/index.js";
+import { attribution } from "../src/attribution.js";
 import {
   $$component,
   $$decline,
@@ -117,6 +118,52 @@ describe("$$component proxy owner paths", () => {
     render(proxies.Counter);
     flush();
     expect(inner).toEqual(["<Counter>", "total"]);
+  });
+
+  test("the wrapper is nobody's node: the engine records the body's nodes, never the memo", () => {
+    const { hot, fireAccept } = createViteHot();
+    const release = attribution.enable({ log: false });
+    const creates: [string, string][] = [];
+    const reruns: string[] = [];
+    const offCreate = attribution.subscribe("create", e => creates.push([e.nodeName, e.nodeKind]));
+    const offRerun = attribution.subscribe("rerun", e => reruns.push(e.nodeName));
+    try {
+      const first = executeModule(hot, {
+        Counter: {
+          impl: () => {
+            createMemo(() => 1, { name: "total" })();
+            return null;
+          },
+          options: { signature: "sig-a" }
+        }
+      });
+      render(first.proxies.Counter);
+      flush();
+      expect(creates).toEqual([["total", "memo"]]);
+
+      // A swap re-runs the wrapper's memo; that run is not a record either —
+      // only the new body's nodes are.
+      executeModule(hot, {
+        Counter: {
+          impl: () => {
+            createMemo(() => 2, { name: "total2" })();
+            return null;
+          },
+          options: { signature: "sig-b" }
+        }
+      });
+      fireAccept({});
+      flush();
+      expect(creates).toEqual([
+        ["total", "memo"],
+        ["total2", "memo"]
+      ]);
+      expect(reruns).toEqual([]);
+    } finally {
+      offCreate();
+      offRerun();
+      release();
+    }
   });
 
   test("the proxy carries the component's name for an unlabelled createComponent", () => {

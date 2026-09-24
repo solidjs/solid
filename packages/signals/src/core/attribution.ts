@@ -4,7 +4,7 @@ import {
   type InteractionRef,
   type OriginRef
 } from "./attribution-hooks.js";
-import { CONFIG_DERIVED_OVERRIDE, NOT_PENDING } from "./constants.js";
+import { CONFIG_DERIVED_OVERRIDE, CONFIG_PLUMBING, NOT_PENDING } from "./constants.js";
 import {
   anyExcluded,
   emitDiagnostic,
@@ -547,11 +547,15 @@ interface AttributedNode {
 }
 
 /**
- * Under an owner the observer marked as its own (`OBSERVE.exclude`): the
- * engine records nothing about the node. Cached per node once any exclusion
- * exists; before that the answer is a flag read.
+ * Under an owner the observer marked as its own (`OBSERVE.exclude`), or
+ * framework plumbing itself (`CONFIG_PLUMBING` — the HMR memo between a
+ * component's root and its body, which is nobody's node): the engine records
+ * nothing about the node. Plumbing is a bit read and excludes the node alone,
+ * not what it owns; the observer exclusion is cached per node once any
+ * exists, before that a flag read.
  */
 function excludedNode(el: Computed<any> | Signal<any>): boolean {
+  if ((el._config & CONFIG_PLUMBING) !== 0) return true;
   if (!anyExcluded()) return false;
   const node = el as AttributedNode;
   if (node._devExcluded === undefined) node._devExcluded = isExcluded(el);

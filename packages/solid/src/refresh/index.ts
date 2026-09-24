@@ -88,14 +88,13 @@ function createProxy<P extends Record<string, any>>(
     }
     const s = untrack(source);
     if (!s || $DEVCOMP in s) {
-      // Nameless on purpose (`""` — a memo with no `name` is labelled
-      // "computed"): the memo sits between the component's dev root
-      // (`<Name>`, from `observedComponent`) and the body it runs, and the
-      // observe layer's `ownerPath` skips owners with an empty name — so the
-      // component reads as `<App> › <Router>` in every owner path (tracks,
-      // findings, captures) rather than `<App> › [solid-refresh]App ›
-      // <Router>`. The root above is the component's identity; this node is
-      // plumbing.
+      // Plumbing: the memo sits between the component's dev root (`<Name>`,
+      // from `observedComponent`) and the body it runs, and is nobody's
+      // node — `_plumbing` leaves it unnamed, out of every owner path, and
+      // unrecorded by the attribution engine (no creation or re-run of its
+      // own), while the body's nodes stay observed. The component reads as
+      // `<App> › <Router>` in tracks, findings and captures; the root above
+      // is its identity.
       return createMemo(
         () => {
           const c = source();
@@ -104,7 +103,7 @@ function createProxy<P extends Record<string, any>>(
           }
           return undefined;
         },
-        { name: "", transparent: true }
+        { _plumbing: true, transparent: true }
       ) as unknown as SolidElement;
     }
     // No $DEVCOMP brand means the source never went through observedComponent, so

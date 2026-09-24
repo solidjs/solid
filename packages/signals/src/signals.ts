@@ -264,6 +264,13 @@ export interface MemoOptions<T> {
    */
   transparent?: boolean;
   /**
+   * @internal Framework plumbing (the `solid-js/refresh` HMR memo): in the
+   * observe tiers the memo has no name, is no owner-path segment, and the
+   * attribution engine records nothing about it, while what it owns stays
+   * observed. Not part of the public API.
+   */
+  _plumbing?: boolean;
+  /**
    * Custom equality function, or `false` to always notify subscribers.
    * Defaults to reference equality (`isEqual`). Pass a comparator (e.g.
    * `(a, b) => a.id === b.id`) for value-based equality, or `false` to
