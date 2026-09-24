@@ -2138,6 +2138,10 @@ module.exports = [
     // means no hold could have shown the wait — the message carries the two repairs.
     // Most of the bytes are that text. The tier moved 65 B for the return value
     // through `interactionEnd(returned)`; under its cap.
+    // Re-measured at landing (rebased over #3630/#3631/#3617/#3629,
+    // 2026-09-23): 29,408 B against `next`'s 29,018 (+390 B; 42 B of headroom
+    // under the same cap). The tier is 17,487 against `next`'s 17,482 (+5 B) —
+    // #3630's core bytes moved the compressor layout under both figures above.
     limit: "29.45 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
