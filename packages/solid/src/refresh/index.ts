@@ -79,7 +79,6 @@ function createProxy<P extends Record<string, any>>(
   instances: LiveInstances,
   location?: string
 ): (props: P) => SolidElement {
-  const refreshName = `[solid-refresh]${name}`;
   function HMRComp(props: P): SolidElement {
     if (getOwner()) {
       instances.count++;
@@ -89,6 +88,14 @@ function createProxy<P extends Record<string, any>>(
     }
     const s = untrack(source);
     if (!s || $DEVCOMP in s) {
+      // Nameless on purpose (`""` — a memo with no `name` is labelled
+      // "computed"): the memo sits between the component's dev root
+      // (`<Name>`, from `observedComponent`) and the body it runs, and the
+      // observe layer's `ownerPath` skips owners with an empty name — so the
+      // component reads as `<App> › <Router>` in every owner path (tracks,
+      // findings, captures) rather than `<App> › [solid-refresh]App ›
+      // <Router>`. The root above is the component's identity; this node is
+      // plumbing.
       return createMemo(
         () => {
           const c = source();
@@ -97,7 +104,7 @@ function createProxy<P extends Record<string, any>>(
           }
           return undefined;
         },
-        { name: refreshName, transparent: true }
+        { name: "", transparent: true }
       ) as unknown as SolidElement;
     }
     // No $DEVCOMP brand means the source never went through observedComponent, so
@@ -105,7 +112,10 @@ function createProxy<P extends Record<string, any>>(
     // not a tracked component render.
     return s(props);
   }
-  setComponentProperty(HMRComp, "name", refreshName);
+  // The component's own name, so a `createComponent` call the compiler did
+  // not label (no `sourceNames`) still opens a `<Name>` root rather than a
+  // `<[solid-refresh]Name>` one.
+  setComponentProperty(HMRComp, "name", name);
   if (location) {
     setComponentProperty(HMRComp, "location", location);
   }
