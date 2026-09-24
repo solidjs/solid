@@ -955,7 +955,22 @@ export class GlobalQueue extends Queue {
             commitPendingNodes();
           }
         } else {
-          if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
+          // Parked transactions elsewhere: their owners' zombies render
+          // mainline until the commit that disposes them, so a mainline write
+          // reaches them here (#2916, #3463). Commit THIS flush's pending nodes
+          // first (#3546): a zombie whose owner commits now is disposed by that
+          // commit and never reruns — the same fate it has when no transaction
+          // is parked, where this queue is not run at all. Run before the
+          // commit, it reran and notified its owner through the previous
+          // pass's dependency tail (kept by A30 until the commit trims it),
+          // and the owner recomputed a second time with identical inputs,
+          // creating and disposing one more child per write. Only the zombies
+          // of actually parked owners survive the commit and rerun; the
+          // finalize's own commit picks up whatever those reruns stage.
+          if (transitions.size) {
+            commitPendingNodes();
+            runHeap(zombieQueue, GlobalQueue._update);
+          }
           finalizePureQueue();
         }
       }

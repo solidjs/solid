@@ -105,9 +105,11 @@ it("keeps the subscriber count bounded while an unrelated action is parked", asy
   alternate(setN, 40);
   expect(observers()).toBe(control);
   expect(liveChildren()).toBe(1);
-  // at most one extra run per pass — the zombie rerun the parked transaction
-  // buys (#3463); an orphan would add a run per pass for every leaked node
-  expect(state.innerRuns - before).toBeLessThanOrEqual(controlRuns + 40);
+  // no extra runs: the owner commits every pass, so its zombie is disposed by
+  // the commit before the zombie queue runs (#3546) — an orphan would add a
+  // run per pass for every leaked node, and a pre-commit zombie rerun added
+  // one zombie run plus one second owner pass per write
+  expect(state.innerRuns - before).toBe(controlRuns);
 
   // and after the action lands
   resolve();
