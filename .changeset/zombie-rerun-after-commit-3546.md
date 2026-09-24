@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+Zombies of a committing owner do not rerun before the commit (#3546). While any transaction is parked, the ambient flush reruns the zombie queue so the zombies of parked owners — still on screen until the commit that disposes them — follow mainline writes. It ran that queue before committing the flush's own pending nodes, so an owner that recreates a child every pass (the compiled `<Show when={n() > 0 && n() < 2}>` condition) paid twice per write: its old child, dirtied by the same write, reran as a zombie and notified the owner through the previous pass's dependency tail (kept by A30 until the commit trims it), and the owner recomputed a second time with identical inputs, creating and disposing one more child. The commit now runs first; a zombie whose owner commits this flush is disposed by it and never reruns, exactly as when no transaction is parked. Only the zombies of actually parked owners rerun. A30 is unchanged. Measured on the #3543 shape: 40 alternating writes under a parked action cost 60 nested-memo runs instead of 100, and the owner runs 40 times instead of 60.

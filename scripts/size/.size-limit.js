@@ -1950,6 +1950,15 @@ module.exports = [
     // for it — the solid-js/refresh HMR memo, so it is no owner-path segment
     // and the engine records nothing about it (`excludedNode` reads the bit).
     // Prod literal untouched; prod scenarios byte-identical.
+    // Zombies of a committing owner do not rerun before the commit (#3546,
+    // 2026-09-24, rebased over #3633): no cap change, measured at 17,677 B
+    // against `next`'s 17,670 at 974506c12 (+7 B; +34 B over the pre-#3633
+    // base, 17,618 -> 17,652, which was 2 B over the old 17.65 KB cap). The
+    // ambient flush with parked transactions commits its pending nodes
+    // before running the zombie queue — one `commitPendingNodes()` call and
+    // a block, no observe-gated bytes. Brotli layout, not code: the same
+    // source diff is -21 B on the signals floor (9,792 -> 9,771) and -11 B
+    // on prod CSR (15,854 -> 15,843).
     limit: "17.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
