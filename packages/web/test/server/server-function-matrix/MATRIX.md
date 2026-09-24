@@ -40,6 +40,7 @@ Status legend: **pass** (ordinary green guard) · **audit** (reported by
 | Body-format tags are recognized before decoding | **pass** | n/a | **pass** | `server-functions-body-formats`; #3245 covers the client half |
 | Unsafe own keys are removed at every untrusted decode boundary | **pass** | n/a | #3233 **audit** | `server-functions-proto-keys`, `server-functions-open-gaps` |
 | Decoded promises are always owned, even when their container is abandoned | n/a | n/a | #3232 **audit** | new focused spec required |
+| The bound `?args=` fast path applies only when the trailing argument is a body-like object; an `undefined` before a trailing string rides the codec | **pass** | n/a | **pass** | `server-functions-undefined-arguments`, `server-functions-body-formats`; #3622 **ruling** |
 
 ## Result graph and request scope
 
@@ -313,6 +314,30 @@ grant, dev build only:
 Pinned in `server-functions-dev-rebind-grant` (carry, origin gate on a
 carried id, re-declaration upgrade, stale re-declaration, chained rebinds,
 stale-grant refusal, production revocation).
+
+## Ruling — `undefined` before a trailing string (#3622, 2026-09-23)
+
+The bound fast path (`action.with(id)` posting a body: leading arguments in
+`?args=` as JSON, `undefined` coerced to `null` as in the router-rendered
+action url) admitted a trailing plain string, because `getHeadersAndBody`
+gives strings a natural encoding. A string call reaches that path only when
+the JSON fast path refused the list — in practice only over a leading
+`undefined` — so `search(1, undefined, "milk")` ran with `limit = null` and
+the default parameter never applied, rich arguments or not. Resolved:
+
+1. **The fast path is for body-like objects only** — FormData,
+   URLSearchParams, File, Blob, ArrayBuffer, Uint8Array. A trailing string is
+   excluded; those bound calls keep their `?args=[...,null]` shape.
+2. **`undefined` otherwise rides the codec, like any other `undefined`
+   argument.** With `enableRichArguments()` the function receives a real
+   `undefined`; under the default config the call rejects with the existing
+   "sent as JSON by default" error, exactly as `search(1, undefined)` does.
+   The fast path was the exception, not the rule; a default-config app that
+   observed `null` was relying on the defect.
+
+Pinned in `server-functions-undefined-arguments` (default-config refusal,
+rich-argument delivery, plain-JSON string call, FormData/URLSearchParams/File
+controls).
 
 ## Extraction and merge discipline
 

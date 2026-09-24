@@ -601,10 +601,12 @@ async function initializeResponse(base, id, options, args, meta) {
   // handler prepends url arguments before natural-encoding bodies) and the
   // trailing argument IS the body. The same wire shape the no-JS fallback
   // produces, so bound form actions need no codec. `undefined` coerces to
-  // null exactly as it does in a rendered action url (JSON has none).
+  // null as it does in a router-rendered action url (JSON has none).
+  // Strings are excluded so an `undefined` before one reaches the codec.
   if (args.length > 1) {
     try {
-      const trailing = getHeadersAndBody(args[args.length - 1]);
+      const last = args[args.length - 1];
+      const trailing = typeof last !== "string" && getHeadersAndBody(last);
       const leading = args.slice(0, -1).map(arg => (arg === undefined ? null : arg));
       if (trailing && isJSONSafe(leading)) {
         const target =
