@@ -367,16 +367,29 @@ describe("a handler that returns a promise", () => {
   });
 
   it("stays quiet below the hold threshold, and info between the two", async () => {
+    // The verdict is cut against `continuationMs`: two `performance.now()`
+    // reads in the engine, at the handler's return and at its promise's
+    // settle. On the wall clock a 1ms wait crossed `infoMs: 10` on the
+    // coverage-instrumented CI job (12× slower than a local run), so the
+    // clock is the test's here (the #3598 pattern): it stands still unless
+    // the handler advances it, and each side of the threshold is exercised
+    // by choice. Real timers still drive the await; only the stamps are ours.
+    let t = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => t);
     const { interactions, findings } = armWithFindings({ infoMs: 10, warnMs: 1000 });
     OBSERVE!.attribution.withInteraction(CLICK, async () => {
       await wait(1);
+      t += 9; // one short of infoMs
     });
     await until(() => interactions().length === 1, "the fast handler to settle");
+    expect(interactions()[0].continuationMs).toBe(9);
     expect(findings).toHaveLength(0);
     OBSERVE!.attribution.withInteraction(CLICK, async () => {
-      await wait(30);
+      await wait(1);
+      t += 30; // past infoMs, short of warnMs
     });
     await until(() => interactions().length === 2, "the slow handler to settle");
+    expect(interactions()[1].continuationMs).toBe(30);
     expect(findings).toHaveLength(1);
     expect(findings[0].severity).toBe("info");
   });
