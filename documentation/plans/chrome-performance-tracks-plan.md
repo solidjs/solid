@@ -36,17 +36,17 @@ default); every entry retroactive from the record's own `performance.now()`
 stamps, so no hot path is bracketed. Tracks seeded with zero-length entries
 at t=0.003 in a fixed order.
 
-| Track          | Records                               | Reads as                                                                                                                     |
-| -------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Interactions` | `interaction`                         | input delay → handler → settle (`committed`/`held`); silent hold = `warning`                                                 |
-| `Propagation`  | `flush` + `rerun`/`create`/`effect`   | one wave per drain (`count 0 → 1 — click on button#next · 5 runs, 1 unchanged`), the runs beneath it labelled `node ← cause` |
-| `Effects`      | `rerun`/`create`/`effect` (effects)   | re-runs by owner path, `· create`, `· callback`; colour by self time; `warning` when `changed: false`                        |
-| `Memos`        | `rerun`/`create` (memos)              | same                                                                                                                         |
-| `Async`        | `flight`, `fallback`                  | kickoff → landing (`abandoned` = `warning`); fallback shown → hidden                                                         |
-| `Holds`        | `hold`                                | the wait, by blockers; `warning` silent, `error` long (the engine's verdicts)                                                |
-| `Navigations`  | `navigation`                          | request → settle, by route pattern                                                                                           |
-| `Server`       | `call`, `frame` (web runtime records) | server-function calls; frame streams with a shell sub-span                                                                   |
-| Timings        | `OBSERVE.diagnostics`                 | one marker per finding, `performanceIssue` at `warn`+ (Stage 4)                                                              |
+| Track          | Records                               | Reads as                                                                                                                                                                      |
+| -------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Interactions` | `interaction`                         | input delay → handler → settle (`committed`/`held`); silent hold = `warning`                                                                                                  |
+| `Propagation`  | `flush` + `rerun`/`create`/`effect`   | one wave per drain (`count 0 → 1 — click on button#next · 5 runs, 1 unchanged`), the runs beneath it labelled `node ← cause`                                                  |
+| `Effects`      | `rerun`/`create`/`effect` (effects)   | re-runs by owner path from the nearest component (`<Row> › paint`; full path in `Owner path`), `· create`, `· callback`; colour by self time; `warning` when `changed: false` |
+| `Memos`        | `rerun`/`create` (memos)              | same                                                                                                                                                                          |
+| `Async`        | `flight`, `fallback`                  | kickoff → landing (`abandoned` = `warning`); fallback shown → hidden                                                                                                          |
+| `Holds`        | `hold`                                | the wait, by blockers; `warning` silent, `error` long (the engine's verdicts)                                                                                                 |
+| `Navigations`  | `navigation`                          | request → settle, by route pattern                                                                                                                                            |
+| `Server`       | `call`, `frame` (web runtime records) | server-function calls; frame streams with a shell sub-span                                                                                                                    |
+| Timings        | `OBSERVE.diagnostics`                 | one marker per finding, `performanceIssue` at `warn`+ (Stage 4)                                                                                                               |
 
 Stages, as landed (one commit each on the branch):
 

@@ -205,7 +205,7 @@ const noop = (): void => {};
  * `fallback`) is what turns them on — they are built only while a listener
  * exists, so the engine pays for them only while the tracks are enabled.
  * Every diagnostic delivered while enabled becomes a marker on the panel's
- * Timings track (`SILENT_HOLD — <App> › <Search>`), annotated as a
+ * Timings track (`SILENT_HOLD — <Search>`), annotated as a
  * performance issue for the Insights sidebar when its severity is a
  * warning or worse. In dev, spans and markers are emitted inside the
  * `console.createTask` task of the component they belong to, so an entry's
@@ -441,7 +441,8 @@ class Painter {
 
   /**
    * `Effects` / `Memos`: one span per re-run, `at → at + totalMs`, labelled
-   * by the owner path (`<App> › <TodoRow> › effect "syncTitle"`), coloured
+   * by the owner path from its nearest component (`<TodoRow> › syncTitle`;
+   * the full path is the `Owner path` property), coloured
    * by self time like React's component flame — and `warning` when the
    * run provably did nothing (`changed: false`), `tertiary` under an
    * optimistic lane. The tooltip is the engine's own why-chain.
@@ -575,8 +576,8 @@ class Painter {
 
   /**
    * Timings track: a finding as a marker where it was delivered, labelled
-   * by its code and the owner it is about (`SILENT_HOLD — <App> › <Search>`),
-   * coloured by severity. A `warn`-or-worse finding is also annotated as a
+   * by its code and the owner it is about (`SILENT_HOLD — <Search>`, the
+   * full path in `Owner path`), coloured by severity. A `warn`-or-worse finding is also annotated as a
    * performance issue — the panel's Insights sidebar lists those — with the
    * repair guide's section for the code as its link. `info` stays a plain
    * marker. The message and `data` are the engine's own; under the scrub
@@ -585,7 +586,10 @@ class Painter {
    */
   diagnostic(event: DiagnosticEvent): void {
     const owner = event.ownerPath?.join(" › ");
-    const label = owner !== undefined ? `${event.code} — ${owner}` : event.code;
+    const label =
+      event.ownerPath !== undefined
+        ? `${event.code} — ${nearest(event.ownerPath).join(" › ")}`
+        : event.code;
     const color: TrackColor =
       event.severity === "error"
         ? "error"
@@ -710,6 +714,7 @@ class Painter {
         ["In the air", ms(event.durationMs)],
         ["Outcome", event.outcome]
       ];
+      if (node.path !== undefined) properties.push(["Owner path", node.path]);
       if (node.internal !== undefined) properties.push(["Node", node.internal]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
@@ -726,12 +731,18 @@ class Painter {
     );
   }
 
-  /** `Async`: a loading boundary's fallback, show → hide, named by the boundary's owner path. */
+  /**
+   * `Async`: a loading boundary's fallback, show → hide, named by the
+   * boundary from its nearest component (`fallback <Page> › <Loading>`).
+   */
   fallback(event: FallbackEvent): void {
-    const label = `fallback${event.ownerPath !== undefined ? ` ${event.ownerPath.join(" › ")}` : ""}`;
+    const path = event.ownerPath;
+    const label = `fallback${path !== undefined ? ` ${nearest(path).join(" › ")}` : ""}`;
     let properties: Properties | undefined;
     if (this.rich) {
       properties = [["Shown", ms(event.shownMs)]];
+      if (path !== undefined && nearest(path).length !== path.length)
+        properties.push(["Owner path", path.join(" › ")]);
       if (event.interaction !== undefined)
         properties.push(["Interaction", this.origin(event.interaction)]);
     }
@@ -1013,10 +1024,19 @@ class Painter {
 // on the label into the thing the developer wrote — `<App> › <Show>`,
 // `<App> › createDebounced` — with the runtime's name kept in the span's
 // `Node` property, so the label reads as source and the tooltip as graph.
-// Presentation only: every record is what the engine delivered.
+//
+// The label then starts at the nearest component the developer wrote:
+// `<Search> › results`, not `<Document> › body › <App> › <Router> › … ›
+// <Search> › results`. A track entry has the width of its span, and the
+// panel elides the middle of a label that does not fit — which in a full
+// path is exactly the part that says which component this is. Solid's own
+// flow controls (`<Show>`, `<For>`, `<Loading>`…) are not anchors: a node
+// under `<Card> › <Show>` belongs to `<Card>`. The full path is the
+// `Owner path` property. Presentation only: every record is what the
+// engine delivered.
 
 interface Described {
-  /** The label: owner path, folded, the node's own segment last. */
+  /** The label: the folded owner path from the nearest component, the node's own segment last. */
   label: string;
   /** The node's own segment as folded — what a dependant's `←` names it. */
   short: string;
@@ -1040,6 +1060,36 @@ const FLOW_INTERNALS: Record<string, ReadonlySet<string> | undefined> = {
   "<Errored>": new Set(["children", "boundary", "value"]),
   "<Reveal>": new Set(["reveal order"])
 };
+
+/**
+ * Solid's own flow and platform components — tags a developer writes, but
+ * never "the component this node belongs to".
+ */
+const FLOW_TAGS: ReadonlySet<string> = new Set([
+  "<Show>",
+  "<For>",
+  "<Repeat>",
+  "<Switch>",
+  "<Match>",
+  "<Errored>",
+  "<Loading>",
+  "<Reveal>",
+  "<Portal>",
+  "<Dynamic>"
+]);
+
+/**
+ * The segments from the nearest enclosing component — the last `<Tag>`
+ * that is not one of Solid's own flow controls — to the end; the whole
+ * path when there is none.
+ */
+function nearest(segments: readonly string[]): readonly string[] {
+  for (let i = segments.length - 1; i > 0; i--) {
+    const s = segments[i];
+    if (s.charCodeAt(0) === 60 /* `<` */ && !FLOW_TAGS.has(s)) return segments.slice(i);
+  }
+  return segments;
+}
 
 function describe(nodeName: string, path: string[] | undefined): Described {
   const full =
@@ -1072,7 +1122,7 @@ function describe(nodeName: string, path: string[] | undefined): Described {
     if (shown !== undefined && shown !== segments[segments.length - 1]) segments.push(shown);
   }
   const short = segments[segments.length - 1];
-  const label = segments.join(" › ");
+  const label = nearest(segments).join(" › ");
   const described: Described = { label, short };
   if (internal !== undefined) described.internal = internal;
   const runtimePath = full.join(" › ");
@@ -1259,12 +1309,14 @@ class ServerSpans {
       const kind = metric.name.slice(6);
       // The boundary's `desc` is its owner path — ASCII ` > ` on the wire —
       // shown the way the Async track's `fallback` spans label the same
-      // boundary on the client.
+      // boundary on the client: from its nearest component, the full path
+      // as a property.
+      const path = kind === "boundary" ? metric.description.split(" > ") : undefined;
       const label =
         kind === "shell"
           ? "shell · server"
-          : kind === "boundary"
-            ? `boundary ${metric.description.split(" > ").join(" › ")} · server`
+          : path !== undefined
+            ? `boundary ${nearest(path).join(" › ")} · server`
             : `${metric.description} · server`;
       let properties: Properties | undefined;
       if (rich) {
@@ -1278,6 +1330,8 @@ class ServerSpans {
               : "ends with the shell — settled at or before the flush"
           ]
         ];
+        if (path !== undefined && nearest(path).length !== path.length)
+          properties.push(["Owner path", path.join(" › ")]);
       }
       this.emit.span(
         label,
