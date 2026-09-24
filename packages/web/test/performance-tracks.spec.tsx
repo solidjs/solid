@@ -67,6 +67,8 @@ const originals = (
     [performance, "mark"],
     [performance, "clearMarks"],
     [performance, "getEntriesByName"],
+    [performance, "getEntriesByType"],
+    [globalThis, "PerformanceObserver"],
     [console, "timeStamp"],
     [console, "createTask"]
   ] as [object, string][]
@@ -1024,6 +1026,266 @@ describe("enablePerformanceTracks", () => {
         color: "secondary"
       })
     ]);
+  });
+
+  // --- Server spans: the server's own timing under the client span --------
+  //
+  // The server puts its timed work on the response's `Server-Timing`
+  // (`solid-invocation` on a server-function response; `solid-shell` and
+  // `solid-boundary` on the document). The adapter reads the header off the
+  // call's `live.response` and places the spans with the fetch's resource
+  // entry: they END at `responseStart` (the head left right after the
+  // function returned) and run back their `dur`. The entry can land after
+  // the record, so a `PerformanceObserver` on `resource` places late
+  // arrivals; without one the span is centred in the call and says so.
+
+  /** A `PerformanceObserver` in the test's hand: `deliver(entries)` is the callback. */
+  function resourceTiming() {
+    const byName = new Map<string, PerformanceResourceTiming[]>();
+    let navigation: Partial<PerformanceNavigationTiming> | undefined;
+    const observers: Array<{
+      cb: (list: { getEntries(): PerformanceEntry[] }) => void;
+      options: unknown;
+      disconnected: boolean;
+    }> = [];
+    // Layered over `measures()`'s stub (the User Timing side), whichever
+    // order a test installed them in.
+    const previous = performance.getEntriesByName as
+      | ((n: string, t?: string) => unknown[])
+      | undefined;
+    define(performance, "getEntriesByName", (name: string, type?: string) =>
+      type === "resource"
+        ? (byName.get(name) ?? [])
+        : typeof previous === "function"
+          ? previous.call(performance, name, type)
+          : []
+    );
+    define(performance, "getEntriesByType", (type: string) =>
+      type === "navigation" && navigation !== undefined ? [navigation] : []
+    );
+    class FakeObserver {
+      private record: (typeof observers)[number];
+      constructor(cb: (list: { getEntries(): PerformanceEntry[] }) => void) {
+        this.record = { cb, options: undefined, disconnected: false };
+      }
+      observe(options: unknown) {
+        this.record.options = options;
+        observers.push(this.record);
+      }
+      disconnect() {
+        this.record.disconnected = true;
+      }
+    }
+    define(globalThis, "PerformanceObserver", FakeObserver);
+    const entry = (
+      name: string,
+      startTime: number,
+      responseStart: number,
+      duration = responseStart - startTime + 5
+    ): PerformanceResourceTiming =>
+      ({ name, entryType: "resource", startTime, responseStart, duration }) as any;
+    return {
+      observers,
+      entry,
+      /** In the timeline already (`getEntriesByName` finds it). */
+      buffered(e: PerformanceResourceTiming) {
+        const list = byName.get(e.name) ?? [];
+        list.push(e);
+        byName.set(e.name, list);
+      },
+      /** Delivered to every live observer, as the browser queues them. */
+      deliver(...entries: PerformanceResourceTiming[]) {
+        for (const o of observers) if (!o.disconnected) o.cb({ getEntries: () => entries });
+      },
+      navigation(n: Partial<PerformanceNavigationTiming>) {
+        navigation = n;
+      }
+    };
+  }
+
+  /** A settled call and the transport's response beside it, as the runtime delivers them. */
+  function serverCall(
+    id: string,
+    at: number,
+    durationMs: number,
+    url: string,
+    serverTiming: string | null
+  ): CallEvent {
+    const event: CallEvent = { id, at, durationMs, method: "POST", outcome: "ok", status: 200 };
+    const headers = new Headers();
+    if (serverTiming !== null) headers.set("Server-Timing", serverTiming);
+    OBSERVE!.records.emit("call", event, { args: [], response: { url, headers } as Response });
+    return event;
+  }
+
+  test("server spans: placed by the fetch's resource entry, ending at responseStart; the wire is the gap", () => {
+    const { on } = measures();
+    const timing = resourceTiming();
+    enable();
+    expect(timing.observers).toHaveLength(1);
+    expect(timing.observers[0].options).toEqual({ type: "resource", buffered: true });
+
+    const url = "https://app.example/_server/data/api%2Fsave";
+    const at = performance.now() - 100;
+    // The entry is already in the timeline: placed at once.
+    timing.buffered(timing.entry(url, at + 2, at + 70));
+    serverCall("api/save", at, 90, url, 'solid-invocation;dur=30;desc="api/save"');
+
+    const spans = on("Server").filter(m => m.label !== "Server");
+    expect(spans).toEqual([
+      expect.objectContaining({ label: "POST api/save · 200", start: at, end: at + 90 }),
+      expect.objectContaining({
+        label: "api/save · server",
+        start: at + 40,
+        end: at + 70,
+        color: "tertiary"
+      })
+    ]);
+    expect(spans[1].properties).toEqual([
+      ["Duration", "30.00ms"],
+      ["Wire", "60.00ms"],
+      ["Source", "Server-Timing"],
+      ["Placement", "ends at the response's responseStart"]
+    ]);
+  });
+
+  test("server spans: an entry that lands after the record is placed when the observer delivers it", () => {
+    const { on } = measures();
+    const timing = resourceTiming();
+    enable();
+    const url = "https://app.example/_server/data/api%2Flist";
+    const at = performance.now() - 50;
+    // Two executions on one response: a direct call the function made, then
+    // the function itself (completion order); both under the client span.
+    serverCall(
+      "api/list",
+      at,
+      40,
+      url,
+      'solid-invocation;dur=5;desc="api/inner", solid-invocation;dur=20;desc="api/list", traceparent;desc="00-x"'
+    );
+    expect(on("Server").filter(m => m.label.endsWith("· server"))).toHaveLength(0);
+
+    // Another fetch to the same URL, outside the call's window: not it.
+    timing.deliver(timing.entry(url, at - 500, at - 480));
+    expect(on("Server").filter(m => m.label.endsWith("· server"))).toHaveLength(0);
+
+    timing.deliver(timing.entry(url, at + 1, at + 30));
+    const server = on("Server").filter(m => m.label.endsWith("· server"));
+    expect(server).toEqual([
+      expect.objectContaining({ label: "api/inner · server", start: at + 25, end: at + 30 }),
+      expect.objectContaining({ label: "api/list · server", start: at + 10, end: at + 30 })
+    ]);
+    // Placed once: a later delivery of the same entry paints nothing more.
+    timing.deliver(timing.entry(url, at + 1, at + 30));
+    expect(on("Server").filter(m => m.label.endsWith("· server"))).toHaveLength(2);
+  });
+
+  test("server spans: no resource timing (no observer, or a withheld responseStart) centres the span in the call", () => {
+    // No `PerformanceObserver` at all.
+    define(globalThis, "PerformanceObserver", undefined);
+    define(performance, "getEntriesByName", () => []);
+    const { on } = measures();
+    enable();
+    const at = performance.now() - 100;
+    serverCall("api/a", at, 100, "https://app.example/a", "solid-invocation;dur=40");
+    const [span] = on("Server").filter(m => m.label.endsWith("· server"));
+    expect(span).toMatchObject({ label: "api/a · server", start: at + 30, end: at + 70 });
+    expect(span.properties).toContainEqual([
+      "Placement",
+      "centred in the call — no resource timing for this fetch"
+    ]);
+    disposers.splice(0).forEach(d => d());
+
+    // An observer, but the entry withholds timing (cross-origin without
+    // Timing-Allow-Origin: `responseStart` is 0).
+    const timing = resourceTiming();
+    enable();
+    const at2 = performance.now() - 100;
+    const url = "https://cdn.example/b";
+    timing.buffered(timing.entry(url, at2 + 1, 0));
+    serverCall("api/b", at2, 100, url, "solid-invocation;dur=40");
+    const spans = on("Server").filter(m => m.label === "api/b · server");
+    expect(spans).toEqual([expect.objectContaining({ start: at2 + 30, end: at2 + 70 })]);
+  });
+
+  test("server spans: a response without the runtime's metrics paints nothing; the app's metrics are not spans", () => {
+    const { on } = measures();
+    resourceTiming();
+    enable();
+    const at = performance.now() - 50;
+    serverCall("api/x", at, 20, "https://app.example/x", null);
+    serverCall("api/y", at, 20, "https://app.example/y", "db;dur=12, cache;desc=hit");
+    // A call that never got a response (the fetch rejected).
+    OBSERVE!.records.emit(
+      "call",
+      { id: "api/z", at, durationMs: 5, method: "POST", outcome: "error" },
+      { args: [], error: new Error("offline") }
+    );
+    expect(on("Server").filter(m => m.label.endsWith("· server"))).toHaveLength(0);
+  });
+
+  test("server spans: the document's shell and the boundaries it waited on, from the navigation entry, at enable", () => {
+    const { on } = measures();
+    const timing = resourceTiming();
+    timing.navigation({
+      responseStart: 300,
+      serverTiming: [
+        { name: "solid-shell", duration: 120, description: "" },
+        { name: "solid-boundary", duration: 80, description: "<App> > <Loading>" },
+        { name: "solid-invocation", duration: 15, description: "api/prefetch" },
+        { name: "db", duration: 40, description: "" }
+      ] as PerformanceServerTiming[]
+    });
+    enable();
+    const spans = on("Server").filter(m => m.label !== "Server");
+    expect(spans).toEqual([
+      expect.objectContaining({
+        label: "shell · server",
+        start: 180,
+        end: 300,
+        color: "tertiary"
+      }),
+      expect.objectContaining({
+        label: "boundary <App> › <Loading> · server",
+        start: 220,
+        end: 300,
+        color: "tertiary-light"
+      }),
+      expect.objectContaining({
+        label: "api/prefetch · server",
+        start: 285,
+        end: 300,
+        color: "tertiary-light"
+      })
+    ]);
+    expect(spans[0].properties).toContainEqual(["Source", "Server-Timing on the document"]);
+    expect(spans[1].properties).toContainEqual([
+      "Placement",
+      "ends with the shell — settled at or before the flush"
+    ]);
+  });
+
+  test("server spans: disabling disconnects the observer and forgets pending calls; a stale pending call expires", () => {
+    const { on } = measures();
+    const timing = resourceTiming();
+    const disable = enable();
+    const url = "https://app.example/_server/data/api%2Fslow";
+    const at = performance.now() - 10;
+    serverCall("api/slow", at, 10, url, "solid-invocation;dur=4");
+    disable();
+    expect(timing.observers[0].disconnected).toBe(true);
+    timing.deliver(timing.entry(url, at + 1, at + 8));
+    expect(on("Server").filter(m => m.label.endsWith("· server"))).toHaveLength(0);
+
+    // Enabled again: a call whose entry never comes is dropped after 30s,
+    // and an entry arriving then places nothing.
+    enable();
+    const late = performance.now() - 10;
+    serverCall("api/late", late, 10, url, "solid-invocation;dur=4");
+    clock.advance(30_001);
+    timing.deliver(timing.entry(url, late + 1, late + 8));
+    expect(on("Server").filter(m => m.label === "api/late · server")).toHaveLength(0);
   });
 
   test("plain mode: console.timeStamp with the six-argument form, no properties", () => {

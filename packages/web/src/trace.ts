@@ -95,10 +95,40 @@ declare module "solid-js" {
 /** The provider slot's type, as this package names it — `solid-js`'s `ServerTrace`, filled in above. */
 export type TraceSlot = ServerTrace;
 
+/**
+ * A timed span of the request's server work, carried to the browser as a
+ * `Server-Timing` metric (`<name>;dur=<ms>;desc="<desc>"`) beside the trace
+ * entries — see `appendTraceServerTiming`. Recorded only where the runtime
+ * is already measuring: in dev builds, and in observe builds while a
+ * listener is on the record the same measurement feeds (`"invocation"`,
+ * `"boundary"`); the header is a second reader of one clock, so an app
+ * with no observer sees no wire change (the trace's rule). What rides is
+ * what the server knew when the head left — the function that produced a
+ * response; for a document, the shell render and the boundaries that
+ * settled inside it. The Performance-panel adapter paints these under the
+ * matching client span (`@solidjs/web/performance-tracks`).
+ */
+export interface TimingMetric {
+  /** `solid-invocation` | `solid-shell` | `solid-boundary` — an RFC 9110 token. */
+  name: string;
+  /** Milliseconds. */
+  dur: number;
+  /** The function id, the boundary's component label — what the span is labelled. */
+  desc?: string;
+}
+
 /** A derived trace plus whether the browser is told about it (see the header note). */
 export interface TraceRecord {
   context: TraceContext;
   emit: boolean;
+  /** The request's timed server work, in completion order (see `TimingMetric`). */
+  timing: TimingMetric[];
+  /**
+   * `performance.now()` when the document render began, while the shell is
+   * timed and the head has not committed: the `solid-shell` metric is
+   * measured at commit, from here.
+   */
+  shellStart?: number;
 }
 
 // Replaced per build; a module const so the gates below read as booleans.
@@ -242,9 +272,22 @@ export function traceFor(key: object, request: Request | undefined): TraceRecord
   // SAMPLED upstream trace, or a provider that answered (its own vendor
   // entries may well carry a "not sampled" decision — that is the
   // provider's call to propagate). See the header note.
-  record = { context, emit: (incoming !== undefined && incoming.sampled) || answered };
+  record = {
+    context,
+    emit: (incoming !== undefined && incoming.sampled) || answered,
+    timing: []
+  };
   store.set(key, record);
   return record;
+}
+
+/**
+ * The trace record for a request event — keyed on its `request` (shared by
+ * the derived events direct server-function calls run under, so a call
+ * during a render sees the render's trace) or on the event itself.
+ */
+export function traceForEvent(event: { request?: Request }): TraceRecord {
+  return traceFor(event.request || event, event.request);
 }
 
 // --- Emission --------------------------------------------------------------
@@ -292,35 +335,68 @@ function namesOnServerTiming(headers: Headers): Set<string> {
 }
 
 // Quoted-string: escape the two characters it cannot carry raw, drop
-// controls (a header value cannot carry them at all).
+// controls (a header value cannot carry them at all) and replace anything
+// past printable ASCII with `?` — a header value is a byte string, and
+// `Headers.append` throws on a code point above 0xFF; a throw here is
+// inside the shell's first write, which would hang the response.
 function quoteDesc(value: string): string {
-  return value.replace(/[\x00-\x1f\x7f]/g, "").replace(/[\\"]/g, m => "\\" + m);
+  return value
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/[^\x20-\x7e]/g, "?")
+    .replace(/[\\"]/g, m => "\\" + m);
+}
+
+/** Whether `appendTraceServerTiming` has anything to write for `record`. */
+export function hasServerTiming(record: TraceRecord): boolean {
+  return record.emit || record.timing.length > 0 || record.shellStart !== undefined;
 }
 
 /**
- * Appends the record's entries to `headers` as `Server-Timing`
- * metrics — `<name>;desc="<value>"` — never duplicating a name the app
- * already wrote. Nothing when the browser is not told (see `TraceRecord`).
- * Must run before the response head commits.
+ * Appends the record to `headers` as `Server-Timing` metrics — its trace
+ * entries as `<name>;desc="<value>"` when the browser is told (see
+ * `TraceRecord`), never duplicating a name the app already wrote; and its
+ * timed server work as `<name>;dur=<ms>;desc="<desc>"` (see `TimingMetric`),
+ * the shell's duration measured here, at the moment the head freezes.
+ * Metrics repeat their names by design (one `solid-boundary` per boundary),
+ * so they are not name-deduplicated. Must run before the response head
+ * commits.
  */
 export function appendTraceServerTiming(headers: Headers, record: TraceRecord): void {
-  if (!record.emit) return;
-  const entries = record.context.entries;
-  let present: Set<string> | undefined;
-  for (const name in entries) {
-    if (!TOKEN.test(name)) continue;
-    if (!present) present = namesOnServerTiming(headers);
-    if (present.has(name.toLowerCase())) continue;
-    headers.append("Server-Timing", `${name};desc="${quoteDesc(entries[name])}"`);
-    present.add(name.toLowerCase());
+  if (record.emit) {
+    const entries = record.context.entries;
+    let present: Set<string> | undefined;
+    for (const name in entries) {
+      if (!TOKEN.test(name)) continue;
+      if (!present) present = namesOnServerTiming(headers);
+      if (present.has(name.toLowerCase())) continue;
+      headers.append("Server-Timing", `${name};desc="${quoteDesc(entries[name])}"`);
+      present.add(name.toLowerCase());
+    }
   }
+  if (record.shellStart !== undefined) {
+    // First in the list, before the boundaries it contains: measured once,
+    // at the first commit (a stream's shell flush; a string render's end).
+    const shell = { name: "solid-shell", dur: performance.now() - record.shellStart };
+    record.shellStart = undefined;
+    headers.append("Server-Timing", formatMetric(shell));
+  }
+  for (const metric of record.timing) headers.append("Server-Timing", formatMetric(metric));
+}
+
+function formatMetric(metric: TimingMetric): string {
+  // One decimal: the panel's resolution; a header is not a profiler.
+  let out = `${metric.name};dur=${Math.round(metric.dur * 10) / 10}`;
+  if (metric.desc) out += `;desc="${quoteDesc(metric.desc)}"`;
+  return out;
 }
 
 /**
  * Folds a `Server-Timing` header value onto `target` entry by entry,
- * skipping names already present — the header is a list, so a stub's
- * trace entries and a response's own metrics (`db;dur=53`) coexist
- * instead of one replacing the other.
+ * skipping names `target` already carries — the header is a list, so a
+ * stub's trace entries and a response's own metrics (`db;dur=53`) coexist
+ * instead of one replacing the other. Names repeated within `value` itself
+ * (one `solid-boundary` per boundary) all fold: the skip is against what
+ * the target had, not what this fold added.
  */
 export function mergeServerTiming(target: Headers, value: string): void {
   const present = namesOnServerTiming(target);
@@ -329,7 +405,6 @@ export function mergeServerTiming(target: Headers, value: string): void {
     const name = metricName(trimmed);
     if (!name || present.has(name)) continue;
     target.append("Server-Timing", trimmed);
-    present.add(name);
   }
 }
 

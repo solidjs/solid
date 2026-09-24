@@ -23,7 +23,26 @@ import {
   type InvocationEvent,
   type InvocationLive
 } from "./observe.js";
+import { traceForEvent } from "./trace.js";
 import type { RequestEvent } from "./server.js";
+
+// Replaced per build; a module const so the gates below read as booleans.
+const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+
+/**
+ * Whether the runtime times the server work it records for THIS request's
+ * `Server-Timing` (see `TimingMetric` in trace.ts) — the invocation's and
+ * the document's shell and boundaries. Dev builds always (the panel's
+ * home, and the boundary already measures for its dev checks); observe
+ * builds while a listener is on the record the same measurement feeds, so
+ * an app with no observer sees no wire change. `type` names that record.
+ * `false` in prod, where `records()` is `undefined`.
+ */
+export function timesServerWork(type: "invocation" | "boundary"): boolean {
+  const channel = records();
+  if (channel === undefined) return false;
+  return IS_DEV || channel.observed(type);
+}
 
 /** What the runtime passes an observation from either dispatch leg. */
 export interface InvocationContext {
@@ -94,11 +113,23 @@ function deliver(
   outcome: "ok" | "error",
   value: unknown
 ): void {
+  const durationMs = performance.now() - at;
+  // The request's `Server-Timing` (trace.ts): the execution, on the
+  // response it produces — or on the document, for a direct call made
+  // during its render. Recorded before the record is delivered, so a
+  // listener that commits the response from its callback still ships it.
+  traceForEvent(context.event).timing.push({
+    name: "solid-invocation",
+    dur: durationMs,
+    desc: context.id
+  });
+  const channel = records()!;
+  if (!channel.observed("invocation")) return;
   const record: InvocationEvent = {
     id: context.id,
     direct: context.direct,
     at,
-    durationMs: performance.now() - at,
+    durationMs,
     outcome
   };
   if (boundary !== undefined) record.boundary = boundary;
@@ -108,7 +139,7 @@ function deliver(
     live.result = value;
     if (isDeferredBody(value)) record.deferred = true;
   } else live.error = value;
-  records()!.emit("invocation", record, live);
+  channel.emit("invocation", record, live);
 }
 
 /**
@@ -116,12 +147,13 @@ function deliver(
  * as an `"invocation"` record once it settles: synchronously for a sync
  * return or throw, at resolution/rejection for a promise. Returns
  * `execute`'s value (a promise is re-wrapped, still a native Promise);
- * throws what it throws. With no listener, or outside observe builds, it
- * is `execute()` and nothing else.
+ * throws what it throws. Timed while `timesServerWork("invocation")` — the
+ * duration also rides the response's `Server-Timing` — and, with no
+ * listener in an observe build or outside observe builds altogether, it is
+ * `execute()` and nothing else.
  */
 export function observeInvocation<T>(context: InvocationContext, execute: () => T): T {
-  const channel = records();
-  if (channel === undefined || !channel.observed("invocation")) return execute();
+  if (!timesServerWork("invocation")) return execute();
   const at = performance.now();
   // The boundary whose pass is running NOW — a direct call is synchronous
   // up to its first await, so this is the boundary that made it; read here,

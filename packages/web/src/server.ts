@@ -27,11 +27,14 @@ import { effect, memo } from "./render.js";
 // shell head — see trace.ts for the tiering and the carriers.
 import {
   traceFor,
+  traceForEvent,
   appendTraceServerTiming,
+  hasServerTiming,
   mergeServerTiming,
   traceMetaMarkup,
   type TraceContext
 } from "./trace.js";
+import { timesServerWork } from "./server-observe.js";
 import {
   createHydrationSerializer,
   getLocalHeaderScript
@@ -1759,6 +1762,7 @@ export function renderToString(code, options = {}) {
   const context = sharedConfig.context;
   const requestEvent = peekRequestEvent();
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
+  timeDocument(context, context.trace);
   let dispose;
   try {
     const html = root(
@@ -2770,6 +2774,7 @@ export function renderToStream(code, options = {}) {
   // pass so the per-component context clones carry it; cleared at completion
   // (below) so a read outside any render never finds a stale one.
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
+  timeDocument(context, context.trace);
   registerEntryAssets(manifest);
 
   let html = root(
@@ -5473,8 +5478,19 @@ function peekRequestEvent() {
 // also says whether the browser is told (a continued trace, or a provider
 // answered); see trace.ts.
 
-function traceForEvent(event) {
-  return traceFor(event.request || event, event.request);
+/**
+ * Opens the document's timed server work for the response's `Server-Timing`
+ * (trace.ts `TimingMetric`): the shell — render start to head commit,
+ * measured at the commit — and the `<Loading>` boundaries that settle
+ * before it, which the reactive library's boundary pushes onto the render
+ * context (`_timing`, the seam; it formats nothing). Only while the runtime
+ * times boundaries anyway (`timesServerWork`): dev, or an observe build
+ * with a `"boundary"` listener.
+ */
+function timeDocument(context, trace) {
+  if (!timesServerWork("boundary")) return;
+  trace.shellStart = performance.now();
+  context._timing = trace.timing;
 }
 
 /**
@@ -5776,7 +5792,7 @@ export function commitEventResponse(response, event = getRequestEvent()) {
     // when there is something to say. An already-committed stub said it.
     if (!event || stub) return response;
     const trace = traceForEvent(event);
-    if (!trace.emit) return response;
+    if (!hasServerTiming(trace)) return response;
     const headers = copyInitHeaders(response.headers);
     appendTraceServerTiming(headers, trace);
     return new Response(response.body, {
