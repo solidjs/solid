@@ -26,6 +26,18 @@
 //
 // This suite imports source (the dev tier) and compiles with `sourceNames`
 // (vite.config.server.mjs), so `<App />` is a labelled component call.
+//
+// The numbers are cut from `performance.now()` reads in the runtime — at
+// discovery, at settle, and (in a group) at reveal. Measured against real
+// timers they were only bounded: a 30 ms timer armed BEFORE the boundary
+// read its settle stamp measured a 23.6 ms hold against a 25 ms floor on a
+// loaded CI runner (the error-propagation pass sat between the two, and a
+// Node timer may fire a hair early against `performance.now()`). So the
+// clock is the test's (the #3598 pattern): `performance.now()` stands still
+// unless the test advances it, the sources whose timing is under test are
+// hand-controlled deferreds, and every duration is asserted exactly. Real
+// timers still let the promises settle and the shell drain; only the stamps
+// are ours.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -34,6 +46,15 @@ import { OBSERVE, createMemo, type BoundaryEvent, type BoundaryLive } from "soli
 import type { JSX } from "@solidjs/web";
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * One macrotask. A source's settlement reaches the boundary over microtasks
+ * only — the memo's answer, the boundary's retry pass, its `record()` (the
+ * settle stamp) and, in a group, the release it may trigger — so by the time
+ * this resolves the runtime has read every stamp that settlement produces,
+ * and the test may move the clock for the next one.
+ */
+const settle = () => new Promise<void>(r => setImmediate(r));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -45,13 +66,15 @@ function deferred<T>() {
 /**
  * Streams through a sink, the way a response does: the shell flushes when it
  * is ready and later fragments follow, so `streamed` means what it means in
- * production. Resolves with everything written, in order.
+ * production. Resolves with everything written, in order. `onShell` fires
+ * on the first write — the shell has left, whatever settles now streams.
  */
-function stream(code: () => any): Promise<string> {
+function stream(code: () => any, onShell?: () => void): Promise<string> {
   return new Promise(resolve => {
     const chunks: string[] = [];
     renderToStream(code).pipe({
       write(chunk: string) {
+        if (chunks.length === 0) onShell?.();
         chunks.push(chunk);
       },
       end() {
@@ -63,9 +86,19 @@ function stream(code: () => any): Promise<string> {
 
 type Record = { event: BoundaryEvent; live: BoundaryLive };
 
+/** The test's clock: what `performance.now()` returns until the test moves it. */
+const T0 = 1000;
+let t = T0;
+
+beforeEach(() => {
+  t = T0;
+  vi.spyOn(performance, "now").mockImplementation(() => t);
+});
+
 const unsubscribes: Array<() => void> = [];
 afterEach(() => {
   for (const off of unsubscribes.splice(0)) off();
+  vi.restoreAllMocks();
 });
 
 function records(): Record[] {
@@ -108,16 +141,27 @@ describe("what is a record", () => {
 
   test("a boundary that waited: timing, passes, outcome, location — delivered once, at settle", async () => {
     const seen = records();
+    const content = deferred<string>();
+    function Content() {
+      const data = createMemo(async () => content.promise);
+      return <div>{data()}</div>;
+    }
     function App() {
       return (
         <Loading fallback={<i>loading</i>}>
-          <Slow ms={20} value="content" />
+          <Content />
         </Loading>
       );
     }
-    const before = performance.now();
-    const html = await stream(() => <App />);
-    const after = performance.now();
+    const shell = deferred<void>();
+    const done = stream(() => <App />, shell.resolve);
+    // The shell has shipped with the fallback in it; the content answers
+    // 20 ms (on the test's clock) after the boundary discovered the wait.
+    await shell.promise;
+    expect(seen).toHaveLength(0);
+    t = T0 + 20;
+    content.resolve("content");
+    const html = await done;
     expect(html).toContain("content");
 
     expect(seen).toHaveLength(1);
@@ -125,15 +169,14 @@ describe("what is a record", () => {
     // The id is the placeholder's — the same id `SSR_RENDER_ERROR_CONTAINED`
     // names in `data.boundary`, so a record and a finding pair by it.
     expect(placeholderIds(html)).toEqual([event.id]);
-    expect(event.at).toBeGreaterThanOrEqual(before);
-    expect(event.at).toBeLessThanOrEqual(after);
-    // Discovery → settle spans the wait; the record's clock is the render's.
-    expect(event.durationMs).toBeGreaterThanOrEqual(15);
-    expect(event.durationMs).toBeLessThanOrEqual(after - before);
+    // `at` is the discovery stamp: the render's first pass, on the render's
+    // clock. Discovery → settle spans the wait, exactly.
+    expect(event.at).toBe(T0);
+    expect(event.durationMs).toBe(20);
     // One round of async: the discovery pass and the pass that rendered.
     expect(event.passes).toBe(2);
     expect(event.outcome).toBe("settled");
-    // 20ms is past the shell: the user saw the fallback, then the swap.
+    // Settled past the shell: the user saw the fallback, then the swap.
     expect(event.streamed).toBe(true);
     // Outside any <Reveal> the swap is issued as the boundary settles.
     expect(event.heldMs).toBe(0);
@@ -308,42 +351,47 @@ describe("the other outcomes", () => {
 });
 
 describe("<Reveal> groups: heldMs", () => {
-  test("order=together: the early boundary's record waits for the reveal and measures the hold", async () => {
-    const seen = records();
-    const aDone = deferred<void>();
-    const b = deferred<string>();
+  /** Two sibling boundaries in one group, each over a test-owned source. */
+  function Pair(props: { order?: "together" | "natural"; a: Promise<string>; b: Promise<string> }) {
     function SlotA() {
-      const data = createMemo(async () => {
-        await delay(5);
-        aDone.resolve();
-        return "A";
-      });
+      const data = createMemo(async () => props.a);
       return <div>{data()}</div>;
     }
     function SlotB() {
-      const data = createMemo(async () => b.promise);
+      const data = createMemo(async () => props.b);
       return <div>{data()}</div>;
     }
+    return (
+      <Reveal order={props.order}>
+        <Loading fallback={<i>a</i>}>
+          <SlotA />
+        </Loading>
+        <Loading fallback={<i>b</i>}>
+          <SlotB />
+        </Loading>
+      </Reveal>
+    );
+  }
+
+  test("order=together: the early boundary's record waits for the reveal and measures the hold", async () => {
+    const seen = records();
+    const a = deferred<string>();
+    const b = deferred<string>();
     function App() {
-      return (
-        <Reveal order="together">
-          <Loading fallback={<i>a</i>}>
-            <SlotA />
-          </Loading>
-          <Loading fallback={<i>b</i>}>
-            <SlotB />
-          </Loading>
-        </Reveal>
-      );
+      return <Pair order="together" a={a.promise} b={b.promise} />;
     }
-    const done = stream(() => <App />);
-    // A has settled; the group holds its swap for B — and holds its record.
-    // The hold is measured from A's settle, so B is released a fixed 40 ms
-    // AFTER A settled (not after the stream started): the lower bound below
-    // is the timer's, not a race between two timers on a loaded runner.
-    await aDone.promise;
-    await delay(40);
+    const shell = deferred<void>();
+    const done = stream(() => <App />, shell.resolve);
+    // The shell has left with both fallbacks. A settles 5 ms in: the group
+    // holds its swap for B — and holds its record: nothing is delivered yet.
+    await shell.promise;
+    t = T0 + 5;
+    a.resolve("A");
+    await settle();
     expect(seen).toHaveLength(0);
+    // B settles 40 ms later; the group releases both, and A's record
+    // arrives carrying the time its finished content sat behind B.
+    t = T0 + 45;
     b.resolve("B");
     const html = await done;
     expect(html).toContain("A");
@@ -351,89 +399,88 @@ describe("<Reveal> groups: heldMs", () => {
 
     expect(seen).toHaveLength(2);
     const ids = placeholderIds(html);
-    const a = seen.find(r => r.event.id === ids[0])!;
+    const aRec = seen.find(r => r.event.id === ids[0])!;
     const bRec = seen.find(r => r.event.id === ids[1])!;
     // Both name the group.
-    expect(a.event.revealGroup).toBeDefined();
-    expect(bRec.event.revealGroup).toBe(a.event.revealGroup);
-    // A finished early and sat behind B: the hold is the gap, not zero; its
-    // own duration is still discover → settle, unchanged by the hold. A
-    // timer never fires early, so the ≥ bounds are deterministic; the only
-    // wall-clock upper bound left is B's un-held reveal.
-    expect(a.event.durationMs).toBeLessThan(a.event.heldMs);
-    expect(a.event.heldMs).toBeGreaterThanOrEqual(35);
+    expect(aRec.event.revealGroup).toBeDefined();
+    expect(bRec.event.revealGroup).toBe(aRec.event.revealGroup);
+    // A finished early and sat behind B: the hold is the gap, settle →
+    // reveal; its own duration is still discover → settle, unchanged by
+    // the hold.
+    expect(aRec.event.at).toBe(T0);
+    expect(aRec.event.durationMs).toBe(5);
+    expect(aRec.event.heldMs).toBe(40);
     // B was the one everyone waited for: it revealed as it settled.
-    expect(bRec.event.durationMs).toBeGreaterThanOrEqual(40);
-    expect(bRec.event.heldMs).toBeLessThan(10);
-    expect(a.event.outcome).toBe("settled");
+    expect(bRec.event.at).toBe(T0);
+    expect(bRec.event.durationMs).toBe(45);
+    expect(bRec.event.heldMs).toBe(0);
+    expect(aRec.event.outcome).toBe("settled");
     expect(bRec.event.outcome).toBe("settled");
   });
 
   test("order=natural: each boundary reveals as it settles — no hold", async () => {
     const seen = records();
+    const a = deferred<string>();
+    const b = deferred<string>();
     function App() {
-      return (
-        <Reveal>
-          <Loading fallback={<i>a</i>}>
-            <Slow ms={5} value="A" />
-          </Loading>
-          <Loading fallback={<i>b</i>}>
-            <Slow ms={25} value="B" />
-          </Loading>
-        </Reveal>
-      );
+      return <Pair order="natural" a={a.promise} b={b.promise} />;
     }
-    await stream(() => <App />);
+    const shell = deferred<void>();
+    const done = stream(() => <App />, shell.resolve);
+    // The shell has left with both fallbacks. A settles first and reveals
+    // at once: its record is delivered now, before B has answered, with
+    // nothing held.
+    await shell.promise;
+    t = T0 + 5;
+    a.resolve("A");
+    await settle();
+    expect(seen).toHaveLength(1);
+    t = T0 + 25;
+    b.resolve("B");
+    const html = await done;
+
     expect(seen).toHaveLength(2);
-    for (const { event } of seen) {
-      expect(event.revealGroup).toBeDefined();
-      expect(event.heldMs).toBeLessThan(10);
-    }
+    const ids = placeholderIds(html);
+    const aRec = seen.find(r => r.event.id === ids[0])!;
+    const bRec = seen.find(r => r.event.id === ids[1])!;
+    expect(aRec.event.revealGroup).toBeDefined();
+    expect(bRec.event.revealGroup).toBe(aRec.event.revealGroup);
+    expect(aRec.event.durationMs).toBe(5);
+    expect(bRec.event.durationMs).toBe(25);
+    for (const { event } of seen) expect(event.heldMs).toBe(0);
   });
 
   test("a grouped boundary that errors still records, after the group releases it", async () => {
     const seen = records();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const aFailed = deferred<void>();
-      function Bad() {
-        const data = createMemo(async () => {
-          await delay(5);
-          aFailed.resolve();
-          throw new Error("A failed");
-        });
-        return <div>{data()}</div>;
-      }
-      // B settles a fixed 30 ms after A has failed, so A's hold behind the
-      // group is bounded below by that timer — not by two independent timers
-      // racing (a 5 ms and a 20 ms timer on a loaded CI runner measured a
-      // 7 ms hold against a 10 ms floor).
-      function SlotB() {
-        const data = createMemo(async () => {
-          await aFailed.promise;
-          await delay(30);
-          return "B";
-        });
-        return <div>{data()}</div>;
-      }
+      const a = deferred<string>();
+      const b = deferred<string>();
       function App() {
-        return (
-          <Reveal order="together">
-            <Loading fallback={<i>a</i>}>
-              <Bad />
-            </Loading>
-            <Loading fallback={<i>b</i>}>
-              <SlotB />
-            </Loading>
-          </Reveal>
-        );
+        return <Pair order="together" a={a.promise} b={b.promise} />;
       }
-      await stream(() => <App />);
+      const shell = deferred<void>();
+      const done = stream(() => <App />, shell.resolve);
+      // The shell has left with both fallbacks. A fails 5 ms in: the group
+      // holds the failed fragment's swap for B — and holds its record with it.
+      await shell.promise;
+      t = T0 + 5;
+      a.reject(new Error("A failed"));
+      await settle();
+      expect(seen).toHaveLength(0);
+      // B settles 30 ms after A failed: the group releases both.
+      t = T0 + 35;
+      b.resolve("B");
+      await done;
+
       expect(seen).toHaveLength(2);
       const failed = seen.find(r => r.event.outcome === "error")!;
       expect((failed.live.error as Error).message).toBe("A failed");
-      expect(failed.event.heldMs).toBeGreaterThanOrEqual(25);
-      expect(seen.find(r => r.event.outcome === "settled")).toBeDefined();
+      expect(failed.event.durationMs).toBe(5);
+      expect(failed.event.heldMs).toBe(30);
+      const settled = seen.find(r => r.event.outcome === "settled")!;
+      expect(settled.event.durationMs).toBe(35);
+      expect(settled.event.heldMs).toBe(0);
     } finally {
       error.mockRestore();
     }
