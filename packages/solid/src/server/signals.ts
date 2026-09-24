@@ -1832,11 +1832,17 @@ function processResult<T>(
   comp.epoch = ctx?.commitEpoch?.();
 }
 
+// Best-effort `return()` on a source we are done with. Nothing here may
+// escape: a rejection is swallowed, and so is a synchronous throw — the
+// callers run from `.then` continuations and the tapped iterator's
+// `next`/`return`, where an uncaught throw becomes an unhandled rejection.
 function closeAsyncIterator(iter: any, value?: any) {
-  const returned = iter.return?.(value);
-  if (returned && typeof returned.then === "function") {
-    returned.then(undefined, () => {});
-  }
+  try {
+    const returned = iter.return?.(value);
+    if (returned && typeof returned.then === "function") {
+      returned.then(undefined, () => {});
+    }
+  } catch {}
 }
 
 function tappedCloser<T>(iter: () => AsyncIterator<T>) {

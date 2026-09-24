@@ -1890,14 +1890,22 @@ export function renderToStream(code, options = {}) {
   const requestEvent = peekRequestEvent();
   let dispose;
   let dead = false;
+  // The serializer (created below, once the sink is assembled) — hoisted so
+  // the wind-down can close it. `abandon` is only ever reached after the
+  // render starts, by which point it is assigned; the hoist keeps that from
+  // being a temporal-dead-zone assumption.
+  let serializer;
   // Client-disconnect teardown. A sink that throws from `write`/`end` (its
   // transport is gone) or a consumer cancelling the readable view means
   // nobody is listening anymore: stop touching the sink, mark the render
   // completed so pending fragment resolutions stop emitting and
-  // serializing, and dispose in-flight reactive work. Containment matters
-  // because deferred writes (`writeTasks`, late fragment flushes) run from
-  // the microtask queue — an uncontained sink throw there escapes as an
-  // unhandled error and can take the host process down.
+  // serializing, dispose in-flight reactive work, and close the serializer
+  // so every async source it is still pulling (a serialized async iterator
+  // whose `next()` may never settle — #3626) is returned now, not on its
+  // next pull. Containment matters because deferred writes (`writeTasks`,
+  // late fragment flushes) run from the microtask queue — an uncontained
+  // sink throw there escapes as an unhandled error and can take the host
+  // process down.
   //
   // `disconnect` names the abandonment a finding (`SSR_STREAM_ABANDONED`):
   // the client left — the sink threw or the consumer cancelled — with work
@@ -1919,6 +1927,19 @@ export function renderToStream(code, options = {}) {
   let disconnected = false;
   let failed = false;
   let onFailed;
+  // What the render still hands the serializer once it is torn down: a
+  // rejection with nobody to hear it is owned here; an iterable is never
+  // started, so there is nothing to return.
+  const defuse = p => {
+    if (p && typeof p.then === "function") p.then(undefined, () => {});
+  };
+  const abandonedSerializer = {
+    write(_, value) {
+      defuse(value);
+    },
+    flush() {},
+    close() {}
+  };
   const onFailure = complete => {
     if (failed) return complete(undefined);
     const prev = onFailed;
@@ -1956,6 +1977,37 @@ export function renderToStream(code, options = {}) {
       const d = dispose;
       dispose = () => {};
       d();
+    }
+    // Close the serializer AFTER `dead` is set: seroval's `close()` runs
+    // each pending write's cleanup — a serialized async iterator gets its
+    // `return()` called (on a microtask, errors swallowed by seroval), which
+    // is what reaches a source whose pending `next()` will never settle and
+    // so would never hit the disposed check on its next pull — and then
+    // fires `onDone`, which must see `dead` to skip assembling a shell for
+    // a disposed render. Contained: a custom serializer's `close()` (the
+    // seam's contract is `write`/`flush`, `close` is optional) must not be
+    // able to escape the teardown. A throw here is the serializer's failure,
+    // so it goes where its other failures go (`handling: "serialize"`,
+    // through the render's hook, else the ambient one); with no hook there
+    // is nobody to tell and nothing left to protect — the render is already
+    // torn down — so it is dropped.
+    if (serializer && typeof serializer.close === "function") {
+      try {
+        serializer.close();
+      } catch (err) {
+        reportServerError(err, { kind: "render", handling: "serialize" }, null, options.onError);
+      }
+    }
+    // A closed serializer drops writes without looking at them, but the
+    // render's promises still settle and the paths that hand them over still
+    // run (`registerFragment`'s `<key>_fr`, `context.serialize`) — and a
+    // rejection seroval would have consumed is an unhandled one when nobody
+    // takes it. Own them instead: every later write, and everything batched
+    // for the shell but not yet written, is defused.
+    serializer = abandonedSerializer;
+    if (stubBatch) {
+      for (const p of stubBatch.values()) defuse(p);
+      stubBatch = null;
     }
     if (!disconnect) {
       failed = true;
@@ -2225,7 +2277,7 @@ export function renderToStream(code, options = {}) {
   // flows through onData is a contract between the serializer and the sink
   // (hydration scripts for the document sink, keyed codec records for the
   // frame sink); the core never inspects it.
-  const serializer = (options.serializer || createHydrationSerializer)({
+  serializer = (options.serializer || createHydrationSerializer)({
     scopeId: options.renderId,
     // Containers (projections) serialize as traces on BOTH faces — the
     // document's hydration serializer and the frame sink's codec resolve
@@ -2565,8 +2617,9 @@ export function renderToStream(code, options = {}) {
         // `shellCompleted` (not `firstFlushed`) gates batching: doShell()
         // flushes the batch into the shell's task snapshot, and writes in the
         // microtask window between the two flags must go direct or they'd
-        // strand in a batch nobody flushes.
-        if (!firstFlushed && canBatchStubs && !shellCompleted) {
+        // strand in a batch nobody flushes — as would a write after the
+        // wind-down (`dead`), which goes direct to be defused.
+        if (!firstFlushed && canBatchStubs && !shellCompleted && !dead) {
           (stubBatch ||= new Map()).set(id, p);
           return;
         }
@@ -2613,7 +2666,8 @@ export function renderToStream(code, options = {}) {
               })
             )
         });
-        if (canBatchStubs && !shellCompleted) (stubBatch ||= new Map()).set(key + "_fr", p);
+        if (canBatchStubs && !shellCompleted && !dead)
+          (stubBatch ||= new Map()).set(key + "_fr", p);
         else serializer.write(key + "_fr", p);
       }
       return (value, error) => {
