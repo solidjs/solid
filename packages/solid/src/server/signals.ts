@@ -677,6 +677,166 @@ interface ServerComputation<T = any> {
  */
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 
+/**
+ * One async source, every reader under a server render.
+ *
+ * A generator yields to ONE reader: `[Symbol.asyncIterator]()` returns the
+ * generator itself, so two readers split its values between them. Under a
+ * render that is the common case, not the corner — the serializer pumps a
+ * memo's answer `{ meta, progress: gen }` to the client while a child memo
+ * reads `answer().progress`; a slot arg and the server component's own read
+ * meet the same way. So every read of an async iterable the runtime makes
+ * on the server goes through a SEAT on a shared multicast of the source:
+ *
+ * - one pump — the source is opened once, on the first pull, and stepped
+ *   once per value however many seats wait for it;
+ * - every seat sees the whole sequence from where it joined: values are
+ *   logged until every open seat has passed them (the log is trimmed to
+ *   the slowest seat, so a long stream under a frame's pump doesn't grow
+ *   without bound), and a failure is replayed to each seat once, after the
+ *   values that preceded it;
+ * - a seat leaves by `return()`, by reaching the end, or by taking the
+ *   failure; the LAST seat out closes the source (`return()`), so a hybrid
+ *   read that takes one value and leaves still closes a source nobody else
+ *   holds — and doesn't close one the serializer is still pumping.
+ *
+ * Seats are handed out by `shareAsyncIterable`, which is what the border
+ * walk in `@solidjs/web` calls on each iterable in a serialized value
+ * (`toBorderForm`) and what the iterable branches below open for their own
+ * reads. A seat is counted from the moment it is handed out — reserved,
+ * not merely opened — so a face that prepares a value for the serializer
+ * holds its place before a faster reader can be the last one out. Seats
+ * and the runtime's own channel wrappers are recognized and passed through
+ * (`sharedChannels`), so a value prepared twice is not wrapped twice.
+ *
+ * Projections don't go through this: a projection's generator is its own
+ * (its yields mutate the draft), and its multi-consumer form is the trace
+ * (`getProjectionTrace`).
+ */
+type SharedSource = {
+  /** A new seat: its cursor is registered now, pulled later. */
+  open(): AsyncIterator<any>;
+};
+const sharedSources = new WeakMap<object, SharedSource>();
+const sharedChannels = new WeakSet<object>();
+
+function createSharedSource(source: AsyncIterable<any>): SharedSource {
+  const log: any[] = [];
+  let base = 0; // sequence index of log[0]
+  let done = false;
+  let failure: { error: any } | undefined;
+  let iter: AsyncIterator<any> | undefined;
+  let step: Promise<void> | undefined;
+  const cursors = new Set<{ i: number }>();
+  const settle = (r?: IteratorResult<any>, error?: { error: any }) => {
+    step = undefined;
+    if (done) return; // closed under an in-flight step: nothing more lands
+    if (error) {
+      failure = error;
+      done = true;
+    } else if (r!.done) done = true;
+    else log.push(r!.value);
+  };
+  const pull = () => {
+    if (!step) {
+      try {
+        if (!iter) iter = source[Symbol.asyncIterator]();
+        step = Promise.resolve(iter.next()).then(
+          r => settle(r),
+          error => settle(undefined, { error })
+        );
+      } catch (error) {
+        settle(undefined, { error });
+        return Promise.resolve();
+      }
+    }
+    return step;
+  };
+  const trim = () => {
+    let min = Infinity;
+    for (const c of cursors) if (c.i < min) min = c.i;
+    if (min !== Infinity && min > base) {
+      log.splice(0, min - base);
+      base = min;
+    }
+  };
+  return {
+    open() {
+      const cursor = { i: base };
+      let finished = false;
+      cursors.add(cursor);
+      const leave = () => {
+        if (finished) return;
+        finished = true;
+        cursors.delete(cursor);
+        if (cursors.size === 0) {
+          if (!done) {
+            done = true;
+            if (iter) closeAsyncIterator(iter);
+          }
+        } else trim();
+      };
+      const next = (): Promise<IteratorResult<any>> => {
+        if (finished) return Promise.resolve({ done: true, value: undefined });
+        if (cursor.i - base < log.length) {
+          const value = log[cursor.i - base];
+          cursor.i++;
+          trim();
+          return Promise.resolve({ done: false, value });
+        }
+        if (done) {
+          leave();
+          return failure
+            ? Promise.reject(failure.error)
+            : Promise.resolve({ done: true, value: undefined });
+        }
+        return pull().then(next);
+      };
+      return {
+        next,
+        return(value?: any) {
+          leave();
+          return Promise.resolve({ done: true, value });
+        }
+      };
+    }
+  };
+}
+
+/**
+ * A seat on the shared multicast of `source` (see `createSharedSource`):
+ * an async iterable whose first `[Symbol.asyncIterator]()` is the cursor
+ * reserved by this call, and whose later ones open further seats. A seat,
+ * or one of the runtime's own channel wrappers, is returned as is.
+ * @internal — the border walk's hook (`@solidjs/web`) and the runtime's
+ * own iterable reads; the client has no server render to share under.
+ */
+export function shareAsyncIterable<T>(source: AsyncIterable<T>): AsyncIterable<T> {
+  if (sharedChannels.has(source)) return source;
+  let shared = sharedSources.get(source);
+  if (!shared) sharedSources.set(source, (shared = createSharedSource(source)));
+  let reserved: AsyncIterator<T> | undefined = shared.open();
+  const seat: AsyncIterable<T> = {
+    [Symbol.asyncIterator]() {
+      if (reserved) {
+        const cursor = reserved;
+        reserved = undefined;
+        return cursor;
+      }
+      return shared!.open();
+    }
+  };
+  if ((source as any)[LIVE_SOURCE]) (seat as any)[LIVE_SOURCE] = true;
+  sharedChannels.add(seat);
+  return seat;
+}
+
+/** The runtime's own serialized channel over a node's read: passes the border walk untouched. */
+function asSharedChannel<T>(channel: AsyncIterable<T>): AsyncIterable<T> {
+  sharedChannels.add(channel);
+  return channel;
+}
+
 type SsrSourceMode = "server" | "hybrid" | "client";
 interface ServerProjectionOptions extends ProjectionOptions {
   deferStream?: boolean;
@@ -1479,7 +1639,10 @@ function processResult<T>(
       // must JOIN this consumption (`s === 3` above), never re-consume.
       (result as any).s = 3;
       (result as any).d = deferred;
-      const iter = source[Symbol.asyncIterator]();
+      // A seat on the shared source (see shareAsyncIterable): the same
+      // iterable nested in a serialized parent, or read by another memo, is
+      // pumped once and seen whole by every reader.
+      const iter = shareAsyncIterable(source)[Symbol.asyncIterator]();
       return iter.next().then(
         (r: IteratorResult<T>) => {
           const first = (r.done ? undefined : r.value) as T;
@@ -1508,7 +1671,7 @@ function processResult<T>(
             // comp.value — the first-value lock, same as the direct branch.
             let tappedFirst = true;
             const close = tappedCloser(() => iter);
-            return {
+            return asSharedChannel({
               [Symbol.asyncIterator]: () => ({
                 next() {
                   if (tappedFirst) {
@@ -1520,7 +1683,7 @@ function processResult<T>(
                 },
                 return: close
               })
-            } as any;
+            } as any) as any;
           }
           if (ctx?.commit && inServerComponentScope()) {
             // Server-owned render (noHydrate — the HTML is the data): pump
@@ -1641,8 +1804,10 @@ function processResult<T>(
         if (typeof nextIterator !== "function") {
           throw new Error("Expected async iterator while retrying server createMemo");
         }
-        iter = nextIterator.call(source);
+        iter = shareAsyncIterable<T>(source)[Symbol.asyncIterator]();
         return iter.next().then((value: IteratorResult<T>) => {
+          // Leaves the seat; the source closes only if no other seat holds
+          // it (the serializer pumping a parent value this sits in).
           if (!value.done) closeAsyncIterator(iter);
           return value.value;
         });
@@ -1690,7 +1855,7 @@ function processResult<T>(
         if (typeof nextIterator !== "function") {
           throw new Error("Expected async iterator while retrying server createMemo");
         }
-        iter = nextIterator.call(source);
+        iter = shareAsyncIterable<T>(source)[Symbol.asyncIterator]();
         return iter.next().then((value: IteratorResult<T>) => {
           firstResult = value;
           // Resolve nesting: delays outer promise settlement by 1 microtask,
@@ -1729,7 +1894,7 @@ function processResult<T>(
       if (serializes) {
         let tappedFirst = true;
         const close = tappedCloser(() => iter);
-        const tapped = {
+        const tapped = asSharedChannel({
           [Symbol.asyncIterator]: () => ({
             next() {
               if (tappedFirst) {
@@ -1753,7 +1918,7 @@ function processResult<T>(
             },
             return: close
           })
-        };
+        });
         ctx.serialize(id, tapped, deferStream);
       } else if (ctx?.commit && inServerComponentScope()) {
         // Server-owned render (noHydrate — the HTML is the data): nothing

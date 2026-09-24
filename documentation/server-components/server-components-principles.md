@@ -440,13 +440,21 @@ suite; the shim-backed twins in the runtime's own
   streaming through the document's data scripts, so page markup and the
   adopted client's read now agree (previously the markup shipped an
   empty hole over a raw promise read — a hydration mismatch).
-- **Async iterables tap their first yield** — one cursor, two consumers:
+- **Async iterables tap their first yield** — one source, every reader:
   the inline read settles on the first yield (markup is the V1 snapshot;
   later yields are the adopted client's story, per §10 of
-  generator-only-model.md) and the record ships a replay wrapper that
-  re-yields it before delegating, so the client still receives the
-  complete sequence. This is the first-value lock's semantics arrived at
-  from the transport side.
+  generator-only-model.md) and the record ships the complete sequence.
+  Both are SEATS on the runtime's shared multicast of the source
+  (`shareAsyncIterable`, solid-js/server: one pump, a log trimmed to the
+  slowest open seat, the last seat out closes the source) — the same seat
+  the server component's own memo over that source takes, and the same one
+  the border walk (`toBorderForm`) hands the serializer for an iterable
+  nested anywhere in a memo's answer or a slot arg. A generator yields to
+  one reader; under a render the serializer is rarely the only one, so
+  every read the runtime makes goes through a seat. (Superseded: the
+  first build's per-site replay wrapper — one cursor handed between two
+  consumers — which left a third reader splitting the yields.) This is the
+  first-value lock's semantics arrived at from the transport side.
 
 Mode invariance holds at the border: the same authored crossing behaves
 identically whether the mount is call-driven or the initial document.

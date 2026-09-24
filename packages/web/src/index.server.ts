@@ -18,10 +18,16 @@ import type { JSX } from "../jsx/jsx.js";
 // value a traced container".
 // Installing solid's projection-trace resolver here arms it for every SSR
 // consumer of this entry — no per-app wiring.
-import { setContainerTraceResolver } from "../frames/src/frame-container-plugin.js";
-import { getProjectionTrace } from "solid-js/internal";
+import {
+  setAsyncIterableSharer,
+  setContainerTraceResolver
+} from "../frames/src/frame-container-plugin.js";
+import { getProjectionTrace, shareAsyncIterable } from "solid-js/internal";
 
 setContainerTraceResolver(getProjectionTrace);
+// The same seam carries the async-iterable sharer: the border walk swaps
+// each iterable in a serialized value for a seat on solid's multicast of it.
+setAsyncIterableSharer(shareAsyncIterable);
 
 export * from "./server.js";
 export * from "./response.js";

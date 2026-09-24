@@ -14,13 +14,15 @@ import type { Element as SolidElement } from "solid-js";
 // (`@solidjs/web`, see rollup.config.js externalizeFramesServerRuntime), but
 // the sink's own codec — createJSONSerializer and the container trace plugin
 // it carries — is bundled (single-file outputs can't share a chunk), so this
-// copy's trace plugin needs the resolver too. Wire compatibility across
-// copies is by plugin TAG, which every seam compares; the resolver function
-// itself comes from external solid-js, so both copies answer identically.
-import { setContainerTraceResolver } from "./frame-container-plugin.js";
-import { getProjectionTrace } from "solid-js/internal";
+// copy's trace plugin needs the resolver and the sharer too. Wire
+// compatibility across copies is by plugin TAG, which every seam compares;
+// the resolver and sharer functions themselves come from external solid-js,
+// so both copies answer identically.
+import { setAsyncIterableSharer, setContainerTraceResolver } from "./frame-container-plugin.js";
+import { getProjectionTrace, shareAsyncIterable } from "solid-js/internal";
 
 setContainerTraceResolver(getProjectionTrace);
+setAsyncIterableSharer(shareAsyncIterable);
 
 /**
  * A client position in a server component: a prop the server renders (as JSX

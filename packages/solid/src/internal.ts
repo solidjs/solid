@@ -100,6 +100,14 @@ export const getProjectionTrace: (
   value: unknown
 ) => { subscribe(): AsyncIterable<any>; array: boolean } | undefined = core.getProjectionTrace;
 
+/**
+ * Server: a seat on the shared multicast of an async iterable — every reader
+ * under a render (the serializer, memos) sees the whole sequence. Client:
+ * the source itself.
+ */
+export const shareAsyncIterable: <T>(source: AsyncIterable<T>) => AsyncIterable<T> =
+  core.shareAsyncIterable;
+
 /** Client: rebuild a store from a serialized container-trace marker. Server: stub. */
 export const materializeContainerTrace: (marker: {
   $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
