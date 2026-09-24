@@ -290,7 +290,7 @@ describe("Strict Read Warning", () => {
             }
             return undefined;
           },
-          { name: "[solid-refresh]MyComponent", transparent: true }
+          { name: "", transparent: true }
         );
       }
       return s(props);
