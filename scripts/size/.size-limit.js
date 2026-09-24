@@ -1935,6 +1935,15 @@ module.exports = [
     // engine's walk. Nothing per node — the alternative, a live counter,
     // would have been an increment on every creation and disposal. Prod CSR
     // is 15,821, byte-identical either way (the bodies fold to a return).
+    // GRAPH_GROWTH (2026-09-23, rebased): measured on a full build against next.
+    // Tier 17.5 -> 17.65 KB at 17,570 B: the root registry — createOwner with no
+    // parent adds a WeakRef to a Set reaped by a FinalizationRegistry, disposal
+    // removes it; liveRootOwners() hands them to the engine's walk. Nothing per
+    // node; prod byte-identical (the bodies fold to a return). Engine 29.05 ->
+    // 30.00 KB at 29,927 B (+928 B over 28,999): the walk (graphSize: the owner tree,
+    // then the reactive graph it reaches through deps and subs, with a Set of the met
+    // nodes), the graph record at navigation settle, the per-route size history judged
+    // series by series, the option and its merge, and the finding's three leak shapes.
     limit: "17.65 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
@@ -2172,7 +2181,16 @@ module.exports = [
     // 28,999). The tier is 17,471 against `next`'s 17,514 (-43 B): the
     // nameCache drift the #3608 note describes, here in the other direction,
     // with byte-count-identical core artifacts.
-    limit: "29.80 KB",
+    // GRAPH_GROWTH (2026-09-23, rebased): measured on a full build against next.
+    // Tier 17.5 -> 17.65 KB at 17,570 B: the root registry — createOwner with no
+    // parent adds a WeakRef to a Set reaped by a FinalizationRegistry, disposal
+    // removes it; liveRootOwners() hands them to the engine's walk. Nothing per
+    // node; prod byte-identical (the bodies fold to a return). Engine 29.05 ->
+    // 30.00 KB at 29,927 B (+928 B over 28,999): the walk (graphSize: the owner tree,
+    // then the reactive graph it reaches through deps and subs, with a Set of the met
+    // nodes), the graph record at navigation settle, the per-route size history judged
+    // series by series, the option and its merge, and the finding's three leak shapes.
+    limit: "30.00 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
