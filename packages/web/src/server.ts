@@ -2396,6 +2396,13 @@ export function renderToStream(code, options = {}) {
   const trackSerialized = (id, p) => {
     let settle;
     const raced = Promise.race([p, new Promise(r => (settle = r))]);
+    // Before the shell completes the race is parked in `stubBatch`, and seroval
+    // subscribes to it only when the batch is flushed — a macrotask later when
+    // another fragment is still pending. A source rejecting in between rejects
+    // the race with no handler attached; Node reports it as unhandled and exits.
+    // Observing the race here changes nothing for seroval, which still meets
+    // the rejection when it subscribes.
+    raced.catch(() => {});
     pendingSerialized.set(id, settle);
     // Once the source settles the entry is dead weight; drop it. The
     // rejection arm also keeps an abandoned-then-rejected source from
@@ -2656,6 +2663,16 @@ export function renderToStream(code, options = {}) {
       if (!registry.has(key)) {
         let resolve, reject;
         const p = new Promise((r, rej) => ((resolve = r), (reject = rej)));
+        // Same exposure as `trackSerialized`'s race: before the shell
+        // completes this promise is parked in `stubBatch`, and seroval only
+        // subscribes when the batch is flushed — which waits on the shell's
+        // blockers (a pending root hole) or a no-progress timer. A boundary
+        // whose content throws on a retry pass in that window rejects it via
+        // `item.resolve(err)` below with nothing attached, and Node exits on
+        // the unhandled rejection. Own it here; seroval still meets the
+        // rejection when it subscribes, and the error was already routed
+        // through the server error hook by the boundary that settled it.
+        defuse(p);
         // double queue to ensure that the fragment is last but in same flush
         registry.set(key, {
           // The rejection the client receives is the wire policy's verdict
