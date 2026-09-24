@@ -580,7 +580,9 @@ read, not a warning to silence. Read it two ways:
 
 Do NOT "fix" a revert by writing the guess to the authoritative signal so it
 cannot revert — that is not optimistic UI, it is lying to the user about what
-happened. Optimistic stores are not covered yet; a store-path revert shows
+happened. The runtime's own optimistic nodes — the `isPending()`/`latest()`
+companions that acknowledge a hold — are never reported; only values you
+wrote optimistically are. Optimistic stores are not covered yet; a store-path revert shows
 up only as the reader's re-run.
 
 ### Where to start: `feedback()`

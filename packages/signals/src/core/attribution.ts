@@ -496,6 +496,15 @@ export interface AttributionOptions {
    * and every one of them waited on the same source. `false` disables.
    */
   stackedHolds?: { count: number } | false;
+  /**
+   * Optimistic-revert finding: emit OPTIMISTIC_REVERTED (`info`) when an
+   * optimistic value the screen showed is replaced by a different one —
+   * reverted at settle, or superseded by the truth (default true). The
+   * runtime's own optimistic nodes — `isPending`/`latest` companions and
+   * derived overrides — are never judged: they are the acknowledgement
+   * machinery, not a guess the person saw. `false` disables.
+   */
+  optimisticReverts?: boolean;
 }
 
 /** A fallback shown for less than this is a flash: feedback for a wait too short to need it. */
@@ -572,6 +581,7 @@ const defaultOptions = {
   graphGrowth: { visits: 3, ratio: 1.25 } as { visits: number; ratio: number } | false,
   abandonedFlights: { count: 3, windowMs: 1000 } as { count: number; windowMs: number } | false,
   fallbackFlashes: true,
+  optimisticReverts: true,
   stackedHolds: { count: 3 } as { count: number } | false
 };
 let options: typeof defaultOptions = { ...defaultOptions };
@@ -2925,6 +2935,12 @@ function checkOptimisticRevert(
   truth: unknown,
   how: "superseded" | "reverted"
 ): void {
+  // The runtime's own optimistic nodes are not guesses the person saw: an
+  // `isPending()` companion goes true while pending and back to false at
+  // commit by design — the acknowledgement SILENT_HOLD asks for — and a
+  // derived override promotes rather than reverts. Same predicate the hold
+  // census uses to skip them.
+  if (!options.optimisticReverts || isCompanion(el)) return;
   const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;
   if (equals && equals(shown, truth)) return;
   const source = nodeName(el);

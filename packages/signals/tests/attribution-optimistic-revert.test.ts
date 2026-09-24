@@ -12,11 +12,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { attribution } from "../src/attribution.js";
 import {
   action,
+  createMemo,
   createOptimistic,
   createRenderEffect,
   createRoot,
   createSignal,
   flush,
+  isPending,
+  latest,
   OBSERVE
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
@@ -33,10 +36,10 @@ function deferred<T = void>() {
   return { promise, resolve };
 }
 
-function arm() {
+function arm(opts: { optimisticReverts?: boolean } = {}) {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
+  attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false, ...opts });
   const findings: DiagnosticEvent[] = [];
   OBSERVE!.diagnostics.subscribe(e => {
     if (e.code === "OPTIMISTIC_REVERTED") findings.push(e);
@@ -146,6 +149,69 @@ describe("OPTIMISTIC_REVERTED", () => {
     await p;
     flush();
     expect(shownUser().name).toBe("Grace");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("an acknowledged hold — isPending and latest doing their job — is not a revert", async () => {
+    // The regression: isPending()'s companion is an optimistic signal that
+    // goes true while pending and back to false at commit, by design. It is
+    // the acknowledgement SILENT_HOLD asks for, not a guess the person saw.
+    const { findings } = arm();
+    const [page, setPage] = createSignal(1, { name: "page" });
+    let resolve!: (v: string) => void;
+    const posts = createMemo(
+      () => {
+        const p = page();
+        return new Promise<string>(r => (resolve = v => r(`${v}-p${p}`)));
+      },
+      { name: "posts" }
+    );
+    const shown: string[] = [];
+    createRoot(() => {
+      createRenderEffect(posts, v => void shown.push(String(v)), { name: "feed" });
+      createRenderEffect(
+        () => isPending(() => posts()),
+        () => {},
+        { name: "spinner" }
+      );
+      createRenderEffect(
+        () => latest(page),
+        () => {},
+        { name: "pageLabel" }
+      );
+    });
+    flush();
+    resolve("a");
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(shown).toContain("a-p1");
+    // A held write: the companions flip on, then off at commit.
+    setPage(2);
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    resolve("b");
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(shown).toContain("b-p2");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("`optimisticReverts: false` disables the finding", async () => {
+    const { findings } = arm({ optimisticReverts: false });
+    const gate = deferred();
+    const [status, setStatus] = createOptimistic("idle", { name: "status" });
+    createRoot(() => createRenderEffect(status, () => {}, { name: "badge" }));
+    flush();
+    const save = action(function* save() {
+      setStatus("saved");
+      yield gate.promise;
+    });
+    const p = save();
+    flush();
+    gate.resolve();
+    await p;
+    flush();
+    expect(status()).toBe("idle");
     expect(findings).toHaveLength(0);
   });
 
