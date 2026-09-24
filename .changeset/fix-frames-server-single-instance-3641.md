@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Fix `X-Frame-Stream: ""` on single-flight server-component responses: the frames server artifacts (`@solidjs/web/frames/server`, all three tiers) bundled their own copy of the server-function runtime, so the invocation the handler recorded was never the one `frameTransformFlightResult` read — every POST server-component call with a flight source registered answered with an empty frame id and the client rendered nothing (#3641). The frames server build now resolves the server-function runtime and its wire layer to `@solidjs/web/server-functions/server` and the SSR runtime to `@solidjs/web` (externals, one instance per app by construction), which also fixes `<select value>` inside a server component streaming unresolved: compiled output armed the select-value gate through `@solidjs/web`, and the bundled renderer copy never saw it. `frames/dist/server.js` drops from ~155 KB to ~44 KB. `ChunkReader`, `createChunk`, `frameAddress` and `serializeStream` are now re-exported from `@solidjs/web/server-functions/server` (internal transport building blocks the frames artifact imports).

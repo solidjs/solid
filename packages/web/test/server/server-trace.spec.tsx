@@ -262,7 +262,7 @@ describe("tiers, in the built artifacts", () => {
   // runtime reaches it by the same name, which is the string that marks the
   // module.
   const PROVIDER_MARK = "solid-js/observe/server/provider";
-  test.each(["dist", "server-functions/dist", "frames/dist"])(
+  test.each(["dist", "server-functions/dist"])(
     "%s: the W3C half ships in prod; the provider slot only in observe/dev",
     dir => {
       const read = (name: string) => readFileSync(resolve(webRoot, dir, name), "utf8");
@@ -271,6 +271,19 @@ describe("tiers, in the built artifacts", () => {
       expect(prodSource).not.toContain(PROVIDER_MARK);
       expect(read("server.observe.js")).toContain(PROVIDER_MARK);
       expect(read("server.dev.js")).toContain(PROVIDER_MARK);
+    }
+  );
+  // The frames server artifacts carry no copy of the runtime at all: the SSR
+  // pipeline (trace derivation included) is external, `@solidjs/web`, whose
+  // tier the same export condition selects (#3641). A `traceparent` here
+  // would mean the runtime got bundled again.
+  test.each(["server.js", "server.observe.js", "server.dev.js"])(
+    "frames/dist/%s: no trace half of its own — the runtime is external",
+    name => {
+      const source = readFileSync(resolve(webRoot, "frames/dist", name), "utf8");
+      expect(source).not.toContain("traceparent");
+      expect(source).not.toContain(PROVIDER_MARK);
+      expect(source).toMatch(/^import .* from ["']@solidjs\/web["'];?$/m);
     }
   );
 });

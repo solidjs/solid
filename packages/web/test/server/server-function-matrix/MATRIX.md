@@ -60,6 +60,7 @@ Status legend: **pass** (ordinary green guard) · **audit** (reported by
 | One failed/unencodable slice cannot erase the mutation result or healthy slices | **pass** / #3243 **audit** | `server-functions-single-flight`, `server-functions-open-gaps` |
 | Redirecting mutations preserve folding without trusting attacker-controlled navigation metadata | #3252 **ruling** | contract decision required |
 | The envelope is one shape on every body — `data` keyed by source, the header naming the folded sources — and consumers receive their slice identically over the plain and the frames transport | #3638 **pass** | `server-functions-flight-markup`, `frames-flight-delivery` |
+| A single-flight call whose own result is markup names its function in `X-Frame-Stream` and the primary frame — the frames artifacts share the handler's runtime instance by construction (external imports, never a bundled copy), so the invocation the handler records is the one the transform reads | #3641 **pass** | `dist-frames-server-instance` (built artifacts, every tier), `frames-flight-delivery` |
 
 ## No-JS form and flash replay
 

@@ -10,11 +10,13 @@
 
 import type { Element as SolidElement } from "solid-js";
 // The container tier's server half, installed HERE as well as in the main
-// server entry: this entry and `@solidjs/web/server` each bundle their own
-// copy of the runtime (single-file outputs can't share a chunk), so each
-// copy's trace plugin needs the resolver. Wire compatibility across copies
-// is by plugin TAG, which every seam compares; the resolver function itself
-// comes from external solid-js, so both copies answer identically.
+// server entry: the SSR runtime itself is external to this artifact
+// (`@solidjs/web`, see rollup.config.js externalizeFramesServerRuntime), but
+// the sink's own codec — createJSONSerializer and the container trace plugin
+// it carries — is bundled (single-file outputs can't share a chunk), so this
+// copy's trace plugin needs the resolver too. Wire compatibility across
+// copies is by plugin TAG, which every seam compares; the resolver function
+// itself comes from external solid-js, so both copies answer identically.
 import { setContainerTraceResolver } from "./frame-container-plugin.js";
 import { getProjectionTrace } from "solid-js/internal";
 

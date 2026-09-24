@@ -208,6 +208,39 @@ describe("single-flight delivery over the frames transport (#3638)", () => {
     ).resolves.toBe("boom");
   });
 
+  test("a call whose own result is markup resolves to its binding when the header names the frame (#3641)", async () => {
+    // A POST server-component call with a flight source registered: the
+    // server answers with the component's markup as the PRIMARY frame and
+    // the outcome's `value` undefined (the component is the frame). The
+    // binding comes from `X-Frame-Stream` naming the call — the header the
+    // server's bundled copy of the invocation ledger left empty (#3641),
+    // which made this path resolve to the envelope's `undefined`.
+    const { handler: h, streams } = handler();
+    const { unnamed } = subscribe();
+    const envelope = { value: undefined, data: { true: { "route-data[]": { title: "x" } } } };
+    const headers = { [SINGLE_FLIGHT_HEADER]: "true", "X-Frame-Stream": "view-1" };
+
+    const bound: any = await h.handle(
+      await flightFrameResponse([{ id: "view-1", html: "view markup" }], envelope, headers),
+      { id: "view-1", meta: undefined, args: [], context: undefined }
+    );
+    expect(typeof bound).toBe("function");
+    expect(bound[COMPONENT_BINDING]).toEqual({ component: "view-1", address: "view-1" });
+    expect(streams).toEqual(["view-1"]);
+    expect(unnamed).toHaveBeenCalledWith({ "route-data[]": { title: "x" } }, expect.anything());
+
+    // The failure the issue reported, pinned as the contrast: the same body
+    // under an empty header is a data-only stream and resolves to `value`.
+    const unbound = await h.handle(
+      await flightFrameResponse([{ id: "view-1", html: "view markup" }], envelope, {
+        ...headers,
+        "X-Frame-Stream": ""
+      }),
+      { id: "view-1", meta: undefined, args: [], context: undefined }
+    );
+    expect(unbound).toBeUndefined();
+  });
+
   test("the plain transport delivers the same scenario identically", async () => {
     // Same envelope shape (data-only: markup never rides a plain body),
     // same header, same consumers — the plain client's fetch answers with
