@@ -1,34 +1,7 @@
 {
-  "name": "@solidjs/web/server-functions",
   "main": "./dist/server.js",
   "module": "./dist/server.js",
   "types": "../types/server-functions/server.d.ts",
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "browser": {
-        "development": {
-          "types": "../types/server-functions/client.d.ts",
-          "default": "./dist/client.dev.js"
-        },
-        "observe": {
-          "types": "../types/server-functions/client.d.ts",
-          "default": "./dist/client.observe.js"
-        },
-        "types": "../types/server-functions/client.d.ts",
-        "default": "./dist/client.js"
-      },
-      "development": {
-        "types": "../types/server-functions/server.d.ts",
-        "default": "./dist/server.dev.js"
-      },
-      "observe": {
-        "types": "../types/server-functions/server.d.ts",
-        "default": "./dist/server.observe.js"
-      },
-      "types": "../types/server-functions/server.d.ts",
-      "default": "./dist/server.js"
-    }
-  }
+  "sideEffects": false
 }

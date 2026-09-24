@@ -1,14 +1,7 @@
 {
-  "name": "@solidjs/web/serialization/decode",
   "main": "../dist/decode.js",
   "module": "../dist/decode.js",
   "types": "../types/serializer-decode.d.ts",
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "types": "../types/serializer-decode.d.ts",
-      "default": "../dist/decode.js"
-    }
-  }
+  "sideEffects": false
 }

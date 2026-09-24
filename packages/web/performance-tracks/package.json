@@ -1,22 +1,7 @@
 {
-  "name": "@solidjs/web/performance-tracks",
   "main": "./dist/performance-tracks.js",
   "module": "./dist/performance-tracks.js",
   "types": "./types/index.d.ts",
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "development": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/performance-tracks.dev.js"
-      },
-      "observe": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/performance-tracks.observe.js"
-      },
-      "types": "./types/index.d.ts",
-      "default": "./dist/performance-tracks.js"
-    }
-  }
+  "sideEffects": false
 }

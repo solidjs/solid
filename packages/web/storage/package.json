@@ -1,14 +1,7 @@
 {
-  "name": "@solidjs/web/storage",
   "main": "./dist/storage.js",
   "module": "./dist/storage.js",
   "types": "./types/index.d.ts",
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "types": "./types/index.d.ts",
-      "default": "./dist/storage.js"
-    }
-  }
+  "sideEffects": false
 }
