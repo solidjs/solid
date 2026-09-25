@@ -2464,6 +2464,26 @@ function notePromotedWrite(el: Signal<any> | Computed<any>): void {
   promotedWrites.push(el);
 }
 
+/** Cold half of setSignal's snapshot arm (see there): first write during
+ * capture to a plain signal without a live snapshot records the pre-write
+ * value. Only plain user signals qualify. Computeds reach setSignal from an
+ * async landing (asyncWrite), and a value arriving from async during the pass
+ * REVEALS — the creation-time arm skips pending computeds for the same
+ * reason. Firewall leaves belong to a projection whose compute is the tree's
+ * own work, captured (or deliberately not) at creation. */
+function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
+  if (
+    el._config & CONFIG_NO_SNAPSHOT ||
+    (el as Computed<T>)._fn !== undefined ||
+    (el as FirewallSignal<T>)._firewall ||
+    el._x?._snapshotValue !== undefined
+  )
+    return;
+  ext(el)._snapshotValue = current === undefined ? NO_SNAPSHOT : current;
+  el._config |= CONFIG_HAS_SNAPSHOT;
+  snapshotSources!.add(el);
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (
     __DEV__ &&
@@ -2533,6 +2553,17 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   // Attribution hook: this committed write is where a re-run chain begins.
   if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+
+  // A write during hydration's snapshot capture to a source that has no
+  // snapshot — created BEFORE capture began (module-level state: an identity
+  // minted from onSettled in the pass, a preference read from storage) —
+  // captures the pre-write value now, so the write is held like any other:
+  // in-scope readers keep serving what the server rendered with and replay
+  // at release. Left uncaptured, the write cascades live through a claim
+  // pass whose DOM writes are skipped, and a component rendered later in the
+  // pass reads a value the server never had. Store leaves written here are
+  // plain signals and qualify the same way.
+  if (snapshotCaptureActive) captureWriteSnapshot(el, currentValue);
 
   const wasStaged = el._pendingValue !== NOT_PENDING;
   if (!wasStaged) queuePendingNode(el);

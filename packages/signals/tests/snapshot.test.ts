@@ -10,6 +10,7 @@ import {
   getOwner,
   markSnapshotScope,
   releaseSnapshotScope,
+  runWithOwner,
   setSnapshotCapture,
   snapshot
 } from "../src/index.js";
@@ -89,7 +90,7 @@ describe("markSnapshotScope + read-path interception", () => {
     clearSnapshots();
   });
 
-  it("signal created before capture has no snapshot — writes propagate normally", () => {
+  it("signal created before capture — first write during capture snapshots the pre-write value and is held", () => {
     let setX!: (v: number) => void;
     let $derived!: () => number;
     let owner!: any;
@@ -108,10 +109,107 @@ describe("markSnapshotScope + read-path interception", () => {
     setX(5);
     flush();
 
-    // $x has no snapshot (created before capture), so writes propagate normally
-    expect($derived()).toBe(50);
+    // $x was created before capture, so it had no snapshot; the write during
+    // capture records the pre-write value (1) and the in-scope reader holds it.
+    expect($derived()).toBe(10);
 
     releaseSnapshotScope(owner);
+    flush();
+
+    expect($derived()).toBe(50);
+    clearSnapshots();
+  });
+
+  it("write-time snapshot: a scoped reader created after the write reads the pre-write value until release", () => {
+    let setX!: (v: number) => void;
+    let $x!: () => number;
+    let $late!: () => number;
+    let owner!: any;
+    createRoot(() => {
+      [$x, setX] = createSignal(1);
+
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+    });
+
+    // The write lands mid-pass (capture still active), before the reader exists.
+    setX(5);
+    flush();
+
+    runWithOwner(owner, () => {
+      $late = createMemo(() => $x() * 10);
+      // In scope: sees what was captured, not the live value.
+      expect($late()).toBe(10);
+    });
+
+    // Out of scope, the live value is visible.
+    expect($x()).toBe(5);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect($late()).toBe(50);
+    clearSnapshots();
+  });
+
+  it("write-time snapshot: a second write during capture keeps the original pre-write value", () => {
+    let setX!: (v: number) => void;
+    let $derived!: () => number;
+    let owner!: any;
+    createRoot(() => {
+      const [$x, _setX] = createSignal(1);
+      setX = _setX;
+
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      $derived = createMemo(() => $x() * 10);
+    });
+
+    setX(5);
+    flush();
+    setX(7);
+    flush();
+
+    expect($derived()).toBe(10);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect($derived()).toBe(70);
+    clearSnapshots();
+  });
+
+  it("write-time snapshot: an out-of-scope reader sees the write live", () => {
+    let setX!: (v: number) => void;
+    let $outside!: () => number;
+    let $inside!: () => number;
+    let owner!: any;
+    createRoot(() => {
+      const [$x, _setX] = createSignal(1);
+      setX = _setX;
+      $outside = createMemo(() => $x() + 100);
+
+      setSnapshotCapture(true);
+      createRoot(() => {
+        owner = getOwner()!;
+        markSnapshotScope(owner);
+        $inside = createMemo(() => $x() + 200);
+      });
+    });
+
+    setX(5);
+    flush();
+
+    expect($outside()).toBe(105);
+    expect($inside()).toBe(201);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect($inside()).toBe(205);
     clearSnapshots();
   });
 
