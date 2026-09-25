@@ -151,7 +151,9 @@ function deferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-function createMockSSRContext(options: { async?: boolean; fragmentFlushed?: boolean } = {}) {
+function createMockSSRContext(
+  options: { async?: boolean; fragmentFlushed?: boolean; flushed?: boolean } = {}
+) {
   const serialized = new Map<string, any>();
   const registeredFragments = new Set<string>();
   const fragmentResults = new Map<string, string | undefined>();
@@ -185,6 +187,10 @@ function createMockSSRContext(options: { async?: boolean; fragmentFlushed?: bool
       };
     }
   };
+  // The renderer's "has the shell left?" probe (`ctx.flushed`). Absent by
+  // default, as the older tests were written; a boundary that consults it
+  // (the pre-flush client handoff) sees this answer when set.
+  if (options.flushed !== undefined) context.flushed = () => options.flushed;
 
   return {
     context,
@@ -2021,6 +2027,47 @@ describe("ssrSource server modes", () => {
       expect([...serialized.values()]).not.toContain("$$f");
     });
 
+    test("streaming: final hole masked by a real await that settles PRE-FLUSH inlines the fallback + $$f", async () => {
+      const { context, serialized, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext({ flushed: false });
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const data = createMemo(() => d.promise);
+              const v = data();
+              const widget = (createMemo as any)(() => 42, { ssrSource: "client" });
+              return ssr(
+                ["<div>", "-", "</div>"],
+                () => v,
+                () => widget()
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+      expect(registeredFragments.size).toBe(1);
+      expect(result().t[0]).toContain("Shell");
+
+      d.resolve("real");
+      await tick();
+
+      // The shell had not left when the hole surfaced: the position is still
+      // the shell's to shape, so this is the at-discovery route one pass
+      // late — plain fallback inlined, "$$f" serialized, fragment settled
+      // clean — not a rejected fragment over an empty region (#3659).
+      const bid = [...registeredFragments][0];
+      expect(fragmentResults.get(bid)).toBe("Shell");
+      expect(fragmentErrors.size).toBe(0);
+      expect(serialized.get(bid)).toBe("$$f");
+    });
+
     test("renderToString: client hole takes the existing fallback + $$f route", () => {
       const { context, serialized, registeredFragments } = createMockSSRContext({ async: false });
       sharedConfig.context = context;
@@ -2182,6 +2229,247 @@ describe("ssrSource server modes", () => {
       expect(registeredFragments.size).toBe(0);
       expect([...serialized.values()]).toContain("$$f");
       expect(result()).toBe("Shell");
+    });
+  });
+
+  // #3659: a DERIVED ASYNC computation whose compute reads a client hole has
+  // no server answer and never will — it classifies FINAL like the bare
+  // source it derives from, and the boundary hands off to the client instead
+  // of awaiting a pending source that can never settle. Before the fix the
+  // derived node's own deferred (untagged, never settling) was what the
+  // boundary and the serialized channel waited on: the response never ended.
+  describe("derived async computations over a client hole (#3659)", () => {
+    const clientSource = () =>
+      (createMemo as any)(() => [1, 2, 3], { ssrSource: "client" }) as () => number[];
+
+    test("async memo, pre-flush: the deferred settles, the boundary inlines the fallback + $$f", async () => {
+      const { context, serialized, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext({ flushed: false });
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const client = clientSource();
+              // The compute is async: its rejection — the tagged NotReady the
+              // hole read threw inside it — lands a microtask after discovery,
+              // so the fragment is already registered when the node turns FINAL.
+              const derived = createMemo(async () => client().length);
+              return ssr(["<div>", "</div>"], () => derived()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      // Discovery saw an untagged pending source: streaming route, fragment registered.
+      expect(registeredFragments.size).toBe(1);
+      expect(result().t[0]).toContain("Shell");
+
+      await tick();
+
+      // The derived node's serialized channel settled (`undefined`, the
+      // abandonment ledger's value for a channel nobody consumes) — seroval
+      // can finish; and the boundary took the client-continue route with the
+      // shell still open: the placeholder inlined to the PLAIN fallback, "$$f"
+      // serialized, the fragment settled clean.
+      const bid = [...registeredFragments][0];
+      const channel = [...serialized.entries()].find(([, v]) => v && typeof v.then === "function");
+      expect(channel).toBeDefined();
+      await expect(channel![1]).resolves.toBeUndefined();
+      expect(serialized.get(bid)).toBe("$$f");
+      expect(fragmentResults.get(bid)).toBe("Shell");
+      expect(fragmentErrors.size).toBe(0);
+    });
+
+    test("async memo, post-flush: the fragment rejects as client-only content", async () => {
+      const { context, serialized, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext({ flushed: true });
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const client = clientSource();
+              const derived = createMemo(async () => client().length);
+              return ssr(["<div>", "</div>"], () => derived()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+      expect(registeredFragments.size).toBe(1);
+      expect(result().t[0]).toContain("Shell");
+
+      await tick();
+
+      // Past the flush "settle but keep the fallback" is inexpressible: the
+      // existing late-handoff route — reject, the client renders the content
+      // fresh (resume(false)). No "$$f" on this route.
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBeUndefined();
+      expect(String([...fragmentErrors.values()][0])).toMatch(/client-only content/);
+      expect([...serialized.values()]).not.toContain("$$f");
+    });
+
+    test("async memo: the node's error becomes the tagged client-hole NotReady (FINAL on re-pull)", async () => {
+      const { context } = createSerializeTrackingContext();
+      sharedConfig.context = context;
+
+      let derived: any;
+      createRoot(
+        () => {
+          const client = clientSource();
+          (context as any)._loadingPhase = true;
+          try {
+            derived = createMemo(async () => client().length);
+          } finally {
+            (context as any)._loadingPhase = undefined;
+          }
+        },
+        { id: "t" }
+      );
+      await tick();
+
+      // Inside a Loading pass: the tagged FINAL suspension, the same one a
+      // direct read of the source throws.
+      (context as any)._loadingPhase = true;
+      let caught: any;
+      try {
+        derived();
+      } catch (e) {
+        caught = e;
+      } finally {
+        (context as any)._loadingPhase = undefined;
+      }
+      expect(caught).toBeInstanceOf(NotReadyError);
+      expect(caught.source.$clientHole).toBe(true);
+      // Outside one: the loud error, never a hang.
+      expect(() => derived()).toThrow(/outside a <Loading> boundary/);
+    });
+
+    test("projection deriving synchronously from the hole is FINAL at discovery: $$f, no fragment", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const client = clientSource();
+              const proj = (createProjection as any)(
+                (d: any) => {
+                  d.n = client().length;
+                },
+                { n: 0 }
+              );
+              return ssr(["<div>", "</div>"], () => proj.n) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      // The derive threw the hole synchronously: no deferred, no channel, the
+      // structural bare-client-projection form — handed off at once.
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toEqual(["$$f"]);
+      expect(result()).toBe("Shell");
+    });
+
+    test("async projection (async derive) reclassifies FINAL and hands off; loud outside a boundary", async () => {
+      const { context, serialized, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext({ flushed: false });
+      sharedConfig.context = context;
+
+      let result: any;
+      let proj: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const client = clientSource();
+              proj = (createProjection as any)(
+                async (d: any) => {
+                  d.n = client().length;
+                },
+                { n: 0 }
+              );
+              return ssr(["<div>", "</div>"], () => proj.n) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+      expect(result().t[0]).toContain("Shell");
+
+      await tick();
+
+      const bid = [...registeredFragments][0];
+      expect(serialized.get(bid)).toBe("$$f");
+      expect(fragmentResults.get(bid)).toBe("Shell");
+      expect(fragmentErrors.size).toBe(0);
+      // The pending proxy errored with the tagged NotReady; read outside a
+      // Loading pass it takes the bare client store's loud path.
+      expect(() => proj.n).toThrow(/outside a <Loading> boundary/);
+    });
+
+    test("outside <Loading>: an async memo over the hole errors loudly at its read, never hangs", async () => {
+      const { context } = createSerializeTrackingContext();
+      sharedConfig.context = context;
+
+      let derived: any;
+      createRoot(
+        () => {
+          const client = clientSource();
+          // No loading pass: the hole read inside the async compute throws
+          // the loud error synchronously (before any await) — the compute's
+          // promise rejects with it, and the memo surfaces it as a real error.
+          derived = createMemo(async () => client().length);
+        },
+        { id: "t" }
+      );
+      await tick();
+      expect(() => derived()).toThrow(/ASYNC_OUTSIDE_LOADING_BOUNDARY/);
+    });
+
+    test("a real (server-fillable) async dependency still retries and lands", async () => {
+      const { context, registeredFragments, fragmentResults } = createMockSSRContext({
+        flushed: false
+      });
+      sharedConfig.context = context;
+
+      const d = deferred<number[]>();
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const data = createMemo(() => d.promise);
+              const derived = createMemo(async () => data().length);
+              return ssr(["<div>", "</div>"], () => derived()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+      expect(registeredFragments.size).toBe(1);
+
+      d.resolve([1, 2]);
+      await tick();
+      await tick();
+
+      expect(fragmentResults.get([...registeredFragments][0])).toBe("<div>2</div>");
     });
   });
 
