@@ -457,6 +457,57 @@ describe("@solidjs/signals engine per tier", () => {
     );
   });
 
+  // `AttributionOptions.values` defaults per tier — the literal is folded at
+  // build time, so only the artifacts can show it: dev shows everything, an
+  // observe build carries no user data unless a holder asks. Probed through
+  // the interaction target (the one field every level governs).
+  async function defaultTarget(core: any, engine: Engine, opts?: Record<string, unknown>) {
+    const { attribution } = engine;
+    const observe = core.OBSERVE;
+    const seen: string[] = [];
+    const off = observe.records.subscribe("interaction", (e: any) => seen.push(e.target));
+    const release = attribution.enable({ log: false, hotRuns: false, hotTime: false, ...opts });
+    try {
+      const setCount = core.createRoot(() => {
+        const [count, set] = core.createSignal(0, { name: "count" });
+        core.createEffect(count, () => {}, { name: "reader" });
+        return set;
+      });
+      core.flush();
+      observe.attribution.withInteraction(
+        { type: "click", target: 'div#card "Personal note"' },
+        () => setCount(1)
+      );
+      core.flush();
+    } finally {
+      off();
+      release();
+      attribution.disable();
+    }
+    return seen;
+  }
+
+  test("values: the dev engine defaults to full", async () => {
+    const seen = await defaultTarget(
+      await import("../dist/dev.js"),
+      (await import("../dist/dev.attribution.js")) as Engine
+    );
+    expect(seen).toEqual(['div#card "Personal note"']);
+  });
+
+  test("values: the observe engine defaults to none; an explicit full applies when alone", async () => {
+    const core = await import("../dist/observe/index.js");
+    const engine = (await import("../dist/observe/attribution.js")) as Engine;
+    expect(await defaultTarget(core, engine)).toEqual(["div#card"]);
+    expect(await defaultTarget(core, engine, { values: "full" })).toEqual([
+      'div#card "Personal note"'
+    ]);
+    // The dev branch of the default folded out: the artifact's default is
+    // the literal `"none"`, not a runtime choice.
+    const src = readFileSync(new URL("../dist/observe/attribution.js", import.meta.url), "utf8");
+    expect(src).not.toMatch(/\?\s*"full"\s*:\s*"none"/);
+  });
+
   test("the observe tree keeps the engine out of the core's module graph", () => {
     // Nothing reachable from index.js may import core/attribution.js: the
     // per-module tree is what lets a bundler drop the engine, and one stray

@@ -1,5 +1,6 @@
 import { getOwner, getNextChildId, getContext, devPeekNextChildId } from "./signals.js";
 import type { Context } from "./signals.js";
+import type { BoundaryEvent } from "./observe.js";
 
 export type SSRTemplateObject =
   | { t: string[]; h: Function[]; p: Promise<any>[] }
@@ -66,14 +67,15 @@ export type HydrationContext = {
   /** @internal Tracks which Loading boundary is currently rendering. Set by @solidjs/web via applyAssetTracking(). */
   _currentBoundaryId?: string | null;
   /**
-   * @internal The document's timed server work for its response's
-   * `Server-Timing`, in completion order. Set by @solidjs/web at render
-   * start while it times the document (dev; observe with a `"boundary"`
-   * listener); `ssrLoadingBoundary` pushes a `solid-boundary` metric for
-   * each boundary that waited and settled before the shell. Absent when
-   * the document is not timed — the boundary then pushes nothing.
+   * @internal The seam a `<Loading>` boundary files its `"boundary"` record
+   * through for the response's `Server-Timing` (`solid-boundary` is a
+   * projection of the record). Set by @solidjs/web at render start in
+   * observe builds; `ssrLoadingBoundary` calls it with the record of each
+   * boundary that waited and settled before the shell — the ones whose wait
+   * the head can still account for — under its own gate (dev, or a
+   * `"boundary"` listener). Absent outside observe builds.
    */
-  _timing?: { name: string; dur: number; desc?: string }[];
+  _recordBoundary?: (event: BoundaryEvent) => void;
   /**
    * @internal Containment channel for errors surfacing in async resume loops
    * (boundary retries, flush passes), where nothing is on the stack to catch

@@ -2274,7 +2274,23 @@ module.exports = [
     // installs through the core's own `setAttributionHooks`. The guide URL
     // moved to `DEV.guideUrl`, so its string is off the observe object: the
     // tier scenario above is -51 B (17,648). The rest is mangler layout.
-    limit: "31.71 KB",
+    // (Rebased onto `next` after #3645/#3646 the same scenario measured
+    // 31,618 B, under the old cap; the ratchet is kept as measured.)
+    // `AttributionOptions.values` (2026-09-24): 31.71 -> 31.81 KB, measured
+    // at 31,804 B on `next` after #3649 (31,618; +186 B — on the original
+    // `records-channel` base it was +179 B, 31,689 -> 31,868; every prod
+    // scenario byte-identical, the tier scenario above -10 B of mangler
+    // layout). The engine now governs the
+    // user-data fields of its records at the source — `targetLabel` (the
+    // element text cut per level at `interactionStart`), the `values` gate
+    // on `stampWrite`'s previews and on `OPTIMISTIC_REVERTED`'s quoted
+    // values, and the least-permissive merge in `demanding` — in place of
+    // the performance-tracks adapter's post-hoc scrub (removed, not in this
+    // scenario). The default is the tier's, folded at build time (`__DEV__
+    // ? "full" : "none"` — this artifact ships the literal `"none"`). A
+    // deliberate feature: the level is what an observe-tier holder relies
+    // on for its export contract.
+    limit: "31.81 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

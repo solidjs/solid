@@ -48,6 +48,7 @@ export type {
   Acknowledgement,
   Attribution,
   AttributionOptions,
+  AttributionValues,
   ChangeKind,
   ChangeOrigin,
   ChangeRecord,

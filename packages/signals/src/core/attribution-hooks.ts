@@ -237,7 +237,12 @@ export interface AttributionHooks {
 export interface InteractionRef {
   /** Event type — `click`, `keydown`, `input`… */
   type: string;
-  /** The element hit, e.g. `button#next "Next →"`. */
+  /**
+   * The element hit, e.g. `button#next "Next →"` — the tag, then `#id` or
+   * `[name=…]`, then the element's text in quotes. Describe fully; the
+   * engine keeps the quoted text as its `values` option allows (the
+   * record's `target` is its own string, this one is never mutated).
+   */
   target?: string;
   /** Dispatch time on the `performance.now()` clock; defaults to now. */
   at?: number;
