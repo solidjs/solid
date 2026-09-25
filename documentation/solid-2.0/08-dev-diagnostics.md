@@ -1010,8 +1010,8 @@ import { costs, feedback, why, subscriptions, formatRerun, formatOrigin } from "
 
 costs();                        // { scopes, writes } ranked cost tables (since enable())
 feedback();                     // responsiveness tables (below)
-why(someMemo);                  // re-run history for one node
-subscriptions(fn);              // current dep names of one scope
+why(someMemo);                  // re-run history for one node — a view of history("rerun"), same gate: empty for runs nothing wanted a record of
+subscriptions(fn);              // current dep names of one scope — read from the graph, not a record; unaffected by the gate
 formatRerun(event);             // the console line for one RerunEvent
 formatOrigin(origin);           // `click on button#next "Next →"` — a ChangeOrigin as a name
 

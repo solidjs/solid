@@ -18,7 +18,10 @@ function nodeOf(target: unknown): Computed<any> {
  * diagnostics bridge holds no node, only the `nodeName` the records
  * carry). Records name their scope by `nodeId`; a node that has never run
  * under the engine has none, and no history. By name, every scope of that
- * name answers.
+ * name answers. A view of `history("rerun")`, so it shares that buffer's
+ * gate: runs nothing wanted a record of (no `rerun` listener, fold or log
+ * at the time) left no record and are not here — a console session that
+ * wants them subscribes or imports a fold first.
  */
 export function why(target: unknown): RerunEvent[] {
   const history = attribution.history("rerun");
@@ -28,7 +31,11 @@ export function why(target: unknown): RerunEvent[] {
   return history.filter(event => event.nodeId === id);
 }
 
-/** Current dependency names of one scope — the devtools subscription view. */
+/**
+ * Current dependency names of one scope — the devtools subscription view.
+ * Read from the graph, not a record, so it answers with or without an
+ * audience for re-run records (and with the engine disabled).
+ */
 export function subscriptions(target: unknown): string[] {
   const node = nodeOf(target);
   const names: string[] = [];

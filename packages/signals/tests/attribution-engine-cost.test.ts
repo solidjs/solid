@@ -16,7 +16,8 @@
  * - listened — a `rerun` subscriber on the records channel: the record is
  *   built, kept and delivered;
  * - folded — the `costs`/`feedback` folds loaded as well, as a consumer that
- *   imports the `attribution` entry has them. The cap is on this one.
+ *   imports the `attribution` entry has them. The cap is on this one; the
+ *   other two are measured for the failure message.
  *
  * The engine is imported from its core module, not the entry, so the folds
  * (which register on import) arrive only when the test loads them.
@@ -127,21 +128,31 @@ describe.skipIf(!existsSync(OBSERVE) || !existsSync(ENGINE))("attribution engine
 
       // The folds, as a consumer of the `attribution` entry has them from
       // import; from here on every re-run is folded into the cost and
-      // feedback tables as well. Measured 2026-09-23 (M-series, engine at
-      // #3613, folds, record always built): ~9.5–10x — the RerunEvent
-      // (causes, dep diffs, previews), the history ring buffer,
-      // recordSubject, the six checks (~10% of the whole) and emitRecord.
-      // Re-measured 2026-09-24 on the same class of machine, interleaved with
-      // that engine: #3613 ~2.5–2.8x; records on one channel (no per-emit
-      // allocation, no subject map, checks off the facts) folded ~2.1–2.2x,
-      // listened ~2.0–2.3x, lean ~1.8–1.9x. The cap trips when the folded
-      // engine costs ~40% more per re-run than the #3613 figure; a check that
-      // grew a map lookup or a clock read on the hot path moves this by a few
-      // percent, a record that grew a per-run allocation by more. Ratchet the
-      // cap as the lean-posture work in
-      // documentation/plans/responsiveness-findings-plan.md lands.
+      // feedback tables as well.
+      //
+      // Baseline, measured 2026-09-24 (M-series, this file under vitest, six
+      // runs, dist/observe at #3644 + #3646): folded 1.98–2.14x, listened
+      // 1.91–2.11x, lean 1.71–1.90x (idle ~6.2–7.0ms / 5,000 re-runs; the
+      // engine ~13–14ms folded). The #3613 engine, re-measured by this
+      // harness the same day beside this one, was ~2.5–2.8x; its ~9.5–10x
+      // figure of 2026-09-23 came from a different, flush-per-write
+      // micro-harness and is not comparable — this harness's numbers are
+      // the baseline from here. The ratio is harness-sensitive in the other direction too: a
+      // bare `node` process (no vitest transform in the worker) measures
+      // idle at ~2.8ms and the folded engine at ~3.1–3.7x, so a faster idle
+      // build raises the ratio without the engine changing.
+      //
+      // Cap 4: ~85–100% headroom over the folded baseline — trips when the
+      // engine costs roughly double what it does today per re-run, the same
+      // discipline as observe-idle-cost's 1.25 over a 1.03–1.09 baseline.
+      // A check that grew a map lookup or a clock read on the hot path
+      // moves the ratio by a few percent, a record that grew a per-run
+      // allocation by more; both stay under this until they compound. This
+      // is the ratchet the #3613 cap (14, against the old ~10) asked for
+      // once the lean-posture work landed (#3644; see the Lean posture
+      // section of documentation/plans/responsiveness-findings-plan.md).
       for (const fold of FOLDS) await import(fold);
-      const CAP = 14;
+      const CAP = 4;
       let best = Infinity;
       let detail = "";
       for (let round = 0; round < 3 && best >= CAP; round++) {

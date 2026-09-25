@@ -12,7 +12,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attribution, nodeIdOf, registerFold } from "../src/core/attribution.js";
 import type { RerunEvent } from "../src/core/attribution.js";
-import { createEffect, createRoot, createSignal, flush, getOwner, OBSERVE } from "../src/index.js";
+// The point queries register nothing (unlike the folds), so importing them
+// here leaves the gate alone.
+import { subscriptions, why } from "../src/core/attribution-queries.js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  getOwner,
+  OBSERVE
+} from "../src/index.js";
 import type { RecordListener } from "../src/core/dev.js";
 
 // Channel subscriptions are the consumer's, not the engine's: released here,
@@ -141,6 +152,67 @@ describe("attribution engine: lean gate", () => {
     expect(attribution.history("rerun")).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0][0])).toContain("HOT_SCOPE");
+  });
+
+  it("the checks run without a record: wasted recompute still warns, from the frame's facts", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A memo over a whole object that reads one field: every write to the
+    // other field re-runs it to the same value.
+    const [user, setUser] = createSignal({ name: "Ada", visits: 0 }, { name: "user" });
+    const greeting = createMemo(() => `Hello, ${user().name}`, { name: "greeting" });
+    createRoot(() =>
+      createEffect(
+        () => greeting(),
+        () => {},
+        { name: "header" }
+      )
+    );
+    flush();
+    attribution.enable({
+      log: false,
+      hotRuns: false,
+      hotTime: false,
+      wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 0, windowMs: 60_000 }
+    });
+    for (let i = 1; i <= 6; i++) {
+      setUser({ name: "Ada", visits: i });
+      flush();
+    }
+    // `changed`, `selfMs`, `phase`, `at` and the causes came off the frame:
+    // no record was built, and the finding names the cause all the same.
+    expect(attribution.history("rerun")).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0][0]);
+    expect(message).toContain("WASTED_RECOMPUTE");
+    expect(message).toContain('memo "greeting" re-ran 5 times');
+    expect(message).toContain('Latest cause: "user" (write)');
+  });
+
+  it("why() is a view of the gated buffer; subscriptions() reads the graph", () => {
+    const [n, setN] = createSignal(0, { name: "n" });
+    const doubled = createMemo(() => n() * 2, { name: "doubled" });
+    createRoot(() =>
+      createEffect(
+        () => doubled(),
+        () => {},
+        { name: "e" }
+      )
+    );
+    flush();
+    attribution.enable({ log: false });
+    setN(1);
+    flush();
+    // Nobody wanted a record of that run: nothing to ask `why` about — but
+    // the dependency view is the graph's, and answers regardless.
+    expect(why(doubled)).toEqual([]);
+    expect(subscriptions(doubled)).toEqual(["n"]);
+
+    onRerun(() => {});
+    setN(2);
+    flush();
+    // From the moment a consumer appeared: the run it saw, and only that one.
+    expect(why(doubled).map(e => e.nodeRuns)).toEqual([2]);
+    expect(subscriptions(doubled)).toEqual(["n"]);
   });
 
   // Last: registering a fold is for the rest of the process.
