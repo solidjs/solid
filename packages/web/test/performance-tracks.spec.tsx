@@ -1697,13 +1697,13 @@ describe("enablePerformanceTracks", () => {
     // A binding directly under the <Show> belongs to <Page>: a flow control
     // is a tag the developer wrote, never the component a node belongs to.
     const binding = rerunSpans(on("Effects"), "Effects").find(m =>
-      m.label.endsWith("<Show> › effect")
+      m.label.endsWith("<Show> › span")
     )!;
-    expect(binding.label).toBe("<Page> › <Show> › effect");
+    expect(binding.label).toBe("<Page> › <Show> › span");
     expect(Object.fromEntries(binding.properties!)["Owner path"]).toMatch(
       /^<App> › <Page> › <Show> › /
     );
-    expect(on("Propagation").some(m => m.label === "<Page> › <Show> › effect ← n")).toBe(true);
+    expect(on("Propagation").some(m => m.label === "<Page> › <Show> › span ← n")).toBe(true);
   });
 
   test("without console.timeStamp or performance.measure it does nothing", () => {
