@@ -23,6 +23,14 @@
 // standing render lets go: the member leaves, and the watchers parked on
 // the room's next write are woken by the abort so their `finally` runs now
 // rather than at the room's next event.
+//
+// The DOCUMENT face (Stage 8 B3): the page renders this same component
+// into the initial HTML — under the live scope every source here takes its
+// first value and is closed, so the document completes with the transcript
+// in it — and the browser adopts that markup at hydration, then reconnects
+// once for the standing render. Identity is per tab and minted in the
+// browser, so the document's call passes `me: null` and only watches; the
+// connection the client makes with its identity is the one that joins.
 import { createMemo, For, onCleanup } from "solid-js";
 import { GET, live } from "@solidjs/web/server-functions";
 import type { Slot } from "@solidjs/web/frames";
@@ -33,7 +41,7 @@ export type ComposerSlot = Slot<{ room: string }>;
 let renders = 0;
 
 export const roomPanel = live(
-  GET(async (room: string, me: Identity) => {
+  GET(async (room: string, me: Identity | null) => {
     "use server";
     // Which render this is — shown in the panel so a reconnect (a new
     // render, the same room) can be told from a quiet morph.
@@ -44,7 +52,8 @@ export const roomPanel = live(
       // Joining IS the render: this tab is a member while its panel's
       // response is open. A reconnect joins again under the same id before
       // the dead render's cleanup has run; `join` leaves only what it joined.
-      onCleanup(join(room, me));
+      // The document's render (no identity yet) only watches.
+      if (me) onCleanup(join(room, me));
       const members = createMemo(() => watchMembers(room, gone.signal));
       const messages = createMemo(() => watchMessages(room, gone.signal));
       return (
@@ -60,14 +69,14 @@ export const roomPanel = live(
             <span class="muted"> here</span>
             <ul class="members">
               <For each={members()}>
-                {m => <li class={m.id === me.id ? "me" : ""}>{m.name}</li>}
+                {m => <li class={m.id === me?.id ? "me" : ""}>{m.name}</li>}
               </For>
             </ul>
           </div>
           <ol class="messages">
             <For each={messages()}>
               {m => (
-                <li class={{ system: m.from === "system", mine: m.from === me.name }}>
+                <li class={{ system: m.from === "system", mine: m.from === me?.name }}>
                   <span class="from">{m.from}</span>
                   <span class="text">{m.text}</span>
                   <time class="muted">{new Date(m.at).toLocaleTimeString()}</time>

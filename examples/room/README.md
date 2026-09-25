@@ -32,9 +32,8 @@ open and close them.
 answers with a **component**, declared exactly like the data sources:
 `live(GET(async (room, me) => { "use server"; return props => <…/> }))`. The
 page ([src/routes/home.tsx](./src/routes/home.tsx)) mounts it with
-`dynamic(() => roomPanel(room, me))` once the tab has an identity — `dynamic`
-is a memo, and a `live` reference's answer is an async iterable it pumps like
-any other.
+`dynamic(() => roomPanel(room, me))` — `dynamic` is a memo, and a `live`
+reference's answer is an async iterable it pumps like any other.
 
 - **The render is the connection.** The component reads the same in-memory
   watchers `/live`'s sources read, through memos; every change re-renders the
@@ -51,9 +50,18 @@ any other.
   morph keeps its instance.
 - **Posting answers nothing.** `send` is a plain mutation; the row reaches
   this tab and every other as **markup**, through each one's open render.
-- **Call-driven face.** The panel mounts after the page is up (the client's
-  call is the connection). The document face — the room in the initial HTML,
-  adopted by hydration, the loop reconnecting from there — is Stage 8 B3.
+- **The document face.** View source: the panel is **in the HTML** — the
+  transcript, the presence row, the composer's range. The page's render
+  calls the same server function in process; under the live scope every
+  source in it takes its first value and is closed, so the document
+  completes. The browser adopts that markup at hydration (no request, no
+  fallback — the markup is the value) and connects once, from the identity
+  the tab mints during hydration: `roomPanel(room, me)` is a different
+  call from the document's `roomPanel(room, null)`, and `dynamic` delivers
+  the new address into the same instance rather than remounting. The
+  document's render only watches — `join` runs when there is a `me` — so
+  the tab's connection is the one that joins. Everything above (death →
+  reconnect, the draft surviving) then starts from adopted content.
 
 ## `/live` — the panels, and what each one is
 

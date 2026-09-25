@@ -6,11 +6,14 @@
 // declaration (`live`), the same loop, the same status pill, and the
 // differences are all in what crosses the wire.
 //
-// The panel mounts after the page is up: identity is minted in the browser,
-// and `<Show when={me()}>` holds the panel until then (the server renders
-// with `me` null). This is the CALL-DRIVEN face — the connection is a call
-// the client makes. The document face — the room rendered INTO the initial
-// HTML and adopted by hydration, the loop reconnecting from there — is B3.
+// Two faces of one declaration. The DOCUMENT face: the server renders the
+// panel INTO the initial HTML (the transcript is in the page source — view
+// it), hydration adopts that markup with no request, and the loop connects
+// once afterwards for the standing render. The CALL-DRIVEN face: identity
+// is per tab and minted in the browser, so once it exists the source calls
+// again with it — same component, a new call — and the mount follows the
+// new call's stream in place (that connection is the one that joins the
+// room). Kill every connection and the loop reconnects from wherever it is.
 import { action, createSignal, latest, Loading, Show } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import type { RouteSectionProps } from "@solidjs/router";
@@ -54,12 +57,7 @@ export default function Home(props: RouteSectionProps) {
         </div>
       </header>
       <main class="main">
-        <Show
-          when={me()}
-          fallback={<p class="muted">Minting this tab's identity — the panel mounts after.</p>}
-        >
-          {me => <Panel room={room()} me={me()} wire={wire} />}
-        </Show>
+        <Panel room={room()} me={me()} wire={wire} />
       </main>
     </div>
   );
@@ -69,8 +67,11 @@ export default function Home(props: RouteSectionProps) {
 // is a memo: it pumps the iterable as it pumps any async source, and its
 // value is the component the server answered with. A reconnect re-yields
 // the SAME binding — the memo stays quiet, nothing re-mounts, and the
-// reconnected render's markup lands as one morph.
-function Panel(props: { room: string; me: Identity; wire: Wire }) {
+// reconnected render's markup lands as one morph. At t=0 the document's
+// markup IS the value: the memo adopts it during hydration, and the first
+// connection is the standing render's — here the call with the tab's
+// identity, which `dynamic` delivers into the adopted instance.
+function Panel(props: { room: string; me: Identity | null; wire: Wire }) {
   const Room = dynamic(() => props.wire.watch(roomPanel(props.room, props.me)));
   return (
     <Loading fallback={<p class="muted">Rendering the room on the server…</p>}>
