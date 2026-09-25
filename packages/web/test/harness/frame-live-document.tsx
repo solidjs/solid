@@ -15,8 +15,13 @@ import { dynamic } from "@solidjs/web";
 
 // One function id per replay mode: a document boundary is claimable exactly
 // once per page (module state in the frames client), and the hydration spec
-// replays both modes in one jsdom page.
-export const MODES = ["loaded", "streamed"] as const;
+// replays every mode in one jsdom page. The document is the same for all
+// of them; the modes name what the CLIENT does with it — `loaded` replays
+// the whole document before hydrating, `streamed` hydrates the shell and
+// lands the boundary after, `switched` changes the call's arguments after
+// adoption (the identity-minted-in-the-browser shape).
+export const MODES = ["loaded", "streamed", "switched"] as const;
+export const REPLAY_MODES = ["loaded", "streamed"] as const;
 export type Mode = (typeof MODES)[number];
 export const fidFor = (mode: Mode) => `frame-live-doc/room-${mode}`;
 export const ARGS = ["a"];

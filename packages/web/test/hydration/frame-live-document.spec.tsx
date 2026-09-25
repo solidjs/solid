@@ -25,55 +25,20 @@
  *    same `h1`, same composer `input` with its draft intact; no fallback.
  *  - A death after that reconnects and keeps the instance — the B2 loop,
  *    now starting from adopted content.
+ *
+ * The `switched` mode (the call's arguments change after adoption) is in
+ * frame-live-document-switched.spec.tsx: the frames client's boundary index
+ * is module state, so a spec that needs a fresh page gets its own file.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference, live } from "../../server-functions/src/client.js";
 import { frameAddress } from "../../server-functions/src/shared.js";
 import { makeHost, pump, stubLiveFetch, until } from "../lifecycle-matrix/harness.js";
-import { ARGS, MODES, fidFor, makeApp } from "../harness/frame-live-document.jsx";
-
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-
-function loadArtifact(name: string): { shell: string; rest: string } {
-  const file = resolve(artifactsDir, `${name}.json`);
-  if (!existsSync(file)) {
-    throw new Error(
-      `Missing artifact "${name}". Run the server spec first: ` +
-        `vitest run --config vite.config.server.mjs test/server/frame-live-document-artifact.spec.tsx`
-    );
-  }
-  return JSON.parse(readFileSync(file, "utf-8"));
-}
-
-function applyChunk(container: HTMLElement, chunk: string, first: boolean) {
-  const scriptRe = /<script(?:[^>]*)>([\s\S]*?)<\/script>/g;
-  const scripts = [...chunk.matchAll(scriptRe)].map(m => m[1]);
-  const stripped = chunk.replace(scriptRe, "");
-  if (first) container.innerHTML = stripped;
-  else container.insertAdjacentHTML("beforeend", stripped);
-  for (const s of scripts) (0, eval)(s);
-}
-
-async function drain() {
-  for (let i = 0; i < 40; i++) await Promise.resolve();
-  flush();
-  for (let i = 0; i < 40; i++) await Promise.resolve();
-  flush();
-}
-
-function roomHtml(title: string) {
-  return (
-    `<article><h1>${title}</h1>` +
-    "<ul><!--slot:composer#0:start--><!--slot:composer#0:end--></ul>" +
-    "</article>"
-  );
-}
+import { ARGS, REPLAY_MODES, fidFor, makeApp } from "../harness/frame-live-document.jsx";
+import { applyChunk, drain, loadArtifact, roomHtml } from "./frame-live-document-helpers.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -83,7 +48,7 @@ afterEach(() => {
 });
 
 describe("document face — live server component (hydrate + takeover)", () => {
-  for (const mode of MODES) {
+  for (const mode of REPLAY_MODES) {
     const FID = fidFor(mode);
     test(`${mode}: adopts at t=0 without a request, connects once at scope release, morphs the adopted frame, keeps the instance through a death`, async () => {
       const { shell, rest } = loadArtifact(`frame-live-document-${mode}`);

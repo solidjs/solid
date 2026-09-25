@@ -495,6 +495,36 @@ document.spec.tsx` (brand → first value + close; unbranded pumps; nested
   `frames-late-boundary-client.spec.tsx` (deferred intercept lands / misses
   after exhaustion). Open (a) (`SERVER_WRITE` throw scope in persistent
   renders) is NOT decided here — left for the maintainer.
+- **Fixed while building the demo (2026-09-25).** The demo's document call
+  and its standing call differ (`roomPanel(room, null)` on the page, the
+  browser mints the identity, `roomPanel(room, me)` after) — a kept
+  resolution that moves the adopted instance to the standing address. The
+  FIRST reconnect after that swung the frame back to the document's
+  address: `sameInstance` read "the address that is not the delivered one"
+  as incoming, but the memo HOLDS the document's binding forever (a kept
+  resolution never replaces its value), so the reconnect's re-yield of the
+  standing binding was compared against the first address and the other
+  one — the document's — was delivered. The gate now reads its arguments
+  as `(prev, next)` and delivers `next`'s address when it is not the one
+  showing. That order is what every commit path in the signals core uses
+  except one — the lane landing in `asyncWrite` called `equals(value,
+prev)`; corrected to `(prev, value)`. Pinned:
+  `test/hydration/frame-live-document-switched.spec.tsx` (own file: the
+  frames client's boundary index is module state) — adopt, connect,
+  switch arguments → re-bound to the standing address, death → reconnect
+  stays there with the reconnect's render showing, draft intact. The
+  `frame-live-document` harness carries a third mode (`switched`) for its
+  artifact.
+- **Demo built and verified (2026-09-25).** `/` renders the panel INTO the
+  document (the `Show` gate is gone: `Panel` takes `me: Identity | null`
+  and `roomPanel` joins only when it has an identity — the document's
+  render watches; the browser's connection is the one that joins). Verified
+  in the browser against the dev server: transcript in the HTML at t=0,
+  zero fallbacks, exactly one live request — made when the identity is
+  minted during hydration, at the standing address — the same
+  `solid-frame`/composer `input` retained through the morph, and chaos →
+  "reconnecting" → a fresh render ~500ms later on the same nodes with the
+  draft intact and presence unchanged, three rounds in a row.
 
 ### B4 — conditional reconnect
 
@@ -556,6 +586,8 @@ document.spec.tsx` (brand → first value + close; unbranded pumps; nested
 | `SSR_UNDECLARED_LIVE_SOURCE` — dev-only `warn` after 5s of a document render still pumping an async iterable in server-component scope (open (c): fixed warning, no knob)                                                                | new dev-only diagnostic         | B3    |
 | `runInServerComponentScope(fn, { live })` / `inLiveServerComponentScope()` on `solid-js/internal` (internal, `@internal`)                                                                                                                | internal surface                | B3    |
 | Server: an unbranded thenable-resolved async stream in server-component scope now pumps (was: serialized) — scope judged from the memo's owner                                                                                           | bug fix                         | B3    |
+| `dynamic` `equals` reads `(prev, next)` and delivers `next`'s address — a reconnect after the source switched arguments stays at the standing address (was: swung back to the first)                                                     | bug fix, `dynamic`              | B3    |
+| Signals core: the lane landing in `asyncWrite` calls a user `equals` as `(prev, next)` like every other commit path (was: `(next, prev)`)                                                                                                | bug fix, comparator contract    | B3    |
 | Have-list header; hole digests                                                                                                                                                                                                           | wire                            | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                                                              | behavior change                 | B3+   |
 | ~~`documentWindow` on `renderToStream`~~ — open (c) decided: fixed dev-only warning, no knob                                                                                                                                             | withdrawn                       | B3    |
