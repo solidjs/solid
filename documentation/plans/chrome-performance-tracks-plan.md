@@ -169,7 +169,17 @@ transition)`. Shape: `{ ownerPath?, at, shownMs, interaction? }` (item 4's
   `47 runs`.
 - PII: observe builds apply the sketch §6 scrub by default (no value
   previews; element text only on a `button`/`a`; a finding's sentence
-  dropped); dev shows everything.
+  dropped); dev shows everything. _As landed (public-API consolidation,
+  PR 3):_ the adapter's `scrub` option and its scrub helpers were removed;
+  the same posture is now the engine's `AttributionOptions.values`
+  (`"full"` | `"labels"` — the old observe scrub | `"none"`; the default is
+  the tier's: `"full"` in dev, `"none"` in observe), applied at the source
+  when the record is built, least permissive level winning across holds.
+  The adapter paints what the record carries — an observe build's tracks
+  inherit `"none"`; pass
+  `enablePerformanceTracks({ attribution: { values: "labels" } })` for the
+  old observe posture. A finding's marker always carries `event.message`
+  (a message from a non-engine emitter is not the engine's to govern).
 - Clock quantization (08-dev-diagnostics): without cross-origin isolation
   many `Effects`/`Memos` spans are zero-width. Never dropped; the wall-clock
   tracks carry the meaning.
@@ -247,6 +257,16 @@ checks. (`observeInvocation` gains the same `IS_DEV || observed` timing
 gate `ssrLoadingBoundary` has.) No new server API: an observe deployment
 that wants server spans in the panel installs an observer, the same way it
 gets the trace advertised.
+
+_As landed (public-API consolidation, PR 3):_ each metric is a projection
+of one record object, read at head commit (`appendTraceServerTiming` over
+`TraceRecord.timing` / `TraceRecord.render`), not a second push beside the
+record. `solid-shell` got its own record — `"render"` (`RenderEvent`: `mode`,
+`at`, `shellMs`, `durationMs`, `boundaries`, `outcome`; live `event`,
+`trace`) — and its own gate, `observed("render") || IS_DEV`, instead of
+riding the boundary listener; `shellMs` is stamped where the shell actually
+completes (the stream's `doShell`, the string's assembled document) rather
+than at stub commit. The wire format is unchanged.
 
 **Client — the adapter.** Nothing new on the wire from the browser and no
 change to the `call` record: the adapter reads the metrics off

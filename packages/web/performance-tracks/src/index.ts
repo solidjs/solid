@@ -88,13 +88,6 @@ export interface PerformanceTracksOptions {
    * Each path falls back to the other where its API is missing.
    */
   rich?: boolean;
-  /**
-   * Drop what a shared trace should not carry: value previews on causes
-   * and held writes, and target text on anything but a `button` or `a`
-   * (the production-observability posture). Default: observe builds
-   * (`!IS_DEV`); dev shows everything.
-   */
-  scrub?: boolean;
 }
 
 /** The Performance panel's palette for extension entries. */
@@ -226,8 +219,7 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   if (emitter === undefined) return noop;
 
   const minMs = options.minMs ?? (IS_DEV ? 0 : 0.05);
-  const scrub = options.scrub ?? !IS_DEV;
-  const painter = new Painter(emitter, minMs, scrub);
+  const painter = new Painter(emitter, minMs);
   const server = new ServerSpans(emitter);
   server.start();
 
@@ -429,8 +421,7 @@ class Painter {
   private readonly names = new Map<number, string>();
   constructor(
     private readonly emit: Emitter,
-    private readonly minMs: number,
-    private readonly scrub: boolean
+    private readonly minMs: number
   ) {
     this.rich = emit.rich;
   }
@@ -465,7 +456,7 @@ class Painter {
     let tooltip: string | undefined;
     let properties: Properties | undefined;
     if (this.rich) {
-      tooltip = this.scrub ? formatRerun(scrubRerun(event)) : formatRerun(event);
+      tooltip = formatRerun(event);
       properties = [
         ["Run", `${event.run} (run ${event.nodeRuns} of this node)`],
         ["Self time", ms(event.selfMs)],
@@ -479,7 +470,7 @@ class Painter {
       if (event.depsRemoved.length > 0)
         properties.push(["Deps removed", event.depsRemoved.join(", ")]);
       if (event.causes.length > 0)
-        properties.push(["Causes", event.causes.map(c => rootCause(c, this.scrub)).join("; ")]);
+        properties.push(["Causes", event.causes.map(rootCause).join("; ")]);
       const origin = rootOrigin(event.causes);
       if (origin !== undefined && origin !== event.interaction)
         properties.push(["Origin", this.origin(origin)]);
@@ -573,9 +564,10 @@ class Painter {
    * full path in `Owner path`), coloured by severity. A `warn`-or-worse finding is also annotated as a
    * performance issue — the panel's Insights sidebar lists those — with the
    * repair guide's section for the code as its link. `info` stays a plain
-   * marker. The message and `data` are the engine's own; under the scrub
-   * only the code, kind and owner are carried (a responsiveness finding's
-   * sentence names the element the user hit).
+   * marker. The message and `data` are the emitter's own, carried as
+   * delivered: what user data a responsiveness finding's sentence quotes
+   * (the element the user hit) is the engine's `values` option, decided
+   * where the sentence is built.
    */
   diagnostic(event: DiagnosticEvent, subject: DiagnosticSubject | undefined): void {
     const owner = event.ownerPath?.join(" › ");
@@ -593,7 +585,7 @@ class Painter {
     let properties: Properties | undefined;
     let issue: PerformanceIssue | undefined;
     if (this.rich) {
-      tooltip = this.scrub ? `${event.kind} finding ${event.code}` : event.message;
+      tooltip = event.message;
       properties = [
         ["Code", event.code],
         ["Kind", event.kind],
@@ -601,17 +593,15 @@ class Painter {
       ];
       if (owner !== undefined) properties.push(["Owner path", owner]);
       if (event.nodeName !== undefined) properties.push(["Node", event.nodeName]);
-      if (!this.scrub) {
-        properties.push(["Message", event.message]);
-        if (event.data !== undefined) {
-          // The primitive fields ride along (`holdMs`, `relay`, `soleWriter`);
-          // structured ones (`interaction`, `navigation`) are the message's.
-          for (const [key, value] of Object.entries(event.data)) {
-            if (typeof value === "number")
-              properties.push([key, Number.isInteger(value) ? String(value) : value.toFixed(2)]);
-            else if (typeof value === "string" || typeof value === "boolean")
-              properties.push([key, String(value)]);
-          }
+      properties.push(["Message", event.message]);
+      if (event.data !== undefined) {
+        // The primitive fields ride along (`holdMs`, `relay`, `soleWriter`);
+        // structured ones (`interaction`, `navigation`) are the message's.
+        for (const [key, value] of Object.entries(event.data)) {
+          if (typeof value === "number")
+            properties.push([key, Number.isInteger(value) ? String(value) : value.toFixed(2)]);
+          else if (typeof value === "string" || typeof value === "boolean")
+            properties.push([key, String(value)]);
         }
       }
       // The repair guide is dev guidance (`DEV.guideUrl`); an observe build
@@ -831,7 +821,7 @@ class Painter {
         ["Held", ms(event.holdMs)],
         ["Tail", `${ms(event.tailMs)} (last write → commit)`],
         ["Flushes", String(event.flushes)],
-        ["Held writes", event.heldWrites.map(w => heldWrite(w, this.scrub)).join(", ") || "none"],
+        ["Held writes", event.heldWrites.map(heldWrite).join(", ") || "none"],
         [
           "Acknowledged by",
           event.acknowledgements.map(a => `${a.kind}(${a.source})`).join(", ") || "nothing"
@@ -984,8 +974,8 @@ class Painter {
   }
 
   /**
-   * Root writes as one line, `count 0 → 1, name "a" → "b"`, values dropped
-   * under the scrub; past `limit` writes, `+N more`.
+   * Root writes as one line, `count 0 → 1, name "a" → "b"` (the previews as
+   * the engine's `values` level carries them); past `limit` writes, `+N more`.
    */
   private writes(roots: ChangeRecord[], limit: number): string {
     const shown = roots.slice(0, limit).map(r => {
@@ -995,16 +985,16 @@ class Painter {
           : r.kind === "refresh"
             ? `refresh ${r.name}`
             : r.name;
-      if (!this.scrub && r.prev !== undefined) out += ` ${r.prev} → ${r.value}`;
+      if (r.prev !== undefined) out += ` ${r.prev} → ${r.value}`;
       return out;
     });
     if (roots.length > limit) shown.push(`+${roots.length - limit} more`);
     return shown.join(", ");
   }
 
-  /** `formatOrigin`, through the scrub when the trace may be shared. */
+  /** `formatOrigin` — the shared formatter, so the tracks and the artifact read alike. */
   private origin(origin: ChangeOrigin): string {
-    return formatOrigin(this.scrub ? scrubOrigin(origin) : origin);
+    return formatOrigin(origin);
   }
 }
 
@@ -1174,10 +1164,11 @@ function bySelfTime(selfMs: number): TrackColor {
 // --- Server spans --------------------------------------------------------------
 //
 // What the server did inside a client span. The server runtime puts its
-// timed work on the response's `Server-Timing` header (trace.ts
-// `TimingMetric`: `solid-invocation` on a server-function response —
-// `solid-shell` and the `solid-boundary`s that settled inside it on the
-// document), and this paints those durations on the `Server` track under
+// timed work on the response's `Server-Timing` header (projected from its
+// records — trace.ts `appendTraceServerTiming`: `solid-invocation` on a
+// server-function response — `solid-shell` and the `solid-boundary`s that
+// settled inside it on the document), and this paints those durations on
+// the `Server` track under
 // the client span they belong to, so the wire is the visible gap between
 // the two. Placement comes from the browser's own resource timing: the
 // head left the server right after the function returned, so a server
@@ -1463,54 +1454,22 @@ function ms(value: number): string {
   return `${value.toFixed(2)}ms`;
 }
 
-/** The root of a cause chain, as one line: `signal "count" write 0 → 1 — click on button#next`. */
-function rootCause(cause: ChangeRecord, scrub: boolean): string {
+/**
+ * The root of a cause chain, as one line: `signal "count" write 0 → 1 — click
+ * on button#next`. What user data it quotes — the previews, the element's
+ * text — is what the engine put on the record (`AttributionOptions.values`),
+ * so a shared trace carries only what the engine's holders allowed.
+ */
+function rootCause(cause: ChangeRecord): string {
   let root = cause;
   while (root.causes !== undefined && root.causes.length > 0) root = root.causes[0];
   let out = `${root.kind === "derived" ? "memo" : "signal"} "${root.name}" ${root.kind}`;
-  if (!scrub && root.prev !== undefined) out += ` ${root.prev} → ${root.value}`;
+  if (root.prev !== undefined) out += ` ${root.prev} → ${root.value}`;
   if (root.origin !== undefined && root.origin.kind !== "external")
-    out += ` — ${formatOrigin(scrub ? scrubOrigin(root.origin) : root.origin)}`;
+    out += ` — ${formatOrigin(root.origin)}`;
   return out;
 }
 
-function heldWrite(write: HeldWrite, scrub: boolean): string {
-  return scrub || write.prev === undefined
-    ? write.name
-    : `${write.name} ${write.prev} → ${write.value}`;
-}
-
-// --- Scrubbing -----------------------------------------------------------------
-//
-// A trace recorded in production may be shared. The posture: no value
-// previews (a signal's `prev`/`value` is application data), and no element
-// text except on a `button` or `a` (what the user pressed is the point of
-// an interaction record; the text of a `div` they clicked is content).
-
-const TARGET_TEXT = /^(\w+)((?:#[^\s"]+|\[name=[^\]]+\])?) "(.*)"$/;
-
-function scrubTarget(target: string | undefined): string | undefined {
-  if (target === undefined) return undefined;
-  const m = TARGET_TEXT.exec(target);
-  if (m === null) return target;
-  return m[1] === "button" || m[1] === "a" ? target : m[1] + m[2];
-}
-
-function scrubOrigin(origin: ChangeOrigin): ChangeOrigin {
-  if (origin.target === undefined) return origin;
-  const target = scrubTarget(origin.target);
-  return target === origin.target ? origin : { ...origin, target };
-}
-
-function scrubCause(cause: ChangeRecord): ChangeRecord {
-  const out: ChangeRecord = { ...cause };
-  delete out.prev;
-  delete out.value;
-  if (out.origin !== undefined) out.origin = scrubOrigin(out.origin);
-  if (out.causes !== undefined) out.causes = out.causes.map(scrubCause);
-  return out;
-}
-
-function scrubRerun(event: RerunEvent): RerunEvent {
-  return { ...event, causes: event.causes.map(scrubCause) };
+function heldWrite(write: HeldWrite): string {
+  return write.prev === undefined ? write.name : `${write.name} ${write.prev} → ${write.value}`;
 }

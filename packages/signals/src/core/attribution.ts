@@ -53,8 +53,9 @@ export type ChangeKind = "write" | "derived" | "async" | "refresh";
  *
  * - `interaction` — a user event handler (the web runtime marks dispatch via
  *   `withInteraction`). `name` is the event type, `target` the element hit
- *   (`button#next "Next →"`), `at` the dispatch time on the `performance.now()`
- *   clock — the base every feedback-latency number is measured from.
+ *   (`button#next "Next →"` — the quoted text as `AttributionOptions.values`
+ *   allows), `at` the dispatch time on the `performance.now()` clock — the
+ *   base every feedback-latency number is measured from.
  * - `effect` — an effect callback (`name` = the effect's name; `run` = the
  *   compute run whose effect phase performed the write, when that run was
  *   recorded — so a write can be joined to the re-run that produced it).
@@ -109,7 +110,10 @@ export interface ChangeRecord {
    * for a record built elsewhere (a `HeldWrite`, a deserialized artifact).
    */
   nodeId?: number;
-  /** Short previews of the value transition (writes only). */
+  /**
+   * Short previews of the value transition (writes only) — present under
+   * `AttributionOptions.values: "full"`, never carried otherwise.
+   */
   prev?: string;
   value?: string;
   /** First user frames of the triggering write's stack (opt-in). */
@@ -354,9 +358,57 @@ export interface GraphSize {
   edges: number;
 }
 
+/**
+ * What user data the engine's records carry — see `AttributionOptions.values`.
+ * Ordered: `"full"` carries the most, `"none"` the least.
+ */
+export type AttributionValues = "full" | "labels" | "none";
+
 export interface AttributionOptions {
   /** Pretty-print each re-run to the console (default true). */
   log?: boolean;
+  /**
+   * What user data records carry. Default per build tier: `"full"` in dev
+   * builds, `"none"` in observe builds — a production observability
+   * artifact carries no user data unless a holder asks for it. Records name things —
+   * owner paths, `name` options, store paths, route patterns — and are
+   * otherwise numbers, kinds and outcomes; this option governs the fields
+   * that quote application data: the value previews on a root write
+   * (`ChangeRecord.prev`/`value`, and the `HeldWrite.prev`/`value` copied
+   * from them), the text of the element an interaction hit
+   * (`ChangeOrigin.target` / `InteractionEvent.target` — the `"Next →"` in
+   * `button#next "Next →"`), and every sentence built from those (the
+   * console log, `formatRerun`, `formatOrigin`, the SILENT_HOLD / LONG_HOLD
+   * / STACKED_HOLDS verdicts naming the interaction, OPTIMISTIC_REVERTED's
+   * shown and settled values). Applied where the record is BUILT, so
+   * nothing downstream — a ring buffer, a fold, a listener, an exporter —
+   * ever holds what the level excludes.
+   *
+   * - `"full"` — previews of the written values (strings quoted and cut at
+   *   40 characters, numbers and booleans verbatim, everything else a type
+   *   tag such as `Array(12)`) and the element's text: what makes dev
+   *   output readable.
+   * - `"labels"` — no value previews; element text kept only on a `button`
+   *   or an `a` (the control's caption — what the person pressed is the
+   *   point of an interaction record) and dropped for anything else (the
+   *   text of a `div` or a `td` is content).
+   * - `"none"` — no value previews, no element text: names, numbers, kinds
+   *   and outcomes only. What an observe-tier holder that carries records
+   *   out of the process (an APM adapter) should pass.
+   *
+   * Across holds the LEAST permissive level wins — the one key that
+   * combines the other way from the rest, where a hold can only ask for
+   * more: a holder that must not see user data is not overruled by one
+   * that wants it. A holder that names no level asks for the tier's
+   * default, so in an observe build it tightens to `"none"` beside anyone;
+   * a single holder passing `"full"` there gets `"full"`, and an explicit
+   * `"full"` never loosens what another holder demanded. Governs what is
+   * built from the moment the level is in effect; records already in a
+   * ring buffer keep what they carried. A
+   * navigation's concrete paths and params (`ChangeOrigin.to`/`from`/
+   * `params`) are the router's description and are not governed here.
+   */
+  values?: AttributionValues;
   /**
    * Run the cost checks — the thresholded findings over the engine's own
    * accounting: `hotRuns`, `hotTime`, `wideDeps`, `unstableMemos`,
@@ -570,6 +622,11 @@ let changeSeq = 0;
 let runSeq = 0;
 const defaultOptions = {
   log: true,
+  // Tier-dependent (see `AttributionOptions.values`): dev output is for the
+  // developer at the console and shows everything; an observe build is a
+  // production artifact and carries no user data unless a holder asks. The
+  // literal folds per build — the observe engine ships `"none"` only.
+  values: (__DEV__ ? "full" : "none") as AttributionValues,
   checks: true,
   stacks: false,
   historyLimit: 200,
@@ -706,6 +763,12 @@ function wantsRerun(): boolean {
   return options.log || folds.length > 0 || records.observed("rerun");
 }
 
+/**
+ * A short preview of a written value for a record — only ever called under
+ * `values: "full"` (`stampWrite`, OPTIMISTIC_REVERTED): the other levels
+ * carry no previews, and the check is made at the call site so the value is
+ * not even looked at.
+ */
 function preview(v: unknown): string {
   if (v === null) return "null";
   switch (typeof v) {
@@ -765,13 +828,35 @@ const actionInteractions = new WeakMap<object, ChangeOrigin | undefined>();
 let currentInteraction: ChangeOrigin | null = null;
 const interactionStack: (ChangeOrigin | null)[] = [];
 
+/**
+ * The element label an interaction record carries, from the one the runtime
+ * described (`tag`, then `#id` or `[name=…]`, then the element's text in
+ * quotes — `button#next "Next →"`), cut to what `options.values` allows: the
+ * text is the part after the first ` "`; under `"labels"` it stays on a
+ * `button` or an `a`, under `"none"` never. The ref's own string is never
+ * mutated — the runtime's object is the runtime's.
+ */
+function targetLabel(target: string): string {
+  const level = options.values;
+  if (level === "full") return target;
+  const text = target.indexOf(' "');
+  if (text === -1) return target;
+  if (level === "labels") {
+    const head = target.slice(0, text);
+    const mark = head.search(/[#[]/);
+    const tag = mark === -1 ? head : head.slice(0, mark);
+    if (tag === "button" || tag === "a") return target;
+  }
+  return target.slice(0, text);
+}
+
 function interactionStart(ref: InteractionRef): void {
   interactionStack.push(currentInteraction);
   // One clock read: the frame opens now; the interaction began at `ref.at`
   // when the runtime dated it (the event's own timestamp), else now too.
   const opened = now();
   const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? opened };
-  if (ref.target) origin.target = ref.target;
+  if (ref.target) origin.target = targetLabel(ref.target);
   currentInteraction = origin;
   openInteraction(origin, opened);
 }
@@ -1031,7 +1116,10 @@ function stampWrite(
     name: nodeName(node),
     nodeId: devId(node)
   };
-  if (value !== NO_VALUES) {
+  // The previews are the record's one look at the written values: under
+  // any level but `"full"` they are not taken, so the record never carries
+  // them (nor does the `HeldWrite` copied from it, nor a sentence built on it).
+  if (value !== NO_VALUES && options.values === "full") {
     record.prev = prev === NO_VALUES ? undefined : preview(prev);
     record.value = preview(value);
   }
@@ -1525,7 +1613,10 @@ export interface Attribution {
    * a hold withdraws its requests — a track enabled with `log: false` beside
    * a console session never silences it, and a capture with tight
    * thresholds beside a records-only adapter runs the checks for its own
-   * duration. The release is idempotent; the last release uninstalls the
+   * duration. One key runs the other way: `values` combines to the LEAST
+   * permissive level any holder asked for, so an adapter that must not see
+   * user data (`values: "none"`) is honoured beside a console session that
+   * wants everything. The release is idempotent; the last release uninstalls the
    * hooks and clears every ring buffer. A consumer that re-`enable()`s to
    * reopen its window must release both holds (or `disable()`).
    *
@@ -2938,13 +3029,24 @@ function checkOptimisticRevert(
   const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;
   if (equals && equals(shown, truth)) return;
   const source = nodeName(el);
+  // The two values are user data: quoted only under `values: "full"`; the
+  // other levels say what happened without saying what was shown.
+  const values = options.values === "full";
+  const change = how === "superseded" ? "settled to" : "reverted to";
   const message =
-    `[OPTIMISTIC_REVERTED] the optimistic value of ${source} showed ${preview(shown)}; it ` +
-    `${how === "superseded" ? "settled to" : "reverted to"} ${preview(truth)}. The person saw ` +
-    `the guess, then the correction. A revert on failure is the feature; one that recurs says ` +
-    `the guess is wrong for this input or the action fails often — show the failure where the ` +
-    `value renders (the action's catch, an Errored boundary) rather than letting the value ` +
-    `snap back on its own.`;
+    `[OPTIMISTIC_REVERTED] the optimistic value of ${source} ` +
+    (values
+      ? `showed ${preview(shown)}; it ${change} ${preview(truth)}.`
+      : `${how === "superseded" ? "was superseded by the settled value" : "reverted at settle"}.`) +
+    ` The person saw the guess, then the correction. A revert on failure is the feature; one ` +
+    `that recurs says the guess is wrong for this input or the action fails often — show the ` +
+    `failure where the value renders (the action's catch, an Errored boundary) rather than ` +
+    `letting the value snap back on its own.`;
+  const data: Record<string, unknown> = { source, how };
+  if (values) {
+    data.shown = preview(shown);
+    data.truth = preview(truth);
+  }
   emitDiagnostic(
     {
       code: "OPTIMISTIC_REVERTED",
@@ -2952,7 +3054,7 @@ function checkOptimisticRevert(
       severity: "info",
       message,
       nodeName: source,
-      data: { source, shown: preview(shown), truth: preview(truth), how }
+      data
     },
     el
   );
@@ -4249,13 +4351,20 @@ function resolveHold(opts: AttributionOptions | undefined): Options {
   return out;
 }
 
+/** `values` levels by how much they carry: the merge takes the lowest. */
+const VALUES_RANK: Record<AttributionValues, number> = { none: 0, labels: 1, full: 2 };
+
 /**
  * The more demanding of two settings for one key: `true` over `false`, the
  * larger `historyLimit`, a threshold config over `false`, and between two
  * configs the field values that fire sooner — the lower count, budget or
- * millisecond bound, the longer `windowMs`.
+ * millisecond bound, the longer `windowMs`. For `values` "more demanding"
+ * is LESS data: the level that carries the least wins, so a holder that
+ * must not see user data is never overruled by one that wants it.
  */
 function demanding(key: keyof Options, a: unknown, b: unknown): unknown {
+  if (key === "values")
+    return VALUES_RANK[a as AttributionValues] <= VALUES_RANK[b as AttributionValues] ? a : b;
   if (typeof a === "boolean") return a || b;
   if (key === "historyLimit") return Math.max(a as number, b as number);
   if (a === false) return b;
@@ -4278,7 +4387,8 @@ function demanding(key: keyof Options, a: unknown, b: unknown): unknown {
  * the result does not depend on the order the holds were taken: the console
  * log prints while any holder wants it, a check runs while any holder wants
  * it and at the most sensitive threshold anyone asked for, the ring buffer
- * is the largest requested. With no hold outstanding the defaults stand.
+ * is the largest requested, and records carry the least user data any
+ * holder allows (`values`). With no hold outstanding the defaults stand.
  */
 function applyOptions(): void {
   if (holds.length === 0) {

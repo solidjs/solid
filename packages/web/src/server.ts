@@ -34,7 +34,8 @@ import {
   traceMetaMarkup,
   type TraceContext
 } from "./trace.js";
-import { timesServerWork } from "./server-observe.js";
+import { observeRender, timesServerWork } from "./server-observe.js";
+import { records } from "./observe.js";
 import {
   createHydrationSerializer,
   getLocalHeaderScript
@@ -1762,8 +1763,9 @@ export function renderToString(code, options = {}) {
   const context = sharedConfig.context;
   const requestEvent = peekRequestEvent();
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
-  timeDocument(context, context.trace);
+  const render = timeDocument(context, context.trace, "string", requestEvent);
   let dispose;
+  let rendered = false;
   try {
     const html = root(
       d => {
@@ -1800,11 +1802,19 @@ export function renderToString(code, options = {}) {
     // through. A render that threw leaves the head open: its declarations
     // retract with the dispose below, and the handler's error path may
     // still write.
+    //
+    // A string render's shell is the whole document: complete here, so the
+    // commit below reads its `shellMs` for `solid-shell`.
+    if (render) render.shell();
     if (requestEvent && requestEvent.response) {
       commitResponseStub(requestEvent.response, { event: requestEvent });
     }
+    rendered = true;
     return document;
   } finally {
+    // The render record settles before the trace is let go: a listener
+    // reading `getTraceContext()` from its callback finds the render's.
+    if (render) render.settle(rendered ? "complete" : "error");
     // Release the graph before returning (#3385): a deferred dispose held
     // every root — and every memo under it — until the next macrotask, so
     // nothing was freed across a synchronous loop of renders.
@@ -1894,6 +1904,9 @@ export function renderToStream(code, options = {}) {
   const requestEvent = peekRequestEvent();
   let dispose;
   let dead = false;
+  // The render's `"render"` record (`timeDocument`, once the context is up):
+  // its shell stamped at `doShell`, settled at `onDone` or by the wind-down.
+  let render;
   // The serializer (created below, once the sink is assembled) — hoisted so
   // the wind-down can close it. `abandon` is only ever reached after the
   // render starts, by which point it is assigned; the hoist keeps that from
@@ -1972,6 +1985,9 @@ export function renderToStream(code, options = {}) {
     dead = true;
     completed = true;
     if (disconnect) disconnected = true;
+    // The render's record ends here, with how: the client left, or the
+    // render failed (the render error's finding says why).
+    if (render) render.settle(disconnect ? "abandoned" : "error");
     // The live sink wrapper (post-shell) is handed to the failure
     // completion below; pre-shell there is none yet.
     const sink = writable;
@@ -2183,6 +2199,9 @@ export function renderToStream(code, options = {}) {
       });
     writable && writable.end();
     completed = true;
+    // The stream is whole: the render record settles (its shell was stamped
+    // by `doShell` above), before the graph it describes is released.
+    if (render) render.settle("complete");
     if (firstFlushed) dispose();
   };
   // FrameSink seam (design in frame-sink.js): semantic emission routes through
@@ -2791,7 +2810,7 @@ export function renderToStream(code, options = {}) {
   // pass so the per-component context clones carry it; cleared at completion
   // (below) so a read outside any render never finds a stale one.
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
-  timeDocument(context, context.trace);
+  render = timeDocument(context, context.trace, "stream", requestEvent);
   registerEntryAssets(manifest);
 
   let html = root(
@@ -2888,6 +2907,11 @@ export function renderToStream(code, options = {}) {
       noScripts,
       traceMetaMarkup(context.trace)
     );
+    // The shell is complete — html and head resolved, about to be handed to
+    // the sink: the render record's `shellMs` is final here, BEFORE the
+    // handoff, because the response head commits from inside the sink's
+    // first write (`createSSRResponse`) and projects `solid-shell` from it.
+    if (render) render.shell();
     // `preloads`, `preloadLinks` and `inlineStyles` are the LIVE tracking
     // containers, not snapshots: a post-shell registration pushes into them
     // AND arrives separately through `sink.asset`. Consume them inside this
@@ -5496,18 +5520,30 @@ function peekRequestEvent() {
 // answered); see trace.ts.
 
 /**
- * Opens the document's timed server work for the response's `Server-Timing`
- * (trace.ts `TimingMetric`): the shell — render start to head commit,
- * measured at the commit — and the `<Loading>` boundaries that settle
- * before it, which the reactive library's boundary pushes onto the render
- * context (`_timing`, the seam; it formats nothing). Only while the runtime
- * times boundaries anyway (`timesServerWork`): dev, or an observe build
- * with a `"boundary"` listener.
+ * Opens the render's recording, from which the response's `Server-Timing`
+ * metrics are projected at head commit (trace.ts `TimedWork`): the
+ * `"render"` record (`observeRender` — `solid-shell` is its `shellMs`,
+ * stamped when the shell completes) under its own gate, and the seam the
+ * reactive library's boundary files its `"boundary"` records through
+ * (`_recordBoundary` on the render context — it formats nothing) for
+ * `solid-boundary`. The seam is installed under the boundary record's own
+ * gate (`timesServerWork("boundary")`, the rule the boundary applies before
+ * building one): the two sides of one measurement agree by construction,
+ * and a render context from a build tier the boundary's differs from (a
+ * test harness) cannot make the header say what no listener asked for.
+ * Returns the render observation, or `undefined` when nothing records the
+ * render; a closure in observe builds, nothing in prod.
  */
-function timeDocument(context, trace) {
-  if (!timesServerWork("boundary")) return;
-  trace.shellStart = performance.now();
-  context._timing = trace.timing;
+function timeDocument(context, trace, mode, requestEvent) {
+  if (!"_SOLID_OBSERVE_" || records() === undefined) return undefined;
+  const render = observeRender(trace, mode, requestEvent);
+  if (timesServerWork("boundary")) {
+    context._recordBoundary = event => {
+      trace.timing.push({ type: "boundary", event });
+      if (render) render.boundary();
+    };
+  }
+  return render;
 }
 
 /**

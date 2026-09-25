@@ -101,13 +101,15 @@ function ssrLoadingBoundary(
   let passes = 0;
 
   // Observe tier: the boundary RECORD (`OBSERVE.records`, type `"boundary"`
-  // — see `BoundaryEvent`), for a boundary that waited. Cost is paid only
-  // with a listener (or in dev, where the checks below read the same
-  // facts): one `performance.now()` at discovery, one at settle. Delivered
-  // at settle; when a `<Reveal>` group coordinates the fragment swap the
-  // record waits for the group's `onReveal` so it can carry `heldMs` — the
-  // time finished content sat behind its siblings. (A group that never
-  // reveals — the stream abandoned — loses the record;
+  // — see `BoundaryEvent`), for a boundary that waited. One gate for the
+  // record and the response's `solid-boundary` metric projected from it:
+  // dev builds always (the checks below read the same facts), observe
+  // builds with a listener. Cost: one `performance.now()` at discovery,
+  // one at settle, the record object when either reader wants it.
+  // Delivered at settle; when a `<Reveal>` group coordinates the fragment
+  // swap the record waits for the group's `onReveal` so it can carry
+  // `heldMs` — the time finished content sat behind its siblings. (A group
+  // that never reveals — the stream abandoned — loses the record;
   // `SSR_STREAM_ABANDONED` is that request's account.)
   const observed = IS_OBSERVE ? OBSERVE!.records.observed("boundary") : false;
   const timed = IS_DEV || observed;
@@ -120,28 +122,19 @@ function ssrLoadingBoundary(
     recorded = true;
     const settledAt = timed ? performance.now() : 0;
     if (IS_DEV) checkWaited(outcome, settledAt - discoveredAt);
+    if (!timed) return;
     // The document's `Server-Timing` (the web runtime's seam on the render
-    // context — see `_timing`): a boundary the shell WAITED on — a pass past
-    // discovery, settled before the flush — labelled by its owner path, the
-    // label the client's `fallback` record and the findings carry. One that
-    // streams settled after the head left and cannot ride the header; one
-    // decided on its first pass (a renderToString fallback, a client hole)
-    // held nothing up.
-    const timing = timed && !streamed && passes > 1 ? ctx._timing : undefined;
+    // context — see `_recordBoundary`) takes the record of a boundary the
+    // shell WAITED on — a pass past discovery, settled before the flush.
+    // One that streams settled after the head left and cannot ride the
+    // header; one decided on its first pass (a renderToString fallback, a
+    // client hole) held nothing up.
+    const toHeader = !streamed && passes > 1 ? ctx._recordBoundary : undefined;
+    if (!observed && toHeader === undefined) return;
     // The core's walk (`_parent` + `_name`), the same one its diagnostics
     // make over these owners, so the record, the finding it may pair with
     // and the metric locate to the same `<App> › <Page>`.
-    const path = observed || timing !== undefined ? OBSERVE!.ownerPath(o) : undefined;
-    if (timing !== undefined) {
-      // ASCII on the wire (a header value is a byte string); the adapter
-      // renders the path with the artifact's ` › `.
-      timing.push({
-        name: "solid-boundary",
-        dur: settledAt - discoveredAt,
-        desc: path ? path.join(" > ") : id
-      });
-    }
-    if (!observed) return;
+    const path = OBSERVE!.ownerPath(o);
     const event: BoundaryEvent = {
       id,
       at: discoveredAt,
@@ -153,6 +146,8 @@ function ssrLoadingBoundary(
     };
     if (revealGroup) event.revealGroup = revealGroup.id;
     if (path) event.ownerPath = path;
+    if (toHeader !== undefined) toHeader(event);
+    if (!observed) return;
     const live: BoundaryLive = {};
     if (outcome === "error") live.error = error;
     // Only a fragment swap can be held: `done` exists once the fragment is

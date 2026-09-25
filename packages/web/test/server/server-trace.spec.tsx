@@ -29,7 +29,15 @@ import {
   useHead
 } from "@solidjs/web";
 import { createMemo } from "solid-js";
-import type { RequestEvent, ResponseStub, TraceContext, TraceProvider } from "@solidjs/web";
+import type { RecordListener } from "solid-js";
+import type {
+  RenderEvent,
+  RenderLive,
+  RequestEvent,
+  ResponseStub,
+  TraceContext,
+  TraceProvider
+} from "@solidjs/web";
 // Server-only integration seam with no client mock; the same module the
 // `@solidjs/web` alias resolves through (index.server.ts re-exports it).
 import { commitResponseStub } from "../../src/server.js";
@@ -616,21 +624,28 @@ describe("<meta> tags in the shell", () => {
   });
 });
 
-// The request's timed server work as `Server-Timing` metrics
-// (`TimingMetric` in trace.ts; painted by `@solidjs/web/performance-tracks`
-// under the matching client span): `solid-shell` and the `solid-boundary`s
-// the shell waited on, on the document; `solid-invocation` on a
-// server-function response. Gated like the trace: the dev tier carries them
-// always; an observe build only while a listener is on the record the same
-// measurement feeds, so an app with no observer sees no wire change.
+// The request's timed server work as `Server-Timing` metrics — each a
+// PROJECTION of a record on `OBSERVE.records` (`appendTraceServerTiming` in
+// trace.ts reads the record objects; painted by
+// `@solidjs/web/performance-tracks` under the matching client span):
+// `solid-shell` from the `"render"` record's `shellMs` and a
+// `solid-boundary` from each `"boundary"` record the shell waited on, on
+// the document; `solid-invocation` from the `"invocation"` record on a
+// server-function response. One gate per metric, the record's own: the dev
+// tier carries them always; an observe build only while a listener is on
+// the record the metric is projected from, so an app with no observer sees
+// no wire change.
 describe("Server-Timing: the request's timed work", () => {
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
   const unsubscribes: Array<() => void> = [];
   afterEach(() => {
     for (const off of unsubscribes.splice(0)) off();
   });
-  const listen = (type: "boundary" | "invocation") => {
-    unsubscribes.push(OBSERVE!.records.subscribe(type, () => {}));
+  const listen = <T extends "boundary" | "invocation" | "render">(
+    type: T,
+    listener: RecordListener<T> = () => {}
+  ) => {
+    unsubscribes.push(OBSERVE!.records.subscribe(type, listener));
   };
 
   /** A boundary that waits, and holds the shell for its content (`deferStream`). */
@@ -752,7 +767,7 @@ describe("Server-Timing: the request's timed work", () => {
     expect(serverTiming(observed.headers).size).toBe(0);
   });
 
-  test("the document on the observe tier: nothing without a boundary listener, the shell and its boundaries with one", async () => {
+  test("the document on the observe tier: each metric rides its own record's gate", async () => {
     function Page() {
       return (
         <Doc>
@@ -762,12 +777,158 @@ describe("Server-Timing: the request's timed work", () => {
         </Doc>
       );
     }
+    // No listener: nothing is recorded, the wire is unchanged.
     const quiet = await respond(observeWeb, event(), () => <Page />);
     expect(quiet.has("server-timing")).toBe(false);
 
+    // A boundary listener gates `solid-boundary` alone: the shell is the
+    // `"render"` record's, which nobody asked for.
+    const offBoundary = OBSERVE!.records.subscribe("boundary", () => {});
+    const boundaryOnly = await respond(observeWeb, event(), () => <Page />);
+    expect(timingMetrics(boundaryOnly).map(m => m.name)).toEqual(["solid-boundary"]);
+    offBoundary();
+
+    // A render listener gates `solid-shell` alone.
+    listen("render");
+    const renderOnly = await respond(observeWeb, event(), () => <Page />);
+    expect(timingMetrics(renderOnly).map(m => m.name)).toEqual(["solid-shell"]);
+
+    // Both: the shell first, then the boundary it waited on — the dev
+    // tier's list.
     listen("boundary");
-    const observed = await respond(observeWeb, event(), () => <Page />);
-    expect(timingMetrics(observed).map(m => m.name)).toEqual(["solid-shell", "solid-boundary"]);
+    const both = await respond(observeWeb, event(), () => <Page />);
+    expect(timingMetrics(both).map(m => m.name)).toEqual(["solid-shell", "solid-boundary"]);
+  });
+
+  // The `"render"` record — the document render on `OBSERVE.records` — and
+  // its `solid-shell` projection: the header reads the record's `shellMs`,
+  // so the two agree by construction.
+  describe('the "render" record', () => {
+    const rendered: [RenderEvent, RenderLive][] = [];
+    afterEach(() => rendered.splice(0));
+    const capture = () => listen("render", (event, live) => rendered.push([event, live]));
+
+    test("a streamed document: one record at completion, shellMs the head's wait, boundaries counted", async () => {
+      function Page() {
+        return (
+          <Doc>
+            <Loading fallback={<i>…</i>}>
+              <Held ms={15}>in-shell</Held>
+            </Loading>
+            <Loading fallback={<i>…</i>}>
+              <Late ms={30}>streamed</Late>
+            </Loading>
+          </Doc>
+        );
+      }
+      capture();
+      const evt = event({ traceparent: INCOMING });
+      const stream = inScope(evt, () => renderToStream(() => <Page />));
+      const response = await createSSRResponse(stream, evt);
+      // The head is committed at the shell; the record settles when the
+      // stream completes — after the late boundary.
+      const [shell] = timingMetrics(response.headers);
+      expect(shell.name).toBe("solid-shell");
+      expect(rendered).toHaveLength(0);
+      await response.text();
+      expect(rendered).toHaveLength(1);
+      const [record, live] = rendered[0];
+      expect(record.mode).toBe("stream");
+      expect(record.outcome).toBe("complete");
+      expect(record.at).toBeGreaterThan(0);
+      // The shell waited for the held boundary and the whole render for the
+      // streamed one, in that order.
+      expect(record.shellMs).toBeGreaterThanOrEqual(14);
+      expect(record.durationMs).toBeGreaterThanOrEqual(record.shellMs!);
+      expect(record.durationMs).toBeGreaterThanOrEqual(29);
+      // The boundary the shell waited on; the streamed one is not the
+      // shell's cost (its own record says `streamed: true`).
+      expect(record.boundaries).toBe(1);
+      // The header's `solid-shell` IS the record's `shellMs`, to the tenth
+      // the wire carries.
+      expect(shell.dur).toBe(Math.round(record.shellMs! * 10) / 10);
+      // Live: the request and the trace the render ran under.
+      expect(live.event).toBe(evt);
+      expect(live.trace.traceId).toBe(TRACE_ID);
+      expect(live.trace).toBe(inScope(evt, () => getTraceContext()));
+    });
+
+    test("a string document: the shell is the whole document; no boundary held it", () => {
+      capture();
+      const evt = event();
+      const html = inScope(evt, () => renderToString(() => <Doc />));
+      const response = createSSRResponse(html, evt);
+      expect(rendered).toHaveLength(1);
+      const [record, live] = rendered[0];
+      expect(record.mode).toBe("string");
+      expect(record.outcome).toBe("complete");
+      expect(record.boundaries).toBe(0);
+      expect(record.shellMs).toBeDefined();
+      expect(record.durationMs).toBeGreaterThanOrEqual(record.shellMs!);
+      expect(live.event).toBe(evt);
+      const [shell] = timingMetrics(response.headers);
+      expect(shell).toMatchObject({
+        name: "solid-shell",
+        dur: Math.round(record.shellMs! * 10) / 10
+      });
+    });
+
+    test("a render outside a request scope records too, with its own trace and no event", () => {
+      capture();
+      renderToString(() => <Doc />);
+      expect(rendered).toHaveLength(1);
+      const [record, live] = rendered[0];
+      expect(record.mode).toBe("string");
+      expect(live.event).toBeUndefined();
+      expect(live.trace.traceId).toMatch(HEX32);
+    });
+
+    test("a string render that throws settles as an error, with no shell", () => {
+      capture();
+      const Boom = () => {
+        throw new Error("boom");
+      };
+      expect(() => renderToString(() => (<Boom />) as any)).toThrow("boom");
+      expect(rendered).toHaveLength(1);
+      expect(rendered[0][0]).toMatchObject({ mode: "string", outcome: "error" });
+      expect(rendered[0][0].shellMs).toBeUndefined();
+    });
+
+    test("a stream the client abandons settles as abandoned", async () => {
+      const never = new Promise<string>(() => {});
+      function Stuck() {
+        const data = createMemo(async () => never);
+        return <div>{data()}</div>;
+      }
+      capture();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      let writes = 0;
+      // The sink dies on the shell's write: the client is gone (`SSR_STREAM_ABANDONED`).
+      renderToStream(() => (
+        <Doc>
+          <Loading fallback={<i>…</i>}>
+            <Stuck />
+          </Loading>
+        </Doc>
+      )).pipe({
+        write() {
+          writes++;
+          throw new Error("EPIPE");
+        },
+        end() {}
+      });
+      await delay(20);
+      expect(writes).toBeGreaterThan(0);
+      expect(rendered).toHaveLength(1);
+      const [record, live] = rendered[0];
+      expect(record.outcome).toBe("abandoned");
+      expect(record.mode).toBe("stream");
+      // The shell was handed to the sink before the sink failed.
+      expect(record.shellMs).toBeDefined();
+      // The one boundary never settled: not the shell's wait.
+      expect(record.boundaries).toBe(0);
+      expect(live.event).toBeUndefined();
+    });
   });
 
   test("metrics fold beside a response's own Server-Timing, repeated names included", () => {

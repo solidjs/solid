@@ -1,9 +1,11 @@
 // The server runtime's emitters on `OBSERVE.records`: the `"invocation"`
-// record (a server-function execution, either dispatch leg) and the server
-// half of the `"frame"` record (a frame stream produced). The record types
-// and the channel accessor are observe.ts's, shared with the client's
-// emitters; this module is the half that needs the server runtime (the
-// render's hydration context, for the boundary a direct call ran under).
+// record (a server-function execution, either dispatch leg), the `"render"`
+// record (a `renderToString`/`renderToStream` render) and the server half
+// of the `"frame"` record (a frame stream produced). The record types and the channel
+// accessor are observe.ts's, shared with the client's emitters; this module
+// is the half that needs the server runtime (the render's hydration
+// context, for the boundary a direct call ran under; the request's trace
+// record, which the `Server-Timing` metrics are projected from).
 //
 // Everything here folds out of the prod server artifacts behind the
 // `"_SOLID_OBSERVE_"` literal in `records()`: prod never reaches for the
@@ -21,27 +23,92 @@ import {
   type FrameLive,
   type FrameProducedEvent,
   type InvocationEvent,
-  type InvocationLive
+  type InvocationLive,
+  type RenderEvent,
+  type RenderLive
 } from "./observe.js";
-import { traceForEvent } from "./trace.js";
+import { traceForEvent, type TraceRecord } from "./trace.js";
 import type { RequestEvent } from "./server.js";
 
 // Replaced per build; a module const so the gates below read as booleans.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 
 /**
- * Whether the runtime times the server work it records for THIS request's
- * `Server-Timing` (see `TimingMetric` in trace.ts) — the invocation's and
- * the document's shell and boundaries. Dev builds always (the panel's
- * home, and the boundary already measures for its dev checks); observe
- * builds while a listener is on the record the same measurement feeds, so
- * an app with no observer sees no wire change. `type` names that record.
- * `false` in prod, where `records()` is `undefined`.
+ * The one gate for a server record and the `Server-Timing` metric projected
+ * from it (`TimedWork` in trace.ts): whether the runtime builds the record
+ * of `type` — `"invocation"` (→ `solid-invocation`), `"render"` (→
+ * `solid-shell`), `"boundary"` (→ `solid-boundary`, gated in the reactive
+ * library's boundary with this same rule). Dev builds always: dev is the
+ * panel's home, and the boundary already measures for its dev checks.
+ * Observe builds while a listener is on the type (`observed`), so an app
+ * with no observer sees no wire change; the record is then delivered AND
+ * the metric written from it — one clock, one object. `false` in prod,
+ * where `records()` is `undefined`.
  */
-export function timesServerWork(type: "invocation" | "boundary"): boolean {
+export function timesServerWork(type: "invocation" | "render" | "boundary"): boolean {
   const channel = records();
   if (channel === undefined) return false;
   return IS_DEV || channel.observed(type);
+}
+
+/** What the renderer holds while a render is being recorded. */
+export interface RenderObservation {
+  /**
+   * The shell is complete — for a stream, handed to the sink; for a string,
+   * the document assembled: stamps `shellMs`, the `solid-shell` metric's
+   * duration. Once; a later call is ignored.
+   */
+  shell(): void;
+  /** A `<Loading>` boundary the shell waited on settled: counts it (`boundaries`). */
+  boundary(): void;
+  /** The render ended; delivers the record. Once. */
+  settle(outcome: RenderEvent["outcome"]): void;
+}
+
+/**
+ * Opens the `"render"` record for a render of `mode` — on the request's
+ * trace record, where the head commit reads it (`TraceRecord.render`) —
+ * when `timesServerWork("render")`; `undefined` otherwise, and the renderer
+ * then does nothing extra, not even read the clock. The record is built as
+ * the render proceeds and delivered at `settle`, to a listener if there is
+ * one; `event` is the request the render serves, the record's live half.
+ */
+export function observeRender(
+  trace: TraceRecord,
+  mode: RenderEvent["mode"],
+  event: RequestEvent | undefined
+): RenderObservation | undefined {
+  if (!timesServerWork("render")) return undefined;
+  const record: RenderEvent = {
+    mode,
+    at: performance.now(),
+    durationMs: 0,
+    boundaries: 0,
+    outcome: "complete"
+  };
+  trace.render = record;
+  let settled = false;
+  return {
+    shell() {
+      // Once, and never on a delivered record (a render wound down as its
+      // shell was being handed over settled without one).
+      if (!settled && record.shellMs === undefined) record.shellMs = performance.now() - record.at;
+    },
+    boundary() {
+      if (!settled) record.boundaries++;
+    },
+    settle(outcome) {
+      if (settled) return;
+      settled = true;
+      record.durationMs = performance.now() - record.at;
+      record.outcome = outcome;
+      const channel = records()!;
+      if (!channel.observed("render")) return;
+      const live: RenderLive = { trace: trace.context };
+      if (event !== undefined) live.event = event;
+      channel.emit("render", record, live);
+    }
+  };
 }
 
 /** What the runtime passes an observation from either dispatch leg. */
@@ -113,32 +180,26 @@ function deliver(
   outcome: "ok" | "error",
   value: unknown
 ): void {
-  const durationMs = performance.now() - at;
-  // The request's `Server-Timing` (trace.ts): the execution, on the
-  // response it produces — or on the document, for a direct call made
-  // during its render. Recorded before the record is delivered, so a
-  // listener that commits the response from its callback still ships it.
-  traceForEvent(context.event).timing.push({
-    name: "solid-invocation",
-    dur: durationMs,
-    desc: context.id
-  });
-  const channel = records()!;
-  if (!channel.observed("invocation")) return;
   const record: InvocationEvent = {
     id: context.id,
     direct: context.direct,
     at,
-    durationMs,
+    durationMs: performance.now() - at,
     outcome
   };
   if (boundary !== undefined) record.boundary = boundary;
+  if (outcome === "ok" && isDeferredBody(value)) record.deferred = true;
+  // The request's `Server-Timing` (trace.ts) projects the record — on the
+  // response the execution produces, or on the document for a direct call
+  // made during its render. Filed before the record is delivered, so a
+  // listener that commits the response from its callback still ships it.
+  traceForEvent(context.event).timing.push({ type: "invocation", event: record });
+  const channel = records()!;
+  if (!channel.observed("invocation")) return;
   const live: InvocationLive = { event: context.event, args: context.args };
   if (context.request !== undefined) live.request = context.request;
-  if (outcome === "ok") {
-    live.result = value;
-    if (isDeferredBody(value)) record.deferred = true;
-  } else live.error = value;
+  if (outcome === "ok") live.result = value;
+  else live.error = value;
   channel.emit("invocation", record, live);
 }
 

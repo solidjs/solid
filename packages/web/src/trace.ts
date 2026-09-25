@@ -34,7 +34,8 @@
 // State hangs off the shared `OBSERVE` object under a registered symbol for
 // the same reason as `server-observe.ts`: each server bundle carries its own
 // copy of this module.
-import { OBSERVE, type ServerTrace } from "solid-js";
+import { OBSERVE, type BoundaryEvent, type ServerTrace } from "solid-js";
+import type { InvocationEvent, RenderEvent } from "./observe.js";
 
 /**
  * The trace the current request belongs to — continued from the incoming
@@ -93,39 +94,38 @@ declare module "solid-js" {
 }
 
 /**
- * A timed span of the request's server work, carried to the browser as a
- * `Server-Timing` metric (`<name>;dur=<ms>;desc="<desc>"`) beside the trace
- * entries — see `appendTraceServerTiming`. Recorded only where the runtime
- * is already measuring: in dev builds, and in observe builds while a
- * listener is on the record the same measurement feeds (`"invocation"`,
- * `"boundary"`); the header is a second reader of one clock, so an app
- * with no observer sees no wire change (the trace's rule). What rides is
- * what the server knew when the head left — the function that produced a
- * response; for a document, the shell render and the boundaries that
+ * The request's server work as recorded — the `"invocation"` and
+ * `"boundary"` records made while it was served, in completion order —
+ * from which the `Server-Timing` metrics are projected at head commit
+ * (`appendTraceServerTiming`): `solid-invocation;dur=<durationMs>;desc="<id>"`
+ * for an execution, `solid-boundary;dur=<durationMs>;desc="<owner path>"` for
+ * a `<Loading>` boundary the shell waited on (the `"render"` record on the
+ * same `TraceRecord` gives `solid-shell;dur=<shellMs>`). One gate for record
+ * and metric alike: a record is built in dev builds always, and in observe
+ * builds while a listener is on its type (`OBSERVE.records.observed`), so
+ * the header is a projection of what was recorded, never a second clock —
+ * an app with no observer sees no wire change (the trace's rule). What
+ * rides is what the server knew when the head left — the function that
+ * produced a response; for a document, the shell and the boundaries that
  * settled inside it. The Performance-panel adapter paints these under the
  * matching client span (`@solidjs/web/performance-tracks`).
  */
-export interface TimingMetric {
-  /** `solid-invocation` | `solid-shell` | `solid-boundary` — an RFC 9110 token. */
-  name: string;
-  /** Milliseconds. */
-  dur: number;
-  /** The function id, the boundary's component label — what the span is labelled. */
-  desc?: string;
-}
+export type TimedWork =
+  | { type: "invocation"; event: InvocationEvent }
+  | { type: "boundary"; event: BoundaryEvent };
 
 /** A derived trace plus whether the browser is told about it (see the header note). */
 export interface TraceRecord {
   context: TraceContext;
   emit: boolean;
-  /** The request's timed server work, in completion order (see `TimingMetric`). */
-  timing: TimingMetric[];
+  /** The request's recorded server work, in completion order (see `TimedWork`). */
+  timing: TimedWork[];
   /**
-   * `performance.now()` when the document render began, while the shell is
-   * timed and the head has not committed: the `solid-shell` metric is
-   * measured at commit, from here.
+   * The render this request is serving, while one is being recorded — the
+   * `"render"` record as it fills (`RenderEvent`): `solid-shell` is its
+   * `shellMs`, once the shell is complete.
    */
-  shellStart?: number;
+  render?: RenderEvent;
 }
 
 // Replaced per build; a module const so the gates below read as booleans.
@@ -343,17 +343,23 @@ function quoteDesc(value: string): string {
     .replace(/[\\"]/g, m => "\\" + m);
 }
 
+/** The shell metric's duration, once the render's shell is complete. */
+function shellMs(record: TraceRecord): number | undefined {
+  return record.render !== undefined ? record.render.shellMs : undefined;
+}
+
 /** Whether `appendTraceServerTiming` has anything to write for `record`. */
 export function hasServerTiming(record: TraceRecord): boolean {
-  return record.emit || record.timing.length > 0 || record.shellStart !== undefined;
+  return record.emit || record.timing.length > 0 || shellMs(record) !== undefined;
 }
 
 /**
  * Appends the record to `headers` as `Server-Timing` metrics — its trace
  * entries as `<name>;desc="<value>"` when the browser is told (see
- * `TraceRecord`), never duplicating a name the app already wrote; and its
- * timed server work as `<name>;dur=<ms>;desc="<desc>"` (see `TimingMetric`),
- * the shell's duration measured here, at the moment the head freezes.
+ * `TraceRecord`), never duplicating a name the app already wrote; and the
+ * server work it recorded as `<name>;dur=<ms>;desc="<desc>"`, each metric a
+ * projection of one record (see `TimedWork`): `solid-shell` first, from the
+ * render record, then the invocations and boundaries in completion order.
  * Metrics repeat their names by design (one `solid-boundary` per boundary),
  * so they are not name-deduplicated. Must run before the response head
  * commits.
@@ -370,20 +376,32 @@ export function appendTraceServerTiming(headers: Headers, record: TraceRecord): 
       present.add(name.toLowerCase());
     }
   }
-  if (record.shellStart !== undefined) {
-    // First in the list, before the boundaries it contains: measured once,
-    // at the first commit (a stream's shell flush; a string render's end).
-    const shell = { name: "solid-shell", dur: performance.now() - record.shellStart };
-    record.shellStart = undefined;
-    headers.append("Server-Timing", formatMetric(shell));
-  }
-  for (const metric of record.timing) headers.append("Server-Timing", formatMetric(metric));
+  const shell = shellMs(record);
+  if (shell !== undefined) headers.append("Server-Timing", formatMetric("solid-shell", shell));
+  for (const work of record.timing) headers.append("Server-Timing", metricOf(work));
 }
 
-function formatMetric(metric: TimingMetric): string {
+/** The `Server-Timing` metric one recorded piece of server work projects to. */
+function metricOf(work: TimedWork): string {
+  if (work.type === "invocation")
+    return formatMetric("solid-invocation", work.event.durationMs, work.event.id);
+  // Labelled by owner path, the label the client's `fallback` record and
+  // the findings carry — ASCII ` > ` on the wire (a header value is a byte
+  // string; the adapter renders the artifact's ` › `); the hydration id when
+  // the runtime knows no names.
+  const boundary = work.event;
+  return formatMetric(
+    "solid-boundary",
+    boundary.durationMs,
+    boundary.ownerPath !== undefined ? boundary.ownerPath.join(" > ") : boundary.id
+  );
+}
+
+/** `<name>;dur=<ms>;desc="<desc>"` — `name` an RFC 9110 token, `desc` quoted and ASCII-sanitised. */
+function formatMetric(name: string, dur: number, desc?: string): string {
   // One decimal: the panel's resolution; a header is not a profiler.
-  let out = `${metric.name};dur=${Math.round(metric.dur * 10) / 10}`;
-  if (metric.desc) out += `;desc="${quoteDesc(metric.desc)}"`;
+  let out = `${name};dur=${Math.round(dur * 10) / 10}`;
+  if (desc) out += `;desc="${quoteDesc(desc)}"`;
   return out;
 }
 

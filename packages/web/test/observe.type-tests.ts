@@ -33,6 +33,9 @@ import type {
   FrameProducedEvent,
   InvocationEvent,
   InvocationLive,
+  RenderEvent,
+  RenderLive,
+  RequestEvent,
   TraceContext,
   TraceProvider
 } from "@solidjs/web";
@@ -61,6 +64,7 @@ type Declared =
   | "boundary"
   | "recovery"
   | "invocation"
+  | "render"
   | "call"
   | "frame";
 const declared: Declared = "boundary" as RecordType;
@@ -81,6 +85,20 @@ observe.records.subscribe("invocation", (event, live) => {
   live.event.request satisfies Request;
   live.request satisfies Request | undefined;
   live.args satisfies unknown[];
+});
+
+// The server's document render record — what `solid-shell` is projected from.
+observe.records.subscribe("render", (event, live) => {
+  event satisfies RenderEvent;
+  live satisfies RenderLive;
+  event.mode satisfies "string" | "stream";
+  event.at satisfies number;
+  event.shellMs satisfies number | undefined;
+  event.durationMs satisfies number;
+  event.boundaries satisfies number;
+  event.outcome satisfies "complete" | "abandoned" | "error";
+  live.trace satisfies TraceContext;
+  live.event satisfies RequestEvent | undefined;
 });
 
 // solid-js's own record merges onto the same channel, from its module.

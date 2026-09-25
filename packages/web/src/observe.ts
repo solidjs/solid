@@ -3,8 +3,8 @@
 // either platform, and the emitters for the client's — the `"call"` record
 // (a server-function call made from the browser) and the client half of the
 // `"frame"` record (a frame stream applied). The server's emitters — the
-// `"invocation"` record and the frame's server half — are in
-// server-observe.ts, which needs the server runtime; this module needs
+// `"invocation"` and `"render"` records and the frame's server half — are
+// in server-observe.ts, which needs the server runtime; this module needs
 // nothing of either platform's runtime, so every entry bundles it.
 //
 // The channel is reached by its REGISTERED SYMBOL, not by importing
@@ -20,6 +20,7 @@
 // gates): prod never reaches for the channel.
 import type { ChangeOrigin, Records } from "solid-js";
 import type { RequestEvent } from "./server.js";
+import type { TraceContext } from "./trace.js";
 
 // Replaced per build; a module const (not an inline literal) so the typed
 // gates below read as booleans (cookies.ts uses the same shape).
@@ -121,6 +122,69 @@ export interface InvocationLive {
 }
 
 export type InvocationListener = (event: InvocationEvent, live: InvocationLive) => void;
+
+// --- "render": a server render, on the server ----------------------------------
+
+/**
+ * One server render — a `renderToString` or a `renderToStream` (a document,
+ * or a frame stream over the same core) — delivered on
+ * `OBSERVE.records.subscribe("render", …)` once it ended: the document
+ * returned, the stream's last fragment written, or the render torn down.
+ * The server-side account of the head's timing: what the shell cost, and
+ * how many `<Loading>` boundaries it waited on (each also a `"boundary"`
+ * record) — the facts the response's `Server-Timing` `solid-shell` metric
+ * is projected from. Serializable; the request the render served and its
+ * trace ride beside it in `RenderLive`.
+ */
+export interface RenderEvent {
+  /** `"string"` for `renderToString`, `"stream"` for `renderToStream`. */
+  mode: "string" | "stream";
+  /** `performance.now()` when the render began. */
+  at: number;
+  /**
+   * Render start → the shell complete, in milliseconds: for a stream, the
+   * head and shell handed to the sink (the head is frozen from here — a
+   * fragment can no longer add to it); for a string, the document assembled
+   * (the whole render). What `solid-shell` carries. Absent when the render
+   * ended before its shell — torn down or failed pre-shell.
+   */
+  shellMs?: number;
+  /**
+   * Render start → the render's end, in milliseconds: the document
+   * returned (`"string"`, equal to `shellMs`), the stream complete (every
+   * fragment written), or the teardown for the other outcomes.
+   */
+  durationMs: number;
+  /**
+   * `<Loading>` boundaries the shell waited on — discovered with pending
+   * async and settled before the shell completed, each a `"boundary"`
+   * record with `streamed: false` and a `solid-boundary` metric. A boundary
+   * that settled after the shell streamed as a fragment and is not counted
+   * here (its own record says `streamed: true`). Counted from the
+   * `"boundary"` records the render filed, under that record's gate: in an
+   * observe build with a `"render"` listener but no `"boundary"` listener
+   * the boundaries are not measured and this is `0`.
+   */
+  boundaries: number;
+  /**
+   * `"complete"` — the render ran to its end; `"abandoned"` — the consumer
+   * left mid-stream (the sink threw, the readable was cancelled — the
+   * `SSR_STREAM_ABANDONED` finding is that request's account) and the
+   * render was torn down; `"error"` — the render failed: a string render
+   * threw, a stream's uncontained failure wound it down through `onError`.
+   */
+  outcome: "complete" | "abandoned" | "error";
+}
+
+/** The live half of a render record. */
+export interface RenderLive {
+  /** The request event the render ran under; absent for a render outside a request scope. */
+  event?: RequestEvent;
+  /** The trace the render belongs to — `getTraceContext()`'s answer for it. */
+  trace: TraceContext;
+}
+
+export type RenderListener = (event: RenderEvent, live: RenderLive) => void;
 
 // --- "call": a server-function call, from the client -------------------------
 
@@ -309,6 +373,8 @@ declare module "solid-js" {
   interface HostRecordTypes {
     /** Server-function executions, on the server — see `InvocationEvent`. */
     invocation: { event: InvocationEvent; live: InvocationLive };
+    /** Server renders — a document or a frame stream — see `RenderEvent`. */
+    render: { event: RenderEvent; live: RenderLive };
     /** Server-function calls, from the client — see `CallEvent`. */
     call: { event: CallEvent; live: CallLive };
     /** Frame streams, produced or applied — see `FrameEvent`. */

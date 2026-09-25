@@ -36,7 +36,10 @@ export type {
   FrameProducedEvent,
   InvocationEvent,
   InvocationListener,
-  InvocationLive
+  InvocationLive,
+  RenderEvent,
+  RenderListener,
+  RenderLive
 } from "./observe.js";
 export type { TraceContext, TraceProvider } from "./trace.js";
 export type { JSX } from "../jsx/jsx.js";

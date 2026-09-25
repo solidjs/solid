@@ -855,7 +855,7 @@ describe("enablePerformanceTracks", () => {
     expect(holdSpan.properties).toEqual(
       expect.arrayContaining([
         ["Held", "10.00ms"],
-        ["Held writes", "page 1 → 2"], // dev: previews shown (see the scrub test)
+        ["Held writes", "page 1 → 2"], // the engine's dev default `values: "full"`: previews shown
         ["Acknowledged by", "nothing"],
         ["Verdict", "silent hold — no feedback while waiting"],
         ["Interaction", formatOrigin(interaction.origin)]
@@ -1381,9 +1381,12 @@ describe("enablePerformanceTracks", () => {
     expect(attribution.history("rerun")).toEqual([]);
   });
 
-  test("scrub: no value previews, no element text except on a button or a link", () => {
+  test("values: the adapter paints what the engine recorded — `attribution.values` governs it at the source", () => {
     const { on } = measures();
-    enable({ scrub: true });
+    // The adapter scrubs nothing itself: the hold's `values` level decides
+    // what the records carry (see the engine's attribution-values tests),
+    // and the timeline shows exactly that.
+    enable({ attribution: { values: "labels" } });
     const { interactions } = records();
     const [n, setN] = createSignal(0, { name: "n" });
     createRoot(() => createRenderEffect(n, () => {}, { name: "reader" }));
@@ -1403,8 +1406,9 @@ describe("enablePerformanceTracks", () => {
     expect(labels).toContain("click on div#card");
     expect(labels).toContain('click on button#save "Save"');
     expect(labels.some(l => l.includes("Personal note"))).toBe(false);
-    // The formatter itself, unscrubbed, would have said more:
-    expect(formatOrigin(interactions[0].origin)).toContain("Personal note");
+    // The record itself never carried the text; the formatter has nothing
+    // more to say than the label did.
+    expect(formatOrigin(interactions[0].origin)).toBe("click on div#card");
 
     const [span] = rerunSpans(on("Effects"), "Effects");
     expect(span.tooltip).not.toContain("0 → 1");
@@ -1532,32 +1536,6 @@ describe("enablePerformanceTracks", () => {
     // `info` is a marker and nothing more.
     expect(hot).toMatchObject({ label: "HOT_SCOPE_RERUNS", color: "primary-light" });
     expect(hot.issue).toBeUndefined();
-  });
-
-  test("scrub: a finding's marker carries its code, kind and owner, not its sentence", () => {
-    const { marks } = measures();
-    enable({ scrub: true });
-    quiet();
-    OBSERVE!.diagnostics.emit({
-      code: "LONG_HOLD",
-      kind: "responsiveness",
-      severity: "error",
-      message: 'click on div#card "Personal note" waited 1200ms',
-      ownerPath: ["<App>"],
-      data: { holdMs: 1200 }
-    });
-    const [mark] = marks;
-    expect(mark).toMatchObject({
-      label: "LONG_HOLD — <App>",
-      color: "error",
-      tooltip: "responsiveness finding LONG_HOLD"
-    });
-    expect(JSON.stringify(mark)).not.toContain("Personal note");
-    expect(mark.properties!.some(([k]) => k === "Message" || k === "holdMs")).toBe(false);
-    expect(mark.issue).toMatchObject({
-      severity: "error",
-      description: "responsiveness finding LONG_HOLD"
-    });
   });
 
   test("plain mode: a finding is the one-argument console.timeStamp — a Timings marker, now", () => {
