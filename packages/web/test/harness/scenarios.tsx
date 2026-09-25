@@ -1523,6 +1523,16 @@ function ErroredThunkFallbackUnderLoading() {
     </Loading>
   );
 }
+// The same consumer with `on`: the client's dependency node shifts the
+// flatten computed's id by one as well.
+function ErroredThunkFallbackUnderLoadingOn() {
+  const [room] = createSignal("lobby");
+  return (
+    <Loading on={room()} fallback={<p>wait</p>}>
+      <InnerErroredThunk />
+    </Loading>
+  );
+}
 // Fragment child: the boundary consumes an array with the thunk in it.
 function ErroredThunkFallbackInFragment() {
   return (
@@ -2105,6 +2115,52 @@ function SpreadSiblingsMemberHole() {
   );
 }
 
+// The shell's onSettled writes a signal the shell reads (an identity minted
+// on the client — the server rendered with `null`) while a boundary lower on
+// the page is still pending. The write is held for the root pass and must
+// replay when the root scope releases, without waiting for the boundary.
+// Streamed mode is the case: the boundary's fragment arrives after hydrate().
+function ShellWriteBesidePendingBoundary() {
+  const [me, setMe] = createSignal<string | null>(null);
+  onSettled(() => {
+    setMe("otter");
+  });
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "late";
+  });
+  return (
+    <div>
+      <button disabled={me() === null}>send</button>
+      <p>{me() ?? "nobody"}</p>
+      <Loading fallback={<em>wait</em>}>
+        <span>{data()}</span>
+      </Loading>
+    </div>
+  );
+}
+
+// A boundary with `on`: the client creates the dependency node under the
+// boundary owner before the content, shifting the content's hydration ids by
+// one child. The server must account for it or every element under the
+// boundary misses its key (detached duplicates, nothing interactive).
+function LoadingOnBoundary() {
+  const [room] = createSignal("lobby");
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "late";
+  });
+  return (
+    <div>
+      <p>shell</p>
+      <Loading on={room()} fallback={<em>wait</em>}>
+        <span>{data()}</span>
+        <b>#{room()}</b>
+      </Loading>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -2636,6 +2692,14 @@ export const scenarios: Scenario[] = [
     stableSelector: "main, b, button"
   },
   {
+    name: "errored-thunk-fallback-under-loading-on",
+    App: ErroredThunkFallbackUnderLoadingOn,
+    expectedText: "fellCount: 0",
+    update: () => setErroredFallbackCount(1),
+    expectedTextAfterUpdate: "fellCount: 1",
+    stableSelector: "main, b, button"
+  },
+  {
     name: "errored-thunk-fallback-in-fragment",
     App: ErroredThunkFallbackInFragment,
     expectedText: "fellCount: 0tail",
@@ -2911,5 +2975,21 @@ export const scenarios: Scenario[] = [
     expectedTextAfterUpdate: "firstabtail 1",
     stableSelector: "ul, li",
     adoptAll: true
+  },
+  {
+    name: "onsettled-write-shell-beside-pending-boundary",
+    App: ShellWriteBesidePendingBoundary,
+    async: true,
+    expectedText: "sendotterlate",
+    serverText: "send nobody late",
+    stableSelector: "button, p"
+  },
+  {
+    name: "loading-on-boundary",
+    App: LoadingOnBoundary,
+    async: true,
+    expectedText: "shelllate#lobby",
+    serverText: "shell wait late #lobby",
+    stableSelector: "span, b"
   }
 ];

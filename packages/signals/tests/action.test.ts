@@ -7,6 +7,7 @@ import {
   createSignal,
   createStore,
   flush,
+  latest,
   refresh
 } from "../src/index.js";
 
@@ -577,6 +578,61 @@ describe("action", () => {
       expect($a()).toBe(10);
       expect($b()).toBe(20);
       expect($c()).toBe(30);
+    });
+
+    // A composer's shape: submit calls the action and clears its input in the
+    // same tick, so the clear is the action's and lands at settle — but an
+    // input bound through latest() shows the clear at once. Typing during the
+    // hold is a plain rewrite of the held node: latest() shows it too, and it
+    // is what lands at settle, not the earlier clear.
+    it("latest() shows an entangled write at once, and a later rewrite during the hold wins at settle", async () => {
+      const committed: string[] = [];
+      const shown: string[] = [];
+      let release!: () => void;
+      const gate = new Promise<void>(r => (release = r));
+      let text!: () => string;
+      let setText!: (v: string) => void;
+
+      const post = action(function* () {
+        yield gate;
+      });
+
+      createRoot(() => {
+        [text, setText] = createSignal("hello");
+        createRenderEffect(
+          () => text(),
+          v => {
+            committed.push(v);
+          }
+        );
+        createRenderEffect(
+          () => latest(text),
+          v => {
+            shown.push(v);
+          }
+        );
+      });
+      flush();
+
+      post();
+      setText("");
+      flush();
+      expect(text()).toBe("hello");
+      expect(latest(text)).toBe("");
+      expect(shown).toEqual(["hello", ""]);
+
+      setText("a");
+      flush();
+      expect(text()).toBe("hello");
+      expect(latest(text)).toBe("a");
+      expect(shown).toEqual(["hello", "", "a"]);
+
+      release();
+      await new Promise(r => setTimeout(r, 0));
+      flush();
+      expect(text()).toBe("a");
+      expect(committed).toEqual(["hello", "a"]);
+      expect(shown).toEqual(["hello", "", "a"]);
     });
   });
 
