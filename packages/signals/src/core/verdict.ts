@@ -752,7 +752,13 @@ export function isPending(fn: () => any): boolean {
     // this flush (a downstream async pends and holds it), the suppression was
     // wrong and the wrapper must re-ask (#3028). Remember who to wake — the
     // async registration (GlobalQueue.notify) triggers wakeSuppressedProbes.
+    // A TRACKED probe only (#3648): an `untrack(() => isPending(x))` inside a
+    // memo asked for a one-shot answer and declined the re-run its tracked
+    // form would get — enrolling its host anyway marked the memo OPT-dirty on
+    // the companion's lane and re-ran it (a router `query()` refetched, its
+    // first flight abandoned mid-air) for a verdict it never depended on.
     if (
+      tracking &&
       !probe.found &&
       probe.suppressed.length &&
       context &&

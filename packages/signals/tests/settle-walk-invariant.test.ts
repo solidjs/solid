@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { OBSERVE } from "../src/index.js";
 import { settlePendingSource } from "../src/core/async.js";
-import { NOT_PENDING, STATUS_UNINITIALIZED } from "../src/core/constants.js";
+import {
+  CONFIG_DERIVED_OVERRIDE,
+  NOT_PENDING,
+  STATUS_UNINITIALIZED
+} from "../src/core/constants.js";
 import type { Computed } from "../src/core/core.js";
 
 /**
@@ -17,6 +21,7 @@ function fakeNode(overrides: Partial<Record<string, unknown>> = {}): Computed<an
     _name: "fake",
     _statusFlags: STATUS_UNINITIALIZED,
     _pendingValue: NOT_PENDING,
+    _config: 0,
     _x: null,
     _subs: null,
     ...overrides
@@ -74,5 +79,50 @@ describe("settlePendingSource uninitialized-source invariant", () => {
   it("stays silent for an initialized source", () => {
     const codes = captureCodes(() => settlePendingSource(fakeNode({ _statusFlags: 0 })));
     expect(codes).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
+  });
+
+  it("stays silent for a first landing displayed as a derived lane override (#3648)", () => {
+    // asyncWrite's lane branch: the landing sits in the override slot with
+    // CONFIG_DERIVED_OVERRIDE set, `_value` untouched and the flag still on
+    // until the lane's transaction commits and promotes it — the override is
+    // the truth the walk releases dependents into.
+    const codes = captureCodes(() =>
+      settlePendingSource(
+        fakeNode({
+          _config: CONFIG_DERIVED_OVERRIDE,
+          _x: { _error: null, _overrideValue: "landed under the lane" }
+        })
+      )
+    );
+    expect(codes).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
+  });
+
+  it("a dropped derived override (slot disarmed) no longer counts as truth", () => {
+    // The bit alone is not the tell: resolveOptimisticNodes disarms the slot
+    // and clears the bit together, but the predicate reads the slot.
+    const codes = captureCodes(() =>
+      settlePendingSource(
+        fakeNode({
+          _config: CONFIG_DERIVED_OVERRIDE,
+          _x: { _error: null, _overrideValue: undefined }
+        })
+      )
+    );
+    expect(codes).toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
+  });
+
+  it("prints its message when it fires, not only the repair-guide footer (#3648)", () => {
+    // The site runs from promise machinery with no caller to throw to, so it
+    // reports the entry itself; emitDiagnostic alone queued only the footer.
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      settlePendingSource(fakeNode());
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(String(error.mock.calls[0][0])).toContain(
+        "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that never produced a value"
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 });
