@@ -2635,7 +2635,10 @@ depends on this stage.
   leak. Stage 8 is that moment. The staged plan (warn now, throw
   later) is unchanged for bounded renders; a frame render with open
   holds is where the throw lands first. Public behavior change —
-  flagged; scope is open decision (a).
+  flagged. _Decided 2026-09-25: not built in Part B, and there is no
+  scope to decide — the rule is blanket (RFC 11 §5: no server write
+  is legitimate anywhere; all server input is derived). The throw
+  follows the deprecation window, not the arrival of persistence._
 
 #### Work slices
 
@@ -2697,7 +2700,9 @@ framing-follows-method rule, the per-page channel, the
 `live: { transport, hold }` server configuration, `connected` on
 the frame handle. Deferred unbuilt: the hidden-page pause.
 
-**Open decisions:** (a) `SERVER_WRITE` throw scope; (b) CLOSED —
+**Open decisions:** (a) CLOSED — `SERVER_WRITE` is blanket (RFC 11
+§5), no persistent-render scope, the throw rides the deprecation
+window; (b) CLOSED —
 connection state is `onstatus`; (c) safety cap: `documentWindow`
 knob or fixed dev-only warning; (d) `serverFunctionUrl` on a live
 reference — refuse, or answer and document the prefetch hazard;

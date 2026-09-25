@@ -493,8 +493,11 @@ document.spec.tsx` (brand → first value + close; unbranded pumps; nested
   fallback after content), `frames-live-showing.spec.tsx` (client-only
   reader of a shown call: adopt, then one connect), and two cases in
   `frames-late-boundary-client.spec.tsx` (deferred intercept lands / misses
-  after exhaustion). Open (a) (`SERVER_WRITE` throw scope in persistent
-  renders) is NOT decided here — left for the maintainer.
+  after exhaustion). Open (a) is CLOSED, not built: the `SERVER_WRITE`
+  rule is blanket (RFC 11 §5 — no server write is legitimate anywhere;
+  all server input is derived), so there is no persistent-render scope
+  to draw. The warning→throw flip stays on the deprecation window's
+  clock, not Part B's.
 - **Fixed while building the demo (2026-09-25).** The demo's document call
   and its standing call differ (`roomPanel(room, null)` on the page, the
   browser mints the identity, `roomPanel(room, me)` after) — a kept
@@ -736,21 +739,21 @@ prev)`; corrected to `(prev, value)`. Pinned:
 | `textDigest(text)` on `server-functions/shared` (internal; re-exported by the server entry for the frames artifact); `frameSkeleton(html)` exported by the frame-sink module only (test seam, not on the entry)                                                                                                                                                             | internal                            | B4    |
 | Room demo: the render counter is a live hole (`{renderNo()}`) so a reconnect transfers it alone                                                                                                                                                                                                                                                                             | example                             | B4    |
 | Frame attr holes: an `attr` re-emission matches the element to the tag's whole attribute text (sets what is present, removes what is not; keeps `data-lha` and a `<details>`/`<dialog>` `open`) — the root morph's rule; `removed` still honored. Attributes a client behavior added to an attr-hole element are removed at the next re-emission, as the morph removes them | behavior change, frames client      | B4    |
-| `SERVER_WRITE` throws in persistent renders — NOT built in Part B; open (a), maintainer's stance: server input is derived, writes stay forbidden; scope (persistent only vs everywhere) to decide                                                                                                                                                                           | behavior change                     | B3+   |
+| `SERVER_WRITE` throws in persistent renders — NOT built in Part B, and no longer open: the rule is blanket (RFC 11 §5), server input is derived and writes stay forbidden everywhere; the throw lands when the deprecation window closes                                                                                                                                    | behavior change                     | B3+   |
 | ~~`documentWindow` on `renderToStream`~~ — open (c) decided: fixed dev-only warning, no knob                                                                                                                                                                                                                                                                                | withdrawn                           | B3    |
 | `serverFunctionUrl(liveRef, ...args)` returns the live address `<endpoint>/live/<id>[?args=...]` (was: the data address, which the live call never requests) — open (d) decided                                                                                                                                                                                             | behavior change                     | B6    |
 | Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `Accept: text/event-stream` as declaration, framing-follows-method, per-page channel, `live: { transport, hold }`, `connected` on the frame handle                                                                                                                                                                     | —                                   | —     |
 
 ## Open decisions
 
-| #   | Question                                                                                                                                  | Decide in |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| (a) | `SERVER_WRITE` throw scope in persistent renders                                                                                          | B3        |
-| (b) | Connection state surface — CLOSED: `onstatus`                                                                                             | —         |
-| (c) | Safety cap — CLOSED (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE` at 5s; no knob                                             | —         |
-| (d) | `serverFunctionUrl` on a live reference — CLOSED (B6): refuses, like a POST reference; the one-shot url is the inner `GET(fn)`'s          | —         |
-| (e) | How the server knows a call is live — CLOSED (D13): the address (`/live/<id>`); a server-side `live` declaration cross-checks in dev only | —         |
-| (f) | Have-list header — CLOSED (B4): `X-Frame-Have`, `key=digest` pairs, omitted over 4096 encoded bytes (full snapshot then)                  | —         |
+| #   | Question                                                                                                                                                                                          | Decide in |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| (a) | `SERVER_WRITE` throw scope — CLOSED: blanket per RFC 11 §5 (server input is derived, writes forbidden everywhere); the throw follows the deprecation window, nothing scoped to persistent renders | —         |
+| (b) | Connection state surface — CLOSED: `onstatus`                                                                                                                                                     | —         |
+| (c) | Safety cap — CLOSED (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE` at 5s; no knob                                                                                                     | —         |
+| (d) | `serverFunctionUrl` on a live reference — CLOSED (B6): returns the live address, the url the call requests (fetch by hand; not a preload target); the one-shot url is the inner `GET(fn)`'s       | —         |
+| (e) | How the server knows a call is live — CLOSED (D13): the address (`/live/<id>`); a server-side `live` declaration cross-checks in dev only                                                         | —         |
+| (f) | Have-list header — CLOSED (B4): `X-Frame-Have`, `key=digest` pairs, omitted over 4096 encoded bytes (full snapshot then)                                                                          | —         |
 
 ## Known costs (stated, not solved here)
 
