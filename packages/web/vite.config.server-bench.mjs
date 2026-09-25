@@ -17,7 +17,15 @@ const rootDir = resolve(import.meta.dirname);
 
 export default defineConfig({
   plugins: [
-    solidPlugin({ compiler, solid: { generate: "ssr", hydratable: true } }),
+    // Vitest compiles with `dev: true`, and `sourceNames` follows `dev` in
+    // both compilers — which, for SSR output, keeps `createComponent(Comp,
+    // props, "Name")` in place of the inlined `Comp(props)` so the dev/observe
+    // runtime can run each component under a labelled transparent owner.
+    // That owner is the diagnostics tier's cost, not the SSR runtime cost
+    // this lane tracks (search-results: 50 items is ~24% of the render under
+    // CodSpeed). Pinned off so the lane keeps measuring the production
+    // component shape the way it did before the default followed `dev`.
+    solidPlugin({ compiler, solid: { generate: "ssr", hydratable: true, sourceNames: false } }),
     codspeedPlugin()
   ],
   test: {
