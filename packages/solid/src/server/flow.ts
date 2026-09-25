@@ -297,9 +297,13 @@ export function Loading(props: {
   on?: any;
   children: SolidElement;
 }): SolidElement {
+  // Same condition as the client's Loading: the presence of `on` shapes the
+  // boundary's hydration ids, so both sides must decide it the same way.
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
   return createLoadingBoundary(
     () => props.children,
-    () => props.fallback
+    () => props.fallback,
+    onOpt
   ) as unknown as SolidElement;
 }
 
