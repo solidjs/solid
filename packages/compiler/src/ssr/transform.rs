@@ -3461,6 +3461,10 @@ impl<'a> ConditionBuilder<'a> for AstSsrTransform<'a, '_> {
 }
 
 impl<'a> crate::shared::mode_lower::ModeLower<'a> for AstSsrTransform<'a, '_> {
+    fn source(&self) -> &str {
+        self.source
+    }
+
     fn wrap_conditionals_enabled(&self) -> bool {
         self.wrap_conditionals
     }
