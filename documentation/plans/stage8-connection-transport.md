@@ -537,6 +537,79 @@ prev)`; corrected to `(prev, value)`. Pinned:
   when it settles; a hole that never settles is never emitted.
 - **Demo:** devtools shows an empty reconnect after hydration when nothing
   changed.
+- **Built (2026-09-25) — the frame face; the document seed is left, with
+  its design below.** Digests: `textDigest` (the `positionDigest` hash over
+  a string) is minted by the frame sink on every content emission — `html`
+  carries the digest of the root's SKELETON (the html with every live-hole
+  range and slot range emptied, markers kept: `frameSkeleton`) plus a
+  `holes` map of the digests of every live hole inside it (`lh:N` over the
+  marker-free range, `lha:N` over the attr baseline the engine registers
+  through the new `sink.attrBaseline`); `fragment` carries its own digest
+  and its `holes`; `hole`/`attr` carry theirs (the document channel's ops
+  too). Client ledger: `FrameImpl` keeps `have()` — reset by a root apply
+  to `{ "": digest, ...holes }`, extended at each REVEAL (a fragment
+  received but not revealed is not claimed — a death between the two must
+  still ask for it), kept current by hole/attr applies — applied state,
+  never the DOM. Resume request: the live loop asks the response handler
+  per connect (`responseHandler.resume(info)` → `{ position, headers }`);
+  the frames handler answers with the address's version ordinal as
+  `Last-Event-ID` and the ledger encoded under `X-Frame-Have` (decision (f):
+  that name; `key=digest` pairs, comma-joined; omitted over 4096 bytes —
+  the render is then a full snapshot). Server rule: `frameTransformResult`
+  reads the header at the live address only and passes it as
+  `FrameStreamOptions.resume.have`; the sink skips the root (and its
+  assets) when the skeleton digest matches, then emits each top-level hole
+  whose digest differs (nested markers kept, so nested holes stay live) and
+  each addressed attr whose text differs; a fragment the list names is
+  skipped — no fragment, no reveal, no styles — in favor of the differing
+  holes inside it (its keyed error still surfaces); a fragment the list
+  lacks streams whole as it settles; fallback reveals over listed content
+  never ship. A skeleton that differs re-ships the root and the render is
+  the progressive stream it always was — the client resets its ledger on a
+  root. "Settled" is by construction: the root and fragment html the sink
+  sees are resolved. Pinned: `test/server/frame-live-resume.spec.tsx`
+  (digests on every emission; no-op reconnect → `start, complete`; changed
+  root hole → one hole; changed hole inside a revealed fragment → one hole,
+  no fragment; fragment the client lacks → fragment + reveal, no root; a
+  pending hole never emitted while a settled sibling is; skeleton change →
+  full render), `test/frames-live-resume.spec.tsx` (ledger over
+  root/fragment/reveal/hole; first connect carries nothing; reconnects
+  carry the ordinal and the ledger; a digest-less root leaves no ledger),
+  `frame-live-framing.spec.tsx` (the header through
+  `handleServerFunctionRequest`; ignored at the data address). Verified in
+  the browser: chaos → the reconnect request carries `Last-Event-ID: 1`
+  and the have-list; the answer is 279 bytes — `start`, the composer's
+  `slot` record, ONE `hole` (the render counter) — on the same nodes.
+- **Demo adjustment.** The panel's render counter was a static hole
+  (`{render}`), which made every skeleton differ and every reconnect a full
+  root. It reads through a call now (`{renderNo()}`), so it is a live hole
+  and the one thing a reconnect transfers. General lesson recorded in the
+  README: what the author wants compared per reconnect must be a hole.
+- **Left: the document seed (the "empty reconnect after hydration").** The
+  connect after adoption has no ledger — `have()` is `undefined` for a
+  document-adopted interior — so it is a full snapshot today (as it was;
+  no fallback: the root morphs over adopted content). Seeding it needs the
+  document face to name its holes and fragments the way a FRAME render of
+  the same call would, and it does not: the document's live-hole engine is
+  one per document (`lh:N` numbered across every component on the page —
+  the client relies on document-unique ids to geometry-route `sc:live`
+  ops), and `pl-N` fragment keys are document-global DOM ids, while a
+  frame render numbers both from zero. The design: per-component-scope
+  ordinals on the document face (the engine counts per scope owner; the
+  renderer counts boundaries per scope), a have record per frame
+  (`sc:have:<fid>`, frame-keyed → `[digest, documentKey]`) emitted at the
+  component's end-of-scope, `sc:live` ops carrying `fid` so per-scope ids
+  can repeat across components, the have-list entry format extended with
+  the client's alias (`key=digest@clientKey`) and the sink speaking the
+  client's names for the rest of the response when it skips the root, and
+  the document's skeleton digest computed over the frame-equivalent bytes
+  (slots stripped — the frame face renders them empty, the document face
+  inline). Not started; flagged for the maintainer as the B4 remainder.
+- **Known limitation.** An attr hole re-emitted on a resume carries no
+  `removed` list (the server has the client's previous text only as a
+  digest); attributes that vanished between renders are not removed until
+  the next full render. Content holes are unaffected (a range is replaced
+  whole).
 
 ### B5 — projections pump in frame scope
 
@@ -620,7 +693,12 @@ prev)`; corrected to `(prev, value)`. Pinned:
 | Signals core: the lane landing in `asyncWrite` calls a user `equals` as `(prev, next)` like every other commit path (was: `(next, prev)`)                                                                                                                                                                                                               | bug fix, comparator contract        | B3    |
 | Server `createProjection`/`createStore` over an async iterable in a server-owned frame render pumps (holds the response, commits per yield, reads follow the live state); a live-branded source there stays connected (was: first value, close); under a live component's document render every source takes its first value (was: only hybrid/branded) | behavior change, server projections | B5    |
 | Server projection slot-border trace: the snapshot waits only for undrained writes, not for a pull in flight; under the frame pump the trace's batches ship at the pump's pace (earlier than the serializer's)                                                                                                                                           | behavior, trace timing              | B5    |
-| Have-list header; hole digests                                                                                                                                                                                                                                                                                                                          | wire                                | B4    |
+| Frame chunks carry server-minted digests: `html` (`digest` = skeleton, `holes` map), `fragment` (`digest`, `holes`), `hole` (`digest`, `holes` for nested), `attr` (`digest`); the document `sc:live` channel's `hole`/`attr` ops carry `digest` — `FrameChunk` gains the `hole`/`attr` members and these optional fields                               | wire + type                         | B4    |
+| `X-Frame-Have` request header (`FRAME_HAVE_HEADER`, `FRAME_HAVE_BUDGET` = 4096 exported from `@solidjs/web/frames` client and server; `encodeHaveList`/`decodeHaveList` internal) — the resume's have-list, `key=digest` pairs; `Last-Event-ID` on a frame reconnect is the address's version ordinal (open (f) decided)                                | wire                                | B4    |
+| `FrameStreamOptions.resume?: { have }` — a conditional render: root skipped on skeleton match, holes/attrs emitted only when settled and different, listed fragments skipped for their holes, no reveal (fallback reveals included) over listed content; `frameTransformResult` reads the header at the live address                                    | new option + server behavior        | B4    |
+| `Frame.have?()` — the mount's ledger of what it shows (applied state); `createServerComponentHandler(...).resume(info)` and `responseHandler.resume?(info)` → `{ position, headers }` consulted by the `live` loop per connect (the wire slot gains `headers`)                                                                                          | new API                             | B4    |
+| `textDigest(text)` on `server-functions/shared` (internal; re-exported by the server entry for the frames artifact); `frameSkeleton(html)` exported by the frame-sink module only (test seam, not on the entry)                                                                                                                                         | internal                            | B4    |
+| Room demo: the render counter is a live hole (`{renderNo()}`) so a reconnect transfers it alone                                                                                                                                                                                                                                                         | example                             | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                                                                                                                                                                             | behavior change                     | B3+   |
 | ~~`documentWindow` on `renderToStream`~~ — open (c) decided: fixed dev-only warning, no knob                                                                                                                                                                                                                                                            | withdrawn                           | B3    |
 | `serverFunctionUrl` refusing live references — only if open (d) says                                                                                                                                                                                                                                                                                    | behavior change (cond.)             | B6    |
@@ -635,7 +713,7 @@ prev)`; corrected to `(prev, value)`. Pinned:
 | (c) | Safety cap — CLOSED (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE` at 5s; no knob                                             | —         |
 | (d) | `serverFunctionUrl` on a live reference: refuse or document                                                                               | B6        |
 | (e) | How the server knows a call is live — CLOSED (D13): the address (`/live/<id>`); a server-side `live` declaration cross-checks in dev only | —         |
-| (f) | Have-list header name and budget                                                                                                          | B4        |
+| (f) | Have-list header — CLOSED (B4): `X-Frame-Have`, `key=digest` pairs, omitted over 4096 encoded bytes (full snapshot then)                  | —         |
 
 ## Known costs (stated, not solved here)
 

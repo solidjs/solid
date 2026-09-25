@@ -2497,7 +2497,26 @@ value belonged in durable state.
    a boundary still streaming answers with a promise that lands at
    its reveal, so the connect follows the fragment. No live bit in
    the shell record — the client derives the address from its own
-   call. `Last-Event-ID` / have-list land with B4._
+   call. `Last-Event-ID` / have-list land with B4._ _Built
+   2026-09-25 (B4), frame face: every content chunk carries a
+   server-minted digest (root = skeleton digest + a `holes` map;
+   fragment/hole/attr their own); the mount keeps a ledger of what
+   it has APPLIED (a fragment counts at its reveal); the loop asks
+   the frames handler per connect and sends the version ordinal as
+   `Last-Event-ID` and the ledger as `X-Frame-Have` (`key=digest`
+   pairs, omitted over 4096 bytes → full snapshot); the sink skips
+   the root on a skeleton match and emits only the settled,
+   differing holes — never a fragment or a fallback reveal over
+   content the list names. NOT yet built: seeding the ledger from
+   the document face. The document's hole engine numbers `lh:N`
+   across the whole page and `pl-N` keys are document-global, while
+   a frame render numbers both from zero, so the adopted interior's
+   names do not align with what the same call's frame render would
+   emit; the connect after adoption is therefore a full snapshot (a
+   morph over adopted content, still no fallback) and every later
+   reconnect is conditional. Closing it needs per-scope ordinals on
+   the document face, `fid`-routed `sc:live` ops, and an alias in
+   the have-list entry (`key=digest@clientKey`)._
 4. **Supersession from another response is a death.** A live
    address whose store receives a newer version from a DIFFERENT
    response — a single-flight region for a call the mutation

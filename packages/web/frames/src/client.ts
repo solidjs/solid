@@ -81,6 +81,7 @@ export {
 } from "./frame-client.js";
 export {
   FRAME_STREAM_HEADER,
+  FRAME_HAVE_HEADER,
   applyFrameResponse,
   isFrameStreamResponse,
   createServerComponentHandler

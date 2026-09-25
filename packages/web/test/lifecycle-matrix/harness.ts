@@ -120,16 +120,20 @@ export function openLiveFrameResponse(id: string) {
 export function stubLiveFetch(id: string, count: number) {
   const held = Array.from({ length: count }, () => openLiveFrameResponse(id));
   const urls: string[] = [];
+  // Each fetch's RequestInit, for asserting on request headers (the resume
+  // request's `Last-Event-ID` and have-list).
+  const inits: any[] = [];
   vi.stubGlobal("fetch", async (input: any, init: any) => {
     const url = typeof input === "string" ? input : input.url;
     urls.push(url);
+    inits.push(init);
     const next = held[urls.length - 1];
     if (!next) throw new Error(`unexpected fetch #${urls.length}`);
     if (init && init.signal)
       init.signal.addEventListener("abort", () => next.abort(init.signal.reason), { once: true });
     return next.response;
   });
-  return { held, urls };
+  return { held, urls, inits };
 }
 
 /** Poll until `cond` holds (the live loop's backoff is real time: 500ms first). */

@@ -28,8 +28,43 @@ import { DEV, OBSERVE } from "solid-js";
  */
 export type FrameChunk =
   | { type: "start"; id: string; version: number }
-  | { type: "html"; id: string; version: number; html: string }
-  | { type: "fragment"; id: string; version: number; key: string; html: string }
+  | {
+      type: "html";
+      id: string;
+      version: number;
+      html: string;
+      /** Server-minted digest of the root's skeleton (RFC 11 §9.5, Hole hashes). */
+      digest?: string;
+      /** Digests of the live holes inside the html, by ledger key (`lh:N`, `lha:N`). */
+      holes?: Record<string, string>;
+    }
+  | {
+      type: "fragment";
+      id: string;
+      version: number;
+      key: string;
+      html: string;
+      digest?: string;
+      holes?: Record<string, string>;
+    }
+  | {
+      type: "hole";
+      id: string;
+      version: number;
+      key: string;
+      html: string;
+      digest?: string;
+      holes?: Record<string, string>;
+    }
+  | {
+      type: "attr";
+      id: string;
+      version: number;
+      key: string;
+      attrs: string;
+      removed?: string[];
+      digest?: string;
+    }
   | {
       type: "reveal";
       id: string;
@@ -164,6 +199,16 @@ export interface Frame {
    * different stream space.
    */
   rebase(): void;
+  /**
+   * The frame's have-list (RFC 11 §9.5): the server-minted digests of
+   * what this frame currently SHOWS — the root skeleton under `""`, each
+   * live hole and attr hole by ledger key, each revealed fragment by name.
+   * Kept at apply time, never derived from the DOM. `undefined` when the
+   * content's provenance carried no digests (a document-adopted interior
+   * with no seed, a re-materialized capture): a resume then takes the full
+   * snapshot.
+   */
+  have?(): Record<string, string> | undefined;
   /** Tear down: slot cleanups cascade, later chunks are ignored. Idempotent. */
   dispose(): void;
 }
@@ -518,10 +563,20 @@ export function chunkToRecords(chunk) {
     case "start":
     case "data":
       return {};
+    // Content records carry the server's digests through (see the ledger
+    // on FrameImpl): the root's and a fragment's own, and the map of live
+    // holes inside them.
     case "html":
-      return { "": { kind: "html", value: chunk.html } };
+      return { "": { kind: "html", value: chunk.html, digest: chunk.digest, holes: chunk.holes } };
     case "fragment":
-      return { [`seg:${chunk.key}`]: { kind: "html", value: chunk.html } };
+      return {
+        [`seg:${chunk.key}`]: {
+          kind: "html",
+          value: chunk.html,
+          digest: chunk.digest,
+          holes: chunk.holes
+        }
+      };
     case "reveal": {
       const records = {};
       const gate = chunk.fallback ? "fallback" : "reveal";
@@ -539,13 +594,25 @@ export function chunkToRecords(chunk) {
       // A live-hole re-emission: the re-resolved HTML for a marked content
       // range (`<!--lh:N-->…<!--lh:/N-->`). Response-scoped like segments —
       // hole ids restart per render — so these clear on version bumps.
-      return { [`hole:${chunk.key}`]: { kind: "html", value: chunk.html } };
+      return {
+        [`hole:${chunk.key}`]: {
+          kind: "html",
+          value: chunk.html,
+          digest: chunk.digest,
+          holes: chunk.holes
+        }
+      };
     case "attr":
       // A live attr-hole re-emission: rebuilt attribute text for the
       // element addressed `data-lha="key"`, with explicit removals.
       // Response-scoped like hole records (addresses restart per render).
       return {
-        [`attr:${chunk.key}`]: { kind: "attrs", value: chunk.attrs, removed: chunk.removed }
+        [`attr:${chunk.key}`]: {
+          kind: "attrs",
+          value: chunk.attrs,
+          removed: chunk.removed,
+          digest: chunk.digest
+        }
       };
     case "complete":
       return { ":complete": true };
@@ -759,6 +826,14 @@ class FrameImpl {
   // mount, not per store — a fresh mount seeding from a warm resident
   // store must replay hole records over the re-materialized shell.
   #appliedHoles = new Map();
+  // The have-list (RFC 11 §9.5): what this mount currently shows, by the
+  // server's own digests. Reset by a root apply (the root IS the content;
+  // its `holes` seed the entries inside), extended by each reveal, kept
+  // current by each hole/attr apply. Applied-state, so it tracks the DOM
+  // without reading it — a fragment received but not yet revealed is not
+  // in it, and a resume whose connection dies in between still asks for
+  // the reveal. `undefined` until a digest-carrying root applies.
+  #have;
   #slots;
   #mountedSlots = new Set();
   #slotCleanups = new Map();
@@ -959,6 +1034,8 @@ class FrameImpl {
       const reason = this.#hasContent ? "morph" : "materialize";
       this.#applyRoot(root.value);
       this.#appliedRootValue = root.value;
+      // The root resets the ledger: everything shown is now this root.
+      this.#have = root.digest === undefined ? undefined : { "": root.digest, ...root.holes };
       this.#applied(version, reason);
     }
 
@@ -1027,11 +1104,13 @@ class FrameImpl {
             console.error(`Live hole ${key.slice(5, -6)} failed on the server; latched:`, record);
         } else if (this.#applyHole(key.slice(5), record.value)) {
           this.#appliedHoles.set(key, record);
+          this.#recordHave(key.slice(5), record);
           this.#applied(version, "morph");
         }
       } else if (key.startsWith("attr:")) {
         if (this.#applyAttrs(key.slice(5), record.value, record.removed)) {
           this.#appliedHoles.set(key, record);
+          this.#recordHave("lha:" + key.slice(5), record);
           this.#applied(version, "morph");
         }
       }
@@ -1671,6 +1750,24 @@ class FrameImpl {
     this.#version = undefined;
   }
 
+  /** The have-list of what this mount shows (see the `Frame` interface). */
+  have() {
+    return this.#have;
+  }
+
+  /**
+   * Ledger upkeep for an applied content record: the entry under `key`
+   * takes the record's digest and the map of holes inside it. A record
+   * without a digest (an older producer) leaves the entry as it was.
+   * Without a ledger (no digest-carrying root applied) there is nothing to
+   * keep — the next resume is a full snapshot either way.
+   */
+  #recordHave(key, record) {
+    if (!this.#have || !record || record.digest === undefined) return;
+    this.#have[key] = record.digest;
+    if (record.holes) Object.assign(this.#have, record.holes);
+  }
+
   dispose() {
     if (this.#disposed) return;
     // Unregister FIRST: a last-unmount may capture this boundary's interior
@@ -1884,6 +1981,7 @@ class FrameImpl {
       });
       tpl.remove();
       this.#revealed.add(name);
+      this.#recordHave(name, content);
       return;
     }
 
@@ -1893,6 +1991,7 @@ class FrameImpl {
     tpl.remove();
     closing && closing.remove();
     this.#revealed.add(name);
+    this.#recordHave(name, content);
   }
 
   /**

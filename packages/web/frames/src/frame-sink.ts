@@ -88,6 +88,18 @@ export interface FrameStreamOptions {
    * event stream. The chunk protocol is unchanged; only the framing is.
    */
   live?: boolean;
+  /**
+   * A RESUME (RFC 11 §9.5): the have-list the reconnecting client sent —
+   * the digests it holds for this address, keyed as the chunks carry them
+   * (`""` the root skeleton, `lh:N` / `lha:N` holes, `pl-N` revealed
+   * fragments; see `FRAME_HAVE_HEADER`). With it the render is
+   * conditional: the root html is skipped when its skeleton digest matches,
+   * and a hole or fragment is emitted only once it has settled and its
+   * digest differs — so a no-op reconnect transfers nothing and a fallback
+   * is never emitted over content. Absent, the render is the progressive
+   * stream it always was. `frameTransformResult` reads it off the request.
+   */
+  resume?: { have: Record<string, string> };
   /** Remaining `renderToStream` options (plugins, onError, manifest, ...). */
   [key: string]: unknown;
 }
@@ -172,7 +184,8 @@ import {
   createChunk,
   createEventChunk,
   frameAddress,
-  serializeStream
+  serializeStream,
+  textDigest
 } from "../../server-functions/src/shared.js";
 import {
   armLiveBody,
@@ -182,7 +195,9 @@ import {
 import { isResponseEnvelope } from "../../src/response.js";
 import { observeFrame } from "../../src/server-observe.js";
 import {
+  FRAME_HAVE_HEADER,
   FRAME_STREAM_HEADER,
+  decodeHaveList,
   SERVER_COMPONENT,
   SERVER_COMPONENT_ADDRESS,
   SERVER_COMPONENT_SOURCE,
@@ -254,19 +269,123 @@ export const SERVER_COMPONENT_BOOTSTRAP = SERVER_COMPONENT_BOOTSTRAP_EXPR + ";";
  */
 export function createFrameSink(
   emit: (chunk: FrameChunk) => void,
-  frame: FrameAddress
+  frame: FrameAddress,
+  have?: Record<string, string>
 ): Record<string, (...args: any[]) => void>;
+
+// ---- hole digests (Stage 8 B4) ----
+//
+// Every content emission carries a server-minted digest of what it emits,
+// and a root/fragment emission additionally carries the digests of the live
+// holes INSIDE it (`holes`), so the client's per-address ledger can name
+// what it holds without ever hashing DOM. A live-hole range is
+// `<!--lh:N-->…<!--lh:/N-->`; the lazy body with the id backreference
+// matches the OUTERMOST range at each position (an inner range closes with
+// its own id), so a top-level scan sees each root hole once and nested
+// holes are reached by recursing into the body.
+const HOLE_RANGE = /<!--lh:(\d+)-->([\s\S]*?)<!--lh:\/\1-->/g;
+const SLOT_RANGE = /<!--slot:([^>]*?):start-->[\s\S]*?<!--slot:\1:end-->/g;
+const ATTR_ADDRESS = / data-lha="([^"]*)"/g;
+// The hole's digest is over its marker-FREE html — the same baseline the
+// engine equality-gates on (`b.last`), so a sweep's re-emission and a
+// resume's compare agree on what "unchanged" means.
+const stripHoleMarkers = html => html.replace(/<!--lh:\/?\d+-->/g, "");
+
+/**
+ * The root's SKELETON: its html with every live-hole range and slot range
+ * emptied (markers kept). What remains is the structure hole emissions
+ * address into — static markup, marker ids and their nesting, placeholder
+ * ids and fallbacks. Equal skeletons mean equal hole/fragment keys, which
+ * is what makes emitting into the client's existing DOM sound; a differing
+ * one re-ships the root whole (structure changed — a hole count that moved
+ * with data, a static branch that flipped).
+ */
+export function frameSkeleton(html) {
+  return html
+    .replace(HOLE_RANGE, "<!--lh:$1--><!--lh:/$1-->")
+    .replace(SLOT_RANGE, "<!--slot:$1:start--><!--slot:$1:end-->");
+}
+
+/**
+ * Digests of every live-hole range in `html` (nested included) and of every
+ * attr hole addressed in it whose baseline text the sink holds.
+ */
+function holeDigests(html, attrText, into = {}) {
+  for (const m of html.matchAll(HOLE_RANGE)) {
+    into["lh:" + m[1]] = textDigest(stripHoleMarkers(m[2]));
+    holeDigests(m[2], null, into);
+  }
+  if (attrText) {
+    for (const m of html.matchAll(ATTR_ADDRESS)) {
+      const key = "lha:" + m[1];
+      const text = attrText.get(key);
+      if (text !== undefined) into[key] = textDigest(text);
+    }
+  }
+  return into;
+}
+
+/** Attach a `holes` map to a chunk when it names anything (wire hygiene). */
+function withHoles(chunk, holes) {
+  for (const _ in holes) {
+    chunk.holes = holes;
+    break;
+  }
+  return chunk;
+}
 
 /**
  * A sink emitting the transport-agnostic FrameChunk stream. `emit(chunk)` is
  * the envelope boundary (array push in tests, an encoded write over a real
- * transport). `id`/`version` address the frame.
+ * transport). `id`/`version` address the frame. `have` is a resume's
+ * have-list (see `FrameStreamOptions.resume`): present, the sink emits
+ * conditionally against it.
  *
  * @param {(chunk: object) => void} emit
  * @param {{ id: string, version: number }} frame
+ * @param {Record<string, string>} [have]
  */
-export function createFrameSink(emit, frame) {
+export function createFrameSink(emit, frame, have) {
   const { id, version } = frame;
+  // Conditional emission (Stage 8 B4, RFC 11 §9.5 Server face 2). `have`
+  // is the client's ledger for this address; `conditional` arms once the
+  // shell decides the client's structure stands (skeleton digests equal)
+  // — from then on, fragments the list names are skipped in favor of the
+  // holes inside them that differ, and reveals over them (fallback reveals
+  // included) never ship. A skeleton that differs re-ships the root and the
+  // render proceeds as the progressive stream it always was: the client
+  // resets its ledger on a root html, so nothing it then holds is stale.
+  let conditional = false;
+  const skipped = new Set();
+  // Attr-hole baselines by key (`lha:N` → attribute text), registered by
+  // the live-hole engine as it addresses elements. Attr text is not
+  // recoverable from html the way a content range is, so the digests ride
+  // from here.
+  const attrText = new Map();
+  // Emit what differs inside `html` against the have-list: each top-level
+  // hole whose digest moved (its nested holes ride inside it, markers kept,
+  // so they stay individually live), each addressed attr whose text moved.
+  // An equal top-level hole covers its interior — the digest is over the
+  // whole range — so nothing below it needs a look.
+  const emitDiffering = html => {
+    for (const m of html.matchAll(HOLE_RANGE)) {
+      const key = "lh:" + m[1];
+      const digest = textDigest(stripHoleMarkers(m[2]));
+      if (have[key] === digest) continue;
+      emit(
+        withHoles({ type: "hole", id, version, key, html: m[2], digest }, holeDigests(m[2], null))
+      );
+    }
+    // (Attr chunks are keyed by the bare address, as the engine emits them;
+    // the ledger keys them `lha:N`.)
+    for (const m of html.matchAll(ATTR_ADDRESS)) {
+      const text = attrText.get("lha:" + m[1]);
+      if (text === undefined) continue;
+      const digest = textDigest(text);
+      if (have["lha:" + m[1]] === digest) continue;
+      emit({ type: "attr", id, version, key: m[1], attrs: text, digest });
+    }
+  };
   // Fragments that streamed styles ahead of a grouped reveal; the group's
   // reveal chunk must tell the consumer to wait on them.
   const styledKeys = new Set();
@@ -334,6 +453,14 @@ export function createFrameSink(emit, frame) {
       if (!regionKeys.has(key)) regionKeys.set(key, childId);
     },
     shell(html, meta = {}) {
+      const digest = textDigest(frameSkeleton(html));
+      // A resume whose structure the client already shows: no root, no
+      // assets it loaded with it — only the holes that moved.
+      if (have && have[""] === digest) {
+        conditional = true;
+        emitDiffering(html);
+        return;
+      }
       // Pre-flush assets (entry modules, hoisted boundary styles) are head
       // splices in the document sink; a frame carries them as an assets chunk
       // ahead of the shell html.
@@ -356,7 +483,7 @@ export function createFrameSink(emit, frame) {
         }
         emit(chunk);
       }
-      emit({ type: "html", id, version, html });
+      emit(withHoles({ type: "html", id, version, html, digest }, holeDigests(html, attrText)));
     },
     data(record) {
       // Keyed codec record ({ key, node, initial }) from createJSONSerializer
@@ -398,6 +525,27 @@ export function createFrameSink(emit, frame) {
       // gate the reveal (they load async); inline styles are CSS content that
       // applies on insertion, carried by value, no gating.
       const fid = frameOf(key);
+      // A resume, and the client shows this fragment revealed: the reveal
+      // is not owed (nor its styles — they loaded with it). What may be
+      // owed is inside: holes the content settled differently. A fragment
+      // the list does NOT name is one the client shows as a fallback — it
+      // streams as it settles, as any reveal the client lacks does.
+      if (conditional && fid === id && have[key] !== undefined) {
+        skipped.add(key);
+        scheduleSweep();
+        // An errored re-render stands behind the content the client keeps;
+        // the failure still surfaces as the keyed diagnostic it always was.
+        if (meta.error) {
+          emit({
+            type: "error",
+            id: fid,
+            version,
+            key,
+            error: { message: String((meta.error && meta.error.message) || meta.error) }
+          });
+        } else emitDiffering(value);
+        return;
+      }
       const links = (meta.styles && meta.styles.links) || [];
       const inline = (meta.styles && meta.styles.inline) || [];
       if (links.length || inline.length) {
@@ -416,7 +564,12 @@ export function createFrameSink(emit, frame) {
         }
         emit(chunk);
       }
-      emit({ type: "fragment", id: fid, version, key, html: value });
+      emit(
+        withHoles(
+          { type: "fragment", id: fid, version, key, html: value, digest: textDigest(value) },
+          holeDigests(value, attrText)
+        )
+      );
       // A fragment resolving is a settlement: values its async work produced
       // are now visible to watched args.
       scheduleSweep();
@@ -445,6 +598,10 @@ export function createFrameSink(emit, frame) {
       // registration order within each frame.
       const byFrame = new Map();
       for (const key of keys) {
+        // A resume never reveals over content the client shows — neither
+        // the fragment it skipped nor a fallback in its place.
+        if (conditional && (skipped.has(key) || (meta.fallback && have[key] !== undefined)))
+          continue;
         const fid = frameOf(key);
         let group = byFrame.get(fid);
         if (!group) byFrame.set(fid, (group = []));
@@ -496,16 +653,21 @@ export function createFrameSink(emit, frame) {
     // A live-hole re-emission (Stage 3): the hole's re-resolved HTML, keyed
     // by its marker id — the consumer morphs the marked range in place.
     hole(key, html) {
-      emit({ type: "hole", id, version, key, html });
+      emit({ type: "hole", id, version, key, html, digest: textDigest(html) });
     },
     // A live attr-hole re-emission: the addressed element's rebuilt
     // attribute text, plus the names that vanished since the last emission
     // (the server holds the previous text — the client never tracks name
     // history).
     attr(key, attrs, removed) {
-      const chunk = { type: "attr", id, version, key, attrs };
+      const chunk = { type: "attr", id, version, key, attrs, digest: textDigest(attrs) };
       if (removed && removed.length) chunk.removed = removed;
       emit(chunk);
+    },
+    // An attr hole's first-render text, keyed by its address — the digest
+    // source for root/fragment `holes` maps and the resume compare.
+    attrBaseline(key, text) {
+      attrText.set(key, text);
     },
     // ---- the binding ledger (DR-2 case 1) ----
     /**
@@ -664,7 +826,7 @@ function frameStream(makeCode, options) {
           w.write(chunk);
         }
       : chunk => w.write(chunk);
-    const sink = createFrameSink(emit, frame);
+    const sink = createFrameSink(emit, frame, options.resume && options.resume.have);
     w.write({ type: "start", id, version });
     const code = makeCode(sink, frame);
     try {
@@ -1285,11 +1447,14 @@ function armDocumentLiveHoles(ctx) {
       closeBinding(key) {
         bindings.delete(key);
       },
+      // Every emission carries its digest on every face (§9.5, Hole
+      // hashes) — the document channel's ops included, so a ledger seeded
+      // from the document can follow what the channel later re-emits.
       hole(key, html) {
-        push({ type: "hole", key, html });
+        push({ type: "hole", key, html, digest: textDigest(html) });
       },
       attr(key, attrs, removed) {
-        const op = { type: "attr", key, attrs };
+        const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
         if (removed && removed.length) op.removed = removed;
         push(op);
       },
@@ -2014,6 +2179,11 @@ export function frameTransformResult(event, result, context) {
   if (typeof result !== "function") return result;
   if (context && context.collectsFlight) return init ? { response: init, value: result } : result;
   const invocation = getEventServerFunctionInvocation(event);
+  const live = !!(invocation && invocation.live);
+  // A live loop's reconnect names what it holds (the have-list header,
+  // §9.5 Resume request): the render is conditional against it. Read only
+  // at the live address — the header never rides a cacheable read.
+  const have = live ? decodeHaveList(requestHeader(event, FRAME_HAVE_HEADER)) : undefined;
   return serverComponentResponse(
     result,
     {
@@ -2021,7 +2191,8 @@ export function frameTransformResult(event, result, context) {
       signal: requestSignal(event),
       // A call at the live address is a `live` loop's: frame the answer as
       // the event stream the loop reads (RFC 10, `live(fn)` → Framing).
-      live: !!(invocation && invocation.live)
+      live,
+      resume: have && { have }
     },
     init
   );
@@ -2031,6 +2202,13 @@ export function frameTransformResult(event, result, context) {
 function requestSignal(event) {
   const request = event && event.request;
   return request && request.signal instanceof AbortSignal ? request.signal : undefined;
+}
+
+/** A request header, when the event carries a standards-shaped request. */
+function requestHeader(event, name) {
+  const request = event && event.request;
+  const headers = request && request.headers;
+  return headers && typeof headers.get === "function" ? headers.get(name) : null;
 } /**
  * The frame half of single-flight, as a `transformFlightResult` policy for
  * `handleServerFunctionRequest`: when part of what a mutation invalidated is

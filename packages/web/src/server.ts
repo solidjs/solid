@@ -3884,6 +3884,9 @@ export function createLiveHoles(sink, scoped) {
           sink.attr(String(cap.id), html, removed);
         }
       };
+      // The first-render text is the digest source for the element's
+      // ledger entry (frame sinks; the document sink has no ledger yet).
+      if (sink.attrBaseline) sink.attrBaseline(b.key, cap.base);
       sink.openBinding(b.key, b);
     }
   };

@@ -117,7 +117,67 @@ export interface ServerComponentHandlerOptions<C = unknown> {
  * a `BodyFormat` entry, since the body is frame chunks, not a serialized
  * value.
  */
-export const FRAME_STREAM_HEADER = "X-Frame-Stream"; /**
+export const FRAME_STREAM_HEADER = "X-Frame-Stream";
+
+/**
+ * The resume request's have-list (RFC 11 §9.5, Resume request): the
+ * digests the client holds for the address it is reconnecting — the root
+ * skeleton under `""`, then one entry per live hole (`lh:N`), attr hole
+ * (`lha:N`) and revealed fragment (`pl-N`). Its PRESENCE makes the render a
+ * conditional one: the server emits a hole or fragment only when it has
+ * settled and its digest differs, and never a root or a fallback over
+ * content the list names. Rides only to the live address (a `no-store`
+ * response nothing keys on) — never as an argument. Decision (f): this
+ * name; a list whose encoding would exceed `FRAME_HAVE_BUDGET` bytes is
+ * omitted and the client accepts a full snapshot.
+ * @experimental
+ */
+export const FRAME_HAVE_HEADER = "X-Frame-Have";
+
+/** The have-list's size ceiling in encoded bytes (see FRAME_HAVE_HEADER). */
+export const FRAME_HAVE_BUDGET = 4096;
+
+/**
+ * Encodes a have-list for the header: `key=digest` pairs, comma-joined
+ * (keys never contain either separator; the root's key is empty).
+ * `undefined` when the list is empty or over budget.
+ * @internal
+ */
+export function encodeHaveList(have: Record<string, string>): string | undefined;
+
+export function encodeHaveList(have) {
+  let out = "";
+  for (const key in have) {
+    const digest = have[key];
+    if (typeof digest !== "string") continue;
+    out += (out ? "," : "") + key + "=" + digest;
+    if (out.length > FRAME_HAVE_BUDGET) return undefined;
+  }
+  return out || undefined;
+}
+
+/**
+ * Decodes a have-list header value; `undefined` for an absent/empty one.
+ * Tolerant of malformed entries (skipped) — a wrong entry costs one
+ * unneeded emission, never a wrong skip.
+ * @internal
+ */
+export function decodeHaveList(text: string | null | undefined): Record<string, string> | undefined;
+
+export function decodeHaveList(text) {
+  if (!text) return undefined;
+  const have = {};
+  let any = false;
+  for (const entry of text.split(",")) {
+    const eq = entry.indexOf("=");
+    if (eq === -1) continue;
+    const digest = entry.slice(eq + 1).trim();
+    if (!/^[0-9a-f]{16}$/.test(digest)) continue;
+    have[entry.slice(0, eq).trim()] = digest;
+    any = true;
+  }
+  return any ? have : undefined;
+} /**
  * Whether a fetch Response carries a frame stream.
  * @experimental
  */
@@ -479,6 +539,19 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
     ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
   ): unknown;
   /**
+   * What a `live` (re)connect of the call resumes from (RFC 11 §9.5,
+   * Resume request): the address's version ordinal as the position
+   * (`Last-Event-ID`) and, when a mount shows the address with a ledger,
+   * its have-list under `FRAME_HAVE_HEADER` — omitted over budget, so the
+   * render is a full snapshot then. `undefined` when nothing here has
+   * shown the call.
+   */
+  resume(info: {
+    id: string;
+    meta: unknown;
+    args: unknown[];
+  }): { position: string; headers?: Record<string, string> } | undefined;
+  /**
    * Declares that the document is showing a call: hydration-data references
    * carry their call's address (`_$SC.r(id, address)`) but never travel
    * through the transport, so the integration forwards those records here.
@@ -608,6 +681,20 @@ export function createServerComponentHandler({ host, component, onStream, interc
           return hit.then(landed => (landed ? binding() : undefined));
         return binding();
       }),
+    resume(info) {
+      const address = frameAddress(info.id, info.args);
+      const version = versions.get(address);
+      // The ledger is the MOUNT's (it tracks what the DOM shows); the first
+      // mount under the address speaks for all — they show the same store.
+      const frame = host.get(address);
+      const have = frame && frame.have ? frame.have() : undefined;
+      if (version === undefined && !have) return undefined;
+      const encoded = have && encodeHaveList(have);
+      return {
+        position: String(version || 0),
+        headers: encoded ? { [FRAME_HAVE_HEADER]: encoded } : undefined
+      };
+    },
     handle(response, ctx) {
       if (!isFrameStreamResponse(response)) return undefined;
       // The call's address names its store: a repeat call — refetch,

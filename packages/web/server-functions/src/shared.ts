@@ -1461,6 +1461,20 @@ export function positionDigest(value) {
   if (value === undefined || !isJSONSafe(value)) return undefined;
   const text = JSON.stringify(value);
   if (typeof text !== "string") return undefined;
+  return textDigest(text);
+}
+
+/**
+ * The digest behind `positionDigest`, over a string as-is: the frame tier's
+ * hole/fragment digest (RFC 11 §9.5, Hole hashes) — minted by the server
+ * over the html it emits, stored by the client per hole, echoed back on a
+ * resume as the have-list. Same lanes, same width, same non-goal (a
+ * collision elides a re-send, nothing more).
+ * @internal
+ */
+export function textDigest(text: string): string;
+
+export function textDigest(text) {
   let a = 0x811c9dc5;
   let b = 0x050c5d1f;
   for (let i = 0; i < text.length; i++) {

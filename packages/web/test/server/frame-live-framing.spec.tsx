@@ -180,6 +180,48 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
     expect(state.returned).toBe(true);
   });
 
+  it("a resume's have-list header makes the live render conditional; the data address ignores it (B4)", async () => {
+    registerServerFunction("live-frame-resume", async () => {
+      const title = createMemo(() => "steady");
+      return () => <h1>{title()}</h1>;
+    });
+    const first = await chunksOf(await handle(post("live", "live-frame-resume")));
+    expect(first.map(c => c.type)).toEqual(["start", "html", "complete"]);
+    const root = first[1];
+    expect(root.digest).toMatch(/^[0-9a-f]{16}$/);
+    expect(root.holes).toEqual({ "lh:0": expect.stringMatching(/^[0-9a-f]{16}$/) });
+    // The client's ledger after that stream, as the loop sends it back.
+    const have = `=${root.digest},lh:0=${root.holes["lh:0"]}`;
+    const resumed = await chunksOf(
+      await handle(
+        post("live", "live-frame-resume", {
+          headers: {
+            "Sec-Fetch-Site": "same-origin",
+            "Content-Type": "text/plain",
+            "X-Server-Function-Format": "1",
+            "Last-Event-ID": "1",
+            "X-Frame-Have": have
+          }
+        })
+      )
+    );
+    expect(resumed.map(c => c.type)).toEqual(["start", "complete"]);
+    // The header is a live-address contract: a plain read renders whole.
+    const data = await chunksOf(
+      await handle(
+        post("data", "live-frame-resume", {
+          headers: {
+            "Sec-Fetch-Site": "same-origin",
+            "Content-Type": "text/plain",
+            "X-Server-Function-Format": "1",
+            "X-Frame-Have": have
+          }
+        })
+      )
+    );
+    expect(data.map(c => c.type)).toEqual(["start", "html", "complete"]);
+  });
+
   it("the knob is inert outside the dev build", async () => {
     configureServerFunctionsServer({ chaosReconnectEvery: 10 });
     registerServerFunction("live-frame-no-chaos", async () => () => <p>steady</p>);

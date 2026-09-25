@@ -44,8 +44,13 @@ export const roomPanel = live(
   GET(async (room: string, me: Identity | null) => {
     "use server";
     // Which render this is — shown in the panel so a reconnect (a new
-    // render, the same room) can be told from a quiet morph.
+    // render, the same room) can be told from a quiet morph. Read through a
+    // call so the compiler makes it a live hole: on a conditional reconnect
+    // (Stage 8 B4) the server compares it against what the page shows and
+    // this counter is the one hole that crosses — everything else in the
+    // panel is unchanged and never re-sent.
     const render = ++renders;
+    const renderNo = () => render;
     return (props: { composer: ComposerSlot }) => {
       const gone = new AbortController();
       onCleanup(() => gone.abort());
@@ -61,7 +66,7 @@ export const roomPanel = live(
           <div class="panel-head">
             <h2>#{room}</h2>
             <span class="muted">
-              {topicOf(room)} · render #{render}
+              {topicOf(room)} · render #{renderNo()}
             </span>
           </div>
           <div class="presence-row">

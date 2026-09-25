@@ -89,6 +89,7 @@ export {
   isServerFunction,
   serializeStream,
   subscribeFlightData,
+  textDigest,
   withMeta
 } from "./shared.js";
 export { decodeFlashCookie, encodeFlashCookie } from "./flash.js";

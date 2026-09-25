@@ -236,6 +236,17 @@ export interface ServerFunctionsClientConfig {
       response: Response,
       ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
     ): unknown;
+    /**
+     * What a `live` (re)connect of the call resumes from, when the handler
+     * shows it: `position` becomes the request's `Last-Event-ID`, `headers`
+     * ride beside it (a frames handler's have-list). Asked per connect;
+     * `undefined` when the handler holds nothing for the call.
+     */
+    resume?(info: {
+      id: string;
+      meta: unknown;
+      args: unknown[];
+    }): { position?: string; headers?: Record<string, string> } | undefined;
   };
   /**
    * Encoder for argument lists JSON can't carry faithfully. JSON-safe args
@@ -512,6 +523,9 @@ async function createRequest(base, id, options, meta) {
     options = { ...options };
     delete options[LIVE_WIRE];
     if (wire.position !== undefined) headers[LAST_EVENT_ID_HEADER] = wire.position;
+    // The resume's have-list (a frames handler's, see `responseHandler.resume`)
+    // rides beside the position, under the same rule.
+    if (wire.headers) Object.assign(headers, wire.headers);
   }
   // A GET-encoded call's identity is its url, and nothing else: caches key
   // on it, and a `<link rel="preload" as="fetch">` is reused only by a
@@ -1392,6 +1406,18 @@ export function live(fn) {
           }
         };
         const callOnce = () => {
+          const handler = config.responseHandler;
+          // What this connect resumes FROM, when the handler showing the
+          // call holds a ledger for it (a frames handler: the address's
+          // version ordinal as the position, its have-list as headers —
+          // §9.5 Resume request). Asked per connect, so a reconnect names
+          // what the page shows NOW; a handler with nothing for the call
+          // leaves the position to the reader's own cursor.
+          if (handler && handler.resume) {
+            const from = handler.resume({ id, meta: metadata, args });
+            wire.headers = from ? from.headers : undefined;
+            if (from && from.position !== undefined) wire.position = from.position;
+          }
           // A GET-composed reference is already a flight-free read with its
           // own query-string encoding — delegate through its invocation
           // channel so the wire options (the combined signal and the wire
@@ -1401,7 +1427,6 @@ export function live(fn) {
           // no single-flight envelope story (and flight collection is
           // mutation policy).
           if (metadata.method === "GET") return fn[SERVER_FUNCTION_INVOKE](args, wireOptions);
-          const handler = config.responseHandler;
           if (handler && handler.intercept && !wire.adopted) {
             const hit = handler.intercept({ id, meta: metadata, args });
             if (hit !== undefined) return hit;

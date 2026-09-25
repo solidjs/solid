@@ -48,6 +48,14 @@ reference's answer is an async iterable it pumps like any other.
   re-mount, and the **composer keeps its draft**: it is a client slot the
   server positions (`<props.composer room={room} />`), keyed by position so a
   morph keeps its instance.
+- **The reconnect is conditional.** Open devtools' network tab before you
+  kill the connection: the reconnect request carries `Last-Event-ID` and an
+  `X-Frame-Have` header — the digests of what the page shows — and the
+  answer is a few hundred bytes: the render number's hole and nothing else.
+  The server re-rendered the whole panel and compared; the transcript and
+  the presence list, unchanged, never crossed. Post from another tab while
+  the connection is down and the transcript's hole comes with it — still no
+  root, still no fallback.
 - **Posting answers nothing.** `send` is a plain mutation; the row reaches
   this tab and every other as **markup**, through each one's open render.
 - **The document face.** View source: the panel is **in the HTML** — the
