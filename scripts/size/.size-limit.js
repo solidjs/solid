@@ -1019,7 +1019,14 @@ module.exports = [
     // minified (see the core floor note): recompute's `finally` mask carries
     // REACTIVE_DISPOSED and the pass returns on it — `clearDeps`, the flight
     // retire, the lane restore. 0 B in solid and web.
-    limit: "12.60 KB",
+    // Observability surface prune (2026-09-24): 12.60 -> 12.61 KB, measured
+    // at 12,603 B against `records-channel`'s 12,581 (+22 B; +3 over the
+    // cap). Layout drift only: the minified output is the same 35,497 B and
+    // differs only in which short names the mangler hands out — the prod
+    // export sets changed (`ownerPath`/`diagnosticGuideUrl` off `solid-js`,
+    // `setConsoleFooter` on `@solidjs/signals`), all of it tree-shaken here.
+    // An independent gzip -9 of the two bundles: 13,868 vs 13,866. 0 B retained.
+    limit: "12.61 KB",
     modifyEsbuildConfig
   },
   {
@@ -2259,7 +2266,15 @@ module.exports = [
     // `wantsRerun` gate at recomputeStart and the checks reading the run's
     // facts instead of the record. The scenario's own consumer now
     // subscribes through `OBSERVE.records`.
-    limit: "31.70 KB",
+    // Observability surface prune (2026-09-24): 31.70 -> 31.71 KB, measured
+    // at 31,702 B against `records-channel`'s 31,689 (+13 B; +2 over the
+    // cap). +6 B minified: `OBSERVE.ownerPath` joins the observe object
+    // (the walk was already retained by the server/perf-tracks callers; the
+    // property is the cost) and `attribution.install` leaves it — the engine
+    // installs through the core's own `setAttributionHooks`. The guide URL
+    // moved to `DEV.guideUrl`, so its string is off the observe object: the
+    // tier scenario above is -51 B (17,648). The rest is mangler layout.
+    limit: "31.71 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

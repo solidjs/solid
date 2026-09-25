@@ -31,7 +31,7 @@ describe("captureArtifact — diagnostics channel", () => {
       { scenario: "orphan effect", attribution: deterministicAttribution }
     );
 
-    expect(artifact.formatVersion).toBe(7);
+    expect(artifact.formatVersion).toBe(8);
     expect(artifact.scenario).toBe("orphan effect");
     // The anchor for every relative `at` in the artifact.
     expect(artifact.timeOrigin).toBe(performance.timeOrigin);
@@ -188,7 +188,13 @@ describe("captureArtifact — records tables", () => {
 
   it("is present, with empty tables, when nothing was recorded", async () => {
     const { artifact } = await captureArtifact(() => {}, { attribution: false });
-    expect(artifact.records).toEqual({ boundary: [], invocation: [], frame: [], call: [] });
+    expect(artifact.records).toEqual({
+      boundary: [],
+      recovery: [],
+      invocation: [],
+      frame: [],
+      call: []
+    });
   });
 
   it("collects every record type in delivery order, copied, and ends its subscriptions", async () => {
@@ -233,6 +239,7 @@ describe("captureArtifact — records tables", () => {
       outcome: "ok",
       status: 200
     };
+    const recovery = { id: "0-0-1", at: 120, waitedMs: 110, renderMs: 3 };
     expect(channel.observed("boundary")).toBe(false);
     const { artifact } = await captureArtifact(
       () => {
@@ -242,12 +249,14 @@ describe("captureArtifact — records tables", () => {
         channel.emit("frame", produced, {});
         channel.emit("call", call, {});
         channel.emit("frame", applied, {});
+        channel.emit("recovery", recovery, {});
         channel.emit("hydration", { id: "unknown-type" }, {});
       },
       { scenario: "records", attribution: false }
     );
     expect(artifact.records).toEqual({
       boundary: [boundary],
+      recovery: [recovery],
       invocation: [invocation],
       frame: [produced, applied],
       call: [call]
@@ -256,7 +265,7 @@ describe("captureArtifact — records tables", () => {
     expect(artifact.records.boundary[0]).not.toBe(boundary);
     expect(artifact.records.invocation[0]!.boundary).toBe(artifact.records.boundary[0]!.id);
     // The subscriptions end with the capture.
-    for (const type of ["boundary", "invocation", "frame", "call"]) {
+    for (const type of ["boundary", "recovery", "invocation", "frame", "call"]) {
       expect(channel.observed(type), type).toBe(false);
     }
 
@@ -266,10 +275,11 @@ describe("captureArtifact — records tables", () => {
       .map(line => JSON.parse(line));
     expect(lines[0]).toMatchObject({
       type: "meta",
-      recordCounts: { boundary: 1, invocation: 1, frame: 2, call: 1 }
+      recordCounts: { boundary: 1, recovery: 1, invocation: 1, frame: 2, call: 1 }
     });
     expect(lines.slice(1)).toEqual([
       { type: "boundary", ...boundary },
+      { type: "recovery", ...recovery },
       { type: "invocation", ...invocation },
       { type: "frame", ...produced },
       { type: "frame", ...applied },
@@ -280,6 +290,12 @@ describe("captureArtifact — records tables", () => {
   it("reports zero counts in the JSONL header when nothing was recorded", async () => {
     const { artifact } = await captureArtifact(() => {}, { attribution: false });
     const meta = JSON.parse(artifactToJSONL(artifact).split("\n")[0]!);
-    expect(meta.recordCounts).toEqual({ boundary: 0, invocation: 0, frame: 0, call: 0 });
+    expect(meta.recordCounts).toEqual({
+      boundary: 0,
+      recovery: 0,
+      invocation: 0,
+      frame: 0,
+      call: 0
+    });
   });
 });

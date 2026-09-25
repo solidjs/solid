@@ -34,8 +34,7 @@ import type {
   InvocationEvent,
   InvocationLive,
   TraceContext,
-  TraceProvider,
-  TraceSlot
+  TraceProvider
 } from "@solidjs/web";
 import { getTraceContext } from "@solidjs/web";
 
@@ -180,9 +179,8 @@ off();
 // The trace-provider slot: the member is solid-js's (`ServerTrace`), the
 // `provide` on it is this package's augmentation (trace.ts) — a second
 // solid-js interface filled in from a second module; both merges land.
-observe.server.trace satisfies TraceSlot;
 observe.server.trace satisfies ServerTrace;
-const slot: TraceSlot = observe.server.trace;
+const slot: ServerTrace = observe.server.trace;
 slot.provide satisfies (provider: TraceProvider) => () => void;
 const provider: TraceProvider = request => {
   request satisfies Request | undefined;

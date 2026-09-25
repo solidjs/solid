@@ -38,22 +38,20 @@ use super::signature::{CommentInfo, Printer};
 
 const SPAN: Span = Span::new(0, 0);
 
+/// The runtime modes `solid-js/refresh` knows (`RuntimeType`): Vite's
+/// `import.meta.hot`, and the `module.hot` / `import.meta.webpackHot`
+/// shape every other bundler exposes (`standard`). The emitted string is
+/// what the runtime's `$$refresh`/`$$decline` switch on.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Bundler {
-    Esm,
     Vite,
-    Webpack5,
-    RspackEsm,
     Standard,
 }
 
 impl Bundler {
     fn as_str(self) -> &'static str {
         match self {
-            Bundler::Esm => "esm",
             Bundler::Vite => "vite",
-            Bundler::Webpack5 => "webpack5",
-            Bundler::RspackEsm => "rspack-esm",
             Bundler::Standard => "standard",
         }
     }
@@ -1259,20 +1257,16 @@ impl<'a> RefreshTransform<'a> {
 
     // --- HMR blocks -----------------------------------------------------------
 
-    /// `import.meta.hot` / `import.meta.webpackHot` / `module.hot`.
+    /// `import.meta.hot` (vite) / `module.hot` (standard).
     fn hot_expression(&self) -> Expression<'a> {
         let ast = self.ast();
         match self.config.bundler {
-            Bundler::Esm | Bundler::Vite | Bundler::Webpack5 | Bundler::RspackEsm => {
-                let property = match self.config.bundler {
-                    Bundler::Webpack5 | Bundler::RspackEsm => "webpackHot",
-                    _ => "hot",
-                };
+            Bundler::Vite => {
                 let meta = ast.expression_import_meta(SPAN);
                 Expression::StaticMemberExpression(ast.alloc_static_member_expression(
                     SPAN,
                     meta,
-                    ast.identifier_name(SPAN, property),
+                    ast.identifier_name(SPAN, "hot"),
                     false,
                 ))
             }

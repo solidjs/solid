@@ -66,12 +66,7 @@ export {
   type IQueue,
   type QueueCallback
 } from "./scheduler.js";
-export type {
-  AttributionHooks,
-  InteractionRef,
-  NavigationRef,
-  OriginRef
-} from "./attribution-hooks.js";
+export type { InteractionRef, NavigationRef } from "./attribution-hooks.js";
 export { ROOT_ERROR_HOOK } from "./scheduler.js";
 export {
   configureClientErrors,
@@ -82,7 +77,7 @@ export {
 export {
   DEV,
   OBSERVE,
-  ownerPath,
+  setConsoleFooter,
   type AttributionSlot,
   type Dev,
   type Observe,

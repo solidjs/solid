@@ -42,14 +42,20 @@ function expectObserveLive(mod: Tier) {
   expect(typeof observe.records.observed).toBe("function");
   expect(typeof observe.records.emit).toBe("function");
   expect((globalThis as any)[Symbol.for("@solidjs/signals/observe/records")]).toBe(observe.records);
-  // The core's side of attribution is the slot and the two declared frames only.
-  expect(typeof observe.attribution.install).toBe("function");
+  // The core's side of attribution is the slot's `installed` and the two
+  // declared frames only: the engine installs itself (no public `install`).
+  expect(observe.attribution.install).toBeUndefined();
   expect(typeof observe.attribution.withInteraction).toBe("function");
   expect(typeof observe.attribution.withOrigin).toBe("function");
   expect(observe.attribution.installed).toBeNull();
   expect(observe.attribution.enable).toBeUndefined();
   // The live subject rides beside each record and diagnostic; no lookup.
   expect(observe.subjectOf).toBeUndefined();
+  // The owner walk is an observe-tier helper on the object, not a named
+  // export of the prod surface; the guide URL is dev guidance (`DEV.guideUrl`)
+  // and its string is not on the observe object.
+  expect(typeof observe.ownerPath).toBe("function");
+  expect(observe.diagnostics.guideUrl).toBeUndefined();
 }
 
 /**
@@ -140,7 +146,10 @@ function expectDevLive(mod: Tier) {
   expect(typeof dev.hooks).toBe("object");
   expect(typeof dev.getChildren).toBe("function");
   expect(typeof dev.report).toBe("function");
-  expect(typeof dev.setConsoleFooter).toBe("function");
+  expect(typeof dev.guideUrl).toBe("function");
+  // The console footer is solid-js's seam (`setConsoleFooter`, an `@internal`
+  // named export), not a member of the public `DEV` object.
+  expect(dev.setConsoleFooter).toBeUndefined();
   // The console face and devtools surface do not leak onto the observe object.
   expect((mod.OBSERVE as any).setConsoleFooter).toBeUndefined();
   expect((mod.OBSERVE as any).hooks).toBeUndefined();

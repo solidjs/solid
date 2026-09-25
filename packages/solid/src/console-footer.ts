@@ -14,31 +14,27 @@
 // Both pointers are given twice: the installed file (what an agent working in
 // the repo can open with no network, at exactly the installed version) and a
 // stable URL (what a human in a browser console can click; Chrome linkifies
-// it) — the anchor jumps to the code's own section.
+// it) — the anchor jumps to the code's own section. The URL is the core's
+// (`DEV.guideUrl`), so the footer and an observer's link (the performance
+// tracks' Insights entry) name the same place.
 //
 // Installed by both entries — the client's and the server's — so a server
 // render's console report (a `SERVER_WRITE`, a `HEAD_TAG_INVALID`) carries the
 // same pointer as a client one. The skill has a section per code on either side.
-import type { Dev, DiagnosticCode } from "@solidjs/signals";
+// The registration is the core's `setConsoleFooter` seam, `@internal` to
+// this package: signals cannot know this package's skill path, and nothing
+// else has a footer to register.
+import { DEV, setConsoleFooter } from "@solidjs/signals";
 
 const SKILLS_URL = "https://github.com/solidjs/solid/blob/main/packages";
 
-/**
- * The stable URL of a diagnostic code's section in the repair guide (the
- * `reactivity-diagnostics` skill shipped with `solid-js`) — what the console
- * footer prints, and what an observer attaches to a finding it renders
- * elsewhere (the performance tracks' `learnMoreUrl`).
- */
-export function diagnosticGuideUrl(code: DiagnosticCode): string {
-  // GitHub heading anchors: lowercased, underscores kept (`### SILENT_HOLD` → `#silent_hold`).
-  return `${SKILLS_URL}/solid/skills/reactivity-diagnostics/SKILL.md#${code.toLowerCase()}`;
-}
-
-export function installConsoleFooter(dev: Dev): void {
-  dev.setConsoleFooter(event => {
+/** Dev-only; the callers gate on their build's dev literal, where `DEV` is defined. */
+export function installConsoleFooter(): void {
+  const guideUrl = DEV!.guideUrl;
+  setConsoleFooter(event => {
     const base =
       `[${event.code}] repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md ` +
-      `— ${diagnosticGuideUrl(event.code)}`;
+      `— ${guideUrl(event.code)}`;
     return event.kind === "perf" || event.kind === "graph" || event.kind === "responsiveness"
       ? base +
           `\n[${event.code}] deeper evidence: import { attribution } from "solid-js/attribution"; ` +

@@ -389,12 +389,18 @@ importers:
         specifier: workspace:*
         version: link:../signals
     devDependencies:
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../web
       '@types/node':
         specifier: ^25.0.8
         version: 25.6.0
       rimraf:
         specifier: ^5.0.1
         version: 5.0.10
+      solid-js:
+        specifier: workspace:*
+        version: link:../solid
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

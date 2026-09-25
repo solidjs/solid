@@ -17,8 +17,18 @@
  * The `hot.data` protocol is likewise frozen: the first evaluation of a module
  * stores its registry under `hot.data["solid-refresh"]`, and every evaluation
  * stores its own registry under `hot.data["solid-refresh-prev"]`; the accept
- * callback patches the former from the latter. `"vite"` is the fully supported
- * bundler mode; the others are carried over from `solid-refresh` verbatim.
+ * callback patches the former from the latter.
+ *
+ * Two runtime types, one per hot-API shape (`RuntimeType`): `"vite"` for the
+ * `import.meta.hot` API (Vite and the bundlers that implement its HMR API —
+ * `accept(cb)`, `invalidate()`, `data`), and `"standard"` for the
+ * `module.hot` / `import.meta.webpackHot` API (`accept()`, `dispose(cb)`,
+ * optional `invalidate`/`decline`). The `solid-refresh` package this runtime
+ * descends from also named `"esm"` (Snowpack's `import.meta.hot`, which
+ * differs from Vite's only in honouring `decline()`), `"webpack5"` and
+ * `"rspack-esm"` (`import.meta.webpackHot`, a strict subset of what
+ * `"standard"` handles); those were carried over untested and are gone — a
+ * compiled wrapper targeting this runtime passes one of the two shapes.
  *
  * In production builds every entry point degrades to an inert stub:
  * `$$component` returns the component unwrapped and `$$refresh`/`$$decline`
@@ -322,15 +332,17 @@ type HotData = {
   [key in typeof SOLID_REFRESH | typeof SOLID_REFRESH_PREV]: Registry;
 };
 
-export type ESMRuntimeType = "esm" | "vite";
-export type StandardRuntimeType = "standard" | "webpack5" | "rspack-esm";
-export type RuntimeType = ESMRuntimeType | StandardRuntimeType;
+/**
+ * Which hot API the compiled wrapper hands the runtime: `"vite"` — the
+ * `import.meta.hot` shape (`ESMHot`); `"standard"` — the `module.hot` /
+ * `import.meta.webpackHot` shape (`StandardHot`).
+ */
+export type RuntimeType = "vite" | "standard";
 
 interface ESMHot {
   data: HotData;
   accept: (cb: (module?: unknown) => void) => void;
   invalidate: () => void;
-  decline: () => void;
 }
 
 interface StandardHot {
@@ -392,8 +404,8 @@ function bailInvalidate(hot?: { invalidate?: () => void }): void {
   }
 }
 
-type ESMDecline = [type: ESMRuntimeType, hot: ESMHot, inline?: boolean];
-type StandardDecline = [type: StandardRuntimeType, hot: StandardHot, inline?: boolean];
+type ESMDecline = [type: "vite", hot: ESMHot, inline?: boolean];
+type StandardDecline = [type: "standard", hot: StandardHot, inline?: boolean];
 type Decline = ESMDecline | StandardDecline;
 
 export function $$decline(...[type, hot, inline]: Decline): void {
@@ -402,15 +414,6 @@ export function $$decline(...[type, hot, inline]: Decline): void {
     return;
   }
   switch (type) {
-    case "esm": {
-      // Snowpack-style ESM treats invalidate as a full reload; prefer decline.
-      if (inline) {
-        hot.invalidate();
-      } else {
-        hot.decline();
-      }
-      break;
-    }
     case "vite": {
       // Vite ignores decline; accept-then-invalidate is the supported dance.
       if (inline) {
@@ -419,15 +422,6 @@ export function $$decline(...[type, hot, inline]: Decline): void {
         hot.accept(() => {
           hot.invalidate();
         });
-      }
-      break;
-    }
-    case "rspack-esm":
-    case "webpack5": {
-      if (inline) {
-        hot.invalidate!();
-      } else {
-        hot.decline!();
       }
       break;
     }
@@ -477,9 +471,9 @@ function shouldWarnAndDecline(): boolean {
   return true;
 }
 
-function $$refreshESM(type: ESMRuntimeType, hot: ESMHot, registry: Registry): void {
+function $$refreshESM(hot: ESMHot, registry: Registry): void {
   if (shouldWarnAndDecline()) {
-    $$decline(type, hot);
+    $$decline("vite", hot);
   } else if (hot.data) {
     hot.data[SOLID_REFRESH] = hot.data[SOLID_REFRESH] || registry;
     hot.data[SOLID_REFRESH_PREV] = registry;
@@ -499,19 +493,19 @@ function $$refreshESM(type: ESMRuntimeType, hot: ESMHot, registry: Registry): vo
     });
   } else {
     // No hot.data — nothing to persist registries on, so just decline.
-    $$decline(type, hot);
+    $$decline("vite", hot);
   }
 }
 
-function $$refreshStandard(type: StandardRuntimeType, hot: StandardHot, registry: Registry): void {
+function $$refreshStandard(hot: StandardHot, registry: Registry): void {
   if (shouldWarnAndDecline()) {
-    $$decline(type, hot);
+    $$decline("standard", hot);
   } else {
     const current = hot.data;
     if (current && current[SOLID_REFRESH]) {
       runAfterHydration(() => {
         if (patchRegistry(current[SOLID_REFRESH], registry)) {
-          $$decline(type, hot, true);
+          $$decline("standard", hot, true);
         }
       });
     }
@@ -522,8 +516,8 @@ function $$refreshStandard(type: StandardRuntimeType, hot: StandardHot, registry
   }
 }
 
-type ESMRefresh = [type: ESMRuntimeType, hot: ESMHot, registry: Registry];
-type StandardRefresh = [type: StandardRuntimeType, hot: StandardHot, registry: Registry];
+type ESMRefresh = [type: "vite", hot: ESMHot, registry: Registry];
+type StandardRefresh = [type: "standard", hot: StandardHot, registry: Registry];
 type Refresh = ESMRefresh | StandardRefresh;
 
 export function $$refresh(...[type, hot, registry]: Refresh): void {
@@ -532,15 +526,12 @@ export function $$refresh(...[type, hot, registry]: Refresh): void {
     return;
   }
   switch (type) {
-    case "esm":
     case "vite": {
-      $$refreshESM(type, hot as ESMHot, registry);
+      $$refreshESM(hot as ESMHot, registry);
       break;
     }
-    case "standard":
-    case "webpack5":
-    case "rspack-esm": {
-      $$refreshStandard(type, hot as StandardHot, registry);
+    case "standard": {
+      $$refreshStandard(hot as StandardHot, registry);
       break;
     }
   }

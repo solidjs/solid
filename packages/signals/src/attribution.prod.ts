@@ -78,4 +78,3 @@ export type {
   FeedbackSource,
   FlightStats
 } from "./core/attribution-feedback.js";
-export type { InteractionRef, NavigationRef, OriginRef } from "./core/attribution-hooks.js";

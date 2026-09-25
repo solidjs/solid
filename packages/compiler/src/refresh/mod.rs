@@ -36,9 +36,10 @@ pub struct TransformRefreshOptions {
     /// Used for `location` metadata (cwd-relative, like the Babel plugin)
     /// and to pick the parser dialect. Without it no locations are emitted.
     pub filename: Option<String>,
-    /// `"esm" | "vite" | "webpack5" | "rspack-esm" | "standard"` (default
-    /// `"standard"`), selecting the `import.meta.hot` /
-    /// `import.meta.webpackHot` / `module.hot` API.
+    /// `"vite" | "standard"` (default `"standard"`) — the runtime modes
+    /// `solid-js/refresh` knows: `import.meta.hot`, or the `module.hot` /
+    /// `import.meta.webpackHot` shape (webpack, Rspack) the runtime probes
+    /// itself.
     pub bundler: Option<String>,
     /// Wrap top-level `render()`/`hydrate()` calls (imported from
     /// `@solidjs/web`) with `hot.dispose` cleanup. Default `true`.
@@ -65,13 +66,10 @@ pub fn transform_refresh(
 
     let bundler = match options.bundler.as_deref() {
         None | Some("standard") => Bundler::Standard,
-        Some("esm") => Bundler::Esm,
         Some("vite") => Bundler::Vite,
-        Some("webpack5") => Bundler::Webpack5,
-        Some("rspack-esm") => Bundler::RspackEsm,
         Some(other) => {
             return Err(Error::from_reason(format!(
-                "transformRefresh `bundler` option must be \"esm\", \"vite\", \"webpack5\", \"rspack-esm\" or \"standard\", got {other:?}"
+                "transformRefresh `bundler` option must be \"vite\" or \"standard\", got {other:?}"
             )));
         }
     };

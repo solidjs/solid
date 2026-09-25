@@ -82,8 +82,10 @@ whether they need dev checks or ride the observe wiring.
    vendor-neutral (OTel-shaped where spans make sense). Observability-vendor
    consumption is a separate track and must not appear in this package."
    `attribution.ts` states the pattern: _one mechanism, N front-ends_ — a
-   vendor SDK is one more implementer of `AttributionHooks` / subscriber to
-   the event feeds, never a fork of the engine.
+   vendor SDK is one more subscriber to the event feeds (`OBSERVE.records`,
+   `OBSERVE.diagnostics`), never a fork of the engine — and not an
+   implementer of the engine's hook table, which is internal to
+   `@solidjs/signals`.
 
 ---
 
@@ -288,7 +290,7 @@ build.
 
 Serialized as-is: since observe-tier-plan PR B the event carries `nodeId`
 instead of the live `node` (in-process consumers get the node as the
-listener's second argument, `live`), so `@solidjs/diagnostics`'s `RerunRecord` is the same shape. Attached to the interaction
+listener's second argument, `live`), so `@solidjs/diagnostics` stores `RerunEvent` itself. Attached to the interaction
 span only above thresholds (4.1); otherwise folded into the span's aggregates.
 
 ### 4.5 Cause chain (from `ChangeRecord`)
@@ -403,8 +405,8 @@ Solid (this repo):
    `OBSERVE.records`.)
 3. Component-root labeling in the observe build; compiler `name` emission for
    user primitives (already a plan item).
-4. Serializable projections as exported types (`RerunRecord` exists in
-   `@solidjs/diagnostics`; the finding/hold/interaction projections should
+4. Serializable projections as exported types (`RerunEvent` is already
+   serializable and is what `@solidjs/diagnostics` stores; the finding/hold/interaction projections should
    live next to it — the plan already says protocol types publish from
    there).
 5. An enabled-engine overhead benchmark.

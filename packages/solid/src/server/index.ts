@@ -1,7 +1,6 @@
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "@solidjs/signals";
 import { serverSlots } from "./observe.js";
 import { installConsoleFooter } from "../console-footer.js";
-export { diagnosticGuideUrl } from "../console-footer.js";
 
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
@@ -55,7 +54,6 @@ export {
   enforceLoadingBoundary,
   untrack,
   configureClientErrors,
-  ownerPath,
   ROOT_ERROR_HOOK
 } from "./signals.js";
 export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";
@@ -180,4 +178,4 @@ export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
 // The console face is the core's; the repair-guide footer under each first
 // report is this package's (console-footer.ts), installed here as on the client
 // so a server render's `[SERVER_WRITE]` points at the same skill section.
-if (IS_DEV) installConsoleFooter(_DEV!);
+if (IS_DEV) installConsoleFooter();

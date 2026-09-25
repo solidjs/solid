@@ -82,7 +82,7 @@ describe("browser bridge + playwright adapter", () => {
     );
     app.dispose();
 
-    expect(artifact.formatVersion).toBe(7);
+    expect(artifact.formatVersion).toBe(8);
     expect(artifact.scenario).toBe("browser-toggle");
     expect(artifact.timeOrigin).toBe(performance.timeOrigin);
     expectNoDiagnostics(artifact);
@@ -98,6 +98,7 @@ describe("browser bridge + playwright adapter", () => {
     // The records crossed too, tables intact, the handles left in the page.
     expect(artifact.records).toEqual({
       boundary: [],
+      recovery: [],
       invocation: [],
       frame: [frame],
       call: [call]

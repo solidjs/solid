@@ -164,7 +164,8 @@ Decision: **reuse `@solidjs/signals`'s channel, do not fork it.**
 > **Update 2026-09-08.** `observe-tier-plan.md` PR A landed between P0 and
 > P1 and renames what the bullets below refer to: the channel is
 > `OBSERVE.diagnostics` (`OBSERVE` exists in dev and observe builds); the
-> console face is `DEV.report` / `DEV.setConsoleFooter` (dev only); the server
+> console face is `DEV.report` (dev only; the footer is registered through an
+> internal seam `solid-js` imports, no longer a `DEV` member); the server
 > gates wiring on the `"_SOLID_OBSERVE_"` literal and checks on
 > `"_SOLID_DEV_"`; `emit` accepts an explicit `ownerPath`, so the server
 > labels its own owners without signals walking `SSROwner._parent`.
@@ -351,12 +352,14 @@ becomes the contract test for server codes.
 > (`null` otherwise — client captures, the browser bridge). _(v6, with C4's
 > client half: `artifact.records.{boundary, invocation, frame, call}`,
 > folded from the core's `OBSERVE.records` on both platforms and always
-> present.)_ The package still
-> depends on `@solidjs/signals` alone: it reads the channel by its contract
-> (`subscribe(type, listener)`, structurally) and mirrors the record
-> types (`BoundaryRecord`, `InvocationRecord`, `FrameRecord`, `CallRecord`); the web server
-> suite pins the mirrors to the runtime types at compile time, both ways and
-> by key set. JSONL egress adds one line per record. The contract
+> present.)_ The package's runtime
+> imports are `@solidjs/signals` alone: it reads the channel by its contract
+> (`subscribe(type, listener)`). Its record tables are typed off the
+> runtimes' own catalogue (`RecordEvent<K>` for `boundary`, `recovery`,
+> `invocation`, `frame`, `call`; `solid-js` and `@solidjs/web` are type-only
+> peers) — the hand-mirrored `BoundaryRecord`/`InvocationRecord`/`FrameRecord`/
+> `CallRecord` this first shipped with are gone; the web server suite pins
+> the tables to the runtime types at compile time. JSONL egress adds one line per record. The contract
 > test is `packages/web/test/server/diagnostics-server-scenario.spec.tsx`
 > (harness aliased from source in `vite.config.server.mjs` and
 > `tsconfig.test.json`): the seeded `HEAD_TAG_INVALID` and `SERVER_WRITE`

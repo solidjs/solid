@@ -19,15 +19,20 @@ export type {
   SilentHoldOptions,
   HoldBudgetOptions
 } from "./assertions.js";
+// The artifact's own shapes, and the runtimes' types it is built from, by
+// their own names: the engine's from `@solidjs/signals/attribution`, the
+// findings' from `@solidjs/signals`. The record tables (`ArtifactRecords`)
+// are typed straight off the channel's catalogue — `BoundaryEvent` is
+// `solid-js`'s, `InvocationEvent`/`CallEvent`/`FrameEvent` are
+// `@solidjs/web`'s — so those are imported from their packages, not here.
 export type {
   Attribution,
   AttributionOptions,
-  AttributionCosts,
-  AttributionFeedback,
+  AttributionCostTables,
+  AttributionFeedbackTables,
   ArtifactAttribution,
   ArtifactRecords,
-  BoundaryRecord,
-  CallRecord,
+  ArtifactRecordType,
   ChangeOrigin,
   ChangeRecord,
   DiagnosticsArtifact,
@@ -38,13 +43,8 @@ export type {
   FeedbackInteraction,
   FeedbackSource,
   FlightStats,
-  FrameAppliedRecord,
-  FrameProducedRecord,
-  FrameRecord,
   HoldEvent,
-  InvocationRecord,
   RerunEvent,
-  RerunRecord,
   ScopeCost,
   WriteCost
 } from "./types.js";

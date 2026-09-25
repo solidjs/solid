@@ -92,9 +92,6 @@ declare module "solid-js" {
   }
 }
 
-/** The provider slot's type, as this package names it — `solid-js`'s `ServerTrace`, filled in above. */
-export type TraceSlot = ServerTrace;
-
 /**
  * A timed span of the request's server work, carried to the browser as a
  * `Server-Timing` metric (`<name>;dur=<ms>;desc="<desc>"`) beside the trace
@@ -141,7 +138,7 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // contract.
 const PROVIDER = Symbol.for("solid-js/observe/server/provider");
 
-type SlotState = TraceSlot & { [PROVIDER]?: TraceProvider };
+type SlotState = ServerTrace & { [PROVIDER]?: TraceProvider };
 
 function currentProvider(): TraceProvider | undefined {
   if (!IS_OBSERVE || OBSERVE === undefined) return undefined;

@@ -13,6 +13,11 @@ import type { Computed, Owner, Signal } from "./types.js";
  * unless an engine is installed, so the disabled cost is one null check per
  * site, and prod builds fold every site out behind __OBSERVE__.
  *
+ * The contract is internal: the built-in engine installs through
+ * `setAttributionHooks`, and nothing public names this interface
+ * (`OBSERVE.attribution.installed` exposes the installed table as an opaque
+ * object). It becomes public surface again the day a second engine exists.
+ *
  * IMPORTANT for implementers of call sites: a hook call must never sit inside
  * a `try` block — rollup's tryCatchDeoptimization retains functions referenced
  * inside `try` even behind a folded __OBSERVE__ guard, which re-couples the
@@ -40,7 +45,7 @@ export interface AttributionHooks {
    * navigates — or stands alone (a redirect from an action, a programmatic
    * `navigate()`). Frames nest strictly, so the engine keeps a stack.
    */
-  originStart(ref: OriginRef): void;
+  originStart(ref: NavigationRef): void;
   originEnd(): void;
   /**
    * A `flush()` drain is starting: work is scheduled or a transition is
@@ -240,10 +245,14 @@ export interface InteractionRef {
 
 /**
  * A navigation, as a router describes it to `withOrigin` around the location
- * write it is about to perform. Match eagerly and describe before writing:
- * the engine keys the work the write causes — the hold behind route data,
- * the re-runs, the verdicts — to this record, and names it by the
- * parametrized route so occurrences fold together.
+ * write it is about to perform — what `withOrigin` accepts: a declared unit
+ * of work whose writes the engine attributes as a whole, discriminated by
+ * `kind` so another kind (a form submission, a tab switch) can join without
+ * the seam changing shape; the engine knows `navigation` today. Match
+ * eagerly and describe before writing: the engine keys the work the write
+ * causes — the hold behind route data, the re-runs, the verdicts — to this
+ * record, and names it by the parametrized route so occurrences fold
+ * together.
  *
  * The engine keeps the object and reads `name`, `to` and `params` again when
  * the navigation settles (and when a hold on it is judged), so a router whose
@@ -278,14 +287,6 @@ export interface NavigationRef {
    */
   redirect?: number;
 }
-
-/**
- * What `withOrigin` accepts: a declared unit of work whose writes the engine
- * should attribute as a whole. A discriminated union so kinds can be added
- * (a form submission, a tab switch) without the seam changing shape; the
- * engine knows `navigation` today.
- */
-export type OriginRef = NavigationRef;
 
 export let attrHooks: AttributionHooks | null = null;
 
@@ -349,7 +350,7 @@ export function withInteraction<T>(ref: InteractionRef, fn: () => T): T {
  *   : setLocation(to);
  * ```
  */
-export function withOrigin<T>(ref: OriginRef, fn: () => T): T {
+export function withOrigin<T>(ref: NavigationRef, fn: () => T): T {
   const hooks = attrHooks;
   if (hooks === null) return fn();
   hooks.originStart(ref);

@@ -137,7 +137,7 @@ export type {
 } from "./observe.js";
 // The trace context's types (`getTraceContext()`, `OBSERVE.server.trace`),
 // with the `ServerObserve.trace` augmentation, for the same reason.
-export type { TraceContext, TraceProvider, TraceSlot } from "./trace.js";
+export type { TraceContext, TraceProvider } from "./trace.js";
 
 export type {
   ServerFunction,

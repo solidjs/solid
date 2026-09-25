@@ -99,8 +99,9 @@ interaction.at`).
   Propagation track read `signal → computed → effect`.
 - **Stage 4 — dev enrichments** (`@solidjs/web`, `solid-js`): diagnostics
   as Timings markers with `performanceIssue` at `warn`+ (`learnMoreUrl` =
-  `diagnosticGuideUrl(code)`, the repair guide's section, now exported from
-  `solid-js`; `info` stays a plain marker; under the scrub only code, kind
+  the repair guide's section for the code — since landed as
+  `DEV.guideUrl(code)` (dev tier; the link is omitted in observe builds), the
+  `diagnosticGuideUrl` export from `solid-js` it began as is gone; `info` stays a plain marker; under the scrub only code, kind
   and owner travel); `console.createTask(label)` on the dev component
   record (`_component.task`) and every span/marker emitted inside the
   nearest component's task so its stack in the panel is the JSX site;
@@ -159,7 +160,8 @@ transition)`. Shape: `{ ownerPath?, at, shownMs, interaction? }` (item 4's
   Tracks"; the subpath stays on `@solidjs/web` because the adapter paints
   web records (`call`, `frame`) and inherits the dev/observe/prod tiering.
 - Imports only `attribution`, `formatRerun`, `formatOrigin`, the hold
-  verdicts, and now `diagnosticGuideUrl` — never `costs`/`feedback`, which
+  verdicts (and reads `OBSERVE.ownerPath` / `DEV.guideUrl` off the runtime
+  objects) — never `costs`/`feedback`, which
   would re-enable the fold tables the engine diet made optional.
 - `minMs` is `0` in dev and `0.05` in observe builds; the vendor adapter keeps
   its own thresholds (sketch §4.1). The wave span is always painted and

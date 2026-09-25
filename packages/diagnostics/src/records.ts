@@ -4,17 +4,17 @@
  * same subscriptions.
  */
 import { OBSERVE } from "@solidjs/signals";
-import type { ArtifactRecords } from "./types.js";
+import type { RecordEvent } from "solid-js";
+import type { ArtifactRecordType, ArtifactRecords } from "./types.js";
 
 /** The record types this format knows; `artifact.records` has one table per entry. */
-export const RECORD_TYPES = ["boundary", "invocation", "frame", "call"] as const;
-
-// The channel, read structurally: its record types are declared by
-// `solid-js` and `@solidjs/web`, which this package does not depend on —
-// from here the catalogue is empty, and `subscribe`'s type parameter with it.
-interface RecordsChannel {
-  subscribe(type: string, listener: (event: unknown) => void): () => void;
-}
+export const RECORD_TYPES = [
+  "boundary",
+  "recovery",
+  "invocation",
+  "frame",
+  "call"
+] as const satisfies readonly ArtifactRecordType[];
 
 export interface RecordsCapture {
   stop(): ArtifactRecords;
@@ -27,10 +27,16 @@ export interface RecordsCapture {
  * other listener — and each table keeps delivery order.
  */
 export function captureRecords(): RecordsCapture {
-  const channel = OBSERVE!.records as unknown as RecordsChannel;
-  const tables: ArtifactRecords = { boundary: [], invocation: [], frame: [], call: [] };
+  const channel = OBSERVE!.records;
+  const tables: ArtifactRecords = {
+    boundary: [],
+    recovery: [],
+    invocation: [],
+    frame: [],
+    call: []
+  };
   const unsubscribe = RECORD_TYPES.map(type =>
-    channel.subscribe(type, event => {
+    channel.subscribe(type, (event: RecordEvent<typeof type>) => {
       (tables[type] as object[]).push({ ...(event as object) });
     })
   );

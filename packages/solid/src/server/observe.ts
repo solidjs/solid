@@ -130,7 +130,7 @@ export type BoundaryListener = (event: BoundaryEvent, live: BoundaryLive) => voi
  * The trace-provider slot — `OBSERVE.server.trace`. The CONTAINER is this
  * runtime's (a single replaceable provider, see `serverSlots`); what a
  * provider is — its argument, its answer — is the web runtime's, which
- * augments this interface with `provide` (`TraceSlot` in `@solidjs/web`).
+ * augments this interface with `provide` (`trace.ts` in `@solidjs/web`).
  * Declared empty here so that runtime has one place to type it.
  */
 export interface ServerTrace {}
