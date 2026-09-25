@@ -676,9 +676,10 @@ read its own `<Loading>` so its siblings ship independently.
 
 ### SSR_STREAM_ABANDONED
 
-The client went away (`data.reason: "consumer"`) or the sink failed
-(`"sink"`) while `data.pendingFragments` were still rendering; the render was
-torn down. Not an app bug. At volume it is the cost of renders nobody waited
+The client went away (`data.reason: "consumer"`), the sink failed
+(`"sink"`), or the request's `signal` aborted (`"signal"` — `renderToStream`'s
+`signal` option, how a frame-stream response learns its reader is gone) while
+`data.pendingFragments` were still rendering; the render was torn down. Not an app bug. At volume it is the cost of renders nobody waited
 for: make the pending data faster or move it behind navigation.
 
 ### LATE_HEADER_WRITE
