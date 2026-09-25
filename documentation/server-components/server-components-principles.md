@@ -2446,7 +2446,10 @@ value belonged in durable state.
    early. Whether the cap is a knob (`renderToStream(code, {
    documentWindow })`) or a fixed dev-only warning is open decision
    (c); with the live handoff it no longer has a role for declared
-   sources, which is what makes the question small.
+   sources, which is what makes the question small. _Decided
+   2026-09-25 (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE`
+   after 5s of a document render still pumping; it names the owner and
+   ends nothing — Stage 4's document live holes keep working._
 
 #### Client face
 
@@ -2484,7 +2487,14 @@ value belonged in durable state.
    The reconnect is conditional, so with nothing changed nothing
    crosses; what did change since the document rendered arrives as
    one morph. Honest cost: one server render per live frame per
-   page load, the same price a live data source pays.
+   page load, the same price a live data source pays. _Built
+   2026-09-25 (B3): the synchronous yield is the frames intercept's
+   answer riding on the iterable (`LIVE_LOCAL`), adopted by the
+   hydrating node as its value and re-yielded by the takeover run;
+   a boundary still streaming answers with a promise that lands at
+   its reveal, so the connect follows the fragment. No live bit in
+   the shell record — the client derives the address from its own
+   call. `Last-Event-ID` / have-list land with B4._
 4. **Supersession from another response is a death.** A live
    address whose store receives a newer version from a DIFFERENT
    response — a single-flight region for a call the mutation

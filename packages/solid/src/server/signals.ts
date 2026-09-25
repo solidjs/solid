@@ -1587,6 +1587,11 @@ function processResult<T>(
   // its source and lazy() re-imports its module. Both resolve to component
   // functions, which are not serializable in the first place.
   const noHydrate = serialize === false || getContext(NoHydrateContext, owner);
+  // The owner whose context record says which render scope this memo reads
+  // in (server component / live server component): judged from here, not
+  // from `currentOwner`, because a stream arriving through a promise is
+  // classified in a continuation where no owner is current.
+  const scopeOwner = owner as unknown as SSROwner;
 
   // Async-iterable takes precedence over thenable, mirroring the client
   // runtime's detection order (`handleAsync` in @solidjs/signals core/async.ts).
@@ -1685,12 +1690,15 @@ function processResult<T>(
       // document open forever — so the brand selects hybrid wherever the
       // server is the consumer, EXCEPT a server-owned frame render (the
       // ctx.commit pump below), where staying connected is the stream
-      // face working as intended. Declared "client" never reaches here
-      // (the compute doesn't run on the server).
+      // face working as intended — and except again inside a LIVE
+      // component's document render, where every source is first-value:
+      // the standing render there is the client's connection after
+      // hydration (RFC 11 §9.5, Server face 3). Declared "client" never
+      // reaches here (the compute doesn't run on the server).
       const hybrid =
         ssrSource === "hybrid" ||
-        (!!(source as any)[LIVE_SOURCE] &&
-          !(!serializes && ctx?.commit && inServerComponentScope()));
+        inLiveServerComponentScope(scopeOwner) ||
+        (!!(source as any)[LIVE_SOURCE] && !(!serializes && pumpsInScope(ctx, scopeOwner)));
       // In-flight stream stamp: a re-created node handed the SAME promise
       // must JOIN this consumption (`s === 3` above), never re-consume.
       (result as any).s = 3;
@@ -1741,7 +1749,7 @@ function processResult<T>(
               })
             } as any) as any;
           }
-          if (ctx?.commit && inServerComponentScope()) {
+          if (pumpsInScope(ctx, scopeOwner)) {
             // Server-owned render (noHydrate — the HTML is the data): pump
             // yields into the binding ledger under a response hold. Mirrors
             // the direct iterable branch's pump; see its comment for the
@@ -1823,7 +1831,8 @@ function processResult<T>(
     // frame render where the pump keeps the standing answer connected.
     const hybrid =
       ssrSource === "hybrid" ||
-      (!!(result as any)[LIVE_SOURCE] && !(!serializes && ctx?.commit && inServerComponentScope()));
+      inLiveServerComponentScope(scopeOwner) ||
+      (!!(result as any)[LIVE_SOURCE] && !(!serializes && pumpsInScope(ctx, scopeOwner)));
     if (hybrid) {
       let currentResult = result;
       let iter: AsyncIterator<T>;
@@ -1951,7 +1960,7 @@ function processResult<T>(
           })
         });
         ctx.serialize(id, tapped, deferStream);
-      } else if (ctx?.commit && inServerComponentScope()) {
+      } else if (pumpsInScope(ctx, scopeOwner)) {
         // Server-owned render (noHydrate — the HTML is the data): nothing
         // serializes this iterable, so nothing pumps it past the first
         // value. When a binding ledger is listening (ctx.commit — a frame
@@ -2014,6 +2023,14 @@ function processResult<T>(
 // source, and everything it subscribed to, until an event nobody would see.
 // The client-disconnect teardown (`renderToStream`'s `abandon`) reaches here
 // through the owner's disposal.
+// The safety cap on the document face (RFC 11 §9.5, Server face 4; open
+// decision (c) resolved as a fixed dev-only check, no knob): an undeclared
+// unbounded source pumping into a DOCUMENT render holds the document open
+// for as long as it produces. A live-declared component never gets here —
+// its scope takes first values — so a pump still open this long during a
+// document render is the authoring error the check names.
+const UNDECLARED_LIVE_SOURCE_MS = 5000;
+
 function pumpIterator<T>(
   comp: ServerComputation<T>,
   ctx: any,
@@ -2022,9 +2039,33 @@ function pumpIterator<T>(
 ) {
   const hold = ctx.hold?.();
   let released = false;
+  let cap: any;
+  if (IS_DEV && ctx.document) {
+    cap = setTimeout(() => {
+      cap = undefined;
+      if (released || comp.disposed) return;
+      devCheck(
+        {
+          code: "SSR_UNDECLARED_LIVE_SOURCE",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[SSR_UNDECLARED_LIVE_SOURCE] An async iterable read in a server component is ` +
+            `still producing ${UNDECLARED_LIVE_SOURCE_MS / 1000}s into a document render: the ` +
+            `document stays open for as long as it does. Declare the server function ` +
+            `live(...) so the document takes the source's first value and the client ` +
+            `connects for the rest, or bound the source.`,
+          data: { afterMs: UNDECLARED_LIVE_SOURCE_MS }
+        },
+        comp.owner as any
+      );
+    }, UNDECLARED_LIVE_SOURCE_MS);
+    cap.unref?.();
+  }
   const release = () => {
     if (released) return;
     released = true;
+    if (cap !== undefined) clearTimeout(cap);
     hold?.();
   };
   const close = () => {
@@ -3515,6 +3556,23 @@ const ServerComponentContext: Context<boolean> = {
 };
 
 /**
+ * Marker entry for a LIVE server component's render scope on the document
+ * face (RFC 11 §9.5, Server face 3). A `live`-declared component reaches the
+ * document render with the brand on its component function; the frame
+ * render turns it into this flag, and every async source read in the scope
+ * takes the hybrid path — first value into markup, iterator closed, no pump,
+ * no hold. The standing render is the CLIENT's: the document completes, and
+ * the loop reconnects the frame after hydration. Inherited by nested scopes
+ * (a component rendered inside a live one rides its connection).
+ *
+ * @internal
+ */
+const LiveServerComponentContext: Context<boolean> = {
+  id: Symbol("LiveServerComponentContext"),
+  defaultValue: false
+};
+
+/**
  * Runs `fn` under a context barrier — the render root of a server
  * component.
  *
@@ -3540,12 +3598,15 @@ const ServerComponentContext: Context<boolean> = {
  *
  * @internal
  */
-export function runInServerComponentScope<T>(fn: () => T): T {
+export function runInServerComponentScope<T>(fn: () => T, options?: { live?: boolean }): T {
   const owner = createOwner({ transparent: true }) as unknown as SSROwner;
   const inherited = owner._context;
   const scoped: Record<symbol | string, unknown> = {
     [ServerComponentContext.id]: true
   };
+  if (options?.live || inherited[LiveServerComponentContext.id] === true) {
+    scoped[LiveServerComponentContext.id] = true;
+  }
   if (inherited[ErrorContext.id] !== undefined) {
     scoped[ErrorContext.id] = inherited[ErrorContext.id];
   }
@@ -3569,9 +3630,34 @@ export function runInServerComponentScope<T>(fn: () => T): T {
  * record and records inherit by spread at owner creation.
  * @internal
  */
-export function inServerComponentScope(): boolean {
-  const o = currentOwner;
+export function inServerComponentScope(o: SSROwner | null = currentOwner): boolean {
   return !!o && o._context[ServerComponentContext.id] === true;
+}
+
+/**
+ * Whether the current owner is inside a LIVE server component's document
+ * render (see `LiveServerComponentContext`): async sources take first
+ * values here instead of pumping.
+ *
+ * @internal
+ */
+export function inLiveServerComponentScope(o: SSROwner | null = currentOwner): boolean {
+  return !!o && o._context[LiveServerComponentContext.id] === true;
+}
+
+/**
+ * Whether an async source read by the memo owning `o` feeds a server-owned
+ * frame render's binding ledger — the pump that keeps a standing answer
+ * connected and holds the response for it. True in a server component's
+ * scope when a ledger is listening (`ctx.commit`), EXCEPT a live
+ * component's document render: there the first value is the document's and
+ * the rest is the client connection's, so the source takes the hybrid path
+ * instead. Judged from the memo's OWNER, not `currentOwner`: a stream that
+ * arrives through a promise (an async function returning a generator) is
+ * classified in a continuation, where no owner is current.
+ */
+function pumpsInScope(ctx: any, o: SSROwner | null): boolean {
+  return !!ctx?.commit && inServerComponentScope(o) && !inLiveServerComponentScope(o);
 }
 
 /**

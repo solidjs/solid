@@ -761,6 +761,16 @@ for the wait, then a client render. Give the client-only read its own
 read it before the async data so the boundary hands off on its first pass
 (no finding for that case).
 
+### SSR_UNDECLARED_LIVE_SOURCE
+
+A server component rendered into a document read an async iterable that
+was still producing `data.afterMs` (5s) later: an undeclared unbounded
+source pumps into the document and holds it open for as long as it
+produces. Declare the server function `live(...)` — the document then takes
+each source's first value and closes it, and the client connects for the
+rest after hydration — or bound the source. Frame-stream renders (a live
+connection) are never judged.
+
 ### LAZY_ASSET_UNMAPPED
 
 A `lazy()` component's client chunk could not be resolved for the page

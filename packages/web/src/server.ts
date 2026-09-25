@@ -2562,6 +2562,10 @@ export function renderToStream(code, options = {}) {
   sharedConfig.context = context = {
     async: true,
     nonce: options.nonce,
+    // Which face this render is: a document (the default emission) or a
+    // frame stream (`options.sink`). Read by the server runtime's dev check
+    // on undeclared unbounded sources, which only a document render pays for.
+    document: !options.sink,
     // The document face's live-hole carrier (Stage 4). Components render
     // under per-component context CLONES (spread copies), so a mutation on
     // the clone a server component armed under never reaches this root

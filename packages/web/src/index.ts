@@ -370,6 +370,31 @@ export function dynamic<T extends ValidComponent>(
     }
     return next;
   };
+  // The same rule at the memo's gate, for values the compute never sees: an
+  // async iterable's yields land straight from the pump (a `live` server
+  // component's loop re-yields its binding per connection, and the first
+  // connection after hydration resolves the per-address binding where the
+  // document adopted the per-function placeholder — two objects, one
+  // component, one address). Same component is the same instance: equal,
+  // with the other address delivered when it differs. The gate's argument
+  // order differs between sync and async commits, so the incoming address
+  // is the one not delivered yet; with nothing delivered (no site mounted)
+  // a differing address is a plain change — nothing is kept, so nothing is
+  // lost by swapping.
+  const sameInstance = (a: any, b: any) => {
+    if (a === b) return true;
+    const ba = bindingOf(a);
+    const bb = bindingOf(b);
+    if (!ba || !bb || ba.component !== bb.component) return false;
+    if (ba.address === bb.address) return true;
+    if (deliveredAddress === undefined) return false;
+    const next = ba.address === deliveredAddress ? bb.address : ba.address;
+    if (next !== deliveredAddress) {
+      deliveredAddress = next;
+      for (const deliver of sites) deliver(next);
+    }
+    return true;
+  };
   const cached = createMemo<Function | string | undefined>(
     (prev: any) => {
       const next = source() as any;
@@ -384,7 +409,7 @@ export function dynamic<T extends ValidComponent>(
           )
       };
     },
-    { lazy: true }
+    { lazy: true, equals: sameInstance }
   );
   return props => {
     return createMemo(() => {
@@ -400,7 +425,7 @@ export function dynamic<T extends ValidComponent>(
             // at this seam. Initialize from the LATEST resolved address: the
             // kept binding's own `.address` is the first resolution's and
             // goes stale the moment a later call is kept-delivered.
-            const [address, setAddress] = createSignal(deliveredAddress ?? binding.address);
+            const [address, setAddress] = createSignal((deliveredAddress ??= binding.address));
             sites.add(setAddress);
             onCleanup(() => sites.delete(setAddress));
             return untrack(() => (binding.component as any)(props, address));

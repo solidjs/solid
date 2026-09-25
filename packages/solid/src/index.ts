@@ -127,7 +127,7 @@ export function ssrScope<T>(fn: () => T): () => T {
   return fn;
 }
 /** @internal */
-export function runInServerComponentScope<T>(fn: () => T): T {
+export function runInServerComponentScope<T>(fn: () => T, _options?: { live?: boolean }): T {
   return fn();
 }
 /** @internal */
@@ -136,6 +136,10 @@ export function creationStamp(): number {
 }
 /** @internal */
 export function inServerComponentScope(): boolean {
+  return false;
+}
+/** @internal */
+export function inLiveServerComponentScope(): boolean {
   return false;
 }
 /** @internal — server-only: the client has no wire to sanitize for. */

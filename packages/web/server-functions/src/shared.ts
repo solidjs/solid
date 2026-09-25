@@ -38,6 +38,7 @@
 // import site of the shared wire layer keeps working.
 import { getServerFunctionMetadata, isServerFunction } from "./registry.js";
 export {
+  LIVE_LOCAL,
   LIVE_RESUME_FROM,
   LIVE_SOURCE,
   SERVER_FUNCTION_INVOKE,

@@ -100,12 +100,15 @@ export interface ServerComponentHandlerOptions<C = unknown> {
    */
   onStream?(address: string, version: number, response: Response): void;
   /**
-   * Answer a call SYNCHRONOUSLY before any request is made (t = 0 local
-   * answers — e.g. a boundary the document already carries). Returning a
-   * non-undefined value resolves the call with it; a hydrating consumer
-   * never observes a pending beat.
+   * Answer a call before any request is made (t = 0 local answers — a
+   * boundary the document already carries). Returning `undefined` is a
+   * miss; any other value is a hit, SYNCHRONOUS, resolving the call with
+   * its binding — a hydrating consumer never observes a pending beat. A
+   * PROMISE is a deferred hit (a boundary the document is still
+   * delivering): the call resolves with its binding when it settles truthy,
+   * and is a miss after all — the caller fetches — when it settles falsy.
    */
-  intercept?(info: { id: string; meta: unknown; args: unknown[] }): C | undefined;
+  intercept?(info: { id: string; meta: unknown; args: unknown[] }): unknown | PromiseLike<unknown>;
 }
 
 /**
@@ -596,8 +599,14 @@ export function createServerComponentHandler({ host, component, onStream, interc
         // call's binding like a network answer would — the reader mounts
         // the same per-function component, and the record under the address
         // is how later calls for the same (function, args) find the content.
+        // A DEFERRED answer (the boundary is still arriving) resolves the
+        // binding when it lands, or `undefined` — a miss after all — when
+        // the page has nothing left to deliver it; the caller fetches then.
         if (hit === undefined) return undefined;
-        return bindingFor(frameAddress(info.id, info.args), info.id);
+        const binding = () => bindingFor(frameAddress(info.id, info.args), info.id);
+        if (typeof hit.then === "function")
+          return hit.then(landed => (landed ? binding() : undefined));
+        return binding();
       }),
     handle(response, ctx) {
       if (!isFrameStreamResponse(response)) return undefined;

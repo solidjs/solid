@@ -432,13 +432,69 @@ roomPanel(room, me))` once the tab has an identity (call-driven face);
 - In-process `live` wrapper brands the component function; frame render
   reads it at scope entry → scope flag → memo and projection async paths
   select the hybrid (first value, close) branch; no pump, no hold in scope.
-- Live bit in the frame's shell record; adoption reads it.
+- ~~Live bit in the frame's shell record; adoption reads it.~~ Not needed:
+  the client knows the call is live from its own reference, and the frames
+  intercept derives the call's address from its own `(id, args)` — see
+  Built below.
 - Safety cap for undeclared unbounded sources in scope at t=0, with a dev
-  diagnostic naming the source. Decide open (c): knob vs fixed dev warning.
+  diagnostic naming the source. Open (c) decided: fixed dev-only warning.
 - **Verify:** document completes with a live component mounted at t=0; one
   value per source in the HTML; boundaries reveal through the document;
   post-hydration reconnect fires once per live frame, at its scope release.
 - **Demo:** `/` SSR'd, transcript in the HTML, panel live after hydration.
+- **Built (2026-09-25).** Server half: `runInServerComponentScope(fn, {
+live })` sets a `LiveServerComponentContext` flag on the scope (inherited
+  by nested scopes); `frameTransformDirectResult` passes the brand it finds
+  on the wrapped component at RENDER time (the in-process `live` wrapper
+  brands after the wrap); `processResult` selects the hybrid branch for
+  every async source under the flag (`inLiveServerComponentScope`) and
+  judges the scope from the memo's OWNER, not `currentOwner` — a stream
+  arriving through a promise is classified in a continuation with no owner
+  current, which also fixes the pre-existing misclassification of an
+  unbranded thenable-resolved stream in server-component scope (it
+  serialized instead of pumping; pinned). Client half, three pieces. (1)
+  The frames intercept is consulted by `live()` SYNCHRONOUSLY at the call
+  and its answer rides on the iterable as `LIVE_LOCAL` (registered symbol,
+  `solid.LiveLocal`): a hydrating node with no serialized value
+  (`dynamic`'s `serialize: false` memo) adopts that answer as its value
+  now — the markup is the value; no pending beat, so the `<Loading>` never
+  re-renders its fallback — and arms its takeover; the takeover run's
+  iteration yields the adopted binding first (`LIVE_RESUME_FROM`), then
+  connects with the intercept skipped (`wire.adopted`). A consumer outside
+  any hydration scope iterates instead: the seed is yielded first, then the
+  connect follows. (2) The intercept answers a boundary the page may STILL
+  deliver (`boundaryMayArrive`) with a promise — a deferred local answer,
+  settling at the reveal that carries the element (the binding) or when the
+  page has nothing left to deliver it (a miss after all: the caller
+  fetches). The live iteration awaits it, so a live frame under a streamed
+  `<Loading>` connects after its fragment lands, never ahead of the
+  document's own render; the plain proxy path gets the same answer (a
+  `dynamic(() => call())` over a streaming boundary no longer fetches what
+  the document is delivering). (3) `dynamic`'s memo `equals` is
+  `sameInstance`: same component, same address is the same instance
+  (placeholder branded by `showing` vs the per-address binding), and a
+  same-component/other-address pair delivers the address instead of
+  swapping — the mount never re-renders at these seams. No live bit in the
+  shell record: `bindingFor(frameAddress(id, args))` on the client IS the
+  address the server keyed the boundary under. Safety cap:
+  `SSR_UNDECLARED_LIVE_SOURCE` (dev-only `warn`, `kind: "ssr"`) after 5s
+  of a document render still pumping an async iterable in server-component
+  scope; frame-stream renders (`options.sink`) are never judged (the
+  render context carries `document`). Pinned: `test/server/frame-live-
+document.spec.tsx` (brand → first value + close; unbranded pumps; nested
+  inherits; thenable-resolved streams both ways; the cap fires once, names
+  the owner, not for a live-branded sibling), the parity pair
+  `test/server/frame-live-document-artifact.spec.tsx` →
+  `test/hydration/frame-live-document.spec.tsx` (loaded and streamed
+  replays: adopts at t=0 with zero requests, exactly one connect after the
+  scope release at the live address, `computes === 2`, `status ===
+["connected"]`, same `solid-frame`/`h1`/composer `input` with its draft
+  through the morph and through a death → reconnect, no key miss, no
+  fallback after content), `frames-live-showing.spec.tsx` (client-only
+  reader of a shown call: adopt, then one connect), and two cases in
+  `frames-late-boundary-client.spec.tsx` (deferred intercept lands / misses
+  after exhaustion). Open (a) (`SERVER_WRITE` throw scope in persistent
+  renders) is NOT decided here — left for the maintainer.
 
 ### B4 — conditional reconnect
 
@@ -472,33 +528,39 @@ roomPanel(room, me))` once the tab has an identity (call-driven face);
 
 ## Public API ledger (flag before each lands)
 
-| Change                                                                                                                                                                                                  | Kind                        | Slice |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----- |
-| `live` behavior over nested-async answers (response lifetime)                                                                                                                                           | behavior change, shipped fn | A2    |
-| `live` takeover fires per scope, not at page-wide hydration end                                                                                                                                         | behavior change, shipped fn | A2    |
-| `live` digest-equal reconnect yields nothing (D12)                                                                                                                                                      | behavior change, shipped fn | A1    |
-| `live` takeover iteration yields the adopted value first, locally, before its first connection                                                                                                          | behavior change, shipped fn | A2    |
-| `setSignal` during hydration capture snapshots a pre-capture plain signal's pre-write value (held, replayed at release)                                                                                 | behavior change, signals    | A2    |
-| Server `Loading` honors `on` (hydration ids match the client)                                                                                                                                           | bug fix                     | A2    |
-| Live calls move from the data address to `<endpoint>/live/<id>` — a client and server versioned apart miss each other on live calls until both are current                                              | wire (address)              | A1    |
-| Event-stream framing of what the live address answers; `Last-Event-ID` (value digest as `id:`; cursor sources read the header)                                                                          | wire                        | A1    |
-| `X-Accel-Buffering` / `no-store` on live responses                                                                                                                                                      | wire (headers)              | A1    |
-| Dev warning: >5 live connections over HTTP/1.1                                                                                                                                                          | new dev-only diagnostic     | A1    |
-| Dev chaos-reconnect knob: `chaosReconnectEvery` on `configureServerFunctionsServer`                                                                                                                     | new dev-only option         | A3    |
-| `renderToStream({ signal })` — the request's abort tears the render down as a disconnect; flows through `renderToFrameStream` / `renderServerComponent` / `serverComponentResponse` options             | new option                  | B1    |
-| `SSR_STREAM_ABANDONED` `data.reason` gains `"signal"`                                                                                                                                                   | diagnostic data             | B1    |
-| Frame responses tear the render down on body `cancel()` and on the request's abort; the frame-scope pump closes its source at disposal                                                                  | bug fix                     | B1    |
-| `ServerFunctionInvocation.live` — the invocation record says whether the call arrived at the live address                                                                                               | new field                   | B2    |
-| `FrameStreamOptions.live` on `serverComponentResponse`; a live frame response is an event stream (live headers, heartbeat, chaos knob)                                                                  | new option, wire            | B2    |
-| `applyFrameResponse`: a body ending before a started frame's `complete` is that frame's error (undeclared death, RFC 11 §9.5 D1)                                                                        | behavior change, frames     | B2    |
-| One live connection per address: a second live reader of the same call joins the first connection's lifetime instead of opening its own                                                                 | behavior, frames + live     | B2    |
-| `dynamic` source type admits `AsyncIterable<T>` (a `live` server component reference's answer); runtime unchanged                                                                                       | type-only widening          | B2    |
-| `onstatus` reachable for server-component references                                                                                                                                                    | existing surface, new reach | B2    |
-| Have-list header; hole digests                                                                                                                                                                          | wire                        | B4    |
-| `SERVER_WRITE` throws in persistent renders                                                                                                                                                             | behavior change             | B3+   |
-| `documentWindow` on `renderToStream` — only if open (c) says knob                                                                                                                                       | new option (conditional)    | B3    |
-| `serverFunctionUrl` refusing live references — only if open (d) says                                                                                                                                    | behavior change (cond.)     | B6    |
-| Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `Accept: text/event-stream` as declaration, framing-follows-method, per-page channel, `live: { transport, hold }`, `connected` on the frame handle | —                           | —     |
+| Change                                                                                                                                                                                                                                   | Kind                            | Slice |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ----- |
+| `live` behavior over nested-async answers (response lifetime)                                                                                                                                                                            | behavior change, shipped fn     | A2    |
+| `live` takeover fires per scope, not at page-wide hydration end                                                                                                                                                                          | behavior change, shipped fn     | A2    |
+| `live` digest-equal reconnect yields nothing (D12)                                                                                                                                                                                       | behavior change, shipped fn     | A1    |
+| `live` takeover iteration yields the adopted value first, locally, before its first connection                                                                                                                                           | behavior change, shipped fn     | A2    |
+| `setSignal` during hydration capture snapshots a pre-capture plain signal's pre-write value (held, replayed at release)                                                                                                                  | behavior change, signals        | A2    |
+| Server `Loading` honors `on` (hydration ids match the client)                                                                                                                                                                            | bug fix                         | A2    |
+| Live calls move from the data address to `<endpoint>/live/<id>` — a client and server versioned apart miss each other on live calls until both are current                                                                               | wire (address)                  | A1    |
+| Event-stream framing of what the live address answers; `Last-Event-ID` (value digest as `id:`; cursor sources read the header)                                                                                                           | wire                            | A1    |
+| `X-Accel-Buffering` / `no-store` on live responses                                                                                                                                                                                       | wire (headers)                  | A1    |
+| Dev warning: >5 live connections over HTTP/1.1                                                                                                                                                                                           | new dev-only diagnostic         | A1    |
+| Dev chaos-reconnect knob: `chaosReconnectEvery` on `configureServerFunctionsServer`                                                                                                                                                      | new dev-only option             | A3    |
+| `renderToStream({ signal })` — the request's abort tears the render down as a disconnect; flows through `renderToFrameStream` / `renderServerComponent` / `serverComponentResponse` options                                              | new option                      | B1    |
+| `SSR_STREAM_ABANDONED` `data.reason` gains `"signal"`                                                                                                                                                                                    | diagnostic data                 | B1    |
+| Frame responses tear the render down on body `cancel()` and on the request's abort; the frame-scope pump closes its source at disposal                                                                                                   | bug fix                         | B1    |
+| `ServerFunctionInvocation.live` — the invocation record says whether the call arrived at the live address                                                                                                                                | new field                       | B2    |
+| `FrameStreamOptions.live` on `serverComponentResponse`; a live frame response is an event stream (live headers, heartbeat, chaos knob)                                                                                                   | new option, wire                | B2    |
+| `applyFrameResponse`: a body ending before a started frame's `complete` is that frame's error (undeclared death, RFC 11 §9.5 D1)                                                                                                         | behavior change, frames         | B2    |
+| One live connection per address: a second live reader of the same call joins the first connection's lifetime instead of opening its own                                                                                                  | behavior, frames + live         | B2    |
+| `dynamic` source type admits `AsyncIterable<T>` (a `live` server component reference's answer); runtime unchanged                                                                                                                        | type-only widening              | B2    |
+| `onstatus` reachable for server-component references                                                                                                                                                                                     | existing surface, new reach     | B2    |
+| `LIVE_LOCAL` (`Symbol.for("solid.LiveLocal")`): the document's answer for a live call rides on the iterable `live()` returns; a hydrating node adopts it as its value and takes over at scope release                                    | new registered symbol, protocol | B3    |
+| Frames intercept answers a boundary the page may still deliver with a PROMISE of the binding (a miss when nothing is left to deliver it); a `dynamic(() => call())` over a streaming boundary waits for the document instead of fetching | behavior change, frames         | B3    |
+| `dynamic` `equals`: same server-component instance (same component + same address, or same component with the address delivered) is equal — placeholder vs per-address binding no longer remounts                                        | behavior change, `dynamic`      | B3    |
+| `SSR_UNDECLARED_LIVE_SOURCE` — dev-only `warn` after 5s of a document render still pumping an async iterable in server-component scope (open (c): fixed warning, no knob)                                                                | new dev-only diagnostic         | B3    |
+| `runInServerComponentScope(fn, { live })` / `inLiveServerComponentScope()` on `solid-js/internal` (internal, `@internal`)                                                                                                                | internal surface                | B3    |
+| Server: an unbranded thenable-resolved async stream in server-component scope now pumps (was: serialized) — scope judged from the memo's owner                                                                                           | bug fix                         | B3    |
+| Have-list header; hole digests                                                                                                                                                                                                           | wire                            | B4    |
+| `SERVER_WRITE` throws in persistent renders                                                                                                                                                                                              | behavior change                 | B3+   |
+| ~~`documentWindow` on `renderToStream`~~ — open (c) decided: fixed dev-only warning, no knob                                                                                                                                             | withdrawn                       | B3    |
+| `serverFunctionUrl` refusing live references — only if open (d) says                                                                                                                                                                     | behavior change (cond.)         | B6    |
+| Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `Accept: text/event-stream` as declaration, framing-follows-method, per-page channel, `live: { transport, hold }`, `connected` on the frame handle                                  | —                               | —     |
 
 ## Open decisions
 
@@ -506,7 +568,7 @@ roomPanel(room, me))` once the tab has an identity (call-driven face);
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | (a) | `SERVER_WRITE` throw scope in persistent renders                                                                                          | B3        |
 | (b) | Connection state surface — CLOSED: `onstatus`                                                                                             | —         |
-| (c) | Safety cap: `documentWindow` knob or fixed dev-only warning                                                                               | B3        |
+| (c) | Safety cap — CLOSED (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE` at 5s; no knob                                             | —         |
 | (d) | `serverFunctionUrl` on a live reference: refuse or document                                                                               | B6        |
 | (e) | How the server knows a call is live — CLOSED (D13): the address (`/live/<id>`); a server-side `live` declaration cross-checks in dev only | —         |
 | (f) | Have-list header name and budget                                                                                                          | B4        |

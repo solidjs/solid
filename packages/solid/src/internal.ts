@@ -58,11 +58,15 @@ export const ssrHandleError: (err: any, probe?: boolean) => Promise<any> | undef
 /** Server: wrap `fn` to run under the current request's owner/scope. Client: identity. */
 export const ssrScope: <T>(fn: () => T) => () => unknown = core.ssrScope;
 
-/** Server: run `fn` inside the current server-component scope. Client: calls `fn`. */
-export const runInServerComponentScope: <T>(fn: () => T) => T = core.runInServerComponentScope;
+/** Server: run `fn` inside the current server-component scope (`live` marks a live component's document render). Client: calls `fn`. */
+export const runInServerComponentScope: <T>(fn: () => T, options?: { live?: boolean }) => T =
+  core.runInServerComponentScope;
 
 /** Server: whether a server-component scope is active. Client: `false`. */
 export const inServerComponentScope: () => boolean = core.inServerComponentScope;
+
+/** Server: whether a LIVE server component's document render scope is active. Client: `false`. */
+export const inLiveServerComponentScope: () => boolean = core.inLiveServerComponentScope;
 
 /**
  * Server: the value the client may see in place of a render failure about to

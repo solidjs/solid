@@ -146,9 +146,18 @@ function serverOwned(render) {
  * owner captured OUTSIDE the barrier (see createDocumentSlotProps), so the
  * client's own components keep full app context during document SSR.
  */
-function serverComponentScope(render) {
-  return runInServerComponentScope ? runInServerComponentScope(render) : render();
+function serverComponentScope(render, live = false) {
+  return runInServerComponentScope
+    ? runInServerComponentScope(render, live ? { live: true } : undefined)
+    : render();
 }
+
+// The in-process `live` declaration's brand (a registered symbol, so
+// separately bundled copies agree): stamped on the component function a
+// live server function answers with in process (server-functions/server
+// `brandLive`). The document face reads it at scope entry — see
+// `frameTransformDirectResult`.
+const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 import {
   renderToStream,
   createLiveHoles,
@@ -1364,7 +1373,13 @@ export function frameTransformDirectResult(value, { id, args }) {
       // claims nor warns.
       sharedConfig.context.claims = CLAIMS_DOCUMENT;
       const slotProps = createDocumentSlotProps(props, id);
-      return serverComponentScope(() => component(slotProps));
+      // A `live` answer (the declaration's in-process brand lands on this
+      // wrapper after it is made, before it renders) marks the scope live:
+      // every async source inside takes its first value and closes — the
+      // document completes, and the standing render is the client's
+      // connection after hydration (RFC 11 §9.5, Server face 3). Read at
+      // render, not at wrap: the brand arrives from `live`, outside.
+      return serverComponentScope(() => component(slotProps), !!wrapped[LIVE_SOURCE]);
     }),
     { t: FRAME_ELEMENT_CLOSE }
   ];

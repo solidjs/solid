@@ -18,8 +18,16 @@ import { createRoot, createSignal, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
 import { createServerReference, live } from "../server-functions/src/client.js";
-import { createEventChunk, frameAddress } from "../server-functions/src/shared.js";
-import { makeHost, frameResponse, openFrameResponse, pump } from "./lifecycle-matrix/harness.js";
+import { frameAddress } from "../server-functions/src/shared.js";
+import {
+  makeHost,
+  frameResponse,
+  openFrameResponse,
+  openLiveFrameResponse,
+  pump,
+  stubLiveFetch,
+  until
+} from "./lifecycle-matrix/harness.js";
 
 function articleHtml(title: string) {
   return (
@@ -53,72 +61,7 @@ function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
   };
 }
 
-/**
- * A HELD live frame response: what `serverComponentResponse` answers at the
- * live address — the frame chunks framed as server-sent events — with the
- * body left open for the test to feed, end, or break.
- */
-function openLiveFrameResponse(id: string) {
-  let controller!: ReadableStreamDefaultController<Uint8Array>;
-  const state = { cancelled: undefined as unknown, aborted: undefined as unknown };
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      controller = c;
-    },
-    cancel(reason) {
-      state.cancelled = reason ?? true;
-    }
-  });
-  return {
-    response: new Response(body, {
-      headers: { "X-Frame-Stream": id, "Content-Type": "text/event-stream" }
-    }),
-    state,
-    send(chunk: any) {
-      controller.enqueue(createEventChunk(JSON.stringify(chunk)));
-    },
-    heartbeat() {
-      controller.enqueue(new TextEncoder().encode(":\n\n"));
-    },
-    close() {
-      controller.close();
-    },
-    abort(err: any) {
-      state.aborted = err ?? true;
-      try {
-        controller.error(err);
-      } catch {}
-    }
-  };
-}
-
-/** Held live responses handed out per fetch, in order; the urls fetched. */
-function stubLiveFetch(id: string, count: number) {
-  const held = Array.from({ length: count }, () => openLiveFrameResponse(id));
-  const urls: string[] = [];
-  vi.stubGlobal("fetch", async (input: any, init: any) => {
-    const url = typeof input === "string" ? input : input.url;
-    urls.push(url);
-    const next = held[urls.length - 1];
-    if (!next) throw new Error(`unexpected fetch #${urls.length}`);
-    // as fetch does: the call's signal aborting breaks the body
-    if (init && init.signal)
-      init.signal.addEventListener("abort", () => next.abort(init.signal.reason), { once: true });
-    return next.response;
-  });
-  return { held, urls };
-}
-
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-/** Poll until `cond` holds (the loop's backoff is real time: 500ms first). */
-async function until(cond: () => boolean, ms = 1500) {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > ms) throw new Error("condition not met in time");
-    await pump(1);
-  }
-}
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -415,11 +358,12 @@ describe("frames consume live: one connection per address, slot state across a r
 });
 
 describe("frames consume live: argument changes at a live site", () => {
-  // The memo pumps the live iterable as it pumps any async iterable — no
-  // `dynamic` path of its own: a new call is a new iterable, the old
-  // iteration ends (its connection with it, quietly), and the new call's
-  // binding lands as the memo's next value.
-  test("switching arguments ends the old connection without an error and connects the new call", async () => {
+  // The memo pumps the live iterable as it pumps any async iterable: a new
+  // call is a new iterable, the old iteration ends (its connection with it,
+  // quietly), and the new call's binding lands as the memo's next value —
+  // where `dynamic`'s gate keeps the instance (same component) and delivers
+  // the new address into it (DR-1), as it does for a promise-shaped switch.
+  test("switching arguments ends the old connection without an error, connects the new call, and keeps the instance", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     const heldByRoom = new Map<string, ReturnType<typeof openLiveFrameResponse>[]>();
@@ -454,6 +398,7 @@ describe("frames consume live: argument changes at a live site", () => {
     a.send({ type: "html", id: "srv", version: 1, html: articleHtml("room a") });
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("room a");
+    const frameEl = m.div.querySelector("solid-frame")!;
 
     setRoom("b");
     await pump();
@@ -468,6 +413,8 @@ describe("frames consume live: argument changes at a live site", () => {
     b.send({ type: "html", id: "srv", version: 1, html: articleHtml("room b") });
     await until(() => m.div.querySelector("h1")!.textContent === "room b");
     expect(mounts).toBe(2);
+    // Same function → same instance: the gate delivered the new address.
+    expect(m.div.querySelector("solid-frame")).toBe(frameEl);
     // Two addresses, two stores: the new call streamed into its own.
     expect(applied.map(c => c.id)).toContain(frameAddress("frames-live/switch", ["b"]));
     expect(m.div.textContent).not.toContain("shell-fallback");

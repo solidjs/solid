@@ -8,8 +8,9 @@ import { createFrameHost } from "../../frames/src/client.js";
 // The API-freeze pass removed the frames re-export; the codec's single
 // public home is the serialization entry.
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
-import { createChunk } from "../../server-functions/src/shared.js";
+import { createChunk, createEventChunk } from "../../server-functions/src/shared.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
+import { vi } from "vitest";
 
 export const settle = () => new Promise(r => setTimeout(r));
 
@@ -68,6 +69,76 @@ export function openFrameResponse(id: string) {
       controller.error(err);
     }
   };
+}
+
+/**
+ * A HELD LIVE frame response: what `serverComponentResponse` answers at the
+ * live address — the frame chunks framed as server-sent events — with the
+ * body left open for the test to feed, end, or break. `state` records how
+ * the body ended from the server's side (cancelled by the reader, or broken
+ * by the test).
+ */
+export function openLiveFrameResponse(id: string) {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const state = { cancelled: undefined as unknown, aborted: undefined as unknown };
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+    cancel(reason) {
+      state.cancelled = reason ?? true;
+    }
+  });
+  return {
+    response: new Response(body, {
+      headers: { "X-Frame-Stream": id, "Content-Type": "text/event-stream" }
+    }),
+    state,
+    send(chunk: any) {
+      controller.enqueue(createEventChunk(JSON.stringify(chunk)));
+    },
+    heartbeat() {
+      controller.enqueue(new TextEncoder().encode(":\n\n"));
+    },
+    close() {
+      controller.close();
+    },
+    abort(err: any) {
+      state.aborted = err ?? true;
+      try {
+        controller.error(err);
+      } catch {}
+    }
+  };
+}
+
+/**
+ * Stub `fetch` with `count` held live responses handed out in order; the
+ * urls fetched are recorded. Aborting a call's signal breaks its body, as
+ * fetch does.
+ */
+export function stubLiveFetch(id: string, count: number) {
+  const held = Array.from({ length: count }, () => openLiveFrameResponse(id));
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", async (input: any, init: any) => {
+    const url = typeof input === "string" ? input : input.url;
+    urls.push(url);
+    const next = held[urls.length - 1];
+    if (!next) throw new Error(`unexpected fetch #${urls.length}`);
+    if (init && init.signal)
+      init.signal.addEventListener("abort", () => next.abort(init.signal.reason), { once: true });
+    return next.response;
+  });
+  return { held, urls };
+}
+
+/** Poll until `cond` holds (the live loop's backoff is real time: 500ms first). */
+export async function until(cond: () => boolean, ms = 1500) {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > ms) throw new Error("condition not met in time");
+    await pump(1);
+  }
 }
 
 /**
