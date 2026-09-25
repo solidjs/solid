@@ -2295,7 +2295,10 @@ frame render over any async iterable pumps and holds   server/signals.ts (ctx.co
 first-value lock on serialized memos; the frame pump    server/signals.ts (~1613: "later yields are the
   is the stated exception ("no hydration claim")          CLIENT's to apply")
 SSR hybrid (first value, close) selected per OBJECT     server/signals.ts LIVE_SOURCE brand
-  by the live brand; projections always hybrid
+  by the live brand — except a frame render's pump,
+  where a branded source stays connected; projections
+  follow the same rule as memos (Stage 8 B5: the frame
+  pump drives their trace; live scope takes first value)
 shell blockers: deferStream reads gate the first flush  web/src/server.ts serialize() / blockingPromises
 response end gated on `!registry.size && !holds`        web/src/server.ts flushEnd
 `complete` chunk emitted only when the render settles   frames/src/frame-sink.ts frameStream end()

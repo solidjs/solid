@@ -2031,19 +2031,19 @@ function processResult<T>(
 // document render is the authoring error the check names.
 const UNDECLARED_LIVE_SOURCE_MS = 5000;
 
-function pumpIterator<T>(
-  comp: ServerComputation<T>,
-  ctx: any,
-  iterator: () => AsyncIterator<T>,
-  start: Promise<unknown>
-) {
+/**
+ * Opens the response hold a frame-scope pump runs under (memo or projection)
+ * and arms the document-face cap; returns the release (idempotent). `alive`
+ * says whether the pumping node still stands when the cap fires.
+ */
+function openPumpHold(ctx: any, owner: Owner | null, alive: () => boolean): () => void {
   const hold = ctx.hold?.();
   let released = false;
   let cap: any;
   if (IS_DEV && ctx.document) {
     cap = setTimeout(() => {
       cap = undefined;
-      if (released || comp.disposed) return;
+      if (released || !alive()) return;
       devCheck(
         {
           code: "SSR_UNDECLARED_LIVE_SOURCE",
@@ -2057,17 +2057,26 @@ function pumpIterator<T>(
             `connects for the rest, or bound the source.`,
           data: { afterMs: UNDECLARED_LIVE_SOURCE_MS }
         },
-        comp.owner as any
+        owner as any
       );
     }, UNDECLARED_LIVE_SOURCE_MS);
     cap.unref?.();
   }
-  const release = () => {
+  return () => {
     if (released) return;
     released = true;
     if (cap !== undefined) clearTimeout(cap);
     hold?.();
   };
+}
+
+function pumpIterator<T>(
+  comp: ServerComputation<T>,
+  ctx: any,
+  iterator: () => AsyncIterator<T>,
+  start: Promise<unknown>
+) {
+  const release = openPumpHold(ctx, comp.owner, () => !comp.disposed);
   const close = () => {
     closeAsyncIterator(iterator());
     release();
@@ -2561,31 +2570,121 @@ export function createProjection<T extends object = {}>(
 
   const ssrSource = options?.ssrSource;
   const useProxy = ssrSource !== "hybrid";
-  // Projections have no server-component continuation pump: a standing live
-  // answer always hands off after V1, including no-hydrate/frame consumers.
+  // The render scope this projection reads in, judged from its own owner
+  // (a stream arriving through a promise is classified in a continuation
+  // with no owner current) — the same rule `processResult` applies to memos.
+  const scopeOwner = owner as unknown as SSROwner;
+  const serializes = !!(ctx?.async && !getContext(NoHydrateContext) && id);
+  // The frame-scope pump (Stage 8 B5): in a server-owned frame render with a
+  // binding ledger listening (`ctx.commit`), an async-iterable projection
+  // pumps like a memo — every yield lands in `state`, commits, and holds the
+  // response — so bindings reading the store stay live. Not on a LIVE
+  // component's document render (first value there; the standing render is
+  // the client's connection), and not where the trace serializes (the
+  // hydration channel is that face's continuation).
+  const pumps = !serializes && pumpsInScope(ctx, scopeOwner);
+  // Effective mode for a standing source, the memo's rule: declared hybrid,
+  // or any source under a live component's document render, or a branded
+  // live source wherever the server is the consumer — EXCEPT the frame pump,
+  // where staying connected is the stream face working as intended.
   const usesHybrid = (source: AsyncIterable<unknown>) =>
-    ssrSource === "hybrid" || !!(source as any)[LIVE_SOURCE];
+    ssrSource === "hybrid" ||
+    inLiveServerComponentScope(scopeOwner) ||
+    (!!(source as any)[LIVE_SOURCE] && !pumps);
   const patches: PatchOp[] = [];
   const draft = useProxy
     ? createDeepProxy(state as any, patches, [], options?.shallow)
     : (state as any as T);
-  const takeFirst = (source: AsyncIterable<void | T>) =>
+  // The pump's stop — armed while a frame pump runs; disposal (the response
+  // teardown reaching this owner) closes the source FROM the disposal, not
+  // at its next pull: a standing source parks `next()` until the world
+  // moves (see pumpIterator).
+  let stopPump: (() => void) | undefined;
+  onCleanup(() => stopPump?.());
+  // Runs a frame pump over `step` (resolves `true` when the source is done)
+  // under a response hold; `close` ends the source on disposal.
+  const framePump = (step: () => Promise<boolean>, close: () => void) => {
+    const releaseHold = openPumpHold(ctx, owner, () => !disposed);
+    const release = () => {
+      stopPump = undefined;
+      releaseHold();
+    };
+    stopPump = () => {
+      close();
+      release();
+    };
+    const loop = () => {
+      if (disposed) return stopPump?.();
+      step().then(done => {
+        if (disposed) return stopPump?.();
+        if (done) return release();
+        (ctx as any).commit();
+        loop();
+      }, release);
+    };
+    loop();
+  };
+  // A pump over an iterable that arrived through a promise (an async
+  // function returning a generator, or the NotReady retry re-running the
+  // derive): its first value settles the read like a resolution, and the
+  // rest pumps once that value has landed (`pendingPump`, fired by the
+  // settle below — the pump must not race the first value's apply).
+  let pendingPump: (() => void) | undefined;
+  const takeFirst = (source: AsyncIterable<void | T>, pumpRest: boolean) =>
     Promise.resolve().then(() => {
       const iter = source[Symbol.asyncIterator]();
       return Promise.resolve(iter.next()).then((first: IteratorResult<void | T>) => {
         if (first.done) return undefined;
-        closeAsyncIterator(iter);
+        if (pumpRest) {
+          pendingPump = () =>
+            framePump(
+              () =>
+                iter.next().then((r: IteratorResult<void | T>) => {
+                  if (r.done) return true;
+                  if (r.value !== undefined && r.value !== draft) {
+                    replaceState(draft, r.value as T);
+                  }
+                  patches.length = 0;
+                  return false;
+                }),
+              () => closeAsyncIterator(iter)
+            );
+        } else closeAsyncIterator(iter);
         return first.value;
       });
     });
   const normalizeAsync = (value: any) =>
     Promise.resolve(value).then(value =>
-      // A bounded Promise→AsyncIterable needs the projection patch-trace
-      // protocol; only one-shot hybrid/live sources normalize to a value here.
-      typeof value?.[Symbol.asyncIterator] === "function" && usesHybrid(value)
-        ? takeFirst(value)
-        : value
+      // A bounded Promise→AsyncIterable on the document face needs the
+      // projection patch-trace protocol; one-shot hybrid/live sources take
+      // their first value here, and the frame pump takes the first value
+      // and pumps the rest.
+      typeof value?.[Symbol.asyncIterator] !== "function"
+        ? value
+        : usesHybrid(value)
+          ? takeFirst(value, false)
+          : pumps
+            ? takeFirst(value, true)
+            : value
     );
+  // A resolution landing: adopt a returned replacement, open the reads —
+  // at the LIVE state under the frame pump (every yield after this one
+  // advances what bindings read; no hydration claim exists there) — and
+  // start the pump the first value left pending.
+  const settleWith =
+    (markReady: (frozen?: T) => void) =>
+    (value: void | T): T => {
+      if (value !== undefined && value !== state && value !== draft) {
+        replaceState(state, value as T);
+      }
+      markReady(pumps ? state : undefined);
+      if (pendingPump) {
+        const start = pendingPump;
+        pendingPump = undefined;
+        start();
+      }
+      return state as T;
+    };
   // seedLoadingValue = commit #0: reads never throw, they serve a frozen copy
   // of the seed for the whole response (first-value lock — `state` still
   // advances underneath for patch/serialization correctness, the landing is
@@ -2624,19 +2723,12 @@ export function createProjection<T extends object = {}>(
       Promise.reject(error),
       () => normalizeAsync(runProjection()),
       deferred,
-      (value: void | T) => {
-        if (value !== undefined && value !== state && value !== draft) {
-          replaceState(state, value as T);
-        }
-        markReady();
-        return state as T;
-      },
+      settleWith(markReady),
       markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (ctx?.async && !getContext(NoHydrateContext) && id)
-      ctx.serialize(id, deferred.promise, options?.deferStream);
+    if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
@@ -2651,25 +2743,18 @@ export function createProjection<T extends object = {}>(
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
-        return takeFirst(source as AsyncIterable<void | T>);
+        return takeFirst(source as AsyncIterable<void | T>, false);
       };
       settleServerAsync(
         runFirst(),
         runFirst,
         deferred,
-        (value: void | T) => {
-          if (value !== undefined && value !== state && value !== draft) {
-            replaceState(state, value as T);
-          }
-          markReady();
-          return state as T;
-        },
+        settleWith(markReady),
         markError,
         () => disposed
       );
       registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-      if (ctx?.async && !getContext(NoHydrateContext) && id)
-        ctx.serialize(id, deferred.promise, options?.deferStream);
+      if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
       return recordSlot(pending);
     } else {
       // Full streaming: eagerly start first iteration. Tapped wrapper replays
@@ -2713,7 +2798,9 @@ export function createProjection<T extends object = {}>(
           // `state` (for draft/patch correctness) but reads go through the frozen
           // copy. With seedLoadingValue the lock already sits at commit #0 — the
           // seed — so V1 must NOT retarget it (undefined keeps the read target).
-          markReady(seedLoading ? undefined : cloneState(state, options?.shallow));
+          // Under the frame pump there is no hydration claim to lock for:
+          // reads follow the LIVE state, which every pumped yield advances.
+          markReady(pumps ? state : seedLoading ? undefined : cloneState(state, options?.shallow));
           return undefined;
         },
         markError,
@@ -2764,9 +2851,16 @@ export function createProjection<T extends object = {}>(
       const subscribe = async function* (): AsyncGenerator<T | PatchOp[]> {
         await deferred.promise;
         if (firstResult?.done) return;
-        while (pumping) await pumping;
-        // Stable point (sync block): no in-flight next(), so `patches` is
-        // drained and `state` equals the log applied in full.
+        // A stable point is one with no UNDRAINED writes: `state` then equals
+        // the log applied in full, and a snapshot taken here cannot double-
+        // apply anything a later batch carries. An in-flight next() whose
+        // generator has not written yet is stable too — under the frame
+        // pump (below) a pull is always in flight, parked on a standing
+        // source, and waiting for it would hold the snapshot until the
+        // world moved.
+        while (pumping && patches.length) await pumping;
+        // Stable point (sync block): `patches` is drained and `state` equals
+        // the log applied in full.
         let cursor = log.length;
         consumers++;
         try {
@@ -2792,8 +2886,31 @@ export function createProjection<T extends object = {}>(
       };
       projectionTraces.set(pending, { subscribe, array: Array.isArray(state) });
 
-      if (ctx?.async && !getContext(NoHydrateContext) && id) {
+      if (serializes) {
         ctx.serialize(id, subscribe(), options?.deferStream);
+      } else if (pumps) {
+        // The frame pump (see `pumps`): drive the SHARED pump — a slot-border
+        // trace subscriber may be pulling the same iterator — so the source
+        // has one consumer; each batch applied is a commit. With no
+        // subscriber the log has no reader (a subscriber starts at the
+        // log's end), so it is kept empty rather than growing for the life
+        // of a standing render.
+        deferred.promise.then(
+          () => {
+            if (disposed || firstResult?.done) return;
+            framePump(
+              () =>
+                pump().then(() => {
+                  if (consumers === 0) log.length = 0;
+                  return logDone;
+                }),
+              () => {
+                if (!logDone) closeAsyncIterator(iter);
+              }
+            );
+          },
+          () => {}
+        );
       }
       return recordSlot(pending);
     }
@@ -2807,19 +2924,12 @@ export function createProjection<T extends object = {}>(
       normalizeAsync(result),
       () => normalizeAsync(runProjection()),
       deferred,
-      (value: void | T) => {
-        if (value !== undefined && value !== state && value !== draft) {
-          replaceState(state, value as T);
-        }
-        markReady();
-        return state as T;
-      },
+      settleWith(markReady),
       markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (ctx?.async && !getContext(NoHydrateContext) && id)
-      ctx.serialize(id, deferred.promise, options?.deferStream);
+    if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
