@@ -143,6 +143,43 @@ not a server function. The harness runs HTTP/2 (`server.https`) so the page
 can hold more than five live sources; the HTTP/1.1 warning is demonstrated by
 turning it off.
 
+**Built.** `examples/room` ships all five source shapes (presence and
+transcript as standing answers over a memo / a projection, the nested-async
+room card, the undeclared summary under `<Errored>`, the slow-plain archive),
+the chaos route in `vite.config.ts` plus the `chaosReconnectEvery` timer via
+`src/server-config.ts`, and HTTP/2 in dev through `@vitejs/plugin-basic-ssl`.
+Building it surfaced a pre-existing hydration bug (Feb `bfd9032`): the
+adoption trace (`subFetch`) pulled the first step of ANY async iterable a
+compute returned to prime async-generator computes, but a deserialized codec
+stream read out of an adopted nested-answer value is not a generator — pulling
+it under the mocked `Promise` corrupted its resolver queue and the next
+streamed value threw `temp.s is not a function`. Fixed to pull only when the
+result is its own iterator; the trace no longer opens a mock connection on a
+live call's iterable (five takeover tests updated: trace opens 0, the takeover
+opens 1). Regression test in `client-hydration.spec.ts`; its own changeset.
+The same trace also opened a foreign iterable whose `[Symbol.asyncIterator]()`
+IS the subscription (#3647, the router's `liveQuery`) — the fix covers it;
+regression test in the issue's shape.
+
+Finishing the demo (identity minted in an `onSettled` inside the hydrating
+tree, `<Loading on={room}>` on the slow panels) surfaced three more, each
+fixed with tests and its own changeset: (1) a write during the hydration pass
+to a signal created BEFORE capture (`setSignal` on a module-level or provider
+signal) propagated into the snapshot scope and skewed later reads — the first
+such write now records the pre-write value as the snapshot, so it is held and
+replayed at release like a creation-time snapshot (`@solidjs/signals`;
+computeds landing through `setSignal`, firewall leaves and `_noSnapshot`
+signals excluded); (2) the takeover's local first yield above (`@solidjs/web`);
+(3) the server's `Loading` dropped `on` and its fake-depth ids did not account
+for the client's dependency node, so every element under a boundary with `on`
+missed its hydration key (`solid-js`; two parity-harness scenarios). Also
+found while probing: a plain write in the same tick as an action call is one
+frame with the action and lands when it settles — intended; the demo keeps
+the clear entangled and binds the input through `latest(text)`, which shows
+the clear at once. A keystroke during the hold is a rewrite of the held value:
+`latest` shows it and it is what lands at settle (pinned in
+`signals/tests/action.test.ts`).
+
 ### A1 — framing
 
 - The live address (D13): `serverFunctionLiveAddress` beside the data
@@ -213,7 +250,13 @@ no-store`, `X-Accel-Buffering: no`, the Serialized format header; the
   the live answer with the SSR value it replaces (`solid.LiveResumeFrom`,
   registered symbol, internal to solid-js ↔ `@solidjs/web`); the client
   loop digests it into its first connection's `Last-Event-ID`, so a takeover
-  that finds the same value on the server yields nothing (D12 as promised).
+  that finds the same value on the server costs nothing on the wire (D12 as
+  promised). The iteration yields the adopted value itself first, locally,
+  before it connects: the takeover node re-ran its compute and holds
+  nothing, and with the server's first emission skipped it had no other way
+  to land — left pending it opened a transition that held every write of
+  the tick that released it (the demo's identity mint) until the source
+  changed. Equality-quiet for a memo, a no-op reconcile for a projection.
 - SSR: the top-level branded source takes first value and closes (existing
   hybrid path). A nested source needs no handoff — the serializer pumps it
   to its end — but it does need SHARING: a generator yields to one reader,
@@ -251,6 +294,25 @@ presence })))` with a projection over `messages`; summary over an
   `Loading` boundary elsewhere on the page does not delay the header's live
   source; two tabs see each other's presence; closing a tab removes it
   (teardown); a tab in the background keeps its presence.
+- **Demo verified (2026-09-25, headless Chrome, two tabs):** each tab lists
+  both; chaos → the three declared pills go reconnecting → connected, each
+  counting one reconnect, and the undeclared summary shows `The stream died`
+  with Regenerate; the room card re-yields with a new connection number; a hidden
+  tab stays listed; closing a tab removes it in ~100 ms. Two model fixes on
+  the way: `leave()` must remove only the entry its own connection joined (a
+  reconnect re-joins under the same id before the dead connection's
+  `finally` runs — the late leave was removing the new entry), and a standing
+  source parked on an `await` cannot be `return()`ed until that await
+  settles, so the watchers race the request's abort signal
+  (`getRequestEvent().request.signal`) — otherwise the leave waits for the
+  room's next event. The production harness (`server.js`) now couples the
+  socket's close to the request's signal, as the dev plugin does. RFC 10
+  carries both as contract (the `live` bullet "Teardown is the request's
+  abort"; the host's duty under `createEvent`), without the mechanism.
+  Proposed, not built (a new dev-only diagnostic — needs a go-ahead): after
+  an abort, warn when a live source's `return()` has not settled within a few
+  seconds, naming the source — the only way a typical author learns their wait
+  is not observing the signal.
 
 ### A3 — dev chaos-reconnect knob
 
@@ -350,6 +412,9 @@ component ("summarize the room") for the bounded contrast.
 | `live` behavior over nested-async answers (response lifetime)                                                                                                                                           | behavior change, shipped fn | A2    |
 | `live` takeover fires per scope, not at page-wide hydration end                                                                                                                                         | behavior change, shipped fn | A2    |
 | `live` digest-equal reconnect yields nothing (D12)                                                                                                                                                      | behavior change, shipped fn | A1    |
+| `live` takeover iteration yields the adopted value first, locally, before its first connection                                                                                                          | behavior change, shipped fn | A2    |
+| `setSignal` during hydration capture snapshots a pre-capture plain signal's pre-write value (held, replayed at release)                                                                                 | behavior change, signals    | A2    |
+| Server `Loading` honors `on` (hydration ids match the client)                                                                                                                                           | bug fix                     | A2    |
 | Live calls move from the data address to `<endpoint>/live/<id>` — a client and server versioned apart miss each other on live calls until both are current                                              | wire (address)              | A1    |
 | Event-stream framing of what the live address answers; `Last-Event-ID` (value digest as `id:`; cursor sources read the header)                                                                          | wire                        | A1    |
 | `X-Accel-Buffering` / `no-store` on live responses                                                                                                                                                      | wire (headers)              | A1    |

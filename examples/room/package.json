@@ -1,6 +1,6 @@
 {
-  "name": "hackernews-example",
-  "description": "Solid Server Components over frame streams: the same HN app as ../hackernews-spa — same routes, same markup, same data layer — with the static markup returned by server components, so it arrives as HTML once and never again as hydration data",
+  "name": "room-example",
+  "description": "A shared room over live server functions: presence and the transcript are standing answers each tab holds open as one event-stream response, the room card is a nested-async answer that lives as long as its response, and a chaos switch kills the connections so the reconnect path is visible",
   "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@solidjs/vite-plugin": "3.0.0-next.35",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "vite": "^8.0.0"
   }
 }
