@@ -286,7 +286,8 @@ Three facts, in order of weight:
   keep their window on the node (`_dev*` fields); a per-run `WeakMap`,
   `now()` or allocation is the shape to refuse in review. The
   `attribution-engine-cost` tripwire (enabled/idle ratio, best-of-k,
-  interleaved, cap 14 against a measured ~10) is what catches it.
+  interleaved, cap 4 against a measured ~2.0–2.1× folded — see Lean
+  posture below) is what catches it.
 - **The engine's fixed per-re-run cost is the number that matters**: ~435 ns
   above idle with every check off, ~9× idle. It is the `RerunEvent` — the
   `causes` array, `depsAdded`/`depsRemoved` name arrays, `preview()` strings
@@ -296,53 +297,72 @@ Three facts, in order of weight:
   adapter that holds the engine for interaction/hold tracing, whether or
   not it reads a re-run.
 
-### Lean posture — proposal, needs a decision
+### Lean posture — LANDED (#3644)
 
-_Status._ Landed as proposed: `wantsRerun()` — a `rerun` listener on
-`OBSERVE.records`, an imported fold (`costs`/`feedback`) or `log` — gates the
-record at run start; the checks read the frame's facts; `history("rerun")`
-is empty while nothing wants records. The text below is the proposal as
-written.
+Build the `RerunEvent` only when someone can read it. Implemented as
+`wantsRerun() = log || folds.length > 0 || OBSERVE.records.observed("rerun")`
+(`packages/signals/src/core/attribution.ts`), read at `recomputeStart` —
+it decides whether the dep snapshot the record's subscription diff needs
+is captured (`frame.prevDeps`, `null` when nothing wants the record) — and
+honoured at `recordRerun`. Without an audience the run still leaves its
+facts on the node (run sequence and count, causes, interaction), feeds the
+interaction and flush counters and runs every check; the record — cause
+copy, dep diff, previews — the ring-buffer push, the fold and the emit are
+skipped. Not `recomputeEnd` as proposed: the snapshot is the first cost,
+so the decision has to precede the run, and a listener arriving mid-run
+gets the next record. Pinned in `tests/attribution-lean-gate.test.ts`.
 
-Build the `RerunEvent` only when someone can read it. The engine knows at
-`recomputeEnd` whether anyone can: a `rerun` subscriber, a registered fold
-(`costs`/`feedback`/`why`/`subscriptions` import), `log: true`, or a
-consumer that will call `history("rerun")`. When none holds, keep only what the
-other records need — the frame's interaction for `runs`/`runMs` on
-`InteractionEvent`, the cause→interaction link for holds and flights, the
-per-node counters the checks read — and skip the record: no causes array,
-no dep-name diffs, no previews, no ring-buffer push, no `recordSubject`.
-Expected: enabled cost for a records-only consumer falls from ~9× idle
-toward 3–4×; measure before promising.
+Decision on the contract — document, no option. There is no
+`enable({ reruns: true })`: a consumer that wants re-run records subscribes
+to `rerun` or imports a fold, the same "subscribing is what turns them on"
+the timeline records already had, so the engine has one gate rather than
+two that compose. The questions the proposal listed, as answered:
 
-What it changes, and therefore what to decide:
+- `history("rerun")` is empty for runs made while nothing wanted a record
+  and holds every record from the moment something did; the run count
+  kept meanwhile is on the first record (`nodeRuns`). Documented on
+  `Attribution.history`, on `RecordTypes` (`dev.ts`) and in
+  `08-dev-diagnostics.md`. `why(node)` is a view of that buffer and shares
+  its gate (a node whose runs left no record has no `nodeId` and no
+  history) — documented on `why`. `subscriptions(node)` was never a record
+  reader: it walks the node's live `_deps`, so it answers with or without
+  an audience (and with the engine disabled) — documented on
+  `subscriptions`. Both pinned in the lean-gate test.
+- `OBSERVE.records.subscribe("rerun", …)` turns record-building on from the
+  next run start and off again when the listener unsubscribes; `log: true`
+  and a registered fold (`costs`/`feedback` import) do the same. The bare
+  `attribution.subscribe(listener)` went with the channel consolidation in
+  the same PR; there is no untyped form to gate.
+- The checks read the frame, not the record: `checkEffectCycle`,
+  `checkRelayTear`, `checkHotRuns` (causes), `checkHotTime` (`selfMs`,
+  causes), `checkWastedRecompute` (`frame.start`, `phase`, `changed`,
+  `selfMs`, causes) and `checkDepWidth` all run in `recordRerun` before the
+  `prevDeps === null` return that is the gate. `HOT_SCOPE_RERUNS` and
+  `WASTED_RECOMPUTE` firing without a record are pinned.
+- `@sentry/solid-2` dropping its `rerun` subscription to become a lean
+  consumer (`InteractionEvent.runs`/`runMs` and the `HOT_SCOPE_*` /
+  `WASTED_RECOMPUTE` findings cover its per-interaction hot list) is the
+  follow-up in the Sentry PR, getsentry/sentry-javascript#24517, together
+  with the channel migration. The Performance Tracks adapter needs re-run
+  records by design and stays a full consumer.
 
-- `history("rerun")`, `why()`, `subscriptions()` on a lean engine return nothing
-  for runs that happened before a consumer of them appeared. Either
-  document that (they are dev-console tools; the observe consumer that
-  wants them subscribes to `rerun` or imports a fold, which turns records
-  on from that moment), or add an explicit `enable({ reruns: true })` that
-  forces record-building — the most-demanding merge makes that compose.
-- `OBSERVE.records.subscribe("rerun", …)` must turn record-building on, the
-  way the `create`/`effect`/`flush`/`flight`/`fallback` timeline records
-  already work ("subscribing is what turns them on").
-- The checks that read the record today (`checkHotRuns` reads
-  `event.causes` for its cause key and message; `checkWastedRecompute`
-  reads `changed`, `selfMs`, `phase`, `at`) need those facts from the frame
-  instead of the record — they are all on the frame before the record is
-  built.
-- `@sentry/solid-2` subscribes to `rerun` only to fold a per-interaction
-  hot list; `InteractionEvent.runs`/`runMs` and the `HOT_SCOPE_*` /
-  `WASTED_RECOMPUTE` findings cover that, so the adapter can drop the
-  subscription and become a lean consumer. The Performance Tracks adapter
-  needs re-run records by design and stays a full one.
+Measured, `attribution-engine-cost` (enabled/idle ratio on the observe
+artifacts, best-of-5 interleaved, under vitest, M-series). The section's
+table above (490/55 ns ≈ 9×) came from a different flush-per-write
+micro-harness; the tripwire's apples-to-apples numbers are the baseline
+from here:
 
-Not a shortcut: the record is the engine's unit of truth for the
-dev-console tools, and a lean engine must produce the identical record the
-moment a consumer asks. The proof is the existing attribution suite run
-twice — once with a `rerun` subscriber armed, once without — and the
-engine-cost tripwire's ratio dropping, with its cap ratcheted to hold the
-gain.
+| Engine                                     | folded     | listened   | lean       |
+| ------------------------------------------ | ---------- | ---------- | ---------- |
+| #3613 (record always built), 2026-09-24    | ~2.5–2.8×  | —          | —          |
+| #3644 (one channel, lean gate), 2026-09-24 | ~2.1–2.2×  | ~2.0–2.3×  | ~1.8–1.9×  |
+| #3644 + #3646, 2026-09-24, six runs        | 1.98–2.14× | 1.91–2.11× | 1.71–1.90× |
+
+The gap between postures is inside this harness's noise; what the gate
+buys is the allocation and GC pressure of the record, which a 5,000-re-run
+ratio does not resolve. Cap ratcheted 14 → 4 (~85–100% headroom over the
+folded baseline; trips when the engine costs roughly double what it does
+today, the same discipline as `observe-idle-cost`'s 1.25 over 1.03–1.09).
 
 ## Consumers — showing the facts where developers already look
 
