@@ -55,7 +55,6 @@ import {
   createSignal,
   flush,
   isPending,
-  NotReadyError,
   untrack,
   OBSERVE
 } from "../src/index.js";
@@ -410,22 +409,17 @@ describe("#3648 first landing of an async memo under an optimistic lane", () => 
     // #3427): `data` re-derives from `id = 0` on the plain channel — a fresh
     // flight — and the transaction holds until it lands, the display keeping
     // the optimistic frame meanwhile (A18 (c)). `data` is pending and still
-    // uninitialized under its displayed derived override: a reader holds
-    // (NotReadyError) rather than being handed `undefined`.
+    // uninitialized under its displayed derived override: an untracked read
+    // is served the override — the displayed value of a pending node (A18
+    // (d)) — never `undefined`, and never a hold (the "untracked read in the
+    // window" case below pins the ruling).
     gate.reject(new Error("action failed"));
     await running.catch(() => {});
     await settle();
     expect(fetches.length).toBe(3);
     expect(rendered).toEqual(["data for 2"]);
-    let midWindow: unknown = "unread";
-    try {
-      midWindow = untrack(() => data());
-    } catch (e) {
-      expect(e).toBeInstanceOf(NotReadyError);
-      midWindow = "held";
-    }
-    expect(midWindow).not.toBe(undefined);
-    untracked.push(midWindow);
+    untracked.push(untrack(() => data()));
+    expect(untracked).toEqual(["data for 2"]);
 
     fetches[fetches.length - 1].resolve("y");
     await settle();
@@ -440,6 +434,132 @@ describe("#3648 first landing of an async memo under an optimistic lane", () => 
     expect(rendered).toEqual(["data for 2", "data for 0"]);
     expect(untracked).not.toContain(undefined);
     expect(untracked[untracked.length - 1]).toBe("data for 0");
+    expect(codes).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A18 (d), ruled on the revert case above: a pending node that carries an
+   * override DISPLAYS the override — the optimistic value shields the pending
+   * state. "Uninitialized must suspend" (#3276, A19 exception 1) was written
+   * for a node with nothing to show; a never-committed node with an armed
+   * derived override has something to show. So an UNTRACKED read — no reader
+   * identity, hence no lane membership to test — of a node that is
+   * STATUS_UNINITIALIZED, pending, and under an armed derived override returns
+   * the override. Before this, `read()`'s `!c && STATUS_UNINITIALIZED` throw
+   * fired ahead of `serve()`'s override arm, so the read threw NotReadyError
+   * in the body-end window while the same read of an INITIALIZED node
+   * re-deriving under its override returned the override.
+   *
+   * Unchanged, pinned beside it: a tracked lane reader keeps the override
+   * (A17 — `rendered` shows it throughout); a tracked OFF-LANE reader
+   * mounted into the window suspends (#3651 — outsiders never see the lane's
+   * values) and ends on the truth.
+   */
+  it("shape B revert: an untracked read of the never-committed node is served its derived override — before the revert, and in the re-derivation window; a tracked off-lane reader in the window still suspends", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const capture = OBSERVE!.diagnostics.capture();
+
+    const fetches: ReturnType<typeof deferred<string>>[] = [];
+    const [id, setId] = createOptimistic(0);
+    const [mount, setMount] = createSignal(false);
+    const [flag, setFlag] = createSignal(false);
+    const rendered: any[] = [];
+    const offLane: any[] = [];
+    let data!: () => any;
+
+    const dispose = createRoot(dispose => {
+      createRenderEffect(
+        () => id(),
+        () => {}
+      );
+      createRenderEffect(
+        () => {
+          if (!mount()) return;
+          data = createMemo(() => {
+            const current = id();
+            const d = deferred<string>();
+            fetches.push(d);
+            return d.promise.then(() => "data for " + current);
+          });
+          createRenderEffect(
+            () => data(),
+            v => {
+              rendered.push(v);
+            }
+          );
+        },
+        () => {}
+      );
+      // an off-lane (mainline) tracked reader that first reads `data` when
+      // flipped into the window
+      createRenderEffect(
+        () => (flag() ? data() : "off"),
+        v => {
+          offLane.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+
+    const gate = deferred<void>();
+    const act = action(function* () {
+      setId(1);
+      yield gate.promise;
+    });
+    const running = act();
+    flush();
+    setMount(true);
+    flush();
+    setId(2);
+    flush();
+    fetches[fetches.length - 1].resolve("x");
+    await settle();
+    expect(rendered).toEqual(["data for 2"]);
+
+    // Lane live, first landing under the lane: the node has never committed
+    // (its value sits in the derived-override slot) and is not pending. An
+    // untracked read displays the override (A17).
+    expect(untrack(() => data())).toBe("data for 2");
+
+    // The revert window (see the case above): `data` re-derives from the
+    // truth on the plain channel, pending and still uninitialized, its
+    // derived override still armed and displayed. An untracked read from
+    // ambient context is served the override — not a NotReadyError, not
+    // `undefined` (A18 (d)).
+    gate.reject(new Error("action failed"));
+    await running.catch(() => {});
+    await settle();
+    expect(fetches.length).toBe(3);
+    expect(rendered).toEqual(["data for 2"]);
+    expect(untrack(() => data())).toBe("data for 2");
+    // Reading it did not settle, dispose or otherwise disturb the node: the
+    // re-derivation is still the flight in the air, and a second read agrees.
+    expect(fetches.length).toBe(3);
+    expect(untrack(() => data())).toBe("data for 2");
+
+    // A tracked OFF-LANE reader mounted into the window holds (#3651): it
+    // publishes neither the override nor `undefined`, and re-derives when
+    // the truth lands.
+    setFlag(true);
+    flush();
+    await settle();
+    expect(offLane).toEqual(["off"]);
+    expect(rendered).toEqual(["data for 2"]);
+
+    fetches[fetches.length - 1].resolve("y");
+    await settle();
+    const afterCommit = untrack(() => data());
+
+    const events = capture.stop();
+    const codes = events.map(e => e.code);
+    error.mockRestore();
+    dispose();
+
+    expect(rendered).toEqual(["data for 2", "data for 0"]);
+    expect(offLane).toEqual(["off", "data for 0"]);
+    expect(afterCommit).toBe("data for 0");
     expect(codes).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
     expect(error).not.toHaveBeenCalled();
   });

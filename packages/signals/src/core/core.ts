@@ -2203,7 +2203,25 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
         throw owner._x?._error;
       }
-    } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
+    } else if (
+      !c &&
+      owner._statusFlags & STATUS_UNINITIALIZED &&
+      // An armed DERIVED override shields the uninitialized state from a
+      // read with no reader identity (#3648 follow-up, A18 (d)): a memo
+      // whose first landing rode its lane (asyncWrite's lane branch →
+      // `laneOverride`) has no `_value` — the flag stays set until the lane's
+      // commit promotes the override — yet the override IS the displayed
+      // value of a pending node (A18 (c), the screen keeps it until the
+      // commit), exactly as an initialized node re-deriving under its override
+      // displays it. "Uninitialized must suspend" (#3276, A19 exception 1) was
+      // written for a node with NOTHING to show; this node has the override.
+      // The arm fires in the body-end window: the source override superseded
+      // (A18 body-end, #3427), the memo re-deriving on the plain channel and
+      // held, its own slot still armed. Fall through to serve()'s override
+      // arm. Readers WITH identity are untouched: a tracked lane reader keeps
+      // the override (A17), an off-lane one suspends (#3651, `overrideRead`).
+      !(hasActiveOverride(el) && el._config & CONFIG_DERIVED_OVERRIDE)
+    ) {
       throw owner._x?._error;
     }
   }
