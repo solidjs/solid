@@ -481,7 +481,31 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // there would commit a fresh Promise and orphan the server-streamed fragment.
   // So short-circuit to the server value whenever one is still waiting; once
   // hydration is `done`, always compute.
-  if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
+  if (sharedConfig.done) return compute(prev);
+  if (!sharedConfig.has!(o.id!)) {
+    const result = compute(prev);
+    // No serialized value, yet the compute answered a LIVE source that
+    // carries the DOCUMENT's answer (LIVE_LOCAL): the node is a
+    // `serialize: false` reader (`dynamic()`) of a live server component
+    // the page is showing, and the call was answered locally by the
+    // adopted markup (a frames intercept), not by a wire. That answer is
+    // the value now — there is no serialized value to hydrate, the markup
+    // is the value — and the node takes over at its scope's release
+    // exactly as a serialized live node does: the takeover run re-invokes,
+    // and the new iteration yields this value first, then connects (RFC 11
+    // §9.5, Client face 3). The iterable itself is never started here.
+    if (
+      options?.ssrSource !== "hybrid" &&
+      result != null &&
+      typeof result === "object" &&
+      result[LIVE_SOURCE] &&
+      result[LIVE_LOCAL] !== undefined
+    ) {
+      armLiveTakeover(o);
+      return result[LIVE_LOCAL];
+    }
+    return result;
+  }
   // Divergence arming is a "server"/default-mode contract only: hybrid's
   // sync/promise flavor deliberately latches (re-running its compute at done
   // would clobber the adopted value — the refetch the hybrid wrappers' rule 6
@@ -554,6 +578,15 @@ const LIVE_SOURCE = Symbol.for("solid.LiveSource");
  * page already holds.
  */
 const LIVE_RESUME_FROM = Symbol.for("solid.LiveResumeFrom");
+
+/**
+ * The document's answer for a live call (registered symbol; filed by the
+ * transport's `live()` when an integration already shows the call at t=0 —
+ * a frames boundary the page carries). A hydrating node without a
+ * serialized value adopts it as its value and arms its takeover; see
+ * readSerializedOrCompute.
+ */
+const LIVE_LOCAL = Symbol.for("solid.LiveLocal");
 
 // Takeover gates, one per hydration scope: nodes that trace-detected a live
 // compute (or diverged while latched) read their scope's gate (tracked);

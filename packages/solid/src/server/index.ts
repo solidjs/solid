@@ -142,6 +142,7 @@ export {
   creationStamp,
   runInServerComponentScope,
   inServerComponentScope,
+  inLiveServerComponentScope,
   getProjectionTrace,
   shareAsyncIterable,
   ssrSanitizeError,

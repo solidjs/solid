@@ -13,13 +13,15 @@
 import {
   ChunkReader,
   ERROR_HEADER,
+  LIVE_WIRE,
   SINGLE_FLIGHT_HEADER,
   createChunk,
   deliverFlightData,
   deserializeStream,
   frameAddress,
   getServerFunctionsCodec,
-  hasFlightMetadata
+  hasFlightMetadata,
+  isEventStream
 } from "../../server-functions/src/shared.js";
 import { observeFrameApply } from "../../src/observe.js";
 
@@ -98,12 +100,15 @@ export interface ServerComponentHandlerOptions<C = unknown> {
    */
   onStream?(address: string, version: number, response: Response): void;
   /**
-   * Answer a call SYNCHRONOUSLY before any request is made (t = 0 local
-   * answers — e.g. a boundary the document already carries). Returning a
-   * non-undefined value resolves the call with it; a hydrating consumer
-   * never observes a pending beat.
+   * Answer a call before any request is made (t = 0 local answers — a
+   * boundary the document already carries). Returning `undefined` is a
+   * miss; any other value is a hit, SYNCHRONOUS, resolving the call with
+   * its binding — a hydrating consumer never observes a pending beat. A
+   * PROMISE is a deferred hit (a boundary the document is still
+   * delivering): the call resolves with its binding when it settles truthy,
+   * and is a miss after all — the caller fetches — when it settles falsy.
    */
-  intercept?(info: { id: string; meta: unknown; args: unknown[] }): C | undefined;
+  intercept?(info: { id: string; meta: unknown; args: unknown[] }): unknown | PromiseLike<unknown>;
 }
 
 /**
@@ -112,7 +117,67 @@ export interface ServerComponentHandlerOptions<C = unknown> {
  * a `BodyFormat` entry, since the body is frame chunks, not a serialized
  * value.
  */
-export const FRAME_STREAM_HEADER = "X-Frame-Stream"; /**
+export const FRAME_STREAM_HEADER = "X-Frame-Stream";
+
+/**
+ * The resume request's have-list (RFC 11 §9.5, Resume request): the
+ * digests the client holds for the address it is reconnecting — the root
+ * skeleton under `""`, then one entry per live hole (`lh:N`), attr hole
+ * (`lha:N`) and revealed fragment (`pl-N`). Its PRESENCE makes the render a
+ * conditional one: the server emits a hole or fragment only when it has
+ * settled and its digest differs, and never a root or a fallback over
+ * content the list names. Rides only to the live address (a `no-store`
+ * response nothing keys on) — never as an argument. Decision (f): this
+ * name; a list whose encoding would exceed `FRAME_HAVE_BUDGET` bytes is
+ * omitted and the client accepts a full snapshot.
+ * @experimental
+ */
+export const FRAME_HAVE_HEADER = "X-Frame-Have";
+
+/** The have-list's size ceiling in encoded bytes (see FRAME_HAVE_HEADER). */
+export const FRAME_HAVE_BUDGET = 4096;
+
+/**
+ * Encodes a have-list for the header: `key=digest` pairs, comma-joined
+ * (keys never contain either separator; the root's key is empty).
+ * `undefined` when the list is empty or over budget.
+ * @internal
+ */
+export function encodeHaveList(have: Record<string, string>): string | undefined;
+
+export function encodeHaveList(have) {
+  let out = "";
+  for (const key in have) {
+    const digest = have[key];
+    if (typeof digest !== "string") continue;
+    out += (out ? "," : "") + key + "=" + digest;
+    if (out.length > FRAME_HAVE_BUDGET) return undefined;
+  }
+  return out || undefined;
+}
+
+/**
+ * Decodes a have-list header value; `undefined` for an absent/empty one.
+ * Tolerant of malformed entries (skipped) — a wrong entry costs one
+ * unneeded emission, never a wrong skip.
+ * @internal
+ */
+export function decodeHaveList(text: string | null | undefined): Record<string, string> | undefined;
+
+export function decodeHaveList(text) {
+  if (!text) return undefined;
+  const have = {};
+  let any = false;
+  for (const entry of text.split(",")) {
+    const eq = entry.indexOf("=");
+    if (eq === -1) continue;
+    const digest = entry.slice(eq + 1).trim();
+    if (!/^[0-9a-f]{16}$/.test(digest)) continue;
+    have[entry.slice(0, eq).trim()] = digest;
+    any = true;
+  }
+  return any ? have : undefined;
+} /**
  * Whether a fetch Response carries a frame stream.
  * @experimental
  */
@@ -186,40 +251,113 @@ async function observedApplyFrameResponse(response, host, options = {}) {
  * the response-scoped single-flight envelope, which is the caller's result
  * rather than anything the host renders.
  */
-async function applyFrames(response, host, options = {}, observation) {
+function applyFrames(response, host, options = {}, observation) {
   const rootId = response.headers.get(FRAME_STREAM_HEADER) ?? "";
   const as = options.as;
   const version = options.version;
   const perFrame = typeof version === "function" ? new Map() : null;
-  const reader = new ChunkReader(response.body);
-  let result = await reader.next();
-  while (!result.done) {
-    const chunk = JSON.parse(result.value);
-    if (chunk.type === "outcome") {
-      if (options.onOutcome) options.onOutcome(chunk.payload);
-    } else {
-      const wireId = chunk.id;
-      if (as !== undefined && chunk.id === rootId) chunk.id = as;
-      if (perFrame) {
-        let v = perFrame.get(chunk.id);
-        if (v === undefined) perFrame.set(chunk.id, (v = version(chunk.id)));
-        chunk.version = v;
-      } else if (version !== undefined) chunk.version = version;
-      // The observe tier's chunk census (see `observedApplyFrameResponse`);
-      // folds with the literal.
-      if (IS_OBSERVE && observation) observation.chunk(chunk, wireId);
-      // Codec-free until a `data` chunk actually arrives: a host whose
-      // deserializer loads lazily (`prepareData`) gets awaited here, and
-      // because the loop is sequential every later chunk — the records
-      // referencing this data included — queues behind the load. Chunk
-      // ORDER is the only contract downstream (network jitter already
-      // stretches time between chunks), so nothing else observes the wait.
-      if (chunk.type === "data" && host.prepareData) await host.prepareData();
-      host.apply(chunk);
-    }
-    result = await reader.next();
+  // A `live` loop's call (the slot it threads through its invoke options —
+  // see LIVE_WIRE): the body is read through the loop's own reader when it
+  // is framed as an event stream, and the connection's end is reported to
+  // the loop instead of being judged here.
+  const wire = options[LIVE_WIRE];
+  const connection = wire && wire.connection;
+  const reader =
+    wire && isEventStream(response) ? wire.open(response.body) : new ChunkReader(response.body);
+  // The frames this response has begun (`start`) and not yet ended —
+  // `complete` is the bounded signal (a frame the server declared done), an
+  // unkeyed `error` the failing kind of it. A body that ends with any still
+  // open is a DEATH, never a completion (RFC 11 §9.5, Wire): what the
+  // server never declared done was cut off. A nested region's chunks ride
+  // inside its parent's start/complete and are not counted apart. Frame
+  // ids as applied (remapped, per-frame versioned), so an error record
+  // written for one lands in its store.
+  const open = new Map();
+  // Supersession (§9.5, Client face 4): the handler cancels this connection
+  // when a newer response writes the address — the read ends as a death
+  // carrying the reason, and the loop reconnects from it.
+  let cancelled;
+  let resolveEnd;
+  if (connection) {
+    connection.ended = new Promise(resolve => (resolveEnd = resolve));
+    connection.cancel = reason => {
+      if (cancelled !== undefined) return;
+      cancelled = reason;
+      // The reader owns the body's lock; cancelling through it ends the
+      // drain as a clean body end (the death is in `open`, not the error).
+      try {
+        const r = reader.cancel && reader.cancel(reason);
+        if (r && typeof r.then === "function") r.then(undefined, () => {});
+      } catch {}
+    };
   }
-  return as !== undefined ? as : rootId;
+  const errorRecord = (id, error) => ({
+    type: "error",
+    id,
+    version: open.get(id),
+    error: { message: String(error && error.message) }
+  });
+  const drain = async () => {
+    let result = await reader.next();
+    while (!result.done) {
+      const chunk = JSON.parse(result.value);
+      if (chunk.type === "outcome") {
+        if (options.onOutcome) options.onOutcome(chunk.payload);
+      } else {
+        const wireId = chunk.id;
+        if (as !== undefined && chunk.id === rootId) chunk.id = as;
+        if (perFrame) {
+          let v = perFrame.get(chunk.id);
+          if (v === undefined) perFrame.set(chunk.id, (v = version(chunk.id)));
+          chunk.version = v;
+        } else if (version !== undefined) chunk.version = version;
+        if (chunk.type === "start") open.set(chunk.id, chunk.version);
+        else if (chunk.type === "complete" || (chunk.type === "error" && !chunk.key))
+          open.delete(chunk.id);
+        // The observe tier's chunk census (see `observedApplyFrameResponse`);
+        // folds with the literal.
+        if (IS_OBSERVE && observation) observation.chunk(chunk, wireId);
+        // Codec-free until a `data` chunk actually arrives: a host whose
+        // deserializer loads lazily (`prepareData`) gets awaited here, and
+        // because the loop is sequential every later chunk — the records
+        // referencing this data included — queues behind the load. Chunk
+        // ORDER is the only contract downstream (network jitter already
+        // stretches time between chunks), so nothing else observes the wait.
+        if (chunk.type === "data" && host.prepareData) await host.prepareData();
+        host.apply(chunk);
+      }
+      result = await reader.next();
+    }
+  };
+  // How the body ended, judged by what it left open. A live loop is TOLD
+  // (the connection's lifetime signal — death or completion — and the sweep
+  // it may run over the open frames if the iteration ends for good by
+  // error; `close` leaves them as they stand, since a superseding
+  // reconnect re-renders them). Without a loop, an open frame's death is an
+  // ERROR on the frame — a bounded server component the server never
+  // declared complete was cut off mid-render, and nothing resumes it
+  // (undeclared death, D1): the record surfaces through `frame.error`, and
+  // the content already applied stays.
+  const end = error => {
+    const dead = error || cancelled || new Error("Frame stream ended before the frame completed.");
+    const sweep = () => {
+      for (const id of open.keys()) host.apply(errorRecord(id, dead));
+    };
+    if (connection) {
+      connection.done = true;
+      resolveEnd({ open: open.size, error: dead, sweep, close: () => {} });
+    } else if (error === undefined) sweep();
+  };
+  return drain().then(
+    () => {
+      end(undefined);
+      return as !== undefined ? as : rootId;
+    },
+    error => {
+      end(error);
+      throw error;
+    }
+  );
 }
 
 /** Brands an inline-rendered server component with its function id. */
@@ -401,6 +539,19 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
     ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
   ): unknown;
   /**
+   * What a `live` (re)connect of the call resumes from (RFC 11 §9.5,
+   * Resume request): the address's version ordinal as the position
+   * (`Last-Event-ID`) and, when a mount shows the address with a ledger,
+   * its have-list under `FRAME_HAVE_HEADER` — omitted over budget, so the
+   * render is a full snapshot then. `undefined` when nothing here has
+   * shown the call.
+   */
+  resume(info: {
+    id: string;
+    meta: unknown;
+    args: unknown[];
+  }): { position: string; headers?: Record<string, string> } | undefined;
+  /**
    * Declares that the document is showing a call: hydration-data references
    * carry their call's address (`_$SC.r(id, address)`) but never travel
    * through the transport, so the integration forwards those records here.
@@ -482,10 +633,35 @@ export function createServerComponentHandler({ host, component, onStream, interc
   // party that observes ordering across transports (a getter refetch, a
   // mutation's regions, a preload), so stale-guarding is per-address here.
   const versions = new Map();
+  // The live connection per address — the `live` loop's call whose body is
+  // currently streaming into the store (its lifetime slot, see LIVE_WIRE).
+  // One per address: content is keyed by call, so two live readers of one
+  // call share one connection (the second joins the first's lifetime below)
+  // — otherwise each would supersede the other's stream and the two loops
+  // would cycle for as long as both were mounted.
+  const connections = new Map();
   const bump = address => {
     const version = (versions.get(address) || 0) + 1;
     versions.set(address, version);
+    // Supersession is a death (§9.5, Client face 4): a newer version from
+    // another response — a getter refetch, a preload, a mutation's region —
+    // makes the open connection's later chunks inert under the stale-guard,
+    // so it is cancelled and the loop reconnects from the death. Run for
+    // every bump, the loop's own reconnect included (whose predecessor has
+    // already ended and left the slot).
+    const connection = connections.get(address);
+    if (connection) {
+      connections.delete(address);
+      connection.cancel(new Error("Superseded by a newer response for the address."));
+    }
     return version;
+  };
+  /** Register a live connection under its address until its body ends. */
+  const hold = (address, connection) => {
+    connections.set(address, connection);
+    connection.ended.then(() => {
+      if (connections.get(address) === connection) connections.delete(address);
+    });
   };
   return {
     intercept:
@@ -496,9 +672,29 @@ export function createServerComponentHandler({ host, component, onStream, interc
         // call's binding like a network answer would — the reader mounts
         // the same per-function component, and the record under the address
         // is how later calls for the same (function, args) find the content.
+        // A DEFERRED answer (the boundary is still arriving) resolves the
+        // binding when it lands, or `undefined` — a miss after all — when
+        // the page has nothing left to deliver it; the caller fetches then.
         if (hit === undefined) return undefined;
-        return bindingFor(frameAddress(info.id, info.args), info.id);
+        const binding = () => bindingFor(frameAddress(info.id, info.args), info.id);
+        if (typeof hit.then === "function")
+          return hit.then(landed => (landed ? binding() : undefined));
+        return binding();
       }),
+    resume(info) {
+      const address = frameAddress(info.id, info.args);
+      const version = versions.get(address);
+      // The ledger is the MOUNT's (it tracks what the DOM shows); the first
+      // mount under the address speaks for all — they show the same store.
+      const frame = host.get(address);
+      const have = frame && frame.have ? frame.have() : undefined;
+      if (version === undefined && !have) return undefined;
+      const encoded = have && encodeHaveList(have);
+      return {
+        position: String(version || 0),
+        headers: encoded ? { [FRAME_HAVE_HEADER]: encoded } : undefined
+      };
+    },
     handle(response, ctx) {
       if (!isFrameStreamResponse(response)) return undefined;
       // The call's address names its store: a repeat call — refetch,
@@ -512,6 +708,43 @@ export function createServerComponentHandler({ host, component, onStream, interc
       // rather than a component.
       if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
         return applyFlightResponse(response, address, binding);
+      }
+      // A `live` loop's call: the binding resolves it now, and the
+      // response's lifetime — its end and how it ended — reaches the loop
+      // through its wire slot (§9.5, Client face 2), so frames CONSUME the
+      // loop rather than mirror it: death → the loop's backoff and
+      // re-invoke, which resolves this same binding again (stable per
+      // address, so an equals-gated reader keeps its instance); completion
+      // → the loop completes.
+      const wire = ctx[LIVE_WIRE];
+      const connection = wire && wire.connection;
+      if (connection) {
+        // A live connection already streams this address: join its
+        // lifetime instead of opening a second stream into the same store
+        // (see `connections`). This response is ended here — the server
+        // tears its render down on the cancel — and the joining loop sees
+        // the shared connection's death when it comes, reconnecting like
+        // the loop that owns it (one of the two wins the next slot; the
+        // other joins again).
+        const current = connections.get(address);
+        if (current && !current.done) {
+          connection.ended = current.ended;
+          const body = response.body;
+          if (body) body.cancel().catch(() => {});
+          return binding;
+        }
+        const version = bump(address);
+        if (onStream) onStream(address, version, response);
+        // The end is judged by the loop from `connection.ended` (set
+        // synchronously by applyFrames); a rejected read is a death it
+        // already sees, not an error record — the loop decides what the
+        // open frames become (a sweep when it ends by error, nothing when
+        // it reconnects).
+        applyFrameResponse(response, host, { as: address, version, [LIVE_WIRE]: wire }).catch(
+          () => {}
+        );
+        hold(address, connection);
+        return binding;
       }
       const version = bump(address);
       if (onStream) onStream(address, version, response);

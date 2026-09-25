@@ -664,6 +664,12 @@ interface ServerComputation<T = any> {
   // hook (`ctx.commitEpoch`) only exists where a binding ledger is live.
   sync?: boolean;
   epoch?: number;
+  // Runs when the owner disposes the compute (see `armDispose`), for work
+  // that cannot wait for its next pull to notice `disposed`: a pumped
+  // iterator parked on a `next()` that will not settle until the world
+  // moves has to be `return()`ed NOW — at a client disconnect, not at the
+  // source's next yield.
+  onDisposed?: Array<() => void>;
 }
 
 /**
@@ -1261,6 +1267,11 @@ export function createMemo<T>(
     if (!o) return;
     const flag = () => {
       comp.disposed = true;
+      const hooks = comp.onDisposed;
+      if (hooks) {
+        comp.onDisposed = undefined;
+        for (const hook of hooks) hook();
+      }
     };
     if (!o._disposal) o._disposal = flag;
     else if (Array.isArray(o._disposal)) o._disposal.push(flag);
@@ -1576,6 +1587,11 @@ function processResult<T>(
   // its source and lazy() re-imports its module. Both resolve to component
   // functions, which are not serializable in the first place.
   const noHydrate = serialize === false || getContext(NoHydrateContext, owner);
+  // The owner whose context record says which render scope this memo reads
+  // in (server component / live server component): judged from here, not
+  // from `currentOwner`, because a stream arriving through a promise is
+  // classified in a continuation where no owner is current.
+  const scopeOwner = owner as unknown as SSROwner;
 
   // Async-iterable takes precedence over thenable, mirroring the client
   // runtime's detection order (`handleAsync` in @solidjs/signals core/async.ts).
@@ -1674,12 +1690,15 @@ function processResult<T>(
       // document open forever — so the brand selects hybrid wherever the
       // server is the consumer, EXCEPT a server-owned frame render (the
       // ctx.commit pump below), where staying connected is the stream
-      // face working as intended. Declared "client" never reaches here
-      // (the compute doesn't run on the server).
+      // face working as intended — and except again inside a LIVE
+      // component's document render, where every source is first-value:
+      // the standing render there is the client's connection after
+      // hydration (RFC 11 §9.5, Server face 3). Declared "client" never
+      // reaches here (the compute doesn't run on the server).
       const hybrid =
         ssrSource === "hybrid" ||
-        (!!(source as any)[LIVE_SOURCE] &&
-          !(!serializes && ctx?.commit && inServerComponentScope()));
+        inLiveServerComponentScope(scopeOwner) ||
+        (!!(source as any)[LIVE_SOURCE] && !(!serializes && pumpsInScope(ctx, scopeOwner)));
       // In-flight stream stamp: a re-created node handed the SAME promise
       // must JOIN this consumption (`s === 3` above), never re-consume.
       (result as any).s = 3;
@@ -1730,37 +1749,12 @@ function processResult<T>(
               })
             } as any) as any;
           }
-          if (ctx?.commit && inServerComponentScope()) {
+          if (pumpsInScope(ctx, scopeOwner)) {
             // Server-owned render (noHydrate — the HTML is the data): pump
             // yields into the binding ledger under a response hold. Mirrors
             // the direct iterable branch's pump; see its comment for the
             // full story.
-            const release = ctx.hold?.();
-            const pump = () => {
-              if (comp.disposed) {
-                closeAsyncIterator(iter);
-                release?.();
-                return;
-              }
-              iter.next().then(
-                (nr: IteratorResult<T>) => {
-                  if (comp.disposed) {
-                    closeAsyncIterator(iter);
-                    release?.();
-                    return;
-                  }
-                  if (nr.done) {
-                    release?.();
-                    return;
-                  }
-                  comp.value = nr.value;
-                  ctx.commit();
-                  pump();
-                },
-                () => release?.()
-              );
-            };
-            deferred.promise.then(pump, () => release?.());
+            pumpIterator(comp, ctx, () => iter, deferred.promise);
           }
           return first;
         },
@@ -1837,7 +1831,8 @@ function processResult<T>(
     // frame render where the pump keeps the standing answer connected.
     const hybrid =
       ssrSource === "hybrid" ||
-      (!!(result as any)[LIVE_SOURCE] && !(!serializes && ctx?.commit && inServerComponentScope()));
+      inLiveServerComponentScope(scopeOwner) ||
+      (!!(result as any)[LIVE_SOURCE] && !(!serializes && pumpsInScope(ctx, scopeOwner)));
     if (hybrid) {
       let currentResult = result;
       let iter: AsyncIterator<T>;
@@ -1965,7 +1960,7 @@ function processResult<T>(
           })
         });
         ctx.serialize(id, tapped, deferStream);
-      } else if (ctx?.commit && inServerComponentScope()) {
+      } else if (pumpsInScope(ctx, scopeOwner)) {
         // Server-owned render (noHydrate — the HTML is the data): nothing
         // serializes this iterable, so nothing pumps it past the first
         // value. When a binding ledger is listening (ctx.commit — a frame
@@ -1982,32 +1977,7 @@ function processResult<T>(
         // disposal) releases the hold and latches the last yielded value.
         // Without a listener the iterator stays pull-paced (no consumer, no
         // pump), same as before.
-        const release = ctx.hold?.();
-        const pump = () => {
-          if (comp.disposed) {
-            closeAsyncIterator(iter);
-            release?.();
-            return;
-          }
-          iter.next().then(
-            (r: IteratorResult<T>) => {
-              if (comp.disposed) {
-                closeAsyncIterator(iter);
-                release?.();
-                return;
-              }
-              if (r.done) {
-                release?.();
-                return;
-              }
-              comp.value = r.value;
-              ctx.commit();
-              pump();
-            },
-            () => release?.()
-          );
-        };
-        deferred.promise.then(pump, () => release?.());
+        pumpIterator(comp, ctx, () => iter, deferred.promise);
       }
       if (loadingState) {
         loadingState.served = true;
@@ -2040,6 +2010,91 @@ function processResult<T>(
   comp.value = result;
   comp.sync = true;
   comp.epoch = ctx?.commitEpoch?.();
+}
+
+// The frame-scope pump: after `start` (the first value, already latched by
+// the caller), pull the iterator — read through `iterator`, since a retried
+// first pull re-mints it — to its end under a response hold, each yield
+// advancing the memo's value and committing the binding ledger. Completion,
+// error and disposal release the hold once. Disposal also closes the source
+// — and does so FROM the disposal, not at the next pull: a standing source
+// (a room's change feed, a subscription) parks its `next()` until the world
+// moves, so a pump that only noticed `disposed` on settle would hold the
+// source, and everything it subscribed to, until an event nobody would see.
+// The client-disconnect teardown (`renderToStream`'s `abandon`) reaches here
+// through the owner's disposal.
+// The safety cap on the document face (RFC 11 §9.5, Server face 4; open
+// decision (c) resolved as a fixed dev-only check, no knob): an undeclared
+// unbounded source pumping into a DOCUMENT render holds the document open
+// for as long as it produces. A live-declared component never gets here —
+// its scope takes first values — so a pump still open this long during a
+// document render is the authoring error the check names.
+const UNDECLARED_LIVE_SOURCE_MS = 5000;
+
+/**
+ * Opens the response hold a frame-scope pump runs under (memo or projection)
+ * and arms the document-face cap; returns the release (idempotent). `alive`
+ * says whether the pumping node still stands when the cap fires.
+ */
+function openPumpHold(ctx: any, owner: Owner | null, alive: () => boolean): () => void {
+  const hold = ctx.hold?.();
+  let released = false;
+  let cap: any;
+  if (IS_DEV && ctx.document) {
+    cap = setTimeout(() => {
+      cap = undefined;
+      if (released || !alive()) return;
+      devCheck(
+        {
+          code: "SSR_UNDECLARED_LIVE_SOURCE",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[SSR_UNDECLARED_LIVE_SOURCE] An async iterable read in a server component is ` +
+            `still producing ${UNDECLARED_LIVE_SOURCE_MS / 1000}s into a document render: the ` +
+            `document stays open for as long as it does. Declare the server function ` +
+            `live(...) so the document takes the source's first value and the client ` +
+            `connects for the rest, or bound the source.`,
+          data: { afterMs: UNDECLARED_LIVE_SOURCE_MS }
+        },
+        owner as any
+      );
+    }, UNDECLARED_LIVE_SOURCE_MS);
+    cap.unref?.();
+  }
+  return () => {
+    if (released) return;
+    released = true;
+    if (cap !== undefined) clearTimeout(cap);
+    hold?.();
+  };
+}
+
+function pumpIterator<T>(
+  comp: ServerComputation<T>,
+  ctx: any,
+  iterator: () => AsyncIterator<T>,
+  start: Promise<unknown>
+) {
+  const release = openPumpHold(ctx, comp.owner, () => !comp.disposed);
+  const close = () => {
+    closeAsyncIterator(iterator());
+    release();
+  };
+  (comp.onDisposed ??= []).push(close);
+  const pump = () => {
+    if (comp.disposed) return close();
+    iterator()
+      .next()
+      .then((r: IteratorResult<T>) => {
+        if (comp.disposed) return close();
+        if (r.done) return release();
+        comp.value = r.value;
+        ctx.commit();
+        pump();
+      }, release);
+  };
+  start.then(pump, release);
 }
 
 // Best-effort `return()` on a source we are done with. Nothing here may
@@ -2515,31 +2570,121 @@ export function createProjection<T extends object = {}>(
 
   const ssrSource = options?.ssrSource;
   const useProxy = ssrSource !== "hybrid";
-  // Projections have no server-component continuation pump: a standing live
-  // answer always hands off after V1, including no-hydrate/frame consumers.
+  // The render scope this projection reads in, judged from its own owner
+  // (a stream arriving through a promise is classified in a continuation
+  // with no owner current) — the same rule `processResult` applies to memos.
+  const scopeOwner = owner as unknown as SSROwner;
+  const serializes = !!(ctx?.async && !getContext(NoHydrateContext) && id);
+  // The frame-scope pump (Stage 8 B5): in a server-owned frame render with a
+  // binding ledger listening (`ctx.commit`), an async-iterable projection
+  // pumps like a memo — every yield lands in `state`, commits, and holds the
+  // response — so bindings reading the store stay live. Not on a LIVE
+  // component's document render (first value there; the standing render is
+  // the client's connection), and not where the trace serializes (the
+  // hydration channel is that face's continuation).
+  const pumps = !serializes && pumpsInScope(ctx, scopeOwner);
+  // Effective mode for a standing source, the memo's rule: declared hybrid,
+  // or any source under a live component's document render, or a branded
+  // live source wherever the server is the consumer — EXCEPT the frame pump,
+  // where staying connected is the stream face working as intended.
   const usesHybrid = (source: AsyncIterable<unknown>) =>
-    ssrSource === "hybrid" || !!(source as any)[LIVE_SOURCE];
+    ssrSource === "hybrid" ||
+    inLiveServerComponentScope(scopeOwner) ||
+    (!!(source as any)[LIVE_SOURCE] && !pumps);
   const patches: PatchOp[] = [];
   const draft = useProxy
     ? createDeepProxy(state as any, patches, [], options?.shallow)
     : (state as any as T);
-  const takeFirst = (source: AsyncIterable<void | T>) =>
+  // The pump's stop — armed while a frame pump runs; disposal (the response
+  // teardown reaching this owner) closes the source FROM the disposal, not
+  // at its next pull: a standing source parks `next()` until the world
+  // moves (see pumpIterator).
+  let stopPump: (() => void) | undefined;
+  onCleanup(() => stopPump?.());
+  // Runs a frame pump over `step` (resolves `true` when the source is done)
+  // under a response hold; `close` ends the source on disposal.
+  const framePump = (step: () => Promise<boolean>, close: () => void) => {
+    const releaseHold = openPumpHold(ctx, owner, () => !disposed);
+    const release = () => {
+      stopPump = undefined;
+      releaseHold();
+    };
+    stopPump = () => {
+      close();
+      release();
+    };
+    const loop = () => {
+      if (disposed) return stopPump?.();
+      step().then(done => {
+        if (disposed) return stopPump?.();
+        if (done) return release();
+        (ctx as any).commit();
+        loop();
+      }, release);
+    };
+    loop();
+  };
+  // A pump over an iterable that arrived through a promise (an async
+  // function returning a generator, or the NotReady retry re-running the
+  // derive): its first value settles the read like a resolution, and the
+  // rest pumps once that value has landed (`pendingPump`, fired by the
+  // settle below — the pump must not race the first value's apply).
+  let pendingPump: (() => void) | undefined;
+  const takeFirst = (source: AsyncIterable<void | T>, pumpRest: boolean) =>
     Promise.resolve().then(() => {
       const iter = source[Symbol.asyncIterator]();
       return Promise.resolve(iter.next()).then((first: IteratorResult<void | T>) => {
         if (first.done) return undefined;
-        closeAsyncIterator(iter);
+        if (pumpRest) {
+          pendingPump = () =>
+            framePump(
+              () =>
+                iter.next().then((r: IteratorResult<void | T>) => {
+                  if (r.done) return true;
+                  if (r.value !== undefined && r.value !== draft) {
+                    replaceState(draft, r.value as T);
+                  }
+                  patches.length = 0;
+                  return false;
+                }),
+              () => closeAsyncIterator(iter)
+            );
+        } else closeAsyncIterator(iter);
         return first.value;
       });
     });
   const normalizeAsync = (value: any) =>
     Promise.resolve(value).then(value =>
-      // A bounded Promise→AsyncIterable needs the projection patch-trace
-      // protocol; only one-shot hybrid/live sources normalize to a value here.
-      typeof value?.[Symbol.asyncIterator] === "function" && usesHybrid(value)
-        ? takeFirst(value)
-        : value
+      // A bounded Promise→AsyncIterable on the document face needs the
+      // projection patch-trace protocol; one-shot hybrid/live sources take
+      // their first value here, and the frame pump takes the first value
+      // and pumps the rest.
+      typeof value?.[Symbol.asyncIterator] !== "function"
+        ? value
+        : usesHybrid(value)
+          ? takeFirst(value, false)
+          : pumps
+            ? takeFirst(value, true)
+            : value
     );
+  // A resolution landing: adopt a returned replacement, open the reads —
+  // at the LIVE state under the frame pump (every yield after this one
+  // advances what bindings read; no hydration claim exists there) — and
+  // start the pump the first value left pending.
+  const settleWith =
+    (markReady: (frozen?: T) => void) =>
+    (value: void | T): T => {
+      if (value !== undefined && value !== state && value !== draft) {
+        replaceState(state, value as T);
+      }
+      markReady(pumps ? state : undefined);
+      if (pendingPump) {
+        const start = pendingPump;
+        pendingPump = undefined;
+        start();
+      }
+      return state as T;
+    };
   // seedLoadingValue = commit #0: reads never throw, they serve a frozen copy
   // of the seed for the whole response (first-value lock — `state` still
   // advances underneath for patch/serialization correctness, the landing is
@@ -2578,19 +2723,12 @@ export function createProjection<T extends object = {}>(
       Promise.reject(error),
       () => normalizeAsync(runProjection()),
       deferred,
-      (value: void | T) => {
-        if (value !== undefined && value !== state && value !== draft) {
-          replaceState(state, value as T);
-        }
-        markReady();
-        return state as T;
-      },
+      settleWith(markReady),
       markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (ctx?.async && !getContext(NoHydrateContext) && id)
-      ctx.serialize(id, deferred.promise, options?.deferStream);
+    if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
@@ -2605,25 +2743,18 @@ export function createProjection<T extends object = {}>(
       const runFirst = () => {
         const source = currentResult ?? runProjection();
         currentResult = undefined;
-        return takeFirst(source as AsyncIterable<void | T>);
+        return takeFirst(source as AsyncIterable<void | T>, false);
       };
       settleServerAsync(
         runFirst(),
         runFirst,
         deferred,
-        (value: void | T) => {
-          if (value !== undefined && value !== state && value !== draft) {
-            replaceState(state, value as T);
-          }
-          markReady();
-          return state as T;
-        },
+        settleWith(markReady),
         markError,
         () => disposed
       );
       registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-      if (ctx?.async && !getContext(NoHydrateContext) && id)
-        ctx.serialize(id, deferred.promise, options?.deferStream);
+      if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
       return recordSlot(pending);
     } else {
       // Full streaming: eagerly start first iteration. Tapped wrapper replays
@@ -2667,7 +2798,9 @@ export function createProjection<T extends object = {}>(
           // `state` (for draft/patch correctness) but reads go through the frozen
           // copy. With seedLoadingValue the lock already sits at commit #0 — the
           // seed — so V1 must NOT retarget it (undefined keeps the read target).
-          markReady(seedLoading ? undefined : cloneState(state, options?.shallow));
+          // Under the frame pump there is no hydration claim to lock for:
+          // reads follow the LIVE state, which every pumped yield advances.
+          markReady(pumps ? state : seedLoading ? undefined : cloneState(state, options?.shallow));
           return undefined;
         },
         markError,
@@ -2718,9 +2851,16 @@ export function createProjection<T extends object = {}>(
       const subscribe = async function* (): AsyncGenerator<T | PatchOp[]> {
         await deferred.promise;
         if (firstResult?.done) return;
-        while (pumping) await pumping;
-        // Stable point (sync block): no in-flight next(), so `patches` is
-        // drained and `state` equals the log applied in full.
+        // A stable point is one with no UNDRAINED writes: `state` then equals
+        // the log applied in full, and a snapshot taken here cannot double-
+        // apply anything a later batch carries. An in-flight next() whose
+        // generator has not written yet is stable too — under the frame
+        // pump (below) a pull is always in flight, parked on a standing
+        // source, and waiting for it would hold the snapshot until the
+        // world moved.
+        while (pumping && patches.length) await pumping;
+        // Stable point (sync block): `patches` is drained and `state` equals
+        // the log applied in full.
         let cursor = log.length;
         consumers++;
         try {
@@ -2746,8 +2886,31 @@ export function createProjection<T extends object = {}>(
       };
       projectionTraces.set(pending, { subscribe, array: Array.isArray(state) });
 
-      if (ctx?.async && !getContext(NoHydrateContext) && id) {
+      if (serializes) {
         ctx.serialize(id, subscribe(), options?.deferStream);
+      } else if (pumps) {
+        // The frame pump (see `pumps`): drive the SHARED pump — a slot-border
+        // trace subscriber may be pulling the same iterator — so the source
+        // has one consumer; each batch applied is a commit. With no
+        // subscriber the log has no reader (a subscriber starts at the
+        // log's end), so it is kept empty rather than growing for the life
+        // of a standing render.
+        deferred.promise.then(
+          () => {
+            if (disposed || firstResult?.done) return;
+            framePump(
+              () =>
+                pump().then(() => {
+                  if (consumers === 0) log.length = 0;
+                  return logDone;
+                }),
+              () => {
+                if (!logDone) closeAsyncIterator(iter);
+              }
+            );
+          },
+          () => {}
+        );
       }
       return recordSlot(pending);
     }
@@ -2761,19 +2924,12 @@ export function createProjection<T extends object = {}>(
       normalizeAsync(result),
       () => normalizeAsync(runProjection()),
       deferred,
-      (value: void | T) => {
-        if (value !== undefined && value !== state && value !== draft) {
-          replaceState(state, value as T);
-        }
-        markReady();
-        return state as T;
-      },
+      settleWith(markReady),
       markError,
       () => disposed
     );
     registerSettledTrace(pending, deferred.promise, state, options?.shallow);
-    if (ctx?.async && !getContext(NoHydrateContext) && id)
-      ctx.serialize(id, deferred.promise, options?.deferStream);
+    if (serializes) ctx.serialize(id, deferred.promise, options?.deferStream);
     return recordSlot(pending);
   }
 
@@ -3510,6 +3666,23 @@ const ServerComponentContext: Context<boolean> = {
 };
 
 /**
+ * Marker entry for a LIVE server component's render scope on the document
+ * face (RFC 11 §9.5, Server face 3). A `live`-declared component reaches the
+ * document render with the brand on its component function; the frame
+ * render turns it into this flag, and every async source read in the scope
+ * takes the hybrid path — first value into markup, iterator closed, no pump,
+ * no hold. The standing render is the CLIENT's: the document completes, and
+ * the loop reconnects the frame after hydration. Inherited by nested scopes
+ * (a component rendered inside a live one rides its connection).
+ *
+ * @internal
+ */
+const LiveServerComponentContext: Context<boolean> = {
+  id: Symbol("LiveServerComponentContext"),
+  defaultValue: false
+};
+
+/**
  * Runs `fn` under a context barrier — the render root of a server
  * component.
  *
@@ -3535,12 +3708,15 @@ const ServerComponentContext: Context<boolean> = {
  *
  * @internal
  */
-export function runInServerComponentScope<T>(fn: () => T): T {
+export function runInServerComponentScope<T>(fn: () => T, options?: { live?: boolean }): T {
   const owner = createOwner({ transparent: true }) as unknown as SSROwner;
   const inherited = owner._context;
   const scoped: Record<symbol | string, unknown> = {
     [ServerComponentContext.id]: true
   };
+  if (options?.live || inherited[LiveServerComponentContext.id] === true) {
+    scoped[LiveServerComponentContext.id] = true;
+  }
   if (inherited[ErrorContext.id] !== undefined) {
     scoped[ErrorContext.id] = inherited[ErrorContext.id];
   }
@@ -3564,9 +3740,34 @@ export function runInServerComponentScope<T>(fn: () => T): T {
  * record and records inherit by spread at owner creation.
  * @internal
  */
-export function inServerComponentScope(): boolean {
-  const o = currentOwner;
+export function inServerComponentScope(o: SSROwner | null = currentOwner): boolean {
   return !!o && o._context[ServerComponentContext.id] === true;
+}
+
+/**
+ * Whether the current owner is inside a LIVE server component's document
+ * render (see `LiveServerComponentContext`): async sources take first
+ * values here instead of pumping.
+ *
+ * @internal
+ */
+export function inLiveServerComponentScope(o: SSROwner | null = currentOwner): boolean {
+  return !!o && o._context[LiveServerComponentContext.id] === true;
+}
+
+/**
+ * Whether an async source read by the memo owning `o` feeds a server-owned
+ * frame render's binding ledger — the pump that keeps a standing answer
+ * connected and holds the response for it. True in a server component's
+ * scope when a ledger is listening (`ctx.commit`), EXCEPT a live
+ * component's document render: there the first value is the document's and
+ * the rest is the client connection's, so the source takes the hybrid path
+ * instead. Judged from the memo's OWNER, not `currentOwner`: a stream that
+ * arrives through a promise (an async function returning a generator) is
+ * classified in a continuation, where no owner is current.
+ */
+function pumpsInScope(ctx: any, o: SSROwner | null): boolean {
+  return !!ctx?.commit && inServerComponentScope(o) && !inLiveServerComponentScope(o);
 }
 
 /**

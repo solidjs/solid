@@ -587,7 +587,7 @@ Finding (`warn`, observe + dev). A fragment failed while descendants of it were 
 
 **Message:** "[SSR_STREAM_ABANDONED] The response stream was abandoned mid-render (consumer) with 4 fragment(s) still pending; the render was torn down."
 
-Finding (`warn`, observe + dev; no `ownerPath` — a stream event). The consumer cancelled (`data.reason: "consumer"`, a `pipeTo` cancellation — usually the browser navigating away) or the sink failed on write (`"sink"`) while fragments were pending, and the render was torn down. `data.shellFlushed` says whether the shell had gone out; `data.pendingFragments` counts what never shipped. Not an error in the app; at volume it is the request cost of renders nobody waited for.
+Finding (`warn`, observe + dev; no `ownerPath` — a stream event). The consumer cancelled (`data.reason: "consumer"`, a `pipeTo` cancellation — usually the browser navigating away), the sink failed on write (`"sink"`), or the request's `signal` aborted (`"signal"` — `renderToStream`'s `signal` option; how a frame-stream response, whose render never touches the document writable, learns its reader is gone, from its body's `cancel` or the request's abort) while fragments were pending, and the render was torn down. `data.shellFlushed` says whether the shell had gone out; `data.pendingFragments` counts what never shipped. Not an error in the app; at volume it is the request cost of renders nobody waited for.
 
 #### `LATE_HEADER_WRITE`
 
@@ -647,6 +647,12 @@ Check (`kind: "ssr"`, dev only) read off the boundary's facts — the same ones 
 **Message:** "[SSR_CLIENT_CONTENT_MASKED] Client-only content (ssrSource: "client") in a <Loading> boundary surfaced only after 1 server wait (52ms): the boundary streamed its fallback and then handed the subtree to the client, discarding the server's work. Give the client-only content its own <Loading>, or read it before the async data, so the handoff ships with the shell."
 
 Check (`warn`, dev only, `kind: "ssr"`). A boundary whose content turned out to be client-only — a `ssrSource: "client"` read — but only after a real server wait: an async read on an earlier pass masked it. The server did the work, streamed the fallback, then handed the whole subtree to the client anyway, so the work was discarded and the user saw the fallback for the wait's duration before the client rendered. A client-only read found on the **first** pass is the well-behaved case — the boundary hands off with the shell, nothing extra is paid, no finding. `data.boundary`, `data.passes`, `data.durationMs`.
+
+#### `SSR_UNDECLARED_LIVE_SOURCE`
+
+**Message:** "[SSR_UNDECLARED_LIVE_SOURCE] An async iterable read in a server component is still producing 5s into a document render: the document stays open for as long as it does. Declare the server function live(...) so the document takes the source's first value and the client connects for the rest, or bound the source."
+
+Check (`warn`, dev only, `kind: "ssr"`). The safety cap of RFC 11 §9.5 (Server face 4), resolved as a fixed dev-only check rather than a knob. A server component rendered into a **document** (not a frame stream) read an async iterable that was still producing five seconds later: an undeclared unbounded source pumps its yields into the document's live-hole channel and holds the document open for as long as it produces. A component declared `live(...)` never gets here — under the live scope every async source takes its first value into the markup and is closed; the client connects for the rest after hydration — so a pump still open this long is the authoring error the check names. Once per source per render. `data.afterMs`. Located by owner. Frame-stream renders (a `live` connection, a `renderServerComponent` response) are never judged: an unbounded source is what they are for.
 
 #### `LAZY_ASSET_UNMAPPED`
 
@@ -928,6 +934,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `REVEAL_IN_RENDER_TO_STRING`       | warn      | ssr            | Nested `<Reveal>` with collapsed/together under `renderToString` (dev)                                                                                  |
 | `SSR_BOUNDARY_WATERFALL`           | info/warn | ssr            | A `<Loading>` boundary needed 3+/4+ render passes — 2+/3+ sequential async waits (dev)                                                                  |
 | `SSR_CLIENT_CONTENT_MASKED`        | warn      | ssr            | Client-only content in a `<Loading>` surfaced only after a server wait; the server's work was discarded (dev)                                           |
+| `SSR_UNDECLARED_LIVE_SOURCE`       | warn      | ssr            | A document render is still pumping an async iterable in server-component scope 5s in — declare the function `live(...)` or bound the source (dev)       |
 | `LAZY_ASSET_UNMAPPED`              | warn      | ssr            | `lazy()` component's client assets could not be resolved for the page (dev)                                                                             |
 | `PRELOAD_DESCRIPTOR_INVALID`       | warn      | head           | `registerAsset("preload")` descriptor broke a field rule; link dropped or field ignored (dev)                                                           |
 | `HEAD_TAG_INVALID`                 | warn      | head           | `useHead` registration the render could not honor; `data.reason` names the rule (dev)                                                                   |

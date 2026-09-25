@@ -72,6 +72,34 @@ export interface FrameAddress {
 export interface FrameStreamOptions {
   /** Boundary address; defaults to `{ id: "", version: 1 }`. */
   frame?: { id?: string; version?: number };
+  /**
+   * The request's abort: tears the render down as a client disconnect would
+   * (see `renderToStream`'s `signal`). `serverComponentResponse` and
+   * `frameFlightResponse` chain it with their own body's `cancel`.
+   */
+  signal?: AbortSignal;
+  /**
+   * The call arrived at the live address — a `live` loop is reading
+   * (`getServerFunctionInvocation().live`). `serverComponentResponse` then
+   * frames the chunks as server-sent events, as the codec stream is framed
+   * there (`text/event-stream`, `no-store`, the idle heartbeat, the dev
+   * chaos knob), so the loop reads the frame stream through the reader it
+   * already has and a proxy holds the connection open as it would any
+   * event stream. The chunk protocol is unchanged; only the framing is.
+   */
+  live?: boolean;
+  /**
+   * A RESUME (RFC 11 §9.5): the have-list the reconnecting client sent —
+   * the digests it holds for this address, keyed as the chunks carry them
+   * (`""` the root skeleton, `lh:N` / `lha:N` holes, `pl-N` revealed
+   * fragments; see `FRAME_HAVE_HEADER`). With it the render is
+   * conditional: the root html is skipped when its skeleton digest matches,
+   * and a hole or fragment is emitted only once it has settled and its
+   * digest differs — so a no-op reconnect transfers nothing and a fallback
+   * is never emitted over content. Absent, the render is the progressive
+   * stream it always was. `frameTransformResult` reads it off the request.
+   */
+  resume?: { have: Record<string, string> };
   /** Remaining `renderToStream` options (plugins, onError, manifest, ...). */
   [key: string]: unknown;
 }
@@ -130,9 +158,18 @@ function serverOwned(render) {
  * owner captured OUTSIDE the barrier (see createDocumentSlotProps), so the
  * client's own components keep full app context during document SSR.
  */
-function serverComponentScope(render) {
-  return runInServerComponentScope ? runInServerComponentScope(render) : render();
+function serverComponentScope(render, live = false) {
+  return runInServerComponentScope
+    ? runInServerComponentScope(render, live ? { live: true } : undefined)
+    : render();
 }
+
+// The in-process `live` declaration's brand (a registered symbol, so
+// separately bundled copies agree): stamped on the component function a
+// live server function answers with in process (server-functions/server
+// `brandLive`). The document face reads it at scope entry — see
+// `frameTransformDirectResult`.
+const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 import {
   renderToStream,
   createLiveHoles,
@@ -145,17 +182,22 @@ import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
 import {
   ChunkReader,
   createChunk,
+  createEventChunk,
   frameAddress,
-  serializeStream
+  serializeStream,
+  textDigest
 } from "../../server-functions/src/shared.js";
 import {
+  armLiveBody,
   getEventServerFunctionInvocation,
   guardFailures
 } from "../../server-functions/src/server.js";
 import { isResponseEnvelope } from "../../src/response.js";
 import { observeFrame } from "../../src/server-observe.js";
 import {
+  FRAME_HAVE_HEADER,
   FRAME_STREAM_HEADER,
+  decodeHaveList,
   SERVER_COMPONENT,
   SERVER_COMPONENT_ADDRESS,
   SERVER_COMPONENT_SOURCE,
@@ -227,19 +269,123 @@ export const SERVER_COMPONENT_BOOTSTRAP = SERVER_COMPONENT_BOOTSTRAP_EXPR + ";";
  */
 export function createFrameSink(
   emit: (chunk: FrameChunk) => void,
-  frame: FrameAddress
+  frame: FrameAddress,
+  have?: Record<string, string>
 ): Record<string, (...args: any[]) => void>;
+
+// ---- hole digests (Stage 8 B4) ----
+//
+// Every content emission carries a server-minted digest of what it emits,
+// and a root/fragment emission additionally carries the digests of the live
+// holes INSIDE it (`holes`), so the client's per-address ledger can name
+// what it holds without ever hashing DOM. A live-hole range is
+// `<!--lh:N-->…<!--lh:/N-->`; the lazy body with the id backreference
+// matches the OUTERMOST range at each position (an inner range closes with
+// its own id), so a top-level scan sees each root hole once and nested
+// holes are reached by recursing into the body.
+const HOLE_RANGE = /<!--lh:(\d+)-->([\s\S]*?)<!--lh:\/\1-->/g;
+const SLOT_RANGE = /<!--slot:([^>]*?):start-->[\s\S]*?<!--slot:\1:end-->/g;
+const ATTR_ADDRESS = / data-lha="([^"]*)"/g;
+// The hole's digest is over its marker-FREE html — the same baseline the
+// engine equality-gates on (`b.last`), so a sweep's re-emission and a
+// resume's compare agree on what "unchanged" means.
+const stripHoleMarkers = html => html.replace(/<!--lh:\/?\d+-->/g, "");
+
+/**
+ * The root's SKELETON: its html with every live-hole range and slot range
+ * emptied (markers kept). What remains is the structure hole emissions
+ * address into — static markup, marker ids and their nesting, placeholder
+ * ids and fallbacks. Equal skeletons mean equal hole/fragment keys, which
+ * is what makes emitting into the client's existing DOM sound; a differing
+ * one re-ships the root whole (structure changed — a hole count that moved
+ * with data, a static branch that flipped).
+ */
+export function frameSkeleton(html) {
+  return html
+    .replace(HOLE_RANGE, "<!--lh:$1--><!--lh:/$1-->")
+    .replace(SLOT_RANGE, "<!--slot:$1:start--><!--slot:$1:end-->");
+}
+
+/**
+ * Digests of every live-hole range in `html` (nested included) and of every
+ * attr hole addressed in it whose baseline text the sink holds.
+ */
+function holeDigests(html, attrText, into = {}) {
+  for (const m of html.matchAll(HOLE_RANGE)) {
+    into["lh:" + m[1]] = textDigest(stripHoleMarkers(m[2]));
+    holeDigests(m[2], null, into);
+  }
+  if (attrText) {
+    for (const m of html.matchAll(ATTR_ADDRESS)) {
+      const key = "lha:" + m[1];
+      const text = attrText.get(key);
+      if (text !== undefined) into[key] = textDigest(text);
+    }
+  }
+  return into;
+}
+
+/** Attach a `holes` map to a chunk when it names anything (wire hygiene). */
+function withHoles(chunk, holes) {
+  for (const _ in holes) {
+    chunk.holes = holes;
+    break;
+  }
+  return chunk;
+}
 
 /**
  * A sink emitting the transport-agnostic FrameChunk stream. `emit(chunk)` is
  * the envelope boundary (array push in tests, an encoded write over a real
- * transport). `id`/`version` address the frame.
+ * transport). `id`/`version` address the frame. `have` is a resume's
+ * have-list (see `FrameStreamOptions.resume`): present, the sink emits
+ * conditionally against it.
  *
  * @param {(chunk: object) => void} emit
  * @param {{ id: string, version: number }} frame
+ * @param {Record<string, string>} [have]
  */
-export function createFrameSink(emit, frame) {
+export function createFrameSink(emit, frame, have) {
   const { id, version } = frame;
+  // Conditional emission (Stage 8 B4, RFC 11 §9.5 Server face 2). `have`
+  // is the client's ledger for this address; `conditional` arms once the
+  // shell decides the client's structure stands (skeleton digests equal)
+  // — from then on, fragments the list names are skipped in favor of the
+  // holes inside them that differ, and reveals over them (fallback reveals
+  // included) never ship. A skeleton that differs re-ships the root and the
+  // render proceeds as the progressive stream it always was: the client
+  // resets its ledger on a root html, so nothing it then holds is stale.
+  let conditional = false;
+  const skipped = new Set();
+  // Attr-hole baselines by key (`lha:N` → attribute text), registered by
+  // the live-hole engine as it addresses elements. Attr text is not
+  // recoverable from html the way a content range is, so the digests ride
+  // from here.
+  const attrText = new Map();
+  // Emit what differs inside `html` against the have-list: each top-level
+  // hole whose digest moved (its nested holes ride inside it, markers kept,
+  // so they stay individually live), each addressed attr whose text moved.
+  // An equal top-level hole covers its interior — the digest is over the
+  // whole range — so nothing below it needs a look.
+  const emitDiffering = html => {
+    for (const m of html.matchAll(HOLE_RANGE)) {
+      const key = "lh:" + m[1];
+      const digest = textDigest(stripHoleMarkers(m[2]));
+      if (have[key] === digest) continue;
+      emit(
+        withHoles({ type: "hole", id, version, key, html: m[2], digest }, holeDigests(m[2], null))
+      );
+    }
+    // (Attr chunks are keyed by the bare address, as the engine emits them;
+    // the ledger keys them `lha:N`.)
+    for (const m of html.matchAll(ATTR_ADDRESS)) {
+      const text = attrText.get("lha:" + m[1]);
+      if (text === undefined) continue;
+      const digest = textDigest(text);
+      if (have["lha:" + m[1]] === digest) continue;
+      emit({ type: "attr", id, version, key: m[1], attrs: text, digest });
+    }
+  };
   // Fragments that streamed styles ahead of a grouped reveal; the group's
   // reveal chunk must tell the consumer to wait on them.
   const styledKeys = new Set();
@@ -307,6 +453,14 @@ export function createFrameSink(emit, frame) {
       if (!regionKeys.has(key)) regionKeys.set(key, childId);
     },
     shell(html, meta = {}) {
+      const digest = textDigest(frameSkeleton(html));
+      // A resume whose structure the client already shows: no root, no
+      // assets it loaded with it — only the holes that moved.
+      if (have && have[""] === digest) {
+        conditional = true;
+        emitDiffering(html);
+        return;
+      }
       // Pre-flush assets (entry modules, hoisted boundary styles) are head
       // splices in the document sink; a frame carries them as an assets chunk
       // ahead of the shell html.
@@ -329,7 +483,7 @@ export function createFrameSink(emit, frame) {
         }
         emit(chunk);
       }
-      emit({ type: "html", id, version, html });
+      emit(withHoles({ type: "html", id, version, html, digest }, holeDigests(html, attrText)));
     },
     data(record) {
       // Keyed codec record ({ key, node, initial }) from createJSONSerializer
@@ -371,6 +525,27 @@ export function createFrameSink(emit, frame) {
       // gate the reveal (they load async); inline styles are CSS content that
       // applies on insertion, carried by value, no gating.
       const fid = frameOf(key);
+      // A resume, and the client shows this fragment revealed: the reveal
+      // is not owed (nor its styles — they loaded with it). What may be
+      // owed is inside: holes the content settled differently. A fragment
+      // the list does NOT name is one the client shows as a fallback — it
+      // streams as it settles, as any reveal the client lacks does.
+      if (conditional && fid === id && have[key] !== undefined) {
+        skipped.add(key);
+        scheduleSweep();
+        // An errored re-render stands behind the content the client keeps;
+        // the failure still surfaces as the keyed diagnostic it always was.
+        if (meta.error) {
+          emit({
+            type: "error",
+            id: fid,
+            version,
+            key,
+            error: { message: String((meta.error && meta.error.message) || meta.error) }
+          });
+        } else emitDiffering(value);
+        return;
+      }
       const links = (meta.styles && meta.styles.links) || [];
       const inline = (meta.styles && meta.styles.inline) || [];
       if (links.length || inline.length) {
@@ -389,7 +564,12 @@ export function createFrameSink(emit, frame) {
         }
         emit(chunk);
       }
-      emit({ type: "fragment", id: fid, version, key, html: value });
+      emit(
+        withHoles(
+          { type: "fragment", id: fid, version, key, html: value, digest: textDigest(value) },
+          holeDigests(value, attrText)
+        )
+      );
       // A fragment resolving is a settlement: values its async work produced
       // are now visible to watched args.
       scheduleSweep();
@@ -418,6 +598,10 @@ export function createFrameSink(emit, frame) {
       // registration order within each frame.
       const byFrame = new Map();
       for (const key of keys) {
+        // A resume never reveals over content the client shows — neither
+        // the fragment it skipped nor a fallback in its place.
+        if (conditional && (skipped.has(key) || (meta.fallback && have[key] !== undefined)))
+          continue;
         const fid = frameOf(key);
         let group = byFrame.get(fid);
         if (!group) byFrame.set(fid, (group = []));
@@ -469,16 +653,21 @@ export function createFrameSink(emit, frame) {
     // A live-hole re-emission (Stage 3): the hole's re-resolved HTML, keyed
     // by its marker id — the consumer morphs the marked range in place.
     hole(key, html) {
-      emit({ type: "hole", id, version, key, html });
+      emit({ type: "hole", id, version, key, html, digest: textDigest(html) });
     },
     // A live attr-hole re-emission: the addressed element's rebuilt
     // attribute text, plus the names that vanished since the last emission
     // (the server holds the previous text — the client never tracks name
     // history).
     attr(key, attrs, removed) {
-      const chunk = { type: "attr", id, version, key, attrs };
+      const chunk = { type: "attr", id, version, key, attrs, digest: textDigest(attrs) };
       if (removed && removed.length) chunk.removed = removed;
       emit(chunk);
+    },
+    // An attr hole's first-render text, keyed by its address — the digest
+    // source for root/fragment `holes` maps and the resume compare.
+    attrBaseline(key, text) {
+      attrText.set(key, text);
     },
     // ---- the binding ledger (DR-2 case 1) ----
     /**
@@ -637,7 +826,7 @@ function frameStream(makeCode, options) {
           w.write(chunk);
         }
       : chunk => w.write(chunk);
-    const sink = createFrameSink(emit, frame);
+    const sink = createFrameSink(emit, frame, options.resume && options.resume.have);
     w.write({ type: "start", id, version });
     const code = makeCode(sink, frame);
     try {
@@ -1258,11 +1447,14 @@ function armDocumentLiveHoles(ctx) {
       closeBinding(key) {
         bindings.delete(key);
       },
+      // Every emission carries its digest on every face (§9.5, Hole
+      // hashes) — the document channel's ops included, so a ledger seeded
+      // from the document can follow what the channel later re-emits.
       hole(key, html) {
-        push({ type: "hole", key, html });
+        push({ type: "hole", key, html, digest: textDigest(html) });
       },
       attr(key, attrs, removed) {
-        const op = { type: "attr", key, attrs };
+        const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
         if (removed && removed.length) op.removed = removed;
         push(op);
       },
@@ -1346,7 +1538,13 @@ export function frameTransformDirectResult(value, { id, args }) {
       // claims nor warns.
       sharedConfig.context.claims = CLAIMS_DOCUMENT;
       const slotProps = createDocumentSlotProps(props, id);
-      return serverComponentScope(() => component(slotProps));
+      // A `live` answer (the declaration's in-process brand lands on this
+      // wrapper after it is made, before it renders) marks the scope live:
+      // every async source inside takes its first value and closes — the
+      // document completes, and the standing render is the client's
+      // connection after hydration (RFC 11 §9.5, Server face 3). Read at
+      // render, not at wrap: the brand arrives from `live`, outside.
+      return serverComponentScope(() => component(slotProps), !!wrapped[LIVE_SOURCE]);
     }),
     { t: FRAME_ELEMENT_CLOSE }
   ];
@@ -1820,10 +2018,12 @@ function copyInitHeaders(init) {
   return headers;
 } /**
  * A server component as an HTTP Response: the chunk stream framed with the
- * server-function wire convention, tagged `X-Frame-Stream: <frame id>` for
- * the client and `X-Content-Raw` so the server-function handler forwards it
- * untouched. `init` (headers/status, e.g. from a `respond()` envelope)
- * merges in; the frame tags win on conflict.
+ * server-function wire convention — length-prefixed, or as server-sent
+ * events when `options.live` says a `live` loop is reading — tagged
+ * `X-Frame-Stream: <frame id>` for the client and `X-Content-Raw` so the
+ * server-function handler forwards it untouched. `init` (headers/status,
+ * e.g. from a `respond()` envelope) merges in; the frame tags win on
+ * conflict.
  * @experimental
  */
 export function serverComponentResponse(
@@ -1834,40 +2034,107 @@ export function serverComponentResponse(
 
 export function serverComponentResponse(component, options = {}, init = {}) {
   const { id = "", version = 1 } = options.frame || {};
+  const live = !!options.live;
   const headers = copyInitHeaders(init.headers);
-  headers.set("Content-Type", "application/x-frame-stream");
   headers.set(FRAME_STREAM_HEADER, id);
   headers.set("X-Content-Raw", "1");
-  const stream = renderServerComponent(component, { ...options, frame: { id, version } });
-  // A client disconnect closes the Response's controller from the outside
-  // (`cancel`), but the render keeps producing — its in-flight generation
-  // (iterable holds, boundary retries) settles on its own schedule. Writes
-  // after that point must drop, not throw: an ERR_INVALID_STATE escaping
-  // through a serializer flush is an unhandled process-level error.
+  // A live loop's answer rides in event-stream framing (the same framing the
+  // codec stream takes at the live address; see `encodeLiveResult`): one
+  // chunk per `data:` event, `no-store` (a standing answer is a moment, not
+  // a cacheable value), `X-Accel-Buffering: no` for proxies that buffer by
+  // default. The client picks its reader off the content type; the chunks
+  // themselves are the same records either way.
+  if (live) {
+    headers.set("Content-Type", "text/event-stream");
+    headers.set("Cache-Control", "no-store");
+    headers.set("X-Accel-Buffering", "no");
+  } else headers.set("Content-Type", "application/x-frame-stream");
+  const frame = live ? createEventChunk : createChunk;
+  // The render lives as long as someone reads the response. A client
+  // disconnect reaches this body as `cancel()`; the host's request abort
+  // reaches it as `options.signal` (the request's, from
+  // `frameTransformResult`). Either tears the render down through
+  // `renderToStream`'s own disconnect path — in-flight reactive work is
+  // disposed, every async source still being pulled is returned, holds are
+  // released — instead of letting it produce for nobody until its sources
+  // happen to end. A frame render's emission never touches the document
+  // writable, so without this the render could not learn its reader was
+  // gone.
+  const teardown = new AbortController();
+  const disarm = followSignal(options.signal, teardown);
+  const stream = renderServerComponent(component, {
+    ...options,
+    signal: teardown.signal,
+    frame: { id, version }
+  });
+  // Writes after the reader is gone must drop, not throw: an ERR_INVALID_STATE
+  // escaping through a serializer flush is an unhandled process-level error.
   let closed = false;
+  // The live body's heartbeat and dev chaos (see armLiveBody); disarmed on
+  // every road the body ends by.
+  let stopLive = null;
   const body = new ReadableStream({
     start(controller) {
+      const end = () => {
+        if (closed) return;
+        closed = true;
+        disarm();
+        if (stopLive) stopLive();
+        try {
+          controller.close();
+        } catch (_) {}
+      };
+      // A torn-down render never ends its sink (nobody is listening), so the
+      // body closes here when the abort came from the request rather than
+      // from this body's own cancel — including a request gone before the
+      // body was ever read.
+      if (teardown.signal.aborted) return end();
+      teardown.signal.addEventListener("abort", end, { once: true });
+      // Chaos ends the body as a dying connection would: the render is torn
+      // down first (its sources returned, as on a real disconnect), then
+      // the body errors with the frame still open — a death to the reader.
+      if (live)
+        stopLive = armLiveBody(controller, () => {
+          closed = true;
+          disarm();
+          teardown.abort();
+        });
       stream.pipe({
         write(chunk) {
           if (closed) return;
           try {
-            controller.enqueue(createChunk(JSON.stringify(chunk)));
+            controller.enqueue(frame(JSON.stringify(chunk)));
           } catch (_) {
             closed = true;
           }
         },
-        end() {
-          if (closed) return;
-          closed = true;
-          controller.close();
-        }
+        end
       });
     },
     cancel() {
       closed = true;
+      disarm();
+      if (stopLive) stopLive();
+      teardown.abort();
     }
   });
   return new Response(body, { status: init.status || 200, headers });
+}
+
+/**
+ * Chain an upstream signal (the request's) into a response's own teardown
+ * controller. Returns the disarm for the upstream listener, so a response
+ * that completes does not hold a closure on the request past its own end.
+ */
+function followSignal(upstream, controller) {
+  if (!upstream) return () => {};
+  if (upstream.aborted) {
+    controller.abort(upstream.reason);
+    return () => {};
+  }
+  const forward = () => controller.abort(upstream.reason);
+  upstream.addEventListener("abort", forward, { once: true });
+  return () => upstream.removeEventListener("abort", forward);
 } /**
  * The server-component convention as a `transformResult` policy for
  * `handleServerFunctionRequest`: a function result — or a `respond()`
@@ -1912,11 +2179,36 @@ export function frameTransformResult(event, result, context) {
   if (typeof result !== "function") return result;
   if (context && context.collectsFlight) return init ? { response: init, value: result } : result;
   const invocation = getEventServerFunctionInvocation(event);
+  const live = !!(invocation && invocation.live);
+  // A live loop's reconnect names what it holds (the have-list header,
+  // §9.5 Resume request): the render is conditional against it. Read only
+  // at the live address — the header never rides a cacheable read.
+  const have = live ? decodeHaveList(requestHeader(event, FRAME_HAVE_HEADER)) : undefined;
   return serverComponentResponse(
     result,
-    { frame: { id: (invocation && invocation.id) || "" } },
+    {
+      frame: { id: (invocation && invocation.id) || "" },
+      signal: requestSignal(event),
+      // A call at the live address is a `live` loop's: frame the answer as
+      // the event stream the loop reads (RFC 10, `live(fn)` → Framing).
+      live,
+      resume: have && { have }
+    },
     init
   );
+}
+
+/** The request's abort, when the event carries a standards-shaped request. */
+function requestSignal(event) {
+  const request = event && event.request;
+  return request && request.signal instanceof AbortSignal ? request.signal : undefined;
+}
+
+/** A request header, when the event carries a standards-shaped request. */
+function requestHeader(event, name) {
+  const request = event && event.request;
+  const headers = request && request.headers;
+  return headers && typeof headers.get === "function" ? headers.get(name) : null;
 } /**
  * The frame half of single-flight, as a `transformFlightResult` policy for
  * `handleServerFunctionRequest`: when part of what a mutation invalidated is
@@ -2028,7 +2320,8 @@ export async function frameTransformFlightResult(event, outcome, context) {
       value: primary ? undefined : value,
       data: serialized
     },
-    codec: context && context.codec
+    codec: context && context.codec,
+    signal: requestSignal(event)
   });
 }
 
@@ -2040,8 +2333,12 @@ export async function frameTransformFlightResult(event, outcome, context) {
  * Those chunks carry the codec's own nodes, one per chunk, so async values
  * inside flight data settle progressively exactly as they do in a plain
  * single-flight body — the consumer replays them into the same decoder.
+ *
+ * `signal` is the request's abort (`frameTransformFlightResult` passes it):
+ * with the body's own `cancel`, either tears the frame in progress down and
+ * ends the response.
  */
-export function frameFlightResponse({ primary, regions = [], outcome, codec }, init = {}) {
+export function frameFlightResponse({ primary, regions = [], outcome, codec, signal }, init = {}) {
   const frames = primary ? [primary, ...regions] : regions;
   const headers = copyInitHeaders(init.headers);
   headers.set("Content-Type", "application/x-frame-stream");
@@ -2050,8 +2347,12 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
   // The single-flight header is the FOLD's (`foldFlightData`): its value is
   // the folded source list the client routes slices by, which only the fold
   // knows — it stamps every body shape, this one included.
-  // Same disconnect guard as serverComponentResponse: post-cancel writes
-  // drop instead of throwing through a serializer flush.
+  // Same teardown as serverComponentResponse: this body's cancel and the
+  // request's abort (`signal`) tear the frame in progress down and skip the
+  // rest; post-cancel writes drop instead of throwing through a serializer
+  // flush.
+  const teardown = new AbortController();
+  const disarm = followSignal(signal, teardown);
   let closed = false;
   const body = new ReadableStream({
     async start(controller) {
@@ -2066,12 +2367,29 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
       try {
         // Sequential: chunk order matters within a frame, not across them.
         for (const { id, component } of frames) {
+          if (teardown.signal.aborted) break;
+          // A torn-down render never ends its sink; the abort settles the
+          // wait in its place.
           await new Promise(resolve => {
-            renderServerComponent(component, { frame: { id, version: 1 } }).pipe({
+            teardown.signal.addEventListener("abort", resolve, { once: true });
+            renderServerComponent(component, {
+              frame: { id, version: 1 },
+              signal: teardown.signal
+            }).pipe({
               write,
-              end: resolve
+              end: () => {
+                teardown.signal.removeEventListener("abort", resolve);
+                resolve();
+              }
             });
           });
+        }
+        if (teardown.signal.aborted) {
+          closed = true;
+          try {
+            controller.close();
+          } catch (_) {}
+          return;
         }
         if (outcome) {
           // Component-valued entries serialize as flight references — the
@@ -2097,10 +2415,14 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
           closed = true;
           controller.error(err);
         }
+      } finally {
+        disarm();
       }
     },
     cancel() {
       closed = true;
+      disarm();
+      teardown.abort();
     }
   });
   return new Response(body, { status: init.status || 200, headers });

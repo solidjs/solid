@@ -38,6 +38,7 @@
 // import site of the shared wire layer keeps working.
 import { getServerFunctionMetadata, isServerFunction } from "./registry.js";
 export {
+  LIVE_LOCAL,
   LIVE_RESUME_FROM,
   LIVE_SOURCE,
   SERVER_FUNCTION_INVOKE,
@@ -658,14 +659,18 @@ export function serverFunctionActionUrlFor(endpoint, target, boundArgs) {
 
 /**
  * Body of both entries' `serverFunctionUrl`: the url a `GET()` reference's
- * own call requests, `<endpoint>/data/<id>[?args=...]`, built the way the
- * transport builds it (JSON arguments in `args`; see `GET`'s client half)
- * so a fetch of it is the call. Refuses — rather than answering with an
- * address nothing would request — when the reference is not a declared
- * read (the default transport POSTs, and a POST is not described by its
- * url), when the arguments need the codec (the transport encodes those
- * asynchronously, and a url rendered as a value cannot wait), and when the
- * url would be long enough for the call to fall back to POST.
+ * own call requests — `<endpoint>/data/<id>[?args=...]`, or for a live
+ * reference `<endpoint>/live/<id>[?args=...]` — built the way the transport
+ * builds it (JSON arguments in `args`; see `GET`'s client half) so a fetch
+ * of it is the call. For a live reference that call is a standing event
+ * stream: the url is for fetching by hand (`curl -N`), not for a preload
+ * or prefetch, which would open a stream nothing reads. Refuses — rather
+ * than answering with an address nothing would request — when the
+ * reference is not a declared read (the default transport POSTs, and a
+ * POST is not described by its url), when the arguments need the codec
+ * (the transport encodes those asynchronously, and a url rendered as a
+ * value cannot wait), and when the url would be long enough for the call
+ * to fall back to POST.
  * @internal
  */
 export function serverFunctionUrlFor(
@@ -687,7 +692,12 @@ export function serverFunctionUrlFor(endpoint, fn, args) {
         'the call itself: invoke(fn, { priority: "low" }, ...args).'
     );
   }
-  const address = serverFunctionDataAddress(endpoint, fn.id);
+  // A live reference's own call connects at the live address (open
+  // decision (d), Stage 8 B6): that is the url a fetch of which is the
+  // call — a standing stream, so one to fetch by hand rather than preload.
+  const address = metadata.live
+    ? serverFunctionLiveAddress(endpoint, fn.id)
+    : serverFunctionDataAddress(endpoint, fn.id);
   if (!args.length) return address;
   if (!isJSONSafe(args)) {
     throw new Error(
@@ -1281,6 +1291,12 @@ export class ChunkReader {
       interpret(result.value);
     }
   }
+
+  /** End the read: the body is cancelled through the lock this reader
+   *  holds, and a pending `next()` resolves done. */
+  cancel(reason) {
+    return this.reader.cancel(reason);
+  }
 }
 
 /**
@@ -1425,6 +1441,11 @@ export class EventStreamReader {
       interpret(result.value);
     }
   }
+
+  /** End the read (see `ChunkReader.cancel`). */
+  cancel(reason) {
+    return this.reader.cancel(reason);
+  }
 }
 
 /**
@@ -1449,6 +1470,20 @@ export function positionDigest(value) {
   if (value === undefined || !isJSONSafe(value)) return undefined;
   const text = JSON.stringify(value);
   if (typeof text !== "string") return undefined;
+  return textDigest(text);
+}
+
+/**
+ * The digest behind `positionDigest`, over a string as-is: the frame tier's
+ * hole/fragment digest (RFC 11 §9.5, Hole hashes) — minted by the server
+ * over the html it emits, stored by the client per hole, echoed back on a
+ * resume as the have-list. Same lanes, same width, same non-goal (a
+ * collision elides a re-send, nothing more).
+ * @internal
+ */
+export function textDigest(text: string): string;
+
+export function textDigest(text) {
   let a = 0x811c9dc5;
   let b = 0x050c5d1f;
   for (let i = 0; i < text.length; i++) {

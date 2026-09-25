@@ -1856,6 +1856,19 @@ export function renderToStream<T>(
      * the shell has a `</head>` (splicing is automatic then).
      */
     onHead?: (head: string) => void;
+    /**
+     * The request's lifecycle. Aborting tears the render down exactly as a
+     * client disconnect does (`SSR_STREAM_ABANDONED`, `data.reason:
+     * "signal"`): in-flight reactive work is disposed, every async source
+     * still being pulled is returned, and nothing more reaches the sink. For
+     * the host whose transport cannot report a dead consumer through the
+     * sink or the readable view — a frame stream whose emission never
+     * touches the document writable, a platform whose response body is
+     * consumed by a proxy — this is the one teardown handle; pass
+     * `request.signal`. Idempotent with the sink and consumer paths: whichever
+     * fires first tears down, the rest are no-ops.
+     */
+    signal?: AbortSignal;
   }
 ): {
   /**
@@ -2549,6 +2562,10 @@ export function renderToStream(code, options = {}) {
   sharedConfig.context = context = {
     async: true,
     nonce: options.nonce,
+    // Which face this render is: a document (the default emission) or a
+    // frame stream (`options.sink`). Read by the server runtime's dev check
+    // on undeclared unbounded sources, which only a document render pays for.
+    document: !options.sink,
     // The document face's live-hole carrier (Stage 4). Components render
     // under per-component context CLONES (spread copies), so a mutation on
     // the clone a server component armed under never reaches this root
@@ -2825,11 +2842,18 @@ export function renderToStream(code, options = {}) {
   render = timeDocument(context, context.trace, "stream", requestEvent);
   registerEntryAssets(manifest);
 
+  // The request's abort is a disconnect the transport could not report (see
+  // the `signal` option). Armed once the root exists — `abandon` reaches the
+  // registry, the sink and the serializer, all declared above — and disarmed
+  // by the render's final dispose, which every ending runs through.
+  const signal = options.signal;
+  const onAbort = signal ? () => abandon("signal") : undefined;
   let html = root(
     d => {
       dispose = () => {
         // The render is over: no later read finds its trace (see above).
         context.trace = undefined;
+        if (onAbort) signal.removeEventListener("abort", onAbort);
         d();
       };
       const res = resolveSSRNode(escape(code()));
@@ -2846,6 +2870,14 @@ export function renderToStream(code, options = {}) {
     },
     { id: renderId }
   );
+  if (onAbort) {
+    // A request already gone when the render starts has nobody to render
+    // for: tear down now, after the root pass so the finding counts what it
+    // registered. `abandon` clears `dispose` before running it, so the
+    // listener is removed either way.
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
   // Re-pull pending root holes, splicing sync results into `html` and
   // re-queueing still-async ones (their retry promises join
   // `blockingPromises`). Returns true once no holes remain.
@@ -3786,8 +3818,10 @@ export function createLiveHoles(sink, scoped) {
      * re-runnable parts (`{ f }` thunks, `{ g, i }` group positions). Sweeps
      * rebuild the text, equality-gate against the baseline, and ship
      * changes as an element-keyed `attr` chunk. Names that vanish between
-     * rebuilds ride an explicit `removed` list — the server holds the
-     * previous text, so the client never tracks name history.
+     * rebuilds ride an explicit `removed` list where the server holds the
+     * previous text; the client also matches the element to the whole
+     * text (the morph's rule), so a resume's re-emission — previous text
+     * known only as a digest, no list — removes them too.
      */
     attr(cap) {
       const owner = getOwner();
@@ -3852,6 +3886,9 @@ export function createLiveHoles(sink, scoped) {
           sink.attr(String(cap.id), html, removed);
         }
       };
+      // The first-render text is the digest source for the element's
+      // ledger entry (frame sinks; the document sink has no ledger yet).
+      if (sink.attrBaseline) sink.attrBaseline(b.key, cap.base);
       sink.openBinding(b.key, b);
     }
   };

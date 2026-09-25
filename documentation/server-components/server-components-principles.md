@@ -2295,7 +2295,10 @@ frame render over any async iterable pumps and holds   server/signals.ts (ctx.co
 first-value lock on serialized memos; the frame pump    server/signals.ts (~1613: "later yields are the
   is the stated exception ("no hydration claim")          CLIENT's to apply")
 SSR hybrid (first value, close) selected per OBJECT     server/signals.ts LIVE_SOURCE brand
-  by the live brand; projections always hybrid
+  by the live brand — except a frame render's pump,
+  where a branded source stays connected; projections
+  follow the same rule as memos (Stage 8 B5: the frame
+  pump drives their trace; live scope takes first value)
 shell blockers: deferStream reads gate the first flush  web/src/server.ts serialize() / blockingPromises
 response end gated on `!registry.size && !holds`        web/src/server.ts flushEnd
 `complete` chunk emitted only when the render settles   frames/src/frame-sink.ts frameStream end()
@@ -2446,7 +2449,10 @@ value belonged in durable state.
    early. Whether the cap is a knob (`renderToStream(code, {
    documentWindow })`) or a fixed dev-only warning is open decision
    (c); with the live handoff it no longer has a role for declared
-   sources, which is what makes the question small.
+   sources, which is what makes the question small. _Decided
+   2026-09-25 (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE`
+   after 5s of a document render still pumping; it names the owner and
+   ends nothing — Stage 4's document live holes keep working._
 
 #### Client face
 
@@ -2484,7 +2490,33 @@ value belonged in durable state.
    The reconnect is conditional, so with nothing changed nothing
    crosses; what did change since the document rendered arrives as
    one morph. Honest cost: one server render per live frame per
-   page load, the same price a live data source pays.
+   page load, the same price a live data source pays. _Built
+   2026-09-25 (B3): the synchronous yield is the frames intercept's
+   answer riding on the iterable (`LIVE_LOCAL`), adopted by the
+   hydrating node as its value and re-yielded by the takeover run;
+   a boundary still streaming answers with a promise that lands at
+   its reveal, so the connect follows the fragment. No live bit in
+   the shell record — the client derives the address from its own
+   call. `Last-Event-ID` / have-list land with B4._ _Built
+   2026-09-25 (B4), frame face: every content chunk carries a
+   server-minted digest (root = skeleton digest + a `holes` map;
+   fragment/hole/attr their own); the mount keeps a ledger of what
+   it has APPLIED (a fragment counts at its reveal); the loop asks
+   the frames handler per connect and sends the version ordinal as
+   `Last-Event-ID` and the ledger as `X-Frame-Have` (`key=digest`
+   pairs, omitted over 4096 bytes → full snapshot); the sink skips
+   the root on a skeleton match and emits only the settled,
+   differing holes — never a fragment or a fallback reveal over
+   content the list names. NOT yet built: seeding the ledger from
+   the document face. The document's hole engine numbers `lh:N`
+   across the whole page and `pl-N` keys are document-global, while
+   a frame render numbers both from zero, so the adopted interior's
+   names do not align with what the same call's frame render would
+   emit; the connect after adoption is therefore a full snapshot (a
+   morph over adopted content, still no fallback) and every later
+   reconnect is conditional. Closing it needs per-scope ordinals on
+   the document face, `fid`-routed `sc:live` ops, and an alias in
+   the have-list entry (`key=digest@clientKey`)._
 4. **Supersession from another response is a death.** A live
    address whose store receives a newer version from a DIFFERENT
    response — a single-flight region for a call the mutation
@@ -2500,7 +2532,12 @@ value belonged in durable state.
    the update anyway. The mitigation belongs with §9.2.1's
    convergence work (an open connection is the authority for its
    address, so a live query's invalidation need not bump it) and is
-   not this stage's.
+   not this stage's. Corollary (built 2026-09-25): one live
+   connection per address. Two live readers of one call would each
+   supersede the other's stream on arrival and ping-pong for as long
+   as both are mounted, so a second live reader's body is ended and
+   its loop joins the first connection's lifetime — one death, one
+   reconnect, shared.
 5. **Undeclared death is an error.** A bounded server component
    whose stream dies mid-render surfaces through `frame.error` /
    the enclosing `<Errored>`, exactly as an undeclared generator
@@ -2558,7 +2595,11 @@ frames owe any such layer:
   standing stream that nothing reads. A layer may warm the address
   store with a one-shot render or hold an iteration open. Whether
   `serverFunctionUrl` should refuse a live reference (as it refuses
-  a POST reference) is open decision (d).
+  a POST reference) is open decision (d). _Decided 2026-09-25 (B6):
+  it returns the live address — the url the call requests, to fetch
+  by hand, documented as not a preload target. The data address it
+  used to return is one the live call never requests; the one-shot
+  url is the inner `GET(fn)`'s._
 
 #### Settlement is not this stage's concern
 
@@ -2594,7 +2635,10 @@ depends on this stage.
   leak. Stage 8 is that moment. The staged plan (warn now, throw
   later) is unchanged for bounded renders; a frame render with open
   holds is where the throw lands first. Public behavior change —
-  flagged; scope is open decision (a).
+  flagged. _Decided 2026-09-25: not built in Part B, and there is no
+  scope to decide — the rule is blanket (RFC 11 §5: no server write
+  is legitimate anywhere; all server input is derived). The throw
+  follows the deprecation window, not the arrival of persistence._
 
 #### Work slices
 
@@ -2656,7 +2700,9 @@ framing-follows-method rule, the per-page channel, the
 `live: { transport, hold }` server configuration, `connected` on
 the frame handle. Deferred unbuilt: the hidden-page pause.
 
-**Open decisions:** (a) `SERVER_WRITE` throw scope; (b) CLOSED —
+**Open decisions:** (a) CLOSED — `SERVER_WRITE` is blanket (RFC 11
+§5), no persistent-render scope, the throw rides the deprecation
+window; (b) CLOSED —
 connection state is `onstatus`; (c) safety cap: `documentWindow`
 knob or fixed dev-only warning; (d) `serverFunctionUrl` on a live
 reference — refuse, or answer and document the prefetch hazard;

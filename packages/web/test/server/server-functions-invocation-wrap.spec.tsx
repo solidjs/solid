@@ -258,11 +258,11 @@ describe("the invocation identity a policy keys on", () => {
       }
     });
 
-    expect(insideWrap).toEqual({ id: "wrap-identity" });
-    expect(insideFunction).toEqual({ id: "wrap-identity" });
-    expect(afterRun).toEqual({ id: "wrap-identity" });
+    expect(insideWrap).toEqual({ id: "wrap-identity", live: false });
+    expect(insideFunction).toEqual({ id: "wrap-identity", live: false });
+    expect(afterRun).toEqual({ id: "wrap-identity", live: false });
     // and off the event, for a policy holding the event rather than the scope
-    expect(getEventServerFunctionInvocation(event)).toEqual({ id: "wrap-identity" });
+    expect(getEventServerFunctionInvocation(event)).toEqual({ id: "wrap-identity", live: false });
     // outside any call there is nothing to read
     expect(getServerFunctionInvocation()).toBeUndefined();
   });

@@ -89,4 +89,9 @@ export {
   ServerComponentPlugin,
   SERVER_COMPONENT_BOOTSTRAP
 } from "./frame-sink.js";
-export { FRAME_STREAM_HEADER, isFrameStreamResponse } from "./frame-transport.js";
+export {
+  FRAME_STREAM_HEADER,
+  FRAME_HAVE_HEADER,
+  FRAME_HAVE_BUDGET,
+  isFrameStreamResponse
+} from "./frame-transport.js";

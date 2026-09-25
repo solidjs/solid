@@ -315,8 +315,16 @@ export interface DynamicOptions {
   static?: boolean;
 }
 
+/**
+ * A component from a reactive source. The source may answer with the
+ * component itself, a promise of it, or an async iterable of it — a `live`
+ * server component reference's answer is the last: the memo underneath pumps
+ * the iterable as it pumps any async source, and its value is the component
+ * the server answered with (a reconnect re-yields the same binding and is
+ * equality-quiet; nothing here re-mounts).
+ */
 export function dynamic<T extends ValidComponent>(
-  source: () => T | Promise<T> | null | undefined | false,
+  source: () => T | Promise<T> | AsyncIterable<T> | null | undefined | false,
   options?: DynamicOptions
 ): Component<ComponentProps<T>> {
   if (options?.static) return staticDynamic(untrack(source));
@@ -328,8 +336,9 @@ export function dynamic<T extends ValidComponent>(
   // store re-materializes instantly; an in-flight stream morphs in; keyed
   // slot state survives). Everything else resolves to `next` and swaps.
   // Async resolutions run the delivery in the promise chain — an ownerless
-  // microtask, exactly where frame writes already happen — rather than in the
-  // equals gate, whose argument order differs between sync and async commits.
+  // microtask, exactly where frame writes already happen — and not in the
+  // equals gate: a kept resolution hands the memo `prev`, so the gate never
+  // sees the new address at all.
   // The token pins the delivery to the LATEST computation: a superseded
   // source's late resolution must not re-bind the mount to stale content (the
   // async machinery discards its value; the side effect has to be discarded
@@ -362,6 +371,34 @@ export function dynamic<T extends ValidComponent>(
     }
     return next;
   };
+  // The same rule at the memo's gate, for values the compute never sees: an
+  // async iterable's yields land straight from the pump (a `live` server
+  // component's loop re-yields its binding per connection, and the first
+  // connection after hydration resolves the per-address binding where the
+  // document adopted the per-function placeholder — two objects, one
+  // component, one address). Same component is the same instance: equal,
+  // with the incoming address delivered when it is not the one showing.
+  // The comparator is `(prev, next)` on every commit path: `prev` is what
+  // the memo HOLDS — the first resolution, kept ever since, whose address
+  // the deliveries have long moved past — so only `next` says anything
+  // about where the instance should be. (Reading "the address that is not
+  // the delivered one" as incoming swung a reconnect's re-yield back to
+  // the document's call after the source had switched arguments.) With
+  // nothing delivered (no site mounted) a differing address is a plain
+  // change — nothing is kept, so nothing is lost by swapping.
+  const sameInstance = (prev: any, next: any) => {
+    if (prev === next) return true;
+    const held = bindingOf(prev);
+    const incoming = bindingOf(next);
+    if (!held || !incoming || held.component !== incoming.component) return false;
+    if (held.address === incoming.address) return true;
+    if (deliveredAddress === undefined) return false;
+    if (incoming.address !== deliveredAddress) {
+      deliveredAddress = incoming.address;
+      for (const deliver of sites) deliver(incoming.address);
+    }
+    return true;
+  };
   const cached = createMemo<Function | string | undefined>(
     (prev: any) => {
       const next = source() as any;
@@ -376,7 +413,7 @@ export function dynamic<T extends ValidComponent>(
           )
       };
     },
-    { lazy: true }
+    { lazy: true, equals: sameInstance }
   );
   return props => {
     return createMemo(() => {
@@ -392,7 +429,7 @@ export function dynamic<T extends ValidComponent>(
             // at this seam. Initialize from the LATEST resolved address: the
             // kept binding's own `.address` is the first resolution's and
             // goes stale the moment a later call is kept-delivered.
-            const [address, setAddress] = createSignal(deliveredAddress ?? binding.address);
+            const [address, setAddress] = createSignal((deliveredAddress ??= binding.address));
             sites.add(setAddress);
             onCleanup(() => sites.delete(setAddress));
             return untrack(() => (binding.component as any)(props, address));

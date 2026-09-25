@@ -286,7 +286,11 @@ describe("call-driven/error-record", () => {
 });
 
 describe("call-driven/truncated-stream", () => {
-  test("a stream that ends without complete keeps its applied content and stays refetchable", async () => {
+  // Undeclared death is an error (RFC 11 §9.5, D1 / Client face 5): a
+  // bounded server component's body ending before its `complete` was cut
+  // off mid-render, and nothing resumes it on its own — the frame records
+  // the death, the content already applied stays, and a refetch recovers.
+  test("a stream that ends without complete records the death as the frame's error, keeps its applied content and stays refetchable", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     let call = 0;
@@ -314,13 +318,17 @@ describe("call-driven/truncated-stream", () => {
     expect(m.div.querySelector("h1")!.textContent).toBe("Partial");
     const frame: any = host.get("matrix/lc/truncated");
     expect(frame.store[":complete"]).toBeUndefined();
-    // A clean close is not an error.
-    expect(frame.error).toBeUndefined();
+    // A clean close before `complete` is a death, and an undeclared one is
+    // an error: the frame the server never declared done was cut off.
+    expect(frame.error).toBeTruthy();
+    expect(String(frame.error.message)).toContain("before the frame completed");
 
-    // The boundary is not poisoned: a refetch morphs normally.
+    // The boundary is not poisoned: a refetch morphs normally and its newer
+    // version clears the per-response error record.
     setTick(1);
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("After");
+    expect(frame.error).toBeUndefined();
 
     m.cleanup();
   });

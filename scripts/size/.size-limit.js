@@ -1641,7 +1641,16 @@ module.exports = [
     // +590 (14,435 -> 15,025, the per-scope live takeover) and the signals
     // core +120 (`captureWriteSnapshot`) — compressing to 91 B less here
     // over the larger bundle. Store engine, web: byte-identical.
-    limit: "31.55 KB",
+    // Stage 8 Part B live server components (#3660, 2026-09-25): 31.55 ->
+    // 31.65 KB, measured at 31,608 B against `next`'s 31,532 (+76 B; 58 B
+    // over the cap). +164 B minified, all of it solid.js (15,025 -> 15,189):
+    // the hydration compute wrapper's adoption of a live call's document
+    // answer (`LIVE_LOCAL` on the iterable `live()` returns — adopted as the
+    // node's value, taken over at scope release). Signals core, store
+    // engine, web: byte-identical. The no-stores entry above carries the
+    // same +164 B minified and compressed 3 B SMALLER (21,308 -> 21,305) —
+    // brotli layout; not ratcheted.
+    limit: "31.65 KB",
     modifyEsbuildConfig
   },
   {
@@ -2033,7 +2042,12 @@ module.exports = [
     // under the cap). The observe core's `captureWriteSnapshot` arm (+120 B
     // minified, the same bytes as prod); solid.observe.js and
     // web.observe.js byte-identical. Not ratcheted: the cap still holds.
-    limit: "17.75 KB",
+    // Stage 8 Part B live server components (#3660, 2026-09-25): 17.75 ->
+    // 17.80 KB, measured at 17,763 B against `next`'s 17,737 (+26 B; 13 B
+    // over the cap) on 0 B minified — every retained module byte-identical
+    // (per-module esbuild metafile at both ends). Pure brotli layout on a
+    // cap that was already 13 B from full; ratcheted so the noise has room.
+    limit: "17.80 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2438,8 +2452,28 @@ module.exports = [
     // undefined here; a consumer that never imports `live` still carries
     // it. Dev-only pieces (the chaos knob is server-side; the HTTP/1.1
     // warning is behind `IS_DEV`) are 0 B in this artifact.
+    //
+    // Stage 8 Part B live server components (#3660, 2026-09-25): 11.67 ->
+    // 12.40 KB, measured at 12,367 B against `next`'s 11,651 (+716 B; 697 B
+    // over the cap). +2,343 B minified: frames client +2,275 (29,752 ->
+    // 32,027) and the retained transport slice +68 (4,161 -> 4,229). The
+    // frames bytes are the feature: (B2) the handler resolving a `live`
+    // loop's binding and hanging the response's end on the loop's wire slot
+    // — `connections` per address with join/hold, supersession `cancel`, the
+    // open-frame census that makes a body end before `complete` a death;
+    // (B3) the intercept answering a still-streaming boundary with a
+    // promise of the binding; (B4) the mount's ledger (`have()`,
+    // `#recordHave` at reveal/hole/attr apply, reset on a digest-carrying
+    // root), the `hole`/`attr` chunk records, `encodeHaveList` /
+    // `decodeHaveList` and `resume()` (version ordinal + have-list header),
+    // and `#applyAttrs` matching the element to the whole attribute text.
+    // The transport's +68 B is `createRequest` applying `wire.headers` and
+    // the loop's per-connect `resume` ask. Conscious bump: a consumer that
+    // never calls `live` still carries the ledger and the resume path —
+    // they hang off `FrameImpl` and the handler, not the loop. Candidate
+    // for a later split behind the wire slot like the reader was.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.67 KB",
+    limit: "12.40 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

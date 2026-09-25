@@ -81,6 +81,8 @@ export {
 } from "./frame-client.js";
 export {
   FRAME_STREAM_HEADER,
+  FRAME_HAVE_HEADER,
+  FRAME_HAVE_BUDGET,
   applyFrameResponse,
   isFrameStreamResponse,
   createServerComponentHandler
@@ -810,6 +812,23 @@ function findBoundaryElement(id: string): Element | undefined {
 // element.
 const boundaryWaiters = new Map<string, (el?: Element) => void>();
 
+// Calls answered "not yet" by the intercept: a boundary the page may still
+// deliver (see boundaryMayArrive) is a LOCAL answer that has not landed, not
+// a miss — a fetch now would render on the wire what the document is
+// already streaming. One promise per id, shared by every caller asking
+// while it is outstanding; it settles at the reveal that carries the element
+// (true) or once the page has no reveal left to deliver it (false).
+const arrivals = new Map<string, { promise: Promise<boolean>; resolve: (v: boolean) => void }>();
+function awaitBoundary(id: string) {
+  let arrival = arrivals.get(id);
+  if (!arrival) {
+    let resolve!: (v: boolean) => void;
+    const promise = new Promise<boolean>(r => (resolve = r));
+    arrivals.set(id, (arrival = { promise, resolve }));
+  }
+  return arrival.promise;
+}
+
 /**
  * Whether the document may still deliver boundary elements — the hydration
  * runtime's fragment ledger's answer (`_$HY.fr.pending()`: any declared
@@ -853,7 +872,7 @@ function installRevealHook() {
     if (!boundaryIndex) return;
     const root = parent || (typeof document !== "undefined" ? document.body : null);
     if (root) indexBoundaries(root);
-    if (!boundaryWaiters.size) return;
+    if (!boundaryWaiters.size && !arrivals.size) return;
     // A waiter the page can no longer answer must not wait forever: once the
     // document is done and no fragment is left outstanding (truncated ones
     // included), nothing else can deliver this element, so release the
@@ -865,6 +884,15 @@ function installRevealHook() {
       if (!el && !exhausted) continue;
       boundaryWaiters.delete(id);
       notify(el);
+    }
+    // Deferred local answers settle the same way: the element landed (the
+    // caller's mount adopts it), or nothing is left to deliver it (the
+    // caller goes to the wire).
+    for (const [id, arrival] of arrivals) {
+      const el = boundaryIndex && boundaryIndex.get(id);
+      if (!el && !exhausted) continue;
+      arrivals.delete(id);
+      arrival.resolve(!!el);
     }
   });
 }
@@ -1220,10 +1248,18 @@ export function installServerComponents(host: any = getFrameHost()) {
     // SSR'd boundary in the document is answered locally — the source
     // re-runs during hydration per dynamic's contract, but no request
     // leaves the browser. The boundary is consumed on adoption, so
-    // navigations fetch normally.
+    // navigations fetch normally. A boundary the page may STILL deliver
+    // (its content settled after the shell flush and is streaming in) is a
+    // local answer that has not landed: a promise, settling at the reveal
+    // — `true` (the mount adopts the element) or `false` (nothing is left
+    // to deliver it; the caller fetches). Fetching instead would render on
+    // the wire what the document is already streaming.
     intercept: ({ id }: { id: string }) => {
-      if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
-      return g._$SC.r(id);
+      if (claimedBoundaries.has(id)) return undefined;
+      if (findBoundaryElement(id)) return true;
+      if (!boundaryMayArrive()) return undefined;
+      installRevealHook();
+      return awaitBoundary(id);
     }
     // Single-flight delivery (the transport's `consumer`/`codec` defaults)
     // reads the server-function client's SHARED built instance: this
