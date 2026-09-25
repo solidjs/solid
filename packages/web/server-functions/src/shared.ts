@@ -664,9 +664,11 @@ export function serverFunctionActionUrlFor(endpoint, target, boundArgs) {
  * so a fetch of it is the call. Refuses — rather than answering with an
  * address nothing would request — when the reference is not a declared
  * read (the default transport POSTs, and a POST is not described by its
- * url), when the arguments need the codec (the transport encodes those
- * asynchronously, and a url rendered as a value cannot wait), and when the
- * url would be long enough for the call to fall back to POST.
+ * url), when it is a live reference (its call is a standing connection at
+ * the live address, and the data address answers a different call), when
+ * the arguments need the codec (the transport encodes those asynchronously,
+ * and a url rendered as a value cannot wait), and when the url would be
+ * long enough for the call to fall back to POST.
  * @internal
  */
 export function serverFunctionUrlFor(
@@ -680,6 +682,21 @@ export function serverFunctionUrlFor(endpoint, fn, args) {
     throw new Error("serverFunctionUrl expects a server function reference.");
   }
   const metadata = getServerFunctionMetadata(fn);
+  // A live reference's own call is a standing connection at the live
+  // address; a url rendered as a value would only misdescribe it — a
+  // prefetch or preload of the live address opens a stream nothing reads,
+  // and the data address answers a DIFFERENT call (one render, closed).
+  // Refused like a POST reference (open decision (d), Stage 8 B6).
+  if (metadata && metadata.live) {
+    throw new Error(
+      `serverFunctionUrl: "${fn.id}" is a live reference. Its call is a standing connection ` +
+        "at the live address, which no url describes as a value: a preload or prefetch of it " +
+        "would open a stream nothing reads, and the data address answers a different call " +
+        "(one render, closed). To warm the address, call the reference — every reader of the " +
+        "same call shares its one connection. For the one-shot url, render it from the GET(fn) " +
+        "declaration inside the live wrapper."
+    );
+  }
   if (!metadata || metadata.method !== "GET") {
     throw new Error(
       `serverFunctionUrl: "${fn.id}" is not a declared read. A call over the default ` +

@@ -2595,7 +2595,9 @@ frames owe any such layer:
   standing stream that nothing reads. A layer may warm the address
   store with a one-shot render or hold an iteration open. Whether
   `serverFunctionUrl` should refuse a live reference (as it refuses
-  a POST reference) is open decision (d).
+  a POST reference) is open decision (d). _Decided 2026-09-25 (B6):
+  it refuses. The data address it used to return is one the live
+  call never requests; the one-shot url is the inner `GET(fn)`'s._
 
 #### Settlement is not this stage's concern
 

@@ -658,6 +658,37 @@ prev)`; corrected to `(prev, value)`. Pinned:
 - Decide open (d): `serverFunctionUrl` on a live reference.
 - **Verify:** GET frame stream decodes; `curl -N` shows an event stream of
   frame records; POST fallback for long arguments still decodes.
+- **Built (2026-09-25) — mostly verification; one decision.** The path was
+  already whole: `GET(fn)`'s client half dispatches the call over GET at
+  the data address (`?args=` JSON) and the frames handler claims the
+  frame-stream answer off `X-Frame-Stream` whatever the method; the live
+  loop's call takes the live address and reads the event-stream framing
+  through its own reader; the server's `GET()` grant governs dispatch and
+  the origin gate before `transformResult` ever sees a component, so a
+  frame response is granted or refused exactly as a codec one; the POST
+  fallback for long arguments (JSON body, format 8) lands at the data
+  address and answers the same records. Pinned now:
+  `test/server/frame-get.spec.tsx` (a cross-site GET at the data address
+  → `application/x-frame-stream`, length-prefixed, arguments from the
+  query; the live address → `text/event-stream`, one `data:` line per
+  record, the same records; undeclared → 405 same-origin / 403 cross-site,
+  body never runs; the POST fallback; `serverFunctionUrl`) and
+  `test/frames-get.spec.tsx` (the fetched url is GET with no body and
+  equals `serverFunctionUrl(ref, ...args)`; long arguments → POST JSON at
+  the data address, same mount; the live refusal). Verified with `curl -N`
+  against the room dev server: the live address streams `data: {"type":
+"start"…}` / `slot` / `html` events; the data address the length-prefixed
+  records. Cache headers are the transport's (`no-store` unless the
+  function sets its own) — a GET server component is cacheable when its
+  author says so, like any read.
+- **Open (d) decided: refuse.** `serverFunctionUrl(live(GET(fn)), ...args)`
+  used to return the DATA address — an address the reference's own call
+  never requests (it connects at the live address), which is exactly the
+  class of answer the helper refuses for a POST reference. It now throws,
+  naming the alternatives: call the reference to warm the address (one
+  connection per address is shared), or render the one-shot url from the
+  `GET(fn)` declaration inside the wrapper. Both entries (the body is
+  `serverFunctionUrlFor` in shared).
 
 ## Public API ledger (flag before each lands)
 
@@ -701,7 +732,7 @@ prev)`; corrected to `(prev, value)`. Pinned:
 | Room demo: the render counter is a live hole (`{renderNo()}`) so a reconnect transfers it alone                                                                                                                                                                                                                                                         | example                             | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                                                                                                                                                                             | behavior change                     | B3+   |
 | ~~`documentWindow` on `renderToStream`~~ — open (c) decided: fixed dev-only warning, no knob                                                                                                                                                                                                                                                            | withdrawn                           | B3    |
-| `serverFunctionUrl` refusing live references — only if open (d) says                                                                                                                                                                                                                                                                                    | behavior change (cond.)             | B6    |
+| `serverFunctionUrl(liveRef, ...args)` throws (was: returned the data address, which the live call never requests) — open (d) decided: refuse, like a POST reference                                                                                                                                                                                     | behavior change                     | B6    |
 | Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `Accept: text/event-stream` as declaration, framing-follows-method, per-page channel, `live: { transport, hold }`, `connected` on the frame handle                                                                                                                                                 | —                                   | —     |
 
 ## Open decisions
@@ -711,7 +742,7 @@ prev)`; corrected to `(prev, value)`. Pinned:
 | (a) | `SERVER_WRITE` throw scope in persistent renders                                                                                          | B3        |
 | (b) | Connection state surface — CLOSED: `onstatus`                                                                                             | —         |
 | (c) | Safety cap — CLOSED (B3): fixed dev-only warning, `SSR_UNDECLARED_LIVE_SOURCE` at 5s; no knob                                             | —         |
-| (d) | `serverFunctionUrl` on a live reference: refuse or document                                                                               | B6        |
+| (d) | `serverFunctionUrl` on a live reference — CLOSED (B6): refuses, like a POST reference; the one-shot url is the inner `GET(fn)`'s          | —         |
 | (e) | How the server knows a call is live — CLOSED (D13): the address (`/live/<id>`); a server-side `live` declaration cross-checks in dev only | —         |
 | (f) | Have-list header — CLOSED (B4): `X-Frame-Have`, `key=digest` pairs, omitted over 4096 encoded bytes (full snapshot then)                  | —         |
 
