@@ -2099,6 +2099,90 @@ describe("ssrSource server modes", () => {
       expect([...serialized.values()]).toContain("$$f");
       expect(result()).toBe("Shell");
     });
+
+    // #3657: the shared client hole is read by every request that touches a
+    // bare client source, and derived reads (a `<Show when={client().length}>`
+    // memo, an Errored aggregate's `Promise.all`) subscribe to it as their
+    // retry source. A native never-settling Promise records each of those
+    // subscriptions in a reaction list rooted in module scope — one retained
+    // computation (props, data, owner tree) per request, forever. The hole is
+    // therefore not a Promise: a frozen thenable whose `then` drops its
+    // callbacks, so no call site can accumulate anything on it.
+    test("the client hole is an inert thenable, not a native promise (#3657)", async () => {
+      const { context } = createSerializeTrackingContext();
+      sharedConfig.context = context;
+
+      let hole: any;
+      createRoot(
+        () => {
+          const read = (createMemo as any)(() => 1, { ssrSource: "client" });
+          (context as any)._loadingPhase = true;
+          try {
+            read();
+          } catch (e) {
+            hole = (e as NotReadyError).source;
+          } finally {
+            (context as any)._loadingPhase = undefined;
+          }
+        },
+        { id: "t" }
+      );
+
+      expect(hole.$clientHole).toBe(true);
+      // No reaction list exists to grow: not a promise by brand or by prototype.
+      expect(hole instanceof Promise).toBe(false);
+      expect(Object.prototype.toString.call(hole)).not.toBe("[object Promise]");
+      expect(Object.isFrozen(hole)).toBe(true);
+
+      // Every subscription shape the server takes against a pending source is
+      // dropped on the floor: direct `then` (subscribePendingRetry), `catch`
+      // (the boundary's await guard), the Promise combinators and `await`
+      // (which route through Promise.resolve and mint a fresh promise — no
+      // reference back to the hole).
+      const spy = vi.fn();
+      hole.then(spy, spy);
+      hole.catch(spy);
+      hole.finally(spy);
+      Promise.all([hole]).then(spy, spy);
+      Promise.resolve(hole).then(spy, spy);
+      expect(Promise.resolve(hole)).not.toBe(hole);
+      await tick();
+      await tick();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    test("derived read of a client hole (Show over client().length) still hands off to $$f", () => {
+      const { context, serialized, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      let result: any;
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Shell",
+            get children() {
+              const data = (createMemo as any)(() => [1, 2, 3], { ssrSource: "client" });
+              // The reporter's shape (#3657): the read is in a DERIVED memo —
+              // Show's `when` — whose update() catches the NotReady and
+              // subscribes its retry to the hole's source.
+              return ssr(["<div>", "</div>"], () =>
+                Show({
+                  get when() {
+                    return data().length;
+                  },
+                  children: "loaded"
+                })
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(0);
+      expect([...serialized.values()]).toContain("$$f");
+      expect(result()).toBe("Shell");
+    });
   });
 
   test("ssrSource 'hybrid' runs computation (same as default for Promises)", () => {

@@ -858,15 +858,32 @@ type NoFn<T> = T extends Function ? never : T;
 /**
  * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
  * a hole the server can never fill. Reads throw a `NotReadyError` carrying
- * this promise; the `$clientHole` tag classifies the suspension as FINAL —
+ * this thenable; the `$clientHole` tag classifies the suspension as FINAL —
  * boundaries hand the position to the client (the "$$f" client-continue
- * route) instead of awaiting a settle that will never come. One shared,
- * never-settling instance: retry subscriptions attached to it (e.g.
- * `subscribePendingRetry`) are inert by design.
+ * route) instead of awaiting a settle that will never come.
+ *
+ * One shared instance, and deliberately NOT a native Promise. A never-
+ * settling Promise still records every `then`/`await` against it in its
+ * reaction list, and that list is reachable from the module scope — so each
+ * retry subscription a derived read attached (`subscribePendingRetry` from
+ * a `<Show when={client().length}>`, a `dynamic()` source memo, …) pinned
+ * that request's computation, props and data for the life of the process
+ * (#3657). This thenable's `then` drops its callbacks: subscribing to it is
+ * inert at the object, not by convention at each call site. `await` and the
+ * `Promise` combinators go through `Promise.resolve(thenable)`, which mints
+ * a fresh never-settling promise per call and holds no reference back here.
  */
-const CLIENT_HOLE: Promise<never> = /* @__PURE__ */ Object.assign(new Promise<never>(() => {}), {
-  $clientHole: true
-});
+type ClientHole = PromiseLike<never> & { $clientHole: true };
+const CLIENT_HOLE: ClientHole = /* @__PURE__ */ (() => {
+  const hole = {
+    $clientHole: true as const,
+    then: () => hole,
+    catch: () => hole,
+    finally: () => hole
+  };
+  return Object.freeze(hole) as unknown as ClientHole;
+})();
+const isClientHole = (source: unknown): boolean => source === CLIENT_HOLE;
 
 /**
  * A final (client-hole) suspension is only meaningful where a `<Loading>`
@@ -2080,7 +2097,7 @@ function serverEffect<T>(
         // response forever. Rethrow so the surrounding render (a Loading
         // discovery pass — the read throws loudly anywhere else) escalates
         // the suspension to the boundary, which hands off to the client.
-        if (source === CLIENT_HOLE) throw err;
+        if (isClientHole(source)) throw err;
         const retry = () => {
           if (comp.disposed) return;
           try {
@@ -2096,7 +2113,7 @@ function serverEffect<T>(
               // is no render on the stack to escalate to, so swallow: the
               // effect simply never fires server-side (the client runs it
               // after hydration), instead of blocking the stream forever.
-              if (next !== CLIENT_HOLE) ctx.block(next.then(retry, () => {}));
+              if (!isClientHole(next)) ctx.block(next.then(retry, () => {}));
               return;
             }
             // Out-of-band by now — route to the boundary's error handler.
@@ -2279,7 +2296,7 @@ export function createOptimisticStore<T extends object = {}>(
  */
 function createPendingProxy<T extends object>(
   state: T,
-  source: Promise<any>
+  source: PromiseLike<any>
 ): [proxy: Store<T>, markReady: (frozenState?: T) => void, markError: (error: any) => void] {
   let status: 0 | 1 | 2 = 0;
   let error: any;
