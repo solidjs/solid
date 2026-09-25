@@ -82,6 +82,7 @@ export {
 export {
   FRAME_STREAM_HEADER,
   FRAME_HAVE_HEADER,
+  FRAME_HAVE_BUDGET,
   applyFrameResponse,
   isFrameStreamResponse,
   createServerComponentHandler
