@@ -6,7 +6,8 @@ import {
   createSignal,
   flush,
   getOwner,
-  ownerPath
+  ownerPath,
+  OBSERVE
 } from "../src/index.js";
 import { attribution } from "../src/attribution.js";
 import {
@@ -125,8 +126,10 @@ describe("$$component proxy owner paths", () => {
     const release = attribution.enable({ log: false });
     const creates: [string, string][] = [];
     const reruns: string[] = [];
-    const offCreate = attribution.subscribe("create", e => creates.push([e.nodeName, e.nodeKind]));
-    const offRerun = attribution.subscribe("rerun", e => reruns.push(e.nodeName));
+    const offCreate = OBSERVE!.records.subscribe("create", e =>
+      creates.push([e.nodeName, e.nodeKind])
+    );
+    const offRerun = OBSERVE!.records.subscribe("rerun", e => reruns.push(e.nodeName));
     try {
       const first = executeModule(hot, {
         Counter: {

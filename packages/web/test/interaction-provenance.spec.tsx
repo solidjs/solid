@@ -4,7 +4,8 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render } from "@solidjs/web";
-import { createEffect, createSignal, flush } from "solid-js";
+import { OBSERVE, createEffect, createSignal, flush } from "solid-js";
+import type { RecordListener, RecordType } from "solid-js";
 import { attribution } from "solid-js/attribution";
 
 /**
@@ -14,7 +15,15 @@ import { attribution } from "solid-js/attribution";
  * a handler is stamped with the event and a description of what was hit.
  */
 
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: Array<() => void> = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
+
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -41,7 +50,7 @@ describe("interaction provenance", () => {
       );
     }, container);
     flush();
-    attribution.subscribe(e => {
+    on("rerun", e => {
       if (e.nodeName === "reader") latest = e;
     });
 
@@ -80,7 +89,7 @@ describe("interaction provenance", () => {
       );
     }, container);
     flush();
-    attribution.subscribe(e => {
+    on("rerun", e => {
       if (e.nodeName === "reader") seen.push(e.causes[0].origin);
     });
 
@@ -112,7 +121,7 @@ describe("interaction provenance", () => {
       container
     );
     flush();
-    attribution.subscribe("interaction", e => (interaction = e));
+    on("interaction", e => (interaction = e));
 
     // The browser created the event 30ms before the handler ran (a busy main
     // thread): `PerformanceEventTiming.startTime` would carry this value.
@@ -145,7 +154,7 @@ describe("interaction provenance", () => {
       container
     );
     flush();
-    attribution.subscribe("interaction", e => (interaction = e));
+    on("interaction", e => (interaction = e));
 
     const ev = new MouseEvent("click", { bubbles: true });
     expect(ev.timeStamp).toBeGreaterThan(performance.now()); // jsdom: Date.now()
@@ -170,7 +179,7 @@ describe("interaction provenance", () => {
       return <input name="search" onInput={e => setQ(e.currentTarget.value)} />;
     }, container);
     flush();
-    attribution.subscribe(e => {
+    on("rerun", e => {
       if (e.nodeName === "reader") origin = e.causes[0].origin;
     });
     const input = container.querySelector("input")!;

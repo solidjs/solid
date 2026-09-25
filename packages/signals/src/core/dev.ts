@@ -14,6 +14,11 @@ import type {
   EffectRunEvent,
   FallbackEvent,
   FlightEvent,
+  FlushEvent,
+  GraphEvent,
+  HoldEvent,
+  InteractionEvent,
+  NavigationEvent,
   RerunEvent
 } from "./attribution.js";
 // Cycle note: core.ts imports this module; we read its live `context` binding
@@ -147,7 +152,18 @@ export interface DiagnosticEvent {
   data?: Record<string, unknown>;
 }
 
-export type DiagnosticListener = (event: DiagnosticEvent) => void;
+/**
+ * A findings listener. `subject` is the live node the event is about, when
+ * the emitter located one — passed BESIDE the serializable event, the way
+ * the records channel passes `live` — for an in-process consumer that goes
+ * from a finding to the scope (devtools, a console task lookup);
+ * `undefined` for an event with no location, or a host event whose owners
+ * are not signals' owners.
+ */
+export type DiagnosticListener = (
+  event: DiagnosticEvent,
+  subject: DiagnosticSubject | undefined
+) => void;
 
 export interface DiagnosticCapture {
   readonly events: readonly DiagnosticEvent[];
@@ -217,16 +233,18 @@ export interface AttributionSlot {
 }
 
 /**
- * The records the runtimes deliver on `OBSERVE.records`, by type — each
- * entry `{ event, live }`: the serializable record and the live handles
- * (a thrown error, a request) an in-process consumer may want beside it.
- * The core emits none and declares none; the runtimes that emit declare
- * theirs by augmentation, and the union of record types is whatever the
- * loaded runtimes declared. `solid-js` augments THIS interface (its
- * `"boundary"` record); the runtimes above it — `@solidjs/web`'s
- * `"invocation"`, `"frame"` and `"call"`, a router's — augment
- * `HostRecordTypes`, reached through the `solid-js` re-export, which this
- * interface extends so the channel sees one catalogue.
+ * The records delivered on `OBSERVE.records`, by type — each entry
+ * `{ event, live }`: the serializable record and the live handle (the node
+ * that ran, a thrown error, a request) an in-process consumer may want
+ * beside it. This package declares the attribution engine's records here —
+ * the engine ships in this package, behind its own entry, and emits on the
+ * same channel as every runtime — and the runtimes that emit declare theirs
+ * by augmentation, so the union of record types is whatever loaded.
+ * `solid-js` augments THIS interface (its `"boundary"` and `"recovery"`
+ * records); the runtimes above it — `@solidjs/web`'s `"invocation"`,
+ * `"frame"` and `"call"`, a router's — augment `HostRecordTypes`, reached
+ * through the `solid-js` re-export, which this interface extends so the
+ * channel sees one catalogue.
  *
  * Two interfaces, one augmenter each, by design: TypeScript merges an
  * augmentation into a re-exported interface by following the alias, and
@@ -234,8 +252,37 @@ export interface AttributionSlot {
  * (`"@solidjs/signals"` from solid-js, `"solid-js"` from web) merge
  * order-dependently — one set is lost. So each layer augments an interface
  * of its own, through one module name.
+ *
+ * The engine's records (`@solidjs/signals/attribution`; none is emitted
+ * until `attribution.enable()`): `live` is the computation the record is
+ * about where there is one — the node that ran for `rerun`, `create` and
+ * `effect`, the async node for `flight`, the boundary's subtree for
+ * `fallback` (when the boundary reported one), the first held root signal
+ * for `hold` (the subject the SILENT_HOLD finding names) — and `undefined`
+ * for the records with no single subject (`flush`, `interaction`,
+ * `navigation`, `graph`). The records are the same objects the engine's
+ * ring buffers hold (`attribution.history(type)`), delivered synchronously
+ * the moment each is complete — a re-run at recompute end, a hold, a
+ * navigation, an interaction when it settles, bottom-up — so a listener
+ * runs inside the engine and must not write signals. The timeline records
+ * (`create`, `effect`, `flush`, `flight`, `fallback`) and `graph` enter no
+ * ring buffer and are built only while `observed(type)`: subscribing is
+ * what turns them on. `rerun` is built while something wants it — a
+ * listener, an imported fold (`costs`/`feedback`) or the console log; the
+ * engine's own checks read the facts, not the record.
  */
-export interface RecordTypes extends HostRecordTypes {}
+export interface RecordTypes extends HostRecordTypes {
+  rerun: { event: RerunEvent; live: Computed<any> };
+  create: { event: CreateEvent; live: Computed<any> };
+  effect: { event: EffectRunEvent; live: Computed<any> };
+  flush: { event: FlushEvent; live: undefined };
+  flight: { event: FlightEvent; live: Computed<any> };
+  fallback: { event: FallbackEvent; live: Computed<any> | undefined };
+  interaction: { event: InteractionEvent; live: undefined };
+  hold: { event: HoldEvent; live: Signal<any> };
+  navigation: { event: NavigationEvent; live: undefined };
+  graph: { event: GraphEvent; live: undefined };
+}
 
 /** The record types host runtimes declare — see `RecordTypes`. */
 export interface HostRecordTypes {}
@@ -255,13 +302,15 @@ export type RecordListener<K extends RecordType> = (
  * consumer (an APM adapter's `init()`, devtools, the diagnostics harness)
  * subscribes to the completed, serializable summaries of the things the
  * runtimes did — a `<Loading>` boundary that waited on the server, a
- * server-function execution or call, a frame stream produced or applied —
- * each delivered synchronously the moment it is complete, with its live
- * handles passed BESIDE it. Any number of listeners; none can alter what it
- * observes; one that throws is reported and the rest run. (Reactive
- * attribution — re-runs, holds, interactions — is the attribution engine's
- * `subscribe`, a separate entry the observe build pays for only when
- * imported.)
+ * server-function execution or call, a frame stream produced or applied,
+ * and the attribution engine's: a re-run, a hold, an interaction — each
+ * delivered synchronously the moment it is complete, with its live handle
+ * passed BESIDE it. Any number of listeners; none can alter what it
+ * observes; one that throws is reported and the rest run. The engine's
+ * records are declared here and emitted only while the engine
+ * (`@solidjs/signals/attribution`, a separate entry the observe build pays
+ * for only when imported) is enabled; `observed(type)` is the one gate an
+ * emitter of either kind checks before building a record.
  *
  * The object is created once per PROCESS under a registered symbol, so a
  * subscription made before the emitting runtime has loaded, or from a
@@ -269,7 +318,12 @@ export type RecordListener<K extends RecordType> = (
  * prod with the rest of `OBSERVE`.
  */
 export interface Records {
-  /** Deliver `type` records as they complete; returns the unsubscribe. */
+  /**
+   * Deliver `type` records as they complete; returns the unsubscribe. The
+   * subscription is the channel's, not any emitter's: it outlives the
+   * attribution engine's `enable()`/`disable()` cycles and is dropped only
+   * by its own unsubscribe.
+   */
   subscribe<K extends RecordType>(type: K, listener: RecordListener<K>): () => void;
   /**
    * Whether anything is subscribed to `type` — an emitter's pre-check, so
@@ -278,8 +332,10 @@ export interface Records {
   observed(type: RecordType): boolean;
   /**
    * Delivers a completed record to `type`'s listeners, synchronously: how a
-   * runtime publishes. Snapshot iteration — a listener unsubscribing
-   * mid-delivery neither skips nor double-calls anyone this round.
+   * runtime publishes. Snapshot semantics without a snapshot — the listener
+   * list is replaced, never mutated, on subscribe/unsubscribe — so a
+   * listener unsubscribing mid-delivery neither skips nor double-calls
+   * anyone this round, and delivery allocates nothing.
    */
   emit<K extends RecordType>(type: K, event: RecordEvent<K>, live: RecordLive<K>): void;
 }
@@ -319,27 +375,6 @@ export interface Observe {
   attribution: AttributionSlot;
   /** The server runtime's surface — see `ServerObserve`. */
   server: ServerObserve;
-  /**
-   * The live node an emitted record was about, when the emitter knew it.
-   * Records are serializable and never carry the node — a diagnostic event
-   * names its subject by `ownerPath`/`nodeName`, a re-run record by
-   * `nodeId` — so consumers that run in-process (devtools, the console
-   * reporter, `subscriptions(OBSERVE.subjectOf(run))`) look the
-   * node up here. Answers for `DiagnosticEvent`s and the attribution
-   * engine's node records — `RerunEvent`, `CreateEvent`, `EffectRunEvent`,
-   * `FlightEvent`, and a `FallbackEvent` whose boundary reported its
-   * subtree; `undefined` for anything else, and for a record that has left
-   * the process and come back.
-   */
-  subjectOf(
-    record:
-      | DiagnosticEvent
-      | RerunEvent
-      | CreateEvent
-      | EffectRunEvent
-      | FlightEvent
-      | FallbackEvent
-  ): DiagnosticSubject | undefined;
   /**
    * Marks `owner`'s subtree as the observer's own. A consumer that renders
    * inside the app it watches — an APM adapter's panel, devtools — would
@@ -439,34 +474,48 @@ const attributionSlot: AttributionSlot = {
 // holds two of this module, and a listener installed through one must hear
 // the records the render emits through the other. The registered key makes
 // every copy find the one listener set; the object is generic — a Map of
-// type to listener set — and carries no knowledge of the records.
+// type to listener list — and carries no knowledge of the records.
+//
+// Delivery is the hot path: the attribution engine emits a `rerun` record
+// per recompute through here, so `emit` must allocate nothing. The listener
+// list per type is COPY-ON-WRITE — `subscribe`/unsubscribe replace the
+// array, never mutate it — so the array `emit` picked up is a snapshot by
+// construction: a listener unsubscribing (itself or another) mid-delivery
+// is still delivered to this round and skipped from the next, one
+// subscribing mid-delivery hears the next record, and no copy is made per
+// record. Subscriptions are rare; a copy there is free. A type with no
+// listener has no entry, so `observed` is one `has`.
+type AnyRecordListener = (event: unknown, live: unknown) => void;
 const RECORDS = Symbol.for("@solidjs/signals/observe/records");
 function recordsChannel(): Records {
   const g = globalThis as { [RECORDS]?: Records };
   if (g[RECORDS]) return g[RECORDS];
-  const listeners = new Map<string, Set<Function>>();
+  const listeners = new Map<string, readonly AnyRecordListener[]>();
   return (g[RECORDS] = {
-    subscribe(type: string, listener: Function) {
-      let set = listeners.get(type);
-      if (!set) listeners.set(type, (set = new Set()));
-      set.add(listener);
+    subscribe(type: string, listener: AnyRecordListener) {
+      const current = listeners.get(type);
+      // Set semantics: one entry per function, however often it is passed.
+      if (current === undefined) listeners.set(type, [listener]);
+      else if (!current.includes(listener)) listeners.set(type, [...current, listener]);
       return () => {
-        set!.delete(listener);
+        const list = listeners.get(type);
+        if (list === undefined) return;
+        const next = list.filter(l => l !== listener);
+        if (next.length > 0) listeners.set(type, next);
+        else listeners.delete(type);
       };
     },
     observed(type: string) {
-      const set = listeners.get(type);
-      return set !== undefined && set.size > 0;
+      return listeners.has(type);
     },
     emit(type: string, event: unknown, live: unknown) {
-      const set = listeners.get(type);
-      if (set === undefined || set.size === 0) return;
-      // Snapshot: a listener unsubscribing (itself or another) mid-delivery
-      // must not skip or double-call anyone this round. A throwing listener
-      // is reported; the others, and what was observed, are unaffected.
-      for (const listener of [...set]) {
+      const list = listeners.get(type);
+      if (list === undefined) return;
+      // A throwing listener is reported and the rest still hear the record.
+      // The try/catch per call allocates nothing unless something throws.
+      for (let i = 0; i < list.length; i++) {
         try {
-          listener(event, live);
+          list[i](event, live);
         } catch (error) {
           console.error(error);
         }
@@ -484,9 +533,6 @@ export const OBSERVE: Observe = __OBSERVE__
       // client the slot stays this placeholder. The cast: the interface is
       // empty HERE and gains its members by augmentation downstream.
       server: {} as ServerObserve,
-      subjectOf(record) {
-        return eventSubjects.get(record);
-      },
       exclude(owner) {
         excludedOwners.add(owner);
         hasExclusions = true;
@@ -610,8 +656,9 @@ export function emitDiagnostic(
     const path = ownerPath(subject);
     if (path) entry.ownerPath = path;
   }
-  if (subject) eventSubjects.set(entry, subject);
-  for (const listener of diagnosticListeners) listener(entry);
+  const live = subject ?? undefined;
+  if (live !== undefined) eventSubjects.set(entry, live);
+  for (const listener of diagnosticListeners) listener(entry, live);
   for (const capture of diagnosticCaptures) capture.push(entry);
   // Footer for events that never reach reportDiagnostic because the call site
   // throws the message instead (every such site is severity "error"): a
@@ -637,28 +684,16 @@ function takeFooter(entry: DiagnosticEvent): string | undefined {
 }
 
 /**
- * The subject each emitted event was about: events are serializable records
- * and cannot carry the node, so the node is kept beside the record for the
- * in-process consumers that want it — the console step, which can show what
- * the node knows (a rendering runtime may stamp a binding effect with the DOM
- * element it writes, `_devElement`, and a live element reference beside the
- * message is the most addressable pointer a console can print), and devtools
- * that go from a re-run record back to the scope that ran. Keyed by the
- * record object, so the subject lives exactly as long as some consumer holds
- * the record (a ring buffer, a captured artifact) — the same lifetime the
- * node had when records carried it directly.
+ * The subject each emitted event was about, for the console step, which
+ * runs after `emitDiagnostic` returned and can show what the node knows: a
+ * rendering runtime may stamp a binding effect with the DOM element it
+ * writes (`_devElement`), and a live element reference beside the message
+ * is the most addressable pointer a console can print. Listeners get the
+ * subject as their second argument instead; the map exists only to carry
+ * it from `emitDiagnostic` to `reportDiagnostic` across the call site's
+ * `reportDiagnostic(emitDiagnostic(…))`. Weak, keyed by the entry.
  */
-const eventSubjects = new WeakMap<object, DiagnosticSubject>();
-
-/** Register `subject` as what `record` was about — see `Observe.subjectOf`. */
-export function recordSubject(record: object, subject: DiagnosticSubject): void {
-  eventSubjects.set(record, subject);
-}
-
-/** The live subject `record` was about, if its emitter registered one. */
-export function subjectOf(record: object): DiagnosticSubject | undefined {
-  return eventSubjects.get(record);
-}
+const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
 
 /**
  * The console face of a diagnostic — ONE entry per finding: the message, the

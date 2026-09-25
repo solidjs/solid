@@ -73,9 +73,9 @@ export async function captureArtifact<T>(
     // Read every table before releasing: the last release resets the aggregates.
     if (release) {
       attribution = {
-        reruns: [...engine.history()],
+        reruns: [...engine.history("rerun")],
         costs: costs(),
-        holds: [...engine.holds()],
+        holds: [...engine.history("hold")],
         feedback: feedback()
       };
       release();

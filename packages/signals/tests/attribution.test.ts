@@ -12,8 +12,20 @@ import {
   OBSERVE
 } from "../src/index.js";
 import type { AttributionOptions, RerunEvent } from "../src/core/attribution.js";
+import type { RecordListener, RecordType } from "../src/core/dev.js";
+import type { Computed } from "../src/core/types.js";
+
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
+/** The live node delivered beside each re-run record. */
+const liveOf = new WeakMap<RerunEvent, Computed<any>>();
 
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -23,7 +35,10 @@ afterEach(() => {
 function collect(opts?: AttributionOptions): RerunEvent[] {
   attribution.enable({ log: false, ...opts });
   const events: RerunEvent[] = [];
-  attribution.subscribe(e => events.push(e));
+  on("rerun", (e, node) => {
+    events.push(e);
+    liveOf.set(e, node);
+  });
   return events;
 }
 
@@ -248,10 +263,10 @@ describe("why-did-this-run attribution", () => {
     flush();
     const last = events.filter(e => e.nodeName === "branchy").at(-1)!;
     expect(last.depsAdded).toEqual(["b"]);
-    expect(subscriptions(OBSERVE!.subjectOf(run)!)).toEqual(["flag", "b"]);
+    expect(subscriptions(liveOf.get(run)!)).toEqual(["flag", "b"]);
   });
 
-  it("re-run records are serializable: nodeId names the scope, subjectOf hands back the node", () => {
+  it("re-run records are serializable: nodeId names the scope, the channel hands back the node", () => {
     const [a, setA] = createSignal(0, { name: "a" });
     let double!: () => number;
     createRoot(() => {
@@ -282,16 +297,16 @@ describe("why-did-this-run attribution", () => {
     expect(doubles[0].nodeId).toBe(doubles[1].nodeId);
     expect(readers[0].nodeId).toBe(readers[1].nodeId);
     expect(doubles[0].nodeId).not.toBe(readers[0].nodeId);
-    // In-process consumers get the node back through the observe surface;
+    // In-process consumers get the node beside the record on the channel;
     // the engine's own queries still take the accessor.
-    const node = OBSERVE!.subjectOf(doubles[0]);
+    const node = liveOf.get(doubles[0]);
     expect(node).toBeDefined();
-    expect(OBSERVE!.subjectOf(doubles[1])).toBe(node);
+    expect(liveOf.get(doubles[1])).toBe(node);
     expect(subscriptions(node!)).toEqual(["a"]);
     expect(why(double)).toEqual(doubles);
     expect(why(node)).toEqual(doubles);
-    // A copy that left the process has no subject.
-    expect(OBSERVE!.subjectOf(JSON.parse(JSON.stringify(doubles[0])))).toBeUndefined();
+    // A copy that left the process names nothing the engine can look up.
+    expect(why(JSON.parse(JSON.stringify(doubles[0])))).toEqual([]);
   });
 
   it("warns on hot scopes, once per window", () => {
@@ -707,11 +722,11 @@ describe("why-did-this-run attribution", () => {
     );
     flush();
     const events: RerunEvent[] = [];
-    attribution.subscribe(e => events.push(e));
+    on("rerun", e => events.push(e));
     setN(1);
     flush();
     expect(events).toHaveLength(0);
-    expect(attribution.history()).toHaveLength(0);
+    expect(attribution.history("rerun")).toHaveLength(0);
   });
 });
 
@@ -734,9 +749,9 @@ describe("shared engine: holds, releases, layered options", () => {
     const first: RerunEvent[] = [];
     const second: RerunEvent[] = [];
     const releaseFirst = attribution.enable({ log: false });
-    attribution.subscribe(e => first.push(e));
+    on("rerun", e => first.push(e));
     const releaseSecond = attribution.enable({ log: false });
-    attribution.subscribe(e => second.push(e));
+    on("rerun", e => second.push(e));
 
     setN(1);
     flush();
@@ -751,13 +766,15 @@ describe("shared engine: holds, releases, layered options", () => {
     expect(first).toHaveLength(2);
     expect(second).toHaveLength(2);
 
-    // The last one leaves: uninstalled, listeners cleared.
+    // The last one leaves: the engine uninstalls, so nothing further is
+    // recorded — the channel subscriptions themselves are the consumers' to
+    // release and are untouched.
     releaseSecond();
     setN(3);
     flush();
     expect(first).toHaveLength(2);
     expect(second).toHaveLength(2);
-    expect(attribution.history()).toHaveLength(0);
+    expect(attribution.history("rerun")).toHaveLength(0);
   });
 
   it("opens a fresh window on every enable without uninstalling", () => {
@@ -765,15 +782,15 @@ describe("shared engine: holds, releases, layered options", () => {
     const release = attribution.enable({ log: false });
     setN(1);
     flush();
-    expect(attribution.history()).toHaveLength(1);
+    expect(attribution.history("rerun")).toHaveLength(1);
 
     // A second consumer arrives (say, a capture): it reads back only what
     // happens from here on.
     const releaseCapture = attribution.enable({ log: false });
-    expect(attribution.history()).toHaveLength(0);
+    expect(attribution.history("rerun")).toHaveLength(0);
     setN(2);
     flush();
-    expect(attribution.history()).toHaveLength(1);
+    expect(attribution.history("rerun")).toHaveLength(1);
     releaseCapture();
     release();
   });
@@ -789,7 +806,7 @@ describe("shared engine: holds, releases, layered options", () => {
     const logs = () => logged.mock.calls.length;
     // A track asks for no log.
     const releaseTrack = attribution.enable({ log: false, hotRuns: false, hotTime: false });
-    attribution.subscribe(e => events.push(e));
+    on("rerun", e => events.push(e));
     setN(1);
     flush();
     expect(logs()).toBe(0);
@@ -889,16 +906,16 @@ describe("shared engine: holds, releases, layered options", () => {
     // once — the pre-token idiom — leaves nothing behind.
     const release = attribution.enable({ log: false });
     attribution.enable({ log: false });
-    attribution.subscribe(e => events.push(e));
+    on("rerun", e => events.push(e));
     attribution.disable();
     setN(1);
     flush();
     expect(events).toHaveLength(0);
-    expect(attribution.history()).toHaveLength(0);
+    expect(attribution.history("rerun")).toHaveLength(0);
     release(); // a release after the teardown is a no-op
     setN(2);
     flush();
-    expect(attribution.history()).toHaveLength(0);
+    expect(attribution.history("rerun")).toHaveLength(0);
   });
 
   it("disable without a matching enable is a full, idempotent reset", () => {
@@ -906,7 +923,7 @@ describe("shared engine: holds, releases, layered options", () => {
     attribution.disable();
     attribution.disable();
     const events: RerunEvent[] = [];
-    attribution.subscribe(e => events.push(e));
+    on("rerun", e => events.push(e));
     setN(1);
     flush();
     expect(events).toHaveLength(0);

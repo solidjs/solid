@@ -32,7 +32,8 @@ import {
   createSignal,
   flush
 } from "solid-js";
-import { attribution, formatOrigin, formatRerun, isLongHold } from "solid-js/attribution";
+import type { RecordListener, RecordLive, RecordType } from "solid-js";
+import { attribution, formatOrigin, formatRerun } from "solid-js/attribution";
 import type { InteractionEvent, RerunEvent, HoldEvent } from "solid-js/attribution";
 import type { CallEvent } from "@solidjs/web";
 import { enablePerformanceTracks } from "../performance-tracks/src/index.js";
@@ -49,8 +50,17 @@ interface Measure {
 }
 
 const disposers: Array<() => void> = [];
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: Array<() => void> = [];
+function listen<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
+/** The live node delivered beside each re-run record. */
+const liveOf = new WeakMap<RerunEvent, RecordLive<"rerun">>();
 afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose();
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -239,9 +249,12 @@ function records() {
   const reruns: RerunEvent[] = [];
   const interactions: InteractionEvent[] = [];
   const holds: HoldEvent[] = [];
-  attribution.subscribe("rerun", e => reruns.push(e));
-  attribution.subscribe("interaction", e => interactions.push(e));
-  attribution.subscribe("hold", e => holds.push(e));
+  listen("rerun", (e, live) => {
+    reruns.push(e);
+    liveOf.set(e, live);
+  });
+  listen("interaction", e => interactions.push(e));
+  listen("hold", e => holds.push(e));
   return { reruns, interactions, holds };
 }
 
@@ -837,7 +850,7 @@ describe("enablePerformanceTracks", () => {
       settledMs: 10
     });
     expect(hold).toMatchObject({ at: clicked, holdMs: 10, tailMs: 10 });
-    expect(isLongHold(hold)).toBe(false); // 10ms tail: under `longHolds.infoMs`
+    expect(hold.long).toBe(false); // 10ms tail: under `longHolds.infoMs`
     const [holdSpan] = on("Holds").filter(m => m.label !== "Holds");
     expect(holdSpan).toMatchObject({
       label: "waiting on posts",
@@ -906,7 +919,7 @@ describe("enablePerformanceTracks", () => {
     resolve("c");
     await until(() => shown.includes("c-p3"));
 
-    expect(holds.map(h => [h.holdMs, h.tailMs, isLongHold(h)])).toEqual([
+    expect(holds.map(h => [h.holdMs, h.tailMs, h.long])).toEqual([
       [499, 499, false],
       [500, 500, true]
     ]);
@@ -1371,7 +1384,7 @@ describe("enablePerformanceTracks", () => {
     flush();
     expect(seen.filter(m => m.label.endsWith("reader"))).toHaveLength(2);
     // The engine hold was taken once and is released with the instance.
-    expect(attribution.history()).toEqual([]);
+    expect(attribution.history("rerun")).toEqual([]);
   });
 
   test("scrub: no value previews, no element text except on a button or a link", () => {
@@ -1413,7 +1426,7 @@ describe("enablePerformanceTracks", () => {
     quiet();
     attribution.enable({ log: false, hotRuns: false, hotTime: false });
     const other: RerunEvent[] = [];
-    attribution.subscribe("rerun", e => other.push(e));
+    listen("rerun", e => other.push(e));
 
     const disable = enable();
     const [n, setN] = createSignal(0, { name: "n" });
@@ -1474,7 +1487,7 @@ describe("enablePerformanceTracks", () => {
     flush();
     setN(1);
     flush();
-    expect(attribution.history()).toEqual([]);
+    expect(attribution.history("rerun")).toEqual([]);
   });
 
   test("a finding is a marker on the Timings track, an issue for the Insights sidebar when it warns", () => {
@@ -1571,6 +1584,7 @@ describe("enablePerformanceTracks", () => {
     const { created } = tasks();
     const { on, marks } = measures();
     enable();
+    const { reruns } = records();
     const [n, setN] = createSignal(0, { name: "n" });
     function Row() {
       createRenderEffect(n, () => {}, { name: "reader" });
@@ -1599,7 +1613,7 @@ describe("enablePerformanceTracks", () => {
     ).toBe(true);
     // A finding about a node under the component too.
     quiet();
-    const subject = OBSERVE!.subjectOf(attribution.history().find(r => r.nodeName === "reader")!)!;
+    const subject = liveOf.get(reruns.find(r => r.nodeName === "reader")!)!;
     OBSERVE!.diagnostics.emit(
       { code: "HOT_SCOPE_RERUNS", kind: "perf", severity: "warn", message: "hot" },
       subject
@@ -1702,7 +1716,7 @@ describe("enablePerformanceTracks", () => {
     flush();
     setN(1);
     flush();
-    expect(attribution.history()).toEqual([]); // the engine was never enabled
+    expect(attribution.history("rerun")).toEqual([]); // the engine was never enabled
     disable();
   });
 });
@@ -1724,7 +1738,7 @@ describe("the production artifact", () => {
     flush();
     setN(1);
     flush();
-    expect(attribution.history()).toEqual([]);
+    expect(attribution.history("rerun")).toEqual([]);
     disable();
   });
 

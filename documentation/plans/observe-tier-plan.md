@@ -60,14 +60,15 @@ byte-identical to today under every bundler.
   explicit `ownerPath`, and the server computes its own (P1).
 - **D5 — Split, don't extend.** `OBSERVE` = `{ diagnostics: { subscribe,
 capture, emit }, attribution: { install, installed, withInteraction },
-subjectOf }`; `DEV` = `{ hooks, getChildren, getSignals, getParent,
+records: { subscribe, observed, emit } }` (the live node travels as a
+  listener's second argument, not through a lookup); `DEV` = `{ hooks, getChildren, getSignals, getParent,
 getSources, getObservers, report, setConsoleFooter }`.
 - **D6 — The engine is an entry, not a member.** `OBSERVE.attribution` is the
   core's side only: the hook slot (`install(hooks)`, `installed`) and the
   interaction frame (`withInteraction`, which the web runtime calls on every
   dispatch and which is `fn()` with no engine installed). The engine —
-  `enable/disable/history/why/costs/waterfalls/holds/feedback/markFlight/
-format/formatOrigin` — is `@solidjs/signals/attribution` (re-exported as
+  `enable/disable/history(type)/why/costs/feedback/markFlight/
+formatRerun/formatOrigin` — is `@solidjs/signals/attribution` (re-exported as
   `solid-js/attribution`). Nothing reachable from the core index may import
   `core/attribution.ts`. Measured 2026-09-08: with the engine referenced
   statically from `OBSERVE.attribution` the observe CSR scenario was 23.79 KB
@@ -203,9 +204,12 @@ _Status (2026-09-16)._ Landed, in three pieces:
   cycle/relay checks key on) names the scope, stable across its runs in the
   process and distinct between scopes, so unnamed effects still fold to one
   scope offline. `OBSERVE.subjectOf` — the lookup diagnostics already had —
-  now answers for re-run records too, keyed by the record object for as long
-  as any consumer holds it (the lifetime the node had when the record carried
-  it). `@solidjs/diagnostics` stores re-runs verbatim (`RerunRecord` is now
+  then answered for re-run records too, keyed by the record object for as long
+  as any consumer held it (the lifetime the node had when the record carried
+  it); since superseded — the lookup is gone, and the node arrives beside the
+  record as the listener's second argument (`OBSERVE.records.subscribe("rerun",
+(event, live) => …)`, `OBSERVE.diagnostics.subscribe((event, subject) =>
+…)`). `@solidjs/diagnostics` stores re-runs verbatim (`RerunRecord` is now
   an alias of `RerunEvent`).
 - **Clocks: no per-record `ts`.** Every `at` the engine and the runtimes emit
   is on the `performance.now()` clock, consistently; a second clock per

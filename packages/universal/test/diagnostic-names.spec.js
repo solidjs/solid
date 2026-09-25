@@ -5,18 +5,23 @@
 // renderer-owned effect gets a stable "renderer ..." fallback (dev only —
 // the "_SOLID_DEV_" constant folds the fallbacks out of production builds).
 import * as r from "./custom.js";
-import { createRoot, createSignal, flush } from "solid-js";
+import { OBSERVE, createRoot, createSignal, flush } from "solid-js";
 import { attribution } from "solid-js/attribution";
+
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs = [];
 
 /** Enable attribution quietly and collect every rerun event. */
 function collect() {
   attribution.enable({ log: false });
   const events = [];
-  attribution.subscribe(e => events.push(e));
+  offs.push(OBSERVE.records.subscribe("rerun", e => events.push(e)));
   return events;
 }
 
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
 });

@@ -9,7 +9,17 @@
  * Relative tripwire, same discipline as observe-idle-cost: the SAME workload
  * runs on the built observe artifact with the engine idle and with it
  * enabled (defaults, log off), interleaved, best-of-k, and the enabled/idle
- * ratio is what is capped.
+ * ratio is what is capped. Three enabled postures, cheapest first:
+ *
+ * - lean — nobody wants re-run records (no listener, fold or log): the engine
+ *   runs its checks off the raw facts and builds no `RerunEvent`;
+ * - listened — a `rerun` subscriber on the records channel: the record is
+ *   built, kept and delivered;
+ * - folded — the `costs`/`feedback` folds loaded as well, as a consumer that
+ *   imports the `attribution` entry has them. The cap is on this one.
+ *
+ * The engine is imported from its core module, not the entry, so the folds
+ * (which register on import) arrive only when the test loads them.
  */
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -17,11 +27,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 type Tier = typeof import("../src/index.js");
-type Engine = typeof import("../src/attribution.js");
+type Engine = typeof import("../src/core/attribution.js");
 
 const here = dirname(fileURLToPath(import.meta.url));
 const OBSERVE = resolve(here, "../dist/observe/index.js");
-const ENGINE = resolve(here, "../dist/observe/attribution.js");
+const ENGINE = resolve(here, "../dist/observe/core/attribution.js");
+const FOLDS = ["attribution-costs", "attribution-feedback"].map(m =>
+  resolve(here, `../dist/observe/core/${m}.js`)
+);
 
 /**
  * N chains of signal → memo → memo → effect, half of whose first memo
@@ -74,38 +87,68 @@ describe.skipIf(!existsSync(OBSERVE) || !existsSync(ENGINE))("attribution engine
     try {
       const N = 500;
       const K = 10;
-      workload(tier, N, 2);
-      const warmRelease = attribution.enable({ log: false });
-      workload(tier, N, 2);
-      warmRelease();
-      // Measured 2026-09-23 (M-series, engine at #3613): ~9.5–10x — the
-      // RerunEvent (causes, dep diffs, previews), the history ring buffer,
-      // recordSubject, the six checks (~10% of the whole) and emitRecord.
-      // The cap trips when the enabled engine costs ~40% more per re-run
-      // than it does today; a check that grew a map lookup or a clock read
-      // on the hot path moves this by a few percent, a record that grew a
-      // per-run allocation by more. The lean-posture work in
-      // documentation/plans/responsiveness-findings-plan.md is what would
-      // bring the ratio DOWN; ratchet the cap when it lands.
-      const CAP = 14;
-      let best = Infinity;
-      let detail = "";
-      for (let round = 0; round < 3 && best >= CAP; round++) {
+      const records = tier.OBSERVE!.records;
+      /** The engine enabled with defaults; `listened` adds a no-op `rerun` subscriber. */
+      const enabled = (listened: boolean): number => {
+        const off = listened ? records.subscribe("rerun", () => {}) : () => {};
+        const release = attribution.enable({ log: false });
+        try {
+          return workload(tier, N, K);
+        } finally {
+          release();
+          off();
+        }
+      };
+      /** Best-of-5 of the idle workload against one enabled posture. */
+      const measure = (listened: boolean) => {
         let idleMs = Infinity;
         let enabledMs = Infinity;
         for (let i = 0; i < 5; i++) {
           idleMs = Math.min(idleMs, workload(tier, N, K));
-          const release = attribution.enable({ log: false });
-          try {
-            enabledMs = Math.min(enabledMs, workload(tier, N, K));
-          } finally {
-            release();
-          }
+          enabledMs = Math.min(enabledMs, enabled(listened));
         }
-        const ratio = enabledMs / idleMs;
-        if (ratio < best) {
-          best = ratio;
-          detail = `enabled ${enabledMs.toFixed(1)}ms / idle ${idleMs.toFixed(1)}ms`;
+        return {
+          ratio: enabledMs / idleMs,
+          detail: `${(enabledMs / idleMs).toFixed(2)}x (${enabledMs.toFixed(1)}ms / idle ${idleMs.toFixed(1)}ms)`
+        };
+      };
+      workload(tier, N, 2);
+      enabled(true);
+
+      // Nobody listening: no RerunEvent, no ring-buffer push, no delivery.
+      // The checks still run on the causes every run collects, and the run is
+      // timed, so this is not free. Then a subscriber: the record is built,
+      // kept and delivered — the cost the lean gate spares. Both are measured
+      // for the failure message; the functional gate is pinned in
+      // attribution-lean-gate.test.ts, and the margin between the two is
+      // within this harness's noise.
+      const lean = measure(false);
+      const listened = measure(true);
+
+      // The folds, as a consumer of the `attribution` entry has them from
+      // import; from here on every re-run is folded into the cost and
+      // feedback tables as well. Measured 2026-09-23 (M-series, engine at
+      // #3613, folds, record always built): ~9.5–10x — the RerunEvent
+      // (causes, dep diffs, previews), the history ring buffer,
+      // recordSubject, the six checks (~10% of the whole) and emitRecord.
+      // Re-measured 2026-09-24 on the same class of machine, interleaved with
+      // that engine: #3613 ~2.5–2.8x; records on one channel (no per-emit
+      // allocation, no subject map, checks off the facts) folded ~2.1–2.2x,
+      // listened ~2.0–2.3x, lean ~1.8–1.9x. The cap trips when the folded
+      // engine costs ~40% more per re-run than the #3613 figure; a check that
+      // grew a map lookup or a clock read on the hot path moves this by a few
+      // percent, a record that grew a per-run allocation by more. Ratchet the
+      // cap as the lean-posture work in
+      // documentation/plans/responsiveness-findings-plan.md lands.
+      for (const fold of FOLDS) await import(fold);
+      const CAP = 14;
+      let best = Infinity;
+      let detail = "";
+      for (let round = 0; round < 3 && best >= CAP; round++) {
+        const folded = measure(true);
+        if (folded.ratio < best) {
+          best = folded.ratio;
+          detail = `folded ${folded.detail}; listened ${listened.detail}; lean ${lean.detail}`;
         }
       }
       expect(best, detail).toBeLessThan(CAP);

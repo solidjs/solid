@@ -23,11 +23,20 @@ import {
 } from "../src/index.js";
 import type { ChangeOrigin, InteractionEvent, NavigationEvent } from "../src/core/attribution.js";
 import type { NavigationRef } from "../src/core/attribution-hooks.js";
+import type { RecordListener, RecordType } from "../src/core/dev.js";
 
 const INSTALLED = Symbol.for("@solidjs/signals/observe/attribution");
 const current = () => OBSERVE!.attribution.currentOrigin();
 
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
+
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -39,8 +48,8 @@ function arm() {
   attribution.enable({ log: false, hotRuns: false, hotTime: false, waterfalls: false });
   const interactions: InteractionEvent[] = [];
   const navigations: NavigationEvent[] = [];
-  attribution.subscribe("interaction", e => interactions.push(e));
-  attribution.subscribe("navigation", e => navigations.push(e));
+  on("interaction", e => interactions.push(e));
+  on("navigation", e => navigations.push(e));
   return { interactions, navigations };
 }
 

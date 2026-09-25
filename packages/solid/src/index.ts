@@ -225,8 +225,6 @@ export type {
 export type { RecoveryEvent, RecoveryLive, RecoveryListener } from "./recovery.js";
 export type {
   Acknowledgement,
-  AttributionRecords,
-  AttributionRecordType,
   ChangeOrigin,
   ChangeRecord,
   CreateEvent,

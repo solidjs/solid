@@ -58,7 +58,8 @@ Stages, as landed (one commit each on the branch):
   `disable()` is the full teardown; each
   `enable()` resets the aggregation windows, which is what a capture wants
   — the token form landed in review, replacing a counted `disable()`); `AttributionOptions.checks` (default `true`, D2
-  proper still open); `isSilentHold`/`isLongHold` on the public entry;
+  proper still open); `isSilentHold`/`isLongHold` on the public entry (since
+  replaced by the `HoldEvent.silent`/`.long` fields, stamped at settle);
   `dispatchAsInteraction` passes `at: e.timeStamp` and the record carries
   `inputDelayMs`; the INP join recipe documented (`entry.startTime ===
 interaction.at`).
@@ -117,7 +118,7 @@ held, interaction? }`. Idle cost: one null-check per drain; the record is
 - **`create`** — Known: `recomputeStart(el, create: true)`/`recomputeEnd`
   (the existing hooks; previously `recomputeEnd` skipped the record when
   `frame.causes === null`). Shape: `RerunEvent` minus causes. Idle cost:
-  none new; built only while listened to; never enters `history()`/`costs()`.
+  none new; built only while listened to; never enters `history("rerun")`/`costs()`.
   Proof: a memo created inside a render effect's body produces one `create`
   record counted in the enclosing `flush.created`.
 - **`effect`** — Known: `effectRunStart/End(el)` in `effect.ts`, guard moved

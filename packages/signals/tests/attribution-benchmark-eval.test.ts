@@ -19,10 +19,18 @@ import {
   flush,
   OBSERVE
 } from "../src/index.js";
-import type { DiagnosticEvent } from "../src/core/dev.js";
+import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
 import type { RerunEvent } from "../src/core/attribution.js";
 
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
+
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -38,7 +46,7 @@ function arm(opts: Parameters<typeof attribution.enable>[0] = {}) {
   const diagnostics: DiagnosticEvent[] = [];
   OBSERVE!.diagnostics.subscribe(e => diagnostics.push(e));
   const reruns: RerunEvent[] = [];
-  attribution.subscribe(e => reruns.push(e));
+  on("rerun", e => reruns.push(e));
   return { diagnostics, reruns };
 }
 

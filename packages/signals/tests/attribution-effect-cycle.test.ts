@@ -16,9 +16,17 @@ import {
   OBSERVE
 } from "../src/index.js";
 import type { RerunEvent } from "../src/core/attribution.js";
-import type { DiagnosticEvent } from "../src/core/dev.js";
+import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
+
+// The engine's records arrive on the channel, whose subscriptions are the
+// consumer's — not dropped by `disable()` — so each test's are released here.
+const offs: (() => void)[] = [];
+function on<K extends RecordType>(type: K, listener: RecordListener<K>): void {
+  offs.push(OBSERVE!.records.subscribe(type, listener));
+}
 
 afterEach(() => {
+  for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
   vi.restoreAllMocks();
@@ -221,7 +229,7 @@ describe("EFFECT_WRITES_OWN_SOURCE", () => {
   it("stamps effect-origin writes with the run whose effect phase made them", () => {
     arm();
     const runs: RerunEvent[] = [];
-    attribution.subscribe(e => runs.push(e));
+    on("rerun", e => runs.push(e));
     const [n, setN] = createSignal(0, { name: "n" });
     const [out, setOut] = createSignal(0, { name: "out" });
     createRoot(() => {

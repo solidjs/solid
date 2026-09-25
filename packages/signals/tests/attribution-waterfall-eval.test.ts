@@ -142,7 +142,7 @@ describe("ASYNC_WATERFALL", () => {
     expectSerialized(events[0], observed);
 
     // The fact surface has it too.
-    const chains = attribution.waterfalls();
+    const chains = attribution.history("waterfall");
     expect(chains.some(c => c.chain.map(l => l.name).join(">") === "story>author")).toBe(true);
     void setId;
   });
@@ -209,7 +209,7 @@ describe("ASYNC_WATERFALL", () => {
 
     expect(events).toHaveLength(0);
     // Not even recorded as a chain fact — the origin test broke the link.
-    expect(attribution.waterfalls()).toHaveLength(0);
+    expect(attribution.history("waterfall")).toHaveLength(0);
   });
 
   it("does not flag an already-settled cached dependent (duration gate)", async () => {

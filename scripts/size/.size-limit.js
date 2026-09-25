@@ -1959,7 +1959,15 @@ module.exports = [
     // a block, no observe-gated bytes. Brotli layout, not code: the same
     // source diff is -21 B on the signals floor (9,792 -> 9,771) and -11 B
     // on prod CSR (15,854 -> 15,843).
-    limit: "17.70 KB",
+    // One records channel (2026-09-24): 17.70 -> 17.75 KB, measured at
+    // 17,699 B against `next`'s 17,677 at dcca7d46e (+22 B, 1 B under the
+    // old cap). The channel's listener lists went from a Set copied per emit
+    // to copy-on-write arrays (`includes` + spread on subscribe, `filter` on
+    // unsubscribe, an entry deleted when empty) so `emit` allocates nothing,
+    // and `diagnostics.emit` hands each listener the subject as a second
+    // argument in place of the removed `OBSERVE.subjectOf` lookup. Observe
+    // only; prod scenarios byte-identical.
+    limit: "17.75 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2241,6 +2249,15 @@ module.exports = [
     // observer-exclusion walk, so the solid-js/refresh HMR memo is recorded
     // nowhere (creation, re-run, checks) while what it owns stays observed.
     // The tier's own +52 B is charged in the scenario above.
+    // One records channel (2026-09-24): no cap change, measured at 31,689 B
+    // against `next`'s 31,686 at dcca7d46e (+3 B; the tier's own +22 is
+    // charged above, so the engine is -19). Gone: the engine's own listener
+    // map, `emitRecord`, `recordSubject`, the `subscribe` overloads, the five
+    // history getters, `isSilentHold`/`isLongHold`. Arrived: `history(type)`
+    // over the five buffers, `HoldEvent.silent`/`.long` at settle, the
+    // `wantsRerun` gate at recomputeStart and the checks reading the run's
+    // facts instead of the record. The scenario's own consumer now
+    // subscribes through `OBSERVE.records`.
     limit: "31.70 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },

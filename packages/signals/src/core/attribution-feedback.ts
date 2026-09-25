@@ -12,8 +12,6 @@
 import {
   FALLBACK_FLASH_MS,
   formatOrigin,
-  isLongHold,
-  isSilentHold,
   nodeName,
   now,
   registerFold,
@@ -284,7 +282,7 @@ function recordFeedbackHold(event: HoldEvent): void {
     feedbackSources.set(key, bucket);
   }
   const row = bucket.row;
-  const silent = isSilentHold(event);
+  const silent = event.silent;
   row.holds++;
   row.heldMs += event.holdMs;
   if (event.holdMs > row.worstMs) row.worstMs = event.holdMs;
@@ -296,7 +294,7 @@ function recordFeedbackHold(event: HoldEvent): void {
     event.acknowledgements.every(a => a.kind === "latest")
   )
     row.latestOnly++;
-  if (isLongHold(event)) {
+  if (event.long) {
     row.long++;
     row.longMs += event.tailMs;
   }
@@ -347,7 +345,7 @@ function recordFeedbackNavigation(event: NavigationEvent): void {
   if (event.outcome === "held") {
     row.held++;
     row.heldMs += event.hold?.holdMs ?? ms;
-    if (event.hold !== undefined && isSilentHold(event.hold)) row.silent++;
+    if (event.hold !== undefined && event.hold.silent) row.silent++;
   }
 }
 

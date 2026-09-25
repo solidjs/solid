@@ -298,10 +298,16 @@ Three facts, in order of weight:
 
 ### Lean posture — proposal, needs a decision
 
+_Status._ Landed as proposed: `wantsRerun()` — a `rerun` listener on
+`OBSERVE.records`, an imported fold (`costs`/`feedback`) or `log` — gates the
+record at run start; the checks read the frame's facts; `history("rerun")`
+is empty while nothing wants records. The text below is the proposal as
+written.
+
 Build the `RerunEvent` only when someone can read it. The engine knows at
 `recomputeEnd` whether anyone can: a `rerun` subscriber, a registered fold
 (`costs`/`feedback`/`why`/`subscriptions` import), `log: true`, or a
-consumer that will call `history()`. When none holds, keep only what the
+consumer that will call `history("rerun")`. When none holds, keep only what the
 other records need — the frame's interaction for `runs`/`runMs` on
 `InteractionEvent`, the cause→interaction link for holds and flights, the
 per-node counters the checks read — and skip the record: no causes array,
@@ -311,16 +317,15 @@ toward 3–4×; measure before promising.
 
 What it changes, and therefore what to decide:
 
-- `history()`, `why()`, `subscriptions()` on a lean engine return nothing
+- `history("rerun")`, `why()`, `subscriptions()` on a lean engine return nothing
   for runs that happened before a consumer of them appeared. Either
   document that (they are dev-console tools; the observe consumer that
   wants them subscribes to `rerun` or imports a fold, which turns records
   on from that moment), or add an explicit `enable({ reruns: true })` that
   forces record-building — the most-demanding merge makes that compose.
-- `subscribe("rerun", …)` must turn record-building on, the way the
-  `create`/`effect`/`flush`/`flight`/`fallback` timeline records already
-  work ("subscribing is what turns them on"). The bare-form `subscribe(fn)`
-  is the same subscription.
+- `OBSERVE.records.subscribe("rerun", …)` must turn record-building on, the
+  way the `create`/`effect`/`flush`/`flight`/`fallback` timeline records
+  already work ("subscribing is what turns them on").
 - The checks that read the record today (`checkHotRuns` reads
   `event.causes` for its cause key and message; `checkWastedRecompute`
   reads `changed`, `selfMs`, `phase`, `at`) need those facts from the frame
@@ -360,8 +365,8 @@ appear, and they shape which fields the records need.
   items 1–4 here change, and its Stage 4 `performanceIssue` mapping is
   where the findings on this page surface in Chrome's Insights.
 - **React DevTools parity checklist**, for the docs and for gap-finding:
-  "highlight updates" (we have re-run records with `nodeId` → element via
-  `subjectOf`), "why did this render" (`why()`), owner stacks
+  "highlight updates" (we have re-run records with `nodeId`, and the live
+  node as the listener's `live` argument), "why did this render" (`why()`), owner stacks
   (`ownerPath`), the `<Profiler>` render durations (`costs().scopes`
   self-time). What React DevTools cannot show and we can: holds and their
   acknowledgements, the interaction behind a write, the server boundary

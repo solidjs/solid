@@ -584,8 +584,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
   const RECORDS_CONSUMER = `
     import { attribution } from "attr";
     attribution.enable({ log: false });
-    attribution.subscribe(e => console.log(e.nodeName));
-    export const holds = attribution.holds;
+    export const holds = () => attribution.history("hold");
   `;
   const FEEDBACK_CONSUMER = `
     import { attribution, feedback } from "attr";
