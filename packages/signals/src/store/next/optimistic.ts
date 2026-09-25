@@ -152,8 +152,10 @@ function installNextBlockedHalf(): void {
       // Ownership is declared (#3146): only the flight's OWN transaction
       // parks on the flight (the #2951 anchor routed the bare write there).
       // A transaction that merely brushed the store never waits for truth
-      // it does not carry.
-      const ft = fam!.ft != null ? liveTransition(fam!.ft) : null;
+      // it does not carry. An undeclared flight (pending through an upstream
+      // source) belongs to the transaction its recompute ran in (router#619).
+      const owner = fam!.ft ?? fw._transition;
+      const ft = owner != null ? liveTransition(owner) : null;
       if (ft !== null && ft !== currentTransition(transition)) continue;
       if (familyHasLiveOverrides(fam!)) return true;
     }
