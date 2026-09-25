@@ -19,7 +19,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
-import { emitDiagnostic, watchAsyncTail } from "./dev.js";
+import { emitDiagnostic, reportDiagnostic, watchAsyncTail } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps, unobserved } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -210,34 +210,50 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   // though: a first landing whose commit is transition-held (streamed
   // hydration rides this) parks its value in `_pendingValue` with the flag
   // still set, and a comparator throw on that landing leaves the node
-  // uninitialized but errored — both have real truth to reveal. Only an
-  // uninitialized node with neither a held value nor an error is a settle
-  // that never happened. Silent in production; loud in dev so a future
-  // call site that violates the contract fails in its author's test run
-  // instead of wedging a downstream app.
+  // uninitialized but errored — both have real truth to reveal. So does a
+  // first landing UNDER an optimistic lane (#3648): asyncWrite's lane branch
+  // publishes it as a derived override (`laneOverride`, A17 lanes stage),
+  // `_value` stays the never-committed frame and the flag stays set until
+  // the lane's transaction commits and promotes the override
+  // (resolveOptimisticNodes) — the override IS the node's truth meanwhile,
+  // displayed to the lane's readers, and the walk releases dependents into
+  // it. Only an uninitialized node with neither a held value, nor an error,
+  // nor a displayed derived override is a settle that never happened.
+  // Silent in production; loud in dev so a future call site that violates
+  // the contract fails in its author's test run instead of wedging a
+  // downstream app.
   if (__DEV__) {
     const sources = el._x?._pendingSources;
     if (
       el._statusFlags & STATUS_UNINITIALIZED &&
       el._pendingValue === NOT_PENDING &&
       !el._x?._error &&
+      !(el._config & CONFIG_DERIVED_OVERRIDE && hasActiveOverride(el)) &&
       // A replacement source makes this a cleanup-only transfer: removing
       // self leaves the source and every propagated dependent parked. No
       // sources (or self alone) would release readers without truth.
       !(sources?.size && (sources.size > 1 || !sources.has(el)))
     ) {
-      emitDiagnostic({
-        code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
-        kind: "lifecycle",
-        severity: "error",
-        message:
-          "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that " +
-          "never produced a value. Settling parked readers requires truth to reveal — an " +
-          "uninitialized source waking its dependents serves them its initial face instead of " +
-          "settled data.",
-        ownerId: el.id,
-        ownerName: (el as any)._name
-      });
+      // Reported, not thrown: the walk runs from promise machinery with no
+      // caller to surface to, so the message must reach the console here —
+      // emitDiagnostic alone leaves only the repair-guide footer (#3648).
+      reportDiagnostic(
+        emitDiagnostic(
+          {
+            code: "SETTLE_WALK_UNINITIALIZED_SOURCE",
+            kind: "lifecycle",
+            severity: "error",
+            message:
+              "[SETTLE_WALK_UNINITIALIZED_SOURCE] settlePendingSource was called on a source that " +
+              "never produced a value. Settling parked readers requires truth to reveal — an " +
+              "uninitialized source waking its dependents serves them its initial face instead of " +
+              "settled data.",
+            ownerId: el.id,
+            ownerName: (el as any)._name
+          },
+          el
+        )
+      );
     }
   }
   // Landing and branch recovery already cleared el's own set. Superseded

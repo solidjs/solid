@@ -452,7 +452,20 @@ function endOptimism(transition: Transition): boolean {
  * reader of some other transaction), and for a LANE pass (#3548, below).
  */
 function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
-  if (stale && readsHeldCommitted(el as Computed<any>, c)) return el._value;
+  if (stale && readsHeldCommitted(el as Computed<any>, c)) {
+    // The committed frame of a node that has NEVER committed is nothing to
+    // show (#3648): a memo whose first landing rode its lane (asyncWrite's
+    // lane branch → a derived override) has no `_value` yet, and the outsider
+    // was served a fabricated `undefined`. Uninitialized is loading, not
+    // pending (A19 exception 1): the reader suspends, as it does on a
+    // pending uninitialized source regardless of lane (#3276, laneSuspends).
+    // readsHeldCommitted already queued its re-run on the lane's render
+    // queue, which runs at the release — by then the commit has promoted the
+    // override into `_value` (resolveOptimisticNodes), or the revert has
+    // re-derived the node. Lane readers keep seeing the override (A17).
+    if ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) throw new NotReadyError(el);
+    return el._value;
+  }
   if (!(el._config & CONFIG_OVERRIDE_SUPERSEDED)) return unwrapOverride(el._x?._overrideValue);
   // The owning transaction: `_overrideOwner` (#2912), not the stamp — an
   // override written directly inside an action never passes the adoption
