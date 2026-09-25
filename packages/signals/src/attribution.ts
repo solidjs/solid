@@ -2,8 +2,8 @@
  * `@solidjs/signals/attribution` — the "why did this run" engine.
  *
  * A separate entry on purpose: the core ships only the hook slot
- * (`OBSERVE.attribution.install`) and the interaction frame
- * (`OBSERVE.attribution.withInteraction`); the engine that turns hook facts
+ * (`OBSERVE.attribution`, which `enable()` installs into) and the declared
+ * frames (`withInteraction`, `withOrigin`); the engine that turns hook facts
  * into re-run explanations, cost tables, holds and feedback lives here, so an
  * observe build carries it only when something imports this module. The dev
  * and observe tiers resolve to this file; the prod tier resolves to
@@ -52,4 +52,6 @@ export type {
   FeedbackSource,
   FlightStats
 } from "./core/attribution-feedback.js";
-export type { InteractionRef, NavigationRef, OriginRef } from "./core/attribution-hooks.js";
+// The frame refs (`InteractionRef`, `NavigationRef`) are the core's — they
+// describe what `OBSERVE.attribution.withInteraction`/`withOrigin` take —
+// and are exported from the main entry beside those, not from here.

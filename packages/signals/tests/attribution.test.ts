@@ -307,6 +307,11 @@ describe("why-did-this-run attribution", () => {
     expect(why(node)).toEqual(doubles);
     // A copy that left the process names nothing the engine can look up.
     expect(why(JSON.parse(JSON.stringify(doubles[0])))).toEqual([]);
+    // By name, for a caller that holds no node (an out-of-process driver
+    // through the diagnostics bridge): the `nodeName` filter over history.
+    expect(why("double")).toEqual(doubles);
+    expect(why("reader")).toEqual(readers);
+    expect(why("nobody")).toEqual([]);
   });
 
   it("warns on hot scopes, once per window", () => {

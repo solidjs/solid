@@ -9,10 +9,10 @@
 // every frame stream produced, joined by `invocation.boundary` →
 // `boundary.id` and `frame.id` = `invocation.id`.
 //
-// The harness depends on `@solidjs/signals` alone and reads the channel by
-// its contract, so this suite is also where its mirrored record types are
-// pinned to the runtime's (compile-time, below) — the client's `"call"`
-// included, since the mirrors are one package.
+// The harness reads the channel by its contract and types the tables off the
+// runtimes' own catalogue (`RecordEvent<K>` — `solid-js`'s `"boundary"` /
+// `"recovery"`, `@solidjs/web`'s `"invocation"` / `"frame"` / `"call"`), so
+// the shape pins below are against those names directly.
 //
 // Imports source (the dev tier) and compiles with `sourceNames`
 // (vite.config.server.mjs); the server-functions runtime is the built
@@ -20,56 +20,37 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { Loading, renderToStream, useHead } from "@solidjs/web";
-import type {
-  CallEvent,
-  FrameAppliedEvent,
-  FrameEvent,
-  FrameProducedEvent,
-  InvocationEvent,
-  JSX
-} from "@solidjs/web";
-import { createMemo, createSignal, type BoundaryEvent } from "solid-js";
+import type { CallEvent, FrameEvent, InvocationEvent, JSX } from "@solidjs/web";
+import { createMemo, createSignal, type BoundaryEvent, type RecoveryEvent } from "solid-js";
 import {
   artifactToJSONL,
   captureArtifact,
   DiagnosticsAssertionError,
   expectDiagnostic,
   expectNoDiagnostics,
-  type BoundaryRecord,
-  type CallRecord,
-  type FrameAppliedRecord,
-  type FrameProducedRecord,
-  type FrameRecord,
-  type InvocationRecord
+  type ArtifactRecords
 } from "@solidjs/diagnostics";
 import type * as prodRuntime from "@solidjs/web/server-functions/server";
 
-// --- The mirrored record types are the runtime's, both ways --------------
+// --- The artifact's record tables are the runtimes' event types -----------
 // Mutual assignability pins every required member; the key sets pin the
 // optional ones too (an optional field missing on one side still assigns).
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-const boundaryShape: Same<BoundaryRecord, BoundaryEvent> = true;
-const boundaryKeys: Same<keyof BoundaryRecord, keyof BoundaryEvent> = true;
-const invocationShape: Same<InvocationRecord, InvocationEvent> = true;
-const invocationKeys: Same<keyof InvocationRecord, keyof InvocationEvent> = true;
-const callShape: Same<CallRecord, CallEvent> = true;
-const callKeys: Same<keyof CallRecord, keyof CallEvent> = true;
-const frameShape: Same<FrameRecord, FrameEvent> = true;
-const producedShape: Same<FrameProducedRecord, FrameProducedEvent> = true;
-const producedKeys: Same<keyof FrameProducedRecord, keyof FrameProducedEvent> = true;
-const appliedShape: Same<FrameAppliedRecord, FrameAppliedEvent> = true;
-const appliedKeys: Same<keyof FrameAppliedRecord, keyof FrameAppliedEvent> = true;
+const boundaryShape: Same<ArtifactRecords["boundary"][number], BoundaryEvent> = true;
+const recoveryShape: Same<ArtifactRecords["recovery"][number], RecoveryEvent> = true;
+const invocationShape: Same<ArtifactRecords["invocation"][number], InvocationEvent> = true;
+const frameShape: Same<ArtifactRecords["frame"][number], FrameEvent> = true;
+const callShape: Same<ArtifactRecords["call"][number], CallEvent> = true;
+const tableKeys: Same<
+  keyof ArtifactRecords,
+  "boundary" | "recovery" | "invocation" | "frame" | "call"
+> = true;
 void boundaryShape;
-void boundaryKeys;
+void recoveryShape;
 void invocationShape;
-void invocationKeys;
-void callShape;
-void callKeys;
 void frameShape;
-void producedShape;
-void producedKeys;
-void appliedShape;
-void appliedKeys;
+void callShape;
+void tableKeys;
 
 const RequestContext = Symbol.for("solid.RequestContext");
 let runtime: typeof prodRuntime;
@@ -151,7 +132,7 @@ describe("captureArtifact over a server render", () => {
       expect(html).toContain("Ada");
 
       // The findings, located by component.
-      expect(artifact.formatVersion).toBe(7);
+      expect(artifact.formatVersion).toBe(8);
       expect(artifact.timeOrigin).toBe(performance.timeOrigin);
       expect(artifact.scenario).toBe("profile page");
       expectDiagnostic(artifact, "HEAD_TAG_INVALID", { count: 1 });
@@ -197,10 +178,10 @@ describe("captureArtifact over a server render", () => {
         .map(line => JSON.parse(line));
       expect(lines[0]).toMatchObject({
         type: "meta",
-        formatVersion: 7,
+        formatVersion: 8,
         timeOrigin: performance.timeOrigin,
         diagnosticCount: 2,
-        recordCounts: { boundary: 1, invocation: 1, frame: 0, call: 0 }
+        recordCounts: { boundary: 1, recovery: 0, invocation: 1, frame: 0, call: 0 }
       });
       expect(lines.filter(l => l.type === "boundary")).toEqual([
         { type: "boundary", ...boundaries[0] }
@@ -297,7 +278,13 @@ describe("captureArtifact over a server render", () => {
       attribution: false
     });
     expectNoDiagnostics(artifact);
-    expect(artifact.records).toEqual({ boundary: [], invocation: [], frame: [], call: [] });
+    expect(artifact.records).toEqual({
+      boundary: [],
+      recovery: [],
+      invocation: [],
+      frame: [],
+      call: []
+    });
   });
 
   test("records outside the capture are not in it", async () => {
@@ -310,6 +297,12 @@ describe("captureArtifact over a server render", () => {
     }
     await stream(() => <App />);
     const { artifact } = await captureArtifact(() => {}, { attribution: false });
-    expect(artifact.records).toEqual({ boundary: [], invocation: [], frame: [], call: [] });
+    expect(artifact.records).toEqual({
+      boundary: [],
+      recovery: [],
+      invocation: [],
+      frame: [],
+      call: []
+    });
   });
 });

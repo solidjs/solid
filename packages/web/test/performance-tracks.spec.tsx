@@ -303,12 +303,6 @@ describe("enablePerformanceTracks", () => {
     }
   });
 
-  test("the group name is an option", () => {
-    const { seen } = measures();
-    enable({ group: "My App" });
-    expect(seen.every(m => m.group === "My App")).toBe(true);
-  });
-
   test("click → write → memo → effect: one span per record, on the record's own clock", () => {
     const { on } = measures();
     enable();
@@ -1364,13 +1358,13 @@ describe("enablePerformanceTracks", () => {
   test("one instance per page: a second enable joins it, and the last release tears it down", () => {
     const { seen } = measures();
     const first = enable();
-    const second = enable({ group: "Other" });
+    const second = enable({ rich: true });
     const [n, setN] = createSignal(0, { name: "n" });
     createRoot(() => createRenderEffect(n, () => {}, { name: "reader" }));
     flush();
     setN(1);
     flush();
-    // Painted once, in the first call's group — not twice.
+    // Painted once, by the first call's instance — not twice.
     const painted = seen.filter(m => m.label.endsWith("reader"));
     expect(painted).toHaveLength(1);
     expect(painted[0].group).toBe("Solid");

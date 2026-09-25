@@ -13,7 +13,15 @@
       "outputs": ["dist/types/**"]
     },
     "@solidjs/diagnostics#build": {
-      "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
+      // Runtime imports are `@solidjs/signals` only; the record tables are
+      // typed off `solid-js`'s and `@solidjs/web`'s catalogue augmentations,
+      // so their generated declarations must exist first.
+      "dependsOn": [
+        "@solidjs/signals#build",
+        "@solidjs/signals#types",
+        "solid-js#types",
+        "@solidjs/web#types"
+      ],
       "outputs": ["dist/**"]
     },
     "solid-js#build": {

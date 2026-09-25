@@ -13,14 +13,19 @@ function nodeOf(target: unknown): Computed<any> {
 }
 
 /**
- * Re-run history for one node — pass a memo/effect accessor or raw node.
- * Records name their scope by `nodeId`; a node that has never run under the
- * engine has none, and no history.
+ * Re-run history for one scope — pass a memo/effect accessor or raw node,
+ * or a scope's name as a string (an out-of-process consumer such as the
+ * diagnostics bridge holds no node, only the `nodeName` the records
+ * carry). Records name their scope by `nodeId`; a node that has never run
+ * under the engine has none, and no history. By name, every scope of that
+ * name answers.
  */
 export function why(target: unknown): RerunEvent[] {
+  const history = attribution.history("rerun");
+  if (typeof target === "string") return history.filter(event => event.nodeName === target);
   const id = nodeIdOf(nodeOf(target));
   if (id === undefined) return [];
-  return attribution.history("rerun").filter(event => event.nodeId === id);
+  return history.filter(event => event.nodeId === id);
 }
 
 /** Current dependency names of one scope — the devtools subscription view. */

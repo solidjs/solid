@@ -9,15 +9,15 @@
  * vite plugin inject it) and call `installDiagnosticsBridge()`.
  */
 import { OBSERVE, flush } from "@solidjs/signals";
-import { attribution as engine, costs, feedback } from "@solidjs/signals/attribution";
+import { attribution as engine, costs, feedback, why } from "@solidjs/signals/attribution";
 import { captureRecords, type RecordsCapture } from "./records.js";
 import type {
-  AttributionCosts,
-  AttributionFeedback,
+  AttributionCostTables,
+  AttributionFeedbackTables,
   AttributionOptions,
   DiagnosticsArtifact,
   HoldEvent,
-  RerunRecord
+  RerunEvent
 } from "./types.js";
 
 export const BRIDGE_GLOBAL = "__SOLID_DIAGNOSTICS__";
@@ -41,14 +41,14 @@ export interface DiagnosticsBridge {
   begin(options?: BridgeBeginOptions): void;
   end(): BridgePayload;
   active(): boolean;
-  /** Re-runs of one scope (by name) recorded by the open session. */
-  whyDidRun(name: string): RerunRecord[];
+  /** Re-runs of one scope (by name) recorded by the open session — the engine's `why(name)`. */
+  whyDidRun(name: string): RerunEvent[];
   /** Cost tables of the open session so far, without closing it. */
-  costs(): AttributionCosts;
+  costs(): AttributionCostTables;
   /** Transition holds the open session has recorded so far. */
   holds(): HoldEvent[];
   /** Feedback tables (what the user waited on) of the open session so far. */
-  feedback(): AttributionFeedback;
+  feedback(): AttributionFeedbackTables;
 }
 
 /**
@@ -150,7 +150,8 @@ export function installDiagnosticsBridge(
     },
     whyDidRun(name) {
       requireAttributionSession("whyDidRun");
-      return toSerializable(engine.history("rerun").filter(event => event.nodeName === name));
+      // The engine's own query, by name: an out-of-process driver holds no node.
+      return toSerializable(why(name));
     },
     costs() {
       requireAttributionSession("costs");

@@ -14,7 +14,7 @@ import {
   throwerOf,
   ownerId
 } from "./signals.js";
-import { OBSERVE, ownerPath } from "@solidjs/signals";
+import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
 import type { BoundaryEvent, BoundaryLive } from "./observe.js";
@@ -131,7 +131,7 @@ function ssrLoadingBoundary(
     // The core's walk (`_parent` + `_name`), the same one its diagnostics
     // make over these owners, so the record, the finding it may pair with
     // and the metric locate to the same `<App> › <Page>`.
-    const path = observed || timing !== undefined ? ownerPath(o) : undefined;
+    const path = observed || timing !== undefined ? OBSERVE!.ownerPath(o) : undefined;
     if (timing !== undefined) {
       // ASCII on the wire (a header value is a byte string); the adapter
       // renders the path with the artifact's ` › `.
@@ -245,7 +245,7 @@ function ssrLoadingBoundary(
             ? `— the fragment rejected and the client re-renders it: `
             : `— no boundary could contain it, the request failed: `) +
           errorText(err),
-        data: { handling, boundary: id, boundaryPath: ownerPath(o), error: err }
+        data: { handling, boundary: id, boundaryPath: OBSERVE!.ownerPath(o), error: err }
       },
       // Located where it was THROWN (the owner it escaped), the boundary that
       // met it in `data` — the same two facts the server error hook carries.

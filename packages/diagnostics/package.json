@@ -55,6 +55,8 @@
     "@solidjs/signals": "^2.0.0-rc.9"
   },
   "peerDependencies": {
+    "@solidjs/web": "^2.0.0-rc.9",
+    "solid-js": "^2.0.0-rc.9",
     "vitest": ">=2.0.0"
   },
   "peerDependenciesMeta": {
@@ -63,7 +65,9 @@
     }
   },
   "devDependencies": {
+    "@solidjs/web": "workspace:*",
     "@types/node": "^25.0.8",
+    "solid-js": "workspace:*",
     "rimraf": "^5.0.1",
     "typescript": "^6.0.3",
     "vite": "^7.0.0",

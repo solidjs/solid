@@ -2,7 +2,7 @@ import {
   setAttributionHooks,
   type AttributionHooks,
   type InteractionRef,
-  type OriginRef
+  type NavigationRef
 } from "./attribution-hooks.js";
 import { CONFIG_DERIVED_OVERRIDE, CONFIG_PLUMBING, NOT_PENDING } from "./constants.js";
 import {
@@ -934,7 +934,7 @@ function popFrame(kind: "effect" | "action" | "navigation") {
  * interaction is long gone but whose frame remembers it — else the ambient
  * one (a link click's handler).
  */
-function originStart(ref: OriginRef): void {
+function originStart(ref: NavigationRef): void {
   // A redirect hop re-enters the pending navigation's frame — the same object,
   // so its writes stamp the same origin and replace the pending write without
   // superseding it (see "Navigations").
@@ -3290,7 +3290,7 @@ export interface NavigationEvent {
 interface NavState {
   event: NavigationEvent;
   /** The router's description — re-read at settle (see `syncNavigation`). A redirect replaces it. */
-  ref: OriginRef;
+  ref: NavigationRef;
   /** Frames on the stack for this navigation: the opener's, plus a nested redirect hop's. */
   open: number;
   /** A flush parked its writes in a transition (`holdStart`). */
@@ -3328,7 +3328,7 @@ function syncNavigation(state: NavState): void {
   } else frame.params = event.params = ref.params;
 }
 
-function openNavigation(frame: ChangeOrigin, ref: OriginRef): void {
+function openNavigation(frame: ChangeOrigin, ref: NavigationRef): void {
   const event: NavigationEvent = { at: frame.at!, writes: 0, origin: frame };
   if (frame.from !== undefined) event.from = frame.from;
   if (frame.interaction !== undefined) event.interaction = frame.interaction;
@@ -3355,7 +3355,7 @@ function lastOpenNavigation(): NavState | undefined {
 }
 
 /** A redirect re-describes `state`: the current destination becomes a hop it abandoned. */
-function redirectNavigation(state: NavState, ref: OriginRef): void {
+function redirectNavigation(state: NavState, ref: NavigationRef): void {
   const event = state.event;
   // As the router last described the destination being left behind.
   syncNavigation(state);

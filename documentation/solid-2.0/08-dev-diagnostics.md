@@ -15,7 +15,7 @@ Every console report is one entry built for a human to act on:
 - The message, with the code in brackets and the repair in the text.
 - An `in` line naming the owners enclosing the subject, root first — component roots as `<Name>`, computations by their `name` option or the `effect`/`computed` default (`in <App> › <TodoList> › <TodoRow> › effect`) — a compiled binding effect reads as what it writes (`span.textContent`, `div.class:active`, a hole `div.children`) when the JSX compiler's `sourceNames.bindings` is on (both `@solidjs/babel-plugin` and `@solidjs/compiler` take the same `sourceNames` option, on by default in dev builds alongside `components`); a primitive reads as the identifier it was declared as (`count`, `doubled`, `todos.title`, `createCounter.value` inside a composed primitive) when `@solidjs/compiler`'s standalone `transformSourceNames` pass has run — primitive naming is not a JSX-transform feature: the build tool applies that pass to every module, `.ts`/`.js` and JSX alike, independently of which JSX compiler handles the file (the Vite plugin's `sourceNames.primitives`, on by default in its dev and `observe` postures; solid-vite-plugin #371) — or as its `name` option otherwise. The same chain is `event.ownerPath` on the structured event. A component's name is the tag as written in source when the JSX compiler's `sourceNames.components` is on (`createComponent(Home, props, "Home")` — on by default in dev builds; the Vite plugin also enables it for the `observe` posture, so minified observe builds still read `<Home>`), otherwise the function's `.name`, which a minifier rewrites and a `lazy()` wrapper hides. Components a library invokes by value rather than by tag (a router rendering a route's `component`) carry only the function name.
 - For a compiled JSX binding effect (attribute, class, style, property, spread, insert), the element it writes as a second console argument — hover highlights it on the page, click jumps to it in the Elements panel. The web runtime tags binding effects with their element in dev; the core prints whatever the subject knows.
-- The first report of each code ends with a footer registered by `solid-js` (`DEV.setConsoleFooter`): the installed repair skill path (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`) and the same file's stable GitHub URL anchored to the code's section. Perf, graph, and responsiveness codes add a second line pointing at `attribution.enable()` from `solid-js/attribution` and the `agent-loops` skill in `@solidjs/diagnostics`.
+- The first report of each code ends with a footer `solid-js` registers through an internal seam of the engine (not a public `DEV` method): the installed repair skill path (`node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`) and the same file's stable GitHub URL anchored to the code's section — `DEV.guideUrl(code)`, the one place that URL is built, so a profiler track's Insights link (in dev) and the console footer agree. Perf, graph, and responsiveness codes add a second line pointing at `attribution.enable()` from `solid-js/attribution` and the `agent-loops` skill in `@solidjs/diagnostics`.
 
 Attribution's own output (`[why-run]` chains) prints as collapsed console groups — one headline per re-run, the cause chain and dependency delta inside.
 
@@ -696,7 +696,7 @@ Check (`warn`, dev only; server components). A behavior position (an event handl
 
 ## Programmatic diagnostics API
 
-In dev and observe builds, `OBSERVE.diagnostics` provides two methods for tooling (and `OBSERVE.exclude`/`isExcluded`, described under attribution, mark an observer's own subtree so neither channel reports it):
+In dev and observe builds, `OBSERVE.diagnostics` provides two methods for tooling (and `OBSERVE.exclude`/`isExcluded`, described under attribution, mark an observer's own subtree so neither channel reports it; `OBSERVE.ownerPath(subject)`, below, is the labelling the channel's events carry, for a consumer that holds a live handle):
 
 ### `OBSERVE.diagnostics.subscribe(listener)`
 
@@ -723,6 +723,14 @@ const capture = OBSERVE.diagnostics.capture();
 const events = capture.stop();
 // events: DiagnosticEvent[]
 ```
+
+### `DEV.guideUrl(code)`
+
+Dev builds only. The repair guide's section for a code — the `reactivity-diagnostics` skill's stable GitHub URL, anchored to the code (`…/SKILL.md#strict_read_untracked`). One place builds it: the console footer's "learn more" line and the profiler track's Insights link (`learnMoreUrl`, in dev) both read it, so a tool that renders findings elsewhere links to the same text. Dev-tier rather than observe because it is guidance for a developer, and the URL string on a retained object would be a cost every observe build paid.
+
+### `OBSERVE.ownerPath(subject)`
+
+The owner chain of a live owner or node, root first, as the events carry it (`["<App>", "<TodoRow>", "effect"]` — `event.ownerPath` on a finding, the `ownerPath` field on a record); `undefined` for `null`/`undefined` and for a subject with no named owner above it. For a consumer holding the live handle the channel passed beside an event — the profiler track labelling a span by the computation it received — rather than a copy that already left the process, which carries the path itself.
 
 Each `DiagnosticEvent` has:
 
@@ -925,7 +933,7 @@ Beyond the always-on diagnostics above, dev and observe builds ship an opt-in **
     ← signal "notifications" write (#5) 2 → 3
 ```
 
-The engine is its own entry, `solid-js/attribution` (re-exporting `@solidjs/signals/attribution`), so a build that never imports it never ships it: the runtime carries only the hook slot the engine installs into (`OBSERVE.attribution.install`) and the two declared frames — the interaction frame the web runtime opens around event dispatch (`OBSERVE.attribution.withInteraction`) and the origin frame a router opens around its navigation write (`OBSERVE.attribution.withOrigin`). The import is legal in every tier — the prod tier resolves an inert engine with the same surface, so app code needs no per-tier guard.
+The engine is its own entry, `solid-js/attribution` (re-exporting `@solidjs/signals/attribution`), so a build that never imports it never ships it: the runtime carries only the hook slot the engine installs into (internal to `@solidjs/signals`; `OBSERVE.attribution.installed` says whether an engine is present) and the two declared frames — the interaction frame the web runtime opens around event dispatch (`OBSERVE.attribution.withInteraction`) and the origin frame a router opens around its navigation write (`OBSERVE.attribution.withOrigin`). The import is legal in every tier — the prod tier resolves an inert engine with the same surface, so app code needs no per-tier guard.
 
 ### API (`solid-js/attribution`)
 
@@ -1019,9 +1027,9 @@ OBSERVE
 // undefined — and puts it on its record (the web runtime's "call" record
 // does this at dispatch); an observer then joins the two by identity.
 const origin = OBSERVE.attribution.currentOrigin();
-// An external engine (devtools) installs into the same slot the built-in
-// one uses: OBSERVE.attribution.install(hooks) / .installed. The installed
-// hooks are also registered on globalThis under
+// Whether an engine is present: OBSERVE.attribution.installed (the hook
+// table itself is opaque — the slot is the engine's, not a public seam).
+// The installed hooks are also registered on globalThis under
 // Symbol.for("@solidjs/signals/observe/attribution"), the records channel's
 // reach for a layer bundled without a framework import.
 // An observer that renders inside the app it watches (an APM adapter's
@@ -1115,7 +1123,6 @@ const disable = enablePerformanceTracks({
   minMs: 0, // floor for run spans; 0 in dev, 0.05 in observe builds
   rich: true, // performance.measure with tooltips/properties (dev default) vs console.timeStamp
   scrub: false, // drop value previews and element text (observe default)
-  group: "Solid", // the track group
   attribution: {} // options for the engine hold it takes (log: false by default)
 });
 ```
@@ -1132,6 +1139,6 @@ Findings become markers: every `DiagnosticEvent` delivered while enabled is a ma
 
 The engine is decoupled from the core through a narrow dev-only hook surface (`attribution-hooks.ts`): the core's only obligation is to report true facts (recompute start/end with lane and transition posture, committed writes, async landings, refreshes) at the moments they happen. All semantics — stamps, cause chains, timings, thresholds — live in the engine. Disabled cost is one null check per hook site; production builds fold every site out entirely (the size guard enforces byte-parity).
 
-The same hook surface is the intended substrate for external devtools: install your own `AttributionHooks` implementation instead of the built-in engine — one mechanism, two front-ends.
+External devtools build on the engine's public face — `attribution.enable()` plus `OBSERVE.records` — not on the hook table, which is internal to `@solidjs/signals` (a devtools engine that replaced the built-in one would be a change to the package, not an integration).
 
 Naming: attribution output uses debug names from the `name` option on primitives (`createSignal(0, { name: "count" })`); store nodes are named `store.path` automatically while the engine is active. Unnamed nodes fall back to their owner id.

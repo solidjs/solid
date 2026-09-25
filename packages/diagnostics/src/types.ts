@@ -1,21 +1,26 @@
-import type { DiagnosticEvent } from "@solidjs/signals";
+import type { DiagnosticEvent, RecordEvent } from "solid-js";
+// Type-only: `@solidjs/web` declares the `invocation`, `call` and `frame`
+// records onto the channel's catalogue (`HostRecordTypes`, through
+// `solid-js`); importing its types is what puts that declaration in this
+// program, so `RecordEvent<"call">` resolves. Nothing of the web runtime is
+// loaded — the harness runs on `@solidjs/signals` alone.
+import type {} from "@solidjs/web";
 import type {
   AttributionCostTables,
   AttributionFeedbackTables,
-  ChangeOrigin,
   HoldEvent,
   RerunEvent
 } from "@solidjs/signals/attribution";
 
 /**
- * The engine's record types, re-exported from `@solidjs/signals/attribution`
- * by name where it exports them and derived structurally where it does not,
- * so the harness stays type-locked to the engine: if a shape changes, these
- * break at compile time here rather than silently at runtime.
+ * The engine's types, by the names the engine exports them under — the
+ * artifact stores records verbatim, so its vocabulary is the runtimes'.
  */
 export type {
   Attribution,
   AttributionOptions,
+  AttributionCostTables,
+  AttributionFeedbackTables,
   RerunEvent,
   ScopeCost,
   WriteCost,
@@ -28,181 +33,53 @@ export type {
   FlightStats,
   FallbackStats
 } from "@solidjs/signals/attribution";
-/** The fold tables as `costs()` / `feedback()` return them — named exports of the engine's entry. */
-export type AttributionCosts = AttributionCostTables;
-export type AttributionFeedback = AttributionFeedbackTables;
-
-/**
- * A re-run as the artifact stores it. The engine's `RerunEvent` is
- * serializable as emitted — it names its scope by `nodeId` and never carries
- * the live node (in-process consumers get it as `live` beside the record on
- * `OBSERVE.records`) — so
- * the artifact copies records verbatim; the alias is the artifact's
- * vocabulary for the same shape.
- */
-export type RerunRecord = RerunEvent;
 
 export interface ArtifactAttribution {
-  reruns: RerunRecord[];
-  costs: AttributionCosts;
+  /**
+   * Every re-run, as the engine emitted it: it names its scope by `nodeId`
+   * and never carries the live node (in-process consumers get it as `live`
+   * beside the record on `OBSERVE.records`), so the artifact copies records
+   * verbatim.
+   */
+  reruns: RerunEvent[];
+  /** The fold tables as `costs()` returns them. */
+  costs: AttributionCostTables;
   /** Every hold that staged a root write — what the user waited on. */
   holds: HoldEvent[];
   /** The ranked feedback tables folded from `holds` and the re-runs' interactions. */
-  feedback: AttributionFeedback;
+  feedback: AttributionFeedbackTables;
 }
 
 /**
- * A `<Loading>` boundary that waited during a server render — `solid-js`'s
- * `"boundary"` record (`BoundaryEvent`), as delivered on `OBSERVE.records`.
- * Mirrored here rather than imported: this package depends on
- * `@solidjs/signals` alone, and the record types are the runtimes'
- * (`solid-js`, `@solidjs/web`). The web server suite pins each mirror to
- * its original at compile time.
+ * The record types the artifact tables — the runtimes' records on
+ * `OBSERVE.records`, by the runtime that declares each: `solid-js`'s
+ * `boundary` (a `<Loading>` that waited during a server render) and
+ * `recovery` (the client's re-render of a boundary the server handed
+ * over); `@solidjs/web`'s `invocation` (a server-function execution),
+ * `call` (a server-function call from the browser) and `frame` (a frame
+ * stream produced or applied). The engine's own records (`rerun`, `hold`,
+ * …) live under `attribution`, not here.
  */
-export interface BoundaryRecord {
-  /** The boundary's hydration id — pairs with `SSR_*` findings and with `InvocationRecord.boundary`. */
-  id: string;
-  /** `performance.now()` when the boundary was discovered (its first pass began). */
-  at: number;
-  /** Discovery → settle, in milliseconds: how long the boundary held up its content. */
-  durationMs: number;
-  /** Settle → reveal: how long finished content waited behind `<Reveal>` siblings; 0 when nothing coordinated it. */
-  heldMs: number;
-  /** Render passes over the content: discovery plus one per wait. `passes - 1` sequential flights. */
-  passes: number;
-  /**
-   * `settled` — content rendered; `fallback` — `renderToString` shipped the
-   * fallback; `client` — content handed off to the client (`ssrSource:
-   * "client"`); `error` — the content threw and the error boundary took it.
-   */
-  outcome: "settled" | "fallback" | "client" | "error";
-  /** Whether the outcome went out as a streamed fragment (`true`) or inline with the shell. */
-  streamed: boolean;
-  /** The `<Reveal>` group that coordinated the swap, when one did. */
-  revealGroup?: string;
-  /** Root-first component labels down to the boundary, when the runtime knows them. */
-  ownerPath?: string[];
-}
-
-/**
- * One server function execution, on the server — `@solidjs/web`'s
- * `"invocation"` record (`InvocationEvent`), mirrored on the same terms as
- * `BoundaryRecord`.
- */
-export interface InvocationRecord {
-  /** The function id. */
-  id: string;
-  /** `true` for an in-process call during SSR, `false` for HTTP dispatch. */
-  direct: boolean;
-  /** `performance.now()` when the execution started. */
-  at: number;
-  /** Start → settle, in milliseconds. */
-  durationMs: number;
-  outcome: "ok" | "error";
-  /** The settled value is a body the caller drives; `durationMs` covers the call, not the consumption. */
-  deferred?: true;
-  /** Direct calls: the `<Loading>` boundary whose render pass made the call — a `BoundaryRecord.id`. */
-  boundary?: string;
-}
-
-/**
- * One server-function call made from the browser — `@solidjs/web`'s
- * `"call"` record (`CallEvent`), mirrored on the same terms as
- * `BoundaryRecord`. The client twin of `InvocationRecord`: the two join by
- * `id`, and the difference between their durations is the wire.
- */
-export interface CallRecord {
-  /** The function id — the same `id` the server's `InvocationRecord` carries. */
-  id: string;
-  /** `performance.now()` when the call was made. */
-  at: number;
-  /** Call → settle, in milliseconds: request, response and decode, as the caller awaited it. */
-  durationMs: number;
-  /** `GET` for a GET-encoded read, `POST` otherwise. */
-  method: "GET" | "POST";
-  outcome: "ok" | "error";
-  /** The response's HTTP status, once one arrived; absent when the fetch itself failed. */
-  status?: number;
-  /**
-   * What the call ran for, when the attribution engine knew — the
-   * interaction, navigation, effect or action frame: the engine's own origin
-   * object, so it is `attribution.holds[].interaction` / `holds[].origin`
-   * by identity within one capture (equal by value once serialized). Absent
-   * without an engine or outside any frame.
-   */
-  origin?: ChangeOrigin;
-  /** The settled value is a body the caller drives; `durationMs` covers the call, not the consumption. */
-  deferred?: true;
-}
-
-/**
- * One frame stream — produced on the server (`renderServerComponent`, or a
- * server-function response through `frameTransformResult`) or applied on
- * the client (`applyFrameResponse`) — `@solidjs/web`'s `"frame"` record
- * (`FrameEvent`), mirrored on the same terms as `BoundaryRecord`. `side`
- * says which end observed it; the two halves join by `id` and `version`.
- */
-export type FrameRecord = FrameProducedRecord | FrameAppliedRecord;
-
-interface FrameRecordBase {
-  /** The frame id on the wire: the server function's id for a server-function response (the `"invocation"`/`"call"` records' `id`); `""` for a bare stream. */
-  id: string;
-  /** The stream version: as the producer stamped it (server), or as the consumer restamped it (client). */
-  version: number;
-  /** `performance.now()` at the stream's `start` chunk. */
-  at: number;
-  /** Start → `complete`, in milliseconds: the whole stream, fragments included. */
-  durationMs: number;
-  /** Start → the shell (`html`) chunk, in milliseconds: time to first content. Absent when the stream carried no shell. */
-  shellMs?: number;
-  /** Transport chunks between `start` and `complete`, all types. */
-  chunks: number;
-  /** `fragment` chunks: `<Loading>` content that settled after the shell. */
-  fragments: number;
-  /** `slot` chunks: render-prop invocations the client fills. */
-  slots: number;
-  /** Nested server-content regions: `html` chunks addressed to a child frame id. */
-  regions: number;
-  /** `error` chunks: fragments that failed, plus a synchronous failure. */
-  errors: number;
-}
-
-/** The server half of a `FrameRecord`: one frame stream produced. */
-export interface FrameProducedRecord extends FrameRecordBase {
-  side: "server";
-  /** `complete` — the render ran to the end; `error` — it threw synchronously and the stream carried only the failure. */
-  outcome: "complete" | "error";
-}
-
-/** The client half of a `FrameRecord`: one frame stream applied. */
-export interface FrameAppliedRecord extends FrameRecordBase {
-  side: "client";
-  /** The local id the chunks were applied under, when the consumer remapped the wire id (`applyFrameResponse`'s `as`). */
-  address?: string;
-  /** `complete` — the `complete` chunk arrived; `truncated` — the body ended before it; `error` — the read failed. */
-  outcome: "complete" | "truncated" | "error";
-}
+export type ArtifactRecordType = "boundary" | "recovery" | "invocation" | "frame" | "call";
 
 /**
  * What the runtimes recorded on `OBSERVE.records` during the scenario, one
- * table per record type, each in delivery (settle) order. On the server the
- * evidence is waits and calls (`boundary`, `invocation`, the frame's server
- * half); in the browser it is the calls made and the streams applied
- * (`call`, the frame's client half). Joins: `invocation.boundary` →
+ * table per record type, each in delivery (settle) order and typed as the
+ * runtime that emits it types the record (`RecordEvent<K>` — `BoundaryEvent`
+ * from `solid-js`, `InvocationEvent`/`CallEvent`/`FrameEvent` from
+ * `@solidjs/web`), so a shape change there is a shape change here with no
+ * mirror to keep in step. On the server the evidence is waits and calls
+ * (`boundary`, `invocation`, the frame's server half); in the browser it is
+ * the calls made, the streams applied and the boundaries recovered (`call`,
+ * the frame's client half, `recovery`). Joins: `invocation.boundary` →
  * `boundary.id` reads a boundary's wait as the calls it consisted of;
  * `call.id` = `invocation.id` and `frame.id` across `side`s pair the two
- * ends of one request.
+ * ends of one request; `recovery.id` = `boundary.id` pairs a handed-over
+ * boundary with its client render.
  */
-export interface ArtifactRecords {
-  /** Every `<Loading>` boundary that waited, in settle (or reveal) order. */
-  boundary: BoundaryRecord[];
-  /** Every server function execution, in settle order. */
-  invocation: InvocationRecord[];
-  /** Every frame stream produced or applied, in completion order. */
-  frame: FrameRecord[];
-  /** Every server-function call made from the browser, in settle order. */
-  call: CallRecord[];
-}
+export type ArtifactRecords = {
+  [K in ArtifactRecordType]: RecordEvent<K>[];
+};
 
 /**
  * The unit of exchange between a captured run and everything downstream:
@@ -218,9 +95,11 @@ export interface ArtifactRecords {
  * both platforms, plus the client's `call` and the frame's client half. v7
  * adds `timeOrigin`, the anchor that turns every relative `at` into absolute
  * time, and stores re-runs as the engine emits them (`nodeId`, no `node`).
+ * v8 adds the `recovery` table (the client's `"recovery"` record) and
+ * types every table as the emitting runtime types the record.
  */
 export interface DiagnosticsArtifact {
-  formatVersion: 7;
+  formatVersion: 8;
   /** Human/agent-readable label for the captured scenario. */
   scenario?: string;
   capturedAt: string;

@@ -62,9 +62,14 @@ byte-identical to today under every bundler.
 capture, emit }, attribution: { install, installed, withInteraction },
 records: { subscribe, observed, emit } }` (the live node travels as a
   listener's second argument, not through a lookup); `DEV` = `{ hooks, getChildren, getSignals, getParent,
-getSources, getObservers, report, setConsoleFooter }`.
+getSources, getObservers, report, setConsoleFooter }`. _(As landed, then
+  pruned: `attribution.install` is internal to `@solidjs/signals` — only
+  `installed` is public, as an opaque presence check; `setConsoleFooter` is an
+  `@internal` seam `solid-js` imports, not a `DEV` member; `OBSERVE` also
+  carries `ownerPath(subject)`, and `DEV` carries `guideUrl(code)`.)_
 - **D6 — The engine is an entry, not a member.** `OBSERVE.attribution` is the
-  core's side only: the hook slot (`install(hooks)`, `installed`) and the
+  core's side only: the hook slot (`install(hooks)` — since made internal;
+  `installed` stays public — and
   interaction frame (`withInteraction`, which the web runtime calls on every
   dispatch and which is `fn()` with no engine installed). The engine —
   `enable/disable/history(type)/why/costs/feedback/markFlight/
@@ -209,8 +214,8 @@ _Status (2026-09-16)._ Landed, in three pieces:
   it); since superseded — the lookup is gone, and the node arrives beside the
   record as the listener's second argument (`OBSERVE.records.subscribe("rerun",
 (event, live) => …)`, `OBSERVE.diagnostics.subscribe((event, subject) =>
-…)`). `@solidjs/diagnostics` stores re-runs verbatim (`RerunRecord` is now
-  an alias of `RerunEvent`).
+…)`). `@solidjs/diagnostics` stores re-runs verbatim (as `RerunEvent`
+  itself — the `RerunRecord` alias it carried for a while is gone).
 - **Clocks: no per-record `ts`.** Every `at` the engine and the runtimes emit
   is on the `performance.now()` clock, consistently; a second clock per
   record would cost bytes on every record and drift against the first. The

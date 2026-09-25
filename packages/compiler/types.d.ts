@@ -219,12 +219,12 @@ export interface TransformRefreshOptions {
    */
   filename?: string;
   /**
-   * Selects the HMR API: `import.meta.hot` (esm/vite),
-   * `import.meta.webpackHot` (webpack5/rspack-esm) or `module.hot`
-   * (standard).
+   * Selects the HMR API — the runtime modes `solid-js/refresh` knows:
+   * `import.meta.hot` (vite), or `module.hot` / `import.meta.webpackHot`
+   * (standard: webpack, Rspack — the runtime probes for whichever exists).
    * @default "standard"
    */
-  bundler?: "esm" | "vite" | "webpack5" | "rspack-esm" | "standard";
+  bundler?: "vite" | "standard";
   /**
    * Wrap top-level `render()`/`hydrate()` calls (imported from
    * `@solidjs/web`) with `hot.dispose` cleanup.

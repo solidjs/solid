@@ -13,7 +13,7 @@
  * Chrome's own main-thread and network tracks, using the panel's
  * extensibility API (`console.timeStamp` with a track, `performance.measure`
  * with `detail.devtools`). Same records, same formatters (`formatRerun`,
- * `formatOrigin`, `ownerPath`), so what the human sees on the timeline is
+ * `formatOrigin`, `OBSERVE.ownerPath`), so what the human sees on the timeline is
  * what the agent read — and every span answers "why", not only "how long".
  *
  * Every entry is emitted RETROACTIVELY, from the `performance.now()`
@@ -31,29 +31,25 @@
  * disable();
  * ```
  */
-import { OBSERVE, diagnosticGuideUrl, ownerPath } from "solid-js";
-import type {
-  ChangeOrigin,
-  ChangeRecord,
-  CreateEvent,
-  DiagnosticEvent,
-  DiagnosticSubject,
-  EffectRunEvent,
-  FallbackEvent,
-  FlightEvent,
-  FlushEvent,
-  HeldWrite,
-  HoldEvent,
-  InteractionEvent,
-  NavigationEvent,
-  RerunEvent
-} from "solid-js";
+import { DEV, OBSERVE } from "solid-js";
+import type { ChangeOrigin, DiagnosticEvent, DiagnosticSubject } from "solid-js";
 import type { CallEvent, CallLive, FrameEvent } from "@solidjs/web";
 import {
   attribution,
   formatOrigin,
   formatRerun,
-  type AttributionOptions
+  type AttributionOptions,
+  type ChangeRecord,
+  type CreateEvent,
+  type EffectRunEvent,
+  type FallbackEvent,
+  type FlightEvent,
+  type FlushEvent,
+  type HeldWrite,
+  type HoldEvent,
+  type InteractionEvent,
+  type NavigationEvent,
+  type RerunEvent
 } from "solid-js/attribution";
 
 // Replaced per build (see rollup.config.js); module consts so the gates
@@ -92,8 +88,6 @@ export interface PerformanceTracksOptions {
    * Each path falls back to the other where its API is missing.
    */
   rich?: boolean;
-  /** The track group name. Default `"Solid"`. */
-  group?: string;
   /**
    * Drop what a shared trace should not carry: value previews on causes
    * and held writes, and target text on anything but a `button` or `a`
@@ -168,6 +162,9 @@ interface Emitter {
   dispose(): void;
 }
 
+/** The track group every track sits under — the name the panel shows for Solid's rows. */
+const GROUP = "Solid";
+
 /**
  * The tracks, in display order. Each is seeded with a zero-length entry at
  * t=0.003 when the adapter starts, so the panel lays them out in this
@@ -225,7 +222,7 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   const observe = OBSERVE;
   if (observe === undefined) return noop;
   if (typeof performance !== "object" || typeof performance.now !== "function") return noop;
-  const emitter = createEmitter(options.group ?? "Solid", options.rich ?? IS_DEV);
+  const emitter = createEmitter(options.rich ?? IS_DEV);
   if (emitter === undefined) return noop;
 
   const minMs = options.minMs ?? (IS_DEV ? 0 : 0.05);
@@ -297,7 +294,7 @@ let instance: Instance | null = null;
  * here and never reaches the engine's record loop — the span is dropped,
  * and dev says so once.
  */
-function createEmitter(group: string, rich: boolean): Emitter | undefined {
+function createEmitter(rich: boolean): Emitter | undefined {
   const hasMeasure = typeof performance.measure === "function";
   const hasTimeStamp = typeof console !== "undefined" && typeof console.timeStamp === "function";
   let emitter: Emitter;
@@ -320,7 +317,7 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
         const devtools: Record<string, unknown> = {
           dataType: "track-entry",
           track,
-          trackGroup: group,
+          trackGroup: GROUP,
           color
         };
         if (tooltip !== undefined) devtools.tooltipText = tooltip;
@@ -350,7 +347,7 @@ function createEmitter(group: string, rich: boolean): Emitter | undefined {
     emitter = {
       rich: false,
       span(label, start, end, track, color, _tooltip, _properties, task) {
-        guarded(() => timeStamp(label, start, end, track, group, color), task);
+        guarded(() => timeStamp(label, start, end, track, GROUP, color), task);
       },
       mark(label, _color, _tooltip, _properties, _issue, task) {
         // The one-argument form: a marker on the Timings track, now.
@@ -455,7 +452,7 @@ class Painter {
   rerun(event: RerunEvent, subject: DiagnosticSubject): void {
     collectRoots(event.causes, this.roots);
     if (!event.changed) this.unchanged++;
-    const node = describe(event.nodeName, ownerPath(subject));
+    const node = describe(event.nodeName, OBSERVE!.ownerPath(subject));
     this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
     const track = event.nodeKind === "effect" ? TRACKS.effects : TRACKS.memos;
@@ -512,7 +509,7 @@ class Painter {
    * `<For>` growing) shows what it mounted beside what it re-ran.
    */
   create(event: CreateEvent, subject: DiagnosticSubject): void {
-    const node = describe(event.nodeName, ownerPath(subject));
+    const node = describe(event.nodeName, OBSERVE!.ownerPath(subject));
     this.names.set(event.nodeId, node.short);
     if (event.totalMs < this.minMs) return;
     let properties: Properties | undefined;
@@ -552,7 +549,7 @@ class Painter {
    */
   effect(event: EffectRunEvent, subject: DiagnosticSubject): void {
     if (event.durationMs < this.minMs) return;
-    const node = describe(event.nodeName, ownerPath(subject));
+    const node = describe(event.nodeName, OBSERVE!.ownerPath(subject));
     let properties: Properties | undefined;
     if (this.rich) {
       properties = [["Duration", ms(event.durationMs)]];
@@ -617,13 +614,16 @@ class Painter {
           }
         }
       }
-      properties.push(["Guide", diagnosticGuideUrl(event.code)]);
+      // The repair guide is dev guidance (`DEV.guideUrl`); an observe build
+      // in rich mode paints the finding without the link.
+      const guide = IS_DEV ? DEV!.guideUrl(event.code) : undefined;
+      if (guide) properties.push(["Guide", guide]);
       if (event.severity !== "info") {
         issue = {
           name: `Solid: ${event.code}`,
           severity: event.severity === "error" ? "error" : "warning",
           description: tooltip,
-          learnMoreUrl: diagnosticGuideUrl(event.code)
+          learnMoreUrl: guide
         };
       }
     }

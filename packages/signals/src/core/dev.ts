@@ -1,12 +1,10 @@
 import {
   attrHooks,
   currentOrigin,
-  setAttributionHooks,
   withInteraction,
   withOrigin,
-  type AttributionHooks,
   type InteractionRef,
-  type OriginRef
+  type NavigationRef
 } from "./attribution-hooks.js";
 import type {
   ChangeOrigin,
@@ -187,21 +185,21 @@ export interface Diagnostics {
 }
 
 /**
- * The core's side of attribution: the hook slot an engine installs into, and
+ * The core's side of attribution: the slot the engine installs into, and
  * the interaction frame the rendering runtime opens around event dispatch.
  * The engine itself — "why did this run", costs, holds, feedback — is
  * `@solidjs/signals/attribution`, a separate entry so an observe build pays
- * for it only when something imports it.
+ * for it only when something imports it; enabling it is what installs.
  */
 export interface AttributionSlot {
   /**
-   * Installs `hooks` as the engine the core reports facts to (`null`
-   * uninstalls). One engine at a time; the built-in engine's `enable()` calls
-   * this, and an external consumer (devtools) may install its own instead.
+   * The installed engine, or `null` when none is enabled — the one fact a
+   * runtime reads off the slot (`solid-js` opens a `console.createTask` per
+   * component only while an engine is there to attribute to it). The
+   * object is the engine's hook table, opaque here: the hook contract is
+   * between the core and its engine, not public surface.
    */
-  install(hooks: AttributionHooks | null): void;
-  /** The installed engine's hooks, or `null` when none is installed. */
-  readonly installed: AttributionHooks | null;
+  readonly installed: object | null;
   /**
    * Run `fn` as a user interaction's handler: root writes inside stamp it as
    * their origin, and actions/effects/flights it causes carry it. The web
@@ -217,7 +215,7 @@ export interface AttributionSlot {
    * router calls this around its location write; nothing else is
    * router-specific. `fn()` when no engine is installed.
    */
-  withOrigin<T>(ref: OriginRef, fn: () => T): T;
+  withOrigin<T>(ref: NavigationRef, fn: () => T): T;
   /**
    * The provenance a root write performed now would be stamped with — the
    * interaction whose handler is running, the navigation or effect or action
@@ -392,6 +390,19 @@ export interface Observe {
   exclude(owner: Owner): void;
   /** Whether `subject` sits under an excluded owner (itself included). */
   isExcluded(subject: DiagnosticSubject | null | undefined): boolean;
+  /**
+   * Root-first names of the owners enclosing `subject` (inclusive when the
+   * subject is itself a named owner) — component roots as `<Name>`,
+   * computations by their `name` option — the labels every finding and
+   * record carries as `ownerPath` (`["<App>", "<TodoRow>", "label"]`), from
+   * the one walk that stamps them, so a consumer locating a live node it
+   * was handed (`live`, a diagnostic's `subject`) reads the same path.
+   * Signals hop to their registering owner; unnamed owners are skipped;
+   * `undefined` when nothing on the chain is named. Names exist only in the
+   * observing tiers, which is why the walk lives here and not on the prod
+   * surface.
+   */
+  ownerPath(subject: DiagnosticSubject | null | undefined): string[] | undefined;
 }
 
 /**
@@ -408,15 +419,14 @@ export interface Dev {
   /** Console face of an emitted event — see `reportDiagnostic`. */
   report(entry: DiagnosticEvent): void;
   /**
-   * Registers a console footer appended to the first console report of
-   * each diagnostic code — a discovery pointer to deeper guidance (e.g.
-   * solid-js registers its shipped repair skill). Reported events carry
-   * it as trailing lines of the same console entry; events that surface as
-   * a thrown error instead get it as a follow-up line. Returning undefined
-   * for an event suppresses the footer. Passing undefined unregisters and
-   * resets the once-per-code memory.
+   * The stable URL of `code`'s section in the repair guide — the
+   * `reactivity-diagnostics` skill shipped with `solid-js`, one section per
+   * code. The one place the URL is built: the console footer prints it and
+   * the performance tracks' Insights link (`learnMoreUrl`) reads it, so both
+   * name the same section. Dev-tier: it is guidance for a developer, and a
+   * URL string on a retained object is a cost every observe build would pay.
    */
-  setConsoleFooter(footer: ((event: DiagnosticEvent) => string | undefined) | undefined): void;
+  guideUrl(code: DiagnosticCode): string;
 }
 
 // A dev build without the wiring is a build whose checks emit into a channel
@@ -431,6 +441,26 @@ const diagnosticCaptures = new Set<DiagnosticEvent[]>();
 let diagnosticSequence = 0;
 let consoleFooter: ((event: DiagnosticEvent) => string | undefined) | undefined;
 const footeredCodes = new Set<DiagnosticCode>();
+
+/**
+ * Registers the console footer appended to the first console report of
+ * each diagnostic code — a discovery pointer to deeper guidance. Reported
+ * events carry it as trailing lines of the same console entry; events that
+ * surface as a thrown error instead get it as a follow-up line. Returning
+ * undefined for an event suppresses the footer. Passing undefined
+ * unregisters and resets the once-per-code memory.
+ *
+ * @internal A seam for `solid-js`, which owns the repair skill the footer
+ * names and installs it from both of its entries; not part of `DEV`. No-op
+ * outside dev builds, where nothing reports to the console.
+ */
+export function setConsoleFooter(
+  footer: ((event: DiagnosticEvent) => string | undefined) | undefined
+): void {
+  if (!__DEV__) return;
+  consoleFooter = footer;
+  footeredCodes.clear();
+}
 
 const diagnostics: Diagnostics = {
   subscribe(listener) {
@@ -459,7 +489,6 @@ const diagnostics: Diagnostics = {
 };
 
 const attributionSlot: AttributionSlot = {
-  install: setAttributionHooks,
   get installed() {
     return attrHooks;
   },
@@ -536,7 +565,8 @@ export const OBSERVE: Observe = __OBSERVE__
         excludedOwners.add(owner);
         hasExclusions = true;
       },
-      isExcluded
+      isExcluded,
+      ownerPath
     }
   : (undefined as unknown as Observe);
 
@@ -569,6 +599,12 @@ export function isSuppressed(entry: DiagnosticEvent): boolean {
   return suppressedEvents.has(entry);
 }
 
+// The repair guide: the `reactivity-diagnostics` skill `solid-js` ships,
+// one section per code, at its stable GitHub path. GitHub heading anchors
+// are lowercased with underscores kept (`### SILENT_HOLD` → `#silent_hold`).
+const GUIDE_URL =
+  "https://github.com/solidjs/solid/blob/main/packages/solid/skills/reactivity-diagnostics/SKILL.md";
+
 export const DEV: Dev = __DEV__
   ? {
       hooks,
@@ -578,9 +614,8 @@ export const DEV: Dev = __DEV__
       getSources,
       getObservers,
       report: reportDiagnostic,
-      setConsoleFooter(footer) {
-        consoleFooter = footer;
-        footeredCodes.clear();
+      guideUrl(code) {
+        return `${GUIDE_URL}#${code.toLowerCase()}`;
       }
     }
   : (undefined as unknown as Dev);
@@ -614,6 +649,7 @@ export type DiagnosticSubject = Owner | Signal<any> | Computed<any>;
  * subject is itself a named owner). Signals hop to their registering owner
  * (`_owner`, set by registerGraph). Unnamed owners are skipped so the path
  * reads as the component tree plus the scope: `<App> › <TodoRow> › effect`.
+ * Public as `OBSERVE.ownerPath`; the core's own sites import it directly.
  */
 export function ownerPath(subject: DiagnosticSubject | null | undefined): string[] | undefined {
   if (!subject) return undefined;

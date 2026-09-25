@@ -6,7 +6,6 @@ import {
   createSignal,
   flush,
   getOwner,
-  ownerPath,
   OBSERVE
 } from "../src/index.js";
 import { attribution } from "../src/attribution.js";
@@ -107,7 +106,7 @@ describe("$$component proxy owner paths", () => {
           // locates it — through the owners above it.
           createMemo(
             () => {
-              inner = ownerPath(getOwner());
+              inner = OBSERVE!.ownerPath(getOwner());
               return 0;
             },
             { name: "total" }

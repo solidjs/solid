@@ -1,7 +1,7 @@
 import { RECORD_TYPES } from "./records.js";
 import type { DiagnosticsArtifact } from "./types.js";
 
-export const ARTIFACT_FORMAT_VERSION = 7 as const;
+export const ARTIFACT_FORMAT_VERSION = 8 as const;
 
 /** Pretty JSON for humans and for checked-in golden files. */
 export function serializeArtifact(artifact: DiagnosticsArtifact): string {

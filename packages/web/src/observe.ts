@@ -18,7 +18,7 @@
 // Everything here folds out of the prod artifacts behind the
 // `"_SOLID_OBSERVE_"` literal (replaced per build, like the `_SOLID_DEV_`
 // gates): prod never reaches for the channel.
-import type { AttributionHooks, ChangeOrigin, Records } from "solid-js";
+import type { ChangeOrigin, Records } from "solid-js";
 import type { RequestEvent } from "./server.js";
 
 // Replaced per build; a module const (not an inline literal) so the typed
@@ -27,6 +27,16 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 const RECORDS = Symbol.for("@solidjs/signals/observe/records");
 const ATTRIBUTION = Symbol.for("@solidjs/signals/observe/attribution");
+
+/**
+ * The one method this runtime calls on the engine registered under
+ * `ATTRIBUTION` — the same `currentOrigin` `OBSERVE.attribution` exposes.
+ * Typed structurally: the engine's hook table is the core's internal
+ * contract, and the registered name is the contract here.
+ */
+interface OriginSource {
+  currentOrigin(): ChangeOrigin | undefined;
+}
 
 /**
  * The records channel — `OBSERVE.records` — or `undefined` outside observe
@@ -48,7 +58,7 @@ function currentOrigin(): ChangeOrigin | undefined {
   // Gated like `records()`: the literal folds the reach (and the registered
   // name with it) out of prod, where the emitter that calls this is dead.
   if (!IS_OBSERVE) return undefined;
-  const hooks = (globalThis as { [ATTRIBUTION]?: AttributionHooks })[ATTRIBUTION];
+  const hooks = (globalThis as { [ATTRIBUTION]?: OriginSource })[ATTRIBUTION];
   return hooks === undefined ? undefined : hooks.currentOrigin();
 }
 

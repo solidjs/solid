@@ -3006,24 +3006,15 @@ export function reportServerError(
   return { mapped: true, value: mapped };
 }
 
-/** Component labels up an owner chain, root first — the server owner's own fields. */
+/**
+ * Component labels up an owner chain, root first — the server owner's own
+ * fields (`_parent` + `_name`), the same walk the core's `OBSERVE.ownerPath`
+ * makes over these owners. Server signals do not register an owner, so a
+ * signal subject answers `undefined` here where the client hops to its
+ * registering owner.
+ */
 function ownerLabels(subject: DiagnosticSubject): string[] | undefined {
   if (!("_parent" in subject)) return undefined;
-  return ownerChainLabels(subject);
-}
-
-/**
- * Root-first names of the owners enclosing `subject` — the server twin of
- * the core's `ownerPath` (`<App> › <TodoRow> › effect`). Server signals do
- * not register an owner, so a signal subject answers `undefined` here where
- * the client hops to its registering owner.
- */
-export function ownerPath(subject: DiagnosticSubject | null | undefined): string[] | undefined {
-  if (!subject || !("_parent" in subject)) return undefined;
-  return ownerChainLabels(subject);
-}
-
-function ownerChainLabels(subject: DiagnosticSubject): string[] | undefined {
   const path: string[] = [];
   for (let owner: any = subject; owner; owner = owner._parent) {
     const name = owner._name;

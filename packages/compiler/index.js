@@ -194,7 +194,8 @@ const refreshOptionKeys = new Set([
   "sourceMap"
 ]);
 
-const refreshBundlers = new Set(["esm", "vite", "webpack5", "rspack-esm", "standard"]);
+// The runtime modes `solid-js/refresh` knows (its `RuntimeType`).
+const refreshBundlers = new Set(["vite", "standard"]);
 
 function validateRefreshOptions(options) {
   if (options == null) return options;
@@ -217,9 +218,7 @@ function validateRefreshOptions(options) {
       throw new TypeError(`@solidjs/compiler \`${key}\` option must be boolean`);
     }
     if (key === "bundler" && !refreshBundlers.has(value)) {
-      throw new TypeError(
-        '@solidjs/compiler `bundler` option must be "esm", "vite", "webpack5", "rspack-esm" or "standard"'
-      );
+      throw new TypeError('@solidjs/compiler `bundler` option must be "vite" or "standard"');
     }
     if (key === "jsx") {
       // The Babel plugin's JSX-granularity mode (its default!) is not

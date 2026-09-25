@@ -28,8 +28,16 @@ describe("transformRefresh options", () => {
 
   it("rejects unsupported bundlers", () => {
     expect(() => transformRefresh(CODE, { ...OPTIONS, bundler: "webpack" })).toThrow(
-      /`bundler` option must be "esm", "vite", "webpack5", "rspack-esm" or "standard"/
+      /`bundler` option must be "vite" or "standard"/
     );
+    // The modes `solid-js/refresh` dropped: the runtime probes `module.hot`
+    // / `import.meta.webpackHot` itself under `standard`, and Snowpack's
+    // `esm` shape is Vite's.
+    for (const bundler of ["esm", "webpack5", "rspack-esm"]) {
+      expect(() => transformRefresh(CODE, { ...OPTIONS, bundler })).toThrow(
+        /`bundler` option must be "vite" or "standard"/
+      );
+    }
   });
 
   it("rejects the unported JSX-granularity mode", () => {

@@ -4,7 +4,7 @@ import type {
   DiagnosticCode,
   DiagnosticsArtifact,
   HoldEvent,
-  RerunRecord
+  RerunEvent
 } from "./types.js";
 
 /**
@@ -81,7 +81,7 @@ function requireAttributionData(
   return artifact.attribution;
 }
 
-function requireAttribution(artifact: DiagnosticsArtifact, caller: string): RerunRecord[] {
+function requireAttribution(artifact: DiagnosticsArtifact, caller: string): RerunEvent[] {
   return requireAttributionData(artifact, caller).reruns;
 }
 

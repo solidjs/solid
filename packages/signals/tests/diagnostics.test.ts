@@ -17,7 +17,7 @@ import {
   DEV,
   OBSERVE
 } from "../src/index.js";
-import { emitDiagnostic, ownerPath, reportDiagnostic } from "../src/core/dev.js";
+import { emitDiagnostic, ownerPath, reportDiagnostic, setConsoleFooter } from "../src/core/dev.js";
 
 // Several diagnostics are escaping errors, which halt the reactive system.
 afterEach(() => {
@@ -274,8 +274,16 @@ describe("diagnostics", () => {
 });
 
 describe("diagnostics console footer", () => {
+  it("DEV.guideUrl is the repair guide's section for a code", () => {
+    const url = DEV!.guideUrl("STRICT_READ_UNTRACKED");
+    expect(url).toMatch(
+      /^https:\/\/github\.com\/solidjs\/solid\/blob\/main\/.*SKILL\.md#strict_read_untracked$/
+    );
+    expect(DEV!.guideUrl("WIDE_WRITE")).toBe(url.replace(/#.*$/, "#wide_write"));
+  });
+
   afterEach(() => {
-    DEV!.setConsoleFooter(undefined);
+    setConsoleFooter(undefined);
   });
 
   const warnTexts = (warn: { mock: { calls: unknown[][] } }) =>
@@ -283,7 +291,7 @@ describe("diagnostics console footer", () => {
 
   it("folds the footer into the first reported console entry of each code — one entry per finding", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.setConsoleFooter(event => `footer:${event.code}`);
+    setConsoleFooter(event => `footer:${event.code}`);
 
     reportDiagnostic(
       emitDiagnostic({
@@ -317,7 +325,7 @@ describe("diagnostics console footer", () => {
 
   it("defers the footer to a follow-up line only for thrown (unreported) errors", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.setConsoleFooter(event => `footer:${event.code}`);
+    setConsoleFooter(event => `footer:${event.code}`);
 
     // A throw site: emits, then throws the message — never reports.
     emitDiagnostic({
@@ -336,7 +344,7 @@ describe("diagnostics console footer", () => {
   it("does not double-print when a reported error's microtask runs after the report", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    DEV!.setConsoleFooter(event => `footer:${event.code}`);
+    setConsoleFooter(event => `footer:${event.code}`);
 
     reportDiagnostic(
       emitDiagnostic({
@@ -356,7 +364,7 @@ describe("diagnostics console footer", () => {
 
   it("suppresses the footer when the callback returns undefined", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.setConsoleFooter(() => undefined);
+    setConsoleFooter(() => undefined);
 
     reportDiagnostic(
       emitDiagnostic({
@@ -373,7 +381,7 @@ describe("diagnostics console footer", () => {
 
   it("re-registering resets the once-per-code memory", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    DEV!.setConsoleFooter(() => "footer:first");
+    setConsoleFooter(() => "footer:first");
     reportDiagnostic(
       emitDiagnostic({
         code: "STRICT_READ_UNTRACKED",
@@ -382,7 +390,7 @@ describe("diagnostics console footer", () => {
         message: "one"
       })
     );
-    DEV!.setConsoleFooter(() => "footer:second");
+    setConsoleFooter(() => "footer:second");
     reportDiagnostic(
       emitDiagnostic({
         code: "STRICT_READ_UNTRACKED",
@@ -443,6 +451,25 @@ describe("diagnostics owner path", () => {
     expect(event.ownerPath).toEqual(["<Counter>"]);
     expect(ownerPath(undefined)).toBeUndefined();
     expect(ownerPath(null)).toBeUndefined();
+  });
+
+  it("is public as OBSERVE.ownerPath, the same labelling the events carry", () => {
+    let inner: any;
+    createRoot(() => {
+      nameOwner("<App>");
+      createEffect(
+        () => {
+          inner = getOwner();
+          return 1;
+        },
+        () => {},
+        { name: "sync" }
+      );
+    });
+    flush();
+    expect(OBSERVE!.ownerPath).toBe(ownerPath);
+    expect(OBSERVE!.ownerPath(inner)).toEqual(["<App>", "sync"]);
+    expect(OBSERVE!.ownerPath(null)).toBeUndefined();
   });
 
   it("defaults the subject to the ambient context and omits the path when there is none", () => {
