@@ -79,6 +79,10 @@ async function loadRuntimeModule(code, generate) {
     platform: "node",
     format: "cjs",
     target: "node20",
+    // Fold `if (false)` / dead ternary arms like rollup does, so the flag scan
+    // below sees only code that can run (a guard string in a dead branch is
+    // not a ReferenceError).
+    minifySyntax: true,
     write: false,
     define: {
       __DEV__: "false",
