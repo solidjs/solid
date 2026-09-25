@@ -2596,8 +2596,10 @@ frames owe any such layer:
   store with a one-shot render or hold an iteration open. Whether
   `serverFunctionUrl` should refuse a live reference (as it refuses
   a POST reference) is open decision (d). _Decided 2026-09-25 (B6):
-  it refuses. The data address it used to return is one the live
-  call never requests; the one-shot url is the inner `GET(fn)`'s._
+  it returns the live address — the url the call requests, to fetch
+  by hand, documented as not a preload target. The data address it
+  used to return is one the live call never requests; the one-shot
+  url is the inner `GET(fn)`'s._
 
 #### Settlement is not this stage's concern
 

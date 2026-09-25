@@ -8,7 +8,7 @@
 // renders, so a preload of it IS the call — and the frames handler claims the
 // frame-stream answer like any other. Arguments too long for a url fall back
 // to POST at the same address and the same frame stream comes back. A live
-// reference has no url as a value (open decision (d)).
+// reference's url is its live address (open decision (d)).
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
@@ -102,13 +102,19 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     m.cleanup();
   });
 
-  test("a live reference has no url as a value (open (d)): serverFunctionUrl refuses it", () => {
+  test("a live reference's url is its live address — the one its own call requests (open (d))", () => {
     const getPanel = GET(createServerReference(ID));
     const standing = live(getPanel);
-    expect(() => serverFunctionUrl(standing as any, "ann")).toThrow(/live reference/);
+    expect(serverFunctionUrl(standing as any, "ann")).toBe(
+      "/_server/live/frames-get%2Fpanel?args=%5B%22ann%22%5D"
+    );
     // The one-shot url is the inner declaration's.
     expect(serverFunctionUrl(getPanel as any, "ann")).toBe(
       "/_server/data/frames-get%2Fpanel?args=%5B%22ann%22%5D"
+    );
+    // Undeclared under the live wrapper: still not a read, still no url.
+    expect(() => serverFunctionUrl(live(createServerReference(ID)) as any)).toThrow(
+      /not a declared read/
     );
   });
 });

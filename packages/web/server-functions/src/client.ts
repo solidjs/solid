@@ -312,6 +312,13 @@ const config = {
  * <link rel="preload" as="fetch" crossorigin href={serverFunctionUrl(getUser, id)} />
  * ```
  *
+ * A `live(GET(fn))` reference's call connects at the live address, so that
+ * is the url returned for one (`<endpoint>/live/<id>[?args=...]`): a
+ * standing event stream of the answer — fetch it by hand (`curl -N`) to
+ * watch it; do not preload or prefetch it, which would open a stream
+ * nothing reads. Warm a live address by calling the reference (readers of
+ * one call share one connection).
+ *
  * The form-post address is a different url — `fn.url`, or
  * `serverFunctionActionUrl` for one with bound arguments. The server entry
  * exports the same function so isomorphic imports resolve.
@@ -321,7 +328,7 @@ export function serverFunctionUrl<A extends readonly unknown[]>(
   ...args: A
 ): string;
 
-/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]`. */
+/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]` (`/live/` for a live one). */
 export function serverFunctionUrl(fn, ...args) {
   return serverFunctionUrlFor(config.endpoint, fn, args);
 } /**

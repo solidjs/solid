@@ -3818,8 +3818,10 @@ export function createLiveHoles(sink, scoped) {
      * re-runnable parts (`{ f }` thunks, `{ g, i }` group positions). Sweeps
      * rebuild the text, equality-gate against the baseline, and ship
      * changes as an element-keyed `attr` chunk. Names that vanish between
-     * rebuilds ride an explicit `removed` list — the server holds the
-     * previous text, so the client never tracks name history.
+     * rebuilds ride an explicit `removed` list where the server holds the
+     * previous text; the client also matches the element to the whole
+     * text (the morph's rule), so a resume's re-emission — previous text
+     * known only as a digest, no list — removes them too.
      */
     attr(cap) {
       const owner = getOwner();

@@ -3466,7 +3466,8 @@ export function sanitizeServerError(value) {
  * be JSON-safe. Defined for declared reads only: a default-transport
  * reference POSTs, and a POST is not described by its url — this throws with
  * a pointer, as it does for a url long enough that the call would fall back
- * to POST. Present on both entries so a component rendering a preload link
+ * to POST. A live reference's url is its live address — a standing stream
+ * to fetch by hand, not to preload. Present on both entries so a component rendering a preload link
  * during SSR resolves the same import as on the client; see the client
  * entry's docstring for the full contract.
  */
@@ -3475,7 +3476,7 @@ export function serverFunctionUrl<A extends readonly unknown[]>(
   ...args: A
 ): string;
 
-/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]`. */
+/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]` (`/live/` for a live one). */
 export function serverFunctionUrl(fn, ...args) {
   return serverFunctionUrlFor(config.endpoint, fn, args);
 } /**

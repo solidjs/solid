@@ -1865,10 +1865,16 @@ class FrameImpl {
   /**
    * Apply a live attr-hole re-emission: find the element addressed
    * `data-lha="addr"` in this frame's range, parse the rebuilt attribute
-   * text through a scratch element (native entity decoding), and patch —
-   * set what's present, remove what the server says vanished. Returns
-   * false when the element isn't in the DOM yet (pending; later flushes
-   * retry).
+   * text through a scratch element (native entity decoding), and patch the
+   * element to match it the way the root morph matches server output
+   * (`morphAttributes`): set what's present, remove what is not — the text
+   * is the tag's WHOLE attribute area, so a name absent from it has
+   * vanished on the server, whether or not the emission names it in
+   * `removed` (a resume's re-emission cannot: the server holds the client's
+   * previous text only as a digest). The address itself and a
+   * `<details>`/`<dialog>` `open` are the morph's exceptions here too.
+   * Returns false when the element isn't in the DOM yet (pending; later
+   * flushes retry).
    */
   #applyAttrs(addr, text, removed) {
     if (!this.#hasContent) return false;
@@ -1879,13 +1885,22 @@ class FrameImpl {
     );
     if (!el) return false;
     const parsed = parseFragment(`<i${text}></i>`).firstChild;
+    const keepOpen = preservesOpen(el);
+    const current = el.attributes;
+    for (let i = current.length - 1; i >= 0; i--) {
+      const name = current[i].name;
+      if (name === "data-lha" || (keepOpen && name === "open")) continue;
+      if (!parsed || !parsed.hasAttribute(name)) el.removeAttribute(name);
+    }
     if (parsed) {
       for (let i = 0; i < parsed.attributes.length; i++) {
         const { name, value } = parsed.attributes[i];
+        if (keepOpen && name === "open") continue;
         if (el.getAttribute(name) !== value) el.setAttribute(name, value);
       }
     }
-    if (removed) for (const name of removed) el.removeAttribute(name);
+    if (removed)
+      for (const name of removed) if (!(keepOpen && name === "open")) el.removeAttribute(name);
     return true;
   }
 

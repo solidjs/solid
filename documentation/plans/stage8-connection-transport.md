@@ -605,11 +605,14 @@ prev)`; corrected to `(prev, value)`. Pinned:
   the document's skeleton digest computed over the frame-equivalent bytes
   (slots stripped — the frame face renders them empty, the document face
   inline). Not started; flagged for the maintainer as the B4 remainder.
-- **Known limitation.** An attr hole re-emitted on a resume carries no
-  `removed` list (the server has the client's previous text only as a
-  digest); attributes that vanished between renders are not removed until
-  the next full render. Content holes are unaffected (a range is replaced
-  whole).
+- **Attr holes on a resume (fixed 2026-09-25).** A resume's attr
+  re-emission carries no `removed` list (the server has the client's
+  previous text only as a digest). The client no longer needs one: an
+  attr emission is the tag's WHOLE attribute area, so `#applyAttrs` now
+  matches the element to it the way the root morph matches server output
+  (`morphAttributes`) — sets what is present, removes what is not, keeps
+  `data-lha` and a `<details>`/`<dialog>` `open`. The server's list is
+  still honored where it comes. Pinned in `frames-live-resume.spec.tsx`.
 
 ### B5 — projections pump in frame scope
 
@@ -681,14 +684,16 @@ prev)`; corrected to `(prev, value)`. Pinned:
   records. Cache headers are the transport's (`no-store` unless the
   function sets its own) — a GET server component is cacheable when its
   author says so, like any read.
-- **Open (d) decided: refuse.** `serverFunctionUrl(live(GET(fn)), ...args)`
-  used to return the DATA address — an address the reference's own call
-  never requests (it connects at the live address), which is exactly the
-  class of answer the helper refuses for a POST reference. It now throws,
-  naming the alternatives: call the reference to warm the address (one
-  connection per address is shared), or render the one-shot url from the
-  `GET(fn)` declaration inside the wrapper. Both entries (the body is
-  `serverFunctionUrlFor` in shared).
+- **Open (d) decided (maintainer, 2026-09-25): the live address.**
+  `serverFunctionUrl(live(GET(fn)), ...args)` returns
+  `<endpoint>/live/<id>[?args=...]` — the url the reference's own call
+  requests, so a fetch of it is the call (a standing event stream: fetch it
+  by hand with `curl -N`; do not preload or prefetch it, which would open
+  a stream nothing reads — documented on the helper). It used to return
+  the DATA address, one the live call never requests (an earlier pass
+  refused instead; refusal removed the manual/debug url, which had no
+  other public source). The one-shot url is the inner `GET(fn)`'s. Both
+  entries (the body is `serverFunctionUrlFor` in shared).
 
 ## Public API ledger (flag before each lands)
 
@@ -732,7 +737,7 @@ prev)`; corrected to `(prev, value)`. Pinned:
 | Room demo: the render counter is a live hole (`{renderNo()}`) so a reconnect transfers it alone                                                                                                                                                                                                                                                         | example                             | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                                                                                                                                                                             | behavior change                     | B3+   |
 | ~~`documentWindow` on `renderToStream`~~ — open (c) decided: fixed dev-only warning, no knob                                                                                                                                                                                                                                                            | withdrawn                           | B3    |
-| `serverFunctionUrl(liveRef, ...args)` throws (was: returned the data address, which the live call never requests) — open (d) decided: refuse, like a POST reference                                                                                                                                                                                     | behavior change                     | B6    |
+| `serverFunctionUrl(liveRef, ...args)` returns the live address `<endpoint>/live/<id>[?args=...]` (was: the data address, which the live call never requests) — open (d) decided                                                                                                                                                                         | behavior change                     | B6    |
 | Withdrawn unbuilt: `SSE(fn)`, `enableEventStream()`, `Accept: text/event-stream` as declaration, framing-follows-method, per-page channel, `live: { transport, hold }`, `connected` on the frame handle                                                                                                                                                 | —                                   | —     |
 
 ## Open decisions

@@ -159,12 +159,18 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     expect(textOf(chunks[1].html)).toContain("hello " + name);
   });
 
-  it("serverFunctionUrl renders the GET component's data url and refuses a live reference (open (d))", () => {
+  it("serverFunctionUrl renders the GET component's data url, and a live reference's live address (open (d))", async () => {
     const { ref } = declareGreeting("frame-get-url");
     expect(serverFunctionUrl(ref as any, "ann")).toBe(
       "/_server/data/frame-get-url?args=%5B%22ann%22%5D"
     );
     const standing = live(ref as any);
-    expect(() => serverFunctionUrl(standing as any, "ann")).toThrow(/live reference/);
+    const url = serverFunctionUrl(standing as any, "ann");
+    expect(url).toBe("/_server/live/frame-get-url?args=%5B%22ann%22%5D");
+    // A fetch of it IS the live call: the event stream.
+    const response = await handle(new Request("http://localhost" + url, { method: "GET" }));
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+    const chunks = await chunksOf(response);
+    expect(textOf(chunks[1].html)).toContain("hello ann");
   });
 });

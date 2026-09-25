@@ -216,4 +216,61 @@ describe("the mount's ledger and the resume request", () => {
     await pump();
     m.cleanup();
   }, 10000);
+
+  test("an attr re-emission without a `removed` list (a resume's) still drops the attributes that vanished", async () => {
+    const AID = ID + "-attr";
+    const { host } = makeHost();
+    installServerComponents(host);
+    const { held } = stubLiveFetch(AID, 1);
+    const getRoom = live(createServerReference(AID));
+    const src: any = getRoom();
+    const Page = dynamic(() => src);
+    const m = mountUnderLoading(Page);
+    await pump();
+    held[0].send({ type: "start", id: AID, version: 1 });
+    held[0].send({
+      type: "html",
+      id: AID,
+      version: 1,
+      html:
+        '<article><button data-lha="0" class="a" disabled="" aria-busy="true">go</button>' +
+        '<details data-lha="1" class="d" open="">x</details></article>',
+      digest: "a000000000000001",
+      holes: { "lha:0": "a000000000000002", "lha:1": "a000000000000003" }
+    });
+    await pump();
+    const button = m.div.querySelector("button")!;
+    const details = m.div.querySelector("details")!;
+    // The text is the tag's whole attribute area: `disabled` and
+    // `aria-busy` are gone from it, so they go — no list needed.
+    held[0].send({
+      type: "attr",
+      id: AID,
+      version: 1,
+      key: 0,
+      attrs: ' class="b"',
+      digest: "a000000000000004"
+    });
+    await until(() => button.getAttribute("class") === "b");
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.hasAttribute("aria-busy")).toBe(false);
+    expect(button.getAttribute("data-lha")).toBe("0");
+    expect((host.get(AID) as any).have()["lha:0"]).toBe("a000000000000004");
+    // `open` on <details> is the user's toggle: the morph's exception
+    // holds for attr holes too — never removed, never set.
+    held[0].send({
+      type: "attr",
+      id: AID,
+      version: 1,
+      key: 1,
+      attrs: ' class="e"',
+      digest: "a000000000000005"
+    });
+    await until(() => details.getAttribute("class") === "e");
+    expect(details.hasAttribute("open")).toBe(true);
+    held[0].send({ type: "complete", id: AID, version: 1 });
+    held[0].close();
+    await pump();
+    m.cleanup();
+  }, 10000);
 });
