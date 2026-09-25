@@ -433,6 +433,23 @@ export function createJSONDeserializer(options) {
     }
   };
   /**
+   * Ends every still-open stream as COMPLETE — `return`, not `throw` — and
+   * leaves pending-promise resolvers untouched. For an iteration that ends
+   * without an error: the consumer called `return()` (a memo re-invoking
+   * with new arguments severs the body on purpose) or the source completed.
+   * A reader of a nested stream then sees it finish — a reactive child
+   * latches on its last value until the parent's next answer supersedes it
+   * — instead of an error it did nothing to cause and that would halt it. A
+   * nested promise stays pending: there is no honest value to settle it
+   * with, and its reactive reader is superseded the same way. Contrast
+   * `abort`, for an iteration that ends BY error.
+   */
+  deserializeJSONChunk.close = function close() {
+    for (const value of refs.values()) {
+      if (classify(value) === STREAM) value.return(undefined);
+    }
+  };
+  /**
    * How many deferreds are still waiting on chunks: open streams plus
    * pending-promise resolvers. Zero at the end of a body means every value
    * the stream promised has arrived — a completion; more means the body

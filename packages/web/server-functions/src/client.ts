@@ -1250,26 +1250,32 @@ export function live(fn) {
         // A hydration takeover seeds the position from the value the page
         // was served with (LIVE_RESUME_FROM, stamped by the hydrating node's
         // compute wrapper), so a takeover that finds the same value on the
-        // server costs nothing on the wire.
+        // server costs nothing on the wire. The iteration yields that value
+        // FIRST, before it connects: the server's digest-equal skip means the
+        // wire may never carry a first emission, and the node that re-ran its
+        // compute for the takeover has no other way to land — left pending,
+        // it holds every write of the tick that released it (the root pass's
+        // held writes replay in that same tick) until the source changes.
+        // Landing the value the consumer already holds is equality-quiet for
+        // a memo and a no-op reconcile for a projection.
+        let resume = iterable[LIVE_RESUME_FROM];
         const wire = {
-          position:
-            iterable[LIVE_RESUME_FROM] !== undefined
-              ? positionDigest(iterable[LIVE_RESUME_FROM])
-              : undefined,
+          position: resume !== undefined ? positionDigest(resume) : undefined,
           connection: undefined,
           open: body => new EventStreamReader(body, wire)
         };
-        // Sweeps handed over by connections that died while this iteration
+        // Ends handed over by connections that died while this iteration
         // meant to go on: their open deferreds are left pending (the
         // re-yielded answer supersedes them) until the iteration ends for
-        // good, when everything still open is failed so nothing hangs.
-        const sweeps = [];
-        const sweepAll = () => {
-          while (sweeps.length) {
-            try {
-              sweeps.pop()();
-            } catch {}
-          }
+        // good, when they are settled by HOW it ended — see emitClosed.
+        const ends = [];
+        const settle = (end, error) => {
+          try {
+            error !== undefined ? end.sweep() : end.close();
+          } catch {}
+        };
+        const settleAll = error => {
+          while (ends.length) settle(ends.pop(), error);
         };
         const wireOptions = {
           ...invokeOptions,
@@ -1303,12 +1309,20 @@ export function live(fn) {
         };
         const emitClosed = error => {
           track(false);
-          // Ending for good: fail whatever is still open — the deferreds
+          // Ending for good: settle whatever is still open — the deferreds
           // outlived deaths left pending, and the current connection's once
-          // its body ends (severed by the controller, or already done) — so
-          // no consumer of a nested value hangs on an iteration that is over.
-          sweepAll();
-          if (ended) ended.then(end => end.sweep());
+          // its body ends (severed by the controller, or already done) — by
+          // how the iteration ended. BY ERROR (a 4xx, the caller's signal):
+          // fail them, so no consumer of a nested value hangs on a failure
+          // it needs to hear about. BY THE CONSUMER (`return()` — a memo
+          // re-invoking with new arguments) or by the source completing:
+          // nested streams complete and nested promises stay pending. Their
+          // readers are superseded by the next answer — reactivity moves
+          // everything downstream — and an error here would reach a child
+          // still attached to the old answer as a failure it did not cause
+          // (an AbortError from our own controller halting the page).
+          settleAll(error);
+          if (ended) ended.then(end => settle(end, error));
           if (closed) return;
           closed = true;
           emit("closed", error);
@@ -1349,6 +1363,11 @@ export function live(fn) {
           );
         };
         const pull = async () => {
+          if (resume !== undefined) {
+            const value = resume;
+            resume = undefined;
+            if (!stopped) return { done: false, value };
+          }
           while (!stopped) {
             try {
               if (!it) {
@@ -1389,15 +1408,15 @@ export function live(fn) {
                 const end = r.end || (ended && (await ended));
                 if (end && end.open > 0) {
                   // a death this iteration will outlive: the open deferreds
-                  // stay pending until it ends for good (see sweeps); the
+                  // stay pending until it ends for good (see ends); the
                   // body's error goes down the reconnect path like a
                   // rejected read would
-                  sweeps.push(end.sweep);
+                  ends.push(end);
                   throw end.error;
                 }
-                // completion: nothing is open, so the sweep is a no-op, but
+                // completion: nothing is open, so settling is a no-op, but
                 // it is what a decoder without a live loop would have run
-                if (end) end.sweep();
+                if (end) settle(end);
                 emitClosed();
                 return DONE;
               }

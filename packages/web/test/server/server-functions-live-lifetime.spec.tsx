@@ -176,6 +176,70 @@ describe("a nested-async answer lives as long as its response", () => {
     expect((await second).done).toBe(true);
   });
 
+  it("the consumer ending the iteration completes what is nested — no error reaches a nested reader", async () => {
+    // A memo re-invoking with new arguments calls return() on the old
+    // iterable while a child memo is still reading a nested stream out of
+    // its answer. The body is severed on purpose: the child must see its
+    // stream FINISH, not fail with our own controller's AbortError (which
+    // reaches it as an uncaught error and halts the page). A nested promise
+    // still owed stays pending — nothing honest to settle it with; its
+    // reader is superseded by the next answer.
+    registerServerFunction("ll-return-0", async () => ({
+      total: new Promise<number>(() => {}),
+      progress: (async function* () {
+        yield 1;
+        await new Promise(() => {}); // still streaming when the consumer leaves
+      })()
+    }));
+    connectTransport();
+    const source = live(createServerReference("ll-return-0"));
+    const iterable = (source as any)();
+    const states: string[] = [];
+    iterable.onstatus = (state: string) => states.push(state);
+    const it = iterable[Symbol.asyncIterator]();
+    const first = await it.next();
+    const progress = first.value.progress[Symbol.asyncIterator]();
+    expect((await progress.next()).value).toBe(1);
+    const nextTick = progress.next(); // outstanding read on the nested stream
+    const total = first.value.total.then(
+      () => "resolved",
+      () => "rejected"
+    );
+    expect(await it.return()).toEqual({ done: true, value: undefined });
+    await new Promise(r => setTimeout(r, 20));
+    // nested stream: complete, not rejected
+    await expect(nextTick).resolves.toEqual({ done: true, value: undefined });
+    expect((await progress.next()).done).toBe(true);
+    // nested promise: left pending
+    expect(await settled(total)).toBe("pending");
+    expect(states).toEqual(["connected", "closed"]);
+  });
+
+  it("ending BY error still fails what is nested", async () => {
+    // The caller's signal aborting is an error end (the call itself rejects
+    // with it): a nested reader hears about it rather than hanging.
+    registerServerFunction("ll-return-1", async () => ({
+      progress: (async function* () {
+        yield 1;
+        await new Promise(() => {});
+      })()
+    }));
+    connectTransport();
+    const controller = new AbortController();
+    const source = live(createServerReference("ll-return-1"));
+    const it = (invoke(source as any, { signal: controller.signal }) as any)[
+      Symbol.asyncIterator
+    ]();
+    const first = await it.next();
+    const progress = first.value.progress[Symbol.asyncIterator]();
+    expect((await progress.next()).value).toBe(1);
+    const nextTick = progress.next();
+    const pull = it.next();
+    controller.abort(new Error("caller left"));
+    await expect(pull).rejects.toThrow("caller left");
+    await expect(nextTick).rejects.toThrow("caller left");
+  });
+
   it("a body that ends on open nested sources is a death: reconnect re-yields the whole answer, fresh", async () => {
     let connections = 0;
     registerServerFunction("ll-death-0", async () => {
@@ -219,9 +283,10 @@ describe("a nested-async answer lives as long as its response", () => {
     // nothing the dead connection owed was thrown into: the re-yield
     // superseded it, so it stays pending while the iteration goes on...
     expect(await settled(stranded)).toBe("pending");
-    // ...and is failed when the iteration ends for good, so nothing hangs
+    // ...and when the CONSUMER ends the iteration it completes — nothing
+    // hangs, and no error reaches a reader for an end it did not cause
     await it.return();
-    expect(await settled(stranded)).toBe("rejected");
+    await expect(stranded).resolves.toEqual({ done: true, value: undefined });
     expect(states).toEqual(["connected", "reconnecting", "connected", "closed"]);
   });
 
@@ -326,7 +391,7 @@ describe("undeclared answers keep today's behavior", () => {
 });
 
 describe("resuming from an adopted value", () => {
-  it("an iterable stamped with where to resume from names that position on its first connection", async () => {
+  it("an iterable stamped with where to resume from yields that value first, then names the position on its first connection", async () => {
     let connections = 0;
     registerServerFunction("ll-resume-0", async function* () {
       connections++;
@@ -337,12 +402,46 @@ describe("resuming from an adopted value", () => {
     const source = live(createServerReference("ll-resume-0"));
     const iterable = (source as any)();
     // what hydration's takeover run stamps: the value the page was served with
-    iterable[LIVE_RESUME_FROM] = { v: 1 };
-    const values = await take(iterable, 1);
-    // the digest-equal first yield is skipped: the first value the loop
-    // sees is the change
-    expect(values).toEqual([{ v: 2 }]);
+    const adopted = { v: 1 };
+    iterable[LIVE_RESUME_FROM] = adopted;
+    const values = await take(iterable, 2);
+    // The value the page already holds lands first — the same identity, so
+    // the consumer's node settles without a change — and the wire carries
+    // only what differs: the digest-equal first emission is skipped, the
+    // next value the loop sees is the change.
+    expect(values[0]).toBe(adopted);
+    expect(values[1]).toEqual({ v: 2 });
     expect(requests[0].headers.get("Last-Event-ID")).toBe(positionDigest({ v: 1 }));
+    expect(connections).toBe(1);
+  });
+
+  it("the resumed value lands before any connection is made", async () => {
+    let connections = 0;
+    registerServerFunction("ll-resume-1", async function* () {
+      connections++;
+      yield { v: 1 };
+    });
+    connectTransport();
+    const source = live(createServerReference("ll-resume-1"));
+    const iterable = (source as any)();
+    iterable[LIVE_RESUME_FROM] = { v: 1 };
+    const it = iterable[Symbol.asyncIterator]();
+    expect(await it.next()).toEqual({ done: false, value: { v: 1 } });
+    expect(connections).toBe(0);
+    await it.return();
+    expect(connections).toBe(0);
+  });
+
+  it("an iterable with nothing to resume from connects on its first pull", async () => {
+    let connections = 0;
+    registerServerFunction("ll-resume-2", async function* () {
+      connections++;
+      yield { v: 1 };
+    });
+    connectTransport();
+    const source = live(createServerReference("ll-resume-2"));
+    const values = await take((source as any)(), 1);
+    expect(values).toEqual([{ v: 1 }]);
     expect(connections).toBe(1);
   });
 });

@@ -1634,15 +1634,19 @@ export async function deserializeStream(source, codecOptions, wire) {
     // a completion when none are — and the loop decides what happens to the
     // open ones. A death it will reconnect from leaves them pending (the
     // re-yielded answer supersedes them; throwing into them would surface
-    // the death the loop exists to erase); an iteration ending for good
-    // runs the sweep it was handed so nothing hangs.
+    // the death the loop exists to erase). An iteration ending for good
+    // settles them by how it ended: `sweep` fails them (ended by error),
+    // `close` completes the streams and leaves promises pending (ended by
+    // the consumer or by completion) — see the loop's emitClosed.
     const connection = wire && wire.connection;
     let endConnection;
     if (connection) connection.ended = new Promise(resolve => (endConnection = resolve));
     const end = error => {
       const sweep = () => deserializeChunk.abort(error);
-      if (connection) endConnection({ open: deserializeChunk.open(), error, sweep });
-      else sweep();
+      if (connection) {
+        const close = () => deserializeChunk.close();
+        endConnection({ open: deserializeChunk.open(), error, sweep, close });
+      } else sweep();
     };
     reader.drain(interpretChunk).then(
       () => end(new Error("Server function stream ended unexpectedly.")),
