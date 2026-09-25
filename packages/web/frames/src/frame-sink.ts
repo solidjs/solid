@@ -72,6 +72,12 @@ export interface FrameAddress {
 export interface FrameStreamOptions {
   /** Boundary address; defaults to `{ id: "", version: 1 }`. */
   frame?: { id?: string; version?: number };
+  /**
+   * The request's abort: tears the render down as a client disconnect would
+   * (see `renderToStream`'s `signal`). `serverComponentResponse` and
+   * `frameFlightResponse` chain it with their own body's `cancel`.
+   */
+  signal?: AbortSignal;
   /** Remaining `renderToStream` options (plugins, onError, manifest, ...). */
   [key: string]: unknown;
 }
@@ -1838,15 +1844,42 @@ export function serverComponentResponse(component, options = {}, init = {}) {
   headers.set("Content-Type", "application/x-frame-stream");
   headers.set(FRAME_STREAM_HEADER, id);
   headers.set("X-Content-Raw", "1");
-  const stream = renderServerComponent(component, { ...options, frame: { id, version } });
-  // A client disconnect closes the Response's controller from the outside
-  // (`cancel`), but the render keeps producing — its in-flight generation
-  // (iterable holds, boundary retries) settles on its own schedule. Writes
-  // after that point must drop, not throw: an ERR_INVALID_STATE escaping
-  // through a serializer flush is an unhandled process-level error.
+  // The render lives as long as someone reads the response. A client
+  // disconnect reaches this body as `cancel()`; the host's request abort
+  // reaches it as `options.signal` (the request's, from
+  // `frameTransformResult`). Either tears the render down through
+  // `renderToStream`'s own disconnect path — in-flight reactive work is
+  // disposed, every async source still being pulled is returned, holds are
+  // released — instead of letting it produce for nobody until its sources
+  // happen to end. A frame render's emission never touches the document
+  // writable, so without this the render could not learn its reader was
+  // gone.
+  const teardown = new AbortController();
+  const disarm = followSignal(options.signal, teardown);
+  const stream = renderServerComponent(component, {
+    ...options,
+    signal: teardown.signal,
+    frame: { id, version }
+  });
+  // Writes after the reader is gone must drop, not throw: an ERR_INVALID_STATE
+  // escaping through a serializer flush is an unhandled process-level error.
   let closed = false;
   const body = new ReadableStream({
     start(controller) {
+      const end = () => {
+        if (closed) return;
+        closed = true;
+        disarm();
+        try {
+          controller.close();
+        } catch (_) {}
+      };
+      // A torn-down render never ends its sink (nobody is listening), so the
+      // body closes here when the abort came from the request rather than
+      // from this body's own cancel — including a request gone before the
+      // body was ever read.
+      if (teardown.signal.aborted) return end();
+      teardown.signal.addEventListener("abort", end, { once: true });
       stream.pipe({
         write(chunk) {
           if (closed) return;
@@ -1856,18 +1889,32 @@ export function serverComponentResponse(component, options = {}, init = {}) {
             closed = true;
           }
         },
-        end() {
-          if (closed) return;
-          closed = true;
-          controller.close();
-        }
+        end
       });
     },
     cancel() {
       closed = true;
+      disarm();
+      teardown.abort();
     }
   });
   return new Response(body, { status: init.status || 200, headers });
+}
+
+/**
+ * Chain an upstream signal (the request's) into a response's own teardown
+ * controller. Returns the disarm for the upstream listener, so a response
+ * that completes does not hold a closure on the request past its own end.
+ */
+function followSignal(upstream, controller) {
+  if (!upstream) return () => {};
+  if (upstream.aborted) {
+    controller.abort(upstream.reason);
+    return () => {};
+  }
+  const forward = () => controller.abort(upstream.reason);
+  upstream.addEventListener("abort", forward, { once: true });
+  return () => upstream.removeEventListener("abort", forward);
 } /**
  * The server-component convention as a `transformResult` policy for
  * `handleServerFunctionRequest`: a function result — or a `respond()`
@@ -1914,9 +1961,15 @@ export function frameTransformResult(event, result, context) {
   const invocation = getEventServerFunctionInvocation(event);
   return serverComponentResponse(
     result,
-    { frame: { id: (invocation && invocation.id) || "" } },
+    { frame: { id: (invocation && invocation.id) || "" }, signal: requestSignal(event) },
     init
   );
+}
+
+/** The request's abort, when the event carries a standards-shaped request. */
+function requestSignal(event) {
+  const request = event && event.request;
+  return request && request.signal instanceof AbortSignal ? request.signal : undefined;
 } /**
  * The frame half of single-flight, as a `transformFlightResult` policy for
  * `handleServerFunctionRequest`: when part of what a mutation invalidated is
@@ -2028,7 +2081,8 @@ export async function frameTransformFlightResult(event, outcome, context) {
       value: primary ? undefined : value,
       data: serialized
     },
-    codec: context && context.codec
+    codec: context && context.codec,
+    signal: requestSignal(event)
   });
 }
 
@@ -2040,8 +2094,12 @@ export async function frameTransformFlightResult(event, outcome, context) {
  * Those chunks carry the codec's own nodes, one per chunk, so async values
  * inside flight data settle progressively exactly as they do in a plain
  * single-flight body — the consumer replays them into the same decoder.
+ *
+ * `signal` is the request's abort (`frameTransformFlightResult` passes it):
+ * with the body's own `cancel`, either tears the frame in progress down and
+ * ends the response.
  */
-export function frameFlightResponse({ primary, regions = [], outcome, codec }, init = {}) {
+export function frameFlightResponse({ primary, regions = [], outcome, codec, signal }, init = {}) {
   const frames = primary ? [primary, ...regions] : regions;
   const headers = copyInitHeaders(init.headers);
   headers.set("Content-Type", "application/x-frame-stream");
@@ -2050,8 +2108,12 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
   // The single-flight header is the FOLD's (`foldFlightData`): its value is
   // the folded source list the client routes slices by, which only the fold
   // knows — it stamps every body shape, this one included.
-  // Same disconnect guard as serverComponentResponse: post-cancel writes
-  // drop instead of throwing through a serializer flush.
+  // Same teardown as serverComponentResponse: this body's cancel and the
+  // request's abort (`signal`) tear the frame in progress down and skip the
+  // rest; post-cancel writes drop instead of throwing through a serializer
+  // flush.
+  const teardown = new AbortController();
+  const disarm = followSignal(signal, teardown);
   let closed = false;
   const body = new ReadableStream({
     async start(controller) {
@@ -2066,12 +2128,29 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
       try {
         // Sequential: chunk order matters within a frame, not across them.
         for (const { id, component } of frames) {
+          if (teardown.signal.aborted) break;
+          // A torn-down render never ends its sink; the abort settles the
+          // wait in its place.
           await new Promise(resolve => {
-            renderServerComponent(component, { frame: { id, version: 1 } }).pipe({
+            teardown.signal.addEventListener("abort", resolve, { once: true });
+            renderServerComponent(component, {
+              frame: { id, version: 1 },
+              signal: teardown.signal
+            }).pipe({
               write,
-              end: resolve
+              end: () => {
+                teardown.signal.removeEventListener("abort", resolve);
+                resolve();
+              }
             });
           });
+        }
+        if (teardown.signal.aborted) {
+          closed = true;
+          try {
+            controller.close();
+          } catch (_) {}
+          return;
         }
         if (outcome) {
           // Component-valued entries serialize as flight references — the
@@ -2097,10 +2176,14 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec }, i
           closed = true;
           controller.error(err);
         }
+      } finally {
+        disarm();
       }
     },
     cancel() {
       closed = true;
+      disarm();
+      teardown.abort();
     }
   });
   return new Response(body, { status: init.status || 200, headers });

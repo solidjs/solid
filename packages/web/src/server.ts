@@ -1856,6 +1856,19 @@ export function renderToStream<T>(
      * the shell has a `</head>` (splicing is automatic then).
      */
     onHead?: (head: string) => void;
+    /**
+     * The request's lifecycle. Aborting tears the render down exactly as a
+     * client disconnect does (`SSR_STREAM_ABANDONED`, `data.reason:
+     * "signal"`): in-flight reactive work is disposed, every async source
+     * still being pulled is returned, and nothing more reaches the sink. For
+     * the host whose transport cannot report a dead consumer through the
+     * sink or the readable view — a frame stream whose emission never
+     * touches the document writable, a platform whose response body is
+     * consumed by a proxy — this is the one teardown handle; pass
+     * `request.signal`. Idempotent with the sink and consumer paths: whichever
+     * fires first tears down, the rest are no-ops.
+     */
+    signal?: AbortSignal;
   }
 ): {
   /**
@@ -2825,11 +2838,18 @@ export function renderToStream(code, options = {}) {
   render = timeDocument(context, context.trace, "stream", requestEvent);
   registerEntryAssets(manifest);
 
+  // The request's abort is a disconnect the transport could not report (see
+  // the `signal` option). Armed once the root exists — `abandon` reaches the
+  // registry, the sink and the serializer, all declared above — and disarmed
+  // by the render's final dispose, which every ending runs through.
+  const signal = options.signal;
+  const onAbort = signal ? () => abandon("signal") : undefined;
   let html = root(
     d => {
       dispose = () => {
         // The render is over: no later read finds its trace (see above).
         context.trace = undefined;
+        if (onAbort) signal.removeEventListener("abort", onAbort);
         d();
       };
       const res = resolveSSRNode(escape(code()));
@@ -2846,6 +2866,14 @@ export function renderToStream(code, options = {}) {
     },
     { id: renderId }
   );
+  if (onAbort) {
+    // A request already gone when the render starts has nobody to render
+    // for: tear down now, after the root pass so the finding counts what it
+    // registered. `abandon` clears `dispose` before running it, so the
+    // listener is removed either way.
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
   // Re-pull pending root holes, splicing sync results into `html` and
   // re-queueing still-async ones (their retry promises join
   // `blockingPromises`). Returns true once no holes remain.

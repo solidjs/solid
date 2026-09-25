@@ -342,6 +342,26 @@ component ("summarize the room") for the bounded contrast.
   render root; same for `frameFlightResponse`.
 - **Verify:** closing a frame stream mid-render ends the source iterator
   (`return()` observed) and releases the hold.
+- **Built (branch `feat/frames-live`).** `renderToStream` gains
+  `signal?: AbortSignal` — the one teardown handle for a render whose
+  transport cannot report a dead consumer through the sink or the readable
+  view (a frame render's emission never touches the document writable);
+  abort runs the existing disconnect path (`abandon("signal")`,
+  `SSR_STREAM_ABANDONED` with `data.reason: "signal"`). The frame responses
+  own a teardown controller: the body's `cancel()` aborts it, the request's
+  signal (passed by `frameTransformResult` / `frameTransformFlightResult`
+  from `event.request.signal`) chains into it, and the body closes itself
+  on abort since a torn-down render never ends its sink. The flight
+  response stops at the frame in progress and skips the rest. The other
+  half was in the reactive core: the frame-scope pump only noticed
+  `comp.disposed` when `next()` settled, so a source parked on a wait was
+  held until its next yield — the demo's lesson, on the runtime side. The
+  pump now closes its source from the compute's disposal (`onDisposed`
+  hooks run by the owner's disposal flag), both pump sites sharing one
+  `pumpIterator`. Pinned in `frame-teardown.spec.tsx` (body cancel; request
+  abort ends the body; already-aborted request renders nothing; through
+  the handler; flight response) and `server-diagnostics.spec.tsx` (the
+  document face: reason `signal`, sink never touched again).
 
 ### B2 — frames consume `live`
 
@@ -420,6 +440,9 @@ component ("summarize the room") for the bounded contrast.
 | `X-Accel-Buffering` / `no-store` on live responses                                                                                                                                                      | wire (headers)              | A1    |
 | Dev warning: >5 live connections over HTTP/1.1                                                                                                                                                          | new dev-only diagnostic     | A1    |
 | Dev chaos-reconnect knob: `chaosReconnectEvery` on `configureServerFunctionsServer`                                                                                                                     | new dev-only option         | A3    |
+| `renderToStream({ signal })` — the request's abort tears the render down as a disconnect; flows through `renderToFrameStream` / `renderServerComponent` / `serverComponentResponse` options             | new option                  | B1    |
+| `SSR_STREAM_ABANDONED` `data.reason` gains `"signal"`                                                                                                                                                   | diagnostic data             | B1    |
+| Frame responses tear the render down on body `cancel()` and on the request's abort; the frame-scope pump closes its source at disposal                                                                  | bug fix                     | B1    |
 | `onstatus` reachable for server-component references                                                                                                                                                    | existing surface, new reach | B2    |
 | Have-list header; hole digests                                                                                                                                                                          | wire                        | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                             | behavior change             | B3+   |

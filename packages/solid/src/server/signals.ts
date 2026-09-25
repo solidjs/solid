@@ -664,6 +664,12 @@ interface ServerComputation<T = any> {
   // hook (`ctx.commitEpoch`) only exists where a binding ledger is live.
   sync?: boolean;
   epoch?: number;
+  // Runs when the owner disposes the compute (see `armDispose`), for work
+  // that cannot wait for its next pull to notice `disposed`: a pumped
+  // iterator parked on a `next()` that will not settle until the world
+  // moves has to be `return()`ed NOW — at a client disconnect, not at the
+  // source's next yield.
+  onDisposed?: Array<() => void>;
 }
 
 /**
@@ -1261,6 +1267,11 @@ export function createMemo<T>(
     if (!o) return;
     const flag = () => {
       comp.disposed = true;
+      const hooks = comp.onDisposed;
+      if (hooks) {
+        comp.onDisposed = undefined;
+        for (const hook of hooks) hook();
+      }
     };
     if (!o._disposal) o._disposal = flag;
     else if (Array.isArray(o._disposal)) o._disposal.push(flag);
@@ -1735,32 +1746,7 @@ function processResult<T>(
             // yields into the binding ledger under a response hold. Mirrors
             // the direct iterable branch's pump; see its comment for the
             // full story.
-            const release = ctx.hold?.();
-            const pump = () => {
-              if (comp.disposed) {
-                closeAsyncIterator(iter);
-                release?.();
-                return;
-              }
-              iter.next().then(
-                (nr: IteratorResult<T>) => {
-                  if (comp.disposed) {
-                    closeAsyncIterator(iter);
-                    release?.();
-                    return;
-                  }
-                  if (nr.done) {
-                    release?.();
-                    return;
-                  }
-                  comp.value = nr.value;
-                  ctx.commit();
-                  pump();
-                },
-                () => release?.()
-              );
-            };
-            deferred.promise.then(pump, () => release?.());
+            pumpIterator(comp, ctx, () => iter, deferred.promise);
           }
           return first;
         },
@@ -1982,32 +1968,7 @@ function processResult<T>(
         // disposal) releases the hold and latches the last yielded value.
         // Without a listener the iterator stays pull-paced (no consumer, no
         // pump), same as before.
-        const release = ctx.hold?.();
-        const pump = () => {
-          if (comp.disposed) {
-            closeAsyncIterator(iter);
-            release?.();
-            return;
-          }
-          iter.next().then(
-            (r: IteratorResult<T>) => {
-              if (comp.disposed) {
-                closeAsyncIterator(iter);
-                release?.();
-                return;
-              }
-              if (r.done) {
-                release?.();
-                return;
-              }
-              comp.value = r.value;
-              ctx.commit();
-              pump();
-            },
-            () => release?.()
-          );
-        };
-        deferred.promise.then(pump, () => release?.());
+        pumpIterator(comp, ctx, () => iter, deferred.promise);
       }
       if (loadingState) {
         loadingState.served = true;
@@ -2040,6 +2001,50 @@ function processResult<T>(
   comp.value = result;
   comp.sync = true;
   comp.epoch = ctx?.commitEpoch?.();
+}
+
+// The frame-scope pump: after `start` (the first value, already latched by
+// the caller), pull the iterator — read through `iterator`, since a retried
+// first pull re-mints it — to its end under a response hold, each yield
+// advancing the memo's value and committing the binding ledger. Completion,
+// error and disposal release the hold once. Disposal also closes the source
+// — and does so FROM the disposal, not at the next pull: a standing source
+// (a room's change feed, a subscription) parks its `next()` until the world
+// moves, so a pump that only noticed `disposed` on settle would hold the
+// source, and everything it subscribed to, until an event nobody would see.
+// The client-disconnect teardown (`renderToStream`'s `abandon`) reaches here
+// through the owner's disposal.
+function pumpIterator<T>(
+  comp: ServerComputation<T>,
+  ctx: any,
+  iterator: () => AsyncIterator<T>,
+  start: Promise<unknown>
+) {
+  const hold = ctx.hold?.();
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    hold?.();
+  };
+  const close = () => {
+    closeAsyncIterator(iterator());
+    release();
+  };
+  (comp.onDisposed ??= []).push(close);
+  const pump = () => {
+    if (comp.disposed) return close();
+    iterator()
+      .next()
+      .then((r: IteratorResult<T>) => {
+        if (comp.disposed) return close();
+        if (r.done) return release();
+        comp.value = r.value;
+        ctx.commit();
+        pump();
+      }, release);
+  };
+  start.then(pump, release);
 }
 
 // Best-effort `return()` on a source we are done with. Nothing here may

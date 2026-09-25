@@ -587,7 +587,7 @@ Finding (`warn`, observe + dev). A fragment failed while descendants of it were 
 
 **Message:** "[SSR_STREAM_ABANDONED] The response stream was abandoned mid-render (consumer) with 4 fragment(s) still pending; the render was torn down."
 
-Finding (`warn`, observe + dev; no `ownerPath` — a stream event). The consumer cancelled (`data.reason: "consumer"`, a `pipeTo` cancellation — usually the browser navigating away) or the sink failed on write (`"sink"`) while fragments were pending, and the render was torn down. `data.shellFlushed` says whether the shell had gone out; `data.pendingFragments` counts what never shipped. Not an error in the app; at volume it is the request cost of renders nobody waited for.
+Finding (`warn`, observe + dev; no `ownerPath` — a stream event). The consumer cancelled (`data.reason: "consumer"`, a `pipeTo` cancellation — usually the browser navigating away), the sink failed on write (`"sink"`), or the request's `signal` aborted (`"signal"` — `renderToStream`'s `signal` option; how a frame-stream response, whose render never touches the document writable, learns its reader is gone, from its body's `cancel` or the request's abort) while fragments were pending, and the render was torn down. `data.shellFlushed` says whether the shell had gone out; `data.pendingFragments` counts what never shipped. Not an error in the app; at volume it is the request cost of renders nobody waited for.
 
 #### `LATE_HEADER_WRITE`
 
