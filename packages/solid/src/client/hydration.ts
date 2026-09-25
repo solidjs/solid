@@ -383,8 +383,21 @@ function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
     window.fetch = () => new MockPromise() as any;
     Promise = MockPromise as any;
     const result = fn(prev);
-    if (result && typeof result[Symbol.asyncIterator] === "function") {
-      result[Symbol.asyncIterator]().next();
+    // An async GENERATOR's body has not run yet — its reads before the
+    // first suspension are part of the compute, so pull once under the
+    // mocks to track them. A generator object is its own iterator; any other
+    // async iterable (a live call's reconnecting iterable, a deserialized
+    // stream's adapter read out of an adopted value) is data the compute
+    // already constructed, and pulling it here would be a real consumption
+    // under a fake Promise — an adapter minting its resolver through the
+    // global at pull time is left with a dead entry in its queue.
+    if (
+      result &&
+      typeof result.next === "function" &&
+      typeof result[Symbol.asyncIterator] === "function"
+    ) {
+      const it = result[Symbol.asyncIterator]();
+      if (it === result) it.next();
     }
     // The trace run's flight is never consumed (the serialized value is
     // authoritative) — an async fn returns a REAL promise (engine-internal,
