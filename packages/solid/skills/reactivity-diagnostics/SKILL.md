@@ -210,9 +210,12 @@ These fire only while attribution is enabled and describe cost, not
 incorrect behavior. The numbers in the message are measurements, not
 guesses.
 
-### HUGE_FAN_OUT / WIDE_WRITE
+### HUGE_FAN_OUT
 
-One value has very many subscribers, so a single change re-runs all of them.
+One value has very many subscribers, so a single change re-runs all of them
+(`data.count`). Always on from 2000; while attribution is enabled the same
+code fires from `fanOut` (default 250) on a stamped root write, and
+`data.write` says which — a `write`, a `refresh`, or an `async` landing.
 Classic signature: every row of a list comparing against one selected id.
 Invert the question: keep the answer in a store used as a map keyed by id
 (`selected[row.id]` instead of `row.id === selectedId()`), so each consumer
@@ -313,7 +316,8 @@ Async flights ran in sequence when they might have run in parallel: each
 named flight provably could not start until the previous one resolved, and
 each took real time (the per-link durations are in the message/data). Read
 the chain from `attribution.history("waterfall")` if you need more than the
-warning shows. Repairs, in order of preference:
+warning shows. (The server's `<Loading>` boundary counterpart is
+`SSR_BOUNDARY_WATERFALL`, below.) Repairs, in order of preference:
 
 1. If a later request does not need the earlier response, derive both from
    the same inputs so they start together (in one scope, read ALL async
@@ -643,10 +647,12 @@ Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
 ## Server rendering
 
 The server runtime reports on the same channel, with the same `in <App> ›
-<Page>` line. Two groups. **Findings** (`SSR_*`, `LATE_HEADER_WRITE`,
-`SERVER_FN_ERROR_SANITIZED`, `SSR_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a
-render that exist in observe builds too — an APM sees them in production; in
-dev they print. **Checks** (the rest) are dev-only guidance. A captured
+<Page>` line. Two groups. **Findings** (`SSR_RENDER_ERROR_CONTAINED`,
+`SSR_SUBTREE_ABANDONED`, `SSR_STREAM_ABANDONED`, `LATE_HEADER_WRITE`,
+`SERVER_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a render
+that exist in observe builds too — an APM sees them in production; in dev
+they print. **Checks** (the rest, `SSR_BOUNDARY_WATERFALL` and
+`SSR_CLIENT_CONTENT_MASKED` included) are dev-only guidance. A captured
 artifact from a server render carries both.
 
 ### SSR_RENDER_ERROR_CONTAINED
@@ -683,26 +689,28 @@ write before the first flush — before any `<Loading>` fallback can ship — or
 before the handler returns; a cookie set from inside a late-streaming
 component never reaches the browser.
 
-### SERVER_FN_ERROR_SANITIZED
+### SERVER_ERROR_SANITIZED
 
-A server function threw and the production wire replaced the error with the
-generic message; `data.error` is the original. Fix the failure it names. If
-the client is meant to see this error, brand it with `markSafeError` or map
-it in `wrapInvocation`; do not turn sanitization off.
+The production wire replaced an error with the generic `Error`; `data.error`
+is the original, `data.wire` what the client got, and `data.source` says
+which road:
 
-### SSR_ERROR_SANITIZED
+- `"server-function"` (`error`): a server function threw. Fix the failure it
+  names. If the client is meant to see this error, brand it with
+  `markSafeError` or map it in `wrapInvocation`; do not turn sanitization
+  off.
+- `"ssr"` (`info`): a render failure reached the client — an `<Errored>`
+  record, a rejected async source in the stream, a fragment's rejection, a
+  frame's error chunk. Advisory: the failure itself is the
+  `SSR_RENDER_ERROR_CONTAINED` finding beside it — fix that. If the client is
+  meant to see this error, brand it with `markSafeError`; do not turn
+  sanitization off. A fallback that prints `err().message` shows "Internal
+  Server Error" in production by design.
 
-A render failure reached the client — an `<Errored>` record, a rejected async
-source in the stream, a fragment's rejection, a frame's error chunk — and the
-production wire replaced it with the generic `Error`; `data.error` is the
-original. Advisory: the failure itself is the `SSR_RENDER_ERROR_CONTAINED`
-finding beside it — fix that. If the client is meant to see this error, brand
-it with `markSafeError`; do not turn sanitization off. A fallback that prints
-`err().message` shows "Internal Server Error" in production by design. To
-_report_ these failures from a production build (no `OBSERVE`), register the
-server error hook — `configureServerErrors({ onError })` from `@solidjs/web`
-— which hears every handled failure once, and may return the value the client
-should see instead.
+To _report_ these failures from a production build (no `OBSERVE`), register
+the server error hook — `configureServerErrors({ onError })` from
+`@solidjs/web` — which hears every handled failure once, and may return the
+value the client should see instead.
 
 ### FRAME_MARKER_CORRUPTED
 
@@ -725,18 +733,18 @@ a subscription, make the subscription the async source itself.
 Nested `<Reveal>` with `collapsed`/`together` needs a stream to coordinate
 on; `renderToString` has none. Use `renderToStream`, or drop the ordering.
 
-### ASYNC_WATERFALL (server)
+### SSR_BOUNDARY_WATERFALL
 
-`data.side: "server"`. A `<Loading>` boundary rendered in `data.passes`
-passes — discovery, then one per wait — and each pass past the first is a
-read that could only start once the previous pass's async answered:
-`passes - 1` sequential flights, `data.sequentialMs` end to end. Unlike the
-client's verdict this proof is exact (the pass structure IS the chain), so
-there is no `markFlight` false positive to rule out; the same repairs apply,
-in the same order: derive both reads from the same inputs so they start
-together (read ALL async sources before using any), or, if the dependency is
-intrinsic, preload the dependent data or join the requests. Two flights are
-`info` — a lead; three or more `warn`. The boundary is `data.boundary`; a
+A `<Loading>` boundary rendered in `data.passes` passes — discovery, then
+one per wait — and each pass past the first is a read that could only start
+once the previous pass's async answered: `passes - 1` sequential waits,
+`data.sequentialMs` end to end. Unlike the client's `ASYNC_WATERFALL` this
+proof is exact (the pass structure IS the chain), so there is no `markFlight`
+false positive to rule out; the same repairs apply, in the same order:
+derive both reads from the same inputs so they start together (read ALL
+async sources before using any), or, if the dependency is intrinsic, preload
+the dependent data or join the requests. Two waits are `info` — a lead;
+three or more `warn`. The boundary is `data.boundary`; a
 captured artifact has its record in `artifact.records.boundary` (same
 `id`) and the server-function calls under it in `artifact.records.invocation`
 (`boundary` field).

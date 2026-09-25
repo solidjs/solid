@@ -24,7 +24,10 @@ const runtime = {
   escape: v => v,
   mergeProps: (...sources) => Object.assign({}, ...sources),
   memo: fn => fn,
-  applyRef: (r, el) => r(el)
+  applyRef: (r, el) => r(el),
+  // Dev output keeps the `createComponent` call (with the source name) the
+  // production SSR output inlines to `Comp(props)`.
+  createComponent: (Comp, props) => Comp(props)
 };
 
 /** Runs the module body with the imports bound to `runtime`; `__result` is what the snippet exposes. */

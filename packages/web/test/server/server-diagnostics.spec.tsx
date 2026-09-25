@@ -411,7 +411,7 @@ describe("the observe tier, in the built artifacts", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  test("SERVER_FN_ERROR_SANITIZED: the replaced error is the record", async () => {
+  test("SERVER_ERROR_SANITIZED (server-function): the replaced error is the record", async () => {
     // @ts-ignore — the dist file has no adjacent type declarations.
     const sf = await import("../../server-functions/dist/server.observe.js");
     const original = new Error("SELECT * FROM users WHERE token = 'secret'");
@@ -419,11 +419,16 @@ describe("the observe tier, in the built artifacts", () => {
     expect(replaced).not.toBe(original);
     expect((replaced as Error).message).not.toContain("secret");
 
-    const [finding, ...rest] = byCode("SERVER_FN_ERROR_SANITIZED");
+    const [finding, ...rest] = byCode("SERVER_ERROR_SANITIZED");
     expect(rest).toHaveLength(0);
     expect(finding.kind).toBe("ssr");
+    // The server-function road is `error` where SSR's is advisory: no other
+    // finding carries this failure.
     expect(finding.severity).toBe("error");
+    expect(finding.data!.source).toBe("server-function");
     expect(finding.data!.error).toBe(original);
+    expect(finding.data!.wire).toBe(replaced);
+    expect(finding.message).toContain("[SERVER_ERROR_SANITIZED] Server function error");
     expect(finding.message).toContain("replaced with a generic Error");
     expect(finding.message).toContain("secret");
     expect(error).not.toHaveBeenCalled();
@@ -432,7 +437,7 @@ describe("the observe tier, in the built artifacts", () => {
     capture.clear();
     const safe = markSafeError(new Error("shown to the client"));
     expect(sf.sanitizeServerError(safe)).toBe(safe);
-    expect(byCode("SERVER_FN_ERROR_SANITIZED")).toHaveLength(0);
+    expect(byCode("SERVER_ERROR_SANITIZED")).toHaveLength(0);
   });
 
   test("dev checks fold out of the observe artifact; wiring rides it", () => {

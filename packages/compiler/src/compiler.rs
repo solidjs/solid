@@ -53,8 +53,15 @@ pub struct Renderer {
 
 /// Babel's `sourceNames`, resolved: which names as written in source the
 /// output carries so the dev and observe runtimes can label the reactive
-/// graph after minification. Every kind off by default; the production
-/// runtimes ignore the names.
+/// graph after minification. The core takes every kind explicitly (the
+/// `Default` is all off); the Node adapter resolves the public `sourceNames`
+/// option against `dev`, so on the JavaScript surface each kind defaults to
+/// the `dev` flag. The production runtimes ignore the names.
+///
+/// These are the JSX-level kinds only. Primitive names (`createSignal(0,
+/// { name: "count" })`) come from the standalone `transformSourceNames`
+/// pass, which the build tool runs on every module independently of the
+/// JSX compiler.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SourceNames {
     /// The tag as written, as `createComponent`'s third argument
@@ -66,6 +73,16 @@ pub struct SourceNames {
     /// spread `div.spread` — through an options argument on
     /// `effect`/`insert`/`spread`. DOM output only.
     pub bindings: bool,
+}
+
+impl SourceNames {
+    /// Every kind set to `enabled`.
+    pub fn all(enabled: bool) -> Self {
+        Self {
+            components: enabled,
+            bindings: enabled,
+        }
+    }
 }
 
 /// Default runtime import path — same as `@solidjs/babel-plugin` and the

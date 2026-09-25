@@ -75,7 +75,6 @@ export type DiagnosticCode =
   | "WIDE_SCOPE_DEPS"
   | "UNSTABLE_MEMO_OUTPUT"
   | "WASTED_RECOMPUTE"
-  | "WIDE_WRITE"
   | "ASYNC_WATERFALL"
   | "HOT_SCOPE_FANOUT"
   | "SILENT_HOLD"
@@ -96,8 +95,8 @@ export type DiagnosticCode =
   | "SSR_STREAM_ABANDONED"
   | "SSR_CLIENT_CONTENT_MASKED"
   | "LATE_HEADER_WRITE"
-  | "SERVER_FN_ERROR_SANITIZED"
-  | "SSR_ERROR_SANITIZED"
+  | "SERVER_ERROR_SANITIZED"
+  | "SSR_BOUNDARY_WATERFALL"
   | "SERVER_WRITE"
   | "REVEAL_IN_RENDER_TO_STRING"
   | "LAZY_ASSET_UNMAPPED"
@@ -885,16 +884,33 @@ function shouldWarnGraphSize(node: object, count: number): boolean {
 }
 
 /**
- * Observe-tier: a committed change on `node` is about to re-run `count`
- * subscribers (the notify walk in `insertSubs` counted them as it went —
- * fan-out costs exactly one local increment in a loop that already visits
- * every edge, and nothing at link time). Fires from GRAPH_SIZE_WARN_AT up,
- * on the write rather than the link: a fan-out that is never written costs
- * nothing, and one that is re-runs every subscriber this flush. Always-on
- * wherever the channel exists — unlike the opt-in attribution engine, a
- * graph-size pathology should surface without asking.
+ * The root invalidation a HUGE_FAN_OUT finding was priced on, when the
+ * attribution engine is the one reporting it: a signal/store write, a
+ * `refresh()`, or an async landing. The always-on core check counts the
+ * notify walk of any change and cannot tell — it reports no `write`.
  */
-export function noteFanOut(node: Signal<any> | Computed<any>, count: number): void {
+export type FanOutWrite = "write" | "refresh" | "async";
+
+/**
+ * Observe-tier: a committed change on `node` is about to re-run `count`
+ * subscribers. Two reporters, one finding, one dedupe: the core counts the
+ * notify walk in `insertSubs` as it goes (fan-out costs exactly one local
+ * increment in a loop that already visits every edge, and nothing at link
+ * time) and fires from GRAPH_SIZE_WARN_AT up, always-on wherever the
+ * channel exists — a graph-size pathology should surface without asking.
+ * The attribution engine, while enabled, reports the same code from its
+ * lower `fanOut` threshold (default 250) on the root writes it stamps, with
+ * the write kind it knows, and hands over to the core at
+ * GRAPH_SIZE_WARN_AT so one change never carries two findings. Both fire on
+ * the write rather than the link: a fan-out that is never written costs
+ * nothing, and one that is re-runs every subscriber this flush. Once per
+ * node, re-warning only once the count has grown by GRAPH_SIZE_WARN_EVERY.
+ */
+export function noteFanOut(
+  node: Signal<any> | Computed<any>,
+  count: number,
+  write?: FanOutWrite
+): void {
   if (!shouldWarnGraphSize(node, count)) return;
   const name = node._name;
   const message =
@@ -912,7 +928,7 @@ export function noteFanOut(node: Signal<any> | Computed<any>, count: number): vo
         nodeName: name,
         ownerId: (node as Computed<any>).id,
         ownerName: name,
-        data: { count }
+        data: write === undefined ? { count } : { count, write }
       },
       node
     )

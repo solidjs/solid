@@ -299,7 +299,7 @@ describe("tiers, in the built artifacts", () => {
       "LAZY_ASSET_UNMAPPED",
       "REVEAL_IN_RENDER_TO_STRING",
       // The boundary checks read off the boundary record's facts (hydration.ts).
-      "ASYNC_WATERFALL",
+      "SSR_BOUNDARY_WATERFALL",
       "SSR_CLIENT_CONTENT_MASKED"
     ]) {
       expect(prod, check).not.toContain(`[${check}]`);

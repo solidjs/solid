@@ -551,6 +551,36 @@ describe("@solidjs/compiler transform", () => {
     );
   });
 
+  // Same source and expectations as babel-plugin/test/dom-source-names.spec.js
+  // "sourceNames defaults".
+  it("sourceNames follows dev when unset; production output is byte-identical", () => {
+    const code = "const view = <div class={cls()}><Home /></div>;";
+    const opts = { filename: "input.jsx", moduleName: "r-dom" };
+    const label = '_$createComponent(Home, {}, "Home")';
+    const binding = 'name: "div.class"';
+
+    const dev = transform(code, { ...opts, dev: true }).code;
+    expect(dev).toContain(label);
+    expect(dev).toContain(binding);
+
+    const prod = transform(code, { ...opts, dev: false }).code;
+    expect(prod).not.toContain('"Home"');
+    expect(prod).not.toContain("name:");
+    expect(prod).toBe(transform(code, opts).code);
+    expect(prod).toBe(transform(code, { ...opts, dev: false, sourceNames: false }).code);
+    expect(prod).toBe(transform(code, { ...opts, dev: false, sourceNames: {} }).code);
+
+    const off = transform(code, { ...opts, dev: true, sourceNames: false }).code;
+    expect(off).not.toContain('"Home"');
+    expect(off).not.toContain("name:");
+    const picked = transform(code, { ...opts, dev: true, sourceNames: { components: false } }).code;
+    expect(picked).not.toContain('"Home"');
+    expect(picked).toContain(binding);
+    const prodPicked = transform(code, { ...opts, sourceNames: { components: true } }).code;
+    expect(prodPicked).toContain(label);
+    expect(prodPicked).not.toContain(binding);
+  });
+
   it("rejects unsupported dynamic renderer config instead of ignoring it", () => {
     expect(() =>
       transform("const view = <div />;", {

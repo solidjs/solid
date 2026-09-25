@@ -25,8 +25,9 @@
  *    sink's error chunk sanitized; the abandonment ledger keeps the original;
  *  - `markSafeError` passes through everywhere, own properties included;
  *  - the observe tier records the replacement once per original as
- *    `SSR_ERROR_SANITIZED` (advisory — the failure is the
- *    `SSR_RENDER_ERROR_CONTAINED` finding's), the original in `data.error`.
+ *    `SERVER_ERROR_SANITIZED` with `data.source: "ssr"` (advisory — the
+ *    failure is the `SSR_RENDER_ERROR_CONTAINED` finding's), the original in
+ *    `data.error`.
  *
  * The dev/prod line is the build variant (`IS_DEV`): `server.dev.js` keeps
  * fidelity, the prod and observe artifacts sanitize. That is a property of
@@ -49,6 +50,7 @@ interface Finding {
   severity: string;
   ownerPath?: string[];
   message: string;
+  source?: string;
   error?: string;
 }
 interface Scenario<V = string> {
@@ -122,7 +124,7 @@ function describeSanitizing(name: string, conditions: string[], observe: boolean
       expect(html).toContain(`<p class="fallback">Item not found|item:42</p>`);
       expect(html).toContain('new Error("Item not found")');
       expect(html).toContain('query:"item:42"');
-      expect(byCode(findings, "SSR_ERROR_SANITIZED")).toHaveLength(0);
+      expect(byCode(findings, "SERVER_ERROR_SANITIZED")).toHaveLength(0);
     });
 
     test("a rejected async source serialized into the stream rejects the client with the replacement", () => {
@@ -144,7 +146,7 @@ function describeSanitizing(name: string, conditions: string[], observe: boolean
     test("an Error reached as a VALUE is data, and passes as the author wrote it", () => {
       const { value: html, findings } = run(conditions).value;
       expect(html).toContain("field: name is required");
-      expect(byCode(findings, "SSR_ERROR_SANITIZED")).toHaveLength(0);
+      expect(byCode(findings, "SERVER_ERROR_SANITIZED")).toHaveLength(0);
     });
 
     test("frame streams: the root error chunk and every keyed error chunk carry the replacement", () => {
@@ -200,9 +202,10 @@ describe("the observe artifacts' record of it", () => {
     const { findings } = run(["observe"]).errored;
     const [contained] = byCode(findings, "SSR_RENDER_ERROR_CONTAINED");
     expect(contained.error).toContain("ECONNREFUSED");
-    const sanitized = byCode(findings, "SSR_ERROR_SANITIZED");
+    const sanitized = byCode(findings, "SERVER_ERROR_SANITIZED");
     expect(sanitized).toHaveLength(1);
     expect(sanitized[0].severity).toBe("info");
+    expect(sanitized[0].source).toBe("ssr");
     expect(sanitized[0].error).toContain("ECONNREFUSED");
     expect(sanitized[0].message).toContain("replaced before reaching the client");
     expect(sanitized[0].ownerPath).toEqual(["<Errored>"]);
@@ -211,15 +214,15 @@ describe("the observe artifacts' record of it", () => {
   test("one original, however many roads it took, is one record", () => {
     const results = run(["observe"]);
     // The async source's rejection, the fragment's, the boundary's: one.
-    expect(byCode(results.channel.findings, "SSR_ERROR_SANITIZED")).toHaveLength(1);
+    expect(byCode(results.channel.findings, "SERVER_ERROR_SANITIZED")).toHaveLength(1);
     // The fragment's `_fr` rejection and its abandonment ledger: one, and
     // the ledger's own finding kept the original.
-    expect(byCode(results.fragment.findings, "SSR_ERROR_SANITIZED")).toHaveLength(1);
+    expect(byCode(results.fragment.findings, "SERVER_ERROR_SANITIZED")).toHaveLength(1);
     const [abandoned] = byCode(results.fragment.findings, "SSR_SUBTREE_ABANDONED");
     expect(abandoned.error).toContain("ECONNREFUSED");
     // The frame's fragment chunk and its live hole's: one.
-    expect(byCode(results.frameFragment.findings, "SSR_ERROR_SANITIZED")).toHaveLength(1);
-    expect(byCode(results.frameRoot.findings, "SSR_ERROR_SANITIZED")).toHaveLength(1);
+    expect(byCode(results.frameFragment.findings, "SERVER_ERROR_SANITIZED")).toHaveLength(1);
+    expect(byCode(results.frameRoot.findings, "SERVER_ERROR_SANITIZED")).toHaveLength(1);
   });
 
   test("the production artifacts record nothing — there is no channel", () => {
@@ -246,7 +249,7 @@ describe("the development artifacts", () => {
     expect(html).toContain(
       'new Error("connect ECONNREFUSED postgres://app:hunter2@10.0.0.5:5432")'
     );
-    expect(byCode(findings, "SSR_ERROR_SANITIZED")).toHaveLength(0);
+    expect(byCode(findings, "SERVER_ERROR_SANITIZED")).toHaveLength(0);
     expect(byCode(findings, "SSR_RENDER_ERROR_CONTAINED")).toHaveLength(1);
   });
 

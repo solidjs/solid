@@ -3227,23 +3227,26 @@ function reportDirectFailure(run, id) {
 export function sanitizeServerError(value) {
   if (DEV) return value;
   if (isSafeError(value)) return value;
+  const wire = new Error(GENERIC_SERVER_ERROR_MESSAGE);
   // The observe tier's one record of what the wire did not carry: the
   // original is gone for the client, so it is a finding here (`data.error`
   // holds it) for the production consumer that wants the real failure. The
   // invocation channel reports that the call errored; this reports what
-  // replaced the error.
+  // replaced the error. Same code as the SSR roads' replacement, told apart
+  // by `data.source`; `error` severity where SSR's is advisory because no
+  // other finding carries this failure.
   if ("_SOLID_OBSERVE_")
     emitFinding(
       {
-        code: "SERVER_FN_ERROR_SANITIZED",
+        code: "SERVER_ERROR_SANITIZED",
         kind: "ssr",
         severity: "error",
-        message: `[SERVER_FN_ERROR_SANITIZED] Server function error replaced with a generic Error before serialization: ${errorText(value)}`,
-        data: { error: value }
+        message: `[SERVER_ERROR_SANITIZED] Server function error replaced with a generic Error before serialization: ${errorText(value)}`,
+        data: { source: "server-function", error: value, wire }
       },
       null
     );
-  return new Error(GENERIC_SERVER_ERROR_MESSAGE);
+  return wire;
 } /**
  * The url a `GET()` reference's own call requests — the address to preload
  * (`<link rel="preload" as="fetch">`), prefetch, or fetch by hand — built the

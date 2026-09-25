@@ -436,7 +436,7 @@ describe("diagnostics owner path", () => {
     });
     // No ambient context here: the event locates via the explicit subject.
     const event = emitDiagnostic(
-      { code: "WIDE_WRITE", kind: "perf", severity: "warn", message: "m" },
+      { code: "HUGE_FAN_OUT", kind: "graph", severity: "warn", message: "m" },
       node
     );
     // A signal is not itself an owner; its path is its registering owner's.

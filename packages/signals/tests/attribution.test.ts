@@ -357,7 +357,7 @@ describe("why-did-this-run attribution", () => {
     collect({
       hotRuns: { count: 3, windowMs: 60_000 },
       wideDeps: false,
-      wideWrites: false,
+      fanOut: false,
       hotTime: false
     });
     const capture = OBSERVE!.diagnostics.capture();

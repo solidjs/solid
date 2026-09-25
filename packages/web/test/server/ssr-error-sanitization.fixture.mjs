@@ -88,6 +88,7 @@ async function withFindings(run) {
       severity: e.severity,
       ownerPath: e.ownerPath,
       message: e.message,
+      source: e.data && e.data.source,
       error: e.data && e.data.error !== undefined ? String(e.data.error) : undefined
     }))
   };

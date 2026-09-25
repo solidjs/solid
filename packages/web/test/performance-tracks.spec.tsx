@@ -713,7 +713,7 @@ describe("enablePerformanceTracks", () => {
     // shown under `<Show>`. (The other effect re-run is render's own
     // insert at the root, re-placing the Show's output — no owner path.)
     const effects = rerunSpans(on("Effects"), "Effects");
-    expect(effects.map(m => m.label)).toEqual(["effect", "<Card> › <Show> › effect"]);
+    expect(effects.map(m => m.label)).toEqual(["effect", "<Card> › <Show> › span"]);
     // On Propagation every cause reads as the Show, never as `value`.
     const propagation = on("Propagation").filter(m => / ← /.test(m.label));
     expect(propagation.map(m => m.label)).toEqual([
@@ -721,7 +721,7 @@ describe("enablePerformanceTracks", () => {
       "<Card> › <Show> ← <Show>",
       "<Card> › <Show> ← <Show>",
       "effect ← <Show>",
-      "<Card> › <Show> › effect ← n"
+      "<Card> › <Show> › span ← n"
     ]);
   });
 
@@ -1697,13 +1697,13 @@ describe("enablePerformanceTracks", () => {
     // A binding directly under the <Show> belongs to <Page>: a flow control
     // is a tag the developer wrote, never the component a node belongs to.
     const binding = rerunSpans(on("Effects"), "Effects").find(m =>
-      m.label.endsWith("<Show> › effect")
+      m.label.endsWith("<Show> › span")
     )!;
-    expect(binding.label).toBe("<Page> › <Show> › effect");
+    expect(binding.label).toBe("<Page> › <Show> › span");
     expect(Object.fromEntries(binding.properties!)["Owner path"]).toMatch(
       /^<App> › <Page> › <Show> › /
     );
-    expect(on("Propagation").some(m => m.label === "<Page> › <Show> › effect ← n")).toBe(true);
+    expect(on("Propagation").some(m => m.label === "<Page> › <Show> › span ← n")).toBe(true);
   });
 
   test("without console.timeStamp or performance.measure it does nothing", () => {

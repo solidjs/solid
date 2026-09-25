@@ -47,7 +47,11 @@ pub struct TransformOptions {
     /// (`span.textContent`, `div.class:active`, a hole `div.children`, a
     /// spread `div.spread`) through an options argument on
     /// `effect`/`insert`/`spread`; DOM output only. The production runtimes
-    /// ignore the names. `true` enables every kind; the object form picks.
+    /// ignore the names. Defaults to `dev`: unset, every kind is on in dev
+    /// and off otherwise; `true`/`false` sets every kind; the object form
+    /// picks, and each kind it leaves unspecified follows `dev`. Primitive
+    /// names are not a kind here: they come from the standalone
+    /// `transformSourceNames` pass the build tool runs on every module.
     pub source_names: Option<Either<bool, SourceNamesOption>>,
     pub source_map: Option<bool>,
     pub context_to_custom_elements: Option<bool>,

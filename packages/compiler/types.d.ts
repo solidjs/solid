@@ -30,8 +30,13 @@ export interface TransformOptions {
    * binding effect named by what it writes — `span.textContent`,
    * `div.class:active`, a hole `div.children`, a spread `div.spread` — as
    * an options argument on `effect`/`insert`/`spread`; DOM output only.
-   * The production runtimes ignore the names. `true` enables every kind;
-   * an object picks.
+   * The production runtimes ignore the names. Defaults to `dev`: unset,
+   * every kind is on in dev and off otherwise; `true`/`false` sets every
+   * kind; an object picks, and each kind it leaves unspecified follows
+   * `dev`. Primitive names (`createSignal(0, { name: "count" })`) are not a
+   * kind here — they come from the standalone `transformSourceNames` pass,
+   * which the build tool runs on every module independently of this
+   * transform.
    */
   sourceNames?: boolean | SourceNamesOptions;
   sourceMap?: boolean;
@@ -262,8 +267,12 @@ export function transformRefreshAsync(
  * non-component function the name is prefixed with that function's
  * (`createCounter.count`). Only calls resolving to imports from `solid-js` /
  * `@solidjs/signals` are named, and an explicit `name` is never overridden.
- * Plain JavaScript in and out, so it applies to `.ts`/`.js` modules too;
- * `@solidjs/vite-plugin` runs it ahead of the JSX transform.
+ * Plain JavaScript in and out, so it applies to `.ts`/`.js` modules too.
+ * This standalone pass is the single owner of primitive naming: the build
+ * tool (`@solidjs/vite-plugin`) runs it on every module — `.ts`, `.js` and
+ * JSX files alike — independently of which JSX compiler (this one or
+ * `@solidjs/babel-plugin`) handles the file's JSX. `transform()`'s
+ * `sourceNames` option covers only the JSX-level kinds.
  */
 export interface TransformSourceNamesOptions {
   /** Picks the parser dialect (`.ts`, `.tsx`, `.js`, `.jsx`); TSX without one. */

@@ -142,7 +142,7 @@ A render failure reaches the client on several roads: the error an `<Errored>` c
 
 The boundary sanitizes _before_ rendering its fallback, and serializes the same replacement: the fallback is rendered on the server with the error and hydrates against the record, so the two must agree. A fallback that prints `err().message` therefore shows the generic message in production, as it would for a server-function failure. `markSafeError` is the escape hatch on both wires — a branded error passes through with its own properties. An Error reached as a _value_ (never thrown — a form's field errors, say) is data and passes as written.
 
-The dev/prod line is the build variant: the `development` export condition's server artifacts keep full fidelity; the production and observe artifacts sanitize. The observe tier records each replacement once as `SSR_ERROR_SANITIZED` (advisory; `data.error` the original, `data.wire` what replaced it), beside the `SSR_RENDER_ERROR_CONTAINED` finding that carries the failure itself — the server keeps the truth, the wire gets the generic.
+The dev/prod line is the build variant: the `development` export condition's server artifacts keep full fidelity; the production and observe artifacts sanitize. The observe tier records each replacement once as `SERVER_ERROR_SANITIZED` with `data.source: "ssr"` (advisory; `data.error` the original, `data.wire` what replaced it), beside the `SSR_RENDER_ERROR_CONTAINED` finding that carries the failure itself — the server keeps the truth, the wire gets the generic.
 
 #### The server error hook: `configureServerErrors` / `onError`
 

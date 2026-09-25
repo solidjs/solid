@@ -36,9 +36,14 @@ export interface PluginConfig {
    * binding effect named by what it writes — `span.textContent`,
    * `div.class:active`, `div.style:color`, a hole `div.children`, a spread
    * `div.spread` — as an options argument on `effect`/`insert`/`spread`;
-   * DOM output only. The production runtimes ignore the names. `true`
-   * enables every kind; an object picks. */
-  sourceNames: boolean | SourceNamesConfig;
+   * DOM output only. The production runtimes ignore the names. Defaults to
+   * `dev`: unset, every kind is on in dev and off otherwise; `true`/`false`
+   * sets every kind; an object picks, and each kind it leaves unspecified
+   * follows `dev`. Primitive names (`createSignal(0, { name: "count" })`)
+   * are not a kind here — they come from `@solidjs/compiler`'s standalone
+   * `transformSourceNames` pass, which the build tool runs on every module
+   * independently of the JSX compiler. */
+  sourceNames?: boolean | SourceNamesConfig;
   delegateEvents: boolean;
   delegatedEvents: string[];
   builtIns: string[];
@@ -71,7 +76,8 @@ const config: PluginConfig = {
   generate: "dom",
   hydratable: false,
   dev: false,
-  sourceNames: false,
+  // `sourceNames` has no default of its own: unset, it follows `dev`
+  // (see `sourceNames()`).
   delegateEvents: true,
   delegatedEvents: [],
   builtIns: [
@@ -102,11 +108,15 @@ const config: PluginConfig = {
   hoistProps: true
 };
 
-/** `sourceNames` resolved to its per-kind flags (`true` → every kind on). */
+/**
+ * `sourceNames` resolved to its per-kind flags. Unset, every kind is `dev`;
+ * a boolean sets every kind; in the object form each kind left unspecified
+ * is `dev`. `@solidjs/compiler` resolves its option the same way.
+ */
 export function sourceNames(config: PluginConfig): Required<SourceNamesConfig> {
-  const value = config.sourceNames;
+  const value = config.sourceNames ?? config.dev;
   if (typeof value === "boolean") return { components: value, bindings: value };
-  return { components: value?.components ?? false, bindings: value?.bindings ?? false };
+  return { components: value.components ?? config.dev, bindings: value.bindings ?? config.dev };
 }
 
 /**
