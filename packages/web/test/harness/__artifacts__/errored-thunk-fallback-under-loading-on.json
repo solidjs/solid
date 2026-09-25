@@ -1,0 +1,5 @@
+{
+  "name": "errored-thunk-fallback-under-loading-on",
+  "shell": "<main _hk=00110><b>fell</b><button>Count: <!--$-->0<!--/--></button></main><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0010\"]=$R[0]=new Error(\"sync render failure\");</script>",
+  "rest": ""
+}

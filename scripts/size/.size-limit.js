@@ -359,7 +359,16 @@ module.exports = [
     // `latest()` probe must not decide proposal vs prev). +150 B minified
     // in the in-package floor (26,265 -> 26,415); the store twin is in the
     // store module (see + createStore).
-    limit: "9.80 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 9.80 -> 9.82 KB,
+    // measured at 9,810 B against `next`'s 9,778 (+32 B; 10 B over the
+    // cap). The one signals change: `setSignal` asks `captureWriteSnapshot`
+    // while hydration's snapshot capture is active — a first write during
+    // capture to a plain signal with no snapshot (created before the pass)
+    // records its pre-write value and is held like any other write. The
+    // cold half is a function; the hot path pays one `snapshotCaptureActive`
+    // read. +120 B minified in the retained core (same +120 in every
+    // scenario below). Store engine, solid, web: 0 B.
+    limit: "9.82 KB",
     modifyEsbuildConfig
   },
   {
@@ -695,7 +704,13 @@ module.exports = [
     // `finally` re-derives on a hit, masks otherwise (the pre-existing
     // mask-after ordering). The mask is asked per leaf so the discriminator
     // does not live in `setSignal`, which async landings also call.
-    limit: "17.10 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 17.10 -> 17.15
+    // KB, measured at 17,135 B against `next`'s 17,037 (+98 B; 35 B over
+    // the cap). The signals core's `captureWriteSnapshot` arm behind
+    // `setSignal` (+120 B minified, see the core floor note). The store
+    // engine is byte-identical; the +66 B over the core floor's own delta
+    // is brotli layout over the larger bundle.
+    limit: "17.15 KB",
     modifyEsbuildConfig
   },
   {
@@ -879,7 +894,12 @@ module.exports = [
     // core's `heldDerivation` / `rederiveHeld` behind `setMemo` and the
     // mask-preserving post-pull wipe in updateIfNecessary (+150 B minified,
     // see the core floor note); the rest is mangler/brotli layout.
-    limit: "12.55 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 12.55 -> 12.58
+    // KB, measured at 12,569 B against `next`'s 12,539 (+30 B; 19 B over
+    // the cap). The signals core's `captureWriteSnapshot` arm behind
+    // `setSignal` (+120 B minified, see the core floor note). Nothing else
+    // retained here changed.
+    limit: "12.58 KB",
     modifyEsbuildConfig
   },
   {
@@ -1026,7 +1046,14 @@ module.exports = [
     // export sets changed (`ownerPath`/`diagnosticGuideUrl` off `solid-js`,
     // `setConsoleFooter` on `@solidjs/signals`), all of it tree-shaken here.
     // An independent gzip -9 of the two bundles: 13,868 vs 13,866. 0 B retained.
-    limit: "12.61 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 12.61 -> 12.67
+    // KB, measured at 12,655 B against `next`'s 12,592 (+63 B; 45 B over
+    // the cap). Per-module metafile: the signals core is the ONLY module
+    // that moved (+120 B minified, `captureWriteSnapshot` behind
+    // `setSignal`, see the core floor note); the 153 B of solid.js and the
+    // whole of web.js retained here are byte-identical. The per-scope
+    // takeover in solid's hydration wrappers is not reached from `render`.
+    limit: "12.67 KB",
     modifyEsbuildConfig
   },
   {
@@ -1279,7 +1306,23 @@ module.exports = [
     // KB, measured at 21,055 B against `next`'s 20,986 (+69 B). The signals
     // core's `heldDerivation` / `rederiveHeld` behind `setMemo` (+150 B
     // minified, see the core floor note). 0 B in solid and web.
-    limit: "21.10 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 21.10 -> 21.32
+    // KB, measured at 21,308 B against `next`'s 21,067 (+241 B; 208 B over
+    // the cap). +710 B minified, two modules: solid.js +590 (14,133 ->
+    // 14,723) and the signals core +120 (see the core floor note). The
+    // solid bytes are the hydration wrappers' per-scope live takeover
+    // (`readSerializedOrCompute` → `takeOver`): the one page-wide
+    // `liveGate` becomes a gate per open snapshot scope (`openScopes`,
+    // `liveGates`, `nodeGate`, `liveScopeOf`; `openLiveScope` /
+    // `releaseLiveScope` beside `markSnapshotScope` / `releaseSnapshotScope`
+    // at the root pass and each boundary's resume window), the takeover run
+    // stamps a live answer with the adopted value (`LIVE_RESUME_FROM`), and
+    // `subFetch`'s trace pulls only an iterator that is its own iterable
+    // (`it === result`, #3647). Retained by `hydrate` whether or not the app
+    // has a live source — the wrappers are one module. web.js 0 B (its
+    // changes are server-side: `shareAsyncIterable` seats, frame slot
+    // taps, `Loading` `on` ids).
+    limit: "21.32 KB",
     modifyEsbuildConfig
   },
   {
@@ -1592,7 +1635,13 @@ module.exports = [
     // core's `setMemo` arm (+150 B minified, see the core floor note) and
     // the store engine's `derivedStoreWrite` wrap on the derived setter (see
     // the + createStore note). 0 B in solid or web.
-    limit: "31.40 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 31.40 -> 31.55
+    // KB, measured at 31,532 B against `next`'s 31,382 (+150 B; 132 B over
+    // the cap). The same +710 B minified as the no-stores entry — solid.js
+    // +590 (14,435 -> 15,025, the per-scope live takeover) and the signals
+    // core +120 (`captureWriteSnapshot`) — compressing to 91 B less here
+    // over the larger bundle. Store engine, web: byte-identical.
+    limit: "31.55 KB",
     modifyEsbuildConfig
   },
   {
@@ -1765,7 +1814,12 @@ module.exports = [
     // cap). The signals core's `heldDerivation` / `rederiveHeld` behind
     // `setMemo` (+150 B minified, see the core floor note). 0 B in solid and
     // web.
-    limit: "15.90 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 15.90 -> 15.92
+    // KB, measured at 15,907 B against `next`'s 15,885 (+22 B; 7 B over the
+    // cap). The signals core's `captureWriteSnapshot` arm (+120 B minified,
+    // see the core floor note) and nothing else: the 1,302 B of solid.js
+    // `render` retains and all of web.js are byte-identical.
+    limit: "15.92 KB",
     modifyEsbuildConfig
   },
   {
@@ -1974,6 +2028,11 @@ module.exports = [
     // and `diagnostics.emit` hands each listener the subject as a second
     // argument in place of the removed `OBSERVE.subjectOf` lookup. Observe
     // only; prod scenarios byte-identical.
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): cap unchanged at
+    // 17.75 KB, measured at 17,737 B against `next`'s 17,684 (+53 B, 13 B
+    // under the cap). The observe core's `captureWriteSnapshot` arm (+120 B
+    // minified, the same bytes as prod); solid.observe.js and
+    // web.observe.js byte-identical. Not ratcheted: the cap still holds.
     limit: "17.75 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
@@ -2290,7 +2349,12 @@ module.exports = [
     // ? "full" : "none"` — this artifact ships the literal `"none"`). A
     // deliberate feature: the level is what an observe-tier holder relies
     // on for its export contract.
-    limit: "31.81 KB",
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 31.81 -> 31.84
+    // KB, measured at 31,821 B against `next`'s 31,785 (+36 B; 11 B over
+    // the cap). The observe core's `captureWriteSnapshot` arm (+120 B
+    // minified, see the core floor note); the attribution engine,
+    // solid.observe.js and web.observe.js are byte-identical.
+    limit: "31.84 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2355,8 +2419,27 @@ module.exports = [
     // transports carries one copy instead of two — the growth is this
     // scenario's accounting, not the app's. The `consumer`/`codec` handler
     // hooks and their defaults left with it.
+    //
+    // Stage 8 Phase A live transport (#3653, 2026-09-25): 11.50 -> 11.67 KB,
+    // measured at 11,651 B against `next`'s 11,484 (+167 B; 151 B over the
+    // cap). +316 B minified, all of it in the slice of the server-function
+    // transport this bundle retains (3,845 -> 4,161); the frames client is
+    // byte-identical. The bytes are `deserializeStream`, which the frames
+    // transport reads bodies through: the reader is now chosen off the
+    // content type when a live loop's wire slot is present
+    // (`isEventStream`), and the body's end is reported to that slot as a
+    // lifetime signal (`connection.ended`, the `end` closure with the
+    // decoder's `open()` count, `sweep` and `close`) instead of swept
+    // outright. The `live` loop itself, `EventStreamReader`,
+    // `positionDigest`, the live address and the dev HTTP/1.1 warning are
+    // NOT retained — `live` is what carries them (`wire.open` installs the
+    // reader) — verified on the bundle text. What this scenario pays is the
+    // live-aware branch inside the shared decode path, with `wire`
+    // undefined here; a consumer that never imports `live` still carries
+    // it. Dev-only pieces (the chaos knob is server-side; the HTTP/1.1
+    // warning is behind `IS_DEV`) are 0 B in this artifact.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "11.50 KB",
+    limit: "11.67 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];

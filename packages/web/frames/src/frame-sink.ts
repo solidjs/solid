@@ -46,7 +46,8 @@ import {
   runInServerComponentScope,
   ssrHandleError,
   ssrSanitizeError,
-  creationStamp
+  creationStamp,
+  shareAsyncIterable
 } from "solid-js/internal";
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
@@ -140,7 +141,7 @@ import {
   CLAIMS_DOCUMENT
 } from "../../src/server.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
-import { envelopeContainerTraces, isContainerTraced } from "./frame-container-plugin.js";
+import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
 import {
   ChunkReader,
   createChunk,
@@ -743,36 +744,24 @@ function isAsyncValue(v) {
 }
 
 /**
- * One cursor, two consumers (document face): pull the iterable's first step
- * for the inline read, and mint a replay wrapper for the record — it
- * re-yields that step before delegating to the live cursor, so the adopted
- * client sees the complete sequence. The same tap shape the reactive core
- * uses to share an iterator between a memo's value and its serialization.
+ * One source, two consumers (document face): the inline read wants the
+ * iterable's first step, the record wants every step — and the server
+ * component may be reading the same source itself. Two seats on the
+ * runtime's shared multicast of it (`shareAsyncIterable`): the record's,
+ * reserved first; the read's, which takes one value and leaves. The seat
+ * the record ships replays from its reservation, so the adopted client
+ * sees the complete sequence.
  */
 function tapFirstYield(iterable) {
-  const iter = iterable[Symbol.asyncIterator]();
+  const rest = shareAsyncIterable(iterable);
+  const iter = shareAsyncIterable(iterable)[Symbol.asyncIterator]();
   // Normalized: protocol-loose producers may return a bare IteratorResult
   // when a value is already buffered (seroval's deserialized streams do).
-  const firstStep = Promise.resolve(iter.next());
-  return {
-    first: firstStep.then(r => (r.done ? undefined : r.value)),
-    rest: {
-      [Symbol.asyncIterator]() {
-        let replayed = false;
-        return {
-          next: () => {
-            if (!replayed) {
-              replayed = true;
-              return firstStep;
-            }
-            return iter.next();
-          },
-          return: v => (iter.return ? iter.return(v) : Promise.resolve({ done: true, value: v })),
-          throw: e => (iter.throw ? iter.throw(e) : Promise.reject(e))
-        };
-      }
-    }
-  };
+  const first = Promise.resolve(iter.next()).then(r => {
+    if (!r.done) iter.return?.();
+    return r.done ? undefined : r.value;
+  });
+  return { first, rest };
 }
 
 /**
@@ -1028,13 +1017,14 @@ export function createDocumentSlotProps(clientProps, frameId) {
               // there and the document's data scripts stream its resolution,
               // exactly as before.
               //
-              // An async ITERABLE has one cursor and two consumers (this
-              // read wants the first yield; the record's serialization wants
-              // every yield), so it is tapped: the read settles on the first
-              // yield — markup is the V1 snapshot, later yields are the
-              // adopted client's story — and the record ships a replay
-              // wrapper that re-yields it before delegating, so the client
-              // still sees the full sequence.
+              // An async ITERABLE has two consumers here (this read wants
+              // the first yield; the record's serialization wants every
+              // yield) and possibly a third — the server component reading
+              // the same source — so each takes a seat on the runtime's
+              // shared multicast of it: the read settles on the first yield
+              // — markup is the V1 snapshot, later yields are the adopted
+              // client's story — and the record's seat carries the full
+              // sequence.
               let readable = value;
               if (typeof value.then !== "function") {
                 const { first, rest } = tapFirstYield(value);
@@ -1081,7 +1071,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
               if (!isContainerTraced(value) && isServerContent(value)) continue;
               // Containers (at any depth) ride the record as trace envelopes;
               // everything else passes through by reference.
-              args[key] = envelopeContainerTraces(value);
+              args[key] = toBorderForm(value, true);
             }
             // A CLONE serializes; `args` stays canonical for the ledger
             // below — re-emissions mutate it and clone again, so the
@@ -1123,7 +1113,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   evals[key],
                   states[key],
                   value => {
-                    args[key] = envelopeContainerTraces(value);
+                    args[key] = toBorderForm(value, true);
                     liveArgs.slot(frameId, occurrence, { ...args });
                   }
                 );
@@ -1754,8 +1744,8 @@ export function createSlotProps(sink, frame) {
               } else {
                 const ref = `arg:${occurrence}:${key}`;
                 // Containers (at any depth) swap for their trace envelopes
-                // before the value meets seroval — see envelopeContainerTraces.
-                ctx.serialize(ref, envelopeContainerTraces(value));
+                // before the value meets seroval — see toBorderForm.
+                ctx.serialize(ref, toBorderForm(value, true));
                 args[key] = { $ref: ref };
                 if (evaluate && !state) state = { settled: true, last: value };
               }
@@ -1785,7 +1775,7 @@ export function createSlotProps(sink, frame) {
               } else {
                 const ref = `arg:${occurrence}:${key}@${sink.nextArgRef(ledgerKey)}`;
                 sink.mintRef(ref);
-                ctx.serialize(ref, envelopeContainerTraces(value));
+                ctx.serialize(ref, toBorderForm(value, true));
                 args[key] = { $ref: ref };
               }
               sink.slot(occurrence, { ...args });

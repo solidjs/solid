@@ -2302,11 +2302,13 @@ describe("live-branded sources — automatic takeover", () => {
     expect(projection.value).toBe("server-projection");
     expect(store.value).toBe("server-store");
     expect(optimistic.value).toBe("server-optimistic");
-    // The adoption trace opens each source under mocked transport so it can
-    // discover dependencies and the live brand without network activity.
-    expect(projectionConnections.count).toBe(1);
-    expect(storeConnections.count).toBe(1);
-    expect(optimisticConnections.count).toBe(1);
+    // The adoption trace runs each compute under mocked transport to
+    // discover dependencies and the live brand; the iterable the call
+    // returns is already built, so the trace does not open an iteration of
+    // it — no connection, mocked or otherwise, until the takeover.
+    expect(projectionConnections.count).toBe(0);
+    expect(storeConnections.count).toBe(0);
+    expect(optimisticConnections.count).toBe(0);
 
     stopHydration();
     flush();
@@ -2316,9 +2318,179 @@ describe("live-branded sources — automatic takeover", () => {
     expect(projection.value).toBe("live-projection");
     expect(store.value).toBe("live-store");
     expect(optimistic.value).toBe("live-optimistic");
-    expect(projectionConnections.count).toBe(2);
-    expect(storeConnections.count).toBe(2);
-    expect(optimisticConnections.count).toBe(2);
+    expect(projectionConnections.count).toBe(1);
+    expect(storeConnections.count).toBe(1);
+    expect(optimisticConnections.count).toBe(1);
+  });
+
+  // The document-face nested-answer shape (examples/room, the room card): a
+  // memo adopts an object whose property is a deserialized STREAM — the
+  // codec's async-iterable adapter, which mints a resolver through the
+  // global `Promise` on every pull — and a child memo reads that property.
+  // The child's adoption trace runs its compute under the trace mocks; the
+  // compute returns the adapter, which is DATA already built, not a
+  // generator body waiting to run. Pulling it under the mocked Promise
+  // corrupted its queue (a resolver whose executor never ran), and the next
+  // streamed value threw `temp.s is not a function` from the document's
+  // inline script. The trace must leave foreign iterables alone.
+  test("the adoption trace does not pull an iterable it did not construct (a deserialized stream)", async () => {
+    // A codec-style adapter: iterating hands back a per-iteration instance
+    // whose `next()` builds its resolver with `new Promise` at PULL time.
+    const buffer: any[] = [];
+    const pending: { s: (r: any) => void }[] = [];
+    const adapter = {
+      [Symbol.asyncIterator]() {
+        let count = 0;
+        const instance = {
+          [Symbol.asyncIterator]: () => instance,
+          next() {
+            if (count < buffer.length) return { done: false, value: buffer[count++] };
+            count++;
+            const resolver: any = { p: 0, s: 0 };
+            resolver.p = new Promise(resolve => (resolver.s = resolve));
+            pending.push(resolver);
+            return resolver.p;
+          }
+        };
+        return instance;
+      }
+    };
+    const push = (value: any) => {
+      const temp = pending.shift();
+      if (temp) temp.s({ done: false, value });
+      buffer.push(value);
+    };
+    // t0: the parent memo's settled value; t1: the child memo's own
+    // serialized channel (the server's tap of the same stream), so the
+    // child takes the async-iterable adoption path — the one that traces.
+    startHydration({
+      t0: { v: { activity: adapter }, s: 1 },
+      t1: createBufferedAsyncIterable([{ tick: 1 }])
+    });
+
+    let activity: any;
+    createRoot(
+      () => {
+        const card = createMemo(() => ({ activity: null }) as any);
+        activity = createMemo(() => card().activity);
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(activity()).toEqual({ tick: 1 });
+    // Nothing pulled the adapter during adoption: its queue is empty.
+    expect(pending.length).toBe(0);
+
+    // A real reader (the serializer's client-side twin, or a later
+    // consumer) pulls, and the next streamed value reaches it — with a
+    // dead resolver ahead of it in the queue, `push` threw instead.
+    const read = adapter[Symbol.asyncIterator]().next();
+    expect(() => push({ tick: 2 })).not.toThrow();
+    await expect(read).resolves.toEqual({ done: false, value: { tick: 2 } });
+  });
+
+  // #3647 (the router's `liveQuery`): a compute returns a foreign iterable
+  // whose `[Symbol.asyncIterator]()` IS the connection — it subscribes as a
+  // side effect and hands back a fresh iterator (the iterable itself has no
+  // `next`). Pulled under the trace's mocked fetch, that subscription was
+  // made against a promise that never settles, and the source never
+  // connected after hydration. The trace must not open it at all.
+  test("the adoption trace does not open a foreign iterable whose iterator() connects", async () => {
+    let connects = 0;
+    let pulls = 0;
+    const source = {
+      [Symbol.asyncIterator]() {
+        connects++;
+        return {
+          next: () => {
+            pulls++;
+            return fetch("/subscribe").then(() => ({ done: false, value: "live" }));
+          },
+          return: (v?: any) => Promise.resolve({ done: true, value: v })
+        };
+      }
+    };
+    startHydration({ t0: createBufferedAsyncIterable(["server"]) });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => source as any);
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server");
+    // Nothing touched the source during adoption: no subscription, no pull.
+    expect(connects).toBe(0);
+    expect(pulls).toBe(0);
+  });
+
+  // The shell node's takeover with a first value that only lands after a
+  // real network round-trip (not synchronously, as makeLiveSource yields).
+  // The takeover opens the ONE iteration; the adopted value serves until the
+  // yield arrives, then the memo (and an effect over it) sees the live value
+  // exactly once. This is the shape the room demo's presence panel exercised
+  // — a regression guard that the trace no longer opens a mock connection and
+  // that the single takeover iteration delivers.
+  test("shell takeover delivers a first value that lands after a network gap", async () => {
+    const connections = { count: 0 };
+    const LIVE_ = Symbol.for("solid.LiveSource");
+    const source = {
+      [LIVE_]: true,
+      [Symbol.asyncIterator]() {
+        connections.count++;
+        let sent = false;
+        return {
+          next: () =>
+            new Promise<any>(resolve => {
+              if (!sent) {
+                sent = true;
+                setTimeout(() => resolve({ done: false, value: "live-current" }), 30);
+              }
+            }),
+          return: (v?: any) => Promise.resolve({ done: true, value: v })
+        };
+      }
+    };
+    let result: any;
+    const seen: any[] = [];
+    const slow = makeLoadingPromise();
+    const uninstall = installHY({ t0: slow.promise });
+    stopHydration();
+    startHydration({ t0: slow.promise, t1: { v: "server-current", s: 1 } });
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "content" as any;
+          }
+        });
+        result = createMemo(() => source as any);
+        createEffect(
+          () => result(),
+          v => {
+            seen.push(v);
+          }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server-current");
+    sharedConfig.hydrating = false;
+    flush();
+    expect(sharedConfig.done).toBe(false);
+    await new Promise(r => setTimeout(r, 100));
+    flush();
+    expect(connections.count).toBe(1);
+    expect(result()).toBe("live-current");
+    expect(seen).toEqual(["server-current", "live-current"]);
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    uninstall();
   });
 
   test("unbranded computes keep adopt-and-latch semantics — no takeover", async () => {
@@ -2346,6 +2518,207 @@ describe("live-branded sources — automatic takeover", () => {
     // Still the adopted value: nothing armed a post-hydration recompute.
     expect(result()).toBe("server-value");
     expect(computeRuns).toBe(runsDuringHydration);
+  });
+
+  test("the takeover run tells the live answer where to resume from: the adopted value", async () => {
+    startHydration({ t0: { v: "server-current", s: 1 } });
+
+    const connections = { count: 0 };
+    const iterables: any[] = [];
+    createRoot(
+      () => {
+        createMemo(() => {
+          const iterable = makeLiveSource("live-current", connections);
+          iterables.push(iterable);
+          return iterable as any;
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    // the trace run's iterable is not a takeover: nothing to resume from
+    expect(iterables).toHaveLength(1);
+    expect(iterables[0][Symbol.for("solid.LiveResumeFrom")]).toBeUndefined();
+
+    stopHydration();
+    flush();
+    // the takeover run's iterable carries the value the page was served
+    // with — the transport digests it into its first connection's position
+    expect(iterables).toHaveLength(2);
+    expect(iterables[1][Symbol.for("solid.LiveResumeFrom")]).toBe("server-current");
+  });
+
+  // --- per-scope takeover (D8) ------------------------------------------
+  //
+  // The gate a live node reads belongs to the hydration scope that created
+  // it — the root pass, or the boundary whose resume window it hydrated in
+  // — and flips when THAT scope releases, not when the whole page has
+  // hydrated. The Loading boundaries below hold a serialized promise the
+  // test resolves by hand; the id scheme is the pipeline suite's (Loading
+  // memo "t0", its children's primitive "t0000").
+
+  function makeLoadingPromise() {
+    let resolve!: () => void;
+    const p: any = new Promise<void>(r => {
+      resolve = () => {
+        p.s = 1;
+        p.v = true;
+        r();
+      };
+    });
+    return { promise: p, resolve };
+  }
+
+  function installHY(r: Record<string, any>) {
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r,
+      events: [],
+      completed: new WeakSet()
+    };
+    return () => {
+      delete (globalThis as any)._$HY;
+    };
+  }
+
+  test("a live node in the shell reconnects when the root pass ends, before a slow boundary lands", async () => {
+    const slow = makeLoadingPromise();
+    const uninstall = installHY({ t0: slow.promise });
+    startHydration({ t0: slow.promise, t1: { v: "server-current", s: 1 } });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "content" as any;
+          }
+        });
+        result = createMemo(() => makeLiveSource("live-current", connections) as any);
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("server-current");
+
+    // the root pass is over (the serialized data stays reachable for the
+    // boundary, as in a real page); the boundary is still pending, so
+    // hydration as a whole is not done
+    sharedConfig.hydrating = false;
+    flush();
+    expect(sharedConfig.done).toBe(false);
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    // ...and the shell node has reconnected regardless (the takeover's
+    // iteration is the first: the adoption trace opens none)
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(1);
+
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    expect(connections.count).toBe(1); // no second takeover at hydration end
+    uninstall();
+  });
+
+  test("a live node under a boundary reconnects when that boundary hydrates, not when the page does", async () => {
+    const boundary = makeLoadingPromise();
+    const other = makeLoadingPromise(); // never resolved: the page stays un-done
+    const uninstall = installHY({ t0: boundary.promise, t1: other.promise });
+    startHydration({
+      t0: boundary.promise,
+      t0000: { v: "server-current", s: 1 },
+      t1: other.promise
+    });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            result = createMemo(() => makeLiveSource("live-current", connections) as any);
+            return (() => result()) as any;
+          }
+        });
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "never" as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    sharedConfig.hydrating = false; // the root pass is over
+    flush();
+    expect(result).toBeUndefined(); // the boundary's content has not hydrated yet
+
+    boundary.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    // the boundary resumed: its content adopted the server value and took
+    // over as soon as its own window closed — the other boundary is still
+    // pending, so page-wide hydration has not ended
+    expect(sharedConfig.done).toBe(false);
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(1);
+
+    // let the page finish (the pending count spans roots — leave none behind)
+    other.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    expect(connections.count).toBe(1); // no second takeover at hydration end
+    uninstall();
+  });
+
+  test("a later hydration pass (islands) arms its own takeover", async () => {
+    // pass one
+    startHydration({ t0: { v: "server-one", s: 1 } });
+    const one = { count: 0 };
+    let first: any;
+    createRoot(
+      () => {
+        first = createMemo(() => makeLiveSource("live-one", one) as any);
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(first()).toBe("live-one");
+    expect(sharedConfig.done).toBe(true);
+
+    // pass two: a fresh root, hydrating again
+    startHydration({ u0: { v: "server-two", s: 1 } });
+    const two = { count: 0 };
+    let second: any;
+    createRoot(
+      () => {
+        second = createMemo(() => makeLiveSource("live-two", two) as any);
+      },
+      { id: "u" }
+    );
+    flush();
+    expect(second()).toBe("server-two");
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(second()).toBe("live-two");
+    expect(two.count).toBe(1);
+    // the first pass's node was not disturbed by the second pass
+    expect(first()).toBe("live-one");
+    expect(one.count).toBe(1);
   });
 });
 

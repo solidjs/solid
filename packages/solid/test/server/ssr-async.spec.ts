@@ -16,7 +16,7 @@ import {
 import { ssrHandleError } from "../../src/server/hydration.js";
 import { Loading } from "../../src/server/flow.js";
 import { sharedConfig } from "../../src/server/shared.js";
-import { createErrorBoundary } from "../../src/server/signals.js";
+import { createErrorBoundary, shareAsyncIterable } from "../../src/server/signals.js";
 
 // ============================================================================
 // Mock SSR Context Infrastructure
@@ -5772,5 +5772,229 @@ describe("Promise-of-AsyncIterable flattening", () => {
     );
     expect(third()).toBe("v1");
     expect(stream.openCalls).toBe(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // Shared sources: one generator, every reader (shareAsyncIterable)
+  // --------------------------------------------------------------------------
+  //
+  // A generator yields to ONE reader. Under a render the serializer pumping
+  // a memo's answer and a memo reading a source inside it (or two memos over
+  // one source) would split its values between them, so every iterable read
+  // the runtime makes goes through a seat on a shared multicast: one pump,
+  // the whole sequence for every seat, the last seat out closes the source.
+  // The border walk in @solidjs/web hands the serializer its seat
+  // (`toBorderForm`); these tests cover the runtime half.
+
+  describe("shared sources", () => {
+    const LIVE = Symbol.for("solid.LiveSource");
+
+    async function drain(iterable: AsyncIterable<any>) {
+      const out: any[] = [];
+      for await (const v of iterable) out.push(v);
+      return out;
+    }
+
+    test("every seat sees the whole sequence; the source is opened and pumped once", async () => {
+      const stream = controlledStream<string>();
+      const a = drain(shareAsyncIterable(stream.iterable));
+      const b = drain(shareAsyncIterable(stream.iterable));
+      stream.yield("v1");
+      stream.yield("v2");
+      stream.end();
+      expect(await a).toEqual(["v1", "v2"]);
+      expect(await b).toEqual(["v1", "v2"]);
+      expect(stream.openCalls).toBe(1);
+      // completion, not a close: nothing to return
+      expect(stream.returnCalls).toBe(0);
+    });
+
+    test("a seat joining mid-stream starts where the slowest open seat is", async () => {
+      const stream = controlledStream<string>();
+      const a = shareAsyncIterable(stream.iterable)[Symbol.asyncIterator]();
+      const firstA = a.next();
+      stream.yield("v1");
+      expect((await firstA).value).toBe("v1");
+      // a has passed v1 and nobody else holds it: the log is trimmed to the
+      // slowest open seat, so a late seat starts after it
+      const late = drain(shareAsyncIterable(stream.iterable));
+      stream.yield("v2");
+      stream.end();
+      expect((await a.next()).value).toBe("v2");
+      expect(await late).toEqual(["v2"]);
+    });
+
+    test("the last seat out closes the source; a seat leaving early does not", async () => {
+      const stream = controlledStream<string>();
+      const early = shareAsyncIterable(stream.iterable)[Symbol.asyncIterator]();
+      const reader = shareAsyncIterable(stream.iterable)[Symbol.asyncIterator]();
+      const firstEarly = early.next();
+      const firstReader = reader.next();
+      stream.yield("v1");
+      expect((await firstEarly).value).toBe("v1");
+      expect((await firstReader).value).toBe("v1");
+      await early.return!();
+      // the reader still holds the source open
+      expect(stream.returnCalls).toBe(0);
+      const second = reader.next();
+      stream.yield("v2");
+      expect((await second).value).toBe("v2");
+      await reader.return!();
+      expect(stream.returnCalls).toBe(1);
+      // a seat opened after the close sees what remains, then done
+      expect(await drain(shareAsyncIterable(stream.iterable))).toEqual([]);
+      expect(stream.openCalls).toBe(1);
+    });
+
+    test("a seat is reserved when handed out, before it is pulled", async () => {
+      const stream = controlledStream<string>();
+      const reader = shareAsyncIterable(stream.iterable)[Symbol.asyncIterator]();
+      // handed out (as the border walk does for the serializer) but not yet
+      // iterated: it must hold its place against the reader leaving
+      const reserved = shareAsyncIterable(stream.iterable);
+      const first = reader.next();
+      stream.yield("v1");
+      expect((await first).value).toBe("v1");
+      await reader.return!();
+      expect(stream.returnCalls).toBe(0);
+      const rest = drain(reserved);
+      stream.yield("v2");
+      stream.end();
+      expect(await rest).toEqual(["v1", "v2"]);
+    });
+
+    test("a failure is replayed to each seat once, after the values before it", async () => {
+      let opens = 0;
+      const failing: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => {
+          opens++;
+          let n = 0;
+          return {
+            next: () =>
+              n++ === 0
+                ? Promise.resolve({ done: false, value: "v1" })
+                : Promise.reject(new Error("stream boom"))
+          };
+        }
+      };
+      const results = await Promise.all(
+        [0, 1].map(async () => {
+          const seen: string[] = [];
+          try {
+            for await (const v of shareAsyncIterable(failing)) seen.push(v);
+          } catch (e: any) {
+            seen.push("!" + e.message);
+          }
+          return seen;
+        })
+      );
+      expect(results).toEqual([
+        ["v1", "!stream boom"],
+        ["v1", "!stream boom"]
+      ]);
+      expect(opens).toBe(1);
+    });
+
+    test("a seat handed back in is returned as is; the live brand carries over", () => {
+      const stream = controlledStream<string>();
+      (stream.iterable as any)[LIVE] = true;
+      const seat = shareAsyncIterable(stream.iterable);
+      expect(shareAsyncIterable(seat)).toBe(seat);
+      expect((seat as any)[LIVE]).toBe(true);
+      expect(stream.openCalls).toBe(0);
+    });
+
+    test("two memos over one source both read V1 and both channels carry the sequence", async () => {
+      const { context, serialized } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const stream = controlledStream<string>();
+      const answer = { progress: stream.iterable };
+      let parent: any;
+      let a: any;
+      let b: any;
+      createRoot(
+        () => {
+          parent = createMemo(() => Promise.resolve(answer) as any);
+          a = createMemo(() => parent().progress);
+          b = createMemo(() => parent().progress);
+        },
+        { id: "t" }
+      );
+      await tick();
+      expect(() => a()).toThrow(NotReadyError);
+      expect(() => b()).toThrow(NotReadyError);
+      stream.yield("v1");
+      await tick();
+      expect(a()).toBe("v1");
+      expect(b()).toBe("v1");
+      expect(stream.openCalls).toBe(1);
+      // the two serialized channels (the parent's is the answer itself —
+      // the border walk is the web face's) each carry every yield
+      const channels = [...serialized.entries()]
+        .filter(([key]) => key !== "t0")
+        .map(([, value]) => value);
+      expect(channels).toHaveLength(2);
+      const drained = channels.map(c => drain(c));
+      stream.yield("v2");
+      stream.end();
+      expect(await Promise.all(drained)).toEqual([
+        ["v1", "v2"],
+        ["v1", "v2"]
+      ]);
+    });
+
+    test("a hybrid read leaves its seat after V1 without closing a source another reader holds", async () => {
+      const { context, serialized } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const stream = controlledStream<string>();
+      (stream.iterable as any)[LIVE] = true; // brand: hybrid under server mode
+      const answer = { progress: stream.iterable };
+      let parent: any;
+      let child: any;
+      createRoot(
+        () => {
+          parent = createMemo(() => Promise.resolve(answer) as any);
+          child = createMemo(() => parent().progress);
+        },
+        { id: "t" }
+      );
+      // the serializer's seat, as the border walk would reserve it
+      await tick();
+      const seat = shareAsyncIterable(parent().progress);
+      stream.yield("v1");
+      await tick();
+      expect(child()).toBe("v1");
+      // the child left; the seat holds the source open
+      expect(stream.returnCalls).toBe(0);
+      const rest = drain(seat);
+      stream.yield("v2");
+      stream.end();
+      expect(await rest).toEqual(["v1", "v2"]);
+      expect(stream.openCalls).toBe(1);
+      expect(await [...serialized.values()][1]).toBe("v1");
+    });
+
+    test("a hybrid read alone closes the source after V1", async () => {
+      const { context } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const stream = controlledStream<string>();
+      (stream.iterable as any)[LIVE] = true;
+      let read: any;
+      createRoot(
+        () => {
+          read = createMemo(() => Promise.resolve(stream.iterable) as any);
+        },
+        { id: "t" }
+      );
+      await tick();
+      stream.yield("v1");
+      await tick();
+      expect(read()).toBe("v1");
+      expect(stream.openCalls).toBe(1);
+      expect(stream.returnCalls).toBe(1);
+    });
   });
 });

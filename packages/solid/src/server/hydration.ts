@@ -60,18 +60,24 @@ export function createLoadingBoundary<T, U>(
 ): Accessor<T | U> {
   const currentCtx = sharedConfig.context;
   if (!currentCtx) {
-    return coreLoadingBoundary(fn, fallback);
+    return coreLoadingBoundary(fn, fallback, options);
   }
   // Under an SSR context the accessor yields resolved template fragments, not
   // T/U — the declared signature is the isomorphic contract the renderer and
   // client share; the SSR plumbing below is cast to it.
-  return ssrLoadingBoundary(currentCtx, fn, fallback) as unknown as Accessor<T | U>;
+  return ssrLoadingBoundary(
+    currentCtx,
+    fn,
+    fallback,
+    options?.on !== undefined
+  ) as unknown as Accessor<T | U>;
 }
 
 function ssrLoadingBoundary(
   currentCtx: HydrationContext,
   fn: () => any,
-  fallback: () => any
+  fallback: () => any,
+  hasOn: boolean
 ): () => unknown {
   const ctx = currentCtx;
   const parent = getOwner();
@@ -90,7 +96,16 @@ function ssrLoadingBoundary(
   if (revealGroup) setContext(RevealGroupContext, null, o);
   // The boundary's own, just-created owner — never a swapped hole scope.
   const id = ownerId(o)!;
-  (o as any).id = id + "00"; // fake depth to match client's createLoadingBoundary nesting
+  // Fake depth to match the client's createLoadingBoundary nesting: the
+  // hydrating memo (id) → the boundary owner (id0) → the content computed
+  // (id00), followed by its flatten sibling (id01, see resolveIn). With `on`,
+  // the client creates the dependency node under the owner FIRST
+  // (boundaries.ts onNode), so both shift by one child: id01 and id02. A
+  // render never re-arms, so the server creates no node for `on` and only
+  // accounts for its id.
+  const contentId = id + (hasOn ? "01" : "00");
+  const flattenId = id + (hasOn ? "02" : "01");
+  (o as any).id = contentId;
 
   let done: ((value?: string, error?: any) => boolean) | undefined;
   let handledRenderError: any;
@@ -389,13 +404,13 @@ function ssrLoadingBoundary(
   let resolveCount = 0;
   function resolveIn<T>(run: () => T): T {
     const prevCount = (o as any)._childCount;
-    (o as any).id = id + "01";
+    (o as any).id = flattenId;
     (o as any)._childCount = resolveCount;
     try {
       return run();
     } finally {
       resolveCount = (o as any)._childCount;
-      (o as any).id = id + "00";
+      (o as any).id = contentId;
       (o as any)._childCount = prevCount;
     }
   }

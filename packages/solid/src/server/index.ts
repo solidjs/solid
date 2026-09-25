@@ -143,6 +143,7 @@ export {
   runInServerComponentScope,
   inServerComponentScope,
   getProjectionTrace,
+  shareAsyncIterable,
   ssrSanitizeError,
   reportServerError
 } from "./signals.js";

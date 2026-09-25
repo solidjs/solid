@@ -1,0 +1,25 @@
+{
+  "name": "room-example",
+  "description": "A shared room over live server functions: presence and the transcript are standing answers each tab holds open as one event-stream response, the room card is a nested-async answer that lives as long as its response, and a chaos switch kills the connections so the reconnect path is visible",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/router": "2.0.0-next.29",
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.35",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "vite": "^8.0.0"
+  }
+}

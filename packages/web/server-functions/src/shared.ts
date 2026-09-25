@@ -38,6 +38,7 @@
 // import site of the shared wire layer keeps working.
 import { getServerFunctionMetadata, isServerFunction } from "./registry.js";
 export {
+  LIVE_RESUME_FROM,
   LIVE_SOURCE,
   SERVER_FUNCTION_INVOKE,
   SERVER_FUNCTION_METADATA,
@@ -551,9 +552,32 @@ export function serverFunctionDataAddress(endpoint, id) {
   const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
   return `${mount}/data/${encodeURIComponent(id)}`;
 } /**
- * Reads an address built by `serverFunctionAddress` or
- * `serverFunctionDataAddress` back into its id and caller kind (`data` names
- * the shape the caller addressed, and with it the shape of the answer). A
+ * The wire address of a live call: `<endpoint>/live/<id>`.
+ *
+ * The third caller kind. A `live` loop reads the same codec stream a
+ * scripted call would, framed as server-sent events so buffering
+ * middleboxes pass it through unbuffered — a third answer shape, so a third
+ * path, by the rule that gives the data address its own (#3094: caches key
+ * on the url; #3406: a read carries no header of the transport's own that
+ * could select the shape instead). Only the loop calls it, and the answer
+ * is `no-store` — nothing preloads or caches a live address, which is what
+ * lets the loop's position ride as a request header (`Last-Event-ID`)
+ * rather than an argument.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function serverFunctionLiveAddress(endpoint: string, id: string): string;
+
+/** Builds the wire address of a live call: `<endpoint>/live/<id>`. */
+export function serverFunctionLiveAddress(endpoint, id) {
+  const mount = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+  return `${mount}/live/${encodeURIComponent(id)}`;
+} /**
+ * Reads an address built by `serverFunctionAddress`,
+ * `serverFunctionDataAddress` or `serverFunctionLiveAddress` back into its
+ * id and caller kind (`data` and `live` name the shape the caller addressed,
+ * and with it the shape of the answer; a live address is scripted too). A
  * path carrying more segments than the addresses give meaning to — or an id
  * segment whose percent-encoding does not decode — answers `null` rather
  * than matching on its prefix: an address the runtime does not fully
@@ -565,7 +589,7 @@ export function serverFunctionDataAddress(endpoint, id) {
 export function parseServerFunctionAddress(
   pathname: string,
   endpoint: string
-): { id: string; data: boolean } | null;
+): { id: string; data: boolean; live: boolean } | null;
 
 /** Reads an address back into its id and caller kind. */
 export function parseServerFunctionAddress(pathname, endpoint) {
@@ -575,13 +599,17 @@ export function parseServerFunctionAddress(pathname, endpoint) {
   if (!rest.startsWith("/")) return null;
   let segment = rest.slice(1);
   let data = false;
+  let live = false;
   if (segment.startsWith("data/")) {
     segment = segment.slice(5);
     data = true;
+  } else if (segment.startsWith("live/")) {
+    segment = segment.slice(5);
+    live = true;
   }
   if (!segment || segment.includes("/")) return null;
   try {
-    return { id: decodeURIComponent(segment), data };
+    return { id: decodeURIComponent(segment), data, live };
   } catch {
     // an id segment whose percent-encoding does not decode is not an address
     return null;
@@ -769,6 +797,36 @@ export function decodeErrorHeaderValue(value) {
 
 /** Header carrying the body format tag (a `BodyFormat` value). */
 export const BODY_FORMAT_HEADER = "X-Server-Function-Format";
+
+/**
+ * The position a `live` loop reconnects from, on the request to a live
+ * address — the header `EventSource` sends for the same purpose, so a cursor
+ * source written against either reader reads one name. Its value is the
+ * `id:` of the last event the loop received: a cursor the source named, or
+ * the runtime's digest of a value-shaped yield (see `positionDigest`), which
+ * lets the server skip re-sending a first emission the client already
+ * holds. Rides only on the live address, which is `no-store` and never
+ * preloaded — a position must never become an argument, where it would
+ * change a read's url identity.
+ * @internal
+ */
+export const LAST_EVENT_ID_HEADER = "Last-Event-ID";
+
+/**
+ * Per-iteration slot the `live` loop threads through its invoke options
+ * (never a public option; process-local symbol): the reader records each
+ * event's `id:` in `position`, the next connect sends it back as
+ * `Last-Event-ID`, and the loop asks the reference for the LIVE address
+ * when this is present. `open` builds the event-stream reader — installed
+ * by `live()` itself, so a client that never imports `live` carries no
+ * event-stream parser (the `provideRPC` pattern). `connection` is the slot
+ * for the connection being made: the decoder sets `connection.ended`, a
+ * promise for the body's end carrying how many deferreds were still open
+ * (the lifetime signal — death or completion), the error the body ended
+ * with, and the sweep the loop may run over the open ones.
+ * @internal
+ */
+export const LIVE_WIRE = Symbol("solid.LiveWire");
 
 /**
  * Header labelling the unknown-id 404: the address was well-formed but its
@@ -1063,21 +1121,24 @@ export function getHeadersAndBody(body) {
  */
 export function extractBody(
   source: Request | Response,
-  codecOptions?: JSONCodecOptions
+  codecOptions?: JSONCodecOptions,
+  wire?: unknown
 ): Promise<unknown>;
 
 /**
  * Decodes a Request/Response body according to its format tag (falling back
  * to content-type sniffing for form posts that never saw the client
  * runtime). The inverse of `getHeadersAndBody` + the serialized stream.
+ * `wire` is the live loop's slot (see `LIVE_WIRE`), threaded through so a
+ * Serialized body framed as an event stream reads through its reader.
  */
-export async function extractBody(source, codecOptions) {
+export async function extractBody(source, codecOptions, wire) {
   const contentType = source.headers.get("content-type");
   const format = source.headers.get(BODY_FORMAT_HEADER);
 
   switch (true) {
     case format === BodyFormat.Serialized:
-      return await deserializeStream(source, codecOptions);
+      return await deserializeStream(source, codecOptions, wire);
     case format === BodyFormat.Json:
       return JSON.parse(await source.text());
     case format === BodyFormat.String:
@@ -1222,6 +1283,182 @@ export class ChunkReader {
   }
 }
 
+/**
+ * Frame one payload as a server-sent event — the framing a live address
+ * answers in. The same codec payloads `createChunk` frames ride one per
+ * event so buffering middleboxes, trained on `text/event-stream`, pass them
+ * through unbuffered; `id` (when given) rides as the event's `id:` field,
+ * which is what a reconnecting loop echoes back as `Last-Event-ID`.
+ *
+ * Payloads are `JSON.stringify` output and so carry no raw CR/LF, but the
+ * split is done regardless: a payload IS one `data:` line per line, and
+ * the reader joins them back with `\n`, so the framing is correct for any
+ * string rather than for the strings it happens to see.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export function createEventChunk(data: string, id?: string): Uint8Array;
+
+/** Frames one payload as a server-sent event (see the notes above). */
+export function createEventChunk(data, id) {
+  // An `id` may not carry U+0000 (the reader ignores one that does — the
+  // spec's rule); nothing else needs escaping — a field value runs to the
+  // end of its line, and the payload's lines were split above it.
+  let event = id !== undefined && !id.includes("\0") ? `id: ${id}\n` : "";
+  for (const line of data.split(/\r\n|\r|\n/)) event += `data: ${line}\n`;
+  return new TextEncoder().encode(event + "\n");
+}
+
+/**
+ * The heartbeat a live response writes while idle: an event-stream comment,
+ * invisible to the reader, that keeps proxies with idle timeouts from
+ * closing a connection that is merely waiting.
+ * @internal
+ */
+export const EVENT_STREAM_HEARTBEAT = new TextEncoder().encode(":\n\n");
+
+/**
+ * Whether a Request/Response body is framed as an event stream (by content
+ * type — the framing a live address answers in).
+ * @internal
+ */
+export function isEventStream(source: Request | Response): boolean;
+
+/** Whether a Request/Response body is framed as an event stream. */
+export function isEventStream(source) {
+  const contentType = source.headers.get("content-type");
+  return !!contentType && contentType.startsWith("text/event-stream");
+}
+
+/**
+ * The reader for what `createEventChunk` writes — `ChunkReader`'s
+ * counterpart for the event-stream framing, same `next()`/`drain()` shape
+ * so `deserializeStream` runs unchanged over either. Only `data:` and `id:`
+ * are read; `event:`, `retry:` and unknown fields are ignored (the
+ * transport carries one kind of event and owns its own backoff), comments
+ * are heartbeats. An event dispatches on its blank line; an event the body
+ * ends inside is discarded, as the spec says, and the drain's end-of-body
+ * sweep fails whatever it left open.
+ *
+ * Each dispatched event's `id:` is recorded on `wire.position` — the value
+ * the loop sends as `Last-Event-ID` on its next connect.
+ *
+ * Transport wire detail; not meant for hand-written code.
+ * @internal
+ */
+export class EventStreamReader {
+  constructor(stream, wire) {
+    this.reader = stream.getReader();
+    this.decoder = new TextDecoder();
+    this.wire = wire;
+    this.buffer = "";
+    this.done = false;
+    this.data = null; // lines of the event being assembled
+    this.id = undefined;
+  }
+
+  async read() {
+    const chunk = await this.reader.read();
+    if (chunk.done) {
+      this.done = true;
+      this.buffer += this.decoder.decode();
+    } else {
+      this.buffer += this.decoder.decode(chunk.value, { stream: true });
+    }
+  }
+
+  // The next complete line, or null when the buffer holds none. A line ends
+  // at CRLF, LF or CR; a CR at the very end of the buffer may be half of a
+  // CRLF split across network reads, so it waits for the next read (unless
+  // the body is done, when it is a whole terminator).
+  takeLine() {
+    const buffer = this.buffer;
+    const cr = buffer.indexOf("\r");
+    const lf = buffer.indexOf("\n");
+    const end = cr < 0 ? lf : lf < 0 ? cr : Math.min(cr, lf);
+    if (end < 0) return null;
+    let skip = 1;
+    if (buffer[end] === "\r") {
+      if (end + 1 === buffer.length) {
+        if (!this.done) return null;
+      } else if (buffer[end + 1] === "\n") skip = 2;
+    }
+    this.buffer = buffer.slice(end + skip);
+    return buffer.slice(0, end);
+  }
+
+  async next() {
+    while (true) {
+      const line = this.takeLine();
+      if (line === null) {
+        if (this.done) return { done: true, value: undefined };
+        await this.read();
+        continue;
+      }
+      if (line === "") {
+        // dispatch — an event with no data field is not an event
+        const data = this.data;
+        const id = this.id;
+        this.data = null;
+        this.id = undefined;
+        if (data === null) continue;
+        if (id !== undefined && this.wire) this.wire.position = id;
+        return { done: false, value: data.join("\n") };
+      }
+      if (line[0] === ":") continue; // comment (heartbeat)
+      const colon = line.indexOf(":");
+      const field = colon < 0 ? line : line.slice(0, colon);
+      let value = colon < 0 ? "" : line.slice(colon + 1);
+      if (value[0] === " ") value = value.slice(1);
+      if (field === "data") (this.data ??= []).push(value);
+      else if (field === "id" && !value.includes("\0")) this.id = value;
+    }
+  }
+
+  async drain(interpret) {
+    while (true) {
+      const result = await this.next();
+      if (result.done) {
+        break;
+      }
+      interpret(result.value);
+    }
+  }
+}
+
+/**
+ * The runtime's position for a value-shaped yield: a digest of the value's
+ * JSON form, carried as the event's `id:` and echoed back on reconnect so
+ * the server can skip re-sending a first emission the client already holds
+ * (the data-tier analog of a frame's hole digest). Over `JSON.stringify` of
+ * the VALUE, not over the codec record that carries it — a record's
+ * reference ids depend on what the stream sent before it, so the same value
+ * encodes differently on a fresh connection. `undefined` for a yield that
+ * is not JSON-safe: such a yield carries no id and is never skipped.
+ *
+ * FNV-1a in two 32-bit lanes (a second seed, not a 64-bit arithmetic that
+ * JavaScript lacks) → 16 hex characters. Not a security boundary: an equal
+ * digest only elides a re-send the client would have discarded as equal.
+ * @internal
+ */
+export function positionDigest(value: unknown): string | undefined;
+
+/** Digests a JSON-safe value for use as an event id (see the notes above). */
+export function positionDigest(value) {
+  if (value === undefined || !isJSONSafe(value)) return undefined;
+  const text = JSON.stringify(value);
+  if (typeof text !== "string") return undefined;
+  let a = 0x811c9dc5;
+  let b = 0x050c5d1f;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    a = Math.imul(a ^ code, 0x01000193);
+    b = Math.imul(b ^ code, 0x01000193);
+  }
+  return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
+}
+
 // A codec frame's payload is `JSON.stringify` of a SerovalNode — it always
 // opens with `{` — so a payload opening with `!` is unambiguously not data.
 // The error trailer rides that seam: when encoding fails AFTER the head is
@@ -1335,19 +1572,24 @@ export async function serializeString(value, codecOptions) {
  */
 export function deserializeStream<T = unknown>(
   source: Request | Response,
-  codecOptions?: JSONCodecOptions
+  codecOptions?: JSONCodecOptions,
+  wire?: unknown
 ): Promise<T>;
 
 /**
  * Decodes a framed stream from a Request/Response body. Resolves with the
  * first chunk's value (the source value); later chunks settle the async
- * values referenced inside it.
+ * values referenced inside it. The framing is the length-prefixed one
+ * unless the caller is a live loop (`wire` present) and the body is an
+ * event stream — then the loop's reader (see `LIVE_WIRE`), which also
+ * records each event's position on the wire.
  */
-export async function deserializeStream(source, codecOptions) {
+export async function deserializeStream(source, codecOptions, wire) {
   if (!source.body) {
     throw new Error("missing body");
   }
-  const reader = new ChunkReader(source.body);
+  const reader =
+    wire && isEventStream(source) ? wire.open(source.body) : new ChunkReader(source.body);
   const result = await reader.next();
   if (!result.done) {
     // An error trailer as the FIRST frame is the whole answer: encoding
@@ -1386,9 +1628,29 @@ export async function deserializeStream(source, codecOptions) {
     // sweep no-ops, while a truncation that lands exactly on a frame
     // boundary — indistinguishable from completion — leaves stranded values
     // that can never settle once the body is done.
+    //
+    // A live loop (`wire`) is told instead of swept: the body's end is the
+    // connection's lifetime signal — a death when deferreds are still open,
+    // a completion when none are — and the loop decides what happens to the
+    // open ones. A death it will reconnect from leaves them pending (the
+    // re-yielded answer supersedes them; throwing into them would surface
+    // the death the loop exists to erase). An iteration ending for good
+    // settles them by how it ended: `sweep` fails them (ended by error),
+    // `close` completes the streams and leaves promises pending (ended by
+    // the consumer or by completion) — see the loop's emitClosed.
+    const connection = wire && wire.connection;
+    let endConnection;
+    if (connection) connection.ended = new Promise(resolve => (endConnection = resolve));
+    const end = error => {
+      const sweep = () => deserializeChunk.abort(error);
+      if (connection) {
+        const close = () => deserializeChunk.close();
+        endConnection({ open: deserializeChunk.open(), error, sweep, close });
+      } else sweep();
+    };
     reader.drain(interpretChunk).then(
-      () => deserializeChunk.abort(new Error("Server function stream ended unexpectedly.")),
-      error => deserializeChunk.abort(error)
+      () => end(new Error("Server function stream ended unexpectedly.")),
+      error => end(error)
     );
 
     return interpretChunk(result.value);

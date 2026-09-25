@@ -26,7 +26,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import {
-  envelopeContainerTraces,
+  toBorderForm,
   reviveContainerTraces,
   setContainerTraceResolver
 } from "../../frames/src/frame-container-plugin.js";
@@ -153,9 +153,7 @@ describe("call-driven/args/containers", () => {
     const user = makeContainer(producer);
     const late: any[] = [];
     const data = createDataSource();
-    const initial = data.chunks("srv", 1, { user: envelopeContainerTraces(user) }, c =>
-      late.push(c)
-    );
+    const initial = data.chunks("srv", 1, { user: toBorderForm(user, true) }, c => late.push(c));
     vi.stubGlobal("fetch", async () =>
       frameResponse("srv", [
         { type: "start", id: "srv", version: 1 },
@@ -242,7 +240,7 @@ describe("call-driven/args/containers", () => {
     const user = makeContainer(producer);
     const late: any[] = [];
     const data = createDataSource();
-    const initial = data.chunks("srv", 1, { u: envelopeContainerTraces(user) }, c => late.push(c));
+    const initial = data.chunks("srv", 1, { u: toBorderForm(user, true) }, c => late.push(c));
     vi.stubGlobal("fetch", async () =>
       frameResponse("srv", [
         { type: "start", id: "srv", version: 1 },

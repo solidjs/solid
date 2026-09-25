@@ -440,13 +440,21 @@ suite; the shim-backed twins in the runtime's own
   streaming through the document's data scripts, so page markup and the
   adopted client's read now agree (previously the markup shipped an
   empty hole over a raw promise read — a hydration mismatch).
-- **Async iterables tap their first yield** — one cursor, two consumers:
+- **Async iterables tap their first yield** — one source, every reader:
   the inline read settles on the first yield (markup is the V1 snapshot;
   later yields are the adopted client's story, per §10 of
-  generator-only-model.md) and the record ships a replay wrapper that
-  re-yields it before delegating, so the client still receives the
-  complete sequence. This is the first-value lock's semantics arrived at
-  from the transport side.
+  generator-only-model.md) and the record ships the complete sequence.
+  Both are SEATS on the runtime's shared multicast of the source
+  (`shareAsyncIterable`, solid-js/server: one pump, a log trimmed to the
+  slowest open seat, the last seat out closes the source) — the same seat
+  the server component's own memo over that source takes, and the same one
+  the border walk (`toBorderForm`) hands the serializer for an iterable
+  nested anywhere in a memo's answer or a slot arg. A generator yields to
+  one reader; under a render the serializer is rarely the only one, so
+  every read the runtime makes goes through a seat. (Superseded: the
+  first build's per-site replay wrapper — one cursor handed between two
+  consumers — which left a third reader splitting the yields.) This is the
+  first-value lock's semantics arrived at from the transport side.
 
 Mode invariance holds at the border: the same authored crossing behaves
 identically whether the mount is call-driven or the initial document.
@@ -1024,7 +1032,11 @@ retired as a pole and survives only as potential authoring sugar.
    Content-key nodes persist across morphs, so predicted content may
    be interactive — the old display-only caveat is repealed.
    Substrate shipped 2026-08-15: keyed element matching in the morph
-   (`$key` → `_key`). See §9.2.
+   (`$key` → `_key`). See §9.2. **Amended 2026-09-22 (§9.2.1):
+   settlement is convergence** — a prediction settles when the
+   authoritative markup agrees with it (keyed content matched,
+   attribute value asserted), on any arrival path; pending indicators
+   settle with the transaction. No watermark, no dependency on Stage 8.
 8. **Stage 8 — Connection-shaped transport.** Promoted from parked: the
    sink-lifetime separation means SSE/socket transports turn the same
    authored component non-terminating (generator-only-model.md §9,
@@ -1037,6 +1049,37 @@ retired as a pole and survives only as potential authoring sugar.
    bounded by an opt-in window; mutations settle against a watermark.
    The related data-API question (top-level async iterators from plain
    `"use server"` calls) is scoped separately and comes first.
+   **Design drafted 2026-09-22 (§9.5); pulled ahead of Stage 7.** The
+   data-API prerequisite has landed (`live()` in
+   `@solidjs/web/server-functions`, with its reconnect loop), and a
+   frame render already stays connected to any unbounded source it
+   reads — what is missing is the warranty. The design revises the
+   seed on one line: liveness is declared, by `live` at the export,
+   not observed — `live` extends to the response's lifetime (RFC 10)
+   so nested-async answers and server components are one case, and
+   frames consume its loop rather than mirror it. The transport is
+   today's per-source stream framed as server-sent events — no
+   declaration, no configuration; a backend that holds connections
+   over HTTP/2 is the precondition. The seed's watermark (causal settlement for Stage 7) is retired:
+   settlement is convergence (§9.2 amendment), and the two stages are
+   independent. Plan: `documentation/plans/stage8-connection-transport.md`.
+
+Ordering note (revised 2026-09-22): Stage 8 now precedes Stage 7,
+and the two are independent. The 08-18 reasoning below still holds
+for Stage 6; what changed is that `live()` shipped, which both
+satisfied Stage 8's prerequisite and created an asymmetry — a
+stream consumed on the client through `live()` reconnects, while a
+server component reading the same feed on the server goes silently
+static when its response dies (and so does any nested stream inside
+a plain answer, which is the same gap one level down). Stage 8
+closes that gap by extending `live` rather than adding beside it,
+and completes the story (t=0 document → post-load liveness →
+liveness that survives the connection). The
+08-18 note's one coupling — "Stage 8 must eventually add causal
+settlement" for predictions — is retired: predictions settle by
+convergence (the §9.2 amendment), which needs nothing from the
+transport, so neither stage waits on the other. Stage 8 first because
+it completes a story; Stage 7 can land before, after, or alongside.
 
 Ordering note (revised 2026-08-18): Stage 6 is the next target and
 now *precedes* optimism — it is dependency-shallow (a compiler round
@@ -1632,7 +1675,9 @@ row that fulfills it) is deliberately NOT mechanism — it was the
 overlay model's answer, and it required naming schemes this design
 just deleted. Accepted, because it is stated. Stage 8's separate
 connection needs the causal watermark (§9.3) before the single-flight
-guarantee transfers.
+guarantee transfers. *(Amended 2026-09-22, §9.2.1: the watermark is
+retired; off-response confirmation is convergence, which reopens the
+entity-keyed ruling narrowly — see there.)*
 
 **In-flight streaming (unchanged rule).** Authoritative updates do
 not wait for optimism: every incoming chunk first advances the
@@ -1767,9 +1812,152 @@ derived. Predictions may temporarily perturb its rendered
 projection, but only an authoritative frame record can make that
 output durable.
 
+#### 9.2.1 Amendment — settlement is convergence (2026-09-22)
+
+Found while designing Stage 8 (§9.5). The 08-18 text above settles a
+prediction "at settlement" and the ordering note made settlement on a
+persistent connection Stage 8's problem: "a mutation's transaction
+remains open until the separate connection has applied its
+authoritative frame version" — a WATERMARK the mutation ack would
+name and the address's version would pass. Designing that watermark
+opened a question with no good answer — who mints the version — and
+the answer turned out to be that nobody needs to.
+
+**The question, and why it has no owner.** On single-flight,
+settlement is free: the mutation response carries the regions, and
+delivery order is causality. On a persistent connection the mutation
+is a separate POST and the live stream is an independent render
+reacting to a feed — the client cannot tell WHICH emission reflects
+its write, and versions are client-stamped stream ordinals (`bump`),
+so a server ack cannot name one. This is "read your writes across a
+subscription", and every sync system has answered it:
+
+```text
+system              mechanism                                        version minted by      one pipe?
+──────              ─────────                                        ─────────────────      ─────────
+Meteor DDP          method `updated` sent after its writes reach     connection order       yes
+                    the client's subscriptions; latency comp holds
+                    until then
+Convex              mutation commits at log ts T; the socket           global log position    yes
+                    delivers query results ≥ T before the mutation
+                    promise resolves
+Phoenix LiveView    server-held state; reconnect = remount            connection order       yes
+Firestore           `hasPendingWrites` on snapshots until acked        connection order       yes
+Linear sync         `lastSyncId`, a global sequence from Postgres;     database               no
+                    clients hold and rebase against it
+Electric SQL        shape offset = Postgres LSN; a write API returns   database (txid)        no
+                    the txid; client waits until the shape stream
+                    has delivered that txid
+PowerSync           write acked with a checkpoint;                     database               no
+                    `waitForCheckpoint` before dropping local state
+CouchDB _changes    `since=<update_seq>`                               database               no
+Replicache          per-client `lastMutationID`; pull returns the      client counter +       no
+                    highest processed per client + an opaque cookie    server ack
+Turbo 8 refresh     `X-Turbo-Request-Id` on the write; the refresh     request-id echo        no (causal)
+                    broadcast echoes it; client skips its own
+SSE                 `Last-Event-ID` resume cursor                      producer               n/a
+HLC / Lamport       compare timestamps                                 clocks                 no
+```
+
+Five shapes: same-pipe ordering (unavailable — mutations are
+separate POSTs; single-flight is the degenerate case), database
+sequence (the only one that survives replication lag; costs an API —
+the app must surface the sequence), client mutation counters (the
+render must know which mutations it reflects — a database sequence in
+other clothes), request-id echo (only for renders CAUSED by the
+write), and clocks (true on one node, false under replication lag).
+The finding: **no system mints a version for data it does not own.**
+A candidate that kept versions client-stamped — "causal resume": after
+the ack, force a superseding render of each invalidated address and
+take ITS ordinal as the watermark — was sound on one primary and
+wrong under a lagging replica (the transaction settles against a
+render that does not contain the write; the predicted row vanishes
+and the real one appears a beat later), and needed an opaque
+source-token seam on the ack to be honest. Rejected.
+
+**The resolution: apply `until()`'s principle to markup.** First,
+what does NOT change: the 08-18 default stands. A prediction settles
+with its transaction, and under single-flight the confirming morph
+and the settling are the same event — no condition to express, no
+version to compare. What the watermark was FOR is the other case:
+confirmation arriving off-response (a mutation whose invalidation
+did not cover the address; a fire-and-forget write whose truth comes
+back on the live stream). For that case, `until` already states the
+principle on the data face: "when does the world confirm this
+condition", read from the authoritative view with the caller's own
+optimism carved out — your own tentative write can never satisfy
+your own ack. The same holds for a prediction: it is confirmed when
+the AUTHORITATIVE MARKUP CONVERGES ON IT, and any arrival path
+confirms — a single-flight region, the live stream's own emission, a
+resume snapshot, another tab's mutation. Stage 7's vocabulary makes
+every outcome prediction such a condition:
+
+- A **content prediction with a `$key`** (`append: <li
+  $key={clientId}>…</li>`) is confirmed when an authoritative morph
+  brings an element with that key. The keyed-morph substrate (`$key`
+  → `_key`, shipped 08-15) ADOPTS the predicted node, so there is no
+  duplicate window — the same "correlate by key" guidance RFC 06
+  gives for optimistic store rows.
+- An **attribute prediction** (`checked: true`) is confirmed when an
+  authoritative apply asserts the same value. Whether that render
+  "reflects the write" stops mattering: the world agrees, and
+  dropping the overlay changes nothing. A stale apply that disagrees
+  is already handled — the claim sweep re-asserts the overlay over
+  it (the 08-18 text).
+
+Why this is strictly better than a watermark, not merely simpler:
+under replication lag a stale render cannot confirm anything (no key
+match, no matching value), so the prediction HOLDS until a render
+that actually contains the write — truth, not time. Nothing rides
+the ack. No version has an owner. It composes with `until()` in the
+same action: `yield until(...)` over data and predictions held by
+convergence share one transaction, one hold, one failure story
+(reject → revert). And it matches §9.4's principle — relatedness is
+declared, never inferred by infrastructure from co-occurrence;
+settlement inferred from render-start time was the same category of
+mistake.
+
+**What convergence surfaces that the watermark hid: outcomes vs
+indicators.** Not every patch predicts an outcome. `after: <Spinner
+/>` and `class: "saving"` are PENDING INDICATORS — the server will
+never render them, so they cannot converge; they live for the
+transaction's lifetime and drop at its settlement. Stage 7 needs the
+distinction: keyed content and attribute values the server is
+expected to render settle by convergence; unkeyed content and
+indicator attributes settle with the transaction. The 08-18 design's
+"baseline-restored at settlement" is the indicator half; the outcome
+half is new. Both need a failure floor: `until` has `timeout`, and a
+convergence prediction whose truth never arrives should fail the
+same way (thrown back at the yield; optimistic state reverts).
+
+**What this reopens, narrowly.** The 08-18 text ruled "entity-keyed
+settlement (matching a prediction to the authoritative row that
+fulfills it) is deliberately NOT mechanism — it required naming
+schemes this design just deleted." Convergence IS entity-keyed
+confirmation, so the ruling is reopened — but only for the
+off-response case the ruling accepted as "a transient duplicate
+until settlement", and without the cost that killed it: the key is
+the `$key` the author already writes on predicted content for keyed
+morph retention, not a new naming scheme. Two things are NOT decided
+here and belong to Stage 7's build: how an action holds for an
+off-response confirmation (a yieldable from `predict`, or `until()`
+over a prediction's confirmed state — the former is new surface, the
+latter needs the prediction to be reactive), and whether convergence
+also settles under single-flight (it would be a no-op there — the
+same event — so the answer is probably "one rule", but it is not
+load-bearing).
+
+**Consequences for the roadmap.** Stage 7 no longer depends on Stage
+8 in either direction — it needs nothing from the transport and can
+be proved against single-flight, a live stream, or both. Stage 8's
+watermark work item is deleted (§9.5). The only version that
+survives is the client-stamped ordinal, as stale-guard and resume
+cursor.
+
 ### 9.3 Stage 8 seed — connection-shaped transport (2026-08-17)
 
-Recorded from the design conversation; nothing here is built. The
+Recorded from the design conversation; nothing here is built (the
+design that grew from this seed is §9.5, 2026-09-22). The
 stage shrank three times during the pass, each time by discovering
 the capability already existed — what remains is a continuation story
 and a contract with failure, not a transport feature.
@@ -1804,8 +1992,11 @@ correctness switch: a 30-second platform limit produces a 30-second
 resume cycle — chattier, still correct — degrading in the
 pathological limit to long-polling, emergent and never implemented.
 
-**Carrier is content negotiation.** The invocation is a POST whose
-response body is the record stream; "use SSE" is a response
+**Carrier is content negotiation.** *(Superseded 2026-09-22, §9.5
+Wire and RFC 10 "`live(fn)`", Framing: every live response is framed as
+server-sent events — no per-entry choice, no configuration, nothing
+negotiated by the client.)* The invocation is a
+POST whose response body is the record stream; "use SSE" is a response
 *framing*, not a channel. The entry opts in (`carrier: "sse"`),
 Content-Type carries the decision, the client picks its decoder off
 the header. SSE framing, NOT the EventSource API (which cannot POST,
@@ -1961,8 +2152,18 @@ discipline already guarantees sync shells), and the one
 implementation trap is buffering the batch response, which would
 silently convert shared-connection semantics into atomic-completion
 semantics. Held because the heavy cases are already covered (t=0 by
-the document, mutations by single-flight) and Stage 8's persistent
-connection dissolves the question entirely.
+the document, mutations by single-flight). _Corrected 2026-09-23:_
+this seed once also said Stage 8's persistent connection would
+dissolve the question; Stage 8 settled as one event-stream response
+per live source with nothing shared between them (§9.5), so there is
+no pipe for grouping to ride and Stage 8 addresses none of this.
+Coincident bounded reads after load remain uncovered. Discussion
+#3603 (opt-in batching for server functions) proposes the request
+side; the bar stated there is that per-URL `GET` reads and
+many-per-request batching are two read models and core has picked
+the first, so grouping has to justify itself as a second one, and
+a serverless invocation count is a platform cost model — the same
+argument declined for `hold`.
 
 **Multi-component returns — object-first (designed, unbuilt).** A
 server function returning `{ header: SC, feed: SC }` is
@@ -2045,3 +2246,423 @@ item before blessing: probe whether a mount adopts a concurrently
 in-flight call at the same address; host retention proves the
 re-mount case, the race case is likely "second call reissues"
 today — wasteful, not wrong.
+
+### 9.5 Stage 8 design — connection-shaped transport (drafted 2026-09-22; revised 2026-09-23: liveness is `live`, framing is server-sent events)
+
+Builds on the §9.3 seed. This record is what the seed became once
+audited against the tree as it is today and then argued through from
+the data tier up: several of its claims are now verified mechanism
+rather than expectation, one thesis line is revised, the one
+dependency it carried on Stage 7 (the watermark) is retired (see
+"Settlement is not this stage's concern" and §9.2.1), and its carrier
+question is answered as today's per-source stream framed as
+server-sent events, with no declaration and no configuration.
+Names remain provisional. The implementation plan — phases, slices,
+the example that vets each slice — is
+`documentation/plans/stage8-connection-transport.md`; the data-tier
+contract this design consumes is RFC 10 (`live(fn)`, including its
+Framing bullet).
+
+**What changed since the seed.** The scope split held: the data-API
+question was built first as `live()` (`packages/web/server-functions/
+src/client.ts`), a declaration wrapping a server function whose
+answer is a value-shaped async iterable, owning the wire lifecycle —
+each iteration its own connection, post-connect deaths re-invoked
+with backoff, `onstatus` for wire state. `live()` is a CLIENT
+decorator; a server component never sees it (it is already on the
+server; it reads its sources raw). The design pass found the
+asymmetry the ordering note names runs one level deeper than
+"frames lack a reconnect loop": `live` itself stops at the
+top-level iterable. An answer with NESTED streams — an object whose
+properties are generators, or a component whose render streams over
+the connection — is a one-value stream to it: nested deaths are
+invisible, nested SSR handoff never happens. Server components are
+not a special case needing their own loop; they are the nested-async
+case, and the fix is to extend `live` to the response's lifetime
+(RFC 10, "`live(fn)`"). Frames then CONSUME `live` rather than
+mirror it — one declaration, one loop, one status surface across
+both tiers — and everything frames add is about making the resume
+quiet, not about liveness.
+
+**Audit — the mechanism this design rests on:**
+
+```text
+fact                                                    where
+────                                                    ─────
+frame render over any async iterable pumps and holds   server/signals.ts (ctx.commit pump; ctx.hold)
+  in server-component scope with ctx.commit armed —
+  INCLUDING the document face
+first-value lock on serialized memos; the frame pump    server/signals.ts (~1613: "later yields are the
+  is the stated exception ("no hydration claim")          CLIENT's to apply")
+SSR hybrid (first value, close) selected per OBJECT     server/signals.ts LIVE_SOURCE brand
+  by the live brand; projections always hybrid
+shell blockers: deferStream reads gate the first flush  web/src/server.ts serialize() / blockingPromises
+response end gated on `!registry.size && !holds`        web/src/server.ts flushEnd
+`complete` chunk emitted only when the render settles   frames/src/frame-sink.ts frameStream end()
+client disconnect only sets `closed`; render continues  frames/src/frame-sink.ts serverComponentResponse cancel()
+client applies chunks to body end, resolves either way  frames/src/frame-transport.ts applyFrames
+versions client-stamped per address (`bump`)            frames/src/frame-transport.ts createServerComponentHandler
+stale-guard per address on the client host              DR-5 / policy A
+live() lifetime = top-level iterable; nested invisible  server-functions/src/client.ts live() pull()
+reconnect loop with backoff, online wake, 4xx policy    server-functions/src/client.ts live()
+Serialized/Json/Void negotiated per response            server-functions/src/server.ts encodeResult
+SERVER_WRITE is a once-per-category WARNING             server/signals.ts (~788)
+```
+
+Two of those rows are the stage's first work: the `cancel()` row is a
+live leak TODAY for any server component reading an unbounded source
+(the abandoned tab's render pumps forever), and the `applyFrames` row
+is the client not yet distinguishing a death from a completion.
+
+**Thesis (revised).** The seed said: no new authoring API on either
+side; the component not terminating IS the liveness declaration,
+observed rather than configured. Half survives. There is still no
+new API — but liveness is DECLARED, not observed, by `live`, the
+data tier's existing declaration, at the export. The alternative
+makes an undeclared stream's death mean two things — an error on
+data, a silent re-invoke on frames — and needs a timeout (the
+window) standing in for the declaration on the document face. The
+rest of the thesis is unchanged: a connection is a response that
+doesn't end; resume is re-invocation — a superseding render of the
+address, never a continuation of the old iterator; progressiveness
+is consumer-relative; if losing the transport loses the value, the
+value belonged in durable state.
+
+#### Wire
+
+- **Same chunk protocol.** The one semantic shift: `complete` is the
+  BOUNDED signal. A body that ends without it is a **death** — the
+  resume trigger — never a completion. Bounded renders are untouched.
+  This is the frames instance of the codec's own rule (RFC 10,
+  Lifetime): completion is a record the producer writes, and a body
+  that ends without it fails what it left open.
+- **One SSE response per source (RFC 10, `live(fn)` → Framing).** `live`
+  is for backends that hold connections — the feature's
+  precondition, as it is for LiveView, Datastar, and SvelteKit's
+  `query.live` — and there is nothing to configure. A live frame is
+  its own request, as today, addressed to the live address
+  (`<endpoint>/live/<id>`, the sibling of `/data/<id>`: a third
+  caller kind receiving a third answer shape gets its own path, the
+  #3094 rule), with the response framed as server-sent events
+  (codec payloads as `data:` events, heartbeats, `no-store`,
+  `X-Accel-Buffering: no`) so buffering middleboxes pass it
+  through. Subscribing is a request;
+  unsubscribing closes it, which is how teardown (below) is
+  signalled; a frame under a streamed boundary connects when that
+  boundary hydrates and a frame mounting after navigation connects
+  when it mounts — nothing coordinates with anything else. HTTP/2
+  is part of the precondition (six connections per origin under
+  HTTP/1.1; the dev server speaks HTTP/2 with `server.https`; dev
+  warns past five live connections otherwise). Frames own no
+  transport vocabulary: `serverComponentResponse` writes through
+  the   shared event-stream writer when the call arrived at the live
+  address, `applyFrames` reads through the shared reader off the
+  content type, `isFrameStreamResponse` stays `X-Frame-Stream`-based. On a backend that kills a response at a
+  ceiling the stream dies there and `live` does what it does on any
+  death — backoff, reconnect with its position, `onstatus` showing
+  it — which is `query.live`'s behavior on the same platform and
+  the honest one. `GET(fn)` remains the idiom for server components
+  for its own reasons — a render is a read by construction, and GET
+  buys URL identity and dedupe by address — and is orthogonal to
+  framing. Considered and set aside the same night, recorded in RFC
+  10: one shared channel per page (an SSE response is a fixed set at
+  request time; adding to it needs a mailbox on the holding
+  instance and fights a fine-grained client — a socket is the
+  carrier where add is native, and remains the future if the
+  connection count ever matters), a `transport: "polling" | "sse"`
+  enum, and a `hold` that cycles live responses under a platform
+  ceiling (future, one optional number, if asked for) — all in RFC
+  10's Alternatives considered. There is no transport decision left;
+  what remains is a framing note. Withdrawn unbuilt: `SSE(fn)`,
+  `enableEventStream()`, framing-follows-method.
+- **Resume request.** A reconnect (a `live` re-invocation after a
+  death or a supersession, or the post-hydration takeover) carries
+  `Last-Event-ID: <N>`, N the client's version ordinal for the
+  address, and a bounded **have-list**: the opaque per-hole hashes
+  the client holds for that frame (header, name provisional; when
+  the list would exceed a budget the client omits it and accepts a
+  full snapshot). Never as arguments — a position is not address
+  material (an arg would mint a new `frameAddress` per resume and
+  churn the content store; §9.4's promise-as-argument anti-pattern).
+  The server reads the header's PRESENCE as "this is a resume" and
+  the have-list as the conditional baseline; the ordinal stays
+  opaque to it.
+- **Hole hashes.** Every hole/fragment emission on every face —
+  frame stream and document alike — carries an opaque digest of its
+  content, minted by the server. The client stores digests per hole
+  and never derives them from the DOM (browser serialization differs
+  from the server's string). The document face seeding the ledger is
+  what makes the first reconnect after hydration conditional.
+
+#### Server face
+
+1. **Teardown on disconnect (first slice; a bug fix today).**
+   `serverComponentResponse`'s `cancel()` sets `closed` and drops
+   writes; the render keeps producing. Fix: cancellation (and the
+   request's `signal`) disposes the render root. The pump already
+   handles disposal — `comp.disposed` closes the iterator and
+   releases the hold — so this is wiring the Response lifecycle to
+   the owner, not new machinery. `frameFlightResponse` gets the same
+   wiring. Without this, every persistent render is a server loop
+   with the client's lifetime and no one else's.
+2. **Reconnect is a conditional render (replaces the seed's
+   "settled emission policy").** With a resume header present the
+   render emits a hole only when it has SETTLED and its digest
+   differs from the have-list; a hole still pending is not emitted
+   (the client already shows either its content or its fallback,
+   and either may stand); reveals the client lacks stream as they
+   settle. Three consequences, one rule: a no-op reconnect transfers
+   nothing; a fallback is never emitted over content; the first
+   connection after a document render (holes the document left as
+   fallbacks) streams exactly the reveals that are missing. There is
+   no progressive/settled MODE and no latch split in `flushEnd`;
+   without a resume header the render is today's progressive stream.
+   The compute cost is the whole component re-running per reconnect
+   — LiveView's dead-then-connected cost, accepted. A stateful
+   attach (the render root kept alive past the response for a grace
+   window, the reconnect attaching by token) is the opt-in above
+   this baseline for deployments that can route stickily; nothing
+   here precludes it and nothing here depends on it.
+3. **Document face — first value by scope.** A live-declared
+   component reaches the document render with the brand on its
+   component function (the in-process `live` wrapper puts it there);
+   the frame render turns it into a scope flag, and every async
+   source read in that scope takes the existing hybrid path: first
+   value into markup, iterator closed, no pump, no `ctx.hold`. The
+   shell waits for sources outside `Loading` boundaries exactly as
+   today; sources under boundaries reveal in later flushes as today;
+   the document completes when nothing is pending, as today. One
+   value per source crosses the document — the data tier's
+   first-value lock, applied where the "no hydration claim" exception
+   no longer holds (the client's frame store opens at v0 = the
+   document's markup). The frame's shell carries the live bit;
+   adoption reads it and hands the binding to `live`. No "settled
+   once" event, no window in the path.
+4. **The window becomes a safety cap.** An UNDECLARED unbounded
+   source in server-component scope at t=0 is an authoring error —
+   today it holds the document open forever. The cap ends that
+   render's participation at N ms with a dev diagnostic naming the
+   source, and the client sees a bounded frame that completed
+   early. Whether the cap is a knob (`renderToStream(code, {
+   documentWindow })`) or a fixed dev-only warning is open decision
+   (c); with the live handoff it no longer has a role for declared
+   sources, which is what makes the question small.
+
+#### Client face
+
+1. **Death vs completion.** `applyFrameResponse` resolves either way
+   today. The host learns the difference from the `:complete`
+   record: a stream that ended without it, on a frame the server
+   never declared complete, is dead. A stream-level `:error` from a
+   definite rejection is a completion of the failing kind (no retry;
+   `live`'s 4xx rule).
+2. **`live` is the loop.** The frames `responseHandler` exposes the
+   response's lifetime — the binding now, the stream's end and how
+   it ended later — and `live`'s loop does what it does on data:
+   death → backoff → re-invoke through the same reference, outside
+   any transition (no `isPending` pulses on a platform that cycles
+   connections). `dynamic` consumes an iterable of bindings. Because the
+   binding is stable per address, the re-yield is the SAME binding
+   and `dynamic`'s equals-gate holds: no remount, no fallback,
+   retained element state follows `_key`, client slots keep their
+   state. Quiet by construction, where on data a reconnect is a
+   fresh object. No shared helper, no mirrored policy: there is one
+   loop and frames call it.
+3. **Hydration handoff.** For a live frame in the document, adoption
+   yields the adopted binding into `live`'s iterable synchronously
+   (there is no serialized value to hydrate — the markup is the
+   value), then the loop reconnects with `Last-Event-ID: 0` and the
+   have-list the document seeded. WHEN it reconnects is the frame's
+   own hydration scope releasing — the root pass's release for a
+   frame in the shell, the boundary's own `releaseSnapshotScope`
+   for a frame under a streamed `Loading` — never page-wide
+   hydration end. The shipped `armLiveTakeover` gate waits for
+   `onHydrationEnd` (all boundaries), which holds every live node
+   on the page for the slowest boundary and contradicts the
+   per-boundary snapshot design; it is re-keyed per scope owner as
+   part of this stage (behavior change to shipped `live`, flagged).
+   The reconnect is conditional, so with nothing changed nothing
+   crosses; what did change since the document rendered arrives as
+   one morph. Honest cost: one server render per live frame per
+   page load, the same price a live data source pays.
+4. **Supersession from another response is a death.** A live
+   address whose store receives a newer version from a DIFFERENT
+   response — a single-flight region for a call the mutation
+   invalidated, a preload, a getter refetch — has been superseded
+   exactly as a death would supersede it: the host cancels the
+   connection, `live` sees the death, reconnects (conditionally). One
+   rule for both events, and a consistency rule, not a causality
+   one: the region's bump makes the open stream's later chunks inert
+   under the stale-guard, so without the reconnect a live address
+   goes silently static the first time any mutation touches it.
+   Known cost: one reconnect per invalidating mutation per live
+   address, concurrent with the connection that would have carried
+   the update anyway. The mitigation belongs with §9.2.1's
+   convergence work (an open connection is the authority for its
+   address, so a live query's invalidation need not bump it) and is
+   not this stage's.
+5. **Undeclared death is an error.** A bounded server component
+   whose stream dies mid-render surfaces through `frame.error` /
+   the enclosing `<Errored>`, exactly as an undeclared generator
+   dying mid-stream does on data. Nothing resumes on its own.
+6. **Connection state: `onstatus`, not a frame-handle surface.**
+   The seed's `connected` signal dissolves into `live`'s existing
+   `onstatus` on the reference's iterable — the same three states,
+   the same hook, for data and frames. Open decision (b) closes with
+   no new surface.
+7. **Hidden pages hold their connections.** A live frame in a
+   background tab keeps its connection and its server render, as
+   an `EventSource` keeps its connection — the platform does not
+   pause, and neither does `live`. The cost is one held render per
+   frame on a backend whose precondition is that it holds
+   connections. A pause (grace window, status held through it, a
+   takeover that fires while hidden parked until visible, disposal
+   during a pause cancelling the parked work) was designed and
+   deferred unbuilt (2026-09-23): the most intricate state machine
+   on the data tier, a behavior change to shipped `live`, buying
+   server cost only. Additive if asked for; the digest-equal skip
+   (and B4's hole digests) already make a return reconnect free on
+   the wire. RFC 10's rule; frames inherit it through the loop.
+
+#### Projections pump too — a symmetry the tree currently breaks
+
+`server/signals.ts` (~2154): "Projections have no server-component
+continuation pump: a standing live answer always hands off after V1,
+including no-hydrate/frame consumers." So inside a frame render a
+`createMemo` over an async iterable is live and a `createStore` over
+the same iterable is not. That is not a design choice to make; it is
+a symmetry to restore. A projection and a memo differ in GRANULARITY
+— a patch stream against a whole-value stream — and in nothing else;
+the consumer's shape must not decide whether the source stays
+connected. The pump is the same `ctx.commit`/`ctx.hold` shape with
+the patch stream as its yields; the room-feed "list of messages"
+shape wants exactly this. Under the document face's scope flag, a
+projection takes first value like a memo does. Work item, not open
+question.
+
+#### Router-facing seams
+
+The router is a consumer that MAY apply `live` and `GET` on the
+author's behalf; the core spelling (`live(GET(feed))` at the export)
+is the documented one and the reliable site for the GET grant. What
+frames owe any such layer:
+
+- **Stable binding as the multicast value.** A live query holding
+  one iteration open shares the binding; every reader of the query
+  gets the same component, and reconnects re-yield it.
+- **Revalidate = reconnect.** Revalidating a live query closes the
+  iteration and opens a new one — a fresh connection by
+  construction — rather than a second render beside the open one.
+- **Preload of a live reference is the layer's choice**, not the
+  browser's: a browser-level prefetch of a live GET url opens a
+  standing stream that nothing reads. A layer may warm the address
+  store with a one-shot render or hold an iteration open. Whether
+  `serverFunctionUrl` should refuse a live reference (as it refuses
+  a POST reference) is open decision (d).
+
+#### Settlement is not this stage's concern
+
+The seed's watermark — "a mutation ack carries 'reflected as of
+version N'; the transaction holds until the address's version passes
+N" — existed only so Stage 7's predictions could settle against a
+persistent stream. Retired (2026-09-22, §9.2.1): predictions settle
+by CONVERGENCE — the authoritative markup coming to agree with the
+prediction, the `until()` principle applied to markup — which needs
+no version anyone must own. What survives here is only what Stage 8
+needs on its own: the client-stamped ordinal as stale-guard and
+resume cursor, and the hole digests as the conditional baseline.
+Nothing in this stage depends on Stage 7 and nothing in Stage 7
+depends on this stage.
+
+#### Dev enforcement
+
+- **Chaos reconnect.** Dev-only knob: kill live responses every N
+  seconds — data and frames alike, since there is one loop.
+  Re-derivability becomes something the app proves every few seconds
+  in development instead of a documented discipline.
+- **Undeclared unbounded at t=0.** The safety cap's diagnostic names
+  the source and the scope, and points at `live`.
+- **Connection budget over HTTP/1.1.** Each live source holds a
+  connection; a browser allows six per origin under HTTP/1.1. Dev
+  warns when a page opens more than five live connections over
+  HTTP/1.1, naming them, and points at `server.https` (the dev
+  server then speaks HTTP/2).
+- **`SERVER_WRITE` becomes an error inside persistent renders.** The
+  RFC 11 note said the guard should land before any server scope can
+  outlive a request, because that is when an in-place write stops
+  being an impurity and becomes a cross-request race or a cross-user
+  leak. Stage 8 is that moment. The staged plan (warn now, throw
+  later) is unchanged for bounded renders; a frame render with open
+  holds is where the throw lands first. Public behavior change —
+  flagged; scope is open decision (a).
+
+#### Work slices
+
+Data tier first, with no server components in sight, then frames —
+each slice landing with the page of `examples/room` that proves it.
+The full sequence, verification per slice, and the example mapping
+live in `documentation/plans/stage8-connection-transport.md`; in
+summary:
+
+- **Phase A (data):** A1 framing — the live address
+  (`<endpoint>/live/<id>`) on both ends, event-stream writer/reader
+  for what it answers, heartbeats, `Last-Event-ID` with value-digest
+  positions and the digest-equal first-emission skip, HTTP/1.1 dev
+  warning; A2 `live` = response lifetime —
+  nested brand walk, death vs completion, whole-answer re-yield, SSR
+  first value per source, per-scope takeover (the `armLiveTakeover`
+  fix, keeping the per-pass re-arm for islands), `onstatus`
+  unchanged (the hidden-page pause deferred unbuilt — item 7); A3
+  chaos knob.
+- **Phase B (frames):** B1 teardown on disconnect; B2 frames consume
+  `live` — response lifetime through the handler, `dynamic` over
+  bindings, hydration adoption into the loop, supersession as death,
+  `onstatus`; B3 document face — brand → scope flag → first value,
+  live bit, cap; B4 conditional reconnect — digests on every
+  emission, have-list on resume, settled-and-different rule; B5
+  projections pump in frame scope; B6 `GET` server components end to
+  end, live frame streams event-stream framed.
+
+**Deliberately absent** (as in the seed): any new client or server
+authoring API, any subscription registry or connection-local
+subscription state (a live call is a direct call; any instance
+answers any reconnect and the server remembers nothing), any cursor
+protocol, WebSocket, stateful attach. Cursors — positional resume for sources
+with real sequence numbers — remain an opt-in optimization over the
+re-derivation baseline, never the baseline, because the baseline
+must hold for sources that have none.
+
+**Public API this stage touches** (flagged, per the engineering
+standard): `live`'s behavior changes three ways on a shipped export
+— it claims nested-async answers, its post-hydration takeover fires
+per scope instead of at page-wide hydration end, and a
+digest-equal reconnect yields nothing (a dying body already
+rejects what it left open — that is the decoder's end-of-body
+sweep today, not a change); `onstatus` becomes reachable for
+server-component references through the same iterable;
+`SERVER_WRITE` becomes an error in persistent renders; a dev-only
+chaos-reconnect knob and a dev-only HTTP/1.1 connection warning;
+the document window — if kept as a knob — as `documentWindow` on
+`renderToStream`. Nothing to configure on the server; no new
+option. New wire, not API: the live address `<endpoint>/live/<id>`
+(live calls move there from the data address; a client and server
+versioned apart miss each other on live calls until both are
+current), the event-stream framing of what it answers,
+`Last-Event-ID` (value digest; ordinal for a frame), the have-list
+header, hole digests. Withdrawn before
+shipping: `SSE(fn)`, `enableEventStream()`, `Accept:
+text/event-stream` as a client declaration, the
+framing-follows-method rule, the per-page channel, the
+`live: { transport, hold }` server configuration, `connected` on
+the frame handle. Deferred unbuilt: the hidden-page pause.
+
+**Open decisions:** (a) `SERVER_WRITE` throw scope; (b) CLOSED —
+connection state is `onstatus`; (c) safety cap: `documentWindow`
+knob or fixed dev-only warning; (d) `serverFunctionUrl` on a live
+reference — refuse, or answer and document the prefetch hazard;
+(e) CLOSED — the address decides: the loop calls
+`<endpoint>/live/<id>` and the server frames what it answers there
+as an event stream (a header would put a third answer shape behind
+a URL caches already hold for the second — #3094 — and reads carry
+no transport header — #3406); a server-side `live` declaration may
+cross-check in dev but cannot decide (topology); (f) is the plan's.

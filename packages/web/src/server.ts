@@ -90,6 +90,7 @@ import {
 import { JSX } from "../jsx/jsx.js";
 
 import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
+import { toBorderForm } from "../frames/src/frame-container-plugin.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 
@@ -2384,32 +2385,43 @@ export function renderToStream(code, options = {}) {
   // reason. Deferring the verdict past the boundary would put a tick into
   // shell flush and completion on every rejected source; the mapping on a
   // road nobody renders from is not worth it (see `ServerErrorHook`).
+  //
+  // The same funnel takes the value's BORDER FORM (`toBorderForm`): every
+  // async iterable in what crosses — the channel itself, or one nested in
+  // a resolved answer (`{ meta, progress: gen }`) — is swapped for a seat
+  // on the runtime's multicast of it, so the serializer pumping the value
+  // and a memo reading the same source see the same whole sequence
+  // instead of splitting a generator's yields. For a thenable the walk
+  // rides the verdict's own `.then` — no added tick. Containers stay raw
+  // on this face (no trace revival exists for a memo's value yet).
   const guardedChannels = new WeakMap();
   const verdictNow = error => {
     throw ssrSanitizeError(error, null);
   };
+  const borderForm = value => toBorderForm(value, false);
+  const guardIterable = iterable => ({
+    [Symbol.asyncIterator]() {
+      const iterator = iterable[Symbol.asyncIterator]();
+      return {
+        next: value => iterator.next(value).then(undefined, verdictNow),
+        return: value =>
+          iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value }),
+        throw: error => (iterator.throw ? iterator.throw(error) : Promise.reject(error))
+      };
+    }
+  });
   const guardChannel = p => {
     if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
-    const thenable = typeof p.then === "function";
-    const iterable = !thenable && typeof p[Symbol.asyncIterator] === "function";
-    if (!thenable && !iterable) return p;
     let guarded = guardedChannels.get(p);
-    if (guarded === undefined) {
-      guarded = thenable
-        ? p.then(undefined, verdictNow)
-        : {
-            [Symbol.asyncIterator]() {
-              const iterator = p[Symbol.asyncIterator]();
-              return {
-                next: value => iterator.next(value).then(undefined, verdictNow),
-                return: value =>
-                  iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value }),
-                throw: error => (iterator.throw ? iterator.throw(error) : Promise.reject(error))
-              };
-            }
-          };
-      guardedChannels.set(p, guarded);
+    if (guarded !== undefined) return guarded;
+    if (typeof p.then === "function") {
+      guarded = p.then(borderForm, verdictNow);
+    } else {
+      const border = borderForm(p);
+      guarded = typeof border[Symbol.asyncIterator] === "function" ? guardIterable(border) : border;
+      if (guarded === p) return p;
     }
+    guardedChannels.set(p, guarded);
     return guarded;
   };
   const trackSerialized = (id, p) => {

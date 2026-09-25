@@ -167,6 +167,10 @@ export function getProjectionTrace(
 ): { subscribe(): AsyncIterable<any>; array: boolean } | undefined {
   return undefined;
 }
+/** @internal — server-only: on the client there is no render to share a source under. */
+export function shareAsyncIterable<T>(source: AsyncIterable<T>): AsyncIterable<T> {
+  return source;
+}
 
 // Observe / dev tiers — re-exported from @solidjs/signals so an app imports
 // one thing. `IS_OBSERVE`/`IS_DEV` are replaced per build; the observe
