@@ -208,11 +208,14 @@ describe("projections pump in frame scope (B5)", () => {
   it("a thenable-resolved iterable (async derive returning a generator) pumps too", async () => {
     const ch = channel<{ text: string }>();
     const ServerComp = () => {
-      const store = createProjection(
-        async () => {
+      // Promise-of-AsyncIterable flattening is a runtime posture the public
+      // derive type does not spell (see signals' flatten-async-iterable
+      // tests, which cast the same way).
+      const store = createProjection<{ text: string }>(
+        (async () => {
           await tick(1);
           return ch.iterable;
-        },
+        }) as unknown as () => Promise<{ text: string }>,
         { text: "" }
       );
       return (
