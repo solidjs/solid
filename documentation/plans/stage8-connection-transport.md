@@ -407,10 +407,25 @@ component ("summarize the room") for the bounded contrast.
   shared connection; composer draft across a reconnect; argument switch)
   and `frame-live-framing.spec.tsx` (framing/headers at the live address,
   data address unchanged, standing response stays open with heartbeat,
-  chaos ends it as a death, knob inert in prod). Not here: the adoption
-  bullet above (yield the adopted binding, reconnect at scope release)
-  needs the live bit in the shell record — it lands with B3, as does the
-  "live frame under a slow boundary" verify item (document face).
+  chaos ends it as a death, knob inert in prod). `dynamic`'s source type
+  admits `AsyncIterable<T>` — type-only; the runtime pumped it already.
+  Not here: the adoption bullet above (yield the adopted binding,
+  reconnect at scope release) needs the live bit in the shell record — it
+  lands with B3, as does the "live frame under a slow boundary" verify
+  item (document face).
+- **Demo built and verified (2026-09-25, headless Chrome, two tabs).**
+  `examples/room` page `/`: `roomPanel` is `live(GET(async (room, me) =>
+component))` in `src/lib/room-panel.tsx`, mounted with `dynamic(() =>
+roomPanel(room, me))` once the tab has an identity (call-driven face);
+  presence and transcript are memos over the same watchers as `/live`,
+  joining is `onCleanup(join(room, me))`, the composer is a client slot.
+  Observed: the other tab's join and leave arrive as morphs; _Kill every
+  connection_ → `connected → reconnecting → connected (1 reconnect)`,
+  render number climbs, zero fallback appearances (MutationObserver), same
+  `solid-frame` and same `<input>` element, draft intact; the post lands
+  as a transcript row through the standing render with no reconnect;
+  production build passes and the server-only room state is absent from
+  the client bundle.
 
 ### B3 — document face
 
@@ -477,6 +492,7 @@ component ("summarize the room") for the bounded contrast.
 | `FrameStreamOptions.live` on `serverComponentResponse`; a live frame response is an event stream (live headers, heartbeat, chaos knob)                                                                  | new option, wire            | B2    |
 | `applyFrameResponse`: a body ending before a started frame's `complete` is that frame's error (undeclared death, RFC 11 §9.5 D1)                                                                        | behavior change, frames     | B2    |
 | One live connection per address: a second live reader of the same call joins the first connection's lifetime instead of opening its own                                                                 | behavior, frames + live     | B2    |
+| `dynamic` source type admits `AsyncIterable<T>` (a `live` server component reference's answer); runtime unchanged                                                                                       | type-only widening          | B2    |
 | `onstatus` reachable for server-component references                                                                                                                                                    | existing surface, new reach | B2    |
 | Have-list header; hole digests                                                                                                                                                                          | wire                        | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                             | behavior change             | B3+   |

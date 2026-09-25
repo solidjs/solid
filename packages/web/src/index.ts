@@ -315,8 +315,16 @@ export interface DynamicOptions {
   static?: boolean;
 }
 
+/**
+ * A component from a reactive source. The source may answer with the
+ * component itself, a promise of it, or an async iterable of it — a `live`
+ * server component reference's answer is the last: the memo underneath pumps
+ * the iterable as it pumps any async source, and its value is the component
+ * the server answered with (a reconnect re-yields the same binding and is
+ * equality-quiet; nothing here re-mounts).
+ */
 export function dynamic<T extends ValidComponent>(
-  source: () => T | Promise<T> | null | undefined | false,
+  source: () => T | Promise<T> | AsyncIterable<T> | null | undefined | false,
   options?: DynamicOptions
 ): Component<ComponentProps<T>> {
   if (options?.static) return staticDynamic(untrack(source));

@@ -1,6 +1,7 @@
 // The route tree, in its own module so both the app root and the
-// server-function config (Phase B, when server components join the page)
-// can share it. Today: `/live`, the live-sources page, and a stub home.
+// server-function config can share it. `/` is the room as a live SERVER
+// component (markup that keeps changing); `/live` is the same room from
+// live DATA sources, rendered in the browser.
 import { defineRoute, defineRoutes } from "@solidjs/router";
 import Home from "~/routes/home";
 import Live from "~/routes/live";

@@ -1,27 +1,61 @@
 # Room — Live Server Functions
 
-A shared room built on **`live` server functions**: presence, the transcript,
-and the room card are all _standing answers_ a tab holds open as one
-event-stream response each, and a chaos switch kills those connections so the
-reconnect path is visible in the UI.
+A shared room built on **`live` server functions**, on two pages that share
+one declaration:
 
-Where [../chat](../chat) shows server-rendered markup that keeps changing
-after it arrives, this example is about **data** that keeps arriving — the
-same `live` declaration behind every panel, and the differences between them
-are all on the wire.
+- **`/live`** — presence, the transcript, and the room card are _standing
+  answers_ of **data**: each tab holds them open as one event-stream response
+  each and renders them in the browser.
+- **`/`** — the room is one live **server component**: presence and the
+  transcript rendered on the server, arriving as markup that keeps changing,
+  over one connection; the composer is a client slot inside it.
+
+A chaos switch kills every connection so the reconnect path is visible on
+both. Where [../chat](../chat) shows server-rendered markup that keeps
+changing after it arrives, this example is about liveness having **one
+declaration, one loop, and one status surface** across data and markup.
 
 ```sh
-pnpm dev                       # https://localhost:3010/live  (self-signed cert)
-HTTPS=0 pnpm dev               # http://localhost:3010/live   (HTTP/1.1 — see below)
+pnpm dev                       # https://localhost:3010/  (self-signed cert)
+HTTPS=0 pnpm dev               # http://localhost:3010/   (HTTP/1.1 — see below)
 CHAOS_EVERY=2500 pnpm dev      # the server ends every live response after 2.5s
 pnpm build && pnpm start       # production harness (HTTP/1.1)
 ```
 
-Open `/live` in **two tabs** — each browser tab is its own member (identity is
-minted per tab in `sessionStorage`), so presence moves as you open and close
-them.
+Open either page in **two tabs** — each browser tab is its own member
+(identity is minted per tab in `sessionStorage`), so presence moves as you
+open and close them.
 
-## The panels, and what each one is
+## `/` — the room as a live server component
+
+[src/lib/room-panel.tsx](./src/lib/room-panel.tsx) is a server function that
+answers with a **component**, declared exactly like the data sources:
+`live(GET(async (room, me) => { "use server"; return props => <…/> }))`. The
+page ([src/routes/home.tsx](./src/routes/home.tsx)) mounts it with
+`dynamic(() => roomPanel(room, me))` once the tab has an identity — `dynamic`
+is a memo, and a `live` reference's answer is an async iterable it pumps like
+any other.
+
+- **The render is the connection.** The component reads the same in-memory
+  watchers `/live`'s sources read, through memos; every change re-renders the
+  panel on the server and the browser **morphs** it. Joining is the render:
+  `onCleanup(join(room, me))` — this tab is a member while its panel's
+  response is open, and the request's abort (tab closed, navigated away)
+  disposes the render, which is the leave.
+- **Death is a reconnect, not a fallback.** _Kill every connection_ and the
+  loop reconnects the same binding: the pill cycles
+  `connected → reconnecting → connected`, the render number climbs (a fresh
+  render on the server), and nothing else moves — no `<Loading>` fallback, no
+  re-mount, and the **composer keeps its draft**: it is a client slot the
+  server positions (`<props.composer room={room} />`), keyed by position so a
+  morph keeps its instance.
+- **Posting answers nothing.** `send` is a plain mutation; the row reaches
+  this tab and every other as **markup**, through each one's open render.
+- **Call-driven face.** The panel mounts after the page is up (the client's
+  call is the connection). The document face — the room in the initial HTML,
+  adopted by hydration, the loop reconnecting from there — is Stage 8 B3.
+
+## `/live` — the panels, and what each one is
 
 All of it is in [src/lib/sources.ts](./src/lib/sources.ts) (the wire) and
 [src/routes/live.tsx](./src/routes/live.tsx) (the reads). Every read is a
