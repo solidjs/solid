@@ -78,6 +78,16 @@ export interface FrameStreamOptions {
    * `frameFlightResponse` chain it with their own body's `cancel`.
    */
   signal?: AbortSignal;
+  /**
+   * The call arrived at the live address — a `live` loop is reading
+   * (`getServerFunctionInvocation().live`). `serverComponentResponse` then
+   * frames the chunks as server-sent events, as the codec stream is framed
+   * there (`text/event-stream`, `no-store`, the idle heartbeat, the dev
+   * chaos knob), so the loop reads the frame stream through the reader it
+   * already has and a proxy holds the connection open as it would any
+   * event stream. The chunk protocol is unchanged; only the framing is.
+   */
+  live?: boolean;
   /** Remaining `renderToStream` options (plugins, onError, manifest, ...). */
   [key: string]: unknown;
 }
@@ -151,10 +161,12 @@ import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
 import {
   ChunkReader,
   createChunk,
+  createEventChunk,
   frameAddress,
   serializeStream
 } from "../../server-functions/src/shared.js";
 import {
+  armLiveBody,
   getEventServerFunctionInvocation,
   guardFailures
 } from "../../server-functions/src/server.js";
@@ -1826,10 +1838,12 @@ function copyInitHeaders(init) {
   return headers;
 } /**
  * A server component as an HTTP Response: the chunk stream framed with the
- * server-function wire convention, tagged `X-Frame-Stream: <frame id>` for
- * the client and `X-Content-Raw` so the server-function handler forwards it
- * untouched. `init` (headers/status, e.g. from a `respond()` envelope)
- * merges in; the frame tags win on conflict.
+ * server-function wire convention — length-prefixed, or as server-sent
+ * events when `options.live` says a `live` loop is reading — tagged
+ * `X-Frame-Stream: <frame id>` for the client and `X-Content-Raw` so the
+ * server-function handler forwards it untouched. `init` (headers/status,
+ * e.g. from a `respond()` envelope) merges in; the frame tags win on
+ * conflict.
  * @experimental
  */
 export function serverComponentResponse(
@@ -1840,10 +1854,22 @@ export function serverComponentResponse(
 
 export function serverComponentResponse(component, options = {}, init = {}) {
   const { id = "", version = 1 } = options.frame || {};
+  const live = !!options.live;
   const headers = copyInitHeaders(init.headers);
-  headers.set("Content-Type", "application/x-frame-stream");
   headers.set(FRAME_STREAM_HEADER, id);
   headers.set("X-Content-Raw", "1");
+  // A live loop's answer rides in event-stream framing (the same framing the
+  // codec stream takes at the live address; see `encodeLiveResult`): one
+  // chunk per `data:` event, `no-store` (a standing answer is a moment, not
+  // a cacheable value), `X-Accel-Buffering: no` for proxies that buffer by
+  // default. The client picks its reader off the content type; the chunks
+  // themselves are the same records either way.
+  if (live) {
+    headers.set("Content-Type", "text/event-stream");
+    headers.set("Cache-Control", "no-store");
+    headers.set("X-Accel-Buffering", "no");
+  } else headers.set("Content-Type", "application/x-frame-stream");
+  const frame = live ? createEventChunk : createChunk;
   // The render lives as long as someone reads the response. A client
   // disconnect reaches this body as `cancel()`; the host's request abort
   // reaches it as `options.signal` (the request's, from
@@ -1864,12 +1890,16 @@ export function serverComponentResponse(component, options = {}, init = {}) {
   // Writes after the reader is gone must drop, not throw: an ERR_INVALID_STATE
   // escaping through a serializer flush is an unhandled process-level error.
   let closed = false;
+  // The live body's heartbeat and dev chaos (see armLiveBody); disarmed on
+  // every road the body ends by.
+  let stopLive = null;
   const body = new ReadableStream({
     start(controller) {
       const end = () => {
         if (closed) return;
         closed = true;
         disarm();
+        if (stopLive) stopLive();
         try {
           controller.close();
         } catch (_) {}
@@ -1880,11 +1910,20 @@ export function serverComponentResponse(component, options = {}, init = {}) {
       // body was ever read.
       if (teardown.signal.aborted) return end();
       teardown.signal.addEventListener("abort", end, { once: true });
+      // Chaos ends the body as a dying connection would: the render is torn
+      // down first (its sources returned, as on a real disconnect), then
+      // the body errors with the frame still open — a death to the reader.
+      if (live)
+        stopLive = armLiveBody(controller, () => {
+          closed = true;
+          disarm();
+          teardown.abort();
+        });
       stream.pipe({
         write(chunk) {
           if (closed) return;
           try {
-            controller.enqueue(createChunk(JSON.stringify(chunk)));
+            controller.enqueue(frame(JSON.stringify(chunk)));
           } catch (_) {
             closed = true;
           }
@@ -1895,6 +1934,7 @@ export function serverComponentResponse(component, options = {}, init = {}) {
     cancel() {
       closed = true;
       disarm();
+      if (stopLive) stopLive();
       teardown.abort();
     }
   });
@@ -1961,7 +2001,13 @@ export function frameTransformResult(event, result, context) {
   const invocation = getEventServerFunctionInvocation(event);
   return serverComponentResponse(
     result,
-    { frame: { id: (invocation && invocation.id) || "" }, signal: requestSignal(event) },
+    {
+      frame: { id: (invocation && invocation.id) || "" },
+      signal: requestSignal(event),
+      // A call at the live address is a `live` loop's: frame the answer as
+      // the event stream the loop reads (RFC 10, `live(fn)` → Framing).
+      live: !!(invocation && invocation.live)
+    },
     init
   );
 }

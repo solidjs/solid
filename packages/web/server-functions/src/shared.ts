@@ -1281,6 +1281,12 @@ export class ChunkReader {
       interpret(result.value);
     }
   }
+
+  /** End the read: the body is cancelled through the lock this reader
+   *  holds, and a pending `next()` resolves done. */
+  cancel(reason) {
+    return this.reader.cancel(reason);
+  }
 }
 
 /**
@@ -1424,6 +1430,11 @@ export class EventStreamReader {
       }
       interpret(result.value);
     }
+  }
+
+  /** End the read (see `ChunkReader.cancel`). */
+  cancel(reason) {
+    return this.reader.cancel(reason);
   }
 }
 

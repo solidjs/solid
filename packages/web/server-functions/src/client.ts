@@ -68,6 +68,9 @@ export {
   EventStreamReader,
   FLASH_COOKIE,
   LAST_EVENT_ID_HEADER,
+  // the live loop's wire slot: the frames transport reads it off the
+  // handler ctx to run a frame stream under the loop's lifetime
+  LIVE_WIRE,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
   SINGLE_FLIGHT_HEADER,
@@ -728,9 +731,14 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   if (IS_OBSERVE && observation) observation.response(response);
 
   // The integration seam sees the response first: a handler that claims it
-  // (returns non-undefined) owns the call's result.
+  // (returns non-undefined) owns the call's result — and, when a `live` loop
+  // made the call, its lifetime: the loop's wire slot rides along (see
+  // LIVE_WIRE) so the handler can read the body through the loop's reader
+  // and hang the connection's end on the slot as the decoder would.
   if (handler) {
-    const handled = handler.handle(response, { id, meta, args: callArgs, context });
+    const ctx = { id, meta, args: callArgs, context };
+    if (options[LIVE_WIRE]) ctx[LIVE_WIRE] = options[LIVE_WIRE];
+    const handled = handler.handle(response, ctx);
     if (handled !== undefined) return handled;
   }
 

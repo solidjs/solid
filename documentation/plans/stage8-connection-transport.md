@@ -381,6 +381,36 @@ component ("summarize the room") for the bounded contrast.
   death is an error; `Composer` draft survives a reconnect; a live frame
   under a slow boundary does not delay a live frame in the shell.
 - **Demo:** the room panel reconnects on chaos with no fallback flash.
+- **Built (branch `feat/frames-live`), call-driven face.** Server: a call
+  at the live address reaches `frameTransformResult` through the
+  invocation record (`getServerFunctionInvocation().live`), and
+  `serverComponentResponse({ live })` frames the chunks as server-sent
+  events with the live headers, the idle heartbeat and the dev chaos knob
+  (`armLiveBody`, shared with the codec stream). Client: the loop's wire
+  slot rides on the `responseHandler` ctx; `applyFrames` reads an
+  event-stream body through the loop's reader, counts the frames `start`ed
+  and not `complete`d (a nested region rides inside its parent), and
+  resolves the connection's end for the loop — `open > 0` is a death, `0`
+  a completion, `sweep` writes the open frames' error records if the
+  iteration ends by error, `close` leaves them standing. Without a loop,
+  an open frame at body end gets the error record itself (undeclared
+  death). `bump` cancels the address's live connection (supersession →
+  death → the loop reconnects), and the handler holds ONE live connection
+  per address: a second live reader's body is ended and its loop joins
+  the first's lifetime — without this two readers of one call supersede
+  each other's stream for as long as both are mounted. `dynamic` is
+  untouched: the memo pumps the live iterable as any async iterable, and
+  the re-yielded binding is equality-quiet on its own. Pinned in
+  `frames-live.spec.tsx` (death → reconnect, same binding, morph, no
+  fallback, no remount; complete → closed, no reconnect; stream `error` →
+  closed; supersession → cancel + reconnect; undeclared death → error;
+  shared connection; composer draft across a reconnect; argument switch)
+  and `frame-live-framing.spec.tsx` (framing/headers at the live address,
+  data address unchanged, standing response stays open with heartbeat,
+  chaos ends it as a death, knob inert in prod). Not here: the adoption
+  bullet above (yield the adopted binding, reconnect at scope release)
+  needs the live bit in the shell record — it lands with B3, as does the
+  "live frame under a slow boundary" verify item (document face).
 
 ### B3 — document face
 
@@ -443,6 +473,10 @@ component ("summarize the room") for the bounded contrast.
 | `renderToStream({ signal })` — the request's abort tears the render down as a disconnect; flows through `renderToFrameStream` / `renderServerComponent` / `serverComponentResponse` options             | new option                  | B1    |
 | `SSR_STREAM_ABANDONED` `data.reason` gains `"signal"`                                                                                                                                                   | diagnostic data             | B1    |
 | Frame responses tear the render down on body `cancel()` and on the request's abort; the frame-scope pump closes its source at disposal                                                                  | bug fix                     | B1    |
+| `ServerFunctionInvocation.live` — the invocation record says whether the call arrived at the live address                                                                                               | new field                   | B2    |
+| `FrameStreamOptions.live` on `serverComponentResponse`; a live frame response is an event stream (live headers, heartbeat, chaos knob)                                                                  | new option, wire            | B2    |
+| `applyFrameResponse`: a body ending before a started frame's `complete` is that frame's error (undeclared death, RFC 11 §9.5 D1)                                                                        | behavior change, frames     | B2    |
+| One live connection per address: a second live reader of the same call joins the first connection's lifetime instead of opening its own                                                                 | behavior, frames + live     | B2    |
 | `onstatus` reachable for server-component references                                                                                                                                                    | existing surface, new reach | B2    |
 | Have-list header; hole digests                                                                                                                                                                          | wire                        | B4    |
 | `SERVER_WRITE` throws in persistent renders                                                                                                                                                             | behavior change             | B3+   |

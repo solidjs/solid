@@ -76,6 +76,7 @@ export {
   UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
+  createEventChunk,
   decodeErrorHeaderValue,
   decodeRedirectHeaderValue,
   decodeResponse,
@@ -518,6 +519,14 @@ export type LiveSource<R> = R & {
 /** Identity of the currently executing server function call. */
 export interface ServerFunctionInvocation {
   id: string;
+  /**
+   * The call arrived at the live address: a `live` loop is reading, and the
+   * answer is framed as an event stream for as long as it stands (RFC 10,
+   * `live(fn)` → Framing). A result policy building the answer's Response
+   * itself (`frameTransformResult`) reads this to frame it the same way.
+   * `false` for the data and bare addresses, and for in-process calls.
+   */
+  live: boolean;
 }
 
 /**
@@ -1336,7 +1345,7 @@ export function createServerReference({ id, fn, name }) {
       const evt = { ...ogEvt, locals: { ...ogEvt.locals } };
       // Keyed on the derived event: the invocation is visible exactly within
       // this call's provideEvent scope and evaporates with the derived event.
-      INVOCATIONS.set(evt, { id });
+      INVOCATIONS.set(evt, { id, live: false });
       evt.serverOnly = true;
       const scope = run => provideEvent(evt, run);
       // Per-invocation wrap (see configureServerFunctionsServer): direct
@@ -2871,16 +2880,13 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
         return createEventChunk(payload, id);
       }
     : createChunk;
-  // Heartbeat, live only: a comment every 20s while the response is open,
-  // so a proxy's idle timeout never mistakes a waiting source for a dead
-  // one. Not demand-gated — the two bytes ride ahead of any parked pull.
-  // Unref'd where the runtime allows: the connection holds the process
-  // open, not the timer.
-  let heartbeat = null;
+  // The live body's keepalive and its dev chaos (see armLiveBody), armed at
+  // start; disarmed on every road the stream ends by.
+  let stopLive = null;
   const stopHeartbeat = () => {
-    if (heartbeat !== null) {
-      clearInterval(heartbeat);
-      heartbeat = null;
+    if (stopLive !== null) {
+      stopLive();
+      stopLive = null;
     }
   };
   // Demand gate. seroval's pump pulls each source as fast as it resolves and
@@ -2951,32 +2957,7 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
     // promise — reads wait for it, so the stream's contract is unchanged
     async start(controller) {
       streamController = controller;
-      if (live) {
-        heartbeat = setInterval(() => {
-          if (closed) return;
-          try {
-            controller.enqueue(EVENT_STREAM_HEARTBEAT);
-          } catch {}
-        }, LIVE_HEARTBEAT_INTERVAL);
-        if (typeof heartbeat === "object" && heartbeat && typeof heartbeat.unref === "function")
-          heartbeat.unref();
-        // The chaos knob (dev only): end this response as a dying connection
-        // would — the body errors with the stream still open, so the client
-        // reads a death, not a completion. Cleared with the heartbeat; a
-        // response that completed on its own is never touched.
-        if (DEV && config.chaosReconnectEvery > 0) {
-          const chaos = setTimeout(() => {
-            if (closed) return;
-            teardown();
-            try {
-              controller.error(new Error("Live response ended by the chaos knob."));
-            } catch {}
-          }, config.chaosReconnectEvery);
-          if (typeof chaos === "object" && chaos && typeof chaos.unref === "function")
-            chaos.unref();
-          sourceClosers.add(() => clearTimeout(chaos));
-        }
-      }
+      if (live) stopLive = armLiveBody(controller, teardown);
       if (signal) {
         if (signal.aborted) {
           teardown();
@@ -3072,6 +3053,59 @@ function serializedResponse(value, headers, codec, signal, scope) {
 // timeouts (30s nginx `proxy_read_timeout` is the lowest default in wide
 // use; most hosts sit at 60s+).
 const LIVE_HEARTBEAT_INTERVAL = 20000;
+
+/**
+ * Arms what every live body carries beyond its payloads, whichever writer
+ * frames them — the codec stream (`serializeResponseStream`) and a frame
+ * stream (`serverComponentResponse` at the live address) alike:
+ *
+ * - the heartbeat: an event-stream comment every 20s while the response is
+ *   open, so a proxy's idle timeout never mistakes a waiting source for a
+ *   dead one. Not demand-gated — the two bytes ride ahead of any parked
+ *   pull. Unref'd where the runtime allows: the connection holds the
+ *   process open, not the timer;
+ * - the chaos knob (dev only, `chaosReconnectEvery`): end this response as
+ *   a dying connection would — `teardown` first (the producer's own), then
+ *   the body errors with the stream still open, so the client reads a
+ *   death, not a completion.
+ *
+ * Returns the disarm; the caller runs it on every road the body ends by, so
+ * a response that completed on its own is never touched.
+ * @internal
+ */
+export function armLiveBody(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  teardown: () => void
+): () => void;
+
+export function armLiveBody(controller, teardown) {
+  let stopped = false;
+  const heartbeat = setInterval(() => {
+    if (stopped) return;
+    try {
+      controller.enqueue(EVENT_STREAM_HEARTBEAT);
+    } catch {}
+  }, LIVE_HEARTBEAT_INTERVAL);
+  if (typeof heartbeat === "object" && heartbeat && typeof heartbeat.unref === "function")
+    heartbeat.unref();
+  let chaos = null;
+  if (DEV && config.chaosReconnectEvery > 0) {
+    chaos = setTimeout(() => {
+      if (stopped) return;
+      teardown();
+      try {
+        controller.error(new Error("Live response ended by the chaos knob."));
+      } catch {}
+    }, config.chaosReconnectEvery);
+    if (typeof chaos === "object" && chaos && typeof chaos.unref === "function") chaos.unref();
+  }
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(heartbeat);
+    if (chaos !== null) clearTimeout(chaos);
+  };
+}
 
 /**
  * The live adapter: positions and the first-emission skip (RFC 10, `live`
@@ -4262,7 +4296,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
         // ahead of run() (auth, logging) included.
-        INVOCATIONS.set(event, { id: functionId });
+        INVOCATIONS.set(event, { id: functionId, live: !!live });
         const run = () => serverFunction(...parsed);
         // Same observation as the direct leg (see `observeInvocation`): the
         // wrapped execution as a whole, the error as thrown — before the

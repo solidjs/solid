@@ -2500,7 +2500,12 @@ value belonged in durable state.
    the update anyway. The mitigation belongs with §9.2.1's
    convergence work (an open connection is the authority for its
    address, so a live query's invalidation need not bump it) and is
-   not this stage's.
+   not this stage's. Corollary (built 2026-09-25): one live
+   connection per address. Two live readers of one call would each
+   supersede the other's stream on arrival and ping-pong for as long
+   as both are mounted, so a second live reader's body is ended and
+   its loop joins the first connection's lifetime — one death, one
+   reconnect, shared.
 5. **Undeclared death is an error.** A bounded server component
    whose stream dies mid-render surfaces through `frame.error` /
    the enclosing `<Errored>`, exactly as an undeclared generator
