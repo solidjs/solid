@@ -497,13 +497,25 @@ function ssrLoadingBoundary(
   const finalAtDiscovery = ctx.async && hasFinalHole();
 
   const fallbackOwner = createOwner({ id });
+  // The placeholder wrapper around a streaming fallback (see `plainFallback`).
+  const tpl = collapseFallback
+    ? [`<template id="pl-${id}">`, `</template><!--pl-${id}-->`]
+    : [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`];
   const fallbackResult = runWithOwner(fallbackOwner, () => {
     if (!ctx.async || finalAtDiscovery) return fallback();
-    const tpl = collapseFallback
-      ? [`<template id="pl-${id}">`, `</template><!--pl-${id}-->`]
-      : [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`];
     return ctx.ssr(tpl, ctx.escape(fallback()));
   });
+  // The streaming fallback without its placeholder wrapper — what the
+  // "$$f" route inlines. The wrapper is ours (`tpl`), so the markup between
+  // its two halves is exactly the fallback. A resolved template is one
+  // segment (`t` a string, or a single-segment array — `h.length + 1`);
+  // more segments mean the fallback itself is still resolving (an async
+  // hole in it) and there is no plain markup to inline: `undefined`.
+  const plainFallback = (): string | undefined => {
+    const raw = (fallbackResult as any)?.t;
+    const t = Array.isArray(raw) ? (raw.length === 1 ? raw[0] : undefined) : raw;
+    return typeof t === "string" ? t.slice(tpl[0].length, t.length - tpl[1].length) : undefined;
+  };
 
   if (finalAtDiscovery) {
     commitBoundaryState();
@@ -518,14 +530,27 @@ function ssrLoadingBoundary(
   if (ctx.async) {
     const regOpts = revealGroup ? { revealGroup: revealGroup.id } : undefined;
     done = ctx.registerFragment(id, regOpts);
-    // A final hole surfacing only now (an earlier real async read masked it
-    // during the initial discovery) can't take the "$$f" route anymore: the
-    // fragment protocol requires a settle, and "settle but keep the fallback"
-    // is not expressible. Reject instead — the placeholder swaps out and the
-    // client renders this boundary's content fresh after hydration
+    // A final hole surfacing only now: an earlier real async read masked it
+    // during the initial discovery, or the hole was reached through a
+    // derived async computation, whose FINAL classification lands a
+    // microtask after discovery (#3659). Before the shell has flushed the
+    // position is still the shell's to shape: the placeholder inlines away to
+    // the PLAIN fallback and the boundary serializes "$$f" — the at-discovery
+    // route, one pass late — with the fragment settling clean (the client's
+    // "$$f" branch takes precedence over a settled `_fr`). After the flush
+    // "settle but keep the fallback" is not expressible: the fragment
+    // protocol requires a swap. Reject instead — the placeholder swaps out
+    // and the client renders this boundary's content fresh after hydration
     // (resume(false)), the closest streaming analogue of the client-continue.
     const clientHandoff = () => {
       if (!flushed) commitBoundaryState();
+      const plain = ctx.flushed !== undefined && !ctx.flushed() ? plainFallback() : undefined;
+      if (plain !== undefined) {
+        ctx.serialize(id, "$$f");
+        done!(plain);
+        record("client", false);
+        return;
+      }
       const streamed = done!(
         undefined,
         new Error(`client-only content (bare ssrSource: "client")`)

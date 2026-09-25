@@ -160,7 +160,13 @@ export function dynamic<T extends ValidComponent>(
           // Hold the shell on the source once per instance. A no-op after the
           // shell has flushed, like every blocker; a rejection is the memo's
           // to surface on the retry, the block only needs to clear.
-          if (!gated && err instanceof NotReadyError) {
+          //
+          // Never on a client hole (a bare `ssrSource: "client"` read in the
+          // source, #3659): FINAL — the server can never fill it, so a block
+          // on it would hold the shell forever. Rethrow untouched: the
+          // enclosing <Loading> discovery pass reads the tag and hands the
+          // position to the client (the same rule `serverEffect` applies).
+          if (!gated && err instanceof NotReadyError && !(err.source as any)?.$clientHole) {
             gated = true;
             ctx.block(
               Promise.resolve(err.source).then(

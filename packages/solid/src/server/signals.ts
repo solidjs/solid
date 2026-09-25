@@ -1032,6 +1032,33 @@ function settleServerAsync<T, U>(
 ) {
   let first = true;
 
+  // A pending read inside the compute. A real source's NotReady joins the
+  // retry chain: the attempt re-runs once it settles. A CLIENT HOLE's is
+  // FINAL for this computation (#3659): the compute derives from a value the
+  // server can never have, so the node has no server answer and never will.
+  // Retrying is pointless (the hole never settles), and leaving `deferred`
+  // pending wedged everything that waited on it — the enclosing <Loading>
+  // (`Promise.all(pending.p)` over an untagged promise) and seroval's onDone
+  // for the serialized channel — so the response never completed. Classify
+  // the node as the bare client source it derives from: its error becomes
+  // the tagged client-hole NotReady (reads take that path — loud outside a
+  // boundary, FINAL inside one, where the boundary's re-pull sees the tag
+  // and hands off to the client), and the deferred resolves `undefined`,
+  // the abandonment ledger's value for a channel nobody consumes (the
+  // handed-off subtree renders fresh on the client, unhydrated). The tag is
+  // the classification (`hasFinalHole`'s rule), not identity: an <Errored>
+  // aggregate over a hole carries it too.
+  const pending = (error: any): boolean => {
+    if (!(error instanceof NotReadyError)) return false;
+    if ((error.source as any)?.$clientHole === true) {
+      onError(new NotReadyError(CLIENT_HOLE));
+      deferred.resolve(undefined as U);
+      return true;
+    }
+    subscribePendingRetry(error, attempt);
+    return true;
+  };
+
   const attempt = () => {
     if (isDisposed()) return;
 
@@ -1040,7 +1067,7 @@ function settleServerAsync<T, U>(
       current = first ? initial : rerun();
       first = false;
     } catch (error) {
-      if (subscribePendingRetry(error, attempt)) return;
+      if (pending(error)) return;
       onError(error);
       deferred.reject(error);
       return;
@@ -1057,9 +1084,10 @@ function settleServerAsync<T, U>(
       },
       error => {
         // NotReady defers to the retry chain (`attempt` no-ops once disposed —
-        // a re-created node joins the flight and drives the shared deferred).
-        // Terminal errors settle unconditionally, same as the success path.
-        if (subscribePendingRetry(error, attempt)) return;
+        // a re-created node joins the flight and drives the shared deferred)
+        // or, for a client hole, ends it (see `pending`). Terminal errors
+        // settle unconditionally, same as the success path.
+        if (pending(error)) return;
         onError(error);
         deferred.reject(error);
       }
@@ -2302,7 +2330,13 @@ function createPendingProxy<T extends object>(
   let error: any;
   let readTarget: T = state;
   const gate = () => {
-    if (status > 1) throw error;
+    if (status > 1) {
+      // A derive that landed on a client hole (settleServerAsync's FINAL
+      // reclassification, #3659) errors with the tagged NotReady: the same
+      // loud-outside-a-boundary rule as the bare client store below.
+      if (isClientHole((error as NotReadyError)?.source)) clientHoleRead();
+      throw error;
+    }
     if (status) return;
     // Bare client store: same loud-outside-a-boundary rule as the memo
     // read path (see clientHoleRead).
@@ -2527,6 +2561,15 @@ export function createProjection<T extends object = {}>(
     result = runProjection();
   } catch (error) {
     if (!(error instanceof NotReadyError)) throw error;
+    // The derive read a client hole synchronously: FINAL at discovery, the
+    // structural form of a bare client projection (#3659) — no deferred to
+    // retry, no channel to serialize; the nearest <Loading> boundary hands
+    // the position to the client at once. (A hole reached asynchronously —
+    // after an await, or on a retry — lands in settleServerAsync's FINAL
+    // reclassification instead.)
+    if ((error.source as any)?.$clientHole === true) {
+      return createPendingProxy(state, CLIENT_HOLE)[0];
+    }
 
     const deferred = createDeferredPromise<T>();
     const [pending, markReady, markError] = createPendingProxy(state, deferred.promise);
