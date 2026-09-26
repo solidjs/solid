@@ -152,8 +152,8 @@ function installNextBlockedHalf(): void {
       // Ownership is declared (#3146): only the flight's OWN transaction
       // parks on the flight (the #2951 anchor routed the bare write there).
       // A transaction that merely brushed the store never waits for truth
-      // it does not carry.
-      const ft = fam!.ft != null ? liveTransition(fam!.ft) : null;
+      // it does not carry. An undeclared flight is owned by the firewall's stamp.
+      const ft = liveTransition(fam!.ft ?? fw._transition);
       if (ft !== null && ft !== currentTransition(transition)) continue;
       if (familyHasLiveOverrides(fam!)) return true;
     }
@@ -356,7 +356,8 @@ export function createOptimisticStoreNext<T extends object = {}>(
 
 /** Resolve a retained transition through its merge chain (`_done` holds the
  * merge target while merged, `true` once settled). Null = dead. */
-function liveTransition(txn: Transition): Transition | null {
+function liveTransition(txn: Transition | null): Transition | null {
+  if (txn === null) return null;
   while (typeof txn._done === "object") txn = txn._done as Transition;
   return txn._done === true ? null : txn;
 }
