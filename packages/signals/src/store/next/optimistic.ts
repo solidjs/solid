@@ -584,6 +584,11 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
       ? !!unwrapOverride(node._x?._overrideValue)
       : key in old;
   };
+  // Chained nodes are links (§7b): their `_value` never learns the base's commits.
+  const emit = (node: Signal<any>, ov: any, nv: any): void => {
+    if (t.ch && !hasActiveOverride(node)) node._value = ov;
+    setSignal(node, () => nv);
+  };
   let structural = false;
   const isArr = Array.isArray(pb);
   for (const key of Reflect.ownKeys(pb)) {
@@ -591,13 +596,13 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     const nv = unwrapValue(pb[key as any]);
     if (!visiblePresent(key)) {
       // Optimistic add: value node + presence node + membership bump.
-      setSignal(getNode(t, key, old[key as any]), () => nv);
-      setSignal(getHasNode(t, key, key in old), true as any);
+      emit(getNode(t, key, old[key as any]), old[key as any], nv);
+      emit(getHasNode(t, key, key in old), key in old, true);
       structural = true;
     } else {
       const ov = visible(key, old[key as any]);
       if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) {
-        setSignal(getNode(t, key, ov), () => nv);
+        emit(getNode(t, key, ov), ov, nv);
         if (isArr) structural = true;
       }
     }
@@ -606,14 +611,14 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     if ((isArr && key === "length") || key === $OWNER) continue;
     if (key in pb || !visiblePresent(key)) continue;
     // Optimistic delete: node reads undefined, presence flips, membership bumps.
-    setSignal(getNode(t, key, old[key as any]), () => undefined);
-    setSignal(getHasNode(t, key, true), false as any);
+    emit(getNode(t, key, old[key as any]), old[key as any], undefined);
+    emit(getHasNode(t, key, true), true, false);
     structural = true;
   }
   if (isArr) {
     const oldLen = visible("length", (old as any[]).length);
     if (oldLen !== (pb as any[]).length) {
-      setSignal(getNode(t, "length", oldLen), () => (pb as any[]).length);
+      emit(getNode(t, "length", oldLen), oldLen, (pb as any[]).length);
       structural = true;
     }
   }
