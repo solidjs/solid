@@ -1,5 +1,5 @@
 {
   "name": "dynamic-xmlns-svg-link",
-  "shell": "<svg _hk=0><a _hk=10 xmlns=\"http://www.w3.org/2000/svg\" href=\"/x\"><text _hk=11>go</text></a></svg>",
+  "shell": "<svg _hk=0><a _hk=20 xmlns=\"http://www.w3.org/2000/svg\" href=\"/x\"><text _hk=21>go</text></a></svg>",
   "rest": ""
 }

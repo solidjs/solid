@@ -199,12 +199,30 @@ Inside a `<For>` callback or other render function, the callback body is the pla
 
 #### Async sources and `Loading`
 
-`source` may return a `Promise<Component | string | undefined>`. The factory composes with `Loading` / `Errored` through the normal `NotReadyError` flow — no separate suspense primitive or user-side `await`.
+`source` may return a promise. The factory composes with `Loading` / `Errored` through the normal `NotReadyError` flow — no separate suspense primitive or user-side `await`. Each mounted instance is an ordinary async memo: under SSR its settled value is **serialized and the client adopts it during hydration** — the source is not re-run, the boundary is not re-entered, and the server-rendered nodes stand. That puts a contract on what an async source may resolve to, because the value has to cross the wire:
+
+- **A server component** (`"use server"` function returning JSX, called directly or through a wrapper such as a router `query()`): crosses as a reference; the client adopts the frame the server rendered. This is the primary case.
+- **A tag name** (`"article"`): a serializable value; adopted as-is.
+- **A client component function**: cannot be serialized. In dev this is an error on the server, `DYNAMIC_ASYNC_COMPONENT` ([RFC 08](08-dev-diagnostics.md#dynamic_async_component)), and the memo rejects into the nearest `Errored`. The async does not belong in the source: resolve it upstream — a `createAsync` / `createMemo` the source reads synchronously — or use `lazy()` when what is being awaited is the component's code.
+
+```jsx
+// A client component chosen by async data: the DATA is async, the source is sync.
+const page = createAsync(() => fetchPage(params.id));
+const Page = dynamic(() => (page().editable ? Editor : Viewer));
+
+// Code-split client component: lazy(), not an async dynamic() source.
+const Editor = lazy(() => import("./Editor.jsx"));
+
+// A server component answering an async call: the source may stay async.
+const Article = dynamic(() => loadArticle(params.id));
+```
+
+A synchronous source (whatever it returns) never serializes anything; only a source that introduced async writes a hydration record.
 
 Under SSR a pending source streams in behind its boundary by default — a source is data of unknown cost (a server component call, say). Pass `{ deferStream: true }` to hold the document's first flush until it settles, the same option `createMemo` takes ([RFC 05](05-async-data.md)); the client ignores it. This is the one place `dynamic` and `lazy` differ: a `lazy()` module load is code, not data, and always holds the shell — the shell cannot decide it has discovered all async until the segment's code has run — while the boundary still owns whatever async that code then discovers.
 
 ```jsx
-const Page = dynamic(() => loadPageComponent(params.id), { deferStream: true });
+const Article = dynamic(() => loadArticle(params.id), { deferStream: true });
 ```
 
 #### Notes

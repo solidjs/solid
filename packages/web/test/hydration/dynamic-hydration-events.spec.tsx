@@ -27,7 +27,7 @@ describe("#3386: dynamic() replays events queued during hydration", () => {
 
   test("a click queued before hydration reaches the handler", async () => {
     // Server output for the tree below, captured from renderToString
-    container.innerHTML = "<div _hk=0><button _hk=20 >hi</button></div>";
+    container.innerHTML = "<div _hk=0><button _hk=30 >hi</button></div>";
 
     // Queue the click the way the hydration script does: a real event that
     // reached the server-rendered element before its handlers existed.

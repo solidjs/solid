@@ -12,6 +12,7 @@ import {
   type Component
 } from "solid-js";
 import type { JSX } from "../jsx/jsx.js";
+import { recordFinding } from "./diagnostics.js";
 // The container tier's server half: the runtime's trace plugin rides every
 // render's serializer (both faces — it is part of the codec's default
 // plugin set), but it is inert until the reactive core answers "is this
@@ -80,6 +81,8 @@ export const isServer: boolean = true;
  * cannot disagree.
  */
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
+/** The observe gate, replaced per artifact like `isDev` (`diagnostics.ts` has the same). */
+const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 export type IntrinsicElement = Extract<keyof JSX.IntrinsicElements, string>;
 export type ValidComponent = IntrinsicElement | Component<any> | (string & {});
@@ -124,10 +127,34 @@ export function dynamic<T extends ValidComponent>(
       return props => ssrElement(component, props, undefined, true) as unknown as JSX.Element;
     return () => undefined as unknown as JSX.Element;
   }
-  // Mirrors the client exactly: a factory-level memo over the source, then a
-  // per-instance memo that applies props. An async source needs no bespoke
-  // handling — the (async-aware, non-`sync`) server memo suspends the read
-  // while pending, and the nearest boundary owns it and streams.
+  // Mirrors the client exactly — three memos, the same owner shape on both
+  // sides so hydration ids agree:
+  //
+  // 1. The FACTORY memo runs the source once for every mount. It is sync-
+  //    valued by construction: a thenable the source returns is boxed
+  //    (`FLIGHT`), never processed here, so the factory never suspends and
+  //    never serializes — it is routinely hoisted (no owner, no id) and a
+  //    shared value is nobody's record. A NotReady the source itself throws
+  //    (a pending dependency read synchronously) propagates as usual: that is
+  //    dependency async, not source async, and the dependency's own record
+  //    carries the client past it.
+  // 2. The per-instance VALUE memo unboxes. When the source introduced async
+  //    (returned a thenable) this memo returns it, and becomes an ORDINARY
+  //    async memo: it suspends the read while pending — the nearest boundary
+  //    owns the wait and streams — and the async-memo machinery serializes
+  //    its landing under the instance's id, exactly as it does for every
+  //    other async memo (#3666). The client memo at the same id adopts that
+  //    record during hydration instead of waiting on its own re-run of the
+  //    source, so a hydrating <Loading> never sees a pending beat that would
+  //    commit it to a fallback the server never rendered. What lands is
+  //    what crosses: a server component as a flight reference (the frames
+  //    codec plugin; the client re-derives the binding from it), a tag as
+  //    the string; a client component FUNCTION cannot cross and is a
+  //    misuse — see `classifyLanding`. A sync source lands nothing: the
+  //    machinery writes a record only for an async compute, and the client
+  //    re-runs the source synchronously, as before.
+  // 3. The per-instance RENDER memo applies props (`sync`: re-read per
+  //    commit epoch in frame renders).
   //
   // By default the pending read is NOT a renderer-blocking promise: a source
   // is data of unknown cost (a server component call, say), and gating the
@@ -137,29 +164,34 @@ export function dynamic<T extends ValidComponent>(
   // lazy(), whose module load always holds the shell (code is a prerequisite
   // to knowing what the segment contains), dynamic() leaves that call to the
   // author: `deferStream` holds the shell on the source's settle, with the
-  // same meaning it has on createMemo. It is applied at the INSTANCE, not on
-  // the factory memo: dynamic() is routinely hoisted, so the factory runs with
-  // no render context, and only the mount knows which document to hold.
-  //
-  // `serialize: false` because the resolved component must never cross the
-  // wire (it isn't serializable, and the client re-runs `source()` during
-  // hydration anyway, the same way lazy() re-imports its module). The owner
-  // id is still allocated, so hydration keys stay aligned with the client.
-  const cached = createMemo(source as () => any, { serialize: false } as any);
+  // same meaning it has on createMemo — for a thenable the source returns it
+  // IS createMemo's option on the value memo; for a pending dependency the
+  // source reads, the value memo blocks the shell on that read itself (see
+  // the catch below). Applied at the INSTANCE, not on the factory: dynamic()
+  // is routinely hoisted, so the factory runs with no render context, and
+  // only the mount knows which document to hold.
+  const cached = createMemo(() => {
+    const next: any = source();
+    if (!next || typeof next.then !== "function") return next;
+    return { [FLIGHT]: next };
+  });
   const deferStream = !!options?.deferStream;
   return props => {
     // Client `solid-js` types don't expose the server `sharedConfig.context`.
     const ctx = (sharedConfig as { context?: any }).context;
     let gated = !deferStream || !ctx?.async;
-    return createMemo(
+    const value = createMemo(
       () => {
-        let c: unknown;
+        let c: any;
         try {
           c = cached();
         } catch (err) {
-          // Hold the shell on the source once per instance. A no-op after the
-          // shell has flushed, like every blocker; a rejection is the memo's
-          // to surface on the retry, the block only needs to clear.
+          // `deferStream` for the source's OTHER way of being async: a
+          // dependency it reads synchronously is pending (a NotReady the
+          // source threw, no thenable to hand the memo). Hold the shell on it
+          // once per instance — a no-op after the shell has flushed, like
+          // every blocker; a rejection is the memo's to surface on the retry,
+          // the block only needs to clear.
           //
           // Never on a client hole (a bare `ssrSource: "client"` read in the
           // source, #3659): FINAL — the server can never fill it, so a block
@@ -177,6 +209,32 @@ export function dynamic<T extends ValidComponent>(
           }
           throw err;
         }
+        if (!c || !c[FLIGHT]) return c;
+        const next: PromiseLike<any> = c[FLIGHT];
+        // Transparent: the landing is classified inside the source promise's
+        // own handlers, no extra microtask hop. A rejection the classifier
+        // raises goes through `onRejected` — a throw inside the handler would
+        // reject a promise nobody observes. Either handler may be absent
+        // (`.then(undefined, noop)` is how a flight gets observed).
+        return {
+          then: (onFulfilled?: (v: any) => any, onRejected?: (e: any) => any) =>
+            next.then((resolved: any) => {
+              let landed: any;
+              try {
+                landed = classifyLanding(resolved);
+              } catch (err) {
+                if (onRejected) return onRejected(err);
+                throw err;
+              }
+              return onFulfilled ? onFulfilled(landed) : landed;
+            }, onRejected)
+        };
+      },
+      { deferStream } as any
+    );
+    return createMemo(
+      () => {
+        const c: unknown = value();
         if (c) {
           if (typeof c === "function") return (c as Function)(props);
           if (typeof c === "string") {
@@ -187,6 +245,64 @@ export function dynamic<T extends ValidComponent>(
       { sync: true } as any
     ) as unknown as JSX.Element;
   };
+}
+
+/**
+ * The box a `dynamic()` factory memo holds a thenable source answer in, so
+ * the factory itself stays sync-valued and the per-instance memo is the one
+ * that goes async (and serializes). Module-local: nothing outside `dynamic`
+ * ever sees a box.
+ */
+const FLIGHT = Symbol("solid.dynamic-flight");
+
+/**
+ * A server component's brand (`frameTransformDirectResult` stamps it; the
+ * frames codec plugin serializes a branded function as a flight reference).
+ * `Symbol.for`, so this entry can recognize one without importing the frames
+ * transport.
+ */
+const SERVER_COMPONENT = Symbol.for("solid.server-component");
+
+/**
+ * What an async `dynamic()` source landed, as the value memo's record will
+ * carry it — or the one thing it cannot carry.
+ *
+ * A server component crosses as a reference (the document already holds its
+ * markup; the client mounts the reference and adopts the frame by id), a tag
+ * crosses as its string, and `undefined`/`null`/`false` cross as themselves.
+ * A client component FUNCTION cannot: the client would have to re-run the
+ * source and wait on it mid-hydration, which is exactly the pending beat the
+ * record exists to remove (#3666) — and the serializer has no encoding for a
+ * function anyway. That shape is a misuse with two correct spellings, so it
+ * is an error here, at the point the memo would serialize it, in every tier:
+ * dev with the guidance, prod with the code (the alternative — a record the
+ * serializer cannot write — would leave the client waiting on it forever).
+ */
+function classifyLanding(resolved: any) {
+  if (typeof resolved !== "function" || SERVER_COMPONENT in resolved) return resolved;
+  const message = isDev
+    ? "[DYNAMIC_ASYNC_COMPONENT] An async dynamic() source resolved to a client component " +
+      "function, which cannot be serialized for hydration: the client would re-run the source " +
+      "and wait on it while hydrating, committing the enclosing <Loading> to a fallback the " +
+      "server never rendered. Resolve the async upstream — a createAsync()/createMemo() the " +
+      "source reads synchronously (`dynamic(() => page() ? Editor : Viewer)`) — or use lazy() " +
+      "for a code-split component. A source may stay async when it resolves to a server " +
+      "component or a serializable value (a tag name)."
+    : "[DYNAMIC_ASYNC_COMPONENT] An async dynamic() source resolved to a client component function";
+  // Landed in a promise continuation — no owner is current, so the finding
+  // carries no location; the thrown error is the console face.
+  if (IS_OBSERVE)
+    recordFinding(
+      {
+        code: "DYNAMIC_ASYNC_COMPONENT",
+        kind: "ssr",
+        severity: "error",
+        message,
+        data: { component: (resolved as Function).name || undefined }
+      },
+      null
+    );
+  throw new Error(message);
 }
 
 /** @deprecated Props of the deprecated `<Dynamic>`; see `dynamic()`. */

@@ -6,7 +6,7 @@ import { dynamic, Dynamic } from "@solidjs/web";
 import { createRoot, getOwner, Show } from "solid-js";
 
 describe("Dynamic hydration key alignment", () => {
-  test("dynamic factory consumes 2 parent slots (cached memo + outer memo)", () => {
+  test("dynamic factory consumes 3 parent slots (factory memo + instance value memo + render memo)", () => {
     createRoot(
       () => {
         let innerChildId: string | undefined;
@@ -18,7 +18,7 @@ describe("Dynamic hydration key alignment", () => {
 
         dynamic(() => Wrapper)({ children: "test-child" } as any);
 
-        expect(innerChildId).toBe("t1");
+        expect(innerChildId).toBe("t2");
       },
       { id: "t" }
     );
@@ -45,8 +45,8 @@ describe("Dynamic hydration key alignment", () => {
           }
         });
 
-        expect(dynamicChildId).toBe("t1");
-        expect(showChildId).toBe("t4");
+        expect(dynamicChildId).toBe("t2");
+        expect(showChildId).toBe("t5");
       },
       { id: "t" }
     );
@@ -64,7 +64,7 @@ describe("Dynamic hydration key alignment", () => {
 
         Dynamic({ component: Wrapper, children: "test" } as any);
 
-        expect(innerChildId).toBe("t1");
+        expect(innerChildId).toBe("t2");
       },
       { id: "t" }
     );

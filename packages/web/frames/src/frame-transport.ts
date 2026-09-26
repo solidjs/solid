@@ -423,10 +423,14 @@ export function setServerComponentBootstrap(resolve) {
  * Two distinct consumers share the one tag:
  *
  * - `serialize` (eval-style, the document hydration serializer): emits
- *   `self._$SC.r("<function id>")`. The document shell's inline bootstrap
- *   memoizes a stable placeholder per FUNCTION — a delegating shell whose
- *   every mount binds to its own SSR'd element during adoption — so the
- *   address adds nothing at t=0 and the reference stays id-keyed.
+ *   `self._$SC.r("<function id>", "<address>")`. The document shell's inline
+ *   bootstrap memoizes a stable placeholder per FUNCTION — a delegating
+ *   shell whose every mount binds to its own SSR'd element during adoption
+ *   — and resolves the addressed reference to the call's BINDING over it
+ *   (`COMPONENT_BINDING`, the same shape `bindingFor` below mints), so a
+ *   reader that adopted the reference during hydration (an async
+ *   `dynamic()` instance's record) holds the same identity a later answer
+ *   for the call resolves to.
  * - `deserialize` (the JSON codec): the codec only ever carries a component
  *   inside a single-flight envelope, so this is a FLIGHT reference. It must
  *   resolve to the exact object the reading call site already holds — an

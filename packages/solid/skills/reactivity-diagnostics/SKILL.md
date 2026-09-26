@@ -649,7 +649,8 @@ Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
 The server runtime reports on the same channel, with the same `in <App> ›
 <Page>` line. Two groups. **Findings** (`SSR_RENDER_ERROR_CONTAINED`,
 `SSR_SUBTREE_ABANDONED`, `SSR_STREAM_ABANDONED`, `LATE_HEADER_WRITE`,
-`SERVER_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a render
+`DYNAMIC_ASYNC_COMPONENT`, `SERVER_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`)
+are facts about a render
 that exist in observe builds too — an APM sees them in production; in dev
 they print. **Checks** (the rest, `SSR_BOUNDARY_WATERFALL` and
 `SSR_CLIENT_CONTENT_MASKED` included) are dev-only guidance. A captured
@@ -689,6 +690,18 @@ dropped (dev throws instead). `data.method`/`data.name` say which. Move the
 write before the first flush — before any `<Loading>` fallback can ship — or
 before the handler returns; a cookie set from inside a late-streaming
 component never reaches the browser.
+
+### DYNAMIC_ASYNC_COMPONENT
+
+An async `dynamic()` source resolved to a client component function. The
+instance memo serializes its landing for the client to adopt (#3666) and a
+function has no encoding, so the memo rejects with this message in every
+tier (the nearest `<Errored>` / `onError` contains it) instead of leaving
+the client pending or re-running the source under the boundary — the
+phantom-fallback bug the adoption fixed. `data.component` names the
+function. Move the async upstream (a `createAsync`/`createMemo` the source
+reads synchronously) or use `lazy()` for code; a server component or a tag
+name may stay async.
 
 ### SERVER_ERROR_SANITIZED
 

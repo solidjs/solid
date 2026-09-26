@@ -13,6 +13,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStream } from "@solidjs/web";
 import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
+import { frameAddress } from "../../server-functions/src/shared.js";
 import {
   ARGS,
   MODES,
@@ -72,13 +73,17 @@ describe("document face — live server component (server render, writes the art
       expect(full).not.toContain("room v2");
       expect(state.closed).toBe(true);
       expect(state.pulls).toBe(1);
-      // The frame element and the composer slot's range are in the page. No
-      // hydration reference for the call travels: `dynamic`'s memo is not
-      // serialized, and none is needed — the client's intercept derives the
-      // call's address from its own (id, args) and adopts the boundary by id.
+      // The frame element and the composer slot's range are in the page, and
+      // the call's answer travels as hydration data too (#3666): `dynamic`'s
+      // instance memo is an ordinary async memo, so its landing — the
+      // component — serializes under the instance's id as a flight reference
+      // (`_$SC.r(id, address)`) the client memo adopts, instead of re-running
+      // the live source and waiting on it mid-hydration. The client's
+      // intercept still answers the loop's first call locally; the reference
+      // is what keeps the boundary out of its fallback while it does.
       expect(full).toContain(`data-fid="${FID}"`);
       expect(full).toContain("slot:composer");
-      expect(full).not.toContain("_$SC");
+      expect(full).toContain(`.r("${FID}","${frameAddress(FID, ARGS)}")`);
 
       writeFileSync(
         resolve(artifactsDir, `frame-live-document-${mode}.json`),

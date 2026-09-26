@@ -485,9 +485,10 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   if (!sharedConfig.has!(o.id!)) {
     const result = compute(prev);
     // No serialized value, yet the compute answered a LIVE source that
-    // carries the DOCUMENT's answer (LIVE_LOCAL): the node is a
-    // `serialize: false` reader (`dynamic()`) of a live server component
-    // the page is showing, and the call was answered locally by the
+    // carries the DOCUMENT's answer (LIVE_LOCAL): the node is an
+    // unserialized reader of a live server component the page is showing
+    // (a `dynamic()` factory hoisted to module scope has no id to hydrate
+    // by; it consumes the source itself), and the call was answered locally by the
     // adopted markup (a frames intercept), not by a wire. That answer is
     // the value now — there is no serialized value to hydrate, the markup
     // is the value — and the node takes over at its scope's release

@@ -35,7 +35,7 @@ import type { Element as SolidElement } from "solid-js";
 // server-functions/client import below is.
 import { insert, delegateEvents } from "@solidjs/web";
 import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
-import { createServerComponentHandler } from "./frame-transport.js";
+import { COMPONENT_BINDING, createServerComponentHandler } from "./frame-transport.js";
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
 // projections. The materializer is solid's (it owns the patch protocol);
@@ -1216,15 +1216,25 @@ export function installServerComponents(host: any = getFrameHost()) {
   // per-id placeholders; installing `impl` makes them mount-adopting.
   const g = globalThis as any;
   if (!g._$SC) {
+    // Mirror of the document bootstrap (frame-sink's
+    // SERVER_COMPONENT_BOOTSTRAP_EXPR), for a page whose data scripts carried
+    // no reference: an addressed read resolves to the call's binding, an
+    // unaddressed one to the per-function placeholder.
     g._$SC = {
       c: {},
       a: {},
+      b: {},
       r(i: string, a?: string) {
-        if (a) {
-          g._$SC.a[a] = i;
-          g._$SC.reg && g._$SC.reg(a, i);
-        }
-        return g._$SC.c[i] || (g._$SC.c[i] = (p: any, b?: () => string) => g._$SC.impl(i, p, b));
+        const c = g._$SC.c[i] || (g._$SC.c[i] = (p: any, b?: () => string) => g._$SC.impl(i, p, b));
+        if (!a) return c;
+        g._$SC.a[a] = i;
+        g._$SC.reg && g._$SC.reg(a, i);
+        return (
+          g._$SC.b[a] ||
+          (g._$SC.b[a] = Object.assign((p: any) => c(p, () => a), {
+            [COMPONENT_BINDING]: { component: c, address: a }
+          }))
+        );
       }
     };
   }

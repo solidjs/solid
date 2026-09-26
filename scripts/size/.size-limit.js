@@ -1874,7 +1874,15 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 15.92 -> 15.99 KB,
     // measured at 15,967 B against `next`'s 15,866 (+101 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "15.99 KB",
+    // Async dynamic() serializes and adopts (#3671, 2026-09-26): 15.99 ->
+    // 16.04 KB, measured at 16,025 B against `next`'s 15,967 (+58 B; 35 B
+    // over the cap). Brotli layout drift, not retained bytes: this scenario
+    // never imports `dynamic` (no `dynamic-flight` / `component-binding`
+    // text in the bundle), the minified bundle is 45,297 B on both sides,
+    // and the diff is which short name esbuild assigns where — web.js's
+    // `dynamic` grew, so the module-level name order shifted under it. The
+    // same noise as the 09-22 note above.
+    limit: "16.04 KB",
     modifyEsbuildConfig
   },
   {
@@ -2524,8 +2532,18 @@ module.exports = [
     // never calls `live` still carries the ledger and the resume path —
     // they hang off `FrameImpl` and the handler, not the loop. Candidate
     // for a later split behind the wire slot like the reader was.
+    //
+    // Async dynamic() serializes and adopts (#3671, 2026-09-26): 12.40 ->
+    // 12.42 KB, measured at 12,410 B against `next`'s 12,367 (+43 B; 10 B
+    // over the cap). +98 B minified, all in the frames client's fallback
+    // `_$SC` bootstrap: an addressed reference `r(id, address)` now returns
+    // the call's COMPONENT_BINDING-branded binding (the `b` cache and the
+    // `Object.assign` brand) instead of the bare component, so a landing the
+    // hydration record carries passes `sameInstance` against the binding a
+    // later live run mints and a mount from it carries the address. The
+    // document's own bootstrap (frame-sink) carries the same text server-side.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "12.40 KB",
+    limit: "12.42 KB",
     modifyEsbuildConfig: framesEsbuildConfig
   }
 ];
