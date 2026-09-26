@@ -99,6 +99,7 @@ import {
   clock,
   currentTransition,
   dirtyQueue,
+  findLane,
   globalQueue,
   GlobalQueue,
   insertSubs,
@@ -321,11 +322,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // the source lands ran cleanups before the transaction's atomic reveal.
     // A lane pass on an effect parks a LANE frame instead (CONFIG_LANE_FRAME,
     // #3662; A15 lanes corollary): the frame it replaces leaves the screen
-    // when the effect's RUN applies — `runEffect` drains it there (A30, the
-    // #3438 point) — not at the action's commit, and a held lane defers that
-    // run with the frame still displayed. While the frame waits, the live
-    // children were never shown: a superseding pass disposes them here like
-    // held children, and the parked frame stays.
+    // when the lane's queue applies this run (A30) — not at the action's
+    // commit — and a held lane defers that with the frame still displayed.
+    // The drain is the lane's first render entry for this pass, pushed before
+    // the pass builds the new frame: cleanups before side effects — the
+    // retired frame's `onCleanup`s run ahead of every effect callback of the
+    // new frame. While the frame waits, the live children were never shown:
+    // a superseding pass disposes them here like held children, and the
+    // parked frame stays.
     if (isEffect === EFFECT_TRACKED || el._config & (CONFIG_HELD_CHILDREN | CONFIG_LANE_FRAME))
       disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
@@ -336,7 +340,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._disposal = null;
       el._firstChild = null;
       el._childCount = 0;
-      if (isEffect && isOptimisticDirty) el._config |= CONFIG_LANE_FRAME;
+      if (isEffect && lane) {
+        el._config |= CONFIG_LANE_FRAME;
+        findLane(lane)._effectQueues[0].push(() => {
+          el._config &= ~CONFIG_LANE_FRAME;
+          disposeChildren(el, false, true);
+        });
+      }
       if (__DEV__) clearSignals(el);
     } else if (__DEV__) clearSignals(el);
   }

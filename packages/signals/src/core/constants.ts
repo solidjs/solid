@@ -165,15 +165,16 @@ export const CONFIG_HELD_CHILDREN = 1 << 20;
 
 /** The frame parked in `_pendingFirstChild` / `_pendingDisposal` is a LANE
  * frame (#3662, A15 lanes corollary): an effect's lane pass direct-commits,
- * so the frame it replaces leaves the screen when the effect's RUN applies
- * (A30, the #3438 point) — not at the action's commit like #3404's
- * transaction zombies, and not at the pass (a held lane defers the run).
- * Drained by `runEffect`, by `commitPendingNode` if a hold stashed the run,
- * or with the owner's death. While set the parked frame is not a hold (the
- * node is not queued or stamped for it), a superseding pass disposes the
- * never-shown live children on the spot, and a lane-channel dirty on a
- * member is cancelled (`laneZombie`). Effects only: a memo's lane pass
- * publishes an override (A17, #3479). */
+ * so the frame it replaces leaves the screen when the lane's queue applies
+ * the run (A30) — not at the action's commit like #3404's transaction
+ * zombies, and not at the pass (a held lane defers the run). Drained by the
+ * lane's render entry the parking site pushed ahead of the new frame's
+ * effects (cleanups before side effects), by `commitPendingNode` if a hold
+ * commits the node first, or with the owner's death. While set the parked
+ * frame is not a hold (the node is not queued or stamped for it), a
+ * superseding pass disposes the never-shown live children on the spot, and a
+ * lane-channel dirty on a member is cancelled (`laneZombie`). Effects only: a
+ * memo's lane pass publishes an override (A17, #3479). */
 export const CONFIG_LANE_FRAME = 1 << 26;
 
 /** In-flight async node whose inputs were PUBLISHED while it was pending: a

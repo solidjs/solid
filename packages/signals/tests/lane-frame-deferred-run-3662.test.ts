@@ -199,6 +199,8 @@ describe("#3662 a lane frame whose retiring run is deferred", () => {
     expect(t.frames.at(-1)).toEqual({ lanes: [[], [0, 1, 2]], detail: "d1" });
     t.cleanedOnce([1, 2]);
     expect(t.log.indexOf("cleanup 1")).toBeGreaterThanOrEqual(heldUntil);
+    // Cleanups before side effects: frame 1's cleanup precedes frame 3's run.
+    expect(t.log.indexOf("cleanup 1")).toBeLessThan(t.log.indexOf("inner run 3"));
     expect(t.count("inner run 2")).toBe(0);
     expect(t.count("inner run 3")).toBe(1);
 

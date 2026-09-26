@@ -369,19 +369,21 @@ module.exports = [
     // read. +120 B minified in the retained core (same +120 in every
     // scenario below). Store engine, solid, web: 0 B.
     // A lane frame is the run's (#3662, 2026-09-26): 9.82 -> 9.94 KB,
-    // measured at 9,929 B against `next`'s 9,800 (+129 B; 109 B over the
+    // measured at 9,922 B against `next`'s 9,800 (+122 B; 102 B over the
     // cap). Core-retained: recompute's parking site flags an effect's lane
     // pass's parked frame CONFIG_LANE_FRAME instead of queuing/stamping the
     // node for the action's commit, its tail releases an older frame's
     // zombies for a lane pass as for a contested mainline pass (the reported
-    // keyed-Show disposal) and leaves a lane frame parked, `runEffect` drains
-    // the frame when the run applies (the #3438 point), `cancelZombieRecompute`
+    // keyed-Show disposal) and leaves a lane frame parked, the lane's render
+    // entry the parking site pushes drains the frame ahead of the new frame's
+    // effects (cleanups before side effects), `cancelZombieRecompute`
     // skips the #3444 exception for its members (`laneZombie`),
     // `reporterBlocksSource` reads the lane's transaction for them, and
-    // `commitPendingNode` clears the flag. +199 B minified in the in-package
-    // floor (26,440 -> 26,639): the #3444 skip is 89 B, the #3463 liveness
-    // 38 B, the rest is the flag's parking, tail and drain sites. Every
-    // scenario below moves by +55..+147 B brotli (the same retained core).
+    // `commitPendingNode` clears the flag. +209 B minified in the in-package
+    // floor (26,440 -> 26,649): the #3444 skip is 89 B, the #3463 liveness
+    // 38 B, the rest is the flag's parking (with the drain entry), tail and
+    // commit sites. Every scenario below moves by +52..+113 B brotli (the
+    // same retained core).
     limit: "9.94 KB",
     modifyEsbuildConfig
   },
@@ -725,7 +727,7 @@ module.exports = [
     // engine is byte-identical; the +66 B over the core floor's own delta
     // is brotli layout over the larger bundle.
     // A lane frame is the run's (#3662, 2026-09-26): 17.15 -> 17.22 KB,
-    // measured at 17,204 B against `next`'s 17,096 (+108 B). Core-retained ripple of the
+    // measured at 17,185 B against `next`'s 17,096 (+89 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "17.22 KB",
     modifyEsbuildConfig
@@ -917,7 +919,7 @@ module.exports = [
     // `setSignal` (+120 B minified, see the core floor note). Nothing else
     // retained here changed.
     // A lane frame is the run's (#3662, 2026-09-26): 12.58 -> 12.69 KB,
-    // measured at 12,678 B against `next`'s 12,571 (+107 B). Core-retained ripple of the
+    // measured at 12,673 B against `next`'s 12,571 (+102 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "12.69 KB",
     modifyEsbuildConfig
@@ -1074,7 +1076,7 @@ module.exports = [
     // whole of web.js retained here are byte-identical. The per-scope
     // takeover in solid's hydration wrappers is not reached from `render`.
     // A lane frame is the run's (#3662, 2026-09-26): 12.67 -> 12.78 KB,
-    // measured at 12,761 B against `next`'s 12,619 (+142 B). Core-retained ripple of the
+    // measured at 12,725 B against `next`'s 12,619 (+106 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "12.78 KB",
     modifyEsbuildConfig
@@ -1345,10 +1347,10 @@ module.exports = [
     // has a live source — the wrappers are one module. web.js 0 B (its
     // changes are server-side: `shareAsyncIterable` seats, frame slot
     // taps, `Loading` `on` ids).
-    // A lane frame is the run's (#3662, 2026-09-26): 21.32 -> 21.40 KB,
-    // measured at 21,390 B against `next`'s 21,305 (+85 B). Core-retained ripple of the
+    // A lane frame is the run's (#3662, 2026-09-26): 21.32 -> 21.43 KB,
+    // measured at 21,418 B against `next`'s 21,305 (+113 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "21.40 KB",
+    limit: "21.43 KB",
     modifyEsbuildConfig
   },
   {
@@ -1677,7 +1679,7 @@ module.exports = [
     // same +164 B minified and compressed 3 B SMALLER (21,308 -> 21,305) —
     // brotli layout; not ratcheted.
     // A lane frame is the run's (#3662, 2026-09-26): 31.65 -> 31.70 KB,
-    // measured at 31,681 B against `next`'s 31,599 (+82 B). Core-retained ripple of the
+    // measured at 31,651 B against `next`'s 31,599 (+52 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "31.70 KB",
     modifyEsbuildConfig
@@ -1858,7 +1860,7 @@ module.exports = [
     // see the core floor note) and nothing else: the 1,302 B of solid.js
     // `render` retains and all of web.js are byte-identical.
     // A lane frame is the run's (#3662, 2026-09-26): 15.92 -> 15.99 KB,
-    // measured at 15,977 B against `next`'s 15,866 (+111 B). Core-retained ripple of the
+    // measured at 15,967 B against `next`'s 15,866 (+101 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "15.99 KB",
     modifyEsbuildConfig
@@ -2080,7 +2082,7 @@ module.exports = [
     // (per-module esbuild metafile at both ends). Pure brotli layout on a
     // cap that was already 13 B from full; ratcheted so the noise has room.
     // A lane frame is the run's (#3662, 2026-09-26): 17.80 -> 17.83 KB,
-    // measured at 17,818 B against `next`'s 17,763 (+55 B). Core-retained ripple of the
+    // measured at 17,822 B against `next`'s 17,763 (+59 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "17.83 KB",
     modifyEsbuildConfig: observeEsbuildConfig
@@ -2404,7 +2406,7 @@ module.exports = [
     // minified, see the core floor note); the attribution engine,
     // solid.observe.js and web.observe.js are byte-identical.
     // A lane frame is the run's (#3662, 2026-09-26): 31.84 -> 31.98 KB,
-    // measured at 31,969 B against `next`'s 31,822 (+147 B). Core-retained ripple of the
+    // measured at 31,928 B against `next`'s 31,822 (+106 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     limit: "31.98 KB",
     modifyEsbuildConfig: observeEsbuildConfig
