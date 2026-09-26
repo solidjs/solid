@@ -2423,12 +2423,39 @@ export function renderToStream(code, options = {}) {
       };
     }
   });
+  // A ReadableStream is seroval's own carrier: its web plugin encodes one
+  // as a ReadableStream, and the client reads it with `getReader` — the
+  // document live channel (`sc:live`, the frame sink's hole/attr ops) is
+  // exactly that. Node's streams are also async-iterable, so the iterable
+  // guard below would take one and re-shape the wire into an async
+  // iterator the client never reads (the chat welcome froze at its first
+  // paragraph). The guard keeps the type: a stream over the source's
+  // chunks whose failure crosses sanitized like a rejection.
+  const guardStream = source => {
+    const reader = source.getReader();
+    return new ReadableStream({
+      pull: c =>
+        reader.read().then(
+          r => (r.done ? c.close() : c.enqueue(r.value)),
+          e => {
+            try {
+              verdictNow(e);
+            } catch (sanitized) {
+              c.error(sanitized);
+            }
+          }
+        ),
+      cancel: reason => reader.cancel(reason)
+    });
+  };
   const guardChannel = p => {
     if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
     let guarded = guardedChannels.get(p);
     if (guarded !== undefined) return guarded;
     if (typeof p.then === "function") {
       guarded = p.then(borderForm, verdictNow);
+    } else if (typeof ReadableStream === "function" && p instanceof ReadableStream) {
+      guarded = guardStream(p);
     } else {
       const border = borderForm(p);
       guarded = typeof border[Symbol.asyncIterator] === "function" ? guardIterable(border) : border;
