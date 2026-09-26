@@ -190,6 +190,21 @@ describe("r.insert", () => {
     );
   });
 
+  it("can insert a Set of strings", () => {
+    expect(insert(new Set(["foo", "bar"])).innerHTML).toBe("foobar");
+  });
+
+  it("can insert a Set of nodes", () => {
+    const a = document.createElement("a");
+    const b = document.createElement("b");
+
+    expect(insert(new Set([a, b])).innerHTML).toBe("<a></a><b></b>");
+  });
+
+  it("flattens an iterable nested in an array", () => {
+    expect(insert(["before", new Set(["middle", "after"])]).innerHTML).toBe("beforemiddleafter");
+  });
+
   it("can insert and clear strings", () => {
     var parent = document.createElement("div");
     r.insert(parent, "foo");
@@ -344,6 +359,36 @@ describe("r.insert with Markers", () => {
       "beforefoobarblechafter",
       "array of array of strings"
     );
+  });
+
+  it("can insert an iterable within a marker range", () => {
+    expect(insert(new Set(["foo", "bar"])).innerHTML).toBe("beforefoobarafter");
+  });
+
+  it("reconciles changing iterables by node identity", () => {
+    const parent = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+    const a = document.createElement("a");
+    const b = document.createElement("b");
+    const c = document.createElement("c");
+    const [items, setItems] = createSignal(new Set([a, b]));
+
+    let dispose;
+    createRoot(d => {
+      dispose = d;
+      r.insert(parent, () => items(), marker);
+    });
+    flush();
+
+    expect([...parent.children]).toEqual([a, b]);
+
+    setItems(new Set([b, c]));
+    flush();
+
+    expect([...parent.children]).toEqual([b, c]);
+    expect(parent.children[0]).toBe(b);
+
+    dispose();
   });
 
   it("can insert and clear strings with marker", () => {
