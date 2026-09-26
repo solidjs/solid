@@ -317,6 +317,7 @@ const nativeOptionKeys = new Set([
   "staticMarker",
   "omitNestedClosingTags",
   "omitLastClosingTag",
+  "optimize",
   "serverComponents",
   "hoistProps",
   "builtIns",
@@ -354,6 +355,13 @@ function validateOptions(code, options) {
         throw new TypeError("@solidjs/compiler `wrapConditionals` option must be boolean");
       }
       nativeOptions.wrapConditionals = value;
+      continue;
+    }
+    if (key === "optimize") {
+      if (typeof value !== "boolean") {
+        throw new TypeError("@solidjs/compiler `optimize` option must be boolean");
+      }
+      nativeOptions.optimize = value;
       continue;
     }
     if (key === "validate") {
