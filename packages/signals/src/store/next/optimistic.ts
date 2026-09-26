@@ -596,7 +596,8 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     const nv = unwrapValue(pb[key as any]);
     if (!visiblePresent(key)) {
       // Optimistic add: value node + presence node + membership bump.
-      emit(getNode(t, key, old[key as any]), old[key as any], nv);
+      const ov = unwrapValue(old[key as any]);
+      emit(getNode(t, key, ov), ov, nv);
       emit(getHasNode(t, key, key in old), key in old, true);
       structural = true;
     } else {
@@ -611,7 +612,8 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     if ((isArr && key === "length") || key === $OWNER) continue;
     if (key in pb || !visiblePresent(key)) continue;
     // Optimistic delete: node reads undefined, presence flips, membership bumps.
-    emit(getNode(t, key, old[key as any]), old[key as any], undefined);
+    const ov = unwrapValue(old[key as any]);
+    emit(getNode(t, key, ov), ov, undefined);
     emit(getHasNode(t, key, true), true, false);
     structural = true;
   }

@@ -172,4 +172,47 @@ describe("#3672 — chained optimistic store, second action moves back to the pr
     flush();
     expect(view.length).toBe(2);
   });
+
+  it("settles a delete and re-add of the same inner row without re-running its reader", async () => {
+    let runs = 0;
+    const { base, view, setView } = createRoot(() => {
+      const [base] = createStore({ row: { id: "a" } as { id: string } | undefined });
+      const [view, setView] = createOptimisticStore(base);
+      createRenderEffect(
+        () => {
+          runs++;
+          return view.row?.id;
+        },
+        () => {}
+      );
+      return { base, view, setView };
+    });
+    flush();
+    expect(runs).toBe(1);
+
+    const gate = pending();
+    const act = action(function* () {
+      setView(d => {
+        delete d.row;
+      });
+      yield tick();
+      setView(d => {
+        d.row = base.row;
+      });
+      yield gate.promise;
+    })();
+    flush();
+    await tick();
+    flush();
+    expect(view.row?.id).toBe("a");
+    const before = runs;
+
+    gate.release();
+    await act;
+    flush();
+    await tick();
+    flush();
+    expect(view.row?.id).toBe("a");
+    expect(runs).toBe(before);
+  });
 });

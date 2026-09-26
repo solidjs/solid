@@ -390,7 +390,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | §6c | live | `docs/INTERNALS-STORE-STATE.md:325` | projection.ts×2 store.ts×1 | createProjection.async.test.ts×1 flight-owned-transaction.test.ts×1 | Store-wide status gating (RUL-7) |
 | §6d | live | `docs/INTERNALS-STORE-STATE.md:338` | reconcile.ts×1 target.ts×2 | — | Diff reachability (RUL-11) |
 | §7 | live | `docs/INTERNALS-STORE-STATE.md:350` | optimistic.ts×1 projection.ts×1 | — | Projections & optimism layering |
-| §7b | live | `docs/INTERNALS-STORE-STATE.md:360` | projection.ts×1 reconcile.ts×1 store.ts×11 target.ts×3 store.ts×1 | — | Chained backing (cross-store) — spec |
+| §7b | live | `docs/INTERNALS-STORE-STATE.md:360` | optimistic.ts×1 projection.ts×1 reconcile.ts×1 store.ts×11 target.ts×3 store.ts×1 | — | Chained backing (cross-store) — spec |
 | §8 | live | `docs/INTERNALS-STORE-STATE.md:431` | — | reconcile-resend-identity.test.ts×1 | Assumptions / open questions |
 | §8b | live | `docs/INTERNALS-STORE-STATE.md:487` | — | — | Suite-mined rules (2026-08-16) — index & rulings needed |
 | §9 | live | `docs/INTERNALS-STORE-STATE.md:724` | — | — | Decision log |
