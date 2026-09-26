@@ -423,7 +423,14 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // committed value on a hit, and `rederiveHeld`s (DIRTY + enqueue) in
     // place of the mask; updateIfNecessary's post-pull wipe carries the mask.
     // `setMemo` is core-retained through createSignal's derived overload.
-    expect(minifiedBytes).toBeLessThan(26_450);
+    // A lane frame is the run's (#3662, 2026-09-26): +199 B core-retained
+    // (26,440 -> 26,639) — an effect's lane pass parks the frame it replaces
+    // as a lane frame (CONFIG_LANE_FRAME: the parking site, the tail's
+    // release gate and `needsPendingCommit` exclusion, the `runEffect` drain
+    // at the #3438 point, `commitPendingNode`'s clear), the #3444 exception
+    // skipped for its members (`laneZombie`, 89 B) and their #3463 liveness
+    // read from the lane's transaction (38 B).
+    expect(minifiedBytes).toBeLessThan(26_650);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

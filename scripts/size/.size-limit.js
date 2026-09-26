@@ -368,7 +368,21 @@ module.exports = [
     // cold half is a function; the hot path pays one `snapshotCaptureActive`
     // read. +120 B minified in the retained core (same +120 in every
     // scenario below). Store engine, solid, web: 0 B.
-    limit: "9.82 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 9.82 -> 9.94 KB,
+    // measured at 9,929 B against `next`'s 9,800 (+129 B; 109 B over the
+    // cap). Core-retained: recompute's parking site flags an effect's lane
+    // pass's parked frame CONFIG_LANE_FRAME instead of queuing/stamping the
+    // node for the action's commit, its tail releases an older frame's
+    // zombies for a lane pass as for a contested mainline pass (the reported
+    // keyed-Show disposal) and leaves a lane frame parked, `runEffect` drains
+    // the frame when the run applies (the #3438 point), `cancelZombieRecompute`
+    // skips the #3444 exception for its members (`laneZombie`),
+    // `reporterBlocksSource` reads the lane's transaction for them, and
+    // `commitPendingNode` clears the flag. +199 B minified in the in-package
+    // floor (26,440 -> 26,639): the #3444 skip is 89 B, the #3463 liveness
+    // 38 B, the rest is the flag's parking, tail and drain sites. Every
+    // scenario below moves by +55..+147 B brotli (the same retained core).
+    limit: "9.94 KB",
     modifyEsbuildConfig
   },
   {
@@ -710,7 +724,10 @@ module.exports = [
     // `setSignal` (+120 B minified, see the core floor note). The store
     // engine is byte-identical; the +66 B over the core floor's own delta
     // is brotli layout over the larger bundle.
-    limit: "17.15 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 17.15 -> 17.22 KB,
+    // measured at 17,204 B against `next`'s 17,096 (+108 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "17.22 KB",
     modifyEsbuildConfig
   },
   {
@@ -899,7 +916,10 @@ module.exports = [
     // the cap). The signals core's `captureWriteSnapshot` arm behind
     // `setSignal` (+120 B minified, see the core floor note). Nothing else
     // retained here changed.
-    limit: "12.58 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 12.58 -> 12.69 KB,
+    // measured at 12,678 B against `next`'s 12,571 (+107 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "12.69 KB",
     modifyEsbuildConfig
   },
   {
@@ -1053,7 +1073,10 @@ module.exports = [
     // `setSignal`, see the core floor note); the 153 B of solid.js and the
     // whole of web.js retained here are byte-identical. The per-scope
     // takeover in solid's hydration wrappers is not reached from `render`.
-    limit: "12.67 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 12.67 -> 12.78 KB,
+    // measured at 12,761 B against `next`'s 12,619 (+142 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "12.78 KB",
     modifyEsbuildConfig
   },
   {
@@ -1322,7 +1345,10 @@ module.exports = [
     // has a live source — the wrappers are one module. web.js 0 B (its
     // changes are server-side: `shareAsyncIterable` seats, frame slot
     // taps, `Loading` `on` ids).
-    limit: "21.32 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 21.32 -> 21.40 KB,
+    // measured at 21,390 B against `next`'s 21,305 (+85 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "21.40 KB",
     modifyEsbuildConfig
   },
   {
@@ -1650,7 +1676,10 @@ module.exports = [
     // engine, web: byte-identical. The no-stores entry above carries the
     // same +164 B minified and compressed 3 B SMALLER (21,308 -> 21,305) —
     // brotli layout; not ratcheted.
-    limit: "31.65 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 31.65 -> 31.70 KB,
+    // measured at 31,681 B against `next`'s 31,599 (+82 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "31.70 KB",
     modifyEsbuildConfig
   },
   {
@@ -1828,7 +1857,10 @@ module.exports = [
     // cap). The signals core's `captureWriteSnapshot` arm (+120 B minified,
     // see the core floor note) and nothing else: the 1,302 B of solid.js
     // `render` retains and all of web.js are byte-identical.
-    limit: "15.92 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 15.92 -> 15.99 KB,
+    // measured at 15,977 B against `next`'s 15,866 (+111 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "15.99 KB",
     modifyEsbuildConfig
   },
   {
@@ -2047,7 +2079,10 @@ module.exports = [
     // over the cap) on 0 B minified — every retained module byte-identical
     // (per-module esbuild metafile at both ends). Pure brotli layout on a
     // cap that was already 13 B from full; ratcheted so the noise has room.
-    limit: "17.80 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 17.80 -> 17.83 KB,
+    // measured at 17,818 B against `next`'s 17,763 (+55 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "17.83 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2368,7 +2403,10 @@ module.exports = [
     // the cap). The observe core's `captureWriteSnapshot` arm (+120 B
     // minified, see the core floor note); the attribution engine,
     // solid.observe.js and web.observe.js are byte-identical.
-    limit: "31.84 KB",
+    // A lane frame is the run's (#3662, 2026-09-26): 31.84 -> 31.98 KB,
+    // measured at 31,969 B against `next`'s 31,822 (+147 B). Core-retained ripple of the
+    // lane-frame sites — see the core floor note.
+    limit: "31.98 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

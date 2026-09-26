@@ -23,6 +23,7 @@ import {
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
   CONFIG_INPUTS_PUBLISHED,
+  CONFIG_LANE_FRAME,
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
   CONFIG_OPTIMISTIC,
@@ -263,6 +264,37 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // triggered this run, and the baseline for the engine's subscription diff).
   let devChanged = false;
   if (__OBSERVE__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
+  // Lane posture is resolved BEFORE the previous frame is parked below: a
+  // lane pass on an effect direct-commits (#3662, see the parking site), so
+  // the decision must be known there. `lane` is applied to
+  // `currentOptimisticLane` further down, once the previous posture is saved.
+  let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
+  let lane: OptimisticLane | null | false = null;
+  if (isOptimisticDirty) {
+    lane = GlobalQueue._recomputeLane!(el, true);
+    // `false` = wake-only lane demotion: recompute plain so a mid-tick
+    // latest()/isPending() pull stages instead of direct-committing (#3009).
+    // The predicate lives with the engine (recomputeLane).
+    if (lane === false) isOptimisticDirty = false;
+  } else if (el._config & CONFIG_DERIVED_OVERRIDE) {
+    // Lanes stage (#3479): a pass over a live lane member carrying a derived
+    // override is the lane's pass whatever channel dirtied it (a boundary
+    // reset, an unrelated sync write) — its inputs serve the lane's view, so
+    // its result is the lane's and belongs in the override slot. Run plain,
+    // A18's sync twin below read that re-derived lane view as a differing
+    // truth (a fresh array), superseded the override and demoted the lane;
+    // the lane's next pass then dropped the staged "truth" and left the node
+    // flagged superseded with nothing to serve (fuzzer latest-1 #2481). A
+    // demoted node resolves no lane and stays plain: its pass IS the truth.
+    lane = GlobalQueue._recomputeLane!(el, true);
+    if (lane) isOptimisticDirty = true;
+  } else if (activeTransition && !create && activeTransition._optimisticNodes.length) {
+    // Lane adoption: parent-deeper-than-owned-child can run before its OPT-dirty
+    // child propagates. Walk deps once and inherit the OPT lane so this node
+    // recomputes under the right posture and propagates correctly.
+    lane = GlobalQueue._recomputeLane!(el, false);
+    if (lane) isOptimisticDirty = true;
+  }
   if (!create) {
     // A stamped memo re-enters its hold: its value is that transaction's work.
     // An effect's pass belongs to whatever dirtied it (A15 corollary: effects
@@ -287,7 +319,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // until this node's commit — a transaction-owned node included (#3404):
     // a parked node's children predate the hold, and tearing them down when
     // the source lands ran cleanups before the transaction's atomic reveal.
-    if (isEffect === EFFECT_TRACKED || el._config & CONFIG_HELD_CHILDREN) disposeChildren(el);
+    // A lane pass on an effect parks a LANE frame instead (CONFIG_LANE_FRAME,
+    // #3662; A15 lanes corollary): the frame it replaces leaves the screen
+    // when the effect's RUN applies — `runEffect` drains it there (A30, the
+    // #3438 point) — not at the action's commit, and a held lane defers that
+    // run with the frame still displayed. While the frame waits, the live
+    // children were never shown: a superseding pass disposes them here like
+    // held children, and the parked frame stays.
+    if (isEffect === EFFECT_TRACKED || el._config & (CONFIG_HELD_CHILDREN | CONFIG_LANE_FRAME))
+      disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
       markDisposal(el);
       const x = ext(el);
@@ -296,11 +336,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._disposal = null;
       el._firstChild = null;
       el._childCount = 0;
+      if (isEffect && isOptimisticDirty) el._config |= CONFIG_LANE_FRAME;
       if (__DEV__) clearSignals(el);
     } else if (__DEV__) clearSignals(el);
   }
 
-  let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
   // A derived override (lanes stage, #3479) is override-covered like a written
   // one: a plain pass over it — its source superseded (A18) — stages the truth
   // and supersedes the override through the sync twin below.
@@ -382,38 +422,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Lane posture lives with the engine: OPTIMISTIC_DIRTY is only ever set by
   // engine-driven paths, and _optimisticNodes is only pushed by
   // _optimisticWrite, so the hook is installed whenever either gate holds.
-  if (isOptimisticDirty) {
-    const lane = GlobalQueue._recomputeLane!(el, true);
-    if (lane) currentOptimisticLane = lane;
-    // `false` = wake-only lane demotion: recompute plain so a mid-tick
-    // latest()/isPending() pull stages instead of direct-committing (#3009).
-    // The predicate lives with the engine (recomputeLane).
-    else if (lane === false) isOptimisticDirty = false;
-  } else if (el._config & CONFIG_DERIVED_OVERRIDE) {
-    // Lanes stage (#3479): a pass over a live lane member carrying a derived
-    // override is the lane's pass whatever channel dirtied it (a boundary
-    // reset, an unrelated sync write) — its inputs serve the lane's view, so
-    // its result is the lane's and belongs in the override slot. Run plain,
-    // A18's sync twin below read that re-derived lane view as a differing
-    // truth (a fresh array), superseded the override and demoted the lane;
-    // the lane's next pass then dropped the staged "truth" and left the node
-    // flagged superseded with nothing to serve (fuzzer latest-1 #2481). A
-    // demoted node resolves no lane and stays plain: its pass IS the truth.
-    const lane = GlobalQueue._recomputeLane!(el, true);
-    if (lane) {
-      isOptimisticDirty = true;
-      currentOptimisticLane = lane;
-    }
-  } else if (activeTransition && !create && activeTransition._optimisticNodes.length) {
-    // Lane adoption: parent-deeper-than-owned-child can run before its OPT-dirty
-    // child propagates. Walk deps once and inherit the OPT lane so this node
-    // recomputes under the right posture and propagates correctly.
-    const lane = GlobalQueue._recomputeLane!(el, false);
-    if (lane) {
-      isOptimisticDirty = true;
-      currentOptimisticLane = lane;
-    }
-  }
+  // (Resolved at the top of this pass, ahead of the parking site.)
+  if (lane) currentOptimisticLane = lane;
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
   if (isStaleEffect) stale = true;
@@ -860,9 +870,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue !== NOT_PENDING
     );
   currentOptimisticLane = prevLane;
+  // A parked LANE frame is not a hold (#3662): its drain is the effect's own
+  // run, not a commit — the node is neither queued nor stamped for it, and
+  // the release below (for transaction zombies) leaves it parked.
+  const laneFrame = (el._config & CONFIG_LANE_FRAME) !== 0;
   const needsPendingCommit =
     el._pendingValue !== NOT_PENDING ||
-    (el._x !== null && (el._x._pendingFirstChild !== null || el._x._pendingDisposal !== null)) ||
+    (!laneFrame &&
+      el._x !== null &&
+      (el._x._pendingFirstChild !== null || el._x._pendingDisposal !== null)) ||
     (el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) !== 0;
   // Override-covered holds (hasOverride) always queue: their commit belongs
   // to their own transition's schedule (A18 re-rule) and is unobservable
@@ -878,18 +894,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // not this one's — so this pass's children are the frame's, and any
   // zombies deferred at the top are superseded on that same frame. Its
   // commit rides the transaction, not this flush: release them here rather
-  // than let two generations render at once.
+  // than let two generations render at once. A LANE pass is the same case
+  // (#3662): it direct-commits ahead of its transaction, so its children are
+  // the frame's too. Left flagged for an OLDER frame's zombies, the stamped
+  // transaction's same-flush re-run below disposed the lane's freshly built
+  // children (an insert's inner effect, its run still queued in the lane)
+  // and held their replacements for a commit that never came.
   let held =
     needsPendingCommit &&
     (!create || bornHeld !== null || (el._statusFlags & STATUS_PENDING) !== 0);
   if (held && (!el._transition || hasOverride)) queuePendingNode(el);
   else if (
     held &&
-    activeTransition === null &&
+    (activeTransition === null || isOptimisticDirty) &&
     !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
   ) {
     held = false;
-    disposeChildren(el, false, true);
+    if (!laneFrame) disposeChildren(el, false, true);
   }
   if (held) el._config |= CONFIG_HELD_CHILDREN;
   else el._config &= ~CONFIG_HELD_CHILDREN;

@@ -2,6 +2,7 @@ import { NOT_PENDING } from "./constants.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_LANE_FRAME,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -183,6 +184,14 @@ function runEffect(node: Effect<any>, type: number): void {
   ) {
     node._queue.enqueue(node._type, node._boundRunEffect!);
     return;
+  }
+  // This run replaces the frame (A30): the LANE frame a lane pass parked
+  // (CONFIG_LANE_FRAME, #3662) leaves the screen here — the children twin of
+  // the #3438 deps trim below. A held lane deferred this run; the frame
+  // stayed displayed meanwhile.
+  if (node._config & CONFIG_LANE_FRAME) {
+    node._config &= ~CONFIG_LANE_FRAME;
+    GlobalQueue._dispose(node, false, true);
   }
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
