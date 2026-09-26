@@ -729,7 +729,13 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 17.15 -> 17.22 KB,
     // measured at 17,185 B against `next`'s 17,096 (+89 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "17.22 KB",
+    // Optimistic draft visibility (#3665, 2026-09-26): 17.22 -> 17.27 KB,
+    // measured at 17,260 B; `next` was already at 17,273 (53 B over the
+    // cap — #3668 (+39 B) and #3669 (+89 B) were each measured against a
+    // `next` without the other). This change is -13 B: the get trap's draft
+    // arm swaps one predicate, visibleDescriptor and snapshotWalk gain the
+    // draft twin visibleKeys already had (+~90 B minified); brotli layout.
+    limit: "17.27 KB",
     modifyEsbuildConfig
   },
   {
@@ -1681,7 +1687,13 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 31.65 -> 31.70 KB,
     // measured at 31,651 B against `next`'s 31,599 (+52 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "31.70 KB",
+    // Optimistic draft visibility (#3665, 2026-09-26): 31.70 -> 31.80 KB,
+    // measured at 31,786 B; `next` was already at 31,743 (43 B over the
+    // cap — #3668 (+39 B) and #3669 (+52 B) were each measured against a
+    // `next` without the other). +43 B here: the store's descriptor draft
+    // arm and snapshotWalk's draft twin, brotli layout over the larger bundle
+    // (the +createStore entry compresses the same change 13 B SMALLER).
+    limit: "31.80 KB",
     modifyEsbuildConfig
   },
   {
