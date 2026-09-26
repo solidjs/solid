@@ -236,9 +236,22 @@ function wirePreload(entry) {
  * the client installs one). Placeholders forward a caller-provided address
  * binding (`b`, the frame transport's second-argument convention for mount
  * components) through to `impl`.
+ *
+ * An ADDRESSED reference (`r(id, address)` — a call's answer riding as
+ * hydration data, e.g. an async `dynamic()` instance's record) resolves to
+ * the call's BINDING (`b`, one per address): the placeholder wrapped with
+ * its constant address accessor and branded `COMPONENT_BINDING`
+ * (`Symbol.for("solid.component-binding")`, the frame transport's contract),
+ * the same shape the transport's own `bindingFor` mints for a network or
+ * intercept answer — so an equals-gated reader (`dynamic`) that adopted the
+ * reference keeps its instance when a post-load answer for the same call
+ * arrives, and a mount from it binds the frame's pull to the address. An
+ * unaddressed read (`r(id)`) stays the bare placeholder.
  */
 const SERVER_COMPONENT_BOOTSTRAP_EXPR =
-  "(self._$SC||(self._$SC={c:{},a:{},r(i,a){a&&(this.a[a]=i,this.reg&&this.reg(a,i));return this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b))}}))";
+  "(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));" +
+  "if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);" +
+  'return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for("solid.component-binding")]:{component:c,address:a}}))}}))';
 
 // Serializer contexts (one per emitted script — see seroval's
 // crossSerializeStream) whose script already carries the bootstrap; later

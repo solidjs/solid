@@ -290,6 +290,10 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
 // store. Same component across resolutions means "same instance, new
 // binding". See frames/src/frame-transport.ts (COMPONENT_BINDING).
 const COMPONENT_BINDING = Symbol.for("solid.component-binding");
+// The box a `dynamic()` factory memo holds a thenable source answer in, so the
+// factory stays sync-valued and the per-instance memo is the one that goes
+// async (and, under hydration, adopts the server's record). Module-local.
+const FLIGHT = Symbol("solid.dynamic-flight");
 function bindingOf(value: any): { component: Function; address: string } | undefined {
   return (
     (value !== null &&
@@ -322,6 +326,13 @@ export interface DynamicOptions {
  * the iterable as it pumps any async source, and its value is the component
  * the server answered with (a reconnect re-yields the same binding and is
  * equality-quiet; nothing here re-mounts).
+ *
+ * Under SSR an async answer is an ordinary async memo's: its landing is
+ * serialized per instance and adopted here at hydration, so the source may
+ * stay async only when what it resolves to can cross — a server component
+ * (as a reference) or a serializable value (a tag name). A promise of a
+ * client component function is a dev error on the server
+ * (`DYNAMIC_ASYNC_COMPONENT`): resolve the async upstream, or use `lazy()`.
  */
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | AsyncIterable<T> | null | undefined | false,
@@ -339,14 +350,6 @@ export function dynamic<T extends ValidComponent>(
   // microtask, exactly where frame writes already happen — and not in the
   // equals gate: a kept resolution hands the memo `prev`, so the gate never
   // sees the new address at all.
-  // The token pins the delivery to the LATEST computation: a superseded
-  // source's late resolution must not re-bind the mount to stale content (the
-  // async machinery discards its value; the side effect has to be discarded
-  // here), and a transition's forked re-compute of the same source delivers
-  // once, not per fork. The thenable is transparent — it transforms the value
-  // inside the SAME microtask as the source promise's own handlers (a `.then`
-  // chain would add a hop, observably deferring every async resolution).
-  let latest = 0;
   // Live delivery channels, one per mounted site: this component may be
   // mounted more than once (each mount is its own instance with its own
   // address accessor), and a kept resolution must reach every one.
@@ -399,25 +402,74 @@ export function dynamic<T extends ValidComponent>(
     }
     return true;
   };
-  const cached = createMemo<Function | string | undefined>(
+  // Three memos, the same owner shape as the server's `dynamic` so hydration
+  // ids agree (index.server.ts has the full account):
+  //
+  // 1. The FACTORY memo runs the source once for every mount and is sync-
+  //    valued by construction: a thenable the source returns is boxed
+  //    (`FLIGHT`), so the factory never goes pending on it. It stays the
+  //    consumer of an async ITERABLE answer (a `live` server component's
+  //    loop): the yields land at its gate, `sameInstance` keeps a reconnect's
+  //    re-yield quiet, and under hydration the frames intercept's local
+  //    answer (LIVE_LOCAL) and the takeover arming both belong to this node,
+  //    exactly as before — the record below never sits on it.
+  // 2. The per-instance VALUE memo unboxes, and for a thenable becomes the
+  //    ORDINARY async memo the boundary waits on. Under hydration it is the
+  //    node the server's record is keyed to (the server's value memo at the
+  //    same id serialized the landing): it ADOPTS the record — a server
+  //    component's flight reference resolves to its binding, a tag to its
+  //    string — and never waits on the client's own re-run of the source, so
+  //    a hydrating <Loading> sees no pending beat (#3666). The trace run
+  //    still reads the factory, which is how the instance follows a later
+  //    source change; the token pins a delivery to this instance's LATEST
+  //    computation (a superseded source's late resolution must not re-bind
+  //    the mount to stale content). The thenable is transparent — it
+  //    transforms the value inside the SAME microtask as the source
+  //    promise's own handlers.
+  // 3. The per-instance RENDER memo applies props.
+  const cached = createMemo<any>(
     (prev: any) => {
       const next = source() as any;
       if (!next || typeof next.then !== "function") return resolveBinding(next, prev);
-      const token = ++latest;
-      return {
-        then: (onFulfilled: any, onRejected: any) =>
-          next.then(
-            (resolved: any) =>
-              onFulfilled(token === latest ? resolveBinding(resolved, prev) : resolved),
-            onRejected
-          )
-      };
+      return { [FLIGHT]: next };
     },
     { lazy: true, equals: sameInstance }
   );
   return props => {
+    // Hydration adopts the value memo's record, and its trace run — the one
+    // read that subscribes it to the factory — happens under the tracer's
+    // mocked globals (fetch, Promise), where the factory's FIRST compute must
+    // not run: the source's answer is consumed for real later (the factory is
+    // lazy, and a `Promise.resolve()` minted under the mock never settles).
+    // Warm the factory here, in the owner's own tick, so the trace finds it
+    // computed. A NotReady (an iterable still pending its first yield, a
+    // dependency) is the value memo's to see on its own read.
+    if (sharedConfig.hydrating) {
+      try {
+        untrack(cached);
+      } catch {}
+    }
+    let latest = 0;
+    const value = createMemo<Function | string | undefined>(
+      (prev: any) => {
+        const c = cached();
+        if (!c || !c[FLIGHT]) return resolveBinding(c, prev);
+        const next: PromiseLike<any> = c[FLIGHT];
+        const token = ++latest;
+        // `onFulfilled` may be absent: the hydration tracer observes a
+        // compute's thenable with `.then(undefined, noop)`.
+        return {
+          then: (onFulfilled: any, onRejected: any) =>
+            next.then((resolved: any) => {
+              const landed = token === latest ? resolveBinding(resolved, prev) : resolved;
+              return onFulfilled ? onFulfilled(landed) : landed;
+            }, onRejected)
+        };
+      },
+      { equals: sameInstance }
+    );
     return createMemo(() => {
-      const component = cached();
+      const component = value();
       switch (typeof component) {
         case "function": {
           if (isDev) Object.assign(component, { [$DEVCOMP]: true });

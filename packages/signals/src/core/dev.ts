@@ -104,7 +104,8 @@ export type DiagnosticCode =
   | "UNRECOGNIZED_INSERT_VALUE"
   | "UNSCOPED_HOLE_ALLOCATED_IDS"
   | "BEHAVIOR_CLAIM_DROPPED"
-  | "FRAME_MARKER_CORRUPTED";
+  | "FRAME_MARKER_CORRUPTED"
+  | "DYNAMIC_ASYNC_COMPONENT";
 
 export type DiagnosticKind =
   | "strict-read"

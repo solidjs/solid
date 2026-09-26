@@ -1583,9 +1583,11 @@ function processResult<T>(
   // subtree still hydrates normally — distinct from NoHydrateContext, which
   // opts the whole subtree out (and suppresses the id allocation this needs
   // for client parity). The contract is that the client RECOMPUTES the value,
-  // so it is only correct where recomputation is intended: dynamic() re-runs
-  // its source and lazy() re-imports its module. Both resolve to component
-  // functions, which are not serializable in the first place.
+  // so it is only correct where recomputation is intended: lazy() re-imports
+  // its module, which resolves to a component function — not serializable in
+  // the first place. (dynamic() no longer opts out — #3666: its instance memo
+  // serializes and the client adopts; a landing the wire cannot carry is
+  // refused on the server, DYNAMIC_ASYNC_COMPONENT.)
   const noHydrate = serialize === false || getContext(NoHydrateContext, owner);
   // The owner whose context record says which render scope this memo reads
   // in (server component / live server component): judged from here, not

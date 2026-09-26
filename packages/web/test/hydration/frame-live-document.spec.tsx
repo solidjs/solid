@@ -11,10 +11,13 @@
  *
  * What has to hold:
  *
- *  - t=0 is the document's answer. `dynamic`'s memo is not serialized, so
- *    its compute runs during hydration; the live loop's first call hits the
- *    frames intercept (the page holds this call's boundary) and yields the
- *    call's binding without a request — the frame adopts the SSR'd nodes.
+ *  - t=0 is the document's answer. `dynamic`'s FACTORY memo — the one
+ *    consumer of the live source — is not serialized (#3666 serializes the
+ *    per-instance value memo, which adopts the call's binding from its
+ *    record), so its compute runs during hydration; the live loop's first
+ *    call hits the frames intercept (the page holds this call's boundary)
+ *    and yields the call's binding without a request — the frame adopts the
+ *    SSR'd nodes.
  *    That answer is not a connection: no status is emitted for it and the
  *    iteration holds for its consumer instead of completing.
  *  - The node takes over at its hydration scope's release, exactly as a
