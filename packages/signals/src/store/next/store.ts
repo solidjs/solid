@@ -28,7 +28,8 @@ import {
   unwrapOverride,
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_HELD_TRUTH,
-  CONFIG_OPTIMISTIC
+  CONFIG_OPTIMISTIC,
+  REACTIVE_RECOMPUTING_DEPS
 } from "../../core/constants.js";
 import {
   context,
@@ -531,6 +532,25 @@ export function getHasNode(
     markDescendants(target);
   }
   return node;
+}
+
+/** Did `obs` link `target`'s key-set node in its CURRENT pass? The mirror of
+ * link()'s O(1) repeat-touch check: the node's newest subscriber link is
+ * this observer's, and — during a recompute — carries this pass's dep
+ * generation (a link left from a previous pass is stale: the observer may
+ * not re-read the key set this time). No dep-list scan, no allocation. A
+ * probe observer (isPending()/latest() sentinel) never links, so it always
+ * falls through to the presence read. */
+function observerHoldsKeySet(target: StoreNextTarget, obs: Owner): boolean {
+  const k = target.k;
+  if (k === null) return false;
+  const l = k._subsTail;
+  return (
+    l !== null &&
+    l._sub === obs &&
+    (!((obs as Computed<any>)._flags & REACTIVE_RECOMPUTING_DEPS) ||
+      l._gen === (obs as Computed<any>)._depGen)
+  );
 }
 
 export function getKeySetNode(target: StoreNextTarget): Signal<number> {
@@ -2256,11 +2276,22 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // re-ran for an optimistic add or delete, and an isPending() probe over
     // it witnessed nothing). The value it reports rides the value node's
     // view through visibleDescriptor.
+    //
+    // EXCEPT for an enumerator (#3664): Object.keys / for...in / spread /
+    // Object.entries / JSON.stringify take this trap once per key right
+    // after `ownKeys`, which already subscribed the observer to the key-set
+    // node — and that node bumps on every membership change, committed or
+    // optimistic, so a presence node per key adds nothing the enumerator
+    // can observe (rc.9 birthed one per key per object: ~640 B and a graph
+    // node each, 10x the memory of a 30-key row's reader). When the
+    // observer holds the key-set node in THIS pass, skip the presence read;
+    // a lone descriptor read keeps its per-key precision.
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
+    const obs = getObserver();
+    if (target.fam !== null && obs === null && !inDraft(target)) firewallGate(target);
     const src = readSource(target);
     const desc = visibleDescriptor(target, src, key);
-    if (!inDraft(target) && getObserver() !== null) {
+    if (!inDraft(target) && obs !== null && !observerHoldsKeySet(target, obs)) {
       // The node is born from the source's presence (as `has` births it),
       // not the override-adjusted answer.
       let present = key in src;
