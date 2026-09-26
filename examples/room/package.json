@@ -1,7 +1,7 @@
 {
   "name": "room-example",
   "description": "A shared room over live server functions: presence and the transcript are standing answers each tab holds open as one event-stream response, the room card is a nested-async answer that lives as long as its response, and a chaos switch kills the connections so the reconnect path is visible",
-  "version": "0.0.0",
+  "version": "0.0.1-rc.0",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
