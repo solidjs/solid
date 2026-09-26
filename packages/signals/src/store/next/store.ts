@@ -2216,7 +2216,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
         !authoritativeServe()
       ) {
         const node = target.n?.[key];
-        if (node !== undefined && visibleOverride(node))
+        // The draft is a WRITER channel (hasActiveOverride's rule): it
+        // composes on the tick's own unflushed adds, as the has trap's draft
+        // arm, visibleKeys and optimisticView do. Reader-gating this arm
+        // (visibleOverride) made a second setter in the same action read
+        // `undefined` where the first had pushed a row (#3665, rc.9).
+        if (node !== undefined && hasActiveOverride(node))
           v = unwrapOverride(node._x?._overrideValue);
       }
       if (target.s) return serveShallow(target, key, v);
@@ -2645,14 +2650,30 @@ function visibleDescriptor(
     if (target.del !== null && target.del.has(key)) return undefined;
     if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
   }
-  if (!authoritativeServe() && target.fam?.opt && !inDraft(target)) {
+  // Draft arm, the twin of visibleKeys' (#3665): a draft still composing on
+  // the live view (no view-seeded backing yet) serves the writer rule
+  // (hasActiveOverride); once ensurePB has seeded the draft's own backing,
+  // `src` carries the view. Without it ownKeys listed a key the descriptor
+  // reported absent, and every enumerator — Object.keys, spread, entries,
+  // JSON.stringify, deep() — dropped the row a previous setter had added.
+  const draft = inDraft(target);
+  if (!authoritativeServe() && target.fam?.opt && (!draft || draftSeesOverrides(target))) {
     const node = target.h?.[key as any];
-    if (node !== undefined && visibleOverride(node)) {
+    if (node !== undefined && (draft ? hasActiveOverride(node) : visibleOverride(node))) {
       if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
       if (desc === undefined) {
         const vn = target.n?.[key as any];
         return {
-          value: vn !== undefined ? nodeValue(vn, undefined) : undefined,
+          // In a draft the value is the override itself (nodeValue routes
+          // through serve — the reader rule — and would answer undefined).
+          value:
+            vn === undefined
+              ? undefined
+              : draft
+                ? hasActiveOverride(vn)
+                  ? unwrapOverride(vn._x?._overrideValue)
+                  : undefined
+                : nodeValue(vn, undefined),
           writable: true,
           enumerable: true,
           configurable: true
@@ -2806,8 +2827,17 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   // object and snapshots via the owned/copy path (pinned `not.toBe` identity).
   if (optOwners !== null) {
     let view: any = src;
-    for (let i = optOwners.length - 1; i >= 0; i--)
-      view = optHooks!.optimisticView(optOwners[i], view);
+    for (let i = optOwners.length - 1; i >= 0; i--) {
+      const o = optOwners[i];
+      // Draft twin (#3665): deep()/snapshot() inside a setter is the writer's
+      // channel and composes on the tick's own unflushed adds
+      // (hasActiveOverride). A draft that has seeded its own backing from
+      // the view already carries them in `src` — composing again would
+      // clobber the draft's later writes with the overrides they superseded.
+      const draft = inDraft(o);
+      if (draft && !draftSeesOverrides(o)) continue;
+      view = optHooks!.optimisticView(o, view, draft);
+    }
     if (view !== src) {
       const cachedView = seen.get(src);
       if (cachedView !== undefined) return cachedView;
