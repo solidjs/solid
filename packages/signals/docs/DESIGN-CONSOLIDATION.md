@@ -97,7 +97,7 @@ Store twins (`store/next/store.ts`, `optimistic.ts`): `heldFoldTransition` / `fo
 
 - Predicate: `reporterBlocksSource` (`scheduler.ts` ~1499–1542): DISPOSED → dead; ZOMBIE → walk to non-zombie parent, judge by its transaction vs verdict; boundary walk (`_collectionType & PENDING && !_initialized`) → dead (A33); `_pendingSources.has(source)` → live; deps scan through `_parentSource`/`_firewall` → live; `pending && _error.source === source` → live. Callers: `sourceObserved` → `transitionComplete`, `waitingTransition`, `enterWaiting`, `_endOptimism`, `_transitionBlocked`.
 - Registration: `notify` (~897–931, INV-3), `heldFromStale`, store optimistic path.
-- **Events that retire a reporter, each pushing `wokenTransitions` independently:** `disposeChildren` (`owner.ts` ~86, #3372), `recompute` tail (`core.ts` ~727, #3488), boundary reset → `wakeParked` (`boundaries.ts` ~319). Consumed in flush's `finally` on an otherwise idle pass (~892).
+- **Events that retire a reporter, each pushing `wokenTransitions` independently:** `disposeChildren` (`owner.ts` ~86, #3372), `recompute` tail (`core.ts` ~727, #3488), boundary reset → `wakeParked` (`boundaries.ts` ~319). Consumed in flush's `finally` on an otherwise idle pass (~1040): empty heap, no active transition, nothing staged in the ambient batch.
 - **Verdict placement:** `transitionComplete` at ~774, after `runHeap(dirtyQueue)` and **before** effects; on incomplete: `stashQueues` (~805) parks the _entire_ render/user queues, `finalizePureQueue(null, true)`, return. This ordering is O3's same-flush form.
 
 ### Rule 3/4 — deferred decisions (one structure each today)
