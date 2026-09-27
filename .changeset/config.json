@@ -28,6 +28,8 @@
     "todos-example",
     "hackernews-example",
     "hackernews-spa-example",
-    "notes-example"
+    "notes-example",
+    "room-example",
+    "effect-example"
   ]
 }
