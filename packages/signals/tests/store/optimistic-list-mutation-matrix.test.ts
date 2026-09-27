@@ -85,11 +85,14 @@ afterEach(() => {
 
 // ── known failures (pinned, not fixed) ──────────────────────────────────────
 //
-// Every row below fails deterministically on `next` @ 658eecdb7 (#3674
-// landed; two runs, identical sets). A listed row runs as `it.fails`; when
-// a fix lands the row starts passing and vitest reports it, so the entry
-// must be removed with the fix — #3674 cleared every F2 row and the
-// chained `clear` row of F5 while this file was being written. Findings,
+// Every row below fails deterministically on `next` (first pinned @
+// 658eecdb7, #3674 landed; two runs, identical sets). A listed row runs as
+// `it.fails`; when a fix lands the row starts passing and vitest reports it,
+// so the entry must be removed with the fix — #3674 cleared every F2 row and
+// the chained `clear` row of F5 while this file was being written; the F3 /
+// F5 fix (optimistic-untracked-reads-f3-f5.test.ts) cleared every F5 row and
+// every chained F3 row, and moved the derived F3 rows to F4 / F1 (the hole
+// checkpoint passes; they fail later on the finding underneath). Findings,
 // by failing frame:
 //
 // F1  `mapArray` by index (`keyed: false`) does not publish the optimistic
@@ -103,12 +106,15 @@ afterEach(() => {
 //     previous value was dropped — frame "B (inverse) applied" showed A's
 //     frame. Fixed by #3674; ctx4 now fails only through the index reader
 //     (F1). Kept as the context's history.
-// F3  Two actions whose slot writes overlap leave a stale `length`
-//     override: a hole. "move head->tail + move middle" shows
-//     `b,c,e,f,d,a,<undefined>` (length 7) after both applied; a move or
-//     rotate undone by a second action shows `a..f,<undefined>` at "B
-//     (inverse) applied". Both sources, every reader (the keyed reader
-//     records `keyed(undefined)`; the memo shows a trailing empty slot).
+// F3  Two drafts whose slot writes overlap left a stale `length`: a hole.
+//     "move head->tail + move middle" showed `b,c,e,f,d,a,<undefined>`
+//     (length 7) after both applied; a move or rotate undone by a second
+//     action showed `a..f,<undefined>` at "B (inverse) applied". The
+//     `length` draft arm re-composed the prior draft's overrides onto the
+//     seeded backing (every other draft channel gates on
+//     draftSeesOverrides). Fixed with F5; the derived rows now reach the
+//     settle and fail there on F4 (a stray frame of A's truth), the index
+//     rows on F1 — re-tagged below. Kept as the context's history.
 // F4  Derived source (`createOptimisticStore(() => truth())`): the first
 //     action's settle disturbs the second action's pending override — a
 //     stray frame of A's truth without B's inverse (`b,a,c,d,e,f` for swap),
@@ -116,14 +122,18 @@ afterEach(() => {
 //     "A confirmed" and "B confirmed"; in ctx3 "A confirmed" after B can
 //     show B's truth lost (`swap+swap` resolved B then A: `b,a,c,d,e,f`
 //     instead of `b,a,c,d,f,e`) and the untracked read can differ from the
-//     effect channel (`insert head + delete tail`: 7 rows vs 6).
+//     effect channel (`insert head + delete tail`: 7 rows vs 6). The former
+//     F3 derived rows fail at "settles" with A's truth as a stray frame
+//     (`f,a,b,c,d,e` for rotate left).
 // F5  Derived source, a truth landing whose length differs from the
 //     optimistic frame (every `differ` insert/delete/clear through the
-//     keyed mapArray): inside mapArray's owner the store reports the
-//     override's length while the tracked read reports the truth's, so the
-//     pass snapshots a short `_items` and the NEXT pass calls the key
-//     function with `undefined` (recorded; a user key fn throws and halts
-//     the scheduler).
+//     keyed mapArray): the landing superseded the `length` / presence
+//     overrides (#3331) and tracked reads served the staged truth while the
+//     untracked store paths (the length view, `in`) still composed the
+//     override, so mapArray's pass snapshotted a short `_items` and the
+//     NEXT pass called the key function with `undefined` (a user key fn
+//     throws and halts the scheduler). Fixed: the untracked paths follow
+//     the same reader-aware selection as `get`. Kept as history.
 // F6  Derived source through `repeat`, `replace-all same ids reordered` and
 //     `delete then re-add same id`: after settle the ambient probe push does
 //     NOT revert at its flush — an override outlives the action.
@@ -190,20 +200,26 @@ rowsOf(
 );
 rowsOf("F1", IDX, ["chained"], ctx4(SLOT_CHANGERS));
 rowsOf("F1", IDX, SOURCES, ctx5(["replace-all disjoint ids", "replace-all same ids reordered"]));
-// F3
+// former F3 rows (the hole is fixed): the index reader fails on F1, every
+// other reader on the derived source fails at "settles" on F4; the chained
+// keyed / repeat / memo rows pass.
+const OVERLAP_PAIR = ["move head->tail + move middle (c->4)"];
+const OVERLAP_INVERSES = ["move head->tail", "move tail->head", "rotate left", READD];
+rowsOf("F1", IDX, SOURCES, ctx3(["A then B", "B then A"], OVERLAP_PAIR));
+rowsOf("F1", IDX, SOURCES, ctx5(OVERLAP_INVERSES));
 rowsOf(
-  "F3",
-  ALL,
-  SOURCES,
-  ctx3(["A then B", "B then A"], ["move head->tail + move middle (c->4)"])
+  "F4",
+  ["mapArray-keyed", "memo", "repeat"],
+  ["derived"],
+  ctx3(["A then B", "B then A"], OVERLAP_PAIR)
 );
-rowsOf("F3", ALL, SOURCES, ctx5(["move head->tail", "move tail->head", "rotate left", READD]));
-// F3 / F4 — both orders of the remaining pairs, and the remaining inverses
+rowsOf("F4", ["mapArray-keyed", "memo", "repeat"], ["derived"], ctx5(OVERLAP_INVERSES));
+// F1 / F4 — both orders of the remaining pairs, and the remaining inverses
 // across two actions: the index reader on both sources (F1 underneath),
 // every other reader on the derived source (F4), plus the keyed reader on
 // the chained source for `insert head + delete tail` resolved B then A.
 rowsOf(
-  "F3/F4",
+  "F1/F4",
   IDX,
   SOURCES,
   ctx3(["A then B", "B then A"], ["insert head + delete tail", "swap a<->b + swap e<->f"])
@@ -238,8 +254,7 @@ rowsOf(
   ["derived"],
   ctx5([...UNDONE, "insert tail", "delete tail"])
 );
-// F5
-rowsOf("F5", ["mapArray-keyed"], ["derived"], ctx2(["differ"], [...INSERT_DELETE, "clear"]));
+// F5 — fixed, no rows pinned
 // F6
 rowsOf("F6", ["repeat"], ["derived"], ctx2(["confirm"], ["replace-all same ids reordered", READD]));
 rowsOf("F6", ["repeat"], ["derived"], ctx5(["replace-all same ids reordered"]));

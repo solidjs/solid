@@ -65,11 +65,13 @@ import { runProjectionComputedNext } from "./projection.js";
 import {
   bumpDeep,
   authoritativeRead,
+  authoritativeServe,
   getHasNode,
   getKeySetNode,
   getNode,
   hasActiveOverride,
   heldMaskView,
+  readerOverride,
   visibleOverride,
   runAuthoritative,
   stagedTruthPB,
@@ -691,6 +693,11 @@ export function optimisticView(
   if (t.fam?.opt !== true || authoritativeRead()) return src;
   let out: Record<PropertyKey, any> | null = null;
   const ensure = () => (out ??= Array.isArray(src) ? [...(src as any[])] : { ...src });
+  // Reader composition (snapshot/deep, the length view with no armed length
+  // node) takes a superseded override as the traps serve it (readerOverride,
+  // #3331): the writer's draft and the write-side callers (applyTentative,
+  // applyAdopt's key-matching view) keep the override itself.
+  const reader = !draft && !authoritativeServe();
   const nodes = t.n;
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) {
@@ -698,10 +705,15 @@ export function optimisticView(
       // A28 (5): readers see an optimistic write once a flush carried it;
       // the draft (writer channel) composes on it now.
       if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
-      const ov = unwrapOverride(node._x?._overrideValue);
       if (key === "length" && Array.isArray(src)) {
-        if ((src as any[]).length !== ov) (ensure() as any[]).length = ov;
-      } else if (!isEqual(src[key as any], ov)) ensure()[key as any] = ov;
+        const len = (src as any[]).length;
+        const ov = reader ? readerOverride(node, len) : unwrapOverride(node._x?._overrideValue);
+        if (len !== ov) (ensure() as any[]).length = ov;
+      } else {
+        const cv = src[key as any];
+        const ov = reader ? readerOverride(node, cv) : unwrapOverride(node._x?._overrideValue);
+        if (!isEqual(cv, ov)) ensure()[key as any] = ov;
+      }
     }
   }
   const has = t.h;
@@ -711,8 +723,11 @@ export function optimisticView(
       // A28 (5): readers see an optimistic write once a flush carried it;
       // the draft (writer channel) composes on it now.
       if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
-      const present = !!unwrapOverride(node._x?._overrideValue);
-      if (!present && key in (out ?? src)) delete ensure()[key as any];
+      const committed = key in (out ?? src);
+      const present = !!(reader
+        ? readerOverride(node, committed)
+        : unwrapOverride(node._x?._overrideValue));
+      if (!present && committed) delete ensure()[key as any];
     }
   }
   return out ?? src;

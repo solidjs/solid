@@ -761,7 +761,13 @@ module.exports = [
     // `next` without the other). This change is -13 B: the get trap's draft
     // arm swaps one predicate, visibleDescriptor and snapshotWalk gain the
     // draft twin visibleKeys already had (+~90 B minified); brotli layout.
-    limit: "17.27 KB",
+    // Optimistic untracked reads honour #3331 supersession (F3/F5, 2026-09-26):
+    // 17.27 -> 17.34 KB, measured at 17,326 B against `next`'s 17,260 (+66 B).
+    // `readerOverride` (supersession-aware override pick) and its four call
+    // sites — the `length` view arm, the `has` trap, visibleKeys/visibleDescriptor,
+    // optimisticView — plus the F3 `draftSeesOverrides` gate on the length view.
+    // All in the store module; core floor 0 B.
+    limit: "17.34 KB",
     modifyEsbuildConfig
   },
   {
@@ -1724,7 +1730,12 @@ module.exports = [
     // `emit` (-12 B) and the revert-side `_resolveOptimistic` chain that
     // refreshes armed chained nodes to the base's live value (+88 B) — both
     // in the tree-shakeable optimistic module; core floor 0 B.
-    limit: "31.87 KB",
+    // Optimistic untracked reads honour #3331 supersession (F3/F5, 2026-09-26):
+    // 31.87 -> 32.00 KB, measured at 31,988 B against `next`'s 31,862 (+126 B).
+    // Same change as the `+ createStore` note (+66 B there); optimisticView's
+    // reader-aware pick lands in the optimistic module this scenario pulls in.
+    // Core floor 0 B.
+    limit: "32.00 KB",
     modifyEsbuildConfig
   },
   {
