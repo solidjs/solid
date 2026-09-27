@@ -36,6 +36,7 @@ import {
   getOwner,
   isEqual,
   setSignal,
+  untrack,
   type Computed,
   type Refreshable,
   type Signal
@@ -137,6 +138,41 @@ function installNextBlockedHalf(): void {
       stores.clear();
     };
   }
+  // Revert-side link refresh (#3672, §7b/O6): a chained node's `_value` is
+  // never served — the base's live value is — so the engine cannot read
+  // committed truth from it. The engine consults it at exactly two moments:
+  // optimisticWrite's no-op check (the setter hands it the visible value,
+  // see `emit` in notifyOptimisticWrites) and resolveOptimisticNodes'
+  // notify compare (here). Left at the write-time value, a base commit
+  // during the override — confirm 7, user writes back to the pre-write 5 —
+  // made the revert compare 5 === 5 and notify nobody while the base read 7:
+  // a memo over the view stayed at the guess forever (render effects were
+  // rescued by readsHeldCommitted's replay). Refresh every armed node of
+  // each chained host in the reverting batch to the base's live value right
+  // before the compare, so it is exact: notify iff truth differs from the
+  // guess. Untracked: a flush from inside a computation must not link it.
+  const resolvePrev = GlobalQueue._resolveOptimistic!;
+  GlobalQueue._resolveOptimistic = nodes => {
+    let seen: Set<StoreNextTarget> | null = null;
+    for (const node of nodes) {
+      const t: StoreNextTarget | undefined = (node as any)._host;
+      if (t?.ch !== true || seen?.has(t)) continue;
+      (seen ??= new Set()).add(t);
+      untrack(() => {
+        const base: any = t.v;
+        for (const k of Reflect.ownKeys(t.n!)) {
+          const n = t.n![k as any];
+          if (hasActiveOverride(n)) n._value = unwrapValue(base[k]);
+        }
+        if (t.h !== null)
+          for (const k of Reflect.ownKeys(t.h)) {
+            const h = t.h[k as any];
+            if (hasActiveOverride(h)) h._value = k in base;
+          }
+      });
+    }
+    resolvePrev(nodes);
+  };
   const chained = GlobalQueue._transitionBlocked!;
   GlobalQueue._transitionBlocked = transition => {
     for (const store of transition._optimisticStores) {
@@ -584,7 +620,10 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
       ? !!unwrapOverride(node._x?._overrideValue)
       : key in old;
   };
-  // Chained nodes are links (§7b): their `_value` never learns the base's commits.
+  // Chained nodes are links (§7b, O6): their `_value` is never served and
+  // never learns the base's commits, yet optimisticWrite's no-op check reads
+  // it (#3672). Hand it the visible committed value at the write; the revert
+  // compare gets the same treatment in installNextBlockedHalf.
   const emit = (node: Signal<any>, ov: any, nv: any): void => {
     if (t.ch && !hasActiveOverride(node)) node._value = ov;
     setSignal(node, () => nv);
