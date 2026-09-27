@@ -12,8 +12,8 @@ should be bumped in the same PR with a reason.
 ## Frozen floor caps
 
 The three floor scenarios — the signals floor, the simple app, and the
-hydrating app without stores — have their caps in `floor-caps.json`, not in
-`.size-limit.js`. They are **frozen**: a PR may lower them, never raise them.
+hydrating app without stores — and the two server-component page scenarios
+have their caps in `floor-caps.json`, not in `.size-limit.js`. They are **frozen**: a PR may lower them, never raise them.
 `check-floor-caps.mjs` diffs the file against the PR's base branch in CI and
 fails on a raise unless the PR body contains a line starting with
 `Size-Exception:` naming why the maintainer accepted the cost. Ten weeks of
