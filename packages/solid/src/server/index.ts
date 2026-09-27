@@ -151,6 +151,10 @@ export {
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
+// After the runtime modules above, so this import adds no edge to the module
+// graph's evaluation order (shared.js is long loaded) and the prod artifact
+// is unchanged.
+import { installServerWithOrigin } from "./shared.js";
 
 /**
  * @internal — client-only (see client/hydration.ts). The server stub is
@@ -174,7 +178,10 @@ export function materializeContainerTrace(marker: unknown): unknown {
 // regardless of, the web runtime that emits into them.
 const IS_DEV = "_SOLID_DEV_" as string | boolean;
 const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
-if (IS_OBSERVE) _OBSERVE!.server = serverSlots();
+if (IS_OBSERVE) {
+  _OBSERVE!.server = serverSlots();
+  installServerWithOrigin(_OBSERVE!);
+}
 export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
 export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
 // The console face is the core's; the repair-guide footer under each first

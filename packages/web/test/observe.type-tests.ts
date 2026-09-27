@@ -34,6 +34,7 @@ import type {
   InvocationEvent,
   InvocationLive,
   RenderEvent,
+  RenderRoute,
   RenderLive,
   RequestEvent,
   TraceContext,
@@ -97,6 +98,10 @@ observe.records.subscribe("render", (event, live) => {
   event.durationMs satisfies number;
   event.boundaries satisfies number;
   event.outcome satisfies "complete" | "abandoned" | "error";
+  event.route satisfies RenderRoute | undefined;
+  event.route?.name satisfies string | undefined;
+  event.route?.to satisfies string | undefined;
+  event.route?.params satisfies Readonly<Record<string, string | undefined>> | undefined;
   live.trace satisfies TraceContext;
   live.event satisfies RequestEvent | undefined;
 });

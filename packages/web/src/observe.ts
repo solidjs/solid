@@ -174,6 +174,29 @@ export interface RenderEvent {
    * threw, a stream's uncontained failure wound it down through `onError`.
    */
   outcome: "complete" | "abandoned" | "error";
+  /**
+   * The route the render resolved to, as the router declared it while
+   * building its context under this render (`OBSERVE.attribution.withOrigin`
+   * with an `initial` ref — the same declaration the client's first
+   * `"navigation"` record comes from): `name` the matched pattern
+   * (`/users/:id`), `to` the concrete path, `params` what the pattern
+   * bound. Read from the router's ref when the render settles, so a match
+   * refined during the render is what lands. Absent when no router declared
+   * one — a render without a router, or a router that does not yet. What a
+   * consumer names the request by (`http.route`), where the URL would
+   * scatter one page across as many names as it has parameters.
+   */
+  route?: RenderRoute;
+}
+
+/** `RenderEvent.route` — the route a render resolved to, as the router matched it. */
+export interface RenderRoute {
+  /** The matched route pattern — `/users/:id`. */
+  name?: string;
+  /** The concrete path. */
+  to?: string;
+  /** The params the pattern bound (optional params unbound: `undefined`). */
+  params?: Readonly<Record<string, string | undefined>>;
 }
 
 /** The live half of a render record. */
