@@ -12,7 +12,8 @@ name: Size
 # (absolute limits, no base ref), and PR-only triggering let the
 # +createStore scenario sit failing at a release commit unnoticed — direct
 # pushes never measured. The compare job stays PR-only; it needs a PR
-# context (base branch, comment target).
+# context (base branch, comment target). The floor-cap freeze step in check
+# is PR-only for the same reason (it diffs against the base branch).
 on:
   push:
     branches: [next]
@@ -46,8 +47,22 @@ jobs:
       - run: pnpm build
       - run: npm ci --no-audit --no-fund
         working-directory: scripts/size
+      # size-limit gates every scenario against its cap, then attribute.mjs
+      # prints per-package minified bytes for each so a bump is attributed
+      # in the same log that reports it.
       - run: npm run size
         working-directory: scripts/size
+      # The three floor caps (scripts/size/floor-caps.json) are frozen: a PR
+      # may lower them, never raise them, unless its body carries a
+      # `Size-Exception:` line. Compared against the PR's base branch, so
+      # PR events only.
+      - if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+      - if: github.event_name == 'pull_request'
+        run: npm run check-floor-caps -- "origin/${{ github.base_ref }}"
+        working-directory: scripts/size
+        env:
+          SIZE_EXCEPTION: ${{ github.event.pull_request.body }}
 
   # Best-effort base-vs-head delta comment. Requires the base branch to also
   # carry scripts/size/, so it is informational and never blocks: continue-on-error

@@ -15,6 +15,32 @@ const alias = {
 };
 const modifyEsbuildConfig = config => ({ ...config, alias });
 
+// The three floor caps are FROZEN (size-reduction effort, 2026-09-26 —
+// documentation/plans/size-reduction-audit.md §A): they live in
+// floor-caps.json, and check-floor-caps.mjs fails a PR that raises one
+// without a `Size-Exception:` line in its body. Lowering is always allowed.
+// The dated notes on each scenario below remain the ledger of how the
+// floor got here.
+const floorCaps = require("./floor-caps.json");
+
+// Server-component PAGES (audit §1): everything such a page ships eagerly,
+// nothing external — the frames client and the server-function transport
+// resolve to their dists alongside solid-js/web/signals. The seroval codec
+// is a dynamic import in both clients and a separate chunk in production;
+// size-limit does not split, so the specifiers resolve to lazy-codec.js (the
+// import site stays, the chunk's ~5 KB brotli does not inline). The
+// "frames: eager client consumer" scenario measures the package; these
+// measure the page. Subpath aliases first (prefix matching, see above).
+const pageAlias = {
+  "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
+  "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
+  "@solidjs/web/frames": "../../packages/web/frames/dist/client.js",
+  "@solidjs/web/serialization/decode": "./lazy-codec.js",
+  "@solidjs/web/serialization": "./lazy-codec.js",
+  ...alias
+};
+const pageEsbuildConfig = config => ({ ...config, alias: pageAlias });
+
 // Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
 // `observe` export condition selects — wiring kept (attribution hook sites,
 // owner labels, edge counters, the diagnostics channel), checks folded. Its
@@ -384,7 +410,7 @@ module.exports = [
     // 38 B, the rest is the flag's parking (with the drain entry), tail and
     // commit sites. Every scenario below moves by +52..+113 B brotli (the
     // same retained core).
-    limit: "9.94 KB",
+    limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     modifyEsbuildConfig
   },
   {
@@ -1084,7 +1110,7 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 12.67 -> 12.78 KB,
     // measured at 12,725 B against `next`'s 12,619 (+106 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "12.78 KB",
+    limit: floorCaps["app: render + one signal (the simple-app floor)"],
     modifyEsbuildConfig
   },
   {
@@ -1356,7 +1382,7 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 21.32 -> 21.43 KB,
     // measured at 21,418 B against `next`'s 21,305 (+113 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "21.43 KB",
+    limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     modifyEsbuildConfig
   },
   {
@@ -2545,5 +2571,34 @@ module.exports = [
     path: "../../packages/web/frames/dist/client.js",
     limit: "12.42 KB",
     modifyEsbuildConfig: framesEsbuildConfig
+  },
+  {
+    name: "page: base server components (hydrating + dynamic + frames + sf reference)",
+    // Size-reduction audit baseline (2026-09-26, next @ 3af4696fb): the
+    // whole eager graph of a server-component page with no client stores.
+    // Per-package (minified, attribute.mjs): signals 64.8K, frames client
+    // 31.8K, web 20.2K, solid-js 15.8K, sf client 12.7K. Two of those are known
+    // eager costs the audit's packaging tier removes — the frames client
+    // installing the container-trace materializer at load (the store engine,
+    // ~7.1 KB brotli of this number) and dynamic()'s string-tag branch
+    // retaining the spread attribute runtime (~4.3 KB). This cap is a
+    // baseline to cut from, not headroom to grow into.
+    // Rebased onto `next` @ 3af4696fb (2026-09-26): 46,757 -> 46,852 B
+    // (+95 B) — #3671's async dynamic() landing serialization/adoption in
+    // web and solid-js, and #3670's draft-visibility twin in the store.
+    path: "sc-base-app.js",
+    limit: "46.86 KB",
+    modifyEsbuildConfig: pageEsbuildConfig
+  },
+  {
+    name: "page: live server components (base + live/GET + action + isPending/latest)",
+    // Same baseline for the live page: the base page plus the sf client's
+    // live loop and GET, `action`, and the verdict (isPending/latest, which
+    // the router retains on every real page anyway). Still no client stores.
+    // Rebased onto `next` @ 3af4696fb (2026-09-26): 51,103 -> 51,156 B
+    // (+53 B), same two commits as the base page.
+    path: "sc-live-app.js",
+    limit: "51.16 KB",
+    modifyEsbuildConfig: pageEsbuildConfig
   }
 ];

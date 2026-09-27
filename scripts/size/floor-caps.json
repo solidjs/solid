@@ -1,0 +1,5 @@
+{
+  "signals: core floor (createSignal/Memo/Effect/Root/flush)": "9.94 KB",
+  "app: render + one signal (the simple-app floor)": "12.78 KB",
+  "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": "21.43 KB"
+}
