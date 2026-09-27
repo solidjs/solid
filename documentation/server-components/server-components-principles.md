@@ -2057,7 +2057,9 @@ const done = (p: { id: string; completed: boolean }) =>
 
 const toggle = action(async (id: string, completed: boolean) => {
   setPending(s => { s.byId[id] = { completed }; });
-  await toggleTodo(id, completed);       // single-flight response morphs the frame
+  await toggleTodo(id, completed);       // authoritative apply lands in this transaction:
+                                         // single-flight: the response's regions;
+                                         // multi-flight: refresh(Todos) / router revalidation here
 });
 const remove = action(async (id: string) => {
   setPending(s => { s.byId[id] = { removed: true }; });
@@ -2089,11 +2091,38 @@ The three TodoMVC behaviors:
 
 - *Toggle.* `setPending` flips `done(p)`; `<li class>` and `<input
   checked>` update through ordinary bindings on server nodes.
-  Success: the response morphs the row, `p.completed` becomes the
-  new value, the optimistic entry settles to the same thing.
-  Failure: the entry reverts, `done(p)` falls back to `p.completed`,
-  the checkbox corrects itself. No baseline is captured because the
-  client never borrowed the value — it owns it.
+  Success: the authoritative apply morphs the row inside the
+  action's transaction, `p.completed` becomes the new value, the
+  optimistic entry settles to the same thing. Failure: the entry
+  reverts, `done(p)` falls back to `p.completed`, the checkbox
+  corrects itself. No baseline is captured because the client never
+  borrowed the value — it owns it.
+
+**Both mutation shapes are required (clarified 2026-09-27).** The
+fill is identical under router single-flight and under typical
+multi-flight; only the *hold* differs, and the hold is the
+transaction's existing job. The requirement, stated once for three
+arrival paths: *the authoritative apply lands inside the action's
+transaction, however it arrives.*
+
+- *Single-flight (router).* The mutation response carries the
+  invalidated regions; `applyFrameResponse` morphs before the call
+  resolves. Apply and settlement are one event.
+- *Multi-flight (typical).* The mutation POST returns; the refetch
+  of `getTodos(filter)` is a separate request. It must be an async
+  source the SAME transaction tracks — `refresh(Todos)` or the
+  router's revalidation inside the action — so the transaction stays
+  open until the new binding is delivered and applied. This is
+  exactly how `examples/todos` holds today (`yield api.toggleTodo`,
+  then `refresh(todos)`); frames need `dynamic`'s source to
+  participate the way any async memo does. Without the hold,
+  `done(p)` flashes back to the old `p.completed` between the POST
+  resolving and the refetch landing.
+- *Live (off-response).* Nothing to hold on; the transaction settles
+  when the mutation returns and truth arrives on the stream. `until()`
+  on the data face is the author's hold if wanted; otherwise it is
+  §9.2.1's convergence case with a possible stale interval under
+  replication lag, as for any optimistic store.
 - *Remove.* `hidden` on the server-owned `<li>`. Success: the morph
   drops the `$key` occurrence and the fill's scope disposes.
   Failure: `hidden` reverts and the row is back untouched. (Same as
@@ -2298,12 +2327,16 @@ reactivity.
   own delegated handlers) or route into the `_bnd` binding table so
   server elements keep one event mechanism. Both ride the same
   up-walk; the one-owner rule already prevents double-fire.
-- *The flicker check.* The single-flight frame apply must land
-  inside the action's transaction, so `p.completed` flips before the
-  optimistic entry releases. If the response morph applies after
-  settlement, every success flashes back for a frame. Believed true
-  (`applyFrameResponse` runs before the call resolves); to be proved
-  against the optimistic lane timing before anything else.
+- *The flicker check, on both mutation shapes.* The authoritative
+  apply must land inside the action's transaction, so `p.completed`
+  flips before the optimistic entry releases; otherwise every
+  success flashes back for a frame. Single-flight: `applyFrameResponse`
+  runs before the call resolves — believed true, to be proved
+  against the optimistic lane timing. Multi-flight: a `refresh` of
+  the `dynamic` source (or router revalidation) inside the action
+  must hold the transaction until the refetched binding is applied —
+  the same hold `examples/todos` relies on; to be proved for frames
+  specifically. Both before anything else.
 - *Off-response adds under live* remain §9.2.1's convergence case.
 
 **Public surface (flagged).** No export is removed — `predict` never
