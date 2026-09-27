@@ -438,10 +438,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // staged with no subscriber is committed by the next round instead of
     // being adopted by the wake in `finally`.
     // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
-    // +15 B core-retained (26,678 -> 26,693) — the `_laneSlotWrite` hook's
-    // static slot on GlobalQueue. The body (`laneSlotWrite`) sheds with the
-    // engine; `mapArray`'s call site sheds with map.
-    expect(minifiedBytes).toBeLessThan(26_700);
+    // 0 B core-retained (26,678). The slot arm rides the installed
+    // `_landOnOverride` hook (no new static slot) and sheds with the engine;
+    // `mapArray`'s per-pass writer pick sheds with map.
+    expect(minifiedBytes).toBeLessThan(26_690);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

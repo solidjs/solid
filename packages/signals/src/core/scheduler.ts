@@ -810,16 +810,13 @@ export class GlobalQueue extends Queue {
    * commit whatever its relation to the committed value — a landing equal to
    * committed still differs from the override — then _supersedeOverride
    * decides. Installed with the optimistic engine; only reachable on a node
-   * that has an override. */
+   * that has an override — or, from `mapArray` once a lane pass has run over
+   * the map, on a per-slot signal (never CONFIG_OPTIMISTIC): the slot arm
+   * publishes a lane pass's write as the slot's derived override, lands a
+   * plain pass's write over one, and is the plain `setSignal` otherwise (F1,
+   * see optimistic.ts landOnOverride). */
   static _landOnOverride: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
-  /** `mapArray`'s per-slot write with the engine installed (F1): under a lane
-   * pass, or over a slot still carrying a lane's derived override, the frame
-   * the slot signals hold is the lane's — published as a derived override and
-   * landed / superseded like the computed's own result; any other slot write
-   * is the plain `setSignal`. See optimistic.ts laneSlotWrite. `mapArray`
-   * falls back to `setSignal` itself when the engine is not installed. */
-  static _laneSlotWrite: (<T>(el: Signal<T>, v: T) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;

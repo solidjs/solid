@@ -767,7 +767,14 @@ module.exports = [
     // sites — the `length` view arm, the `has` trap, visibleKeys/visibleDescriptor,
     // optimisticView — plus the F3 `draftSeesOverrides` gate on the length view.
     // All in the store module; core floor 0 B.
-    limit: "17.34 KB",
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 17.34 -> 17.36 KB, measured at 17,345 B against `next`'s 17,326 (+19 B;
+    // 0 B minified — this scenario retains none of the change). The signals
+    // prop-mangler assigns names per file in one shared cache, so the new
+    // `_laneSlots` field and `landOnOverride`'s extra reads reordered names
+    // across map.js and scheduler.js (`_optimisticStores` swapped names with
+    // `_landOnOverride`); brotli layout only.
+    limit: "17.36 KB",
     modifyEsbuildConfig
   },
   {
@@ -960,10 +967,13 @@ module.exports = [
     // measured at 12,673 B against `next`'s 12,571 (+102 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
     // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
-    // 12.69 -> 12.72 KB, measured at 12,704 B against `next`'s 12,673 (+31 B).
-    // The engine's `laneSlotWrite` (+149 B minified) and its hook slot on
-    // GlobalQueue (+15 B, core floor); `mapArray` is not retained here.
-    limit: "12.72 KB",
+    // 12.69 -> 12.73 KB, measured at 12,722 B against `next`'s 12,673 (+49 B;
+    // +144 B minified): `landOnOverride`'s slot arm — a lane pass's write to
+    // a `mapArray` slot published as the slot's derived override, a plain
+    // pass's write over one landed, the plain write otherwise. Core floor
+    // 0 B (no new hook slot; the arm rides `_landOnOverride`). `mapArray` is
+    // not retained here.
+    limit: "12.73 KB",
     modifyEsbuildConfig
   },
   {
@@ -1740,11 +1750,12 @@ module.exports = [
     // reader-aware pick lands in the optimistic module this scenario pulls in.
     // Core floor 0 B.
     // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
-    // 32.00 -> 32.09 KB, measured at 32,078 B against `next`'s 31,988 (+90 B;
-    // +201 B minified, all signals): the engine's `laneSlotWrite`, its hook
-    // slot on GlobalQueue (+15 B, core floor), and `mapArray`'s `writeSlot`
-    // routing the per-slot writes through the hook when installed.
-    limit: "32.09 KB",
+    // 32.00 -> 32.06 KB, measured at 32,051 B against `next`'s 31,988 (+63 B;
+    // +199 B minified, all signals): `landOnOverride`'s slot arm (see the
+    // isPending/latest note) and `mapArray`'s per-PASS pick — one
+    // `_laneSlots` mark per map, `_landOnOverride` while a lane is live,
+    // `setSignal` otherwise. Core floor 0 B.
+    limit: "32.06 KB",
     modifyEsbuildConfig
   },
   {
@@ -1934,11 +1945,12 @@ module.exports = [
     // `dynamic` grew, so the module-level name order shifted under it. The
     // same noise as the 09-22 note above.
     // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
-    // 16.04 -> 16.06 KB, measured at 16,048 B against `next`'s 16,025 (+23 B;
-    // +50 B minified): `mapArray`'s `writeSlot` (the hook-or-`setSignal`
-    // pick at five slot-write sites) and the hook slot on GlobalQueue (+15 B,
-    // core floor). No engine here.
-    limit: "16.06 KB",
+    // 16.04 KB kept, measured at 16,006 B against `next`'s 16,025 (-19 B;
+    // +53 B minified): `mapArray`'s per-pass pick of the slot writer
+    // (`_landOnOverride` while a lane is live, `setSignal` otherwise) at the
+    // top of the update pass. No engine here; core floor 0 B. The brotli
+    // drop is the mangler's name reorder in map.js (see the createStore note).
+    limit: "16.04 KB",
     modifyEsbuildConfig
   },
   {
@@ -2165,9 +2177,8 @@ module.exports = [
     // 17,822 (+23 B; 15 B over the cap) on +22 B minified in the core (the
     // full pass's `scheduled` counts staged pending nodes).
     // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
-    // 17.86 -> 17.88 KB, measured at 17,863 B against the pre-#3684 `next`'s 17,822 (+41 B;
-    // +61 B minified): the CSR note's `writeSlot` and hook slot on the
-    // observe artifacts.
+    // 17.86 -> 17.88 KB, measured at 17,865 B against the pre-#3684 `next`'s 17,822 (+43 B;
+    // +52 B minified): the CSR note's per-pass pick on the observe artifacts.
     limit: "17.88 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
@@ -2496,6 +2507,10 @@ module.exports = [
     // 2026-09-27): 31.98 -> 32.01 KB, measured at 32,001 B against `next`'s
     // 31,943 (+58 B; 21 B over the cap) on the same +22 B minified core
     // term as the tier scenario above; brotli layout.
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 32.01 KB kept, measured at 31,987 B against the pre-#3684 `next`'s 31,943 (+44 B;
+    // +46 B minified): the CSR note's per-pass pick on the observe artifacts.
+    limit: "32.00 KB",
     limit: "32.01 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
