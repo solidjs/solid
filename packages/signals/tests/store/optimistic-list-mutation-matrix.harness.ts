@@ -190,9 +190,15 @@ export function createSource(kind: SourceKind): Source {
       setView,
       truth: () => untrack(truth),
       commitTruth(m) {
-        const next = clone(untrack(truth));
-        m(next);
-        setTruth(next);
+        // The functional setter is the writer channel that composes on a
+        // value the transaction holds (A28): a plain read in an action body
+        // sees the committed truth, so a second entangled action confirming
+        // through `untrack(truth)` would land its mutation on the pre-A base.
+        setTruth(prev => {
+          const next = clone(prev);
+          m(next);
+          return next;
+        });
       }
     };
   }

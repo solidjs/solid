@@ -115,16 +115,16 @@ afterEach(() => {
 //     draftSeesOverrides). Fixed with F5; the derived rows now reach the
 //     settle and fail there on F4 (a stray frame of A's truth), the index
 //     rows on F1 — re-tagged below. Kept as the context's history.
-// F4  Derived source (`createOptimisticStore(() => truth())`): the first
-//     action's settle disturbs the second action's pending override — a
-//     stray frame of A's truth without B's inverse (`b,a,c,d,e,f` for swap),
-//     or with a duplicated row (`a,a,b,c,d,e,f` for delete head), between
-//     "A confirmed" and "B confirmed"; in ctx3 "A confirmed" after B can
-//     show B's truth lost (`swap+swap` resolved B then A: `b,a,c,d,e,f`
-//     instead of `b,a,c,d,f,e`) and the untracked read can differ from the
-//     effect channel (`insert head + delete tail`: 7 rows vs 6). The former
-//     F3 derived rows fail at "settles" with A's truth as a stray frame
-//     (`f,a,b,c,d,e` for rotate left).
+// F4  Derived source (`createOptimisticStore(() => truth())`): a stray
+//     frame of A's truth without B's inverse (`b,a,c,d,e,f` for swap)
+//     between "A confirmed" and "B confirmed"; in ctx3 "A confirmed" after
+//     B showed B's truth lost. NOT an engine finding: the harness's derived
+//     `commitTruth` read the truth with `untrack(truth)` and wrote it back
+//     plain — a plain read in an action body sees the COMMITTED truth (A28),
+//     and two same-key actions entangle into one transaction, so B's
+//     confirm landed B's mutation on the pre-A base and the "stray" frame
+//     was the truth the harness itself committed. Fixed in the harness: the
+//     functional setter composes on the held value. Kept as history.
 // F5  Derived source, a truth landing whose length differs from the
 //     optimistic frame (every `differ` insert/delete/clear through the
 //     keyed mapArray): the landing superseded the `length` / presence
@@ -135,8 +135,30 @@ afterEach(() => {
 //     throws and halts the scheduler). Fixed: the untracked paths follow
 //     the same reader-aware selection as `get`. Kept as history.
 // F6  Derived source through `repeat`, `replace-all same ids reordered` and
-//     `delete then re-add same id`: after settle the ambient probe push does
-//     NOT revert at its flush — an override outlives the action.
+//     `delete then re-add same id`: after settle the ambient probe push did
+//     NOT revert at its flush. NOT a `repeat` finding: the rows passed in
+//     isolation and failed only after a FAILED F1 row left its action
+//     parked forever. `wakeParked()` queued that foreign transaction, the
+//     flush re-entered it on a pass it judged idle while the settle's
+//     keyset bump (`_clearOptimisticStores`, unsubscribed under `repeat`)
+//     was still staged in the ambient batch, adopted and held it, and the
+//     probe's structural bump then joined the foreign hold (A34). Fixed:
+//     woken-transaction-adopts-staged-bump.test.ts. Kept as history.
+// F7  Chained source, keyed `mapArray`, `insert head + delete tail`
+//     resolved B then A: every frame and the truth are right, but the pass
+//     at "A confirmed" calls the key function with `undefined` three times.
+//     B's confirm is a plain write to the BASE store — nothing entangles it
+//     with A, so it commits at once and the base shrinks to `a..e` while
+//     A's positional overrides stay armed on the chained view (`length` 6,
+//     index 5 -> `e`). At that pass `length` reads 6 and `view[5]` serves
+//     the override, but `5 in view` (the `has` trap — `key in base`, and
+//     no presence node was ever armed for a key the WRITE left present)
+//     answers false: `slice` leaves a hole at 5 in mapArray's `_items`,
+//     and the next pass keys it. Presence and value disagree on a key the
+//     base dropped underneath an armed value override. Not a #3331/#3678
+//     supersession case (chained nodes never learn the base's commits,
+//     #3672); needs a rule — presence follows the armed value override, or
+//     the chained frame is re-based when the base changes shape.
 const KNOWN_FAILURES: Array<{ finding: string; names: string[] }> = [];
 
 const ALL = READERS;
@@ -200,43 +222,20 @@ rowsOf(
 );
 rowsOf("F1", IDX, ["chained"], ctx4(SLOT_CHANGERS));
 rowsOf("F1", IDX, SOURCES, ctx5(["replace-all disjoint ids", "replace-all same ids reordered"]));
-// former F3 rows (the hole is fixed): the index reader fails on F1, every
-// other reader on the derived source fails at "settles" on F4; the chained
-// keyed / repeat / memo rows pass.
+// former F3 rows (the hole is fixed): the index reader fails on F1; every
+// other reader passes (the derived rows failed on F4, a harness artifact).
 const OVERLAP_PAIR = ["move head->tail + move middle (c->4)"];
 const OVERLAP_INVERSES = ["move head->tail", "move tail->head", "rotate left", READD];
 rowsOf("F1", IDX, SOURCES, ctx3(["A then B", "B then A"], OVERLAP_PAIR));
 rowsOf("F1", IDX, SOURCES, ctx5(OVERLAP_INVERSES));
+// F1 — both orders of the remaining pairs, and the remaining inverses
+// across two actions, through the index reader on both sources.
 rowsOf(
-  "F4",
-  ["mapArray-keyed", "memo", "repeat"],
-  ["derived"],
-  ctx3(["A then B", "B then A"], OVERLAP_PAIR)
-);
-rowsOf("F4", ["mapArray-keyed", "memo", "repeat"], ["derived"], ctx5(OVERLAP_INVERSES));
-// F1 / F4 — both orders of the remaining pairs, and the remaining inverses
-// across two actions: the index reader on both sources (F1 underneath),
-// every other reader on the derived source (F4), plus the keyed reader on
-// the chained source for `insert head + delete tail` resolved B then A.
-rowsOf(
-  "F1/F4",
+  "F1",
   IDX,
   SOURCES,
   ctx3(["A then B", "B then A"], ["insert head + delete tail", "swap a<->b + swap e<->f"])
 );
-rowsOf(
-  "F4",
-  ["mapArray-keyed", "memo", "repeat"],
-  ["derived"],
-  ctx3(["A then B", "B then A"], ["insert head + delete tail", "swap a<->b + swap e<->f"])
-);
-rowsOf(
-  "F4",
-  ["mapArray-keyed"],
-  ["derived"],
-  ctx3(["B then A"], ["update text in place (c) + swap a<->b"])
-);
-rowsOf("F4", ["mapArray-keyed"], ["chained"], ctx3(["B then A"], ["insert head + delete tail"]));
 const UNDONE = [
   "swap a<->b",
   "reverse",
@@ -247,17 +246,13 @@ const UNDONE = [
   "delete middle (d)"
 ];
 rowsOf("F1", IDX, ["chained"], ctx5(UNDONE));
-rowsOf("F1/F4", IDX, ["derived"], ctx5([...UNDONE, "insert tail", "delete tail"]));
-rowsOf(
-  "F4",
-  ["mapArray-keyed", "memo", "repeat"],
-  ["derived"],
-  ctx5([...UNDONE, "insert tail", "delete tail"])
-);
+// (the derived `insert tail` / `delete tail` rows were F4 only — they pass)
+rowsOf("F1", IDX, ["derived"], ctx5(UNDONE));
+// F4 — a harness artifact, fixed; no rows pinned
 // F5 — fixed, no rows pinned
-// F6
-rowsOf("F6", ["repeat"], ["derived"], ctx2(["confirm"], ["replace-all same ids reordered", READD]));
-rowsOf("F6", ["repeat"], ["derived"], ctx5(["replace-all same ids reordered"]));
+// F6 — fixed, no rows pinned
+// F7
+rowsOf("F7", ["mapArray-keyed"], ["chained"], ctx3(["B then A"], ["insert head + delete tail"]));
 
 const KNOWN = new Set(KNOWN_FAILURES.flatMap(k => k.names));
 const isKnownFailure = (name: string) => KNOWN.has(name);
