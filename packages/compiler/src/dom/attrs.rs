@@ -84,7 +84,7 @@ impl<'a> AstDomTransform<'a, '_> {
     /// Lowers an element's attributes, mirroring Babel's
     /// `transformAttributes`: preprocessing passes, then a single emission
     /// loop that routes each attribute to the template, static setters,
-    /// unshifted refs/events, or the deferred dynamics batch.
+    /// unshifted events, trailing refs, or the deferred dynamics batch.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn lower_template_attributes(
         &mut self,
@@ -100,7 +100,7 @@ impl<'a> AstDomTransform<'a, '_> {
         // Claim contract: a[href] / form[action] elements are claimed at
         // creation so registered consumers (e.g. a router's link-state layer)
         // see them. Babel pushes the claim ahead of the attribute
-        // expressions (refs/events still unshift in front of it).
+        // expressions (events still unshift in front of it).
         let claim_target = crate::dom::element::is_claim_target(tag_name, attributes);
 
         if attributes
@@ -108,9 +108,8 @@ impl<'a> AstDomTransform<'a, '_> {
             .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)))
         {
             // Babel filters `ref` attributes out of the spread props and
-            // processes them as regular (unshifted) attributes.
-            let mut front_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> =
-                std::vec::Vec::new();
+            // processes them as regular attributes, emitted after the spread.
+            let mut ref_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
             for attr in attributes {
                 let JSXAttributeItem::Attribute(attr) = attr else {
                     continue;
@@ -126,11 +125,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     && let Some(expression) = container.expression.as_expression()
                 {
                     let value = expression.clone_in(self.allocator);
-                    front_groups.push(self.dom_ref_statements(attr.span, element_id, value));
+                    ref_groups.push(self.dom_ref_statements(attr.span, element_id, value));
                 }
-            }
-            for group in front_groups.into_iter().rev() {
-                operations.extend(group);
             }
             if claim_target {
                 operations.push(self.claim_element_statement(element_id));
@@ -141,6 +137,9 @@ impl<'a> AstDomTransform<'a, '_> {
                 element_id,
                 has_children,
             )?);
+            for group in ref_groups {
+                operations.extend(group);
+            }
             return Ok(AttrsLowering {
                 needs_text_placeholder: false,
                 children_replacement: None,
@@ -156,6 +155,7 @@ impl<'a> AstDomTransform<'a, '_> {
             exprs.push(self.claim_element_statement(element_id));
         }
         let mut front_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
+        let mut ref_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
         let mut needs_placeholder = false;
 
         for plan in plans {
@@ -179,6 +179,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         declarations,
                         &mut exprs,
                         &mut front_groups,
+                        &mut ref_groups,
                         dynamics,
                         &mut needs_placeholder,
                     )?;
@@ -186,10 +187,14 @@ impl<'a> AstDomTransform<'a, '_> {
             }
         }
 
-        // Babel unshifts each ref/event group as encountered, so the last
-        // group ends up first; groups keep their internal order.
+        // Babel unshifts each event group as encountered, so the last group
+        // ends up first; groups keep their internal order. Refs follow the
+        // attribute writes, so a ref's own writes survive client creation.
         for group in front_groups {
             exprs.splice(0..0, group);
+        }
+        for group in ref_groups {
+            exprs.extend(group);
         }
         operations.extend(exprs);
         Ok(AttrsLowering {
@@ -263,9 +268,9 @@ impl<'a> AstDomTransform<'a, '_> {
         }
     }
 
-    /// The expression branch of Babel's attribute loop: refs and events
-    /// unshift, dynamics defer into the shared batch, everything else emits
-    /// a static `setAttr` statement.
+    /// The expression branch of Babel's attribute loop: events unshift, refs
+    /// trail the attribute writes, dynamics defer into the shared batch,
+    /// everything else emits a static `setAttr` statement.
     #[allow(clippy::too_many_arguments)]
     fn lower_runtime_attribute(
         &mut self,
@@ -275,6 +280,7 @@ impl<'a> AstDomTransform<'a, '_> {
         declarations: &mut std::vec::Vec<Statement<'a>>,
         exprs: &mut std::vec::Vec<Statement<'a>>,
         front_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
+        ref_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
         dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
         needs_placeholder: &mut bool,
     ) -> Result<()> {
@@ -294,7 +300,7 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         if plan.key == "ref" {
-            front_groups.push(self.dom_ref_statements(span, element_id, raw));
+            ref_groups.push(self.dom_ref_statements(span, element_id, raw));
             return Ok(());
         }
 
@@ -359,7 +365,7 @@ impl<'a> AstDomTransform<'a, '_> {
     }
 
     /// Port of Babel's `key === "ref"` branch: emitted as a flat group of
-    /// statements unshifted ahead of the element's other expressions.
+    /// statements after the element's attribute writes.
     fn dom_ref_statements(
         &mut self,
         span: Span,
