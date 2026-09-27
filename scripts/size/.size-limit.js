@@ -1719,7 +1719,12 @@ module.exports = [
     // `next` without the other). +43 B here: the store's descriptor draft
     // arm and snapshotWalk's draft twin, brotli layout over the larger bundle
     // (the +createStore entry compresses the same change 13 B SMALLER).
-    limit: "31.80 KB",
+    // Chained optimistic link nodes (#3672, 2026-09-26): 31.80 -> 31.87 KB,
+    // measured at 31,862 B against `next`'s 31,786 (+76 B): the write-side
+    // `emit` (-12 B) and the revert-side `_resolveOptimistic` chain that
+    // refreshes armed chained nodes to the base's live value (+88 B) — both
+    // in the tree-shakeable optimistic module; core floor 0 B.
+    limit: "31.87 KB",
     modifyEsbuildConfig
   },
   {

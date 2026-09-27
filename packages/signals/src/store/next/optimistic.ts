@@ -36,6 +36,7 @@ import {
   getOwner,
   isEqual,
   setSignal,
+  untrack,
   type Computed,
   type Refreshable,
   type Signal
@@ -137,6 +138,41 @@ function installNextBlockedHalf(): void {
       stores.clear();
     };
   }
+  // Revert-side link refresh (#3672, §7b/O6): a chained node's `_value` is
+  // never served — the base's live value is — so the engine cannot read
+  // committed truth from it. The engine consults it at exactly two moments:
+  // optimisticWrite's no-op check (the setter hands it the visible value,
+  // see `emit` in notifyOptimisticWrites) and resolveOptimisticNodes'
+  // notify compare (here). Left at the write-time value, a base commit
+  // during the override — confirm 7, user writes back to the pre-write 5 —
+  // made the revert compare 5 === 5 and notify nobody while the base read 7:
+  // a memo over the view stayed at the guess forever (render effects were
+  // rescued by readsHeldCommitted's replay). Refresh every armed node of
+  // each chained host in the reverting batch to the base's live value right
+  // before the compare, so it is exact: notify iff truth differs from the
+  // guess. Untracked: a flush from inside a computation must not link it.
+  const resolvePrev = GlobalQueue._resolveOptimistic!;
+  GlobalQueue._resolveOptimistic = nodes => {
+    let seen: Set<StoreNextTarget> | null = null;
+    for (const node of nodes) {
+      const t: StoreNextTarget | undefined = (node as any)._host;
+      if (t?.ch !== true || seen?.has(t)) continue;
+      (seen ??= new Set()).add(t);
+      untrack(() => {
+        const base: any = t.v;
+        for (const k of Reflect.ownKeys(t.n!)) {
+          const n = t.n![k as any];
+          if (hasActiveOverride(n)) n._value = unwrapValue(base[k]);
+        }
+        if (t.h !== null)
+          for (const k of Reflect.ownKeys(t.h)) {
+            const h = t.h[k as any];
+            if (hasActiveOverride(h)) h._value = k in base;
+          }
+      });
+    }
+    resolvePrev(nodes);
+  };
   const chained = GlobalQueue._transitionBlocked!;
   GlobalQueue._transitionBlocked = transition => {
     for (const store of transition._optimisticStores) {
@@ -584,6 +620,14 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
       ? !!unwrapOverride(node._x?._overrideValue)
       : key in old;
   };
+  // Chained nodes are links (§7b, O6): their `_value` is never served and
+  // never learns the base's commits, yet optimisticWrite's no-op check reads
+  // it (#3672). Hand it the visible committed value at the write; the revert
+  // compare gets the same treatment in installNextBlockedHalf.
+  const emit = (node: Signal<any>, ov: any, nv: any): void => {
+    if (t.ch && !hasActiveOverride(node)) node._value = ov;
+    setSignal(node, () => nv);
+  };
   let structural = false;
   const isArr = Array.isArray(pb);
   for (const key of Reflect.ownKeys(pb)) {
@@ -591,13 +635,14 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     const nv = unwrapValue(pb[key as any]);
     if (!visiblePresent(key)) {
       // Optimistic add: value node + presence node + membership bump.
-      setSignal(getNode(t, key, old[key as any]), () => nv);
-      setSignal(getHasNode(t, key, key in old), true as any);
+      const ov = unwrapValue(old[key as any]);
+      emit(getNode(t, key, ov), ov, nv);
+      emit(getHasNode(t, key, key in old), key in old, true);
       structural = true;
     } else {
       const ov = visible(key, old[key as any]);
       if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) {
-        setSignal(getNode(t, key, ov), () => nv);
+        emit(getNode(t, key, ov), ov, nv);
         if (isArr) structural = true;
       }
     }
@@ -606,14 +651,15 @@ export function notifyOptimisticWrites(t: StoreNextTarget, pb: Record<PropertyKe
     if ((isArr && key === "length") || key === $OWNER) continue;
     if (key in pb || !visiblePresent(key)) continue;
     // Optimistic delete: node reads undefined, presence flips, membership bumps.
-    setSignal(getNode(t, key, old[key as any]), () => undefined);
-    setSignal(getHasNode(t, key, true), false as any);
+    const ov = unwrapValue(old[key as any]);
+    emit(getNode(t, key, ov), ov, undefined);
+    emit(getHasNode(t, key, true), true, false);
     structural = true;
   }
   if (isArr) {
     const oldLen = visible("length", (old as any[]).length);
     if (oldLen !== (pb as any[]).length) {
-      setSignal(getNode(t, "length", oldLen), () => (pb as any[]).length);
+      emit(getNode(t, "length", oldLen), oldLen, (pb as any[]).length);
       structural = true;
     }
   }
