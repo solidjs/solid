@@ -787,7 +787,11 @@ guarantees the two compose: a slot's optimistic state survives the settling morp
 (A7), so the overlay never flickers. (Stage 7 refines, not repeals, this line:
 transaction-scoped predictions may temporarily perturb server-rendered DOM,
 re-asserted over every authoritative apply and evaporating at settlement — the
-invariant that only server records make output durable stands. See §9.2.)
+invariant that only server records make output durable stands. See §9.2.
+*Revised 2026-09-27, §9.2.2: predictions are retired and this paragraph is
+again literally the design — the slot that holds optimistic state may be an
+attribute of a server element, so "hide" and "strike-through" are `hidden` and
+`class` fills, not perturbations of server-owned output.*)
 
 ### 5.8 Producer-side symmetry
 
@@ -1037,6 +1041,19 @@ retired as a pole and survives only as potential authoring sugar.
    authoritative markup agrees with it (keyed content matched,
    attribute value asserted), on any arrival path; pending indicators
    settle with the transaction. No watermark, no dependency on Stage 8.
+   **Amended 2026-09-27 (§9.2.2): `predict` retired before build;
+   Stage 7 is attribute slots.** A server component spreads a
+   *called* slot onto one of its own elements
+   (`{...props.check({ id, completed })}`); the client fill returns
+   attributes over slot args and `createOptimistic*` state; the
+   engine `spread`s them. Server owns every node, client owns the
+   attribute values it declared — the missing row in Stage 6's
+   taxonomy (ref lifecycle + slot-arg reactivity). No baselines, no
+   re-assertion, no new engine; optimism is pay-for-use and
+   live-safe by construction. Retroactivity is the one thing given
+   up. Adds stay client JSX in a pre-placed content slot (§9.2.1's
+   `$key` convergence still covers off-response). Gate unchanged:
+   the TodoMVC port.
 8. **Stage 8 — Connection-shaped transport.** Promoted from parked: the
    sink-lifetime separation means SSE/socket transports turn the same
    authored component non-terminating (generator-only-model.md §9,
@@ -1537,6 +1554,12 @@ diverged simpler, and this paragraph is the record.
 
 ### 9.2 Stage 7 design — predictions: one declarative verb (settled 2026-08-18; supersedes the imperative-draft revival, overlays + entries, and the transactional draft)
 
+*Superseded 2026-09-27 by §9.2.2: `predict` was retired before it
+was built; Stage 7 is attribute slots. The text below stands as the
+search record — the fifth shape died on the same kind of named cost
+as the first four (the engine it needed), and §9.2.2 is the
+survivor.*
+
 Fourth and, by its structure, final form of this design. The
 supersession chain compressed into one night's search once the
 machinery was priced honestly, and the search record is the most
@@ -1953,6 +1976,378 @@ be proved against single-flight, a live stream, or both. Stage 8's
 watermark work item is deleted (§9.5). The only version that
 survives is the client-stamped ordinal, as stale-guard and resume
 cursor.
+
+#### 9.2.2 Amendment — `predict` retired; optimism is attribute slots (2026-09-27)
+
+Recorded from the design conversation the night Stage 8 Part B
+shipped. Stage 7 was left for last because it was the stage the
+maintainer was least happy with: every other stage of this design
+was reached with zero new API (`dynamic` + server functions +
+slots + props in JSX positions), and Stage 7 alone invented a verb.
+Re-deriving it from the same axioms with Stage 6 and Stage 8 built
+found a shape that needs no verb. **`predict(anchor, patch)` is
+retired before it was built.** The 08-18 text above and the 09-22
+amendment stay as the record of how the shape was found; nothing
+in them ships.
+
+**The candidates, and why two lost.**
+
+1. *`predict` (the 08-18 design).* Client borrows server-owned
+   attributes for a transaction. Buys retroactivity — optimism
+   against any element in hand, no template change — and pays with
+   an engine: per-key baseline capture, transaction-scoped range
+   owners, re-assertion riding the claim sweep, re-targeting,
+   settlement hooks, and every open question listed above. The
+   engine lives in the frames client, eager for every server-
+   component page whether or not it predicts. Its lineage is
+   LiveView's `JS` commands (`JS.add_class |> JS.push`): declarative
+   client-side mutations of server markup preserved across server
+   patches, minus the transaction that would make rollback
+   automatic.
+2. *Slot fills owning the row.* Each mutable row becomes a render-
+   prop fill (`<props.row $key id completed>{label}</props.row>`)
+   rendering its own `<li>` over `createOptimistic*` state. No new
+   surface at all, but it is the RSC pole: the client owns the
+   rendering of data the server already rendered, and as the
+   mutable fraction of a row grows the row degenerates to a client
+   component fed the full record — two renderers for one row. Under
+   live server components this compounds (the server re-renders
+   rows the client also re-renders, every tick). Rejected on the
+   single-copy axiom; it is the "client fork that rots."
+3. *Attribute slots.* Adopted. Below.
+
+**The shape.** A server component spreads a *called* slot onto one
+of its own elements. The client fill receives the occurrence's args
+as reactive props and returns attributes; the engine `spread`s them
+onto the element. The server owns every node; the client owns
+exactly the attribute *values* it declared.
+
+```tsx
+// ── server ("use server" component) ──────────────────────────
+async function getTodos(filter: Filter) {
+  "use server";
+  const todos = await db.todos.list(filter);
+  const remaining = todos.filter(t => !t.completed).length;
+  return props => (
+    <section class="main">
+      <ul class="todo-list">
+        <For each={todos}>{t => (
+          <li $key={t.id} {...props.row({ id: t.id, completed: t.completed })}>
+            <input class="toggle" type="checkbox"
+                   {...props.check({ id: t.id, completed: t.completed })} />
+            <label>{t.title}</label>             {/* server content, never data */}
+            <button class="destroy" {...props.destroy({ id: t.id })} />
+          </li>
+        )}</For>
+        <props.pending />                        {/* content slot: optimistic adds */}
+      </ul>
+      <footer><props.count remaining={remaining} /></footer>
+    </section>
+  );
+}
+
+// ── client ───────────────────────────────────────────────────
+const [pending, setPending] = createOptimisticStore<{
+  byId: Record<string, { completed?: boolean; removed?: boolean }>;
+  adds: { tmp: string; title: string }[];
+}>({ byId: {}, adds: [] });
+
+const done = (p: { id: string; completed: boolean }) =>
+  pending.byId[p.id]?.completed ?? p.completed;
+
+const toggle = action(async (id: string, completed: boolean) => {
+  setPending(s => { s.byId[id] = { completed }; });
+  await toggleTodo(id, completed);       // single-flight response morphs the frame
+});
+const remove = action(async (id: string) => {
+  setPending(s => { s.byId[id] = { removed: true }; });
+  await deleteTodo(id);
+});
+const add = action(async (title: string) => {
+  setPending(s => { s.adds.push({ tmp: crypto.randomUUID(), title }); });
+  await createTodo(title);
+});
+const toggleAll = action(async (ids: string[], completed: boolean) => {
+  setPending(s => { for (const id of ids) s.byId[id] = { completed }; });
+  await toggleAllTodos(ids, completed);
+});
+
+const Todos = dynamic(() => getTodos(filter()));
+
+<Todos
+  row={p => ({ class: { completed: done(p) }, hidden: !!pending.byId[p.id]?.removed })}
+  check={p => ({ checked: done(p), onChange: e => toggle(p.id, e.currentTarget.checked) })}
+  destroy={p => ({ onClick: () => remove(p.id) })}
+  pending={() => (
+    <For each={pending.adds}>{a => <li class="pending">{a.title} <small>Sending…</small></li>}</For>
+  )}
+  count={p => <strong>{p.remaining - Object.values(pending.byId).filter(x => x.completed).length}</strong>}
+/>
+```
+
+The three TodoMVC behaviors:
+
+- *Toggle.* `setPending` flips `done(p)`; `<li class>` and `<input
+  checked>` update through ordinary bindings on server nodes.
+  Success: the response morphs the row, `p.completed` becomes the
+  new value, the optimistic entry settles to the same thing.
+  Failure: the entry reverts, `done(p)` falls back to `p.completed`,
+  the checkbox corrects itself. No baseline is captured because the
+  client never borrowed the value — it owns it.
+- *Remove.* `hidden` on the server-owned `<li>`. Success: the morph
+  drops the `$key` occurrence and the fill's scope disposes.
+  Failure: `hidden` reverts and the row is back untouched. (Same as
+  under `predict`, which forbade removal and used `hidden` too.)
+- *Add.* The pending row is client JSX in a pre-placed content
+  slot — as it was under `predict`'s `append:` key and as it must
+  be: the server has not rendered the row, so nothing exists to
+  decorate. The real row arrives from the server; the pending one
+  evaporates with the transaction (§9.2.1's `$key` adoption covers
+  the off-response case). What is lost versus `predict` is position
+  freedom: the slot is where the author put it, not an arbitrary
+  anchor at call time.
+
+**Why this is the pole, not a compromise.**
+
+- *Ownership is structural.* An attribute has one owner. The server
+  writes it (static, in the template) or the client does (through a
+  fill), never both. `predict` needed a dev-mode discipline warning
+  for exactly this; here the conflict is detectable at SSR time when
+  the fill's output meets the element's static attributes.
+- *Transaction-based, with no new machinery.* `createOptimistic*`
+  lifetimes do settlement and revert. The whole "machinery ledger"
+  of the 08-18 text — baseline capture, transaction-scoped range
+  owners, sweep consumers, settlement hooks — goes to zero because
+  the client owns the value instead of borrowing it. Overlapping
+  actions hold separate lanes as everywhere else in Solid.
+- *Live-safe by construction.* A server patch delivers new args; the
+  derivation reruns with intent still on top. This is the case
+  `predict` had to engineer (re-assertion riding the claim sweep)
+  and the delicate part of that design. Here there is nothing to
+  hook.
+- *Spans addresses.* Intent is client state, so switching
+  `getTodos("all")` → `getTodos("active")` mid-flight shows the same
+  optimism in the new frame. `predict` was address-scoped by design
+  ("predictions do not span addresses").
+- *Pay-for-use.* Pages without optimism carry nothing. Row-local
+  optimism (a vote button) is `createOptimistic` inside the fill:
+  `core/optimistic` + lanes, no store engine. TodoMVC pays for
+  `createOptimisticStore` because it has a counter and bulk actions
+  — intent shared across fills and written many-at-once wants
+  per-key subscriptions. That is the app's cost, not the platform's.
+- *Server-rendered at t = 0.* Document SSR runs the fill inline like
+  any client component (the hydration-once rule), so `checked` is
+  in the HTML before JS with the optimistic store at base state.
+  After t = 0 the server never renders fills (post-load responses
+  carry content and args only); the client dresses the element in
+  the same apply pass, before paint, and the morph diffs around
+  client-owned keys so applied attributes survive patches.
+- *It returns §5.7 to its literal text.* "Optimistic state lives in
+  client slots (which can overlay, badge, strike-through, or hide
+  server content)." Attribute slots are that sentence, made
+  precise: the slot is an attribute.
+
+**Prior art, for the record.** Datastar is the same ownership pole
+reached from the hypermedia side: `data-class:completed="$_pending[id]?.completed ?? true"`
+on server nodes over global client signals, re-evaluated across
+morphs. Three differences, each of which is the thing we add: the
+binding is an expression string in the server template rather than
+a function beside the action that writes to it; there is no
+transaction — the signal stays set until the server explicitly
+patches it to `null` on success AND failure, overlapping requests
+clear each other early, and a dead request leaks intent (which is
+why their docs steer authors away from optimism entirely); and the
+bindings are not server-rendered (they apply after the runtime
+walks the DOM — the docs prescribe `style="display:none"` to hide
+the flash), so correct pre-JS HTML needs the two-owner situation
+this design forbids. LiveView's `JS` commands are `predict`'s
+lineage (client ops on server nodes, preserved across patches, no
+transaction). Blazor Interactive Server has no client intent at
+all — every event round-trips the circuit; its answer to latency is
+the persistent connection, not optimism. Theirs are optimistic
+*bindings*; ours are optimistic *transactions* expressed through
+bindings.
+
+**Against `predict`, dimension by dimension.**
+
+- *Declared* at the call site against any element (retroactive) vs
+  in the server template ahead of time. Retroactivity is the single
+  thing `predict` has over slots, and it is what forces its engine.
+- *Owner of the attribute:* server (client borrows; baseline
+  captured, kept per transaction, restored) vs client (server passes
+  the value as an arg; no baseline exists).
+- *Rollback:* restore baselines vs `createOptimistic` revert.
+- *Server patch mid-flight:* re-assert after every apply vs args
+  update and the binding reruns.
+- *Two elements, one intent:* `el.closest("li")` vs each element
+  named in the template (args passed twice — the wrinkle, below).
+- *Wire:* `$key` + `data-id` (baseline read from the DOM) vs `$key`
+  + `{ id, completed }` — one boolean more per row. The title
+  crosses only if it is editable, which needs it on the client
+  anyway (the edit input's value); `predict` would have read it
+  back out of the label.
+- *Engine:* net-new in the frames client vs a marker, SSR spread of
+  fill output, claim-time `spread`, morph skipping client-owned
+  keys — all existing code paths.
+- *Failure modes:* undeclared property writes surviving rollback;
+  anchor replaced mid-transaction; anchor not yet materialized;
+  repeated predicts needing a merge rule — vs forgot to slot →
+  restructure; two owners → hard error. Both slot failures are
+  static.
+- *Open questions:* every item in the 08-18 list (queue-or-warn
+  pre-materialization, position naming, floating geometry,
+  merge-or-stack, dev enforcement) is a consequence of borrowing.
+  None exists under slots.
+
+Net: `predict` buys retroactivity and one fewer boolean per row and
+pays with the entire engine and every open question. Slots buy the
+engine back and pay with a template declaration.
+
+**Fit with Stage 6 — the missing row.** §9.1's taxonomy is "one
+grammar: a prop, used in a JSX position." Attribute slots are the
+row it lacked:
+
+```text
+use site         server emits                     client resolves via
+────────         ────────────                     ───────────────────
+called           slot record (id + args)          a range it renders into
+ref position     claim marker on the element      claim engine (per-element scope)
+event position   claim marker on the element      delegation (dispatch-time lookup)
+called, spread   slot record + marker on element  claim engine (per-element scope) → spread
+```
+
+Mechanically it is a ref prop with args and a return value: the
+ref's per-element scope and lifecycle (fire on adoption, re-fire on
+morph re-materialization, dispose on removal) plus the content
+fill's arg reactivity (a patch on a surviving element delivers new
+args into the same instance — exactly the behavior refs are
+specified NOT to have, and content fills already do). The marker is
+the same `_bnd="<occ>:<pos>=<row>"` attribute with one more position
+kind beside `ref` and the event names. Nothing about the existing
+tiers moves:
+
+- *Event props* stay the cheap tier, unchanged. `onChange={props.onToggle}`
+  is the degenerate attribute slot — constant handler, no args, no
+  reactivity — which is why it needs no per-element scope and rides
+  delegation. A row with only event props pays nothing; a row whose
+  attributes must react pays a scope. The events/refs tiering line
+  §9.1 drew now has attribute slots on the ref side.
+- *Ref props* keep element-in-hand at materialization for what is
+  not an attribute: observers, measurement, third-party mounts, the
+  ref-fed `Portal` for persistent islands.
+- *Content slots* unchanged; adds go through them.
+
+The rules that keep them apart, all static:
+
+- **One owner per attribute key.** Static attribute or event prop on
+  the element AND the same key in a fill's output is a conflict —
+  a hard error at SSR time, not a warning.
+- **`class` and `style` merge in object form.** The server keeps
+  `class="toggle"`; the fill returns `class: { completed: done(p) }`;
+  `spread`'s classList semantics own only the named classes, so
+  ownership is per class name. A fill returning `class` as a string
+  clobbers the server's — the same footgun client `spread` has.
+- **No attribute slots inside hole interiors.** Refs are excluded
+  there (the owner-creation latch forbids per-element scopes in
+  live holes); attribute slots need the scope and inherit the
+  exclusion. Event props keep working in holes. Optimism inside a
+  hole means restructuring it into JSX — already the "behavior means
+  JSX with a client prop" rule.
+
+**What survives from the earlier text.** The `$key` substrate
+(keyed morph, 08-15) — it is what keeps a fill's scope on the entity
+across reordering morphs. §9.2.1's convergence ruling survives for
+the one place it still applies: keyed pending content in a content
+slot, confirmed off-response by an authoritative morph bringing the
+same `$key` (the narrow entity-keyed reopening stands). Attribute
+values no longer "settle by convergence" — they are derivations;
+the optimistic entry settles with its transaction, and if the server
+has not yet converged the binding shows `p.completed` as any
+optimistic store does under replication lag, with `until()` on the
+data face as the hold. The outcomes-vs-indicators distinction
+dissolves: an indicator (`class: "saving"`) is just an attribute
+derived from `isPending`, and it drops when the transaction does.
+The non-negotiable invariant is unchanged and now trivially true:
+the frame is derived; only an authoritative record makes output
+durable, because the client never writes server-owned output.
+
+**Costs, accepted.** Pre-declaration in the server template
+(attribute and content) — the rule everything else already follows;
+retroactive optimism on an unslotted element is "restructure the
+server component." The three-layer composition `examples/todos`
+gets from one `createOptimisticStore(async () => …)` is written by
+hand in the fill (`intent ?? p.value`) because the persistent layer
+is the frame's args, not client data; the error side-channel becomes
+a second keyed record the fills read. Args passed twice when two
+fills on one row need the same value (`row` and `check` above).
+N per-element scopes for N optimistic rows — fine at TodoMVC scale,
+to be measured at HN-comment scale, and paid only by rows that need
+reactivity.
+
+**Open, for the build.**
+
+- *Spelling.* The lean is the spread of a called slot,
+  `{...props.check(args)}`, which reads as ordinary JSX and gives
+  the compiler a syntactic hook (a spread whose argument is a call
+  on a props member) in the same round as `$key` and Stage 6's
+  positions. Both compilers, parity tests.
+- *Args duplication.* Whether an occurrence can scope args for
+  several fills on one element tree, or whether two calls is simply
+  the honest cost.
+- *Fill-returned handlers.* Apply through client `spread` (Solid's
+  own delegated handlers) or route into the `_bnd` binding table so
+  server elements keep one event mechanism. Both ride the same
+  up-walk; the one-owner rule already prevents double-fire.
+- *The flicker check.* The single-flight frame apply must land
+  inside the action's transaction, so `p.completed` flips before the
+  optimistic entry releases. If the response morph applies after
+  settlement, every success flashes back for a frame. Believed true
+  (`applyFrameResponse` runs before the call resolves); to be proved
+  against the optimistic lane timing before anything else.
+- *Off-response adds under live* remain §9.2.1's convergence case.
+
+**Public surface (flagged).** No export is removed — `predict` never
+shipped. Added: a fourth use site for server-component props
+(attribute fill: a called slot in spread position; `ServerComponent<P>`
+widens accordingly), the compiler transform for it behind the
+server-components option, and one marker position kind in `_bnd`.
+Everything the client writes is `createOptimistic*`, already public.
+
+**Acceptance gate — Server Component TodoMVC (restated for the third
+time; the gate itself does not move).** Port `examples/todos` beside
+itself, preserving its delays, ~33% write failure, per-item retry,
+bulk actions, filters, and overlapping transitions. Pass condition:
+**every optimistic behavior is a derivation over slot args and
+`createOptimistic*` state inside an attribute fill, or client JSX in
+a pre-placed content slot — zero imperative DOM writes, zero
+selector coupling, zero new client vocabulary.** Toggle, remove,
+pending/disabled/error markup are attribute fills; add is a content
+slot; counters and filter state are data-shaped. Do not build the
+compiler round until add/remove/toggle success and failure, checkbox
+correction, concurrent and bulk mutations, retry/error markup,
+state retention across reordering morphs (focus, typed values), and
+clean hydration are all shown in the port. The simplicity-parity
+criterion stands, and is now pointed at the one place it can fail:
+if the hand-written layering in the fills is heavier than the
+store's projection in the SPA, that is the finding.
+
+**Machinery ledger.** No net-new engine. Touched, all existing:
+the SSR serializer (spread a fill's output onto the element and emit
+the marker + slot record), the compiler round (recognize the spread
+position; both compilers), the claim engine (a scope per marked
+element receiving reactive args), client `spread` (unchanged), the
+morph (skip client-owned keys on matched elements — the same class
+of exception as foreign ranges). The optimistic engine is
+`@solidjs/signals`' existing `createOptimistic`/`createOptimisticStore`,
+imported by the app that uses them.
+
+**Consequences for the roadmap.** Stage 7 is "attribute slots," not
+"predictions." It is dependency-shallow in the way Stage 6 was — a
+compiler round plus the claim engine, no transaction machinery, no
+solid-core changes — and independent of Stage 8 in both directions.
+The size-harness "hydrating + stores" row stops being Stage 7's
+floor: a frames page carries the optimistic engine only if the app
+imports it.
 
 ### 9.3 Stage 8 seed — connection-shaped transport (2026-08-17)
 
