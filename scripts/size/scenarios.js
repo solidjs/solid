@@ -1783,7 +1783,13 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31786 -> 30213 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 30.22 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
-    limit: "30.22 KB",
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31786 -> 30354 B
+    // (next @ cad2ce724; the esbuild figure is from artifacts predating #3674,
+    // whose store-family cost upstream's 31.87 cap already carried — Linux CI
+    // and macOS agree on the Rolldown number to the byte); cap re-based to
+    // 30.36 KB, measured rounded up to the next 0.01 kB. Deltas across this
+    // line are not comparable.
+    limit: "30.36 KB",
     alias
   },
   {
