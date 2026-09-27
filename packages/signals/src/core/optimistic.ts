@@ -31,7 +31,14 @@ import {
   CONFIG_OVERRIDE_SUPERSEDED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { currentOptimisticLane, enterStagedRead, latestReadActive, stale, ext } from "./core.js";
+import {
+  currentOptimisticLane,
+  enterStagedRead,
+  latestReadActive,
+  setSignal,
+  stale,
+  ext
+} from "./core.js";
 import { NotReadyError } from "./error.js";
 import { devCheckMergedLaneEmpty, devTrackHeldPending, devTrackOptimistic } from "./invariants.js";
 import {
@@ -154,7 +161,7 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
  * drops the override and re-derives it from the truth (a derived override has
  * no truth of its own — see resolveOptimisticNodes, endOptimism).
  */
-function laneOverride(el: Computed<any>, value: unknown, lane: OptimisticLane): void {
+function laneOverride(el: OptimisticNode, value: unknown, lane: OptimisticLane): void {
   // The wake-only channel (#3009, see recomputeLane): a plain write to a
   // latest()-tracked source rides a companion-sourced lane with no
   // transaction on either side only to wake the verdict companions. Nothing
@@ -190,6 +197,56 @@ function laneOverride(el: Computed<any>, value: unknown, lane: OptimisticLane): 
   // the flag served a `_value` never committed (fuzzer latest-1 #2481).
   el._config = (el._config | CONFIG_DERIVED_OVERRIDE) & ~CONFIG_OVERRIDE_SUPERSEDED;
   el._x!._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
+}
+
+/**
+ * A `mapArray` pass's write to one of its per-slot signals (a row accessor in
+ * index mode, an index accessor in keyed mode) — the list's frame lives in
+ * these writes, not only in the computed's result. Under a LANE pass the
+ * write is the lane's frame, as the computed's result is (lanes stage,
+ * `laneOverride`): the slot becomes a lane member carrying a DERIVED
+ * override — `_value` stays the committed row, the lane's readers and
+ * untracked reads see the override (A17), a render effect off a held lane
+ * sees the committed frame (#3460), and the revert promotes or drops it with
+ * the lane's transaction (`resolveOptimisticNodes`). A plain `setSignal`
+ * here staged the write into the ACTION's transaction instead: the row
+ * readers were served the committed value until the action landed, so a
+ * `<For>` without `keyed` showed the pre-action list for the whole action
+ * while the keyed modes showed the optimistic one (matrix finding F1).
+ *
+ * A PLAIN pass over a slot still carrying the lane's frame — the landing,
+ * the reversion, a mainline re-pass while the action pends — is the truth
+ * arriving under an override: the store twin of `asyncWrite`'s override
+ * branch (`landOnOverride`) stages it for its transaction's commit and
+ * `supersedeOverride` decides — a differing landing hands tracked readers
+ * the truth now while the display keeps the frame until the commit (A18);
+ * an equal one confirms silently and the revert promotes it. Every pass
+ * rewrites every slot whose value differs from the previous frame's (index
+ * mode rewrites every surviving slot), so a slot the landing does NOT write
+ * holds, by construction, what the truth yields — the promotion is right.
+ * A slot with neither a lane nor an override is the plain write
+ * (`setSignal`): `mapArray` routes every slot write here once the engine is
+ * installed, and takes `setSignal` directly when it is not.
+ */
+function laneSlotWrite<T>(el: Signal<T>, v: T): void {
+  const lane = currentOptimisticLane;
+  if (lane === null) {
+    if (hasActiveOverride(el)) landOnOverride(el, v);
+    else setSignal(el, v);
+    return;
+  }
+  // INV-11: the gate compares against the slot this pass publishes to — the
+  // override when one is armed, the committed row otherwise.
+  const current = hasActiveOverride(el) ? unwrapOverride<T>(el._x!._overrideValue) : el._value;
+  if (el._equals && el._equals(current, v)) return;
+  // Membership before the publish: `laneOverride` files the slot under the
+  // lane's transaction, and the read path routes a tracked reader of a lane
+  // member through `overrideRead` (CONFIG_HAS_LANE) — the off-lane view.
+  assignOrMergeLane(el, lane);
+  laneOverride(el, v, lane);
+  if (__DEV__) devTrackOptimistic(el);
+  insertSubs(el, true);
+  schedule();
 }
 
 /**
@@ -755,6 +812,7 @@ export function installOptimisticEngine(): void {
   GlobalQueue._overrideRead = overrideRead;
   GlobalQueue._laneOverride = laneOverride;
   GlobalQueue._landOnOverride = landOnOverride;
+  GlobalQueue._laneSlotWrite = laneSlotWrite;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
   GlobalQueue._laneLive = laneLive;

@@ -959,7 +959,11 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 12.58 -> 12.69 KB,
     // measured at 12,673 B against `next`'s 12,571 (+102 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "12.69 KB",
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 12.69 -> 12.72 KB, measured at 12,704 B against `next`'s 12,673 (+31 B).
+    // The engine's `laneSlotWrite` (+149 B minified) and its hook slot on
+    // GlobalQueue (+15 B, core floor); `mapArray` is not retained here.
+    limit: "12.72 KB",
     modifyEsbuildConfig
   },
   {
@@ -1735,7 +1739,12 @@ module.exports = [
     // Same change as the `+ createStore` note (+66 B there); optimisticView's
     // reader-aware pick lands in the optimistic module this scenario pulls in.
     // Core floor 0 B.
-    limit: "32.00 KB",
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 32.00 -> 32.09 KB, measured at 32,078 B against `next`'s 31,988 (+90 B;
+    // +201 B minified, all signals): the engine's `laneSlotWrite`, its hook
+    // slot on GlobalQueue (+15 B, core floor), and `mapArray`'s `writeSlot`
+    // routing the per-slot writes through the hook when installed.
+    limit: "32.09 KB",
     modifyEsbuildConfig
   },
   {
@@ -1924,7 +1933,12 @@ module.exports = [
     // and the diff is which short name esbuild assigns where — web.js's
     // `dynamic` grew, so the module-level name order shifted under it. The
     // same noise as the 09-22 note above.
-    limit: "16.04 KB",
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 16.04 -> 16.06 KB, measured at 16,048 B against `next`'s 16,025 (+23 B;
+    // +50 B minified): `mapArray`'s `writeSlot` (the hook-or-`setSignal`
+    // pick at five slot-write sites) and the hook slot on GlobalQueue (+15 B,
+    // core floor). No engine here.
+    limit: "16.06 KB",
     modifyEsbuildConfig
   },
   {
@@ -2150,7 +2164,11 @@ module.exports = [
     // 2026-09-27): 17.83 -> 17.86 KB, measured at 17,845 B against `next`'s
     // 17,822 (+23 B; 15 B over the cap) on +22 B minified in the core (the
     // full pass's `scheduled` counts staged pending nodes).
-    limit: "17.86 KB",
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 17.86 -> 17.88 KB, measured at 17,863 B against the pre-#3684 `next`'s 17,822 (+41 B;
+    // +61 B minified): the CSR note's `writeSlot` and hook slot on the
+    // observe artifacts.
+    limit: "17.88 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {

@@ -437,7 +437,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // the fast drain and the park exit already carry, so a node the finalize
     // staged with no subscriber is committed by the next round instead of
     // being adopted by the wake in `finally`.
-    expect(minifiedBytes).toBeLessThan(26_690);
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // +15 B core-retained (26,678 -> 26,693) — the `_laneSlotWrite` hook's
+    // static slot on GlobalQueue. The body (`laneSlotWrite`) sheds with the
+    // engine; `mapArray`'s call site sheds with map.
+    expect(minifiedBytes).toBeLessThan(26_700);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

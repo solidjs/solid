@@ -813,6 +813,13 @@ export class GlobalQueue extends Queue {
    * that has an override. */
   static _landOnOverride: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
+  /** `mapArray`'s per-slot write with the engine installed (F1): under a lane
+   * pass, or over a slot still carrying a lane's derived override, the frame
+   * the slot signals hold is the lane's — published as a derived override and
+   * landed / superseded like the computed's own result; any other slot write
+   * is the plain `setSignal`. See optimistic.ts laneSlotWrite. `mapArray`
+   * falls back to `setSignal` itself when the engine is not installed. */
+  static _laneSlotWrite: (<T>(el: Signal<T>, v: T) => void) | null = null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;

@@ -3,6 +3,7 @@ import {
   computed,
   CONFIG_AUTO_DISPOSE,
   createOwner,
+  GlobalQueue,
   runWithOwner,
   setSignal,
   signal,
@@ -109,6 +110,23 @@ export function mapArray<Item, MappedItem>(
 }
 
 const pureOptions = { ownedWrite: true };
+
+/** A pass's write to a per-slot signal (a row accessor in index mode, an
+ * index accessor in keyed mode). The list's frame lives in these writes as
+ * much as in the computed's result, so under a LANE pass they are the lane's
+ * frame too (F1): a plain `setSignal` staged them into the action's
+ * transaction, and the row readers were served the committed value until the
+ * action landed — `<For>` without `keyed` showed the pre-action list for the
+ * whole action while the keyed modes showed the optimistic one. The engine
+ * publishes the write as a derived override on the slot (lanes stage, A17),
+ * and lands or supersedes it when a plain pass later writes a slot still
+ * carrying one (A18). The hook holds both gates (`laneSlotWrite`) — a lane
+ * pass, a slot carrying a lane's override — and is the plain `setSignal`
+ * otherwise; without the engine installed there is nothing to gate. */
+function writeSlot<T>(sig: Signal<T>, v: T): void {
+  (GlobalQueue._laneSlotWrite ?? setSignal)(sig, v);
+}
+
 // Exception safety (#2903): a map callback can throw NotReadyError mid-pass
 // (async read), and the computed re-runs the whole pass after settle. Every
 // pass therefore STAGES its work — new rows are created into temp arrays and
@@ -405,7 +423,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
           (this._rows && compare(this._key, this._items[start], newItems[start])));
         start++
       ) {
-        if (this._rows) setSignal(this._rows[start], newItems[start]);
+        if (this._rows) writeSlot(this._rows[start], newItems[start]);
       }
 
       // skip common suffix — counted only; retained entries land in one pass
@@ -514,19 +532,19 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         indexes && (indexes[i] = this._indexes![i]);
       }
       for (j = start; j <= newEnd; j++) {
-        if (rows) setSignal(rows[j], newItems[j]);
-        if (indexes) setSignal(indexes[j], j);
+        if (rows) writeSlot(rows[j], newItems[j]);
+        if (indexes) writeSlot(indexes[j], j);
       }
       for (j = newEnd + 1; j < newLen; j++) {
         temp[j] = this._mappings[j - dif];
         tempNodes[j] = this._nodes[j - dif];
         if (rows) {
           rows[j] = this._rows![j - dif];
-          setSignal(rows[j], newItems[j]);
+          writeSlot(rows[j], newItems[j]);
         }
         if (indexes) {
           indexes[j] = this._indexes![j - dif];
-          if (dif !== 0) setSignal(indexes[j], j);
+          if (dif !== 0) writeSlot(indexes[j], j);
         }
       }
       this._mappings = temp;
