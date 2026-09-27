@@ -1,10 +1,24 @@
 // Import-cost scenarios for #2883, measured against the built browser-prod
-// artifacts. Bare specifiers resolve via esbuild aliases so nothing here
-// touches the workspace dependency graph. Limits carry ~5% headroom over the
-// sizes at landing: a breach means tree-shaking regressed (or a deliberate
-// feature landed — bump the limit in the same PR and say why). The simple-app
-// scenario is pinned at 10 KB on purpose.
-// Subpath aliases first: esbuild's alias matches by prefix, so the bare
+// artifacts. Each entry is bundled by size.mjs with Rolldown (bundle.mjs):
+// `path` is the entry (or, with `import`, the module a synthetic entry
+// imports the named bindings from), `alias` routes bare specifiers to the
+// built dists so nothing here touches the workspace dependency graph,
+// `external` leaves specifiers unbundled, and `limit` is the brotli cap on
+// the eager entry chunk. Lazy chunks are reported, never counted. Limits
+// carry a little headroom over the sizes at landing: a breach means
+// tree-shaking regressed (or a deliberate feature landed — bump the limit in
+// the same PR and say why).
+//
+// Bundler switch (2026-09-26): the harness measured with esbuild through
+// size-limit until this date; it now measures with Rolldown, the bundler Vite
+// ships, pinned exactly in package.json. Every cap was re-based on that day
+// (table in the PR and in floor-caps.json's history); the dated notes below
+// are esbuild numbers up to the switch and Rolldown numbers after it. The two
+// track the same code — Rolldown's minifier lands ~3–5% lower — so the ledger
+// stays readable across the seam, but deltas must not be read across it.
+//
+// Subpath aliases first: Rolldown's alias matches like Vite's — the first
+// entry that equals the specifier or prefixes it at a `/` wins — so the bare
 // `solid-js` entry would otherwise remap `solid-js/internal` (the seams the
 // runtimes consume — packages/solid/src/internal.ts) to `solid.js/internal`.
 const alias = {
@@ -13,7 +27,6 @@ const alias = {
   "@solidjs/web": "../../packages/web/dist/web.js",
   "@solidjs/signals": "../../packages/signals/dist/prod/index.js"
 };
-const modifyEsbuildConfig = config => ({ ...config, alias });
 
 // The three floor caps and the two server-component page caps are FROZEN
 // (size-reduction effort, 2026-09-26 — documentation/plans/size-reduction-audit.md
@@ -27,27 +40,27 @@ const floorCaps = require("./floor-caps.json");
 // nothing external — the frames client and the server-function transport
 // resolve to their dists alongside solid-js/web/signals. The seroval codec
 // is a dynamic import in both clients and a separate chunk in production;
-// size-limit does not split, so the specifiers resolve to lazy-codec.js (the
-// import site stays, the chunk's ~5 KB brotli does not inline). The
+// Rolldown splits it the same way, so it shows up in the report as a lazy
+// chunk at its true size and stays out of the cap. (Under size-limit the
+// specifiers resolved to a stub because esbuild did not split there.) The
 // "frames: eager client consumer" scenario measures the package; these
-// measure the page. Subpath aliases first (prefix matching, see above).
+// measure the page. Subpath aliases first (see above).
 const pageAlias = {
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/frames": "../../packages/web/frames/dist/client.js",
-  "@solidjs/web/serialization/decode": "./lazy-codec.js",
-  "@solidjs/web/serialization": "./lazy-codec.js",
+  "@solidjs/web/serialization/decode": "../../packages/web/serialization/dist/decode.js",
+  "@solidjs/web/serialization": "../../packages/web/serialization/dist/serialization.js",
   ...alias
 };
-const pageEsbuildConfig = config => ({ ...config, alias: pageAlias });
 
 // Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
 // `observe` export condition selects — wiring kept (attribution hook sites,
 // owner labels, edge counters, the diagnostics channel), checks folded. Its
 // scenario measures what a production observability build ships; the prod
 // scenarios above it must not move because of the tier's existence.
-// Subpath aliases are listed first: esbuild's alias matches by prefix, and
-// the bare `solid-js` entry would otherwise swallow `solid-js/attribution`.
+// Subpath aliases are listed first: the bare `solid-js` entry would otherwise
+// swallow `solid-js/attribution` (see the matching note above).
 const observeAlias = {
   "solid-js/attribution": "../../packages/solid/dist/attribution.js",
   "solid-js/internal": "../../packages/solid/dist/internal.js",
@@ -56,7 +69,6 @@ const observeAlias = {
   "@solidjs/web": "../../packages/web/dist/web.observe.js",
   "@solidjs/signals": "../../packages/signals/dist/observe/index.js"
 };
-const observeEsbuildConfig = config => ({ ...config, alias: observeAlias });
 
 // The frames scenario measures the EAGER graph a server-component consumer
 // ships: the frames client entry plus the server-function transport it
@@ -64,22 +76,19 @@ const observeEsbuildConfig = config => ({ ...config, alias: observeAlias });
 // external because it loads lazily via the host's `prepareData` hook — a
 // static seroval import creeping back into either dist blows this limit
 // (or fails resolution outright), which is the regression this guards.
-const framesEsbuildConfig = config => ({
-  ...config,
-  // No `alias` spread: `solid-js`/`@solidjs/web` are external here, and the
-  // "@solidjs/web" alias would prefix-clobber the subpath specifiers before
-  // `external` could match them. Only the bundled transport needs routing.
-  alias: {
-    "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js"
-  },
-  external: [
-    "solid-js",
-    "solid-js/internal",
-    "@solidjs/web",
-    "@solidjs/web/serialization",
-    "@solidjs/web/serialization/decode"
-  ]
-});
+// No `alias` spread: `solid-js`/`@solidjs/web` are external here, and the
+// "@solidjs/web" alias would prefix-clobber the subpath specifiers before
+// `external` could match them. Only the bundled transport needs routing.
+const framesAlias = {
+  "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js"
+};
+const framesExternal = [
+  "solid-js",
+  "solid-js/internal",
+  "@solidjs/web",
+  "@solidjs/web/serialization",
+  "@solidjs/web/serialization/decode"
+];
 
 // RC.6 correctness reconciliation (2026-09-01): these caps were last
 // reconciled before #3181's synchronous superseded-flight settle walk, the
@@ -410,8 +419,11 @@ module.exports = [
     // 38 B, the rest is the flag's parking (with the drain entry), tail and
     // commit sites. Every scenario below moves by +52..+113 B brotli (the
     // same retained core).
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 9922 -> 9506 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 9.51 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
-    modifyEsbuildConfig
+    alias
   },
   {
     name: "signals: + createStore",
@@ -774,8 +786,11 @@ module.exports = [
     // one shared cache, so the new `_laneSlots` field and `landOnOverride`'s
     // extra reads reorder names across map.js and scheduler.js; brotli
     // layout only (+19 B against the pre-#3684 `next`, -18 B here).
-    limit: "17.33 KB",
-    modifyEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 17260 -> 16504 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 16.51 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "16.51 KB",
+    alias
   },
   {
     name: "signals: + isPending/latest",
@@ -973,8 +988,11 @@ module.exports = [
     // derived override, a plain pass's write over one landed, the plain write
     // otherwise. Core floor 0 B (no new hook slot; the arm rides
     // `_landOnOverride`). `mapArray` is not retained here.
-    limit: "12.72 KB",
-    modifyEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 12673 -> 12119 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 12.12 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "12.12 KB",
+    alias
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -1130,8 +1148,11 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 12.67 -> 12.78 KB,
     // measured at 12,725 B against `next`'s 12,619 (+106 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 12744 -> 12039 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 12.04 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
-    modifyEsbuildConfig
+    alias
   },
   {
     name: "app: hydrating (no stores) with Show/For/Loading/Errored/lazy",
@@ -1402,8 +1423,11 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 21.32 -> 21.43 KB,
     // measured at 21,418 B against `next`'s 21,305 (+113 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 21416 -> 19606 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 19.61 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
-    modifyEsbuildConfig
+    alias
   },
   {
     name: "app: hydrating + every store primitive family",
@@ -1756,8 +1780,11 @@ module.exports = [
     // `mapArray`'s per-PASS pick — one `_laneSlots` mark per map,
     // `_landOnOverride` while a lane is live, `setSignal` otherwise. Core
     // floor 0 B.
-    limit: "32.02 KB",
-    modifyEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31786 -> 30213 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 30.22 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "30.22 KB",
+    alias
   },
   {
     name: "app: CSR with Show/For/Loading/Errored/lazy",
@@ -1952,8 +1979,11 @@ module.exports = [
     // `setSignal` otherwise) at the top of the update pass. No engine here;
     // core floor 0 B. Measured -19 B against the pre-#3684 `next` on the same
     // code — the mangler's name reorder in map.js (see the createStore note).
-    limit: "16.05 KB",
-    modifyEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 16025 -> 14871 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 14.88 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "14.88 KB",
+    alias
   },
   {
     name: "app: CSR, observe tier (same app on the `observe` artifacts)",
@@ -2182,8 +2212,11 @@ module.exports = [
     // 2026-09-27): 17.86 -> 17.87 KB, measured at 17,854 B against `next`
     // (d0ad11cb5)'s 17,845 (+9 B; +52 B minified): the CSR note's per-pass
     // pick on the observe artifacts.
-    limit: "17.87 KB",
-    modifyEsbuildConfig: observeEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 17822 -> 16294 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 16.30 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "16.30 KB",
+    alias: observeAlias
   },
   {
     name: "app: CSR, observe tier + attribution engine enabled",
@@ -2514,8 +2547,11 @@ module.exports = [
     // 2026-09-27): 32.01 -> 31.99 KB, measured at 31,981 B against `next`
     // (d0ad11cb5)'s 32,001 (-20 B; +46 B minified): the CSR note's per-pass
     // pick on the observe artifacts; brotli layout.
-    limit: "31.99 KB",
-    modifyEsbuildConfig: observeEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31943 -> 30471 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 30.48 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "30.48 KB",
+    alias: observeAlias
   },
   {
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
@@ -2629,8 +2665,12 @@ module.exports = [
     // later live run mints and a mount from it carries the address. The
     // document's own bootstrap (frame-sink) carries the same text server-side.
     path: "../../packages/web/frames/dist/client.js",
-    limit: "12.42 KB",
-    modifyEsbuildConfig: framesEsbuildConfig
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 12410 -> 11768 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 11.77 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    limit: "11.77 KB",
+    alias: framesAlias,
+    external: framesExternal
   },
   {
     name: "page: base server components (hydrating + dynamic + frames + sf reference)",
@@ -2665,8 +2705,11 @@ module.exports = [
     // this page against the pre-#3684 `next`. Accepted by the maintainer.
     // The cap is frozen again at 46.95 KB.
     path: "sc-base-app.js",
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 46852 -> 44635 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 44.64 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
-    modifyEsbuildConfig: pageEsbuildConfig
+    alias: pageAlias
   },
   {
     name: "page: live server components (base + live/GET + action + isPending/latest)",
@@ -2688,7 +2731,10 @@ module.exports = [
     // `next` on the same code — prop-mangler layout. Accepted by the
     // maintainer. The cap is frozen again at 51.27 KB.
     path: "sc-live-app.js",
+    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 51156 -> 48802 B
+    // on the same artifacts (next @ cad2ce724); cap re-based to 48.81 KB, measured
+    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
-    modifyEsbuildConfig: pageEsbuildConfig
+    alias: pageAlias
   }
 ];

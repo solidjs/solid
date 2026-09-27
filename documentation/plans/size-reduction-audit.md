@@ -16,6 +16,13 @@ between chunks or out of apps that skip a feature; under this framing it is seco
 first-order work is making the code everyone ships smaller with the same semantics: §4.I, the
 density audit, comes next.
 
+**Harness switched to Rolldown (2026-09-26, later that night).** Every number in this document
+is an esbuild number (size-limit's bundler). The harness now bundles with Rolldown — what Vite
+ships — and every cap was re-based; Rolldown lands 4–9% lower on the same artifacts (floor
+9,922 → 9,506; base SC page 46,852 → 44,635; live 51,156 → 48,802). Deltas in the tables here
+stay valid as deltas; absolute targets should be read against the Rolldown caps in
+`scripts/size/floor-caps.json`.
+
 ## 1. Baseline
 
 | Scenario                                                                 |     min |         br | signals | solid-js |   web | frames |    sf |
