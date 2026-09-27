@@ -2602,6 +2602,10 @@ module.exports = [
     // Rebased onto `next` @ 3af4696fb (2026-09-26): 46,757 -> 46,852 B
     // (+95 B) — #3671's async dynamic() landing serialization/adoption in
     // web and solid-js, and #3670's draft-visibility twin in the store.
+    // Size-Exception (#3678, 2026-09-26): 46.86 -> 46.88 KB, measured at
+    // 46,872 B against `next`'s 46,852 (+20 B) — the F3/F5 correctness fix
+    // (untracked store reads honour #3331 supersession); accepted by the
+    // maintainer. The cap is frozen again at 46.88 KB.
     path: "sc-base-app.js",
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     modifyEsbuildConfig: pageEsbuildConfig
