@@ -29,6 +29,7 @@ import {
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_HELD_TRUTH,
   CONFIG_OPTIMISTIC,
+  CONFIG_OVERRIDE_SUPERSEDED,
   REACTIVE_RECOMPUTING_DEPS
 } from "../../core/constants.js";
 import {
@@ -1874,6 +1875,23 @@ function nodeValue(node: Signal<any>, backing: any): any {
   return v === (FORCE as any) ? backing : v;
 }
 
+/** The override a composed READER view (keys, descriptors, snapshot/deep,
+ * optimisticView) takes from an armed node whose override is active — the
+ * override itself, unless the node's own source superseded it (#3331,
+ * CONFIG_OVERRIDE_SUPERSEDED): then the reader-aware selection `serve`
+ * makes through nodeValue, so the composed view agrees with what `get`,
+ * `in` and `length` serve the same reader (a deriving pass: the staged
+ * truth; a lane pass or a context-free read: the override, A18). Composing
+ * the raw override left Object.keys / snapshot() / deep() one row behind the
+ * traps at a landing whose shape differed from the optimistic frame (F5
+ * parity cases). Draft and authoritative callers never reach here — the
+ * writer composes on hasActiveOverride, truth authors on the backing. */
+export function readerOverride(node: Signal<any>, committed: any): any {
+  return node._config & CONFIG_OVERRIDE_SUPERSEDED
+    ? nodeValue(node, committed)
+    : unwrapOverride(node._x?._overrideValue);
+}
+
 /** §7b: a chained target's child found as a RAW — from its pending backing
  * (a cloneRaw of the inner proxy, whose descriptors yield the inner store's
  * raws) or from the deep() walk's descriptor read through the chain — must
@@ -1917,22 +1935,47 @@ function serveDataKey(
   // §6: on optimistic arrays LENGTH IS A VIEW, not a node value — one home
   // (backing ± presence overrides) for both length and indices makes torn
   // iteration impossible (a length node's value rides different visibility
-  // rails than index overrides mid-settle). The node still carries
-  // subscriptions; its value is never served here.
+  // rails than index overrides mid-settle). The node carries subscriptions;
+  // its committed `_value` is never served here.
   if (key === "length" && target.fam?.opt === true && !chained && Array.isArray(src)) {
     if (!inDraft(target)) {
       const node = target.n?.length;
       if (node !== undefined) {
-        if (getObserver() !== null) readNode(node);
+        // An override-covered length node answers through the node's
+        // reader-aware selection (serve: A17, the lane gate, A18
+        // supersession) with the backing's length as committed — the rule
+        // every index node takes through `get`, so `length` and indices
+        // resolve against ONE rule for this reader. The view composition
+        // below used to answer here and knows nothing of supersession
+        // (#3331): at a landing whose length differs from the optimistic
+        // frame, mapArray's tracked `length` (the get trap's node path) saw
+        // the staged truth while its untracked `slice` inside its owner saw
+        // the override, so `_items` came up short and the next pass keyed an
+        // undefined row (F5, optimistic-list-mutation-matrix `differ`).
+        if (getObserver() !== null) {
+          const nv = readNode(node);
+          if (hasActiveOverride(node) && !authoritativeServe())
+            return nv === (FORCE as any) ? (src as any[]).length : nv;
+        } else if (hasActiveOverride(node) && !authoritativeServe()) {
+          return nodeValue(node, (src as any[]).length);
+        }
       } else if (getObserver() !== null) {
         readNode(getNode(target, key, backingValue));
       }
     }
     // Truth authors read the backing's own length — an optimistic row from
     // the caller's transaction must not shift where the author's next write
-    // lands (#3108).
+    // lands (#3108). A tentative draft that has seeded its backing from the
+    // view already carries the overrides in `src` (the draft arm every other
+    // channel gates on draftSeesOverrides — `get`, `has`, visibleKeys,
+    // snapshotWalk, #3665): composing them again put a slot the draft had
+    // just spliced out back on top of its shrunken backing, so `length` read
+    // one too long mid-splice and the second splice left a hole (F3,
+    // optimistic-list-mutation-matrix "move head->tail + move middle").
     return (
-      (authoritativeServe() ? src : optHooks!.optimisticView(target, src, inDraft(target))) as any[]
+      (authoritativeServe() || (inDraft(target) && !draftSeesOverrides(target))
+        ? src
+        : optHooks!.optimisticView(target, src, inDraft(target))) as any[]
     ).length;
   }
   if (inDraft(target)) {
@@ -2254,8 +2297,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
         if (hasActiveOverride(node)) present = !!nv;
       } else if (!authoritativeServe()) {
         const node = target.h?.[key as any];
-        if (node !== undefined && visibleOverride(node))
-          present = !!unwrapOverride(node._x?._overrideValue);
+        // The get trap's untracked selection (nodeValue → serve), so `in`
+        // agrees with the tracked branch above and with `get`: a presence
+        // override the landing superseded (#3331 — an optimistic delete
+        // whose slot the truth refilled) answers the staged truth for a
+        // deriving reader. Reading the override directly said "absent" while
+        // `get` served the landed row, and HasProperty-driven copies (slice,
+        // spread, map) left a hole (F5 `differ: delete *`).
+        if (node !== undefined && hasActiveOverride(node)) present = !!nodeValue(node, present);
       }
     } else if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
       const node = target.h?.[key as any];
@@ -2627,7 +2676,13 @@ function visibleKeys(target: StoreNextTarget, src: Record<PropertyKey, any>): (s
       const node = target.h[key as any];
       if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
       set ??= new Set(keys);
-      if (unwrapOverride(node._x?._overrideValue)) set.add(key);
+      // Reader arm: a superseded presence override answers as `in` does
+      // (readerOverride, #3331) — Object.keys listed one row fewer than the
+      // traps served after a landing refilled an optimistically deleted slot.
+      const present = draft
+        ? unwrapOverride(node._x?._overrideValue)
+        : readerOverride(node, set.has(key));
+      if (present) set.add(key);
       else set.delete(key);
     }
     if (set !== null) return [...set] as (string | symbol)[];
@@ -2660,7 +2715,11 @@ function visibleDescriptor(
   if (!authoritativeServe() && target.fam?.opt && (!draft || draftSeesOverrides(target))) {
     const node = target.h?.[key as any];
     if (node !== undefined && (draft ? hasActiveOverride(node) : visibleOverride(node))) {
-      if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
+      // Reader arm: presence as `in` serves it (readerOverride, #3331).
+      const present = draft
+        ? unwrapOverride(node._x?._overrideValue)
+        : readerOverride(node, desc !== undefined);
+      if (!present) return undefined; // opt delete
       if (desc === undefined) {
         const vn = target.n?.[key as any];
         return {
