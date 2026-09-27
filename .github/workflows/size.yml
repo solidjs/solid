@@ -52,7 +52,7 @@ jobs:
       # in the same log that reports it.
       - run: npm run size
         working-directory: scripts/size
-      # The three floor caps (scripts/size/floor-caps.json) are frozen: a PR
+      # The floor and page caps (scripts/size/floor-caps.json) are frozen: a PR
       # may lower them, never raise them, unless its body carries a
       # `Size-Exception:` line. Compared against the PR's base branch, so
       # PR events only.

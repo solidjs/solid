@@ -8,6 +8,14 @@ reproducible from this document.
 Targets stated for this effort: hello world well under 10 KB; a server-component page ≤ 30–40 KB
 on the upper end. Today: **12.6 / 47.3 / 46.5–53.5 KB**.
 
+**Reframed 2026-09-26 (evening), after G was measured.** The target is the size every real app
+ships, not any single scenario. Every real app has async, hydration and (on the server-component
+path) the frames client; hello world is a vanity number and is now informational — its cap stays
+frozen as governance, not as a goal. Pay-for-use and tree-shaking work (B, C, E) moves bytes
+between chunks or out of apps that skip a feature; under this framing it is second-order. The
+first-order work is making the code everyone ships smaller with the same semantics: §4.I, the
+density audit, comes next.
+
 ## 1. Baseline
 
 | Scenario                                                                 |     min |         br | signals | solid-js |   web | frames |    sf |
@@ -169,17 +177,47 @@ Causes, each an "install everything on enable" pattern:
   preloads the materializer module (through the same manifest path `lazy()` chunks use) and the
   frames client awaits it before that scope's claim; when it didn't, nothing loads.
 - `solid-js` `enableHydration()` installs `_hydrateStoreLike` → `hydrateStoreLikeFn`,
-  `hydrateStoreFromAsyncIterable`, `createShadowDraft`, `applyPatches` (~3.5K min, ~1.2 KB br)
-  in every hydrating app, store or not. The wrappers that need it (`createStore` etc.) should
-  import the adapter directly instead of reaching it through a slot the enabler fills.
+  `hydrateStoreFromAsyncIterable`, `createShadowDraft`, `applyPatches` (~7.9K min un-mangled)
+  in every hydrating app, store or not. **Measured and rejected (B.1, 2026-09-26).** Moving the
+  reference into the wrappers (`createStore` etc.) saves **789 B** br on the hydrating no-store
+  app — not the 1.2 KB estimated, since inside a hydrating bundle much of the adapter compresses
+  against the signal-hydration code it resembles — and costs **+1,739 B** br on a CSR app that
+  imports `createStore`: the adapter drags the generic hydration infrastructure it shares with
+  signal hydration (`readSerializedOrCompute`, `wrapFirstYield`, `adoptedAnswerStream`,
+  `quietAnswer`, `subFetch`, `MockPromise`, `withHydrationGate`, live-scope helpers, ~5.5K
+  min) into a bundle that had none of it. Tree-shaking cannot express "retained only when
+  `enableHydration` _and_ a store primitive are both referenced", so one deployment class pays
+  either way; factoring the generic helpers behind their own slots would make the trade
+  roughly symmetric (≈ −0.8 / +0.8) at the cost of threading a dozen helpers through slots — a
+  zero-sum move. Only a separate import for the derived store form would make the conjunction
+  expressible, and that is an API change. The hydrating no-store app does not pay for the
+  store _engine_ (nothing from `signals/store/*` is retained); the 0.8 KB adapter is the only
+  dead-by-construction piece, and it stays.
 - `solid-js` and `@solidjs/web` are flat single-file dists; route-level splitting through them
   fails (a lazy route's `createStore` colors the engine into the main chunk). `preserveModules`
   for both, as signals already does. This does not move the single-entry harness numbers
   (brotli layout shifts a little) but fixes real apps' route splits; the previous audit measured
-  ~9–10 KB br on the room example's `/`.
+  ~9–10 KB br on the room example's `/`. **Measured 2026-09-26: `preserveModules` alone does
+  not fix it.** Chunk assignment is per _module_ in both esbuild and Rollup, and each package is
+  effectively one module: a per-module build of `solid-js` yields `client/hydration.js` at
+  114 KB unminified carrying the signal, store, boundary and root wrappers together
+  (`flow.js` 14K, `component.js` 6K, `core.js` 6K, `index.js` 4K are the rest); `@solidjs/web`
+  yields `client.js` at 104 KB (the entire DOM/attribute runtime) plus `index.js` 32K. A
+  synthetic entry + lazy route that uses `createStore`, split with esbuild: flat dists put
+  the store engine in the shared chunk (main route 21,795 B br); the per-module tree does the
+  same (21,825 B). The store wrappers must live in their own module before route splitting
+  can work — see §C.
 - `configureServerFunctionsClient` is installed by the frames client (needed — same instance),
-  fine; but the sf client's `live` loop + ledger/resume path is carried by consumers that never
-  call `live` (previous audit noted it as a split candidate; ~1 KB br).
+  fine. The sf client's `live` loop + ledger/resume path was listed as carried by consumers that
+  never call `live` (~1 KB br). **Measured 2026-09-26: not so.** `live`, `EventStreamReader`
+  and the digests (~10.7K min un-mangled) already shake out of the base page; `live` reaches
+  the shared reader through an `options[LIVE_WIRE]` seam, and the reader's residue on the base
+  page is a few presence checks (< 0.3 KB br). `GET` (1.8K min) IS pinned on every page with a
+  server reference — by design, through the late-bound RPC seam routers read instead of
+  importing the transport — and a real page always has the router, so it is spoken for. What
+  remains in the sf client for pay-for-use is the rich-argument request encoding
+  (`getHeadersAndBody`/`extractBody`/`isJSONSafe`/`stableString`, ~5K min), which is §E's sf
+  item.
 
 ### F5. `dynamic()` retains the element runtime — 4.3 KB br
 
@@ -244,20 +282,25 @@ every real baseline; a signals-free frames client is out.
   `scripts/size` (the codec aliased to a stub, as it is a lazy chunk in production).
 - `attribute.mjs`: per-package minified bytes for every scenario, run after size-limit.
 - The three floor caps frozen in `floor-caps.json`; `check-floor-caps.mjs` fails a PR that
-  raises one without a `Size-Exception:` line. Lowering is always allowed.
+  raises one without a `Size-Exception:` line. Lowering is always allowed. The two page caps
+  joined the freeze the same day (#3673 follow-up): the SC goal is the one the measured wins
+  cover, so it gets the same protection against `next` growing under it.
 - Win: 0 bytes. This is the mitigation for `next` moving under the effort: growth becomes a
   per-PR decision the reviewer sees, not a paragraph in a 2,500-line config.
 
 ### B. Eager installs → pay-for-use (no semantics)
 
-1. `enableHydration()` store adapters — the wrappers import the adapter directly; the enabler
-   stops filling the slot. **−1.2 KB** every hydrating page.
+1. ~~`enableHydration()` store adapters — the wrappers import the adapter directly; the enabler
+   stops filling the slot.~~ **Rejected after measurement** (F4): −0.8 KB on hydrating no-store
+   pages, +1.7 KB on CSR pages with stores. Not shipped; the 0.8 KB stays in the hydrating
+   floor and the §5 table below already excludes it (the SC pages never counted it).
 2. Frames materializer — loaded only when the server serialized a container trace (§D).
    **−7.1 KB** on SC pages without client stores.
 3. `dynamic()` element runtime — loaded only when the server rendered a string-tag `dynamic`
    (§D). **−4.3 KB** on every SC page.
-4. sf client `live` loop + ledger/resume split behind the `live` import. **~−1 KB** on the base
-   page.
+4. ~~sf client `live` loop + ledger/resume split behind the `live` import.~~ **Already the
+   case** (F4): `live` shakes out of the base page today; residue < 0.3 KB. Nothing to ship.
+   The sf pay-for-use work is §E's rich-argument encoding split.
 
 ### C. Module layout (no semantics)
 
@@ -285,38 +328,87 @@ of the scope that needs it. Build once, used three times.
 ### F. Core floor without semantic change
 
 Re-measure the stage-3 perf trade with CodSpeed; relocate cold arms behind existing slots.
-**−0.5 to −1 KB**, every scenario.
+**−0.5 to −1 KB**, every scenario. The relocation half is now measured
+(`size-reduction-g-rulings.md`, F1–F5): the async-iterable consumer (−322 B), the store sweep
+(−82), companions resync (−37), dormant sweep (−29), lane hook sites (−24) — **~−0.5 KB**
+together, each a small `packages/signals` PR behind an existing-style install hook. The
+perf-trade half remains an estimate.
 
 ### G. Core floor with behavior leniency (needs rulings)
 
-The ~15 mainline implicit hold rules (F1, "behavior leniency"). Deliverable first: the ruling table (bytes,
-motivating issue, oracle cells). Then each accepted removal as its own PR — rule, tests and
-oracle cells together. **−1.5 to −2.5 KB**, every scenario.
+~~The ~15 mainline implicit hold rules (F1, "behavior leniency"). **−1.5 to −2.5 KB**.~~
+**Measured 2026-09-26 — see `size-reduction-g-rulings.md`.** Every rule site in `recompute`
+(21) and the scheduler (10) was stubbed and the floor re-measured: all of them together are
+**−824 B**; the largest single ruling (#3404 zombie children) is 127 B. The −1.5–2.5 estimate
+came from the growth ledger and was wrong by 2–3×: the ledger counted what each fix added,
+most of which is shared machinery later fixes also use. Even the model-level ceiling — no
+implicit holds anywhere, transactions only through `action` — measures **−1.2 KB**, because
+the machinery stays reachable from `runEffect`/`owner`/`heap` and the explicit paths. The
+bytes are the model (`GlobalQueue` 11.5K, `recompute` 7.5K, `handleAsync` 6K un-mangled), not
+the rules. **Recommendation: no rulings; take F's relocations instead.**
 
 ### H. Stores (follows G)
 
-The store's `.v`/`.pb` arms that mirror whatever G removes. **−2 to −3 KB** for store users.
+~~The store's `.v`/`.pb` arms that mirror whatever G removes. **−2 to −3 KB** for store users.~~
+Falls with G: the store arms mirror rules whose removal is now measured at a few hundred bytes
+in core; their store twins will be the same order. Not pursued unless measured otherwise.
+
+### I. Density — the code everyone ships, made smaller (no semantics)
+
+Same rigor as G, aimed at "what does each package spend its bytes on" rather than "what could be
+shaken". Per package (signals 64.8K, frames client 31.8K, web 20.2K, solid 15.8K, sf 12.7K min
+on the base SC page), measured:
+
+1. The stage-3 perf trade — hot paths inlined/specialized for CodSpeed (~15% of rc growth);
+   re-measure which still pay, un-inline the rest.
+2. Property mangling headroom in `solid-js` and `@solidjs/web` (signals mangles `_` props with a
+   shared name cache; the other two do not).
+3. The frames client and sf transport as implementations — duplicated helpers, generality with
+   no consumer, prod-retained diagnostics. The largest unaudited surface on the page.
+4. Prod-retained strings and dev residue across all four packages.
+5. Model consolidation in signals (`GlobalQueue` + `recompute` + `handleAsync` + `read` ≈ 33K of
+   68K un-mangled): fewer concepts with the same observable semantics. A redesign, not a size
+   PR — decided after 1–4 are measured.
+
+Considered and declined the same evening: an async engine behind a dynamic-import seam (hybrid:
+static install from any async-implying import, `import()` fallback from the first thenable).
+Measured −2.1 KB on the floor as a lower bound and it would reach hello world 10 with no API or
+semantic change for any realistic app — but it only helps apps with no async, which are
+benchmarks. Recorded in `size-reduction-g-rulings.md`; not pursued.
 
 ## 5. Expected landing (brotli, KB)
 
-|                           | today | after B+C+D |  + E |   + F |       + G+H |
-| ------------------------- | ----: | ----------: | ---: | ----: | ----------: |
-| hello world               |  12.7 |        12.7 | 12.7 | ~11.8 | **~9.5–10** |
-| page: base SC             |  46.8 |       ~34.5 |  ~30 |   ~29 |     **~27** |
-| page: live SC (no stores) |  51.1 |       ~39.5 |  ~36 |   ~35 |     **~33** |
-| live SC + client stores   |   ~54 |         ~48 |  ~45 |   ~44 |     **~39** |
+|                           | today | after B+C+D |  + E |   + F |          + G+H |
+| ------------------------- | ----: | ----------: | ---: | ----: | -------------: |
+| hello world               |  12.7 |        12.7 | 12.7 | ~11.5 | **~10.6–11.1** |
+| page: base SC             |  46.9 |       ~35.3 |  ~31 |   ~30 |        **~28** |
+| page: live SC (no stores) |  51.2 |       ~40.4 |  ~37 |   ~36 |        **~34** |
+| live SC + client stores   |   ~54 |         ~49 |  ~46 |   ~45 |        **~40** |
 
 Goals: hello world 10, SC pages 30–40. Both SC pages reach the band on packaging alone; the
-page with client stores sits at the top of it; hello world reaches 10 only with G.
+page with client stores sits at the top of it. **Hello world does not reach 10 under the fixed
+API** (G measured, 2026-09-26): the floor is 9.9 of hello world's 12.7, and every semantic
+lever together — rulings, relocations, the model-level ceiling — is worth ~1.1–1.2 KB, the
+perf-trade re-measure perhaps another 0.5–1; that lands at ~10.6–11.1. The one lever that
+reaches 10 is keeping `handleAsync` and the transaction entry it drives off the plain
+`createSignal`/`createMemo` path — a packaging/API decision recorded as out of scope in §2.
+(Table
+re-based 2026-09-26 without B.1 and on the `next` @ 3af4696fb baselines; B.1 was −0.8 on the
+hydrating column of the SC pages, so B+C+D lands ~0.8 higher than first estimated.)
 
 ## 6. Order and risk
 
 1. A — one PR, no runtime change, lands before any cutting.
-2. B.1 and B.4 (isolated modules, low conflict).
+2. ~~B.1 and B.4~~ — both measured 2026-09-26: B.1 rejected (zero-sum across deployment
+   classes), B.4 already the case. See F4. Category B is B.2 and B.3, both behind C and D.
 3. C, then D, then B.2 and B.3 on top of D. D touches SSR and the frames client where Stage 8
    is active: one focused PR, timed with that work.
 4. E in parallel once D exists.
-5. F any time; G's ruling table in parallel; G+H implementation after the rulings.
+5. ~~F any time; G's ruling table in parallel; G+H implementation after the rulings.~~ G
+   measured and closed (`size-reduction-g-rulings.md`); H falls with it. F's relocations fold
+   into whatever later touches `flush`; not a separate effort.
+6. **I (density audit) is next** — before D/C/E, since it decides whether "smaller for
+   everyone" has 5 KB in it or 15, and that decides how much of B–E is worth building.
 
 Every category ships to `next` as its own small PR, rebased daily; no long-lived branch. Each PR
 reports before/after on the same base commit, and `next`'s number is recorded at each landing so

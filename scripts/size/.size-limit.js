@@ -15,9 +15,9 @@ const alias = {
 };
 const modifyEsbuildConfig = config => ({ ...config, alias });
 
-// The three floor caps are FROZEN (size-reduction effort, 2026-09-26 —
-// documentation/plans/size-reduction-audit.md §A): they live in
-// floor-caps.json, and check-floor-caps.mjs fails a PR that raises one
+// The three floor caps and the two server-component page caps are FROZEN
+// (size-reduction effort, 2026-09-26 — documentation/plans/size-reduction-audit.md
+// §A): they live in floor-caps.json, and check-floor-caps.mjs fails a PR that raises one
 // without a `Size-Exception:` line in its body. Lowering is always allowed.
 // The dated notes on each scenario below remain the ledger of how the
 // floor got here.
@@ -2592,7 +2592,7 @@ module.exports = [
     // (+95 B) — #3671's async dynamic() landing serialization/adoption in
     // web and solid-js, and #3670's draft-visibility twin in the store.
     path: "sc-base-app.js",
-    limit: "46.86 KB",
+    limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     modifyEsbuildConfig: pageEsbuildConfig
   },
   {
@@ -2603,7 +2603,7 @@ module.exports = [
     // Rebased onto `next` @ 3af4696fb (2026-09-26): 51,103 -> 51,156 B
     // (+53 B), same two commits as the base page.
     path: "sc-live-app.js",
-    limit: "51.16 KB",
+    limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     modifyEsbuildConfig: pageEsbuildConfig
   }
 ];
