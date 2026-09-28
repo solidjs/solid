@@ -658,6 +658,24 @@ function cloneRaw(source: Record<PropertyKey, any>, t: StoreNextTarget): Record<
   return clone;
 }
 
+/** Shallow copy of a WIDE plain-data (sc 2) backing for the overlay rebuild
+ * (#3689). Own keys land on a null-prototype object — V8 creates those in
+ * dictionary mode, so the copy is O(keys) hash inserts — and the prototype
+ * is attached after. A spread builds a fast-mode object one map transition
+ * per key; from a source in dictionary mode (a backing that took deletes)
+ * whose key order differs from the last copy's, every transition is a fresh
+ * map with an O(keys) descriptor copy: measured 270 µs vs 28 µs at 400 keys,
+ * 1.3 ms vs 75 µs at 1000. Narrow, stable-shaped backings keep the spread
+ * (cloneRaw): there the clone IC copies the property store at once and is
+ * 3–8× cheaper than any per-key loop. */
+function wideClone(source: Record<PropertyKey, any>, t: StoreNextTarget): Record<PropertyKey, any> {
+  const clone = Object.create(null);
+  for (const key of Reflect.ownKeys(source)) clone[key] = source[key as any];
+  Object.setPrototypeOf(clone, Object.prototype);
+  clone[$OWNER] = t;
+  return clone;
+}
+
 /** Copy own `key` from `from` onto `to`. A plain data slot (enumerable,
  * writable, configurable, no accessor) is a bare assignment — the common case
  * and the cheap one; anything else goes through defineProperty so accessors
@@ -699,22 +717,70 @@ function scanAccessorsOnce(target: StoreNextTarget): boolean {
  * prototype); above it the clone's O(keys) copy dominates (#3044). */
 const OVERLAY_MIN_KEYS = 32;
 
+/** Overlay commit choice (#3689): flatten in place, or rebuild the backing
+ * (materializePB, then the clone path's swap)? Measured on V8 (Node 26): a
+ * committed backing that has served as an overlay prototype is kept as a
+ * FAST-MODE prototype object up to V8's descriptor limit (1020 own
+ * properties), and there every in-place DELETE is O(keys) — normalize to
+ * dictionary plus re-optimize as a prototype, ~0.08 µs × keys — and every
+ * in-place ADD is a map transition copying the descriptors, ~0.006 µs ×
+ * keys. Detaching the overlay first does not help: prototype-ness is a
+ * property of the object's map. One rebuild (wideClone, deletes, writes) is
+ * ~0.07–0.09 µs × keys — the price of ONE in-place delete. So a fold that
+ * deleted anything, or added more than ~16 keys, commits cheaper rebuilt (a
+ * 400-key record churning 100 keys per commit, 10,000 membership readers:
+ * 4.7 ms → 0.22 ms per step); a pure rewrite of existing keys — the
+ * overlay's home case — stays in place at O(written).
+ * Past the descriptor limit V8 keeps the backing in dictionary mode where
+ * every in-place op is O(1), and a rebuild would be a pure O(keys) loss on
+ * exactly the growing-record pattern the overlay exists for (#3044) — the
+ * count gate keeps those in place. The gate reads `kc`, which the set trap
+ * counts up for keys new to the container and the delete commit counts down. */
+const OVERLAY_REBUILD_MAX_KEYS = 1024;
+const OVERLAY_REBUILD_MIN_ADDS = 16;
+
+function overlayRebuilds(t: StoreNextTarget, pb: Record<PropertyKey, any>): boolean {
+  if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
+  if (t.del !== null && t.del.size !== 0) return true;
+  // Every trap write records its key, so the written-key count bounds the
+  // adds — the common few-key fold (#3044's growing record) answers here
+  // without enumerating the overlay.
+  const wk = t.wk;
+  if (wk !== null && wk !== WK_ALL && wk.size <= OVERLAY_REBUILD_MIN_ADDS) return false;
+  const v = t.v;
+  let adds = 0;
+  for (const key of Reflect.ownKeys(pb))
+    if (!hasOwn.call(v, key) && ++adds > OVERLAY_REBUILD_MIN_ADDS) return true;
+  return false;
+}
+
 /** Downgrade a prototype-overlay pending backing to the clone path: builds
  * the real container (committed + overlay writes − deletes) that fold will
  * SWAP in as the committed backing, exactly as if the draft had started on
  * the clone path. Consumers that need a complete container (reconcile's
- * diff walks, drafts escaping into other storage) call this. */
-export function materializePB(target: StoreNextTarget): void {
-  if (!target.ovl) return;
-  const proto = target.pb!;
-  const clone = cloneRaw(target.v, target);
-  for (const key of Reflect.ownKeys(proto)) copyOwn(clone, proto, key);
+ * diff walks, drafts escaping into other storage) call this, and so does the
+ * commit itself when the fold changed the key set (overlayRebuilds). Returns
+ * the pending backing (the clone, or the pb as-is when not an overlay). */
+export function materializePB(target: StoreNextTarget): Record<PropertyKey, any> {
+  const pb = target.pb!;
+  if (!target.ovl) return pb;
+  const clone = target.sc === 2 ? wideClone(target.v, target) : cloneRaw(target.v, target);
+  // Deletes before writes (#3689): on a fast-mode clone (the descriptor
+  // path) the first delete normalizes it once, and the writes then land as
+  // O(1) dictionary adds instead of O(keys) map transitions each. Order is
+  // free semantically — a rewritten key left `del` at write time, so no
+  // write targets a deleted key.
   if (target.del !== null) {
     for (const key of target.del) delete (clone as any)[key];
+    target.kc -= target.del.size;
     target.del = null;
   }
+  // Plain-data grade (sc 2): bare assignment, as flattenOverlay does.
+  for (const key of Reflect.ownKeys(pb))
+    target.sc === 2 ? ((clone as any)[key] = pb[key as any]) : copyOwn(clone, pb, key);
   target.pb = clone;
   target.ovl = false;
+  return clone;
 }
 
 function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
@@ -1017,6 +1083,7 @@ function flattenOverlay(t: StoreNextTarget, pb: Record<PropertyKey, any>): void 
     t.sc === 2 ? ((v as any)[key] = pb[key as any]) : copyOwn(v, pb, key);
   if (t.del !== null) {
     for (const key of t.del) delete (v as any)[key];
+    t.kc -= t.del.size;
     t.del = null;
   }
   t.pb = null;
@@ -1078,11 +1145,13 @@ function drainFolds(): void {
         foldOlds.set(t, old); // re-queue: commit happens when the hold settles
         continue;
       }
-      if (t.ovl) {
+      if (t.ovl && (t.v !== old || !overlayRebuilds(t, pb))) {
         // Overlay flatten (#3044): the backing keeps its identity, so the
         // `t.v === old` gate below skips path copying (the parent slot
         // already points here) and the adopted-notify (setter notifications
-        // happened at write time).
+        // happened at write time). A backing privatized mid-batch is a fresh
+        // clone, never a prototype — in-place writes into it are cheap, and
+        // the merge branch below is what a materialized pb would need anyway.
         flattenOverlay(t, pb);
       } else if (t.v !== old) {
         // Privatized mid-batch (#3271): an earlier fold in this drain
@@ -1126,7 +1195,10 @@ function drainFolds(): void {
         t.pb = null;
         t.wk = null; // written-keys window closes with the fold commit
       } else {
-        t.v = pb;
+        // An overlay whose fold changed the key set rebuilds (#3689) and
+        // takes the swap like a clone-path draft: the parent slot re-points
+        // in the path copy below.
+        t.v = t.ovl ? materializePB(t) : pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
         t.wk = null; // written-keys window closes with the fold commit
@@ -1408,8 +1480,12 @@ function notifyWrites(t: StoreNextTarget): void {
     if (t.ht !== null) t.ht = t.hv = null;
     // Overlay landing (#3352): flatten in place — identity-stable, and
     // privatizeCommitted re-slots the parent itself when it has to clone an
-    // unowned seed, so no path copy is needed.
-    if (t.ovl) return flattenOverlay(t, pb);
+    // unowned seed, so no path copy is needed. A landing that changed the
+    // key set rebuilds instead (#3689) and swaps like a clone-path landing.
+    if (t.ovl) {
+      if (!overlayRebuilds(t, pb)) return flattenOverlay(t, pb);
+      pb = materializePB(t);
+    }
     const oldBacking = t.v;
     t.pb = null;
     t.v = pb;
@@ -2390,10 +2466,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
       }
     } else {
       if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
-      // Live own-key estimate for the overlay/clone choice (#3360): `in`
-      // sees through an overlay to the committed keys, so this counts keys
-      // NEW to the container. Deletes are not un-counted (a stale high
-      // count only picks the overlay a little early).
+      // Live own-key estimate for the overlay/clone choice (#3360) and the
+      // overlay's commit choice (#3689): `in` sees through an overlay to the
+      // committed keys, so this counts keys NEW to the container. Overlay
+      // deletes are counted down when they commit (`del` is exact); clone-
+      // path deletes are not (a stale high count on a narrow container only
+      // picks the overlay a little early).
       if (!(key in pb)) target.kc++;
     }
     // Own data keys literally named "prototype"/"constructor" land as data —
