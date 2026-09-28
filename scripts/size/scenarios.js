@@ -806,6 +806,16 @@ module.exports = [
     // on committed deletes. A 400-key keyed record churning 100 keys per
     // commit goes from 4.7 ms to 0.22 ms per step. All in the store module;
     // core floor 0 B.
+    // Store key-precision at the held-fold gate (#3688, 2026-09-28): cap
+    // unchanged at 16.71 KB, measured at 16,708 B against `next` @
+    // b10c8249d's 16,707 (+1 B; +118 B minified). `readSource` takes the key
+    // and `pendingBackingVisible` consults `wk` (the trap's write/delete
+    // record for the batch), so a get/has/descriptor read of a key the fold
+    // never touched is served committed with no transaction entry — a memo
+    // reading `store.stable` beside an unrelated signal no longer holds that
+    // signal's write with someone else's action. Container-wide reads
+    // (ownKeys, $TRACK, deep) still hold. On the store read path, paid by
+    // every store user; core floor 0 B.
     limit: "16.71 KB",
     alias
   },
@@ -1835,6 +1845,10 @@ module.exports = [
     // measured at 30,584 B against `next` @ fe1eb684f's 30,630 (-46 B; +38 B
     // minified). Same `lazy()` change as the no-stores hydrating note; brotli
     // layout over the larger bundle turns the +38 B minified into a saving here.
+    // Store key-precision at the held-fold gate (#3688, 2026-09-28): cap
+    // unchanged at 30.63 KB, measured at 30,622 B against `next` @
+    // b10c8249d's 30,584 (+38 B; +119 B minified). Same change as the
+    // `+ createStore` note (+1 B there); brotli layout over the larger bundle.
     limit: "30.63 KB",
     alias
   },
@@ -2826,6 +2840,12 @@ module.exports = [
     // so its body is labeled for STRICT_READ_UNTRACKED; the hydrating scenario
     // carries the same change at +50 B. Accepted by the maintainer. The cap
     // is frozen again at 44.93 KB.
+    // Store key-precision at the held-fold gate (#3688, 2026-09-28): cap
+    // unchanged at 44.93 KB, measured at 44,919 B against `next` @
+    // b10c8249d's 44,929 (-10 B; +119 B minified). Same store change as the
+    // `+ createStore` note, reaching this page through the frames client's
+    // container-trace materializer; brotli layout turns the +119 B minified
+    // into a saving here. Not ratcheted.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2865,6 +2885,11 @@ module.exports = [
     // the same `lazy()` change as the base page's note (+39 B there); brotli
     // layout amplifies it on this page. Accepted by the maintainer. The cap
     // is frozen again at 49.07 KB.
+    // Store key-precision at the held-fold gate (#3688, 2026-09-28): cap
+    // unchanged at 49.07 KB, measured at 49,057 B against `next` @
+    // b10c8249d's 49,066 (-9 B; +119 B minified). The same store change as
+    // the base page's note (-10 B there); brotli layout absorbs it on this
+    // page too. Not ratcheted.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }
