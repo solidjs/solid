@@ -22,7 +22,9 @@ import {
   createOwner,
   createRenderEffect,
   createSignal,
+  DEV,
   getOwner,
+  OBSERVE,
   onCleanup,
   runWithOwner,
   sharedConfig
@@ -361,6 +363,15 @@ function slotArgsProxy(args: () => Record<string, any>) {
   );
 }
 
+interface ElementState {
+  prev: any;
+  ref: any;
+  refId: string;
+  on: Set<string>;
+  keys: Record<string, string[]>;
+  listener: EventListener;
+}
+
 /**
  * Bind a data occurrence (principles §9.2.3): one computation runs the
  * fill, and every consuming element's bound positions are written from its
@@ -378,73 +389,167 @@ function bindDataOccurrence(fill: (args: any) => any, args: any, ctx: any) {
   // position's dispatcher reads at event time.
   const output = createMemo(() => {
     const out = fill(args);
-    if (IS_DEV && (out == null || typeof out !== "object" || Array.isArray(out))) {
-      console.warn(
-        `Attribute slot fill returned ${
-          out === null ? "null" : Array.isArray(out) ? "an array" : typeof out
-        }; server markup reads its properties, so it must return an object.`
+    // Content where data was expected: a DOM node is an object, so it is
+    // named here rather than read as one (its properties are the DOM's).
+    const node = typeof Node === "function" && out instanceof Node;
+    if (IS_DEV && (out == null || typeof out !== "object" || Array.isArray(out) || node)) {
+      const shape =
+        out === null ? "null" : node ? "a DOM node" : Array.isArray(out) ? "an array" : typeof out;
+      slotShapeFinding(
+        ctx.key,
+        shape,
+        `[ATTRIBUTE_SLOT_POSITION] The fill for \`${ctx.key}\` returned ${shape}; server markup reads ` +
+          `its properties at bound positions, so it must return an object (\`{ done, toggle, … }\`). ` +
+          `Nothing binds until it does.`
       );
     }
-    return out == null || typeof out !== "object" ? {} : out;
+    return out == null || typeof out !== "object" || node ? {} : out;
   });
-  // Per element: the props last assigned (assign's diff state) and the
-  // stable dispatchers minted for its handler/ref positions.
-  const state = new WeakMap<Element, { prev: any; stable: Map<string, any> }>();
+  // Per element: the props last assigned (assign's diff state), the stable
+  // ref dispatcher minted for its ref position, and its ONE listener — the
+  // events it is attached under (`on`) and the keys each event fans out to.
+  const state = new WeakMap<Element, ElementState>();
   // Value positions are READ in the compute phase: a fill may return
   // getters (the shared-component idiom — see rowFor in
   // examples/todos-server), and a getter read here tracks, so the position
   // re-writes when its own sources move. Handler and ref positions read
   // nothing here; their dispatchers read the output at event time.
+  // The elements written last time: one that drops out of the consumer
+  // list on a rebind (its markers gone, the element kept by the morph) gets
+  // a final empty write so its handlers unbind.
+  let bound = new Set<Element>();
   createRenderEffect(
     () => {
       const out = output();
       return consumers().map(({ element, positions }) => ({
         element,
-        props: propsFor(element, positions, out)
+        ...propsFor(element, positions, out)
       }));
     },
     writes => {
-      for (const { element, props } of writes)
-        assign(element, props, true, state.get(element)!.prev);
+      const next = new Set<Element>();
+      for (const { element, props, handlers } of writes) {
+        next.add(element);
+        write(element, props, handlers);
+      }
+      for (const element of bound) if (!next.has(element)) write(element, {}, {});
+      bound = next;
     }
   );
+  function write(element: Element, props: Record<string, any>, handlers: Record<string, string[]>) {
+    const st = state.get(element)!;
+    // A value position the server RELEASED (a rebind whose incoming markup
+    // no longer marks it) is the server's again, and the morph already
+    // wrote the server's value there. Drop it from the diff state so
+    // `assign` does not null the attribute the morph just applied. The
+    // ref is the client's alone: it stays in `prev` and clears through the
+    // diff.
+    for (const k in st.prev) if (!(k in props) && k !== "ref") delete st.prev[k];
+    assign(element, props, true, st.prev);
+    // Handler positions are listeners the client attaches itself (the
+    // marker's event name — `onClick` compiled to `click`): one listener
+    // per element, attached under each bound event, that reads the output
+    // at event time and fans out to the event's keys in marker order. A
+    // released position detaches its event.
+    st.keys = handlers;
+    for (const name of st.on) {
+      if (!(name in handlers)) {
+        element.removeEventListener(name, st.listener);
+        st.on.delete(name);
+      }
+    }
+    for (const name in handlers) {
+      if (!st.on.has(name)) {
+        element.addEventListener(name, st.listener);
+        st.on.add(name);
+      }
+    }
+  }
   function propsFor(element: Element, positions: any[], out: any) {
     let st = state.get(element);
-    if (!st) state.set(element, (st = { prev: {}, stable: new Map() }));
-    const stable = (id: string, make: () => any) => {
-      let d = st!.stable.get(id);
-      if (!d) st!.stable.set(id, (d = make()));
-      return d;
-    };
+    if (!st) {
+      const s: ElementState = {
+        prev: {},
+        ref: undefined,
+        refId: "",
+        on: new Set(),
+        keys: {},
+        listener(this: Element, e: Event) {
+          const o = output();
+          const keys = s.keys[e.type];
+          if (keys === undefined) return;
+          for (const k of keys) {
+            const h = o[k];
+            if (Array.isArray(h)) h[0].call(this, h[1], e);
+            else if (typeof h === "function") h.call(this, e);
+          }
+        }
+      };
+      state.set(element, (st = s));
+    }
     const props: Record<string, any> = {};
+    const handlers: Record<string, string[]> = {};
     let classNames: Record<string, boolean> | null = null;
     let styleProps: Record<string, any> | null = null;
+    // Several keys can bind at ONE ref or handler position (the server
+    // merges duplicates into the marker — `_s:ref="occ:a,occ:b"`); every
+    // key fires, in marker order.
+    let refKeys: string[] | null = null;
     for (const { pos, key, name } of positions) {
       if (pos === "class" || pos === "style") {
         if (name === undefined) props[pos] = out[key];
         else if (pos === "class") (classNames || (classNames = {}))[name] = !!out[key];
         else (styleProps || (styleProps = {}))[name] = out[key];
       } else if (pos === "ref") {
-        props.ref = stable("ref:" + key, () => (el: Element) => {
-          const r = output()[key];
-          typeof r === "function" && r(el);
-        });
+        (refKeys || (refKeys = [])).push(key);
       } else if (pos.startsWith("on:")) {
-        props["on" + pos.slice(3)] = stable(
-          pos + ":" + key,
-          () =>
-            function (this: Element, e: Event) {
-              const h = output()[key];
-              if (Array.isArray(h)) h[0].call(this, h[1], e);
-              else if (typeof h === "function") h.call(this, e);
-            }
-        );
+        const event = pos.slice(3);
+        (handlers[event] || (handlers[event] = [])).push(key);
       } else props[pos] = out[key];
     }
     if (classNames !== null && !("class" in props)) props.class = classNames;
     if (styleProps !== null && !("style" in props)) props.style = styleProps;
-    return props;
+    if (refKeys !== null) {
+      // One stable ref per key set: `assign` fires a ref when its value
+      // changes, so the fill may return fresh closures every run without
+      // re-firing it; a rebind that changes the bound keys fires it once.
+      const id = refKeys.join(",");
+      if (st.refId !== id) {
+        const keys = refKeys;
+        st.refId = id;
+        st.ref = (el: Element) => {
+          const o = output();
+          for (const k of keys) {
+            const r = o[k];
+            typeof r === "function" && r(el);
+          }
+        };
+      }
+      props.ref = st.ref;
+    }
+    return { props, handlers };
   }
+}
+
+/**
+ * Dev finding (`ATTRIBUTE_SLOT_POSITION`, reason `fill-shape`): the client
+ * side of an attribute slot has the wrong shape — the fill's return is not
+ * an object, or the prop is not a function. Through the diagnostics
+ * channel, so an observer captures it beside the server's findings.
+ */
+function slotShapeFinding(occurrence: string, shape: string, message: string) {
+  DEV!.report(
+    OBSERVE!.diagnostics.emit(
+      {
+        code: "ATTRIBUTE_SLOT_POSITION",
+        kind: "render",
+        severity: "warn",
+        message,
+        data: { reason: "fill-shape", occurrence, shape }
+      },
+      null
+    )
+  );
 }
 
 /** Whether a resolved slot value is reactive at the top level. */
@@ -500,8 +605,13 @@ function slotsFor(props: Record<string, any>) {
             const fill = props[prop];
             if (typeof fill !== "function") {
               if (IS_DEV) {
-                console.warn(
-                  `Slot \`${prop}\` is read by server markup as data, but the client prop is not a function.`
+                slotShapeFinding(
+                  key,
+                  typeof fill,
+                  `[ATTRIBUTE_SLOT_POSITION] Server markup reads slot \`${prop}\` as data (\`${key}\`), ` +
+                    `but the client prop is ${typeof fill === "object" ? "an object" : `a ${typeof fill}`}, ` +
+                    `not a function. The fill is a function of the occurrence's args returning the object ` +
+                    `the markup reads: \`${prop}={args => ({ … })}\`. Nothing binds until it is.`
                 );
               }
               return undefined;

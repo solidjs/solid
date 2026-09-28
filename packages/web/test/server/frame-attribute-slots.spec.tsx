@@ -27,6 +27,7 @@ import {
   renderServerComponent,
   ServerComponentPlugin
 } from "../../frames/src/frame-sink.js";
+import { createJSONDataTable } from "../../serialization/src/serializer.js";
 
 const collect = (stream: any): Promise<any[]> => stream;
 
@@ -262,6 +263,18 @@ describe("attribute slots — stream face", () => {
     expect(findings("spread").length).toBe(1);
   });
 
+  it("a `prop:*` key of a runtime spread bound to a stand-in is a dev finding; handler names derive as the client's `on*` does", async () => {
+    const Spread = (props: any) => {
+      const row = props.row({ id: 1 });
+      return <li {...{ onMyEvent: row.g, "prop:value": row.v }} />;
+    };
+    const chunks = await collect(renderServerComponent(Spread, { frame: { id: "ds6" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain('<li _s:on:myevent="row#0:g">');
+    expect(findings("prop").map(e => (e.data as any).position)).toEqual(["prop:value"]);
+    expect(findings()).toHaveLength(1);
+  });
+
   it("a handler position inside a live hole carries its marker on every re-emission, with an unrelated render interleaved", async () => {
     // The chat example's `codeBlock` shape: a zero-arg attribute slot read at an
     // event position INSIDE a live hole (an async-iterable-fed memo). The
@@ -345,6 +358,34 @@ describe("attribute slots — stream face", () => {
       expect(html).toContain('<button type="button" _s:on:click="codeBlock:copy">Copy</button>');
     }
     expect(findings()).toEqual([]);
+  });
+
+  it("a stand-in passed as another slot's ARG is a dev finding; the record carries `undefined` for it", async () => {
+    const ServerComp = (props: any) => {
+      const parent = props.parent({ id: "p1" });
+      const child = props.child({ parentId: parent.id, own: "x" });
+      return (
+        <div class={parent.cls}>
+          <span class={child.cls} />
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "dsa" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain(
+      '<div _s:class="parent#0:cls"><span _s:class="child#0:cls"></span></div>'
+    );
+    const slots = chunks.filter(c => c.type === "slot");
+    expect(slots.map(c => c.key)).toEqual(["parent#0", "child#0"]);
+    expect(slots[0].args).toEqual({ id: "p1" });
+    expect(slots[1].args.own).toBe("x");
+    const table = createJSONDataTable();
+    for (const c of chunks.filter(x => x.type === "data")) table.apply(c);
+    expect(table.resolve(slots[1].args.parentId)).toBeUndefined();
+    expect(findings("arg").map(e => e.data as any)).toEqual([
+      { reason: "arg", occurrence: "child#0", key: "parentId", from: "parent#0", fromKey: "id" }
+    ]);
+    expect(findings()).toHaveLength(1);
   });
 
   it("a server-local function at a ref/on* position is a dev finding; a stand-in in a template string is another", async () => {
@@ -487,6 +528,39 @@ describe("attribute slots — document face (t=0)", () => {
     expect(findings()).toEqual([]);
   });
 
+  it("a zero-arg call in a component prop runs the fill ONCE at t=0; zero-arg markup placements stay two", async () => {
+    const Block = (props: { block: any }) => (
+      <div>
+        <button onClick={props.block.copy} class={props.block.cls}>
+          Copy
+        </button>
+        <button onClick={props.block.copy} ref={props.block.el}>
+          Copy too
+        </button>
+      </div>
+    );
+    const ServerComp = (props: any) => (
+      <section>
+        <Block block={props.codeBlock()} />
+        {props.note()}
+        {props.note()}
+      </section>
+    );
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd0z" }) as any;
+    const fill = vi.fn(() => ({ copy: () => {}, cls: "c", el: () => {} }));
+    const note = vi.fn(() => <b>new</b>);
+    const html = plain(await document(() => Inline({ codeBlock: fill, note })));
+    expect(fill).toHaveBeenCalledTimes(1);
+    expect(note).toHaveBeenCalledTimes(2);
+    expect(html).toContain(
+      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy">Copy</button><button _s:on:click="codeBlock:copy" _s:ref="codeBlock:el">Copy too</button>'
+    );
+    expect(html.match(/<!--slot:note:start--><b[^>]*>new<\/b><!--slot:note:end-->/g)).toHaveLength(
+      2
+    );
+    expect(findings()).toEqual([]);
+  });
+
   it("a fill that returned markup is read as data at a position: a dev finding, nothing written", async () => {
     const ServerComp = (props: any) => {
       const row = props.row({ id: 1 });
@@ -496,6 +570,63 @@ describe("attribute slots — document face (t=0)", () => {
     const html = plain(await document(() => Inline({ row: () => <b>content</b> })));
     expect(html).toContain('<li _s:hidden="row#0:removed">x</li>');
     expect(findings("markup").length).toBe(1);
+  });
+
+  it("fill keys that shadow prototype methods (`filter`, `at`, `sort`, `map`, `join`) bind as data on both faces", async () => {
+    // The document-face proxy's target is the range ARRAY and the stream
+    // face's a plain object: a key present on either prototype must still
+    // read as a slot value, never fall through to the prototype (which on
+    // the document face wrote `data-f="function filter() { [native code] }"`
+    // with no marker, and `hidden={row.at}` hid the element).
+    const ServerComp = (props: any) => {
+      const row = props.row({ id: 1 });
+      return (
+        <li data-f={row.filter} hidden={row.at} data-s={row.sort} class={{ m: row.map }}>
+          <b data-j={row.join}>x</b>
+        </li>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd2p" }) as any;
+    const html = plain(
+      await document(() =>
+        Inline({ row: () => ({ filter: "f", at: false, sort: "s", map: true, join: "j" }) })
+      )
+    );
+    expect(html).toContain(
+      '<li data-f="f" _s:data-f="row#0:filter" _s:hidden="row#0:at" data-s="s" _s:data-s="row#0:sort" class="m" _s:class="row#0:map=m">'
+    );
+    expect(html).toContain('<b data-j="j" _s:data-j="row#0:join">x</b>');
+    expect(html).not.toContain("native code");
+    expect(findings()).toEqual([]);
+
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds2p" } }));
+    const stream = plain(chunks.find(c => c.type === "html").html);
+    expect(stream).toContain(
+      '<li _s:data-f="row#0:filter" _s:hidden="row#0:at" _s:data-s="row#0:sort" _s:class="row#0:map=m"><b _s:data-j="row#0:join">x</b></li>'
+    );
+    expect(findings()).toEqual([]);
+  });
+
+  it("a placed document-face range with a dynamic node survives the resolver's copy", async () => {
+    // `escape` copies a node array with `.slice()` when it cannot join it
+    // (a function node forces the copy). The document-face range is a
+    // proxy over that array: `slice` must reach Array.prototype, not be
+    // answered as a fill key — with the explicit passthrough set it was,
+    // and every dynamic placement threw `s.slice is not a function`.
+    const ServerComp = (props: any) => <section>{props.note()}</section>;
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd0d" }) as any;
+    const html = plain(
+      await document(() =>
+        Inline({
+          note: () => {
+            const t = createMemo(() => "late");
+            return <b>{t()}</b>;
+          }
+        })
+      )
+    );
+    expect(html).toMatch(/<!--slot:note:start--><b[^>]*>late<\/b><!--slot:note:end-->/);
+    expect(findings()).toEqual([]);
   });
 
   it("a fill output key the range's own shape occupies is a dev finding", async () => {

@@ -83,8 +83,11 @@ Legal positions: an attribute (`hidden={row.removed}`, `checked={row.done}`,
 `title={row.error}`), a class name inside object form
 (`class={{ completed: row.done }}`), the whole `class`/`style`
 (`class={row.rowClass}`), a style property (`style={{ opacity: row.fade }}`),
-an event (`onInput={row.onToggle}`, `on:custom={row.x}`), a ref
-(`ref={row.ref}`).
+an event (`onInput={row.onToggle}`), a ref (`ref={row.ref}`). Not a
+`prop:*` property, not a text child. Reserved keys the fill must not use:
+keys beginning with `$` or a digit, `length`, `slice`, `t`/`h`/`p`, `then`,
+`constructor`/`toString`/`valueOf`/`toJSON`; anything else (`filter`, `map`
+included) is a plain property.
 
 The server **does not have the value** — on the stream face a property read
 is a stand-in with no value, on the document face only the initial one — so
@@ -186,10 +189,14 @@ cannot be marked — the `inline` finding below.
 | `markup`       | warn           | the fill returned JSX but the template read a property                                                                                          | return an object, or place the slot                                                                                                                               |
 | `server-local` | warn           | a server function at `on*`/`ref`                                                                                                                | bind a slot property                                                                                                                                              |
 | `reserved-key` | warn           | the fill used a reserved key                                                                                                                    | rename it                                                                                                                                                         |
+| `arg`          | warn           | a slot property passed as another slot call's argument                                                                                          | pass the server's own value, or read it in the fill from client state                                                                                             |
+| `prop`         | warn           | a slot property at a `prop:*` key of a spread                                                                                                   | bind the attribute form, or set the property in the fill's ref                                                                                                    |
+| `fill-shape`   | warn (client)  | the fill returned a non-object (`null`, array, DOM node, primitive), or the prop read as data is not a function                                 | return a plain object from a function prop                                                                                                                        |
 | `orphan`       | warn (client)  | markers for an occurrence that can never bind: `data.why` `"fill"` — no fill for the prop; `"record"` — a called occurrence with no args record | `fill`: pass the prop / match the name on both sides. `record`: not the fill — rebuild client and server together (stale prebundle, cached asset), else report it |
 
-Every reason but `orphan` comes from the server render. `orphan` is the one
-failure this model cannot otherwise show you: the element is inert — a
-handler that never fires, a class that never updates — with no error.
+Every reason but `fill-shape` and `orphan` comes from the server render.
+`orphan` is the one failure this model cannot otherwise show you: the
+element is inert — a handler that never fires, a class that never updates —
+with no error.
 
 `STRICT_READ_UNTRACKED` inside a fill: use getters (above).

@@ -176,6 +176,8 @@ import {
   CLAIMS_STREAM,
   CLAIMS_DOCUMENT,
   slotValue,
+  isSlotValue,
+  SLOT_VALUE,
   SLOT_FACE_STREAM,
   SLOT_FACE_DATA,
   SLOT_FACE_MARKUP
@@ -915,33 +917,82 @@ function slotRange(occurrence) {
 // A slot call's return serves BOTH things a slot can render (principles
 // §9.2.3): placed as a child it is the marker range (markup slot); read as
 // an object it is the fill's data (attribute slot) — `const row = props.row(a);
-// <li class={row.rowClass}>`. One proxy over the range: a key the range has
-// (prototype included — the engine calls array methods on the document
-// face's range) or the engine probes for passes through; any other string
-// key is a property READ, answered with a `SLOT_VALUE` stand-in naming the
-// occurrence and the key, carrying the t=0 value when the fill ran. The
-// attribute helpers (`@solidjs/web` server) bind the position where the
-// stand-in lands. Reserved for the fill's output, therefore: `$`-prefixed
-// keys, the engine's node keys, and Object/Array prototype member names —
-// the document face checks the output and says so.
-const RANGE_KEYS = new Set(["t", "h", "p", "then"]);
+// <li class={row.rowClass}>`. One proxy over the range: the keys the engine
+// reads off a range pass through — an EXPLICIT set, the same on both faces
+// (the document face's range is an array, the stream face's a plain
+// object, and `key in target` would let `filter`/`at`/`sort`/`map` fall
+// through to Array.prototype on one face only, writing function source
+// into the markup); any other string key is a property READ, answered
+// with a `SLOT_VALUE` stand-in naming the occurrence and the key, carrying
+// the t=0 value when the fill ran. The attribute helpers (`@solidjs/web`
+// server) bind the position where the stand-in lands. Reserved for the
+// fill's output, therefore, and nothing else: `$`-prefixed keys, symbols,
+// `length`, numeric indices and `slice` (the resolver's array reads — the
+// copy `escape` takes of a placed range), the node keys `t`/`h`/`p`, `then`
+// (thenable probes), and the four Object.prototype names an engine coerces
+// through (`constructor`, `toString`, `valueOf`, `toJSON`) — the document
+// face checks the output and says so.
+const RANGE_KEYS = new Set([
+  "t",
+  "h",
+  "p",
+  "then",
+  "length",
+  "slice",
+  "constructor",
+  "toString",
+  "valueOf",
+  "toJSON"
+]);
+const NODE_KEYS = new Set(["t", "h", "p"]);
+/** Whether a string key read off a slot proxy is the range's own (passes
+ *  through) rather than a property read of the fill's output. */
+function isRangeKey(key) {
+  const c = key.charCodeAt(0);
+  return c === 36 /* $ */ || (c >= 48 && c <= 57) /* index */ || RANGE_KEYS.has(key);
+}
 function slotProxy(range, occurrence, face, content, onData) {
   return new Proxy(range, {
     get(target, key, receiver) {
-      if (
-        typeof key !== "string" ||
-        key in target ||
-        key.charCodeAt(0) === 36 /* $ */ ||
-        RANGE_KEYS.has(key)
-      ) {
-        return Reflect.get(target, key, receiver);
-      }
+      if (typeof key !== "string" || isRangeKey(key)) return Reflect.get(target, key, receiver);
       // The first property read fixes the proxy's face as DATA (see
       // repeatKey): a placed range never gets here.
       if (onData) onData = void onData();
       return slotValue(occurrence, key, content ? content[key] : undefined, face);
     }
   });
+}
+
+/**
+ * A slot arg's form at the serialization border: `toBorderForm`, after one
+ * check the border alone can make — the arg is another slot's stand-in
+ * (`props.child({ parentId: parent.id })`, `parent` a slot). The server
+ * has no value there (it is the client's), so the record ships `undefined`
+ * for that arg and dev says why; serializing the stand-in would hand the
+ * client an object where it expects the value. Top level only: a stand-in
+ * nested inside an arg is the same misuse as any expression over one
+ * (§9.2.3 — "the WHOLE value at one position"), which the rule catches.
+ * Container first: the stand-in probe is a property read, and a pending
+ * projection proxy's reads throw not-ready (see isContainerTraced).
+ */
+function argBorderForm(value, key, occurrence) {
+  if (!isContainerTraced(value) && isSlotValue(value)) {
+    if ("_SOLID_DEV_") {
+      devCheck({
+        code: "ATTRIBUTE_SLOT_POSITION",
+        kind: "ssr",
+        severity: "warn",
+        message:
+          `[ATTRIBUTE_SLOT_POSITION] Arg \`${key}\` of \`${occurrence}\` is another slot's value ` +
+          `(\`${value.k}\` of \`${value[SLOT_VALUE]}\`). The server does not have it — the client owns ` +
+          `it — so it cannot be passed as data; the record carries \`undefined\`. Pass the server's own ` +
+          `value, or have the client fill read it from its own state.`,
+        data: { reason: "arg", occurrence, key, from: value[SLOT_VALUE], fromKey: value.k }
+      });
+    }
+    return undefined;
+  }
+  return toBorderForm(value, true);
 }
 
 /** Classify a document-face fill's return for property reads: a plain
@@ -959,7 +1010,7 @@ function slotFace(range, content) {
     // rest binds), and named below in dev.
     let data = false;
     for (const key in content) {
-      if (!RANGE_KEYS.has(key)) {
+      if (!NODE_KEYS.has(key)) {
         data = true;
         break;
       }
@@ -968,16 +1019,16 @@ function slotFace(range, content) {
   }
   if ("_SOLID_DEV_") {
     for (const key of Object.keys(content)) {
-      if (key in range || key.charCodeAt(0) === 36 || RANGE_KEYS.has(key)) {
+      if (isRangeKey(key)) {
         devCheck({
           code: "ATTRIBUTE_SLOT_POSITION",
           kind: "ssr",
           severity: "warn",
           message:
             `[ATTRIBUTE_SLOT_POSITION] The fill for \`${range.$occurrence}\` returned a key named \`${key}\`, ` +
-            `which is reserved (keys beginning with \`$\`, the node keys \`t\`/\`h\`/\`p\`/\`then\`, and ` +
-            `Object/Array prototype member names): the server reads it as the slot's range, not as a value. ` +
-            `Rename it.`,
+            `which is reserved (keys beginning with \`$\` or a digit, \`length\`, \`slice\`, the node keys \`t\`/\`h\`/\`p\`, ` +
+            `\`then\`, \`constructor\`, \`toString\`, \`valueOf\`, \`toJSON\`): the server reads it as the ` +
+            `slot's range, not as a value. Rename it.`,
           data: { reason: "reserved-key", occurrence: range.$occurrence, key }
         });
       }
@@ -1097,7 +1148,8 @@ function structuralArgsKey(raw) {
  * positional per prop across responses and structural within one.
  *
  * Both names share one per-render map (`repeats`): a keyed call's key is
- * its occurrence id (`prop#<$key>`), an un-keyed call's is `prop\0<args>`
+ * its occurrence id (`prop#<$key>`), an un-keyed call's is `prop\0<args>`,
+ * a zero-arg call's (document face, where the fill runs) is `prop\0`
  * — disjoint alphabets. The caller registers a keyed proxy at the call and
  * an un-keyed one when its face is known (first wins), and looks up before
  * minting. `undefined`: this call can never be recognized as a repeat.
@@ -1262,18 +1314,29 @@ export function createDocumentSlotProps(clientProps, frameId) {
           // Direct-insert position: the client's content renders inline,
           // wrapped in the range the adopting frame will claim.
           if (callArgs.length === 0 || callArgs[0] === undefined) {
+            // A zero-arg call is the occurrence named by the prop, so a
+            // repeat of one known to be DATA collapses onto the first proxy
+            // like the args path below (see repeatKey — `<Block
+            // block={props.codeBlock()} />` re-evaluates the getter at every
+            // position the component binds, and each evaluation ran the
+            // fill). A placed range is one range per placement.
+            const rk = prop + "\0";
+            const repeat = repeats.get(rk);
+            if (repeat) return repeat;
             // Direct-insert positions are key-scoped like render props —
             // there is no natural id parity across the boundary, so BOTH
             // sides evaluate inside the occurrence scope. The prop is read
             // INSIDE scoped(): compiled component props are getters, so the
             // client's JSX evaluates lazily at access under the same keys —
             // plain JSX, no thunk convention.
-            return suppressedFill(() =>
+            const out = suppressedFill(() =>
               scoped(prop, () => {
                 const value = clientProps[prop];
                 return range(prop, typeof value === "function" ? value() : value);
               })
             );
+            if (out.$face === SLOT_FACE_DATA) repeats.set(rk, out);
+            return out;
           }
           const raw = callArgs[0];
           const rk = repeatKey(prop, raw);
@@ -1460,7 +1523,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
               if (!isContainerTraced(value) && isServerContent(value)) continue;
               // Containers (at any depth) ride the record as trace envelopes;
               // everything else passes through by reference.
-              args[key] = toBorderForm(value, true);
+              args[key] = argBorderForm(value, key, occurrence);
             }
             // A CLONE serializes; `args` stays canonical for the ledger
             // below — re-emissions mutate it and clone again, so the
@@ -1502,7 +1565,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   evals[key],
                   states[key],
                   value => {
-                    args[key] = toBorderForm(value, true);
+                    args[key] = argBorderForm(value, key, occurrence);
                     liveArgs.slot(frameId, occurrence, { ...args });
                   }
                 );
@@ -2149,7 +2212,7 @@ export function createSlotProps(sink, frame) {
                 const ref = `arg:${occurrence}:${key}`;
                 // Containers (at any depth) swap for their trace envelopes
                 // before the value meets seroval — see toBorderForm.
-                ctx.serialize(ref, toBorderForm(value, true));
+                ctx.serialize(ref, argBorderForm(value, key, occurrence));
                 args[key] = { $ref: ref };
                 if (evaluate && !state) state = { settled: true, last: value };
               }
@@ -2179,7 +2242,7 @@ export function createSlotProps(sink, frame) {
               } else {
                 const ref = `arg:${occurrence}:${key}@${sink.nextArgRef(ledgerKey)}`;
                 sink.mintRef(ref);
-                ctx.serialize(ref, toBorderForm(value, true));
+                ctx.serialize(ref, argBorderForm(value, key, occurrence));
                 args[key] = { $ref: ref };
               }
               sink.slot(occurrence, { ...args });

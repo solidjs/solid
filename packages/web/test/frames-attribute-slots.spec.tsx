@@ -289,6 +289,169 @@ describe("attribute slots through server-component mounts", () => {
     container.remove();
   });
 
+  test("a rebind that RELEASES value positions leaves the server's own attributes alone; released handlers unbind", async () => {
+    // v1: the client owns a class name, a style property and `hidden` on the
+    // li, and a click on the button. v2 re-renders the li with only `hidden`
+    // bound — `class` and `style` are the server's again, and the morph wrote
+    // the server's values. The rebind must not diff the client's PREVIOUS
+    // props against the new ones and null what it no longer owns.
+    let shape = 1;
+    const [version, setVersion] = createSignal(1);
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: version() },
+        { type: "slot", id: ID, version: version(), key: "row#a", args: { id: "a" } },
+        {
+          type: "html",
+          id: ID,
+          version: version(),
+          html:
+            shape === 1
+              ? `<ul><li _key="a" class="todo" _s:class="row#a:done=completed" style="color:red" _s:style="row#a:op=opacity" _s:hidden="row#a:removed"><button _s:on:click="row#a:pick">x</button></li></ul>`
+              : `<ul><li _key="a" class="todo" style="color:red" _s:hidden="row#a:removed"><button>x</button></li></ul>`
+        },
+        { type: "complete", id: ID, version: version() }
+      ])
+    );
+    const clicks: string[] = [];
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              done: true,
+              op: "0.5",
+              removed: false,
+              pick: () => clicks.push("pick")
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const li = container.querySelector('li[_key="a"]') as HTMLLIElement;
+    const button = li.querySelector("button") as HTMLButtonElement;
+    expect(li.className).toBe("todo completed");
+    expect(li.style.color).toBe("red");
+    expect(li.style.opacity).toBe("0.5");
+    expect(li.hidden).toBe(false);
+    button.click();
+    expect(clicks).toEqual(["pick"]);
+
+    shape = 2;
+    setVersion(2);
+    await cycle();
+    expect(container.querySelector('li[_key="a"]')).toBe(li);
+    // The server's class and style stand; the client's former contributions
+    // went with the morph (the positions are no longer marked).
+    expect(li.className).toBe("todo");
+    expect(li.style.color).toBe("red");
+    expect(li.style.opacity).toBe("");
+    expect(li.hidden).toBe(false);
+    // The released handler no longer dispatches.
+    (li.querySelector("button") as HTMLButtonElement).click();
+    expect(clicks).toEqual(["pick"]);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("two keys bound at ONE ref or handler position fan out: every ref fires, every handler dispatches", async () => {
+    // The server merges duplicate positions on an element into one marker
+    // (`_s:ref="row#0:a,row#0:b"`, pinned by the compiler fixtures); the
+    // client must honor every entry, not the last one written.
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: 1 },
+        { type: "slot", id: ID, version: 1, key: "row#0", args: {} },
+        {
+          type: "html",
+          id: ID,
+          version: 1,
+          html: `<ul><li _s:ref="row#0:a,row#0:b" _s:on:click="row#0:h1,row#0:h2">x</li></ul>`
+        },
+        { type: "complete", id: ID, version: 1 }
+      ])
+    );
+    const log: string[] = [];
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              a: (el: Element) => log.push("ref:a:" + el.tagName),
+              b: (el: Element) => log.push("ref:b:" + el.tagName),
+              h1: () => log.push("h1"),
+              h2: () => log.push("h2")
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const li = container.querySelector("li") as HTMLLIElement;
+    expect(log).toEqual(["ref:a:LI", "ref:b:LI"]);
+    li.click();
+    expect(log.slice(2)).toEqual(["h1", "h2"]);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a handler position receives tuples, and `this`/currentTarget are the element", async () => {
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: 1 },
+        { type: "slot", id: ID, version: 1, key: "row#0", args: {} },
+        {
+          type: "html",
+          id: ID,
+          version: 1,
+          html: `<ul><li _s:on:myevent="row#0:h" _s:on:click="row#0:tuple">x</li></ul>`
+        },
+        { type: "complete", id: ID, version: 1 }
+      ])
+    );
+    const log: string[] = [];
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              h(this: Element, e: Event) {
+                log.push(`h:${e.type}:${this.tagName}:${(e.currentTarget as Element).tagName}`);
+              },
+              tuple: [(data: string, e: Event) => log.push(`tuple:${data}:${e.type}`), "d"]
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const li = container.querySelector("li") as HTMLLIElement;
+    li.dispatchEvent(new Event("myevent"));
+    li.click();
+    expect(log).toEqual(["h:myevent:LI:LI", "tuple:d:click"]);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
   test("a zero-arg occurrence (the prop itself) mounts without a record and binds every element that reads it", async () => {
     vi.stubGlobal("fetch", async () =>
       frameResponse(ID, [
@@ -521,6 +684,59 @@ describe("attribute slots through server-component mounts", () => {
     expect(
       warn.mock.calls.filter(c => String(c[0]).includes("[ATTRIBUTE_SLOT_POSITION]")).length
     ).toBe(1);
+    capture.stop();
+    warn.mockRestore();
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a fill returning a DOM node, or a prop that is not a function, is a `fill-shape` finding; nothing binds, the element stays inert", async () => {
+    const capture = OBSERVE!.diagnostics.capture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: 1 },
+        { type: "slot", id: ID, version: 1, key: "node#0", args: {} },
+        { type: "slot", id: ID, version: 1, key: "obj#0", args: {} },
+        {
+          type: "html",
+          id: ID,
+          version: 1,
+          html:
+            `<section><button _s:on:click="node#0:go" _s:hidden="node#0:hidden">x</button>` +
+            `<i _s:class="obj#0:cls">y</i></section>`
+        },
+        { type: "complete", id: ID, version: 1 }
+      ])
+    );
+    const Card = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    // `node`: content where data was expected — a DOM node is an object,
+    // and reading `hidden`/`go` off it would bind the DOM's own properties.
+    // `obj`: the fill's output passed where the fill belongs.
+    const dispose = render(
+      () => <Card node={() => document.createElement("div")} obj={{ cls: "c" }} />,
+      container
+    );
+    await cycle();
+    const btn = container.querySelector("button") as HTMLElement;
+    expect(() => btn.click()).not.toThrow();
+    expect(btn.hidden).toBe(false);
+    expect((container.querySelector("i") as HTMLElement).className).toBe("");
+    const shapes = capture.events.filter(
+      e => e.code === "ATTRIBUTE_SLOT_POSITION" && (e.data as any).reason === "fill-shape"
+    );
+    expect(shapes.map(e => e.data)).toEqual([
+      { reason: "fill-shape", occurrence: "node#0", shape: "a DOM node" },
+      { reason: "fill-shape", occurrence: "obj#0", shape: "object" }
+    ]);
+    expect(shapes[0].message).toContain("returned a DOM node");
+    expect(shapes[1].message).toContain("the client prop is an object, not a function");
+    expect(
+      warn.mock.calls.filter(c => String(c[0]).includes("[ATTRIBUTE_SLOT_POSITION]")).length
+    ).toBe(2);
     capture.stop();
     warn.mockRestore();
     dispose();

@@ -2752,7 +2752,8 @@ during render — which predates all of this.
   positions is two reads. Position kinds: an attribute (`hidden`,
   `checked`, `title`, `value`), a class name (`class={{ completed:
   row.done }}`), the whole `class`/`style`, a style property, an
-  event (`onClick`, `on:custom`), a ref. Text positions
+  event (`onClick`, `onInput` — the position is the lowercased
+  name, as the client runtime derives it), a ref. Text positions
   (`<strong>{row.count}</strong>`) are the obvious next kind and
   are deferred, not rejected (open, below). The vocabulary follows
   the one convention it already lives under: the object is a
@@ -2786,10 +2787,28 @@ during render — which predates all of this.
   it is the sentence to teach — to people and to agents.
 - *Spreading an attribute slot's object is an error.* `{...row}` is the
   09-27 shape: the client decides what it owns and the template
-  cannot show it. Name the positions.
-- *Keys beginning with `$`, and the engine's node keys (`t`, `h`,
-  `p`, `then`, `length`), are reserved* — the call's return doubles
-  as a placeable range so the same call serves both output types.
+  cannot show it. Name the positions. Dev throws (the finding is an
+  `error`); a prod build renders the element with nothing from that
+  source — the misuse is caught in development, never in production.
+- *Reserved keys.* The call's return doubles as a placeable range so
+  the same call serves both output types, and the range's own reads
+  pass through the proxy: keys beginning with `$` or a digit (the
+  walker's index reads), `length` and `slice` (the resolver's copy of
+  a placed range), the node keys `t`/`h`/`p`, `then`
+  (thenable probes), and the four `Object.prototype` names an engine
+  coerces through (`constructor`, `toString`, `valueOf`, `toJSON`).
+  Every other string key — `filter`, `map`, `at`, `sort`, `join`
+  included — is a property read of the fill's output, on both faces
+  (the set is explicit, not "whatever the range has": the document
+  face's range is an array and the stream face's is not, and
+  `key in range` had let `Array.prototype` answer on one face only).
+  A fill output that uses a reserved key is a document-face dev
+  finding (`reserved-key`).
+- *A stand-in is not an argument.* `props.child({ parentId:
+  parent.id })` passes another slot's value as data the server does
+  not have; the record carries `undefined` for that arg and dev
+  says so (`arg`). Pass the server's own value, or read it in the
+  client fill from client state.
 - *The occurrence is the call, not the element.* `$key` on the call
   is occurrence identity (client state follows the entity across
   responses); `$key` on the `<li>` is morph identity for the node.
@@ -2891,9 +2910,12 @@ becomes two rows — *called, placed* (markup) and *called, read at a
 position* (data) — and the notes example's search field becomes
 `const search = props.search(); <input onInput={search.onInput}>`.
 The per-element scope §9.1 reserved for refs is now the
-per-occurrence scope every attribute slot has; events still dispatch
-through the same up-walk, resolving the occurrence's current output
-instead of a prop name.
+per-occurrence scope every attribute slot has; a handler position is
+a listener the client attaches on the consuming element itself —
+one dispatcher per (element, event), stable across fill runs, that
+reads the occurrence's current output at event time and fans out to
+every key bound at that position — and the `_bnd` up-walk goes with
+the prop-name lookup it served.
 
 **The compiler round, and why the 09-27 settlement is superseded.**
 09-27 chose spread as the only spelling because it is the one
@@ -3044,15 +3066,19 @@ the text above, the build is right and the text is amended here:
   bound off one occurrence on one element join with `,`
   (`_s:class="row#1:done=completed,row#1:editing=editing"`); a whole
   `class`/`style` read carries no `=`. Events are `_s:on:<event>`
-  with `onInput` lowercased to `input` and `on:custom` kept as
-  written — the client binds through `on:*`; refs `_s:ref`. Keys and
+  with `onInput` lowercased to `input` (the client runtime's own
+  derivation; the client attaches a listener under that name);
+  refs `_s:ref`. Keys and
   names percent-encode onto `[A-Za-z0-9_.-]`, the occurrence
   alphabet, so `:`/`=`/`,` split exactly. A zero-arg call is the
   occurrence named by the prop alone (`codeBlock:onCopy`, no `#n`) —
   one data context per prop, the notes search field's shape. The
   document face writes the value where the position would have put
-  it and the marker after; an empty class or style writes no
-  `class=""` — the marker alone says the client owns it.
+  it and the marker after. A class-name or style-property position
+  whose names all resolve empty writes no `class=""` — the marker
+  alone says the client owns it; a *whole-value* `class`/`style`
+  read writes what plain SSR writes for the value (`class=""` for
+  an empty object), so the two faces of the same template agree.
 - *Handler positions are one guarded hole per element, as Stage 6
   left them.* The compilers still collect `ref`/`on*` expressions
   into `ssrClaim({ click: expr, ref: expr })` behind
