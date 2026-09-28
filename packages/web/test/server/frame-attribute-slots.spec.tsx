@@ -272,7 +272,9 @@ describe("attribute slots — stream face", () => {
     // the module-global `sharedConfig.context` (a concurrent request).
     const words = ["hello", "world", "```", "code", "```"];
     const queue: string[] = [];
-    let notify: (() => void) | null = null;
+    // `null as …`: the declared union survives control-flow narrowing, which a
+    // typed `= null` initializer would pin to `null` at the call sites below.
+    let notify = null as (() => void) | null;
     let done = false;
     const text: AsyncIterable<string> = {
       [Symbol.asyncIterator]() {

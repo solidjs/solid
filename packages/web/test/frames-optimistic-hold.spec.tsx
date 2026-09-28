@@ -267,12 +267,14 @@ describe("optimism over server components holds until the authoritative args lan
     document.body.appendChild(container);
     const dispose = createRoot(d => {
       container.appendChild(
-        <div>
-          <span>{isPending(todos) ? "pending" : "idle"}</span>
-          <Loading fallback={<span>fallback</span>}>
-            <Todos row={(p: any) => <li>{String(p.completed)}</li>} />
-          </Loading>
-        </div>
+        (
+          <div>
+            <span>{isPending(todos) ? "pending" : "idle"}</span>
+            <Loading fallback={<span>fallback</span>}>
+              <Todos row={(p: any) => <li>{String(p.completed)}</li>} />
+            </Loading>
+          </div>
+        ) as Node
       );
       return d;
     });
