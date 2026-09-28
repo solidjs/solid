@@ -86,7 +86,7 @@ export default [
   tree("dist/prod", false, false),
   // Observe tier: the ~40 wiring sites survive (attribution hooks, `_name`,
   // edge counters, the diagnostics channel), every check folds out. Selected
-  // by the `observe` export condition. Gets its own size-limit scenario; the
+  // by the `observe` export condition. Gets its own size scenario (scripts/size/scenarios.js); the
   // prod tree's caps must not move because of it.
   tree("dist/observe", false, true)
 ];

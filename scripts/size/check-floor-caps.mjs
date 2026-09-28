@@ -1,10 +1,10 @@
 // The floor caps are frozen: a PR may lower them, never raise them, unless it
-// carries an explicit exception. size-limit enforces the caps themselves;
+// carries an explicit exception. size.mjs enforces the caps themselves;
 // this enforces that the caps did not move.
 //
 // Why a separate check: for ten weeks the floor scenarios grew through
 // individually justified 10–300 B bumps (7.1 → 9.8 KB brotli on the signals
-// floor), each recorded in .size-limit.js and none resisted. Moving the three
+// floor), each recorded in scenarios.js and none resisted. Moving the three
 // floor caps into floor-caps.json and diffing that file against the base
 // branch turns a bump from a paragraph into a decision the reviewer sees.
 //
@@ -26,7 +26,7 @@ if (!base) {
   process.exit(2);
 }
 
-// size-limit's units are decimal (1 KB = 1000 B).
+// The caps' units are decimal (1 KB = 1000 B), as size-limit's were.
 const toBytes = s => {
   const m = String(s)
     .trim()
