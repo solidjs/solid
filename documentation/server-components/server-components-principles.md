@@ -2057,23 +2057,26 @@ const [pending, setPending] = createOptimisticStore<{
 const done = (p: { id: string; completed: boolean }) =>
   pending.byId[p.id]?.completed ?? p.completed;
 
-const toggle = action(async (id: string, completed: boolean) => {
+// `yield` is the transaction-safe suspension point (a bare `await` leaves
+// the transaction — core/action.ts). The authoritative apply lands inside
+// this transaction: single-flight, the response's regions apply before
+// the yielded call resolves; multi-flight, `yield refresh(todos)` (or the
+// router's revalidation) holds it until the refetched frame has applied.
+const toggle = action(function* (id: string, completed: boolean) {
   setPending(s => { s.byId[id] = { completed }; });
-  await toggleTodo(id, completed);       // authoritative apply lands in this transaction:
-                                         // single-flight: the response's regions;
-                                         // multi-flight: refresh(Todos) / router revalidation here
+  yield toggleTodo(id, completed);
 });
-const remove = action(async (id: string) => {
+const remove = action(function* (id: string) {
   setPending(s => { s.byId[id] = { removed: true }; });
-  await deleteTodo(id);
+  yield deleteTodo(id);
 });
-const add = action(async (title: string) => {
+const add = action(function* (title: string) {
   setPending(s => { s.adds.push({ tmp: crypto.randomUUID(), title }); });
-  await createTodo(title);
+  yield createTodo(title);
 });
-const toggleAll = action(async (ids: string[], completed: boolean) => {
+const toggleAll = action(function* (ids: string[], completed: boolean) {
   setPending(s => { for (const id of ids) s.byId[id] = { completed }; });
-  await toggleAllTodos(ids, completed);
+  yield toggleAllTodos(ids, completed);
 });
 
 const Todos = dynamic(() => getTodos(filter()));
@@ -2355,16 +2358,32 @@ untouched; parity is free.
   own delegated handlers) or route into the `_bnd` binding table so
   server elements keep one event mechanism. Both ride the same
   up-walk; the one-owner rule already prevents double-fire.
-- *The flicker check, on both mutation shapes.* The authoritative
-  apply must land inside the action's transaction, so `p.completed`
-  flips before the optimistic entry releases; otherwise every
-  success flashes back for a frame. Single-flight: `applyFrameResponse`
-  runs before the call resolves — believed true, to be proved
-  against the optimistic lane timing. Multi-flight: a `refresh` of
-  the `dynamic` source (or router revalidation) inside the action
-  must hold the transaction until the refetched binding is applied —
-  the same hold `examples/todos` relies on; to be proved for frames
-  specifically. Both before anything else.
+- *The flicker check, on both mutation shapes — RUN 2026-09-27
+  (`packages/web/test/frames-optimistic-hold.spec.tsx`).* The
+  authoritative apply must land inside the action's transaction, so
+  `p.completed` flips before the optimistic entry releases; otherwise
+  every success flashes back for a frame. **Single-flight holds**:
+  `applyFlightResponse` awaits the whole body before the mutation
+  resolves, and the fill's trace reads `false/false → false/true →
+  true/true → true/true` (server/derived) — the args land under the
+  live intent, then the intent releases over agreeing truth.
+  **Multi-flight does NOT hold**: the refetch's `handle()` returns
+  the binding at response-HEADER time and applies the body detached,
+  so `yield refresh(todos)` resolves before any content arrives, the
+  transaction commits, the intent releases, and the trace reads
+  `false/false → false/true → false/false` — the flash, with the new
+  args still in flight. Root cause is the same one #2977 named for
+  address switches ("the binding resolves at header time, but the
+  header is not an answer"), for the same address: a refetch of a
+  call a boundary is SHOWING has no answer until the new content
+  applies. Fix direction (not yet made; a behavior change to flag):
+  in the transport's plain path, when `host.get(address)` has a
+  bound frame, resolve the call when `applyFrameResponse` completes
+  rather than at headers — parity with single-flight, which already
+  awaits the body. Cold mounts and switches to unbound addresses
+  keep header-time resolution (the shell gate is their hold).
+  Consequence: `isPending(source)` stays true through a showing
+  call's refetch, and `refresh()` settles when content has applied.
 - *Off-response adds under live* remain §9.2.1's convergence case.
 
 **Public surface (flagged).** No export is removed — `predict` never
