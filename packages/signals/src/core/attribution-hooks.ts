@@ -291,6 +291,34 @@ export interface NavigationRef {
    * a pending navigation to fold onto it opens a navigation of its own.
    */
   redirect?: number;
+  /**
+   * The route the document arrived on — declared by the router around the
+   * work that establishes its initial match (building its context), not
+   * around a write: there is no location write on a fresh document, and
+   * without this a consumer has the route pattern for every navigation
+   * but the first. The record opens at `at`, which defaults to `0` (the
+   * `performance.now()` origin — the document's own navigation start, so
+   * the record joins Navigation Timing); a router mounted long after the
+   * document loaded passes its own start. It settles when the frame closes,
+   * `committed` with no writes: it declares the route, it does not time the
+   * mount — the holds the mount waits in are their own records. `from` is
+   * meaningless for it and ignored.
+   */
+  initial?: boolean;
+  /**
+   * The interaction the navigation is for, when the router already knows it
+   * will not be on the stack at write time. A router that awaits between
+   * the request and the write (guards or loaders resolved in its core before
+   * it publishes the location) captures `OBSERVE.attribution.currentOrigin()`
+   * in the request and hands it back here, and the record — and every hold
+   * and re-run its write causes — joins the click as if the write had been
+   * synchronous. Any origin will do: the engine takes the interaction it
+   * carries. Declared beats ambient: the key's presence is the declaration
+   * — `interaction: currentOrigin()` with nothing in effect at the request
+   * (`undefined`) declares that the navigation was for no interaction, and an
+   * interaction on the stack at write time is used only when the key is absent.
+   */
+  interaction?: ChangeOrigin;
 }
 
 export let attrHooks: AttributionHooks | null = null;

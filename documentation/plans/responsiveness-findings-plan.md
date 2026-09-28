@@ -44,7 +44,9 @@ Two items change a contract; settle them before their code.
   the continuation are not attributed — no frame). The finding is
   `UNTRACKED_ASYNC_HANDLER`, on the hold thresholds; an `action()` step or a
   write before the `await` clears it. `@sentry/solid-2`'s `after_settle`
-  path is now dead and should go. Original question: (↔ Tracks: the Interactions track's settle span ends at
+  path narrows to the one shape this does not observe — a handler that
+  dispatches a call and returns without the promise (`save().then(set)`)
+  — and stays for it (see Consumers → Sentry). Original question: (↔ Tracks: the Interactions track's settle span ends at
   `settledMs`; D1 lengthens it. Decide before Stage 1 of that plan ships a
   shape.) Today `withInteraction` closes the frame when the synchronous
   handler returns; `onClick={async () => set(await save())}` settles as
@@ -395,7 +397,40 @@ appear, and they shape which fields the records need.
   waiting on to replace `after_settle` and to join its INP span to a cause;
   item 4's findings become issues without adapter changes. The reviewer
   brief in `getsentry/sentry-javascript` (`docs/solid-2-observe.md`) points
-  here from its open questions.
+  here from its open questions. Item 1 landed and the adapter kept
+  `after_settle`, narrowed: #3604 observes a _returned_ thenable, so
+  `onClick={() => { save().then(set) }}` still settles `idle` at once and
+  its call lands afterwards carrying the interaction's frame; the marker now
+  names exactly that shape.
+- **Parity table stake, missed by the audits above: route-parameterised
+  transaction names — LANDED (runtime).** Every peer framework SDK renames
+  the `pageload`/`navigation` idle spans to the matched route pattern
+  (`/users/:id`, source `route`); Sentry's Performance product keys on that
+  name, and the 1.x `@sentry/solid` was two files of exactly this
+  (`solidRouterBrowserTracingIntegration`, `withSentryRouterRouting`). The
+  audits asked "what can Solid observe that React cannot" and never
+  "what does a Sentry framework SDK have to do", and the e2e app had one
+  route and no router. The data was flowing for every navigation but the
+  first — `NavigationEvent.name` is the pattern — and missing on the server
+  entirely. Closed on the runtime side by one declaration a router makes
+  with the call it already uses: `withOrigin({ kind: "navigation",
+initial: true, … })` around its initial match, on both sides. Client: the
+  first `"navigation"` record (`initial: true`, `at` the time origin,
+  `writes: 0`, settled on the no-write rule, kept out of the feedback fold).
+  Server: `RenderEvent.route` on the request's `"render"` record, filed by
+  the server entry's `withOrigin` through the render context. Beside it,
+  `NavigationRef.interaction` lets a router that awaits before writing
+  (TanStack's load transaction) hand back the origin it captured with
+  `currentOrigin()`, so its write still joins the click. Router side:
+  `createRouterContext` declares the initial match. Adapter side (pending
+  the release): rename the pageload root from the initial record; drive the
+  navigation idle span from records (`instrumentNavigation: false`, start
+  at `nav.at` with the route name) instead of painting a parallel span;
+  `http.route` on the `http.server` span from `render.route`.
+  **Process fix, for the next audit:** before calling an integration
+  comparable, enumerate the peer SDKs' exports and default integrations and
+  tick them off; give the e2e app at least two routes, one parameterised,
+  so the transaction list is something a test asserts on.
 
 ## Not a runtime job
 

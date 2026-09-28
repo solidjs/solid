@@ -2263,7 +2263,12 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 16.34 KB, measured rounded up to the next 0.01 kB.
-    limit: "16.34 KB",
+    // Initial route declaration (#3683, 2026-09-28): 16.34 -> 16.35 KB, measured
+    // at 16,342 B against `next` @ 61a33af5a's 16,336 (+6 B; 0 B minified — the
+    // observe core, solid.observe.js and web.observe.js are unchanged; the change
+    // is the attribution engine's, whose property set shifts the shared mangler
+    // layout under this scenario). Every prod scenario byte-identical.
+    limit: "16.35 KB",
     alias: observeAlias
   },
   {
@@ -2607,7 +2612,18 @@ module.exports = [
     // 656f0dff6. Engine-side: the fix lives on the attribution path, and the
     // observe tier scenario above did not move; cap 30.52 KB, measured rounded
     // up to the next 0.01 kB.
-    limit: "30.52 KB",
+    // Initial route declaration (#3683, 2026-09-28): 30.52 -> 30.54 KB, measured
+    // at 30,536 B against `next` @ 61a33af5a's 30,513 (+23 B; every prod scenario
+    // byte-identical, the tier scenario above +6 B of mangler layout).
+    // `NavigationRef.initial` (the route the document arrived on: the frame
+    // opens at the time origin, takes no `from`, settles on the existing
+    // no-write rule, `initial: true` on the event and kept out of the
+    // feedback fold) and `NavigationRef.interaction` (a router that awaited
+    // before writing hands back the origin it captured; declared beats
+    // ambient), plus the `initial ` prefix in `formatOrigin`. The server
+    // side of the same declaration (`RenderEvent.route`) lives in the server
+    // artifacts, outside every scenario here.
+    limit: "30.54 KB",
     alias: observeAlias
   },
   {

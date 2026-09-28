@@ -629,7 +629,12 @@ them as `artifact.attribution.feedback` / `.costs` already.
   fast or preload it on hover/intent; a route that is always `redirected`
   into is paying a hop the link could skip. `attribution.history("navigation")`
   lists each navigation with its `outcome`, its `redirects` (the abandoned
-  destinations) and, when held, the `HoldEvent` itself.
+  destinations) and, when held, the `HoldEvent` itself. The first entry is
+  the route the document arrived on when the router declares it (`initial:
+true` on the ref, around its initial match): `initial: true`, `writes: 0`,
+  `at` the time origin — a declaration of the route, not a wait, and not a
+  row in this table. On the server the same declaration is `RenderEvent.route`
+  on the request's `"render"` record.
 - `flights` — one row per async source: `flights` started, `landed`,
   `abandoned` (superseded by a newer flight before landing), `landedMs`,
   `worstMs`. A source with many abandoned flights is re-asking on every

@@ -46,7 +46,8 @@ export type {
   InvocationLive,
   RenderEvent,
   RenderListener,
-  RenderLive
+  RenderLive,
+  RenderRoute
 } from "./observe.js";
 export type { TraceContext, TraceProvider } from "./trace.js";
 export type { JSX } from "../jsx/jsx.js";

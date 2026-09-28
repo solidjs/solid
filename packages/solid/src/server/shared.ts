@@ -1,6 +1,7 @@
 import { getOwner, getNextChildId, getContext, devPeekNextChildId } from "./signals.js";
 import type { Context } from "./signals.js";
 import type { BoundaryEvent } from "./observe.js";
+import type { NavigationRef, Observe } from "@solidjs/signals";
 
 export type SSRTemplateObject =
   | { t: string[]; h: Function[]; p: Promise<any>[] }
@@ -76,6 +77,17 @@ export type HydrationContext = {
    * `"boundary"` listener). Absent outside observe builds.
    */
   _recordBoundary?: (event: BoundaryEvent) => void;
+  /**
+   * @internal The seam a router's initial-route declaration reaches the
+   * render's `"render"` record through (`RenderEvent.route`). Set by
+   * @solidjs/web at render start in observe builds while a `"render"`
+   * listener exists; the server entry's `OBSERVE.attribution.withOrigin`
+   * calls it with an `initial` ref (there is no engine on the server — the
+   * declaration is the whole of what the call does here). The ref is kept
+   * and read when the render settles, so a match refined during the render
+   * is what lands. Absent outside observe builds.
+   */
+  _declareRoute?: (ref: NavigationRef) => void;
   /**
    * @internal Containment channel for errors surfacing in async resume loops
    * (boundary retries, flush passes), where nothing is on the stack to catch
@@ -175,3 +187,35 @@ export const sharedConfig: SharedConfig = {
 // safe to touch at top level from every entry order.
 const IS_DEV = "_SOLID_DEV_" as string | boolean;
 if (IS_DEV) sharedConfig.devPeekNextContextId = devPeekNextChildId;
+
+/**
+ * Gives the core's `OBSERVE.attribution.withOrigin` its one server meaning.
+ * The server reimplements reactivity and installs no attribution engine, so
+ * the core's `withOrigin` is `fn()` here; a router calls it the same way on
+ * both sides, and the initial-route declaration it makes while building its
+ * context under a render is the fact the server has nowhere else to learn
+ * — the route a request resolved to, for the request's `"render"` record
+ * (`RenderEvent.route`). Filed through the render context's `_declareRoute`
+ * seam, which @solidjs/web installs while a `"render"` listener exists; a
+ * non-initial ref (nothing writes a location on the server) and a call
+ * outside a render are `fn()` as before. A host that bundles the runtime
+ * twice (two copies of this entry over one core) wraps twice, each copy
+ * reading its own `sharedConfig` — only the copy running the render has a
+ * context, so the declaration lands once, on that render. Called from the
+ * server entry under `_SOLID_OBSERVE_`.
+ */
+export function installServerWithOrigin(observe: Observe): void {
+  const slot = observe.attribution;
+  const inner = slot.withOrigin;
+  observe.attribution = {
+    get installed() {
+      return slot.installed;
+    },
+    withInteraction: slot.withInteraction,
+    currentOrigin: slot.currentOrigin,
+    withOrigin<T>(ref: NavigationRef, fn: () => T): T {
+      if (ref.initial === true) sharedConfig.context?._declareRoute?.(ref);
+      return inner(ref, fn);
+    }
+  };
+}

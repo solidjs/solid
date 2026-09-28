@@ -5613,6 +5613,10 @@ function peekRequestEvent() {
 function timeDocument(context, trace, mode, requestEvent) {
   if (!"_SOLID_OBSERVE_" || records() === undefined) return undefined;
   const render = observeRender(trace, mode, requestEvent);
+  // The router's initial-route declaration (the server entry's `withOrigin`
+  // files it here) lands on the render record: under the record's own gate,
+  // since the record is its only reader.
+  if (render) context._declareRoute = ref => render.route(ref);
   if (timesServerWork("boundary")) {
     context._recordBoundary = event => {
       trace.timing.push({ type: "boundary", event });

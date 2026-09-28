@@ -136,7 +136,8 @@ export type {
   InvocationLive,
   RenderEvent,
   RenderListener,
-  RenderLive
+  RenderLive,
+  RenderRoute
 } from "./observe.js";
 // The trace context's types (`getTraceContext()`, `OBSERVE.server.trace`),
 // with the `ServerObserve.trace` augmentation, for the same reason.
