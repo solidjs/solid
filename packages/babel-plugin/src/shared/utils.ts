@@ -866,6 +866,13 @@ export function transformSpecialCaseAttributes(
         child.extra = { raw: text, rawValue: text };
       } else {
         child = t.jsxExpressionContainer(value);
+        // The folded value is the textarea's text content on the server, but
+        // the client writes it as a plain `value` property effect that never
+        // allocates a hydration id. Flag it like the innerHTML/textContent
+        // redirects (#3015) so the SSR child pipeline skips the `_$scope` id
+        // reservation — otherwise the reservation shifts every keyed sibling
+        // after the textarea by one id (#3691).
+        (child as t.JSXExpressionContainer & { _childProperty?: boolean })._childProperty = true;
       }
       path.node.children = [child];
       attr.remove();

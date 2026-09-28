@@ -1,0 +1,5 @@
+{
+  "name": "textarea-value-id-parity",
+  "shell": "<main _hk=0><textarea>test</textarea><!--$--><button _hk=1>0</button><!--/--></main>",
+  "rest": ""
+}
