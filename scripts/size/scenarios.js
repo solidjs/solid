@@ -2336,17 +2336,18 @@ module.exports = [
     // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
     // 16.36 KB, measured at 16,355 B against `next` @ f1b07761f's 16,356 (-1 B;
     // -3 B minified). Same parking-gate change as the CSR note.
-    // Records channel bodies opt-in (2026-09-28, the `OBSERVE.include` PR's
-    // review pass): 16.36 -> 16.47 KB, measured at 16,467 B against the PR's
-    // first commit (1e4c4bcf1) at 16,353 (+114 B; +235 B minified, all of it
-    // the observe core: 39,686 -> 39,910). `subscribe(type, fn, { bodies })`
+    // `OBSERVE.include` and the records channel's bodies opt-in (#3705,
+    // 2026-09-28): 16.36 -> 16.48 KB, measured at 16,477 B against `next` @
+    // 695836771's 16,355 (+122 B; +281 B minified, all of it the observe
+    // core). `include` is the inverse of `exclude` — the marker set becomes
+    // a WeakMap<Owner, boolean> and `isExcluded` answers by the nearest
+    // marked ancestor (+46 B minified). `subscribe(type, fn, { bodies })`
     // keeps, per type, the set of listeners that asked for bodies, and
     // `observed(type, "bodies")` is that set's gate — so the "call" record's
     // request reconstruction and response clone are taken only for a body
-    // viewer, never for an APM-style listener. (The PR's first commit had
-    // moved this scenario -3 B, to 16,353, for `OBSERVE.include` — see the
-    // engine scenario's note below.) Every prod scenario byte-identical.
-    limit: "16.47 KB",
+    // viewer, never for an APM-style listener (+235 B minified). Every prod
+    // scenario byte-identical.
+    limit: "16.48 KB",
     alias: observeAlias
   },
   {
@@ -2709,20 +2710,16 @@ module.exports = [
     // measured at 30,609 B against `next` @ f1b07761f's 30,596 (+13 B; 9 B over
     // the cap; -3 B minified) — `recompute`'s parking gate drops its
     // effect-only term; brotli layout, see the hydrating (no stores) note.
-    // `OBSERVE.include` (2026-09-28): 30.60 -> 30.67 KB, measured at 30,664 B
-    // against `next` @ d0e487b6f's 30,596 (+68 B; +46 B minified). The
-    // inverse of `exclude`: the marker set becomes a WeakMap<Owner, boolean>
-    // and `isExcluded` answers by the nearest marked ancestor, so a devtools
-    // shell rendered AROUND the app can hand the app back to the engine.
-    // The observe tier scenario above -3 B (brotli layout on +46 B minified);
-    // every prod scenario byte-identical.
-    // Records channel bodies opt-in (2026-09-28, the same PR's review pass):
-    // 30.67 -> 30.72 KB, measured at 30,712 B against the PR's first commit
-    // (1e4c4bcf1) at 30,664 (+48 B; +235 B minified — the observe core's
-    // channel change the observe tier note above describes, compressing
-    // better under the engine's layout). No engine change; every prod
-    // scenario byte-identical.
-    limit: "30.72 KB",
+    // `OBSERVE.include` and the records channel's bodies opt-in (#3705,
+    // 2026-09-28): 30.61 -> 30.71 KB, measured at 30,701 B against `next` @
+    // 695836771's 30,609 (+92 B; +281 B minified — the same observe-core
+    // change the observe tier note above describes, compressing better under
+    // the engine's layout). `include` is the inverse of `exclude`: the
+    // marker set becomes a WeakMap<Owner, boolean> and `isExcluded` answers
+    // by the nearest marked ancestor, so a devtools shell rendered AROUND
+    // the app can hand the app back to the engine. No engine change; every
+    // prod scenario byte-identical.
+    limit: "30.71 KB",
     alias: observeAlias
   },
   {
