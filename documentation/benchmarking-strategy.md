@@ -231,6 +231,12 @@ for Tier 1:
 - `js-reactivity-benchmark` for Node-side reactivity regressions.
 - DBMon / Sierpinski / per-app demos for paint/layout-sensitive
   scenarios — used ad hoc.
+- `yak-bench` (`ryansolid/yak-bench`) for props composition and SSR
+  element shapes: a CSS-in-JS library's runtime built against Solid
+  primitives vs its hand-rolled versions vs React, SSR and Chromium
+  hydrate/mount, with `SOLID_DIR` A/Bs of a local checkout. Instruments
+  and rulings in the
+  [Props Composition Lane](./performance-experiments.md#props-composition-lane-2026-09-12--2026-09-28-the-yak-tracker).
 
 ### Roadmap (Tier 2 first, Tier 1 on demand)
 
