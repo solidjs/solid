@@ -422,6 +422,10 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 9922 -> 9506 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 9.51 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 9506 -> 9508 B (+2 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 9.51 KB, measured rounded up to the next 0.01 kB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
@@ -789,7 +793,11 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 17260 -> 16504 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 16.51 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
-    limit: "16.51 KB",
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 16504 -> 16584 B (+80 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 16.59 KB, measured rounded up to the next 0.01 kB.
+    limit: "16.59 KB",
     alias
   },
   {
@@ -991,7 +999,11 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 12673 -> 12119 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 12.12 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
-    limit: "12.12 KB",
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 12119 -> 12154 B (+35 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 12.16 KB, measured rounded up to the next 0.01 kB.
+    limit: "12.16 KB",
     alias
   },
   {
@@ -1151,6 +1163,10 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 12744 -> 12039 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 12.04 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 12039 -> 12047 B (+8 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 12.05 KB, measured rounded up to the next 0.01 kB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     alias
   },
@@ -1426,6 +1442,10 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 21416 -> 19606 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 19.61 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 19606 -> 19623 B (+17 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 19.63 KB, measured rounded up to the next 0.01 kB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1780,16 +1800,17 @@ module.exports = [
     // `mapArray`'s per-PASS pick — one `_laneSlots` mark per map,
     // `_landOnOverride` while a lane is live, `setSignal` otherwise. Core
     // floor 0 B.
-    // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31786 -> 30213 B
-    // on the same artifacts (next @ cad2ce724); cap re-based to 30.22 KB, measured
-    // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31786 -> 30354 B
     // (next @ cad2ce724; the esbuild figure is from artifacts predating #3674,
     // whose store-family cost upstream's 31.87 cap already carried — Linux CI
     // and macOS agree on the Rolldown number to the byte); cap re-based to
     // 30.36 KB, measured rounded up to the next 0.01 kB. Deltas across this
     // line are not comparable.
-    limit: "30.36 KB",
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 30354 -> 30480 B (+126 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 30.48 KB, measured rounded up to the next 0.01 kB.
+    limit: "30.48 KB",
     alias
   },
   {
@@ -1988,7 +2009,11 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 16025 -> 14871 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 14.88 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
-    limit: "14.88 KB",
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 14871 -> 14909 B (+38 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 14.91 KB, measured rounded up to the next 0.01 kB.
+    limit: "14.91 KB",
     alias
   },
   {
@@ -2221,7 +2246,11 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 17822 -> 16294 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 16.30 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
-    limit: "16.30 KB",
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 16294 -> 16336 B (+42 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 16.34 KB, measured rounded up to the next 0.01 kB.
+    limit: "16.34 KB",
     alias: observeAlias
   },
   {
@@ -2556,7 +2585,11 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 31943 -> 30471 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 30.48 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
-    limit: "30.48 KB",
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 30471 -> 30453 B (-18 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 30.46 KB, measured rounded up to the next 0.01 kB.
+    limit: "30.46 KB",
     alias: observeAlias
   },
   {
@@ -2674,6 +2707,8 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 12410 -> 11768 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 11.77 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 11768 -> 11768 B, unchanged
+    // by the three signals fixes that landed since (#3678, #3684, #3682); cap stays.
     limit: "11.77 KB",
     alias: framesAlias,
     external: framesExternal
@@ -2714,6 +2749,10 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 46852 -> 44635 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 44.64 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 44635 -> 44726 B (+91 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 44.73 KB, measured rounded up to the next 0.01 kB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2740,6 +2779,10 @@ module.exports = [
     // Bundler switch, esbuild -> Rolldown 1.2.11 (2026-09-26): 51156 -> 48802 B
     // on the same artifacts (next @ cad2ce724); cap re-based to 48.81 KB, measured
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
+    // Rebased onto `next` @ ee49b3eee (2026-09-28): 48802 -> 48976 B (+174 B) — the
+    // three signals fixes that landed since the switch was measured (#3678 F3/F5,
+    // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
+    // cap 48.98 KB, measured rounded up to the next 0.01 kB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }

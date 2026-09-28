@@ -19,7 +19,7 @@ density audit, comes next.
 **Harness switched to Rolldown (2026-09-26, later that night).** Every number in this document
 is an esbuild number (size-limit's bundler). The harness now bundles with Rolldown — what Vite
 ships — and every cap was re-based; Rolldown lands 4–9% lower on the same artifacts (floor
-9,922 → 9,506; base SC page 46,852 → 44,635; live 51,156 → 48,802). Deltas in the tables here
+9,922 → 9,506; base SC page 46,852 → 44,635; live 51,156 → 48,802 at `next` @ cad2ce724; rebased onto ee49b3eee: 9,508 / 44,726 / 48,976). Deltas in the tables here
 stay valid as deltas; absolute targets should be read against the Rolldown caps in
 `scripts/size/floor-caps.json`.
 
