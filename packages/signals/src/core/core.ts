@@ -320,8 +320,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // until this node's commit — a transaction-owned node included (#3404):
     // a parked node's children predate the hold, and tearing them down when
     // the source lands ran cleanups before the transaction's atomic reveal.
-    // A lane pass on an effect parks a LANE frame instead (CONFIG_LANE_FRAME,
-    // #3662; A15 lanes corollary): the frame it replaces leaves the screen
+    // A lane pass parks a LANE frame instead (CONFIG_LANE_FRAME, #3662; A15
+    // lanes corollary): the frame it replaces leaves the screen
     // when the lane's queue applies this run (A30) — not at the action's
     // commit — and a held lane defers that with the frame still displayed.
     // The drain is the lane's first render entry for this pass, pushed before
@@ -340,7 +340,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._disposal = null;
       el._firstChild = null;
       el._childCount = 0;
-      if (isEffect && lane) {
+      if (lane) {
         el._config |= CONFIG_LANE_FRAME;
         findLane(lane)._effectQueues[0].push(() => {
           el._config &= ~CONFIG_LANE_FRAME;
