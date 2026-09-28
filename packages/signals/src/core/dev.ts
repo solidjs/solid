@@ -341,7 +341,12 @@ export interface Records {
    * subscription is the channel's, not any emitter's: it outlives the
    * attribution engine's `enable()`/`disable()` cycles and is dropped only
    * by its own unsubscribe. `options` asks the emitter for more than the
-   * record — see `RecordSubscribeOptions`.
+   * record — see `RecordSubscribeOptions`. One entry per listener function:
+   * its options are read at its first subscription to the type, a repeat
+   * subscription of the same function changes nothing, and either disposer
+   * removes it. What an emitter takes is decided once per record from the
+   * union of the type's subscribers, so a listener without `bodies` that
+   * shares a call with one that asked receives the same `live` — the clone.
    */
   subscribe<K extends RecordType>(
     type: K,
@@ -557,7 +562,12 @@ const attributionSlot: AttributionSlot = {
 // holds two of this module, and a listener installed through one must hear
 // the records the render emits through the other. The registered key makes
 // every copy find the one listener set; the object is generic — a Map of
-// type to listener list — and carries no knowledge of the records.
+// type to listener list — and carries no knowledge of the records. It is
+// created by whichever copy touches the key first, and its capabilities are
+// that copy's: the packages version together, so no version stamp — with
+// two copies at different versions the channel behaves as the older one
+// (a pre-`bodies` copy reached first knows no bodies set, and takes bodies
+// for every `"call"` listener).
 //
 // Delivery is the hot path: the attribution engine emits a `rerun` record
 // per recompute through here, so `emit` must allocate nothing. The listener

@@ -317,7 +317,12 @@ export interface CallLive {
    * true`, served for the stream's life — its clone, taken before the
    * result's shape was known, is cancelled at settle), and a response the
    * `clone()` refused (one a configured `fetch` handed over already read).
-   * Absent when the fetch itself rejected.
+   * A response a `responseHandler` claimed whose result is not a deferred
+   * body — a non-live `application/x-frame-stream` frame render the frames
+   * transport claims, say — keeps its clone, so under the opt-in the
+   * clone's branch buffers that render until the listener reads it or
+   * drops the record; live frames are `text/event-stream` and are never
+   * cloned. Absent when the fetch itself rejected.
    */
   response?: Response;
   /** The settled value, when `outcome` is `"ok"`. */
