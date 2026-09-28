@@ -2119,10 +2119,12 @@ transaction, however it arrives.*
   router's revalidation inside the action — so the transaction stays
   open until the new binding is delivered and applied. This is
   exactly how `examples/todos` holds today (`yield api.toggleTodo`,
-  then `refresh(todos)`); frames need `dynamic`'s source to
-  participate the way any async memo does. Without the hold,
-  `done(p)` flashes back to the old `p.completed` between the POST
-  resolving and the refetch landing.
+  then `refresh(todos)`). Without the hold, `done(p)` flashes back
+  to the old `p.completed` between the POST resolving and the
+  refetch landing — which is what the transport did until
+  2026-09-27: a refetch resolved at the response header. It now
+  settles when the response has applied for a call a boundary is
+  showing (see the flicker check below).
 - *Live (off-response).* Nothing to hold on; the transaction settles
   when the mutation returns and truth arrives on the stream. `until()`
   on the data face is the author's hold if wanted; otherwise it is
@@ -2376,14 +2378,20 @@ untouched; parity is free.
   address switches ("the binding resolves at header time, but the
   header is not an answer"), for the same address: a refetch of a
   call a boundary is SHOWING has no answer until the new content
-  applies. Fix direction (not yet made; a behavior change to flag):
-  in the transport's plain path, when `host.get(address)` has a
-  bound frame, resolve the call when `applyFrameResponse` completes
+  applies. **Fixed the same night** in the transport's plain path
+  (`frame-transport.ts`, `handle()`): when `host.get(address)` has a
+  bound frame, the call resolves when `applyFrameResponse` completes
   rather than at headers — parity with single-flight, which already
   awaits the body. Cold mounts and switches to unbound addresses
-  keep header-time resolution (the shell gate is their hold).
-  Consequence: `isPending(source)` stays true through a showing
-  call's refetch, and `refresh()` settles when content has applied.
+  keep header-time resolution (the mount needs the binding to place
+  the boundary; the shell gate is their hold). With it the
+  multi-flight trace matches single-flight's exactly, and a
+  revalidation-shaped refetch (an upstream write re-asking the same
+  call) reads `isPending(source)` true until the new content has
+  applied — the same tearing #2977 closed for switches, closed for
+  the same address. (`refresh()` itself stays verdict-quiet by
+  design; its promise is what now settles on apply.) Both mutation
+  shapes hold.
 - *Off-response adds under live* remain §9.2.1's convergence case.
 
 **Public surface (flagged).** No export is removed — `predict` never

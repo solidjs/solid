@@ -752,7 +752,7 @@ export function createServerComponentHandler({ host, component, onStream, interc
       }
       const version = bump(address);
       if (onStream) onStream(address, version, response);
-      applyFrameResponse(response, host, { as: address, version }).catch(err =>
+      const applied = applyFrameResponse(response, host, { as: address, version }).catch(err =>
         host.apply({
           type: "error",
           id: address,
@@ -760,7 +760,19 @@ export function createServerComponentHandler({ host, component, onStream, interc
           error: { message: String(err && err.message) }
         })
       );
-      return binding;
+      // A refetch of a call a boundary is SHOWING settles when its response
+      // has applied, not at the header. The header is not an answer (#2977
+      // said it for address switches; this is the same address): until the
+      // new content lands the boundary still shows the previous render, so
+      // a reader that drove the refetch — `isPending(source)`, a `refresh`
+      // inside an action's transaction holding an optimistic write over the
+      // old slot args (§9.2.2) — must keep reading pending or it tears. The
+      // hold is the whole body, as a single-flight mutation's already is.
+      // A cold mount or a switch to an address nothing shows keeps
+      // header-time resolution: the mount needs the binding to place the
+      // boundary and the shell gate is its hold — settling those late would
+      // block progressive streaming behind a completed body.
+      return host.get(address) ? applied.then(() => binding) : binding;
     },
 
     /**
