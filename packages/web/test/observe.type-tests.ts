@@ -18,6 +18,7 @@ import {
   type BoundaryEvent,
   type BoundaryLive,
   type ChangeOrigin,
+  type RecordSubscribeOptions,
   type RecordType,
   type Records,
   type RecoveryEvent,
@@ -151,6 +152,32 @@ observe.records.subscribe("call", (event, live) => {
   live.args satisfies unknown[];
   live.response satisfies Response | undefined;
 });
+
+// The bodies opt-in: an options bag on `subscribe`, accepted for any type
+// (the channel is generic; meaningful for "call" today), and the facet on
+// `observed` an emitter asks with.
+observe.records.subscribe(
+  "call",
+  (event, live) => {
+    event satisfies CallEvent;
+    live.request satisfies Request | undefined;
+  },
+  { bodies: true }
+) satisfies () => void;
+observe.records.subscribe("call", () => {}, { bodies: false });
+observe.records.subscribe("call", () => {}, {});
+observe.records.subscribe("invocation", () => {}, { bodies: true });
+observe.records.subscribe("rerun", () => {}, { bodies: true });
+({ bodies: true }) satisfies RecordSubscribeOptions;
+// @ts-expect-error the one option is `bodies`
+observe.records.subscribe("call", () => {}, { bodys: true });
+// @ts-expect-error a boolean, not a mode
+observe.records.subscribe("call", () => {}, { bodies: "request" });
+observe.records.observed("call") satisfies boolean;
+observe.records.observed("call", "bodies") satisfies boolean;
+observe.records.observed("invocation", "bodies") satisfies boolean;
+// @ts-expect-error the one facet is "bodies"
+observe.records.observed("call", "headers");
 
 // The engine's one query, on the core's attribution slot: what the call
 // record is stamped with, typed as the same origin.

@@ -21,7 +21,12 @@
 //    `error` with the failure beside it; several streams in one response:
 //    one record each;
 //  - a listener cannot break the call or the stream; without one nothing is
-//    read.
+//    read;
+//  - the call's bodies (`live.request`, an unread `live.response`) are taken
+//    only for a listener that asked (`{ bodies: true }`): a plain listener
+//    gets the transport's own response and no request; the reconstruction
+//    and the clone never fail the call, and a deferred result's clone is
+//    released at settle.
 //
 // The channel is the core's, reached by its registered symbol (this runtime
 // imports no framework): `OBSERVE.records` from `solid-js` IS what the
@@ -35,13 +40,15 @@ import type { CallEvent, CallLive, FrameEvent, FrameLive } from "@solidjs/web";
 import {
   GET,
   configureServerFunctionsClient,
-  createServerReference
+  createServerReference,
+  getServerFunctionsCodec
 } from "../server-functions/src/client.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
-  createChunk
+  createChunk,
+  serializeStream
 } from "../server-functions/src/shared.js";
 import { applyFrameResponse } from "../frames/src/frame-transport.js";
 
@@ -54,14 +61,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function calls() {
+/**
+ * A `"call"` listener; `{ bodies: true }` asks for the live handles a body
+ * viewer reads (the request reconstruction, the unread response clone),
+ * which a plain listener is not charged for.
+ */
+function calls(options?: { bodies?: boolean }) {
   const seen: Array<{ event: CallEvent; live: CallLive }> = [];
   unsubscribes.push(
-    OBSERVE!.records.subscribe("call", (event, live) => {
-      seen.push({ event, live });
-    })
+    OBSERVE!.records.subscribe(
+      "call",
+      (event, live) => {
+        seen.push({ event, live });
+      },
+      options
+    )
   );
   return seen;
+}
+
+/** The transport's client configuration as the suite found it. */
+function resetClientConfig() {
+  configureServerFunctionsClient({
+    endpoint: "/_server",
+    fetch: null as any,
+    prepareRequest: init => init,
+    responseHandler: null as any
+  });
 }
 
 function frames() {
@@ -127,9 +153,50 @@ describe("the call record", () => {
   });
 
   // The body-viewer half (devtools' network panel): the request as sent and
-  // the response as it arrived, both the listener's own to read.
-  test("the request as dispatched: final url, method, transport headers, a readable body", async () => {
+  // the response as it arrived, both the listener's own to read — taken only
+  // for a listener that asked (`{ bodies: true }`). A plain listener costs
+  // the call neither the reconstruction nor the clone: it gets no request
+  // and the transport's own response, as before the handles existed.
+  test("without the opt-in: no request, the transport's own response, nothing built or cloned", async () => {
     const seen = calls();
+    const clone = vi.spyOn(Response.prototype, "clone");
+    const NativeRequest = Request;
+    let constructed = 0;
+    vi.stubGlobal(
+      "Request",
+      class extends NativeRequest {
+        constructor(...args: ConstructorParameters<typeof Request>) {
+          constructed++;
+          super(...args);
+        }
+      }
+    );
+    const arrived = jsonResponse({ n: 7 });
+    vi.stubGlobal("fetch", async () => arrived);
+    expect(await createServerReference("records/plain")({ a: 1 })).toEqual({ n: 7 });
+    const { event, live } = seen[0];
+    expect(event.status).toBe(200);
+    expect(live.request).toBeUndefined();
+    expect(live.response).toBe(arrived);
+    expect(live.response!.bodyUsed).toBe(true);
+    expect(clone).not.toHaveBeenCalled();
+    expect(constructed).toBe(0);
+  });
+
+  test("the opt-in is per listener: a plain listener beside a bodies one, both get the handles", async () => {
+    // Whether bodies are taken is the call's — asked once at its start of
+    // the channel, not per listener — so both hear the same record.
+    const plain = calls();
+    const viewer = calls({ bodies: true });
+    vi.stubGlobal("fetch", async () => jsonResponse(1));
+    await createServerReference("records/shared")();
+    expect(plain[0].live).toBe(viewer[0].live);
+    expect(plain[0].live.request).toBeInstanceOf(Request);
+    expect(plain[0].live.response!.bodyUsed).toBe(false);
+  });
+
+  test("the request as dispatched: final url, method, transport headers, a readable body", async () => {
+    const seen = calls({ bodies: true });
     let sent!: { address: string; init: RequestInit };
     vi.stubGlobal("fetch", async (address: string, init: RequestInit) => {
       sent = { address, init };
@@ -149,7 +216,7 @@ describe("the call record", () => {
   });
 
   test("the request carries what prepareRequest added; a streaming body is left to the send", async () => {
-    const seen = calls();
+    const seen = calls({ bodies: true });
     let received!: RequestInit;
     vi.stubGlobal("fetch", async (_: string, init: RequestInit) => {
       received = init;
@@ -182,12 +249,12 @@ describe("the call record", () => {
       expect(upload.locked).toBe(false);
       expect(await new Response(upload).text()).toBe("chunk");
     } finally {
-      configureServerFunctionsClient({ prepareRequest: init => init });
+      resetClientConfig();
     }
   });
 
   test("a call that failed before the request was built has no request", async () => {
-    const seen = calls();
+    const seen = calls({ bodies: true });
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     // No rich-args codec is configured: a non-JSON argument fails serialization.
@@ -200,7 +267,7 @@ describe("the call record", () => {
   });
 
   test("the response body is the listener's to read, unread, while the caller gets its result", async () => {
-    const seen = calls();
+    const seen = calls({ bodies: true });
     vi.stubGlobal("fetch", async () => jsonResponse({ n: 42 }));
     expect(await createServerReference("records/body")()).toEqual({ n: 42 });
     const { response } = seen[0].live;
@@ -209,12 +276,206 @@ describe("the call record", () => {
   });
 
   test("an event-stream response is the transport's own object, not a clone", async () => {
-    const seen = calls();
+    const seen = calls({ bodies: true });
     const stream = jsonResponse("live", { headers: { "content-type": "text/event-stream" } });
     vi.stubGlobal("fetch", async () => stream);
     expect(await createServerReference("records/stream")()).toBe("live");
     expect(seen[0].live.response).toBe(stream);
     expect(seen[0].live.response!.bodyUsed).toBe(true);
+  });
+
+  test("a deferred result (a generator's stream): the clone is released at settle, the response is the transport's", async () => {
+    const seen = calls({ bodies: true });
+    // A real streamed result, framed as the server frames one (the codec's
+    // chunk stream, `text/plain` + Serialized), still producing when the
+    // call settles: the caller gets the iterable at the first chunk and
+    // drives the rest. Its clone would buffer every later chunk for nobody
+    // (#3244) — so the record releases it once the settle shows the shape.
+    let released!: () => void;
+    const gate = new Promise<void>(r => (released = r));
+    async function* produce() {
+      yield 1;
+      await gate;
+      yield 2;
+      yield 3;
+    }
+    const arrived = new Response(serializeStream(produce(), getServerFunctionsCodec()), {
+      headers: { "content-type": "text/plain", [BODY_FORMAT_HEADER]: BodyFormat.Serialized }
+    });
+    const clones: Response[] = [];
+    const nativeClone = Response.prototype.clone;
+    vi.spyOn(Response.prototype, "clone").mockImplementation(function (this: Response) {
+      const clone = nativeClone.call(this);
+      clones.push(clone);
+      return clone;
+    });
+    vi.stubGlobal("fetch", async () => arrived);
+
+    const result = (await createServerReference("records/deferred")()) as AsyncIterable<number>;
+    expect(seen).toHaveLength(1);
+    const { event, live } = seen[0];
+    expect(event.outcome).toBe("ok");
+    expect(event.deferred).toBe(true);
+    expect(event.status).toBe(200);
+    // The clone was taken at arrival — the shape was not known then — and
+    // is not what the listener gets.
+    expect(clones).toHaveLength(1);
+    expect(live.response).toBe(arrived);
+    expect(live.response!.bodyUsed).toBe(true);
+    // Released: its branch reads as done at once, while the producer is
+    // still parked before its second chunk — nothing is queued for it.
+    const branch = clones[0].body!;
+    expect(branch.locked).toBe(false);
+    expect(await branch.getReader().read()).toEqual({ done: true, value: undefined });
+    // The caller's stream is untouched by the release.
+    released();
+    const values: number[] = [];
+    for await (const value of result) values.push(value);
+    expect(values).toEqual([1, 2, 3]);
+  });
+
+  test("a FormData body and a binary body are reconstructed whole and readable", async () => {
+    const seen = calls({ bodies: true });
+    vi.stubGlobal("fetch", async () => jsonResponse(1));
+    const form = new FormData();
+    form.append("title", "hello");
+    form.append("count", "2");
+    await createServerReference("records/form")(form);
+    const formRequest = seen[0].live.request!;
+    expect(formRequest.headers.get(BODY_FORMAT_HEADER)).toBe(BodyFormat.FormData);
+    const readBack = await formRequest.formData();
+    expect(readBack.get("title")).toBe("hello");
+    expect(readBack.get("count")).toBe("2");
+    // The transport's own FormData is not consumed by the read.
+    expect(form.get("title")).toBe("hello");
+
+    const bytes = new Uint8Array([1, 2, 3, 250]);
+    const blob = new Blob([bytes], { type: "application/octet-stream" });
+    await createServerReference("records/blob")(blob);
+    const blobRequest = seen[1].live.request!;
+    expect(blobRequest.headers.get(BODY_FORMAT_HEADER)).toBe(BodyFormat.Blob);
+    expect(new Uint8Array(await blobRequest.arrayBuffer())).toEqual(bytes);
+  });
+
+  test("an error response's body is readable through live.response", async () => {
+    const seen = calls({ bodies: true });
+    vi.stubGlobal("fetch", async () => jsonResponse({ message: "nope" }, { status: 500 }, true));
+    await expect(createServerReference("records/error-body")()).rejects.toBeDefined();
+    const { event, live } = seen[0];
+    expect(event).toMatchObject({ outcome: "error", status: 500 });
+    expect(live.response!.status).toBe(500);
+    expect(live.response!.bodyUsed).toBe(false);
+    expect(await live.response!.json()).toEqual({ message: "nope" });
+  });
+
+  // Nothing taken for the record may fail the call: the reconstruction and
+  // the clone can each be refused by the platform where the transport's own
+  // send and handler were not — the handle is then simply absent.
+  test("a reconstruction the Request constructor refuses: the call resolves, the request is absent", async () => {
+    const seen = calls({ bodies: true });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // A header NAME `new Request` rejects; the configured `fetch` is a
+      // hand-rolled transport that tolerates it.
+      configureServerFunctionsClient({
+        prepareRequest: init => ({
+          ...init,
+          headers: { ...(init.headers as Record<string, string>), "bad header": "x" }
+        }),
+        fetch: async (_address, init) => {
+          expect((init!.headers as Record<string, string>)["bad header"]).toBe("x");
+          return jsonResponse("tolerated");
+        }
+      });
+      expect(await createServerReference("records/bad-header")()).toBe("tolerated");
+      expect(seen).toHaveLength(1);
+      expect(seen[0].event.outcome).toBe("ok");
+      expect(seen[0].live.request).toBeUndefined();
+      expect(seen[0].live.response!.bodyUsed).toBe(false);
+      expect(error).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      resetClientConfig();
+    }
+  });
+
+  test("a response clone() refuses (already read, claimed by the handler): the call resolves with the transport's object", async () => {
+    const seen = calls({ bodies: true });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const consumed = jsonResponse({ n: 1 });
+      await consumed.text();
+      configureServerFunctionsClient({
+        fetch: async () => consumed,
+        responseHandler: { handle: () => "claimed" }
+      });
+      expect(await createServerReference("records/consumed")()).toBe("claimed");
+      expect(seen).toHaveLength(1);
+      const { event, live } = seen[0];
+      expect(event).toMatchObject({ outcome: "ok", status: 200 });
+      expect(live.response).toBe(consumed);
+      expect(live.result).toBe("claimed");
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      resetClientConfig();
+    }
+  });
+
+  test("an async-iterable upload reaches the send unopened; the reconstructed request is bodyless", async () => {
+    const seen = calls({ bodies: true });
+    let received!: RequestInit;
+    vi.stubGlobal("fetch", async (_: string, init: RequestInit) => {
+      received = init;
+      return jsonResponse(1);
+    });
+    let opened = 0;
+    const upload = {
+      [Symbol.asyncIterator]() {
+        opened++;
+        return (async function* () {
+          yield new TextEncoder().encode("chunk");
+        })();
+      }
+    };
+    try {
+      // The transport's streaming-upload contract admits an async iterable
+      // beside a ReadableStream; a Request over either would compete with
+      // the send for it.
+      configureServerFunctionsClient({
+        prepareRequest: init => ({ ...init, body: upload as any, duplex: "half" }) as RequestInit
+      });
+      await createServerReference("records/iterable")();
+      expect(received.body).toBe(upload);
+      expect(opened).toBe(0);
+      const { request } = seen[0].live;
+      expect(request).toBeInstanceOf(Request);
+      expect(request!.body).toBeNull();
+    } finally {
+      resetClientConfig();
+    }
+  });
+
+  test("a relative address with no location to resolve it against: no request; an absolute one reconstructs", async () => {
+    const seen = calls({ bodies: true });
+    vi.stubGlobal("fetch", async () => jsonResponse(1));
+    vi.stubGlobal("location", undefined);
+    expect(globalThis.location).toBeUndefined();
+    try {
+      // The default endpoint is relative: a URL the transport never sent
+      // (`http://localhost/...`) is worse than none.
+      await createServerReference("records/relative")();
+      expect(seen[0].event.outcome).toBe("ok");
+      expect(seen[0].live.request).toBeUndefined();
+      // An absolute endpoint needs no base.
+      configureServerFunctionsClient({ endpoint: "https://api.example.com/_server" });
+      await createServerReference("records/absolute")();
+      expect(seen[1].live.request!.url).toBe(
+        "https://api.example.com/_server/data/records%2Fabsolute"
+      );
+    } finally {
+      resetClientConfig();
+    }
   });
 
   test("the reference's source name rides on the record; an unnamed reference carries none", async () => {

@@ -203,6 +203,7 @@ export type {
   RecordEvent,
   RecordLive,
   RecordListener,
+  RecordSubscribeOptions,
   AttributionSlot,
   InteractionRef,
   NavigationRef,

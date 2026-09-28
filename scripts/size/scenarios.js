@@ -2336,7 +2336,17 @@ module.exports = [
     // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
     // 16.36 KB, measured at 16,355 B against `next` @ f1b07761f's 16,356 (-1 B;
     // -3 B minified). Same parking-gate change as the CSR note.
-    limit: "16.36 KB",
+    // Records channel bodies opt-in (2026-09-28, the `OBSERVE.include` PR's
+    // review pass): 16.36 -> 16.47 KB, measured at 16,467 B against the PR's
+    // first commit (1e4c4bcf1) at 16,353 (+114 B; +235 B minified, all of it
+    // the observe core: 39,686 -> 39,910). `subscribe(type, fn, { bodies })`
+    // keeps, per type, the set of listeners that asked for bodies, and
+    // `observed(type, "bodies")` is that set's gate — so the "call" record's
+    // request reconstruction and response clone are taken only for a body
+    // viewer, never for an APM-style listener. (The PR's first commit had
+    // moved this scenario -3 B, to 16,353, for `OBSERVE.include` — see the
+    // engine scenario's note below.) Every prod scenario byte-identical.
+    limit: "16.47 KB",
     alias: observeAlias
   },
   {
@@ -2706,7 +2716,13 @@ module.exports = [
     // shell rendered AROUND the app can hand the app back to the engine.
     // The observe tier scenario above -3 B (brotli layout on +46 B minified);
     // every prod scenario byte-identical.
-    limit: "30.67 KB",
+    // Records channel bodies opt-in (2026-09-28, the same PR's review pass):
+    // 30.67 -> 30.72 KB, measured at 30,712 B against the PR's first commit
+    // (1e4c4bcf1) at 30,664 (+48 B; +235 B minified — the observe core's
+    // channel change the observe tier note above describes, compressing
+    // better under the engine's layout). No engine change; every prod
+    // scenario byte-identical.
+    limit: "30.72 KB",
     alias: observeAlias
   },
   {

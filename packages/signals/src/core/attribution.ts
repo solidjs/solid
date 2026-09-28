@@ -597,9 +597,10 @@ interface AttributedNode {
   _devCopyRuns?: number;
   _devCopyFrom?: number;
   /**
-   * Cached `OBSERVE.isExcluded` verdict — owners never move and markers
-   * (`exclude`/`include`) are set as a root is created, so it holds for the
-   * node's life.
+   * Cached `OBSERVE.isExcluded` verdict, taken the first time the engine
+   * asks and kept for the node's life: owners never move, and a mark
+   * (`exclude`/`include`) belongs at the owner's creation — one set, or
+   * replaced, after a node was judged does not reach it.
    */
   _devExcluded?: boolean;
 }
