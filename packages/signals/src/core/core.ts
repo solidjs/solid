@@ -2271,6 +2271,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     } else throw (owner as Computed<any>)._x?._error;
   }
 
+  // Ahead of the snapshot serve below: a component body's direct read is
+  // wrong in the same way whether the pass is hydrating or not, and the
+  // hydration pass is the console nobody is watching (#3675).
+  if (__DEV__ && strictRead)
+    warnStrictReadUntracked(strictRead, {
+      ownerId: c?.id,
+      ownerName: (c as any)?._name,
+      nodeName: (owner as any)?._name
+    });
+
   if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
     const sv = el._x?._snapshotValue;
     if (sv !== undefined) {
@@ -2280,13 +2290,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       return snapshot as T;
     }
   }
-
-  if (__DEV__ && strictRead)
-    warnStrictReadUntracked(strictRead, {
-      ownerId: c?.id,
-      ownerName: (c as any)?._name,
-      nodeName: (owner as any)?._name
-    });
 
   const value = serve(el, c as Computed<any> | null, owner, el._value) as T;
   if (
