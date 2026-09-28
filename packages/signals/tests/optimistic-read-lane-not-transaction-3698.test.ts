@@ -234,6 +234,65 @@ describe("#3698 a read served an active override is lane work, not a transaction
     expect(g.drag()).toBe(true);
     expect(isPending(g.drag)).toBe(false);
   });
+
+  // from #3699 (brenelz): `Show`'s full chain in primitives — the condition
+  // memo (owning the compiler's child memo) feeds a `sync: true` content memo
+  // that a render effect displays, and one render effect reads the plain,
+  // `latest` and `isPending` channels of `drag` together. The two writes
+  // arrive in separate tasks, as in the report. Pins the show → hide sequence
+  // through the sync memo and the combined channel line.
+  it("publishes at once through a condition memo that owns a child memo (sync content memo chain, two tasks)", async () => {
+    const tick = () => new Promise<void>(r => setTimeout(r, 0));
+    let dispose!: () => void;
+    let drag!: () => boolean;
+    let optimistic!: () => boolean;
+    let run!: () => void;
+    const log: string[] = [];
+    createRoot(d => {
+      dispose = d;
+      const [o, setOptimistic] = createOptimistic(false);
+      const [dr, setDrag] = createSignal(false);
+      optimistic = o;
+      drag = dr;
+      const move = action(function* () {
+        setOptimistic(true);
+        yield new Promise<void>(() => {});
+      });
+      run = () => {
+        void move();
+        setTimeout(() => setDrag(true), 0);
+      };
+      // Mirrors the child memo the compiler emits for `when={a() && !b()}`.
+      const condition = createMemo(() => {
+        const visible = createMemo(() => !!o());
+        return visible() ? !dr() : o();
+      });
+      const value = createMemo(() => (condition() ? "child" : undefined), { sync: true });
+      createRenderEffect(value, v => {
+        log.push(`show:${v}`);
+      });
+      createRenderEffect(
+        () => `drag:${dr()} latest:${latest(dr)} pending:${isPending(dr)}`,
+        v => {
+          log.push(v);
+        }
+      );
+    });
+    flush();
+    expect(log).toEqual(["show:undefined", "drag:false latest:false pending:false"]);
+
+    log.length = 0;
+    run();
+    await tick();
+    await tick();
+    expect(optimistic()).toBe(true);
+    expect(drag()).toBe(true);
+    expect(latest(drag)).toBe(true);
+    expect(isPending(drag)).toBe(false);
+    expect(log.at(-1)).toBe("drag:true latest:true pending:false");
+    expect(log.filter(l => l.startsWith("show:"))).toEqual(["show:child", "show:undefined"]);
+    dispose();
+  });
 });
 
 describe("contrast: a read served SUPERSEDED truth is a staged read and enters (A18 (c), A29)", () => {
