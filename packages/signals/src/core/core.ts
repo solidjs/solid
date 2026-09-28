@@ -266,7 +266,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let devChanged = false;
   if (__OBSERVE__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
   // Lane posture is resolved BEFORE the previous frame is parked below: a
-  // lane pass on an effect direct-commits (#3662, see the parking site), so
+  // lane pass parks a LANE frame (#3662, see the parking site), so
   // the decision must be known there. `lane` is applied to
   // `currentOptimisticLane` further down, once the previous posture is saved.
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
@@ -880,7 +880,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingValue !== NOT_PENDING
     );
   currentOptimisticLane = prevLane;
-  // A parked LANE frame is not a hold (#3662): its drain is the effect's own
+  // A parked LANE frame is not a hold (#3662): its drain is the lane's own
   // run, not a commit — the node is neither queued nor stamped for it, and
   // the release below (for transaction zombies) leaves it parked.
   const laneFrame = (el._config & CONFIG_LANE_FRAME) !== 0;

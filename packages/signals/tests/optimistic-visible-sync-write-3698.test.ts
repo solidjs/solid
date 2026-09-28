@@ -36,8 +36,7 @@ describe("#3698 sync write beside a visible optimistic value", () => {
         void move();
         setTimeout(() => setDrag(true), 0);
       };
-      // The compiler emits `when={a() && !b()}` as a memo over `a()` created
-      // inside the prop getter, so <Show>'s condition memo owns a child memo.
+      // Mirrors the child memo the compiler emits for `when={a() && !b()}`.
       const condition = createMemo(() => {
         const visible = createMemo(() => !!o());
         return visible() ? !dr() : o();
