@@ -14,6 +14,7 @@ import {
   action,
   createMemo,
   createOptimistic,
+  createOptimisticStore,
   createRenderEffect,
   createRoot,
   createSignal,
@@ -194,6 +195,55 @@ describe("OPTIMISTIC_REVERTED", () => {
     flush();
     expect(shown).toContain("b-p2");
     expect(findings).toHaveLength(0);
+  });
+
+  it("a store's optimistic write reverts with the engine on (#3687)", async () => {
+    // Store slot nodes share one `_equals` that reads `this._host`; the check
+    // must call it as the node's method. Detached, it threw from inside the
+    // settle before the drop notified subscribers — the store never reverted
+    // for anyone reading it, and only when attribution was enabled.
+    const { findings } = arm();
+    const gate = deferred();
+    type Row = { id: string; done: boolean };
+    const [list, setList] = createOptimisticStore<Row[]>(
+      () => Promise.resolve([{ id: "a", done: false }]),
+      [],
+      { key: "id", name: "list" }
+    );
+    const seen: string[] = [];
+    createRoot(() =>
+      createRenderEffect(
+        () => list.map(r => `${r.id}:${r.done}`).join(" "),
+        v => void seen.push(v),
+        { name: "rows" }
+      )
+    );
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(seen.at(-1)).toBe("a:false");
+    const toggle = action(function* toggle() {
+      setList(l => {
+        l[0].done = true;
+      });
+      yield gate.promise;
+      // The server said no; nothing writes the truth. The override lifts.
+    });
+    const p = toggle();
+    flush();
+    expect(seen.at(-1)).toBe("a:true");
+    gate.resolve();
+    await p;
+    flush();
+    expect(list[0].done).toBe(false);
+    expect(seen.at(-1)).toBe("a:false");
+    expect(findings).toHaveLength(1);
+    expect(findings[0].data).toMatchObject({
+      source: "list.done",
+      shown: "true",
+      truth: "false",
+      how: "reverted"
+    });
   });
 
   it("`optimisticReverts: false` disables the finding", async () => {
