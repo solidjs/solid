@@ -810,4 +810,4 @@ prev)`; corrected to `(prev, value)`. Pinned:
 Cursors as a protocol (only the `Last-Event-ID` seam), WebSocket, any
 subscription registry or connection-local subscription state, any new
 authoring API for liveness, any server configuration for liveness, Stage 7's
-optimism (independent; attribute slots, §9.2.2 — `predict` retired).
+optimism (independent; attribute slots, §9.2.3 — `predict` retired).

@@ -2336,9 +2336,9 @@ _$ssrElement("input", [{ class: "toggle", type: "checkbox" }, props.check(a)], �
 — the spread expression passed through verbatim as a runtime
 source, and `ssrElement` already brand-checks its sources (`$PROXY
 in s` for stores and views). A slot proxy's call result is one more
-branded source: the runtime emits the `_bnd` marker and slot record
-and, at t = 0, runs the fill and serializes its output as
-attributes. A single attribute position (`checked={props.checked(a)}`)
+branded source: the runtime emits the marker (`_slot`, per the build
+record below) and slot record and, at t = 0, runs the fill and
+serializes its output as attributes. A single attribute position (`checked={props.checked(a)}`)
 would NOT work this way: attribute values compile into template
 text through per-kind helpers (`ssrAttribute`, boolean handling,
 `ssrClassList`, `ssrStyle`, static folding), many emission sites,
@@ -2397,8 +2397,11 @@ untouched; parity is free.
 **Public surface (flagged).** No export is removed — `predict` never
 shipped. Added: a fourth use site for server-component props
 (attribute fill: a called slot in spread position; `ServerComponent<P>`
-widens accordingly) and one marker position kind in `_bnd`. No
-compiler option, no transform. Everything the client writes is
+widens accordingly) and one marker attribute on server elements
+(`_slot`, the `_hk` family — the build record below says why it is
+not a `_bnd` position kind), plus two dev diagnostic codes
+(`ATTRIBUTE_SLOT_FILL`, `ATTRIBUTE_SLOT_CONFLICT`). No compiler
+option, no transform. Everything the client writes is
 `createOptimistic*`, already public.
 
 **Acceptance gate — Server Component TodoMVC (restated for the third
@@ -2438,6 +2441,771 @@ both directions.
 The size-harness "hydrating + stores" row stops being Stage 7's
 floor: a frames page carries the optimistic engine only if the app
 imports it.
+
+**Build record (2026-09-27, same night; runtime as shipped).** The
+shape above is in `packages/web` behind three test files
+(`test/server/frame-attribute-slots.spec.tsx`,
+`test/frames-attribute-slots.spec.tsx`,
+`test/hydration/attribute-slot-adoption.spec.tsx`). Where the build
+departed from the text above, the build is right and the text is
+amended here:
+
+- *The marker is `_slot`, not a `_bnd` position kind.*
+  `_slot="<occurrence>[ <occurrence>]*"` — the `_hk` family, one
+  attribute per element, space-separated when several fills spread
+  onto one element. `_bnd` is parsed per DISPATCH (its grammar is
+  `pos=prop`, resolved by prop name against live props with no
+  record); an attribute slot is an OCCURRENCE — it has an args record,
+  identity across responses, and the slot sync's mount/update/unmount
+  lifecycle — so it rides the slot system's discovery, not the claim
+  system's. Folding it into `_bnd` would have taxed every event
+  dispatch on a marked element with a non-event kind to skip.
+- *The branded source is the slot proxy's existing return, widened.*
+  `slotRange()` (stream face) and the document face's `range()` carry
+  `$occurrence`, and the document face's carries `$content` — the
+  fill's t=0 return. `ssrElement` recognizes `$slot` among its
+  sources in all three shapes the compilers produce: a plain object
+  in the array (`[{ class }, result]`), the result of a THUNK in the
+  mixed path (the native compiler wraps a spread CALL as
+  `() => props.row(args)` — the shape every real call takes), and a
+  lone spread (`ssrElement("b", props.x(), …)`, where the document
+  face's value is the marker-pair ARRAY). The slot source is
+  replaced, in place, by the fill's output (document face) or an
+  empty source (stream face), so the walk's precedence rule is
+  untouched: the fill's attributes land at the spread's position.
+- *`class`/`style` merge is by trailer, not by source.* The fill's
+  `class`/`style` are pulled out of its source, the walk skips those
+  two keys, and one merged attribute is appended after the walk:
+  the component's value (read as the walk would have — the last
+  source carrying the key) then each fill's contribution in spread
+  order. No double escaping, no parsing of style strings. A static
+  `class`/`style` written AFTER the spread compiles to trailing
+  markup the merge cannot reach → `ATTRIBUTE_SLOT_CONFLICT` (write
+  static attributes before the spread).
+- *One owner, enforced at t=0 only.* `ATTRIBUTE_SLOT_CONFLICT`
+  (dev, throws) for a fill key any component source also sets, a
+  class name both set, or two fills sharing a key;
+  `ATTRIBUTE_SLOT_FILL` (dev, throws) for a fill that returns content
+  in spread position. The stream face never runs fills, so a
+  conflict on a call-driven mount is not seen by the server; the
+  document render of the same component is where it surfaces.
+- *The client mount is `spread(el, () => fill(args), true)` under a
+  per-occurrence owner, always.* The fill runs inside the spread's
+  compute — the whole derivation reruns when anything it read
+  changes (args, an optimistic store), `assign` diffs per key. Args
+  are the same `liveSlotProps` proxy content occurrences get, so a
+  re-emitted record updates the instance in place. The
+  per-occurrence owner is unconditional here (content fills scope
+  only stream-mounted invocations, for the zombie-heuristic reason
+  recorded in `slotsFor`): an element occurrence places no nodes, so
+  nothing can be misread, and the spread's effect must die with the
+  occurrence. Fill-returned handlers go through client `spread`'s
+  own delegation (the "open" item above closes this way — the
+  one-owner rule keeps `_bnd` and a fill off the same position).
+- *The morph's exception is ownership, reported by the fill.* The
+  fill's output keys are reported each run through `ctx.own` (a
+  frame contract: attribute names as the DOM spells them,
+  `class:<name>` / `style:<property>` in object form, `class` /
+  `style` whole for strings) onto the element (`_$slotOwned`,
+  occurrence → names). `morphAttributes` neither removes nor sets an
+  owned attribute; for `class`/`style` with owned NAMES it applies
+  the server's value and re-imposes the owned names' live state on
+  top (a class the fill toggled on stays on through a server class
+  change; an owned style property survives the attribute rewrite).
+  A replaced element is a zombie mount (its node left the tree) and
+  the fill remounts on the fresh node; an unmounted occurrence
+  releases its ownership so the element is wholly the server's from
+  the next morph on.
+- *No regions in attribute slots.* An element occurrence has no
+  interior: region discovery and range replacement skip it; a
+  server-JSX arg to an attribute fill has nowhere to render and is
+  not supported.
+
+Confirmed empirically: a t=0 document adopts the fill onto the
+server-rendered element with no re-render (the hydrate spec); the
+first client-state change writes through; a keyed morph keeps the
+element and every owned value across a server class change and an
+args re-emission; a dropped row disposes its fills; both event
+delivery and `checked`/`hidden` property-reflected attributes behave.
+The test harness surfaced one thing worth knowing: the frames client
+binds through the packaged `@solidjs/web` instance (`spread`,
+`insert`, `delegateEvents`), so a jsdom spec that renders through
+`../src` has two delegation registries and fill-returned handlers
+never fire — render through the packaged entry (the spec does). Not
+a product issue; one instance in an app.
+
+Still open from the list above: args duplication across several
+fills on one element tree (two calls is the current honest cost);
+off-response adds under live.
+
+**Acceptance gate, first run (2026-09-28; `examples/todos-server`).**
+The SPA's TodoMVC ported as one server component with eleven slots
+— nine attribute (`main`, `toggleAll`, `row`, `check`, `retry`,
+`destroy`, `footer`, `filterLink`, `clearCompleted`) and two content
+(`pending` for adds, `count`) — over the SPA's own API (400 ms,
+~33% failure) behind the server boundary, multi-flight shape
+(`yield refresh(todos)` after each call). Exercised in a browser
+against the dev server, document SSR and hydration included:
+
+- Toggle: optimistic `completed pending` and the count move in the
+  same frame; the settle changes only `class` on the SAME `<li>` (a
+  mutation observer saw three class writes and nothing else — no
+  morph churn, no flash). Failure reverts `checked` and the count,
+  leaves `errored` + a titled retry; retry shows
+  `errored completed pending` and clears on success.
+- Add: client row in the `pending` slot → server row with `_key`
+  (the count already adjusted); a failed add stays as an `errored`
+  client row and retries from there.
+- Remove: `hidden` + `pending` optimistically; the morph drops the
+  row when the refetch lands. A failed bulk clear fans out to
+  per-row `errored` with `Retry removeTodo`.
+- Toggle-all / clear-completed over server-passed id lists; filters
+  via the hash as pure client state (`hidden` composed with intent);
+  a full reload under `#/active` hydrates clean and applies the
+  filter after settle.
+- Overlapping toggles (250 ms apart) settled together at the later
+  refetch — both optimistic, both correct, but the first's settlement
+  was held by the second: the two actions' writes to one
+  `createOptimisticStore` share a transition. Core semantics, same
+  as the SPA would show; noted, not a slots matter.
+
+Two runtime bugs fell out, both fixed on the branch:
+`@solidjs/compiler`'s spread path passed `$key` through unrenamed
+(server markup carried a literal `$key`, so keyed morphs lost row
+identity; the template path and Babel were right), and `dynamic`'s
+kept-resolution delivery — a signal write — ran inside its own
+compute when the source is a memo that already settled the call
+(this shape, and every hydrated document's first refetch), tripping
+the dev owned-scope guard into the error boundary; the address
+signal is `ownedWrite` now. Neither was visible from the specs
+because they never ran the exact shape end-to-end.
+
+The port is the multi-flight shape only. That is a statement about
+the example, not the mechanism: the fills never see which transport
+delivered the refetch (the hold is the transaction's, and the
+`frames-optimistic-hold` spec pins the single-flight hold with a
+content fill), and the single-flight wiring is the router's
+(`createFlightDataCollector`, its action runner — the notes
+example), not something this stage supplies.
+
+Two typing gaps the port surfaced, both public-surface decisions
+taken the same day: `$key` was not declared on intrinsic elements
+(the compilers accepted it) — it is now, in `CustomAttributes`; and
+`Slot<P>` returns `Element`, which TypeScript will not spread — the
+attribute-object return type this called for is superseded by the
+next amendment, which is also where the gate's *finding* is
+recorded: the fill table came out heavier than the SPA's store
+projection, which is the one failure the simplicity-parity
+criterion was pointed at.
+
+#### 9.2.3 Amendment — attribute slots, second form: one per data context, bound per position (2026-09-28)
+
+Recorded from the design conversation the morning after the
+acceptance gate ran. The gate passed its behaviors and failed its
+criterion: `examples/todos-server` needed eleven slot props and a
+ten-entry fill table on the client for a row the SPA writes once.
+Asking why led to the row's real question — *wrap it in a client
+component, or attribute-slot it?* — and both answers worked, which
+meant the design had left the choice to taste. Re-deriving from the
+question instead of the mechanism found one answer, and a shape in
+which the attribute-slot *spread* of 9.2.2 is a special case done
+wrong. **The 09-27 spread shape — one slot per element, its return
+spread onto that element, the client deciding what it owns — is
+retired.** The idea it carried is not: the client still contributes
+*attribute values* to server markup, and that is what this form is
+named for. The 09-27 text and its build record stay as the record
+of how the shape was found; nothing in them ships. Where this
+amendment and 9.2.2 disagree, this amendment is right.
+
+**The reframe: a slot is a client render, and it renders one of two
+things.** A markup slot's client function returns JSX; the server
+places it as a region, and the client owns those nodes. An
+*attribute* slot's client function returns a plain object; the
+server *consumes* it — binds its properties into named positions
+of the server's own template, one call serving every element of
+one data context — and the client owns exactly those values. What
+the object holds is anything that is not markup: an attribute
+value, a class name's condition, a style property, a handler, a
+ref — every derived thing a client would compute for an element
+the server rendered. (The build called this form "data slots" for
+a day, after what the fill returns; it was renamed the same day
+because the name misled — the values are attributes of server
+elements, the object is only how they travel.) The client renders
+JSON, the server renders markup. Both run at t = 0 on the document
+face (the server invokes the client function and serializes what
+came back into place), both are live afterward through the same
+occurrence machinery, and both obey one ownership rule: whoever
+produced the output owns it — the markup owner owns the nodes, the
+attribute owner owns the properties the template read.
+
+That reframe carries the placement principle §9.2 should have led
+with, because it is what the gate was missing:
+
+> **An element lives where the data that creates it lives.** An
+> element that exists because of server data is server markup;
+> client behavior or client-driven values on it are an attribute slot —
+> you never wrap a server-rendered thing to add behavior, you bind.
+> An element that exists because of client state alone (an
+> optimistic add, a modal, a drag ghost, an editor open over a
+> field the server rendered as text) is a client component in a
+> markup slot. The boundary moves with the data's ownership, not
+> with where the author wanted to write code.
+
+Under it the TodoMVC row is not a choice: the row exists because
+the server has a todo, so it is server markup with an attribute slot; the
+pending row exists because the client has an intent the server has
+not seen, so it is a client component; when the server confirms it,
+it *becomes* server markup, and `$key` reconciles the transition.
+Every case that was a judgment call resolves the same way — a
+`selected` class on a server nav link binds; a search input in
+server markup binds; a live-typing filter the client owns entirely
+is a client component; a server table's client-side sort indicators
+bind.
+
+**The shape.** One attribute slot per *data context* — one call, one
+client scope, consumed by any element in the template:
+
+```tsx
+// ── todo-row.tsx — no directive, no side ────────────────────
+export interface RowBehavior {
+  rowClass: Record<string, boolean>;
+  removed: boolean;
+  done: boolean;
+  onToggle: (e: Event) => void;
+  onRemove: () => void;
+  onRetry: () => void;
+  error?: string;
+}
+export function TodoRow(props: { title: string; row: RowBehavior }) {
+  return (
+    <li class={props.row.rowClass} hidden={props.row.removed}>
+      <div class="view">
+        <input class="toggle" type="checkbox" checked={props.row.done} onInput={props.row.onToggle} />
+        <label>{props.title}</label>
+        <button class="retry" title={props.row.error} onClick={props.row.onRetry} />
+        <button class="destroy" onClick={props.row.onRemove} />
+      </div>
+    </li>
+  );
+}
+
+// ── server component ────────────────────────────────────────
+interface TodoListProps {
+  row: AttributeSlot<{ id: string; completed: boolean }, RowBehavior>;
+  pending: Slot;
+}
+export async function todoListView() {
+  "use server";
+  const todos = await db.list();
+  return (props: TodoListProps) => (
+    <ul class="todo-list">
+      {todos.map(t => (
+        <TodoRow title={t.title} row={props.row({ $key: t.id, id: t.id, completed: t.completed })} />
+      ))}
+      <props.pending />
+    </ul>
+  );
+}
+
+// ── client ──────────────────────────────────────────────────
+const rowFor = (p: { id: string; completed: boolean }): RowBehavior => ({
+  rowClass: { todo: true, completed: done(p), pending: !!intent.byId[p.id], errored: !!errors[p.id] },
+  removed: removed(p.id),
+  done: done(p),
+  onToggle: e => toggleTodo(p.id, e.currentTarget.checked),
+  onRemove: () => removeTodo(p.id, p.completed),
+  onRetry: () => retryTodo(p.id),
+  error: errors[p.id]?.message
+});
+
+<Todos
+  row={rowFor}
+  pending={() => <For each={intent.adds}>{a => <TodoRow title={a.title} row={rowFor(a)} />}</For>}
+/>
+```
+
+`TodoRow` is one component, compiled twice like every isomorphic
+Solid component always has been. The server passes it an attribute slot;
+the client passes it the fill's result directly. It cannot tell the
+difference and does not need to: on the server its attribute
+positions bind branded stand-ins that serialize at t = 0 and go
+live on the client; on the client they are ordinary bindings.
+React needs three component categories (server, client, shared)
+because its boundary is the component; here the boundary is data
+ownership, so the component is neutral by construction and the
+decision lives at the call site. Nor is there a "can only exist on
+one side" rule for the shared file to obey: the only directive is
+`"use server"`, and it marks a call boundary reachable from *both*
+sides (the server calls the function, the client calls the stub),
+so the import graph is symmetric. The way to break a shared
+component is the ordinary isomorphic one — reading `document`
+during render — which predates all of this.
+
+**Rules of the shape.**
+
+- *Keys are semantic, positions are structural.* The object's
+  property names are the client's vocabulary (`done`, `onToggle`,
+  `onRemove`); the template decides what each one *is* by where it
+  binds it. Nothing in the object says attribute, handler, or ref
+  — the position does. `ref={row.input}` makes `row.input` a ref,
+  called with that element; the same property bound at two
+  positions is two reads. Position kinds: an attribute (`hidden`,
+  `checked`, `title`, `value`), a class name (`class={{ completed:
+  row.done }}`), the whole `class`/`style`, a style property, an
+  event (`onClick`, `on:custom`), a ref. Text positions
+  (`<strong>{row.count}</strong>`) are the obvious next kind and
+  are deferred, not rejected (open, below). The vocabulary follows
+  the one convention it already lives under: the object is a
+  *props interface* (a shared component takes it as a prop), so
+  handlers are `on` + intent (`onToggle`, `onCopy` — the position
+  names the DOM event, the key names the meaning, as a component's
+  `onSelect` does), values are nouns, a ref is `ref`. A convention
+  for the reader, not a rule for the runtime: the prefix is never
+  read, because the moment it were, the client would again be
+  deciding what it owns.
+- **A slot property is a JSX attribute value, whole, and nothing
+  else.** `class={row.rowClass}`, `hidden={row.removed}`,
+  `onInput={row.onToggle}` — never `` class={`todo ${row.done}`} ``,
+  never `row.count > 3`, never `if (row.error)`, `row.error && …`
+  or `<Show when={row.done}>`, never passed to a server helper.
+  The reason is not style: *the server does not have the value.*
+  On the stream face a property read is a stand-in with no value;
+  on the document face it holds the t = 0 value and nothing later.
+  Anything computed from it on the server is computed from nothing,
+  and the client — which owns the value — cannot see or update a
+  decision the server made. A decision that depends on a slot value
+  belongs in the fill (return `rowClass`, not `done`, when the class
+  is the decision) or, when it decides whether a node *exists*, in a
+  markup slot (the placement principle). Every coercion the runtime
+  can see — a template literal, `+`, a comparison, a text child — is
+  a dev finding and renders **nothing on either face**, so the
+  misuse shows on the first render, not the first refetch. Truthiness
+  has no hook: a stand-in is an object and always truthy, so
+  `row.error && <button>Retry</button>` puts a retry button on every
+  row. That is the one case only the sentence above catches, and why
+  it is the sentence to teach — to people and to agents.
+- *Spreading an attribute slot's object is an error.* `{...row}` is the
+  09-27 shape: the client decides what it owns and the template
+  cannot show it. Name the positions.
+- *Keys beginning with `$`, and the engine's node keys (`t`, `h`,
+  `p`, `then`, `length`), are reserved* — the call's return doubles
+  as a placeable range so the same call serves both output types.
+- *The occurrence is the call, not the element.* `$key` on the call
+  is occurrence identity (client state follows the entity across
+  responses); `$key` on the `<li>` is morph identity for the node.
+  Two keys, two jobs. An occurrence lives while any consuming
+  element does; its consumers may change per response (a row gains
+  a bound button) without the fill re-running. **`$key` is
+  optional.** A call is one occurrence however often the render
+  evaluates it: the natural shape puts the call in a shared
+  component's prop — `<TodoRow row={props.row({ id: t.id, … })} />`
+  — and compiled props are getters, so every position the component
+  binds re-evaluates the expression; the first call's proxy answers
+  the rest and the record emits once (without this, one record per
+  position — the double-data disease). A `$key`ed call repeats by
+  name; an un-keyed call repeats by *structural args* once its face
+  is known to be data (identical args are an identical fill output,
+  so one occurrence for both sites changes nothing on screen) —
+  never for a placed range, since two `<props.badge kind="new" />`
+  are two ranges, and never for args identity cannot read by value
+  (a function, a promise, an iterable). What `$key` adds is identity
+  *across* responses: state inside the fill's scope follows the
+  entity through reorders and arg changes; without it that state is
+  positional per prop, which is right for a stateless fill and wrong
+  for one holding an edit draft. Correctness never depends on
+  `$key`; values re-deliver with every response either way.
+
+**Granularity — the compiler's, and per position where the shared
+component forces it.** A client element with
+several dynamic attributes compiles to one effect per element that
+reads every value, compares each against the last, and writes the
+ones that changed. An attribute slot does the same per occurrence: the
+fill runs under one computation, the runtime diffs the bound
+positions against the last output, and writes the ones that moved
+— `class` flipping to `completed` touches `class` and nothing else,
+though `hidden` and `onClick` were recomputed. Plain values are
+the floor; getters on the returned object are the idiom for a fill
+a *shared component* also consumes on the client (build finding,
+09-28). The runtime reads each bound value position inside its
+tracking computation, so a getter tracks its own sources and the
+object is built once — that is finer than the compiler's
+per-element effect, but the reason is not granularity. It is the
+client face of the same component: `<input onInput={props.row.onToggle} />`
+compiles to one eager read of `props.row.onToggle` in the component
+body — a handler position is bound once, not tracked — and `row` is
+a prop getter. A fill that computes its values on construction
+(`done: done(p.id, …)`) does that reactive read *there*, in the
+untracked body, and the strict-read diagnostic names it: the row
+would not update. Getters move every value read to the position
+that binds it — a tracking scope for a value, event time for a
+handler — and the construction reads nothing. So: plain values when
+only the server template reads the output; getters when a client
+`<TodoRow>` reads it too. Handlers are bound once at mount as a
+dispatcher that reads the *current* output's handler, so identity
+churn across runs re-attaches nothing. A ref is called once per
+(element, property) at mount and excluded from the diff. A
+live-delivered arg change re-runs the fill for that occurrence like
+any other dependency.
+
+**Wire.** Per occurrence: the args, once (the 09-27 duplication
+across per-element fills is gone by construction). Per *consuming*
+element: a marker per bound attribute, `_s:<attribute>="<occurrence>:<key>"`,
+with class names / style properties appended (`_s:class="row#0001:done=completed"`),
+events as `_s:on:click`, refs as `_s:ref` — the `_hk` family; the
+occurrence alphabet excludes `:` and the key is percent-encoded onto
+an alphabet that excludes it too, so the split is exact. Handler and
+ref positions cost the name only. On the document face the values
+are the attributes you would emit anyway (`class="todo completed"`,
+`checked`): zero overhead over static markup. On the stream face
+values are omitted — no fill ran, the client is about to write them
+— so refetched markup is slightly smaller than static. The morph
+needs no ownership table: an incoming element's own `_s:*`
+attributes say which positions the client owns, so the morph skips
+them (whole attributes) or re-imposes the owned names (class/style)
+and everything else is the server's. The names are the only cost
+per-position adds over per-element and the part that compresses
+best — every row carries the identical pattern. Tighter encodings
+(indices, out-of-band) are available and deliberately not taken:
+readable on-element markers are worth more than bytes compression
+already removes, and Qwik 2's move to a compact `qwik/vnode` blob is
+also why nothing external can read its output.
+
+**What folds in.** Stage 6's behavior claims (§9.1: `onClick={props.
+onCopy}`, `ref={props.copyBtn}` — the `_bnd` marker, dispatch-time
+resolution by prop name) are the attribute slot with one property and no
+data context. They had looked thin for a reason: `ref` never found a
+use case on its own, and handlers alone are unstable once you look at
+what they attach to — a handler on a checkbox without ownership of
+`checked` is the uncontrolled/controlled mismatch (the native flip,
+then the refetch morphs `checked` back under a failed or in-flight
+mutation), and the row that goes `pending` after its own button was
+clicked forces "wrap the row" for the *feedback* of a binding you
+were allowed to put on the button unwrapped. Handlers-only yields
+"buttons don't need wrapping, checkboxes do." Either a server
+element takes no client binding, or the binding carries values;
+given handlers are in, values are in, and it is one mechanism. `ref`
+returns not because it found a use case but because, under a
+position-typed model, *excluding* it is the rule you would have to
+teach. So: `_bnd` and `CLAIM_PROP` go; §9.1's three-row table
+becomes two rows — *called, placed* (markup) and *called, read at a
+position* (data) — and the notes example's search field becomes
+`const search = props.search(); <input onInput={search.onInput}>`.
+The per-element scope §9.1 reserved for refs is now the
+per-occurrence scope every attribute slot has; events still dispatch
+through the same up-walk, resolving the occurrence's current output
+instead of a prop name.
+
+**The compiler round, and why the 09-27 settlement is superseded.**
+09-27 chose spread as the only spelling because it is the one
+attribute position the SSR compiler defers wholesale to the runtime,
+and "no gated transform" was taken as the constraint. That
+constraint produced the shape that failed the gate. Per-position
+binding needs the compiler at exactly the two places where a value
+lands *inside* template quotes: dynamic `class`/`style` compile to
+`class="${ssrClassName(x)}"`, and a helper called inside the quotes
+cannot emit the sibling marker attribute. So, gated on the
+`serverComponents` option both compilers already carry for `_bnd`:
+a dynamic `class`/`style` on an intrinsic element compiles to a
+whole-attribute hole (`ssrElementAttribute("class", x)`, the helper
+the spread path already uses for trailing attributes), and
+`class`/`style` object literals are not folded inline there (the
+fold would evaluate a stand-in's truthiness). Every other position
+already routes through a self-contained helper — `ssrAttribute` for
+attributes, the `ssrClaim` hole for events and refs, `ssrElement`'s
+walk for spread elements — and those learn the brand at runtime. The
+guard is the one `_bnd` introduced; the round is smaller than Stage
+6's; plain SSR compiles exactly as before.
+
+**Prior art.** Kent C. Dodds' prop getters (downshift's
+`getItemProps({ item, index })`): called once per item, the result
+spread across whichever elements make up the item. This is that
+shape with the roles inverted across the wire and the spread made
+explicit per position — which is what keeps it analyzable and gives
+the server the narrow contract. Marko 6's split of one component into
+server markup and the client's reactive residue is what the placement
+principle produces without analysis: the server template is the
+template, the client ships a function per data context that returns
+values, and outside client-created entities no markup crosses. Qwik 2
+kept handlers on the element (`q-e:click`) and moved structure
+out-of-band; the same split, and where we would go if bytes ever
+argued for it. React Server Components is the pole this refines: its
+answer to a server row with client behavior is a client component
+around it, which is where the row template goes, and its three
+component categories are the cost of drawing the boundary at the
+component.
+
+**Public surface (flagged; nothing here has users yet).** Removed:
+`AttributeSlot<P, A>` (09-27, never released), the `_slot` marker,
+`ATTRIBUTE_SLOT_FILL`/`ATTRIBUTE_SLOT_CONFLICT`; Stage 6's `_bnd`
+marker, `CLAIM_PROP`, `BEHAVIOR_CLAIM_DROPPED`, the frame `props`
+option and host `delegate` plumbing that served `_bnd` resolution,
+and the direct `onX={props.onX}` / `ref={props.x}` spelling on
+server intrinsics (a function-valued prop read at a position is now
+a dev error naming the attribute-slot spelling). Added: `AttributeSlot<P, J>`
+(`@solidjs/web/frames`, both faces); the `_s:*` marker family; one
+diagnostic code, `ATTRIBUTE_SLOT_POSITION` (dev: a server-local function
+or a spread where a slot value belongs, a slot value stringified
+outside a bindable position, a reserved key in a fill's output);
+`$key` on intrinsic elements in the JSX typings. Compiler: no new
+option; the `serverComponents` transform widens as above.
+
+**Acceptance gate (restated; the gate does not move, the criterion
+now has teeth).** `examples/todos-server` re-ported on this shape
+with a shared `TodoRow`, ONE `row` attribute slot for the row's whole
+behavior, and pending rows that are not inert — parity with the SPA
+means an added todo is toggleable and deletable while pending, which
+the client component does with the same `rowFor` the server rows
+bind. Pass condition, in addition to 9.2.2's behaviors: the client
+carries no markup except what the placement principle requires (the
+pending row), the server template shows every position the client
+owns, and the fills read as small components rather than a lookup
+table — if `rowFor` is heavier than the SPA's `TodoItem`, that is
+the finding.
+
+**Open.**
+
+- *Text positions.* `{row.remaining}` as a child is the natural
+  fourth kind (TodoMVC's count is one); needs a marker pair in
+  content, deferred to keep this round to attributes.
+- *Client-created entities without client markup.* The pending row
+  is a `<li>` with data holes; the only reason it is a client
+  component is that the client must *produce* the node. The
+  generalization is a server template stamped once per client item
+  (`<props.pending>{p => <li class="pending">{p.title}</li>}</props.pending>`
+  with the client returning data, not markup) — the model closing
+  in both directions. A separate stage: list identity for client
+  items, ordering against server items, supersession by a server
+  row with the same key. §9.2.1's off-response adds live here.
+- *Actions against pending ids.* A toggle on a pending row targets an
+  id the server has not seen; the port sequences it behind the add's
+  settlement (an example concern, surfaced by parity).
+
+**Build record (2026-09-28, same day; runtime as built).** The shape
+above is in `packages/web` behind three test files
+(`test/server/frame-attribute-slots.spec.tsx`, both faces;
+`test/frames-attribute-slots.spec.tsx`, the client binding;
+`test/hydration/attribute-slot-adoption.spec.tsx`, t = 0 adoption), the
+compiler round behind one shared server-components fixture
+(`attributeSlots`, Babel and native), and the 09-27 attribute-slot build
+— never committed — is gone with its three specs, `_bnd`'s spec and
+the `behaviorClaims` fixtures. Web suites 986 / 1262 / 257, Babel
+268, native compiler fixtures green. Where the build departed from
+the text above, the build is right and the text is amended here:
+
+- *The stand-in is the slot proxy's property read.* One proxy over
+  the call's range (both faces): a key the range has, a `$` key, or
+  a node key passes through; any other string key answers with a
+  `SLOT_VALUE`-branded `{ occurrence, key, value, face }`. On the
+  document face the fill's return is classified once — `null`/
+  `undefined` or a plain object is DATA (its properties are the
+  t = 0 values); a string, an array, a function, or an SSR node is
+  MARKUP, and a read off it is a dev finding at the position. The
+  classification edge is the `t` key: an SSR node is `{ t }` plus
+  `h`/`p` and nothing else, so an object carrying `t` *and* other
+  keys is data that used a reserved name (`t` unreadable, the rest
+  binds) and dev names it. Reserved, therefore, and checked on the
+  document face: `$`-prefixed keys, `t`/`h`/`p`/`then`, and
+  Object/Array prototype member names (`length`, `map` — the engine
+  calls array methods on the document face's range through the
+  proxy).
+- *Every attribute helper learns the brand; the compilers touch two
+  positions.* `ssrAttribute` (an attribute, a boolean), the
+  class-name and style-property helpers, `ssrElementAttribute`
+  (whole `class`/`style` — the hole the `serverComponents` round
+  adds), `ssrClaim` (events, refs — the Stage 6 hole kept, its
+  marker replaced), and `ssrElement`'s walk for runtime spreads all
+  recognize a stand-in and emit the marker beside whatever the
+  position would have written. A stand-in that reaches
+  stringification — a template literal, a text child — is an
+  `ATTRIBUTE_SLOT_POSITION` finding; so is spreading the slot's
+  return itself, a server-local function at a claim position, or a
+  markup-faced read. Findings dedupe per render on (occurrence,
+  key, reason, position), because a component's prop getters
+  re-evaluate positions and the same misuse would otherwise report
+  once per read.
+- *A misused stand-in renders nothing, on both faces.* As first
+  built, the document face wrote the t = 0 value where a stand-in
+  was stringified, placed as text or reached an inline `class`/
+  `style`, and the stream face wrote nothing — so a misuse looked
+  right on the first render and broke on the first refetch, the
+  worst place to find it. Struck the same day: every such position
+  renders nothing on either face, and the finding is the only
+  signal. The stand-in also defines `Symbol.toPrimitive`, so a
+  comparison, arithmetic or `==` (`number`/`default` hint) is its
+  own reason, `coerced`, distinct from `stringified` (`string`
+  hint): the message says the server has no value to decide with
+  and the decision belongs in the fill. Truthiness has no hook — a
+  stand-in is an object — which is why the rule above is stated as
+  one sentence, and why `@solidjs/web` ships it as a skill
+  (`skills/server-components/SKILL.md`, in the package's `files`)
+  where an agent writing a server component will read it.
+- *Marker grammar as built.* `_s:<attribute>="<occurrence>:<key>"`;
+  a class name or style property appends `=<name>`; several names
+  bound off one occurrence on one element join with `,`
+  (`_s:class="row#1:done=completed,row#1:editing=editing"`); a whole
+  `class`/`style` read carries no `=`. Events are `_s:on:<event>`
+  with `onInput` lowercased to `input` and `on:custom` kept as
+  written — the client binds through `on:*`; refs `_s:ref`. Keys and
+  names percent-encode onto `[A-Za-z0-9_.-]`, the occurrence
+  alphabet, so `:`/`=`/`,` split exactly. A zero-arg call is the
+  occurrence named by the prop alone (`codeBlock:onCopy`, no `#n`) —
+  one data context per prop, the notes search field's shape. The
+  document face writes the value where the position would have put
+  it and the marker after; an empty class or style writes no
+  `class=""` — the marker alone says the client owns it.
+- *Handler positions are one guarded hole per element, as Stage 6
+  left them.* The compilers still collect `ref`/`on*` expressions
+  into `ssrClaim({ click: expr, ref: expr })` behind
+  `sharedConfig.context.claims`; what changed is inside the helper —
+  a stand-in becomes an `_s:on:*`/`_s:ref` marker, a server-local
+  function is `ATTRIBUTE_SLOT_POSITION`, and nothing writes `_bnd`. The
+  arming enum (`CLAIMS_STREAM` / `CLAIMS_DOCUMENT`) is unchanged and
+  still what keeps client fill content, which re-enters the zone
+  owner, from marking or warning.
+- *A repeated call is one occurrence per render, on both faces —
+  keyed or not.* Found by the first todos port, which emitted eleven
+  `sc:slot:…row#<id>` records per row (one per position read through
+  `props.row`'s getter); first closed for `$key`ed calls only, with
+  a rule that a getter-re-evaluated call must carry `$key`. That
+  rule was then struck (same day, the AI-usability review: an
+  unenforced rule whose failure is silent duplication is a trap, not
+  a rule) and `$key` made optional, as the rules above now say. Both
+  proxies keep two per-render maps: occurrence id → proxy for keyed
+  calls, registered at the call; `prop + structural args` → proxy
+  for un-keyed calls, registered when the face is known to be data —
+  at the first property read on the stream face (`slotProxy`'s
+  `onData`), at the fill's classification on the document face.
+  Args with a getter, a function, a promise or an iterable are never
+  compared. A placed range never registers: two identical positional
+  markup calls stay two ranges (pinned). No wire change: ids stay
+  `prop#<n>`.
+- *A data occurrence's nodes are its consumers, and it is never a
+  zombie.* The client's slot discovery collects `_s:*` elements into
+  per-occurrence consumer lists `[{ element, positions }]` alongside
+  the range walk. The occurrence's "nodes" are those elements (so the
+  existing bookkeeping sees them), but the zombie rule — output whose
+  node left the tree remounts fresh — does not apply: a replaced
+  consumer is a *consumer change*, and an occurrence no element
+  reads is simply not found and unmounts at the sync's end. Consumer
+  sets compare structurally per sync; a change without an args
+  change rebinds in place through a per-occurrence rebinder (the
+  fill's computation stays; new elements and positions take their
+  current values), independent of the args path that follows.
+  `#syncSlots` runs at the end of every flush and scoped to the
+  materialized fragment at each segment reveal, so positions inside
+  late-revealed content bind when they appear.
+- *Binding: values in the compute phase, writes in the effect.* The
+  client mount is `createMemo(() => fill(args))` under the
+  occurrence's owner, and one render effect per occurrence whose
+  compute reads the output's value positions per consuming element
+  (attribute, class name, style property, whole class/style) into a
+  props object and whose effect phase only `assign`s it against the
+  element's previous props. Reading in the compute is what makes the
+  getter idiom work — each getter's sources are tracked by the
+  binding, not by the fill's memo. Handlers are stable dispatchers
+  created once per (element, position) that read the *current*
+  output's handler at event time; a ref fires once per (element,
+  property). Built the other way first (reads in the effect phase):
+  values did not update under getters, which is how the
+  compute-phase rule and the Granularity amendment were found.
+- *The morph's exception is read off the incoming element.* The
+  morph parses the new element's `_s:*` attributes into owned
+  positions and, for each attribute it would set or remove, either
+  skips it (a whole attribute the client owns) or applies the
+  server's value and re-imposes the owned names' live state (class
+  names, style properties). No ownership table, no `ctx.own`
+  contract: what 09-27 reported per run, the markup states.
+- *`AttributeSlot<P, J>` is conditional on `P`.* `(props?: P & { $key?
+  }) => J` when `{}` extends `P` — the zero-arg call type-checks —
+  and required otherwise. Exported as `DataSlot` for a day; renamed
+  with the diagnostic code (`DATA_SLOT_POSITION` →
+  `ATTRIBUTE_SLOT_POSITION`) when the reframe above was, so that
+  the type, the code, the specs and this section say one thing.
+  The wire is untouched: `_s:*` markers, `SLOT_*` exports,
+  `sc:slot:` record ids are as they were.
+- *No compiler change to the DOM output.* `$key` on an intrinsic
+  strips at a DOM compile (already so); the `serverComponents` SSR
+  transform is the only codegen touched, and plain SSR output is
+  byte-identical to before.
+
+Confirmed empirically, `examples/todos-server` re-ported to the
+shape and driven in a browser against the dev server, document SSR
+and hydration included: one `TodoRow` on both sides; `row` (per
+todo, keyed), `list` and `filters` (zero-arg) attribute slots; `pending`
+and `count` markup (the count is the text position the open list
+defers); one record per occurrence; hydrated `checked`/
+`class`/`hidden` in the HTML before JavaScript and bound with no
+re-render; toggle / retry / toggle-all / clear-completed / filters;
+row nodes stable across settles; the count right through pending
+adds and their toggles; zero console warnings in dev (the strict-read
+diagnostic was the tell that found the compute-phase rule). The
+notes example's search field (`_s:value`, `_s:on:input`,
+`_s:on:submit`, `_s:class="search:active=spinner--active"`,
+`_s:aria-busy`) and the chat example's `codeBlock` copy button
+(`_s:on:click="codeBlock:onCopy"`, a zero-arg occurrence bound inside
+streamed segment content) both moved off `_bnd` and work.
+
+The gate's criterion, this time: `rowFor` is seven properties — four
+getters and three closures — against the SPA's `TodoItem`, which
+holds the same seven things and the markup; the client ships no row
+markup except the pending row, which is `TodoRow` again. The
+server template shows every position the client owns. Passed.
+
+Findings from the port, none of them slot mechanics:
+
+- *Pending rows that are not inert* need two things the SPA never
+  did. `<For>` must be handed the store's own intent objects (stable
+  identity; the default keyed mode) — a spread copy per array change
+  remounted every pending row. And a toggle or remove on a pending
+  id waits for the add's promise (`inflight` map) and then, if the
+  add failed, edits the failed-add error record locally (the todo
+  lives nowhere else); the count skips `intent.byId` entries for
+  ids that are still extra rows and counts the extras themselves.
+- *The shared component's `$key` is on the `<li>` inside `TodoRow`*
+  (`<li $key={props.id}>`), not at the call site — the call carries
+  its own `$key` for the occurrence. Two keys, two jobs, as written;
+  the port shows where each one physically goes.
+- *Chat's greeting at t = 0 replays only its first paragraph.* Not
+  this work: reproduced on the branch's HEAD with the tree stashed.
+  Recorded here so the next reader does not chase it into slots.
+- *One flake, run to ground.* Two early browser runs of the chat
+  example never invoked the `codeBlock` fill (no marker was bound);
+  after a web rebuild and a cleared Vite dep cache, three
+  consecutive runs bound it. The alternative that would have been a
+  bug — a race between the segment reveal's scoped sync and the
+  copy button's arrival — was tested rather than argued: jsdom
+  specs for an occurrence whose only consumer arrives in a segment
+  revealed after the record and the first flush, in a live hole's
+  re-emission, and in a hole that re-emits before its segment
+  reveals, all bind (`test/frames-attribute-slots.spec.tsx`); and
+  the server emits the marker on every sweep of a live hole with an
+  unrelated document render interleaved
+  (`test/server/frame-attribute-slots.spec.tsx`). The runtime is
+  clean in every ordering the model has; what the two runs saw was
+  a Vite dep cache holding the prebundled client from the
+  stash-and-rebuild experiment (`.vite` was cleared only on the
+  final restart). Closed as an environment artifact — and it left
+  a finding: the failure was *silent*. Every misuse in this model
+  reports on the server; the one failure that reaches a user — a
+  marked element whose positions never bind, so a button does
+  nothing when clicked — reported nothing. The frame client now
+  names it (`ATTRIBUTE_SLOT_POSITION`, reason `orphan`, once per
+  occurrence per frame) at the point `#syncSlots` classifies the
+  occurrence: no fill resolves for the prop (`why: "fill"`), or a
+  *called* occurrence has no args record once records can no
+  longer arrive (`why: "record"` — the producer emits the record
+  ahead of the markup that reads it, so a missing one is the
+  protocol out of step, never the fill; a bare occurrence has no
+  record by design). Behavior is unchanged in both cases. Honest
+  limit: the flake's own shape — a *stale client* — is the one
+  skew no client check can see, because the stale client lacks
+  the check; the finding covers the newer-client, dropped-record
+  and id-mismatch shapes, and the missing-prop misconfiguration.
+
+Still open from the list above, unchanged: text positions;
+client-created entities without client markup; actions against
+pending ids as a general concern (the port's sequencing is an
+example's answer).
 
 ### 9.3 Stage 8 seed — connection-shaped transport (2026-08-17)
 
