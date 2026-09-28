@@ -4197,7 +4197,7 @@ export function ssrClassName(value) {
     const key = classKeys[i],
       classValue = !!value[key];
     if (!key || key === "undefined" || !classValue) continue;
-    i && (result += " ");
+    result && (result += " ");
     // Object keys land inside class="..." so they must be attribute-escaped.
     result += escape(key, true);
   }
@@ -4217,9 +4217,9 @@ export function ssrStyle(value) {
     const s = escape(k[i], true);
     const v = value[k[i]];
     if (v != undefined) {
-      if (i) result += ";";
       const r = escape(v, true);
       if (r != undefined && r !== "undefined") {
+        if (result) result += ";";
         result += `${s}:${r}`;
       }
     }
