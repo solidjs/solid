@@ -2146,7 +2146,11 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 17.80 -> 17.83 KB,
     // measured at 17,822 B against `next`'s 17,763 (+59 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "17.83 KB",
+    // A woken transaction is not re-entered over a staged bump (#3684,
+    // 2026-09-27): 17.83 -> 17.86 KB, measured at 17,845 B against `next`'s
+    // 17,822 (+23 B; 15 B over the cap) on +22 B minified in the core (the
+    // full pass's `scheduled` counts staged pending nodes).
+    limit: "17.86 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2470,7 +2474,11 @@ module.exports = [
     // A lane frame is the run's (#3662, 2026-09-26): 31.84 -> 31.98 KB,
     // measured at 31,928 B against `next`'s 31,822 (+106 B). Core-retained ripple of the
     // lane-frame sites — see the core floor note.
-    limit: "31.98 KB",
+    // A woken transaction is not re-entered over a staged bump (#3684,
+    // 2026-09-27): 31.98 -> 32.01 KB, measured at 32,001 B against `next`'s
+    // 31,943 (+58 B; 21 B over the cap) on the same +22 B minified core
+    // term as the tier scenario above; brotli layout.
+    limit: "32.01 KB",
     modifyEsbuildConfig: observeEsbuildConfig
   },
   {
@@ -2606,6 +2614,12 @@ module.exports = [
     // 46,872 B against `next`'s 46,852 (+20 B) — the F3/F5 correctness fix
     // (untracked store reads honour #3331 supersession); accepted by the
     // maintainer. The cap is frozen again at 46.88 KB.
+    // Size-Exception (#3684, 2026-09-27): 46.88 -> 46.90 KB, measured at
+    // 46,885 B against `next`'s 46,872 (+13 B; 5 B over the cap) — the F6
+    // scheduler correctness fix (the full pass's idle test counts staged
+    // pending nodes, so a woken transaction cannot adopt another action's
+    // bump; +22 B minified in the core); accepted by the maintainer. The cap
+    // is frozen again at 46.90 KB.
     path: "sc-base-app.js",
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     modifyEsbuildConfig: pageEsbuildConfig
@@ -2617,6 +2631,11 @@ module.exports = [
     // the router retains on every real page anyway). Still no client stores.
     // Rebased onto `next` @ 3af4696fb (2026-09-26): 51,103 -> 51,156 B
     // (+53 B), same two commits as the base page.
+    // Size-Exception (#3684, 2026-09-27): 51.16 -> 51.23 KB, measured at
+    // 51,220 B against `next`'s 51,156 (+64 B; 60 B over a cap `next` sat 4 B
+    // under) — the F6 scheduler fix, same +22 B minified as the base page;
+    // brotli layout amplifies it here. Accepted by the maintainer. The cap
+    // is frozen again at 51.23 KB.
     path: "sc-live-app.js",
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     modifyEsbuildConfig: pageEsbuildConfig

@@ -431,7 +431,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // `commitPendingNode`'s clear), the #3444 exception
     // skipped for its members (`laneZombie`, 89 B) and their #3463 liveness
     // read from the lane's transaction (38 B).
-    expect(minifiedBytes).toBeLessThan(26_660);
+    // A woken transaction is not re-entered over a staged ambient bump
+    // (matrix F6, 2026-09-27): +29 B core-retained (26,649 -> 26,678) — the
+    // full pass's `scheduled` gains the `_batch._pendingNodes.length` term
+    // the fast drain and the park exit already carry, so a node the finalize
+    // staged with no subscriber is committed by the next round instead of
+    // being adopted by the wake in `finally`.
+    expect(minifiedBytes).toBeLessThan(26_690);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

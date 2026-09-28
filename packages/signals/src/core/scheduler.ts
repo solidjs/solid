@@ -992,8 +992,16 @@ export class GlobalQueue extends Queue {
       // sweep or recompute wrote a node it owns): effects computed under it
       // since are its to apply, not this flush's — runEffect leaves them queued
       // and the next pass parks them with it (#3319). Everything computed
-      // mainline applies now.
-      scheduled = dirtyQueue._max >= dirtyQueue._min || activeTransition !== null;
+      // mainline applies now. A write the finalize staged in the ambient
+      // batch with no subscriber to dirty (an optimistic store settle's
+      // keyset bump under a reader that never tracks the key set) is work
+      // too — the fast drain and the park exit already count it — so the
+      // next round commits it and the woken re-entry below does not adopt
+      // it into a parked transaction it never belonged to (matrix F6).
+      scheduled =
+        dirtyQueue._max >= dirtyQueue._min ||
+        activeTransition !== null ||
+        this._batch._pendingNodes.length !== 0;
       // Run lane effects first (for ready lanes), then regular effects
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_RENDER);
       this.run(EFFECT_RENDER);
@@ -1025,9 +1033,14 @@ export class GlobalQueue extends Queue {
       // idle pass: entering adopts the ambient batch, and staged or dirty
       // ambient work would be held behind flights it never read. `scheduled`
       // is that test here — after the park exit as well as the normal one:
-      // it was recomputed from the heap this pass, every write since re-armed
-      // it, and optimistic ambient nodes reverted with the finalize — so a
-      // wake in a pass with work simply falls to the next. Entering re-arms
+      // it was recomputed from the heap and the ambient batch's staged nodes
+      // this pass, every write since re-armed it, and optimistic ambient
+      // nodes reverted with the finalize — so a wake in a pass with work
+      // simply falls to the next. (A staged node with no subscriber — the
+      // finalize's keyset bump under a length-only reader — used to be
+      // missed here: the wake adopted it, stamped it, and a later ambient
+      // write to the same node joined the parked transaction and never
+      // reverted; matrix F6.) Entering re-arms
       // it itself; a dead (completed) wake is a bare return in
       // initTransition, and the loop moves on to the next.
       while (!scheduled && !activeTransition && wokenTransitions.length)
