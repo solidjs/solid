@@ -872,8 +872,7 @@ export function transformSpecialCaseAttributes(
         // redirects (#3015) so the SSR child pipeline skips the `_$scope` id
         // reservation — otherwise the reservation shifts every keyed sibling
         // after the textarea by one id (#3691).
-        (child as babelTypes.JSXExpressionContainer & { _childProperty?: boolean })._childProperty =
-          true;
+        (child as t.JSXExpressionContainer & { _childProperty?: boolean })._childProperty = true;
       }
       path.node.children = [child];
       attr.remove();
