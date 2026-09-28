@@ -105,8 +105,8 @@ const GREETING = `Welcome to **Solid Chat** — and yes, I am typing this *into 
 
 \`\`\`jsx
 // even this code block streamed in as highlighted HTML —
-// and its Copy button is a client handler on a server element
-<button class="copy-code" onClick={props.copy}>Copy</button>
+// and its Copy button reads a client attribute slot on a server element
+<button class="copy-code" onClick={block.copy}>Copy</button>
 \`\`\`
 
 When the app hydrates it adopts this reply mid-sentence and replays whatever it missed — no fetch, no JSON twin. Ask about **server components**, **signals**, or **markdown** and the next reply arrives the other way: a server-function call streaming over its own connection.`;
