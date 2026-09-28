@@ -797,7 +797,16 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 16.59 KB, measured rounded up to the next 0.01 kB.
-    limit: "16.59 KB",
+    // Wide overlay folds that change the key set rebuild the backing (#3689,
+    // 2026-09-28): 16.59 -> 16.71 KB, measured at 16,707 B against `next` @
+    // 61a33af5a's 16,584 (+123 B). `overlayRebuilds` (the per-fold cost-model
+    // decision: deletes or >16 adds below the 1024-key gate), `wideClone`
+    // (dictionary-mode copy for the rebuild), materializePB's plain-data arm
+    // and return value, the two commit-site branches, and the `kc` count-down
+    // on committed deletes. A 400-key keyed record churning 100 keys per
+    // commit goes from 4.7 ms to 0.22 ms per step. All in the store module;
+    // core floor 0 B.
+    limit: "16.71 KB",
     alias
   },
   {
@@ -1810,7 +1819,11 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 30.48 KB, measured rounded up to the next 0.01 kB.
-    limit: "30.48 KB",
+    // Wide overlay folds that change the key set rebuild the backing (#3689,
+    // 2026-09-28): 30.48 -> 30.63 KB, measured at 30,630 B against `next` @
+    // 61a33af5a's 30,480 (+150 B). Same change as the `+ createStore` note
+    // (+123 B there); brotli layout over the larger bundle. Core floor 0 B.
+    limit: "30.63 KB",
     alias
   },
   {
@@ -2758,6 +2771,14 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 44.73 KB, measured rounded up to the next 0.01 kB.
+    // Size-Exception (#3689, 2026-09-28): 44.73 -> 44.89 KB, measured at
+    // 44,890 B against `next` @ 61a33af5a's 44,726 (+164 B) — wide overlay
+    // folds that change the key set rebuild the backing instead of mutating
+    // a V8 prototype object (a 400-key record churning 100 keys: 4.7 ms ->
+    // 0.22 ms per commit). The store engine reaches this page through the
+    // frames client's container-trace materializer (see the baseline note);
+    // the `+ createStore` scenario carries the same change at +123 B. The cap
+    // is frozen again at 44.89 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2788,6 +2809,10 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 48.98 KB, measured rounded up to the next 0.01 kB.
+    // Size-Exception (#3689, 2026-09-28): 48.98 -> 49.02 KB, measured at
+    // 49,014 B against `next` @ 61a33af5a's 48,976 (+38 B) — the same store
+    // change as the base page's note (+164 B there); brotli layout absorbs
+    // most of it on this page. The cap is frozen again at 49.02 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }
