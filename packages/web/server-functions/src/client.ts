@@ -11,6 +11,13 @@ import { observeCall } from "../../src/observe.js";
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // Replaced per build too; dev-only diagnostics fold out behind it.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+// Observe tier: the call's observation rides the per-call options down to
+// `createRequest`, where the dispatched request takes its final shape —
+// the way a live loop's wire slot rides (LIVE_WIRE) — and is lifted off
+// before the init is built. A trailing parameter through `initializeResponse`
+// and its five `createRequest` sites would cost the prod artifact bytes for a
+// value it never carries; every read of this key sits behind `IS_OBSERVE`.
+const CALL_OBSERVATION = Symbol("solid.CallObservation");
 // Local bindings for the annotations below — the `export type` block only
 // re-exports these names without bringing them into scope, and declaration
 // emit would leave them dangling (implicit any for every consumer).
@@ -534,6 +541,14 @@ async function createRequest(base, id, options, meta) {
     // rides beside the position, under the same rule.
     if (wire.headers) Object.assign(headers, wire.headers);
   }
+  // Observe tier: lift the call's observation off before the init is built
+  // (see CALL_OBSERVATION); it sees the final init below, after
+  // `prepareRequest` has had its say.
+  const observation = IS_OBSERVE ? options[CALL_OBSERVATION] : undefined;
+  if (observation) {
+    options = { ...options };
+    delete options[CALL_OBSERVATION];
+  }
   // A GET-encoded call's identity is its url, and nothing else: caches key
   // on it, and a `<link rel="preload" as="fetch">` is reused only by a
   // fetch matching it exactly, headers included, so a read carries no
@@ -595,6 +610,7 @@ async function createRequest(base, id, options, meta) {
     }
     init = prepared || init;
   }
+  if (IS_OBSERVE && observation) observation.request(base, init);
   const send = config.fetch || fetch;
   return send(base, init);
 }
@@ -718,7 +734,8 @@ async function observedFetch(base, id, options, args, meta, callArgs = args) {
   const observation = observeCall(
     id,
     options.method && options.method.toUpperCase() === "GET" ? "GET" : "POST",
-    callArgs
+    callArgs,
+    meta && meta.name
   );
   if (!observation) return dispatchServerFunction(base, id, options, args, meta, callArgs);
   let result;
@@ -748,6 +765,8 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // owns the wire, and cancellation stays theirs.
   const controller = options.signal ? undefined : new AbortController();
   if (controller) options = { ...options, signal: controller.signal };
+  // See CALL_OBSERVATION: the observation rides to `createRequest`.
+  if (IS_OBSERVE && observation) options = { ...options, [CALL_OBSERVATION]: observation };
 
   const response = await initializeResponse(base, id, options, args, meta);
   if (IS_OBSERVE && observation) observation.response(response);

@@ -297,6 +297,25 @@ export type RecordListener<K extends RecordType> = (
 ) => void;
 
 /**
+ * What a `Records.subscribe` asks of the emitter beyond the record itself.
+ */
+export interface RecordSubscribeOptions {
+  /**
+   * Ask for the record's BODIES: the live handles that cost the emitter
+   * something per record to take, and are taken only while a listener of
+   * the type has asked — so a consumer that reads ids, statuses and
+   * timings (an APM adapter, the performance tracks) never pays for what a
+   * body viewer (devtools' network panel) reads. Accepted for any type, the
+   * channel being generic; meaningful today for `"call"`, whose
+   * `live.request` (a reconstruction of the dispatched request) and
+   * `live.response` (an unread clone, a transient double-buffer of the
+   * payload) are taken only under it — without it, the transport's own
+   * objects. An emitter asks with `observed(type, "bodies")`.
+   */
+  bodies?: boolean;
+}
+
+/**
  * The records channel — `OBSERVE.records`, on either platform: one place a
  * consumer (an APM adapter's `init()`, devtools, the diagnostics harness)
  * subscribes to the completed, serializable summaries of the things the
@@ -321,14 +340,32 @@ export interface Records {
    * Deliver `type` records as they complete; returns the unsubscribe. The
    * subscription is the channel's, not any emitter's: it outlives the
    * attribution engine's `enable()`/`disable()` cycles and is dropped only
-   * by its own unsubscribe.
+   * by its own unsubscribe. `options` asks the emitter for more than the
+   * record — see `RecordSubscribeOptions`. One entry per listener function:
+   * its options are read at its first subscription to the type, a repeat
+   * subscription of the same function changes nothing, and either disposer
+   * removes it. What an emitter takes is decided once per record from the
+   * union of the type's subscribers, so a listener without `bodies` that
+   * shares a call with one that asked receives the same `live` — the clone.
    */
-  subscribe<K extends RecordType>(type: K, listener: RecordListener<K>): () => void;
+  subscribe<K extends RecordType>(
+    type: K,
+    listener: RecordListener<K>,
+    options?: RecordSubscribeOptions
+  ): () => void;
   /**
    * Whether anything is subscribed to `type` — an emitter's pre-check, so
    * a record nobody will hear costs nothing to not build (no clock read).
    */
   observed(type: RecordType): boolean;
+  /**
+   * Whether a listener of `type` asked for its bodies
+   * (`subscribe(type, listener, { bodies: true })`) — the emitter's
+   * pre-check for the live handles that cost something per record to take.
+   * `false` while every listener of the type is a plain one, and once the
+   * last body-wanting one unsubscribed.
+   */
+  observed(type: RecordType, facet: "bodies"): boolean;
   /**
    * Delivers a completed record to `type`'s listeners, synchronously: how a
    * runtime publishes. Snapshot semantics without a snapshot — the listener
@@ -386,11 +423,32 @@ export interface Observe {
    * and stores created under it are excluded subjects wherever their writes
    * come from (a click handler, an adapter callback), so writes need no
    * `runWithOwner` — and must not use one: a write under an owner is a write
-   * in an owned scope (REACTIVE_WRITE_IN_OWNED_SCOPE). Irrevocable for the
-   * owner's lifetime.
+   * in an owned scope (REACTIVE_WRITE_IN_OWNED_SCOPE). One mark per owner:
+   * a later `exclude` or `include` on the same owner replaces it, and
+   * `include` re-admits a subtree beneath it.
    */
   exclude(owner: Owner): void;
-  /** Whether `subject` sits under an excluded owner (itself included). */
+  /**
+   * Marks `owner`'s subtree as the app's again, beneath an excluded owner.
+   * The verdict for a subject is the NEAREST marked ancestor's (the subject
+   * itself included): an `include` under an `exclude` re-admits that
+   * subtree, an `exclude` under an `include` excludes it again, and the
+   * markers nest to any depth. For an observer that WRAPS the app it
+   * watches — a toolbar rendering `<DevToolbar><App/></DevToolbar>` — so
+   * the toolbar's own root is excluded and the app's root, created under
+   * it, is included back. Mark the root as it is created, as with
+   * `exclude`: the attribution engine caches each node's verdict the first
+   * time it asks and keeps it for the node's life, so a mark set after a
+   * node was judged does not reach it. Alone — with no excluded ancestor —
+   * an included owner is what it already was. One mark per owner: a later
+   * `exclude` or `include` on the same owner replaces it.
+   */
+  include(owner: Owner): void;
+  /**
+   * Whether `subject` sits under an excluded owner (itself included) — the
+   * nearest marked ancestor on its owner chain answers, with the one mark
+   * (the latest `exclude`/`include`) that owner carries.
+   */
   isExcluded(subject: DiagnosticSubject | null | undefined): boolean;
   /**
    * Root-first names of the owners enclosing `subject` (inclusive when the
@@ -504,7 +562,12 @@ const attributionSlot: AttributionSlot = {
 // holds two of this module, and a listener installed through one must hear
 // the records the render emits through the other. The registered key makes
 // every copy find the one listener set; the object is generic — a Map of
-// type to listener list — and carries no knowledge of the records.
+// type to listener list — and carries no knowledge of the records. It is
+// created by whichever copy touches the key first, and its capabilities are
+// that copy's: the packages version together, so no version stamp — with
+// two copies at different versions the channel behaves as the older one
+// (a pre-`bodies` copy reached first knows no bodies set, and takes bodies
+// for every `"call"` listener).
 //
 // Delivery is the hot path: the attribution engine emits a `rerun` record
 // per recompute through here, so `emit` must allocate nothing. The listener
@@ -514,29 +577,46 @@ const attributionSlot: AttributionSlot = {
 // is still delivered to this round and skipped from the next, one
 // subscribing mid-delivery hears the next record, and no copy is made per
 // record. Subscriptions are rare; a copy there is free. A type with no
-// listener has no entry, so `observed` is one `has`.
+// listener has no entry, so `observed` is one `has` — and the same for the
+// `"bodies"` facet: the listeners that asked for bodies are kept per type
+// in a second map, a type present only while one is installed, so the
+// facet's count is the set's size and its gate one `has`. The set is a
+// subset of the type's list by construction (entered when the listener is
+// added, left when it is removed), so a second unsubscribe of the same
+// listener finds it in neither.
 type AnyRecordListener = (event: unknown, live: unknown) => void;
 const RECORDS = Symbol.for("@solidjs/signals/observe/records");
 function recordsChannel(): Records {
   const g = globalThis as { [RECORDS]?: Records };
   if (g[RECORDS]) return g[RECORDS];
   const listeners = new Map<string, readonly AnyRecordListener[]>();
+  const bodyListeners = new Map<string, Set<AnyRecordListener>>();
   return (g[RECORDS] = {
-    subscribe(type: string, listener: AnyRecordListener) {
+    subscribe(type: string, listener: AnyRecordListener, options?: RecordSubscribeOptions) {
       const current = listeners.get(type);
-      // Set semantics: one entry per function, however often it is passed.
-      if (current === undefined) listeners.set(type, [listener]);
-      else if (!current.includes(listener)) listeners.set(type, [...current, listener]);
+      // Set semantics: one entry per function, however often it is passed —
+      // the first subscription's options stand for it.
+      if (current === undefined || !current.includes(listener)) {
+        listeners.set(type, current === undefined ? [listener] : [...current, listener]);
+        if (options !== undefined && options.bodies) {
+          let wanting = bodyListeners.get(type);
+          if (wanting === undefined) bodyListeners.set(type, (wanting = new Set()));
+          wanting.add(listener);
+        }
+      }
       return () => {
         const list = listeners.get(type);
-        if (list === undefined) return;
+        if (list === undefined || !list.includes(listener)) return;
         const next = list.filter(l => l !== listener);
         if (next.length > 0) listeners.set(type, next);
         else listeners.delete(type);
+        const wanting = bodyListeners.get(type);
+        if (wanting !== undefined && wanting.delete(listener) && wanting.size === 0)
+          bodyListeners.delete(type);
       };
     },
-    observed(type: string) {
-      return listeners.has(type);
+    observed(type: string, facet?: "bodies") {
+      return facet === "bodies" ? bodyListeners.has(type) : listeners.has(type);
     },
     emit(type: string, event: unknown, live: unknown) {
       const list = listeners.get(type);
@@ -564,8 +644,13 @@ export const OBSERVE: Observe = __OBSERVE__
       // empty HERE and gains its members by augmentation downstream.
       server: {} as ServerObserve,
       exclude(owner) {
-        excludedOwners.add(owner);
+        markedOwners.set(owner, true);
         hasExclusions = true;
+      },
+      include(owner) {
+        // No flag flip: with nothing excluded there is nothing to re-admit,
+        // and the walk stays short-circuited.
+        markedOwners.set(owner, false);
       },
       isExcluded,
       ownerPath
@@ -576,9 +661,13 @@ export const OBSERVE: Observe = __OBSERVE__
 //
 // An observer that lives inside the observed app (an adapter's panel,
 // devtools) marks its root; both channels check the subject's owner chain —
-// the same walk `ownerPath` already makes — and stay silent under it. The
-// flag short-circuits the walk for the common case of no exclusions.
-const excludedOwners = new WeakSet<Owner>();
+// the same walk `ownerPath` already makes — and stay silent under it. An
+// observer that WRAPS the app (a toolbar around it) excludes its own root
+// and includes the app's back: one map, `true` excluded / `false` included,
+// and the nearest marker up the chain decides. The flag short-circuits the
+// walk for the common case of no exclusions (an include with nothing
+// excluded changes no verdict, so it does not flip it).
+const markedOwners = new WeakMap<Owner, boolean>();
 let hasExclusions = false;
 /** Events built for an excluded subject: never delivered, never reported. */
 const suppressedEvents = new WeakSet<DiagnosticEvent>();
@@ -587,7 +676,10 @@ export function isExcluded(subject: DiagnosticSubject | null | undefined): boole
   if (!hasExclusions || !subject) return false;
   let owner: Owner | null =
     "_parent" in subject ? (subject as Owner) : (((subject as any)._owner as Owner | null) ?? null);
-  for (; owner !== null; owner = owner._parent) if (excludedOwners.has(owner)) return true;
+  for (; owner !== null; owner = owner._parent) {
+    const marked = markedOwners.get(owner);
+    if (marked !== undefined) return marked;
+  }
   return false;
 }
 

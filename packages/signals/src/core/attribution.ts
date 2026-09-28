@@ -596,17 +596,23 @@ interface AttributedNode {
   /** Consecutive effect-phase writes that copied the writing effect's compute output. */
   _devCopyRuns?: number;
   _devCopyFrom?: number;
-  /** Cached `OBSERVE.isExcluded` verdict — owners never move, so it holds for the node's life. */
+  /**
+   * Cached `OBSERVE.isExcluded` verdict, taken the first time the engine
+   * asks and kept for the node's life: owners never move, and a mark
+   * (`exclude`/`include`) belongs at the owner's creation — one set, or
+   * replaced, after a node was judged does not reach it.
+   */
   _devExcluded?: boolean;
 }
 
 /**
- * Under an owner the observer marked as its own (`OBSERVE.exclude`), or
- * framework plumbing itself (`CONFIG_PLUMBING` — the HMR memo between a
- * component's root and its body, which is nobody's node): the engine records
- * nothing about the node. Plumbing is a bit read and excludes the node alone,
- * not what it owns; the observer exclusion is cached per node once any
- * exists, before that a flag read.
+ * Under an owner the observer marked as its own (`OBSERVE.exclude`, and not
+ * re-admitted by a nearer `OBSERVE.include`), or framework plumbing itself
+ * (`CONFIG_PLUMBING` — the HMR memo between a component's root and its
+ * body, which is nobody's node): the engine records nothing about the node.
+ * Plumbing is a bit read and excludes the node alone, not what it owns; the
+ * observer exclusion is cached per node once any exists, before that a flag
+ * read.
  */
 function excludedNode(el: Computed<any> | Signal<any>): boolean {
   if ((el._config & CONFIG_PLUMBING) !== 0) return true;

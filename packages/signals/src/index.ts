@@ -72,6 +72,7 @@ export type {
   RecordEvent,
   RecordLive,
   RecordListener,
+  RecordSubscribeOptions,
   DevHooks,
   DiagnosticCapture,
   DiagnosticCode,

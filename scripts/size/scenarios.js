@@ -2336,7 +2336,18 @@ module.exports = [
     // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
     // 16.36 KB, measured at 16,355 B against `next` @ f1b07761f's 16,356 (-1 B;
     // -3 B minified). Same parking-gate change as the CSR note.
-    limit: "16.36 KB",
+    // `OBSERVE.include` and the records channel's bodies opt-in (#3705,
+    // 2026-09-28): 16.36 -> 16.48 KB, measured at 16,477 B against `next` @
+    // 695836771's 16,355 (+122 B; +281 B minified, all of it the observe
+    // core). `include` is the inverse of `exclude` — the marker set becomes
+    // a WeakMap<Owner, boolean> and `isExcluded` answers by the nearest
+    // marked ancestor (+46 B minified). `subscribe(type, fn, { bodies })`
+    // keeps, per type, the set of listeners that asked for bodies, and
+    // `observed(type, "bodies")` is that set's gate — so the "call" record's
+    // request reconstruction and response clone are taken only for a body
+    // viewer, never for an APM-style listener (+235 B minified). Every prod
+    // scenario byte-identical.
+    limit: "16.48 KB",
     alias: observeAlias
   },
   {
@@ -2699,7 +2710,16 @@ module.exports = [
     // measured at 30,609 B against `next` @ f1b07761f's 30,596 (+13 B; 9 B over
     // the cap; -3 B minified) — `recompute`'s parking gate drops its
     // effect-only term; brotli layout, see the hydrating (no stores) note.
-    limit: "30.61 KB",
+    // `OBSERVE.include` and the records channel's bodies opt-in (#3705,
+    // 2026-09-28): 30.61 -> 30.71 KB, measured at 30,701 B against `next` @
+    // 695836771's 30,609 (+92 B; +281 B minified — the same observe-core
+    // change the observe tier note above describes, compressing better under
+    // the engine's layout). `include` is the inverse of `exclude`: the
+    // marker set becomes a WeakMap<Owner, boolean> and `isExcluded` answers
+    // by the nearest marked ancestor, so a devtools shell rendered AROUND
+    // the app can hand the app back to the engine. No engine change; every
+    // prod scenario byte-identical.
+    limit: "30.71 KB",
     alias: observeAlias
   },
   {

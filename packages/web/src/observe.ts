@@ -223,6 +223,15 @@ export type RenderListener = (event: RenderEvent, live: RenderLive) => void;
 export interface CallEvent {
   /** The function id — the same `id` the server's `"invocation"` record carries. */
   id: string;
+  /**
+   * The function's source name, from the reference's metadata
+   * (`ServerFunctionMetadata.name`): the compiled function's name, which
+   * the compiler seeds in development builds only, or an explicit label
+   * (`withMeta`, the `name` argument to `createServerReference`), which
+   * survives to production. A label, not an identity: not unique, and
+   * absent when the metadata carries none.
+   */
+  name?: string;
   /** `performance.now()` when the call was made. */
   at: number;
   /**
@@ -262,14 +271,59 @@ export interface CallEvent {
 }
 
 /**
- * The live half of a call, for in-process consumers. `response` is the
- * transport's own object, not a clone: its status and headers are
- * readable, its body is the decode's (already consumed, or being consumed
- * by the caller for a streaming result). `error` is the value as thrown to
- * the caller — a decoded server error, or the transport's own failure.
+ * The live half of a call, for in-process consumers. `error` is the value
+ * as thrown to the caller — a decoded server error, or the transport's own
+ * failure. The bodies — `request`, and `response` as an unread clone — are
+ * a body viewer's (devtools' network panel), and are taken only while a
+ * `"call"` listener asked for them
+ * (`OBSERVE.records.subscribe("call", fn, { bodies: true })`): each costs
+ * the call a reconstruction and a transient double-buffer of the payload,
+ * which a consumer that reads ids, statuses and timings never pays. With
+ * no such listener `request` is absent and `response` is the transport's
+ * own object, consumed by its decode. Whether bodies are taken is read once,
+ * as the call starts.
  */
 export interface CallLive {
   args: unknown[];
+  /**
+   * Bodies opted in: the request as dispatched — the final url and
+   * `RequestInit` (the transport's headers, the `prepareRequest` hook
+   * applied), built into a `Request` of the listener's own at the send, so
+   * its headers and body are readable in full and reading them touches
+   * nothing the transport sent. Built WITH the body only when the body has
+   * a shape a second `Request` can hold without a competing consumer —
+   * `string`, `URLSearchParams`, `FormData`, `Blob`, `ArrayBuffer` or a
+   * view of one — and WITHOUT it otherwise (a `ReadableStream` or an async
+   * iterable, the transport's streaming-upload contract: reconstructing
+   * one would consume it ahead of the send), so the request then reads as
+   * bodyless. Absent without the opt-in; when the call failed before the
+   * request was built (argument serialization threw); when the address is
+   * relative and there is no `location` to resolve it against (absent
+   * beats a URL that was never sent); and when the reconstruction itself
+   * failed (an init the `Request` constructor rejects but the configured
+   * `fetch` tolerates) — a reconstruction never fails the call.
+   */
+  request?: Request;
+  /**
+   * The response: with bodies opted in, one with an UNREAD body — a
+   * `clone()` taken as the response arrived, before the transport's
+   * decode, so the listener reads status, headers and body while the
+   * caller still gets its result from the original. The transport's own
+   * object instead — status and headers readable, body consumed by the
+   * transport's decode — without the opt-in, and, with it, for a response
+   * whose clone would be a branch nobody drains: an event-stream response
+   * (a `live()` source, `text/event-stream`, a connection open for the
+   * page's life), a deferred result (a generator's stream, `deferred:
+   * true`, served for the stream's life — its clone, taken before the
+   * result's shape was known, is cancelled at settle), and a response the
+   * `clone()` refused (one a configured `fetch` handed over already read).
+   * A response a `responseHandler` claimed whose result is not a deferred
+   * body — a non-live `application/x-frame-stream` frame render the frames
+   * transport claims, say — keeps its clone, so under the opt-in the
+   * clone's branch buffers that render until the listener reads it or
+   * drops the record; live frames are `text/event-stream` and are never
+   * cloned. Absent when the fetch itself rejected.
+   */
   response?: Response;
   /** The settled value, when `outcome` is `"ok"`. */
   result?: unknown;
@@ -463,6 +517,11 @@ export function frameCensus(event: FrameEventBase, type: string, own: boolean): 
 
 /** What the client runtime hands a call observation as the call proceeds. */
 export interface CallObservation {
+  /**
+   * The request is about to be sent: the address and the final
+   * `RequestInit` — what the transport's `fetch` receives, hook applied.
+   */
+  request(url: string, init: RequestInit): void;
   /** The response arrived (before decode); its status goes on the record. */
   response(response: Response): void;
   /** The call settled as the caller sees it: the value returned, or the error thrown. */
@@ -471,44 +530,137 @@ export interface CallObservation {
 
 /**
  * Opens the observation of one server-function call from the client, as
- * the request is about to be built; the runtime reports the response when
- * it arrives and the settle when the caller gets its answer. `undefined`
- * with no listener or outside observe builds — the runtime then does
- * nothing extra, not even read the clock.
+ * the request is about to be built; the runtime reports the request as it
+ * is sent, the response when it arrives and the settle when the caller
+ * gets its answer. `undefined` with no listener or outside observe builds
+ * — the runtime then does nothing extra, not even read the clock.
  */
 export function observeCall(
   id: string,
   method: "GET" | "POST",
-  args: unknown[]
+  args: unknown[],
+  name?: string
 ): CallObservation | undefined {
   if (!IS_OBSERVE) return undefined;
   const channel = records();
   if (channel === undefined || !channel.observed("call")) return undefined;
   const at = performance.now();
+  // Bodies are taken only for a listener that asked (see `CallLive`), and
+  // the question is asked ONCE, here: a subscription that arrives or
+  // leaves mid-call cannot leave the record with a clone and no request,
+  // or the reverse.
+  const bodies = channel.observed("call", "bodies");
   // Provenance is read NOW, at the call site, where the handler's or the
   // recompute's frame is still open; by settle it is long gone.
   const origin = currentOrigin();
+  let request: Request | undefined;
   let response: Response | undefined;
+  let clone: Response | undefined;
   let settled = false;
   return {
+    request(url, init) {
+      // The send keeps its `(address, init)` shape — a configured `fetch`
+      // does not branch on whether devtools are attached — so what the
+      // listener gets is a reconstruction of the dispatched request, the
+      // listener's own to read.
+      if (bodies) request = reconstructRequest(url, init);
+    },
     response(r) {
       response = r;
+      if (!bodies) return;
+      // Cloned NOW, before the transport's decode, so the listener's body is
+      // whole and unread — except an event stream: `live()` holds its
+      // connection open for the page's life, and a tee'd branch nobody
+      // drains would hold every event it ever carried (see `CallLive`). The
+      // framing test is the transport's `isEventStream`, inlined: this
+      // module imports nothing of either platform's runtime. A `clone()`
+      // that throws — a response a configured `fetch` handed over already
+      // read — leaves the listener the transport's object: nothing taken
+      // for the record may fail the call.
+      const type = r.headers.get("content-type");
+      if (type !== null && type.startsWith("text/event-stream")) return;
+      try {
+        clone = r.clone();
+      } catch {}
     },
     settle(outcome, value) {
       if (settled) return;
       settled = true;
       const event: CallEvent = { id, at, durationMs: performance.now() - at, method, outcome };
+      if (name !== undefined) event.name = name;
       if (response !== undefined) event.status = response.status;
       if (origin !== undefined) event.origin = origin;
       const live: CallLive = { args };
-      if (response !== undefined) live.response = response;
+      if (request !== undefined) live.request = request;
       if (outcome === "ok") {
         live.result = value;
-        if (isDeferredBody(value)) event.deferred = true;
+        if (isDeferredBody(value)) {
+          event.deferred = true;
+          // A deferred result is a body the caller drives for the stream's
+          // life — the same open connection an event stream is, known only
+          // now that the decode handed the shape back — so the clone taken
+          // at arrival is released: its branch stops buffering what the
+          // caller reads, and the listener gets the transport's object.
+          if (clone !== undefined) {
+            cancelBody(clone);
+            clone = undefined;
+          }
+        }
       } else live.error = value;
+      if (clone !== undefined) live.response = clone;
+      else if (response !== undefined) live.response = response;
       channel.emit("call", event, live);
     }
   };
+}
+
+/**
+ * The dispatched request, rebuilt for a listener to read — or `undefined`,
+ * never a throw: what is taken for the record cannot fail the call. Absent
+ * for a relative address with no `location` to resolve it against (a URL
+ * the transport never sent is worse than none), and when the `Request`
+ * constructor rejects what the configured `fetch` accepts (a header name
+ * it refuses, say).
+ */
+function reconstructRequest(url: string, init: RequestInit): Request | undefined {
+  try {
+    // `new URL(relative, undefined)` throws: exactly the absence wanted.
+    return new Request(new URL(url, globalThis.location?.href), {
+      ...init,
+      body: reconstructableBody(init.body)
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The body a second `Request` can hold without competing with the send
+ * for it — the buffered shapes, positively: `undefined`/`null`, a string,
+ * `URLSearchParams`, `FormData`, a `Blob`, an `ArrayBuffer` or a view of
+ * one. Anything else — a `ReadableStream`, an async iterable (the
+ * transport's streaming-upload contract) — reconstructs without a body:
+ * a `Request` over one would consume it ahead of the send.
+ */
+function reconstructableBody(body: BodyInit | null | undefined): BodyInit | null | undefined {
+  if (body == null || typeof body === "string") return body;
+  if (
+    body instanceof URLSearchParams ||
+    (typeof FormData !== "undefined" && body instanceof FormData) ||
+    (typeof Blob !== "undefined" && body instanceof Blob) ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
+  )
+    return body;
+  return undefined;
+}
+
+/** Releases a clone's unread body; a body already closed or errored is nothing to release. */
+function cancelBody(response: Response): void {
+  try {
+    const body = response.body;
+    if (body !== null) body.cancel().catch(() => {});
+  } catch {}
 }
 
 /** What the client's stream reader hands a frame observation. */

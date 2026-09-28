@@ -89,6 +89,7 @@ export {
   type RecordEvent,
   type RecordLive,
   type RecordListener,
+  type RecordSubscribeOptions,
   type DevHooks,
   type DiagnosticCapture,
   type DiagnosticCode,
