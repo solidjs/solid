@@ -223,6 +223,14 @@ export type RenderListener = (event: RenderEvent, live: RenderLive) => void;
 export interface CallEvent {
   /** The function id — the same `id` the server's `"invocation"` record carries. */
   id: string;
+  /**
+   * The function's source name, as the development build seeded it on the
+   * reference's metadata (`ServerFunctionMetadata.name` — the compiled
+   * function's name, or an explicit `withMeta` label). A label, not an
+   * identity: not unique, and absent when the metadata carries none
+   * (production output emits no name).
+   */
+  name?: string;
   /** `performance.now()` when the call was made. */
   at: number;
   /**
@@ -262,14 +270,36 @@ export interface CallEvent {
 }
 
 /**
- * The live half of a call, for in-process consumers. `response` is the
- * transport's own object, not a clone: its status and headers are
- * readable, its body is the decode's (already consumed, or being consumed
- * by the caller for a streaming result). `error` is the value as thrown to
- * the caller — a decoded server error, or the transport's own failure.
+ * The live half of a call, for in-process consumers — the objects a body
+ * viewer (devtools' network panel) reads, taken only while a `"call"`
+ * listener is installed: with none the transport constructs and clones
+ * nothing. `error` is the value as thrown to the caller — a decoded server
+ * error, or the transport's own failure.
  */
 export interface CallLive {
   args: unknown[];
+  /**
+   * The request as dispatched — the final url and `RequestInit` (the
+   * transport's headers, the `prepareRequest` hook applied), built into a
+   * `Request` of the listener's own at the send, so its headers and body
+   * are readable in full and reading them touches nothing the transport
+   * sent. Built WITHOUT the body when the body was a `ReadableStream`
+   * (a streaming upload): reconstructing one would consume it ahead of the
+   * send, so the request then reads as bodyless. Absent when the call
+   * failed before the request was built (argument serialization threw).
+   */
+  request?: Request;
+  /**
+   * The response, with an UNREAD body: a `clone()` taken as the response
+   * arrived, before the transport's decode, so the listener reads status,
+   * headers and body while the caller still gets its result from the
+   * original. The one exception is an event-stream response (a `live()`
+   * source, `text/event-stream`): a connection that stays open for the
+   * page's life, whose clone would buffer every event ever sent into a
+   * branch nobody drains — so it is the transport's own object, its body
+   * being consumed by the live loop, status and headers readable. Absent
+   * when the fetch itself rejected.
+   */
   response?: Response;
   /** The settled value, when `outcome` is `"ok"`. */
   result?: unknown;
@@ -463,6 +493,11 @@ export function frameCensus(event: FrameEventBase, type: string, own: boolean): 
 
 /** What the client runtime hands a call observation as the call proceeds. */
 export interface CallObservation {
+  /**
+   * The request is about to be sent: the address and the final
+   * `RequestInit` — what the transport's `fetch` receives, hook applied.
+   */
+  request(url: string, init: RequestInit): void;
   /** The response arrived (before decode); its status goes on the record. */
   response(response: Response): void;
   /** The call settled as the caller sees it: the value returned, or the error thrown. */
@@ -471,15 +506,16 @@ export interface CallObservation {
 
 /**
  * Opens the observation of one server-function call from the client, as
- * the request is about to be built; the runtime reports the response when
- * it arrives and the settle when the caller gets its answer. `undefined`
- * with no listener or outside observe builds — the runtime then does
- * nothing extra, not even read the clock.
+ * the request is about to be built; the runtime reports the request as it
+ * is sent, the response when it arrives and the settle when the caller
+ * gets its answer. `undefined` with no listener or outside observe builds
+ * — the runtime then does nothing extra, not even read the clock.
  */
 export function observeCall(
   id: string,
   method: "GET" | "POST",
-  args: unknown[]
+  args: unknown[],
+  name?: string
 ): CallObservation | undefined {
   if (!IS_OBSERVE) return undefined;
   const channel = records();
@@ -488,19 +524,42 @@ export function observeCall(
   // Provenance is read NOW, at the call site, where the handler's or the
   // recompute's frame is still open; by settle it is long gone.
   const origin = currentOrigin();
+  let request: Request | undefined;
   let response: Response | undefined;
+  let status: number | undefined;
   let settled = false;
   return {
+    request(url, init) {
+      // The send keeps its `(address, init)` shape — a configured `fetch`
+      // does not branch on whether devtools are attached — so what the
+      // listener gets is a reconstruction of the dispatched request, the
+      // listener's own to read. Built without a streaming body: constructing
+      // a Request over one would take the stream the send is about to use.
+      request = new Request(new URL(url, globalThis.location?.href || "http://localhost"), {
+        ...init,
+        body: init.body instanceof ReadableStream ? undefined : init.body
+      });
+    },
     response(r) {
-      response = r;
+      status = r.status;
+      // Cloned NOW, before the transport's decode, so the listener's body is
+      // whole and unread — except an event stream: `live()` holds its
+      // connection open for the page's life, and a tee'd branch nobody
+      // drains would hold every event it ever carried (see `CallLive`). The
+      // framing test is the transport's `isEventStream`, inlined: this
+      // module imports nothing of either platform's runtime.
+      const type = r.headers.get("content-type");
+      response = type !== null && type.startsWith("text/event-stream") ? r : r.clone();
     },
     settle(outcome, value) {
       if (settled) return;
       settled = true;
       const event: CallEvent = { id, at, durationMs: performance.now() - at, method, outcome };
-      if (response !== undefined) event.status = response.status;
+      if (name !== undefined) event.name = name;
+      if (status !== undefined) event.status = status;
       if (origin !== undefined) event.origin = origin;
       const live: CallLive = { args };
+      if (request !== undefined) live.request = request;
       if (response !== undefined) live.response = response;
       if (outcome === "ok") {
         live.result = value;

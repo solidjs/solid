@@ -141,6 +141,9 @@ observe.records.subscribe("call", (event, live) => {
   event.outcome satisfies "ok" | "error";
   event.status satisfies number | undefined;
   event.deferred satisfies true | undefined;
+  event.name satisfies string | undefined;
+  live.request satisfies Request | undefined;
+  live.response satisfies Response | undefined;
   // Provenance: the engine's own origin type, so it joins the attribution
   // records (`InteractionEvent.origin`, `HoldEvent.origin`) without a cast.
   event.origin satisfies ChangeOrigin | undefined;

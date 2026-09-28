@@ -2699,7 +2699,14 @@ module.exports = [
     // measured at 30,609 B against `next` @ f1b07761f's 30,596 (+13 B; 9 B over
     // the cap; -3 B minified) — `recompute`'s parking gate drops its
     // effect-only term; brotli layout, see the hydrating (no stores) note.
-    limit: "30.61 KB",
+    // `OBSERVE.include` (2026-09-28): 30.60 -> 30.67 KB, measured at 30,664 B
+    // against `next` @ d0e487b6f's 30,596 (+68 B; +46 B minified). The
+    // inverse of `exclude`: the marker set becomes a WeakMap<Owner, boolean>
+    // and `isExcluded` answers by the nearest marked ancestor, so a devtools
+    // shell rendered AROUND the app can hand the app back to the engine.
+    // The observe tier scenario above -3 B (brotli layout on +46 B minified);
+    // every prod scenario byte-identical.
+    limit: "30.67 KB",
     alias: observeAlias
   },
   {

@@ -387,10 +387,28 @@ export interface Observe {
    * come from (a click handler, an adapter callback), so writes need no
    * `runWithOwner` — and must not use one: a write under an owner is a write
    * in an owned scope (REACTIVE_WRITE_IN_OWNED_SCOPE). Irrevocable for the
-   * owner's lifetime.
+   * owner's lifetime; `include` re-admits a subtree beneath it.
    */
   exclude(owner: Owner): void;
-  /** Whether `subject` sits under an excluded owner (itself included). */
+  /**
+   * Marks `owner`'s subtree as the app's again, beneath an excluded owner.
+   * The verdict for a subject is the NEAREST marked ancestor's (the subject
+   * itself included): an `include` under an `exclude` re-admits that
+   * subtree, an `exclude` under an `include` excludes it again, and the
+   * markers nest to any depth. For an observer that WRAPS the app it
+   * watches — a toolbar rendering `<DevToolbar><App/></DevToolbar>` — so
+   * the toolbar's own root is excluded and the app's root, created under
+   * it, is included back. Mark the root as it is created, as with
+   * `exclude`: the attribution engine caches the verdict per node for the
+   * node's life, so a marker set after a node was recorded does not reach
+   * it. Alone — with no excluded ancestor — an included owner is what it
+   * already was. Irrevocable for the owner's lifetime.
+   */
+  include(owner: Owner): void;
+  /**
+   * Whether `subject` sits under an excluded owner (itself included) — the
+   * nearest `exclude`/`include` marker on its owner chain decides.
+   */
   isExcluded(subject: DiagnosticSubject | null | undefined): boolean;
   /**
    * Root-first names of the owners enclosing `subject` (inclusive when the
@@ -564,8 +582,13 @@ export const OBSERVE: Observe = __OBSERVE__
       // empty HERE and gains its members by augmentation downstream.
       server: {} as ServerObserve,
       exclude(owner) {
-        excludedOwners.add(owner);
+        markedOwners.set(owner, true);
         hasExclusions = true;
+      },
+      include(owner) {
+        // No flag flip: with nothing excluded there is nothing to re-admit,
+        // and the walk stays short-circuited.
+        markedOwners.set(owner, false);
       },
       isExcluded,
       ownerPath
@@ -576,9 +599,13 @@ export const OBSERVE: Observe = __OBSERVE__
 //
 // An observer that lives inside the observed app (an adapter's panel,
 // devtools) marks its root; both channels check the subject's owner chain —
-// the same walk `ownerPath` already makes — and stay silent under it. The
-// flag short-circuits the walk for the common case of no exclusions.
-const excludedOwners = new WeakSet<Owner>();
+// the same walk `ownerPath` already makes — and stay silent under it. An
+// observer that WRAPS the app (a toolbar around it) excludes its own root
+// and includes the app's back: one map, `true` excluded / `false` included,
+// and the nearest marker up the chain decides. The flag short-circuits the
+// walk for the common case of no exclusions (an include with nothing
+// excluded changes no verdict, so it does not flip it).
+const markedOwners = new WeakMap<Owner, boolean>();
 let hasExclusions = false;
 /** Events built for an excluded subject: never delivered, never reported. */
 const suppressedEvents = new WeakSet<DiagnosticEvent>();
@@ -587,7 +614,10 @@ export function isExcluded(subject: DiagnosticSubject | null | undefined): boole
   if (!hasExclusions || !subject) return false;
   let owner: Owner | null =
     "_parent" in subject ? (subject as Owner) : (((subject as any)._owner as Owner | null) ?? null);
-  for (; owner !== null; owner = owner._parent) if (excludedOwners.has(owner)) return true;
+  for (; owner !== null; owner = owner._parent) {
+    const marked = markedOwners.get(owner);
+    if (marked !== undefined) return marked;
+  }
   return false;
 }
 

@@ -32,7 +32,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { OBSERVE, createMemo, createRoot, createSignal, flush } from "solid-js";
 import { attribution, type InteractionEvent, type NavigationEvent } from "solid-js/attribution";
 import type { CallEvent, CallLive, FrameEvent, FrameLive } from "@solidjs/web";
-import { GET, createServerReference } from "../server-functions/src/client.js";
+import {
+  GET,
+  configureServerFunctionsClient,
+  createServerReference
+} from "../server-functions/src/client.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
@@ -120,6 +124,106 @@ describe("the call record", () => {
     expect(live.result).toEqual({ n: 42 });
     expect(live.response!.status).toBe(200);
     expect(live.error).toBeUndefined();
+  });
+
+  // The body-viewer half (devtools' network panel): the request as sent and
+  // the response as it arrived, both the listener's own to read.
+  test("the request as dispatched: final url, method, transport headers, a readable body", async () => {
+    const seen = calls();
+    let sent!: { address: string; init: RequestInit };
+    vi.stubGlobal("fetch", async (address: string, init: RequestInit) => {
+      sent = { address, init };
+      return jsonResponse(1);
+    });
+    await createServerReference("records/request")({ a: 1 });
+    const { request } = seen[0].live;
+    expect(request).toBeInstanceOf(Request);
+    expect(new URL(request!.url).pathname).toBe(new URL(sent.address, location.href).pathname);
+    expect(request!.method).toBe("POST");
+    const headers = new Headers(sent.init.headers);
+    expect(request!.headers.get("content-type")).toBe(headers.get("content-type"));
+    expect(request!.headers.get(BODY_FORMAT_HEADER)).toBe(BodyFormat.Json);
+    // The listener's copy of the payload — whole, and the transport's send
+    // untouched by the read.
+    expect(await request!.text()).toBe(sent.init.body);
+  });
+
+  test("the request carries what prepareRequest added; a streaming body is left to the send", async () => {
+    const seen = calls();
+    let received!: RequestInit;
+    vi.stubGlobal("fetch", async (_: string, init: RequestInit) => {
+      received = init;
+      return jsonResponse(1);
+    });
+    try {
+      configureServerFunctionsClient({
+        prepareRequest: init => ({
+          ...init,
+          headers: { ...(init.headers as Record<string, string>), authorization: "Bearer t" }
+        })
+      });
+      await createServerReference("records/prepared")();
+      expect(seen[0].live.request!.headers.get("authorization")).toBe("Bearer t");
+
+      // A deliberate streaming upload: the hook swaps the body for a stream.
+      // Reconstructing a Request over it would consume it ahead of the send,
+      // so the listener's request reads as bodyless and the stream reaches
+      // `fetch` unread.
+      const upload = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode("chunk"));
+          c.close();
+        }
+      });
+      configureServerFunctionsClient({ prepareRequest: init => ({ ...init, body: upload }) });
+      await createServerReference("records/upload")();
+      expect(seen[1].live.request!.body).toBeNull();
+      expect(received.body).toBe(upload);
+      expect(upload.locked).toBe(false);
+      expect(await new Response(upload).text()).toBe("chunk");
+    } finally {
+      configureServerFunctionsClient({ prepareRequest: init => init });
+    }
+  });
+
+  test("a call that failed before the request was built has no request", async () => {
+    const seen = calls();
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    // No rich-args codec is configured: a non-JSON argument fails serialization.
+    await expect(createServerReference("records/unbuilt")(1n)).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].event.outcome).toBe("error");
+    expect(seen[0].live.request).toBeUndefined();
+    expect(seen[0].live.response).toBeUndefined();
+  });
+
+  test("the response body is the listener's to read, unread, while the caller gets its result", async () => {
+    const seen = calls();
+    vi.stubGlobal("fetch", async () => jsonResponse({ n: 42 }));
+    expect(await createServerReference("records/body")()).toEqual({ n: 42 });
+    const { response } = seen[0].live;
+    expect(response!.bodyUsed).toBe(false);
+    expect(await response!.text()).toBe(JSON.stringify({ n: 42 }));
+  });
+
+  test("an event-stream response is the transport's own object, not a clone", async () => {
+    const seen = calls();
+    const stream = jsonResponse("live", { headers: { "content-type": "text/event-stream" } });
+    vi.stubGlobal("fetch", async () => stream);
+    expect(await createServerReference("records/stream")()).toBe("live");
+    expect(seen[0].live.response).toBe(stream);
+    expect(seen[0].live.response!.bodyUsed).toBe(true);
+  });
+
+  test("the reference's source name rides on the record; an unnamed reference carries none", async () => {
+    const seen = calls();
+    vi.stubGlobal("fetch", async () => jsonResponse(1));
+    await createServerReference("records/named", "double")();
+    await createServerReference("records/anonymous")();
+    expect(seen[0].event.name).toBe("double");
+    expect("name" in seen[1].event).toBe(false);
   });
 
   test("a GET-encoded read records method GET with the call's arguments", async () => {
