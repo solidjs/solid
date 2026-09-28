@@ -95,17 +95,19 @@ afterEach(() => {
 // checkpoint passes; they fail later on the finding underneath). Findings,
 // by failing frame:
 //
-// F1  `mapArray` by index (`keyed: false`) does not publish the optimistic
-//     frame. Any mutation that changes the item at an existing index shows
+// F1  `mapArray` by index (`keyed: false`) did not publish the optimistic
+//     frame. Any mutation that changes the item at an existing index showed
 //     the PRE-ACTION frame after the apply flush while the untracked read
-//     shows the mutation; the frame lands only at settle. The per-row
-//     signals mapArray writes with `setSignal` inside the lane pass are held
-//     by the action's transaction instead of joining the lane frame. Both
-//     sources; every context that applies such a mutation.
+//     showed the mutation; the frame landed only at settle. The per-row
+//     signals mapArray wrote with `setSignal` inside the lane pass were held
+//     by the action's transaction instead of joining the lane frame. Fixed
+//     (optimistic-maparray-index-frame-f1.test.ts): the slot writes go
+//     through the lane as derived overrides. Every F1 row cleared. Kept as
+//     history.
 // F2  #3672 (chained store): a second action's write back to the base's
 //     previous value was dropped — frame "B (inverse) applied" showed A's
-//     frame. Fixed by #3674; ctx4 now fails only through the index reader
-//     (F1). Kept as the context's history.
+//     frame. Fixed by #3674; ctx4 then failed only through the index reader
+//     (F1), now cleared. Kept as the context's history.
 // F3  Two drafts whose slot writes overlap left a stale `length`: a hole.
 //     "move head->tail + move middle" showed `b,c,e,f,d,a,<undefined>`
 //     (length 7) after both applied; a move or rotate undone by a second
@@ -162,7 +164,6 @@ afterEach(() => {
 const KNOWN_FAILURES: Array<{ finding: string; names: string[] }> = [];
 
 const ALL = READERS;
-const IDX = ["mapArray-index"] as const;
 const rowsOf = (
   finding: string,
   readers: readonly ReaderKind[],
@@ -184,70 +185,9 @@ const ctx4 = (muts: string[]) => (r: ReaderKind) =>
 const ctx5 = (muts: string[]) => (r: ReaderKind, s: SourceKind) =>
   muts.map(m => `[reader=${r}][source=${s}] across two actions: ${m}`);
 
-const REORDERS = [
-  "swap a<->b",
-  "reverse",
-  "rotate left",
-  "move head->tail",
-  "move tail->head",
-  "move middle (c->4)"
-];
-const REPLACES = ["replace-all disjoint ids", "replace-all same ids reordered"];
-const INSERT_DELETE = [
-  "insert head",
-  "insert middle",
-  "insert tail",
-  "delete head",
-  "delete middle (d)",
-  "delete tail"
-];
-const READD = "delete then re-add same id (c -> tail)"; // a move of c to the tail
-const SLOT_CHANGERS = [
-  ...REORDERS,
-  READD,
-  "insert head",
-  "insert middle",
-  "delete head",
-  "delete middle (d)",
-  ...REPLACES
-];
-
-// F1
-rowsOf("F1", IDX, SOURCES, ctx2(["confirm", "differ"], SLOT_CHANGERS));
-rowsOf(
-  "F1",
-  IDX,
-  SOURCES,
-  ctx3(["A then B", "B then A"], ["update text in place (c) + swap a<->b"])
-);
-rowsOf("F1", IDX, ["chained"], ctx4(SLOT_CHANGERS));
-rowsOf("F1", IDX, SOURCES, ctx5(["replace-all disjoint ids", "replace-all same ids reordered"]));
-// former F3 rows (the hole is fixed): the index reader fails on F1; every
-// other reader passes (the derived rows failed on F4, a harness artifact).
-const OVERLAP_PAIR = ["move head->tail + move middle (c->4)"];
-const OVERLAP_INVERSES = ["move head->tail", "move tail->head", "rotate left", READD];
-rowsOf("F1", IDX, SOURCES, ctx3(["A then B", "B then A"], OVERLAP_PAIR));
-rowsOf("F1", IDX, SOURCES, ctx5(OVERLAP_INVERSES));
-// F1 — both orders of the remaining pairs, and the remaining inverses
-// across two actions, through the index reader on both sources.
-rowsOf(
-  "F1",
-  IDX,
-  SOURCES,
-  ctx3(["A then B", "B then A"], ["insert head + delete tail", "swap a<->b + swap e<->f"])
-);
-const UNDONE = [
-  "swap a<->b",
-  "reverse",
-  "move middle (c->4)",
-  "insert head",
-  "insert middle",
-  "delete head",
-  "delete middle (d)"
-];
-rowsOf("F1", IDX, ["chained"], ctx5(UNDONE));
-// (the derived `insert tail` / `delete tail` rows were F4 only — they pass)
-rowsOf("F1", IDX, ["derived"], ctx5(UNDONE));
+// F1 — fixed, no rows pinned
+// F2 — fixed, no rows pinned
+// F3 — fixed, no rows pinned
 // F4 — a harness artifact, fixed; no rows pinned
 // F5 — fixed, no rows pinned
 // F6 — fixed, no rows pinned

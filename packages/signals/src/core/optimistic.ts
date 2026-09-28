@@ -31,7 +31,14 @@ import {
   CONFIG_OVERRIDE_SUPERSEDED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { currentOptimisticLane, enterStagedRead, latestReadActive, stale, ext } from "./core.js";
+import {
+  currentOptimisticLane,
+  enterStagedRead,
+  latestReadActive,
+  setSignal,
+  stale,
+  ext
+} from "./core.js";
 import { NotReadyError } from "./error.js";
 import { devCheckMergedLaneEmpty, devTrackHeldPending, devTrackOptimistic } from "./invariants.js";
 import {
@@ -154,7 +161,7 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
  * drops the override and re-derives it from the truth (a derived override has
  * no truth of its own — see resolveOptimisticNodes, endOptimism).
  */
-function laneOverride(el: Computed<any>, value: unknown, lane: OptimisticLane): void {
+function laneOverride(el: OptimisticNode, value: unknown, lane: OptimisticLane): void {
   // The wake-only channel (#3009, see recomputeLane): a plain write to a
   // latest()-tracked source rides a companion-sourced lane with no
   // transaction on either side only to wake the verdict companions. Nothing
@@ -509,8 +516,57 @@ function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
  * action provenance, or an A17-silent confirmation (#3331). Before this the
  * landing took setSignal's plain path: a differing truth staged silently
  * under the override and the graph never moved until the commit.
+ *
+ * Slot arm (list-matrix F1): `mapArray`'s writes to its per-slot signals —
+ * the row accessors of index mode, the index accessors of keyed mode; never
+ * CONFIG_OPTIMISTIC, which is how the arm tells them from the store landings
+ * above — once a lane pass has run over the map. The list's frame lives in
+ * these writes as much as in the computed's result. Under a LANE pass the
+ * write is the lane's frame, as the computed's result is (lanes stage,
+ * `laneOverride`): the slot joins the lane carrying a DERIVED override —
+ * `_value` stays the committed row, the lane's readers and untracked reads
+ * see the override (A17), an off-lane render effect sees the committed frame
+ * (#3460), the revert promotes or drops it with the lane's transaction. The
+ * gate compares against the slot the pass publishes to (INV-11): the override
+ * when armed, the committed row otherwise. A plain `setSignal` here staged
+ * the write into the ACTION's transaction: `<For>` without `keyed` showed the
+ * pre-action list for the whole action while the keyed modes showed the
+ * optimistic one. A PLAIN pass over a slot still carrying the lane's frame —
+ * the landing, the reversion, a mainline re-pass — is the truth arriving
+ * under an override and takes the landing path below: a differing truth
+ * supersedes, an equal one confirms and the revert promotes. Every pass
+ * rewrites every slot whose value differs from the previous frame's (index
+ * mode rewrites every surviving slot), so a slot the landing does NOT write
+ * holds, by construction, what the truth yields. A slot with neither a lane
+ * nor an override is the plain write.
  */
 function landOnOverride<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
+  if (!(el._config & CONFIG_OPTIMISTIC)) {
+    const lane = currentOptimisticLane;
+    if (lane === null) {
+      if (!hasActiveOverride(el)) return setSignal(el, v);
+    } else {
+      // INV-11: the gate compares against the slot this pass publishes to —
+      // the override when one is armed, the committed row otherwise.
+      if (
+        !el._equals ||
+        !el._equals(
+          hasActiveOverride(el) ? unwrapOverride<T>(el._x!._overrideValue) : el._value,
+          v as T
+        )
+      ) {
+        // Membership before the publish: `laneOverride` files the slot under
+        // the lane's transaction, and the read path routes a tracked reader
+        // of a lane member through `overrideRead` (CONFIG_HAS_LANE).
+        assignOrMergeLane(el, lane);
+        laneOverride(el, v, lane);
+        if (__DEV__) devTrackOptimistic(el);
+        insertSubs(el, true);
+        schedule();
+      }
+      return v as T;
+    }
+  }
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
   if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
   if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
