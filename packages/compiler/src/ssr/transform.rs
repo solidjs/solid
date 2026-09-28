@@ -2501,7 +2501,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     let dynamic =
                         self.classify()
                             .is_dynamic(Some(container.span.start), &expression, false);
-                    let allocates = self.hydratable && child_slot_allocates_ids(child);
+                    // A `children_replacement` is the textarea `value` /
+                    // `defaultValue` fold: text content on the server, but a
+                    // plain `value` property effect on the client that never
+                    // allocates a hydration id. Like the innerHTML/textContent
+                    // redirects (#3015) it must not take the `_$scope` id
+                    // reservation, or every keyed sibling after the textarea
+                    // hydrates one id off (#3691).
+                    let allocates = self.hydratable
+                        && children_replacement.is_none()
+                        && child_slot_allocates_ids(child);
                     // Function children are scope-eligible like dynamic ones —
                     // see the template-children path above.
                     let function_hole = expression_is_function_shaped(&expression);

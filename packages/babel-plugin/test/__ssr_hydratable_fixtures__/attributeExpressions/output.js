@@ -70,7 +70,14 @@ var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
     '></video><video src="test.mp4" muted></video></div>'
   ],
   _tmpl$49 = ["<video", ' src="test.mp4" muted></video>'],
-  _tmpl$50 = ["<div", "><div>", "</div><div>", '</div><input type="checkbox"', "></div>"];
+  _tmpl$50 = ["<div", "><div>", "</div><div>", '</div><input type="checkbox"', "></div>"],
+  _tmpl$51 = [
+    "<div",
+    "><textarea>",
+    "</textarea><textarea>",
+    "</textarea><!--$-->",
+    "<!--/--></div>"
+  ];
 var _sk$ = k => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class",
   _sk$2 = k => k === "class" || k === "style",
   _sk$3 = k => k === "something",
@@ -622,6 +629,16 @@ var _v$118 = _$ssrHydrationKey(),
   _v$120 = () => _$escape(getLabel(props.id) || " "),
   _v$121 = () => _$ssrAttribute("checked", _$escape(checked(), true));
 const template98 = _$ssr(_tmpl$50, _v$118, _v$119, _v$120, _v$121);
+
+// solidjs/solid#3691: a textarea's dynamic value/defaultValue folds into its
+// text content on the server, but the client writes it as a plain `value`
+// property effect that never allocates a hydration id — the fold must not take
+// the _$scope reservation either, or the component after it hydrates one id off.
+var _v$122 = _$ssrHydrationKey(),
+  _v$123 = () => _$escape(text()),
+  _v$124 = () => _$escape(initial()),
+  _v$125 = _$escape(Counter({}));
+const template99 = _$ssr(_tmpl$51, _v$122, _v$123, _v$124, _v$125);
 
 // Static attributes after the last spread bake into ssrElement's attribute
 // string with their keys skipped on the spread; statics before a spread, and
