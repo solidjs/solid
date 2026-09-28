@@ -4296,38 +4296,26 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // An attribute slot's object spread whole (`<li {...row}>`) is the retired
   // 09-27 shape (principles §9.2.3): the client would decide what it owns
   // and the template could not show it. Its range tag (`$slot`) is how it
-  // surfaces among the sources; name the positions instead.
-  if (Array.isArray(props) && props.$slot === true) {
-    props = slotSpreadSource(tag, props);
-  } else if (Array.isArray(props)) {
-    let plain = true;
-    let copied = false;
-    for (let i = 0; i < props.length; i++) {
-      const s = props[i];
-      if (s == null || typeof s === "function" || $PROXY in s) plain = false;
-      else if (s.$slot === true) {
-        // The caller's array is not ours to write: copy before replacing.
-        if (!copied) {
-          props = props.slice();
-          copied = true;
-        }
-        props[i] = slotSpreadSource(tag, s);
-      }
-    }
-    if (plain) sources = props;
+  // surfaces among the sources; name the positions instead. The tag is
+  // probed where the sources are already being classified, and a tagged
+  // source leaves the plain path with the other non-literal kinds — the
+  // collecting pass (`collectSpreadSources`) replaces it. This function is
+  // the SSR spread's hot path: what is not the plain walk lives in helpers
+  // so the walk itself stays small enough to optimize as one unit
+  // (spread-static-tail bench).
+  if (Array.isArray(props)) {
+    if (props.$slot === true) props = slotSpreadSource(tag, props);
     else {
-      viewKeys = [];
-      owners = [];
-      for (let i = 0; i < props.length; i++) {
-        let s = props[i];
-        // A function source is a plain thunk, called once (see above); a
-        // nullish source contributes nothing (#3297).
-        if (typeof s === "function") s = s();
-        if (s != null) {
-          // The compilers thunk a spread CALL (`{...props.row(args)}`).
-          if (!($PROXY in s) && s.$slot === true) s = slotSpreadSource(tag, s);
-          sourceOwners(s, viewKeys, owners);
-        }
+      let i = 0;
+      for (; i < props.length; i++) {
+        const s = props[i];
+        if (s == null || typeof s === "function" || $PROXY in s || s.$slot === true) break;
+      }
+      if (i === props.length) sources = props;
+      else {
+        viewKeys = [];
+        owners = [];
+        collectSpreadSources(tag, props, viewKeys, owners);
       }
     }
   } else if (props == null) {
@@ -4416,23 +4404,23 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382).
       if (value == undefined) continue;
+      if (prop.startsWith("prop:")) continue;
       // An attribute-slot value at this key (principles §9.2.3) binds the position
       // the key names: an attribute, a handler, a ref, or — for `class` /
-      // `style` objects — a name inside the attribute. The runtime spread is
-      // one more place a position is written; the same helper serves the
-      // compiled ones.
+      // `style` objects — a name inside the attribute. A stand-in is an
+      // object, so every object value takes the one helper that knows them
+      // (`spreadObjectAttribute`; the compiled positions share it); strings
+      // and booleans — the walk's common case — never do.
       if (prop === "ref" || prop.startsWith("on")) {
-        // Capture-phase variants can't ride delegation (dropped, as compiled).
-        if (isSlotValue(value) && !prop.startsWith("oncapture:")) {
-          result += slotBehaviorMarker(prop === "ref" ? "ref" : eventPosition(prop), value);
-        }
+        if (typeof value === "object") result += spreadBehaviorAttribute(prop, value);
         continue;
       }
-      if (prop.startsWith("prop:")) continue;
-      if (prop === "style" || prop === "class") {
-        result += ssrElementAttribute(prop, value);
-      } else if (isSlotValue(value)) {
-        result += slotAttribute(attrName(prop), value);
+      if (typeof value === "object") {
+        result += spreadObjectAttribute(prop, value);
+      } else if (prop === "style") {
+        result += ` style="${ssrStyle(value)}"`;
+      } else if (prop === "class") {
+        result += ` class="${ssrClassName(value)}"`;
       } else if (typeof value === "boolean") {
         if (!value) continue;
         result += ` ${attrName(prop)}`;
@@ -4502,7 +4490,11 @@ export function ssrElementAttribute(key, value) {
   // value, or a name's condition inside the object — can emit its position
   // marker beside the attribute.
   if (value == undefined) return "";
-  if (key === "style" || key === "class") return slotClassOrStyle(key, value);
+  if (key === "style" || key === "class") {
+    return typeof value === "object"
+      ? slotClassOrStyle(key, value)
+      : ` ${key}="${key === "class" ? ssrClassName(value) : ssrStyle(value)}"`;
+  }
   if (isSlotValue(value)) return slotAttribute(key, value);
   if (typeof value === "boolean") return value ? ` ${key}` : "";
   return value === "" ? ` ${key}` : ` ${key}="${escape(value, true)}"`;
@@ -4804,6 +4796,47 @@ function eventPosition(prop) {
 function slotBehaviorMarker(position, sv) {
   slotMarkupRead(sv, position);
   return slotMarker(position === "ref" ? "ref" : "on:" + position, slotEntry(sv));
+}
+
+/**
+ * `ssrElement`'s collecting pass for sources that are not all plain
+ * literals: a function source is a plain thunk, called once (see the walk;
+ * the compilers thunk a spread CALL, `{...props.row(args)}`); a nullish
+ * source contributes nothing (#3297); a slot's return spread whole is the
+ * retired shape (`slotSpreadSource`); everything else is collected through
+ * its leaves (`sourceOwners`).
+ */
+function collectSpreadSources(tag, props, viewKeys, owners) {
+  for (let i = 0; i < props.length; i++) {
+    let s = props[i];
+    if (typeof s === "function") s = s();
+    if (s != null) {
+      if (!($PROXY in s) && s.$slot === true) s = slotSpreadSource(tag, s);
+      sourceOwners(s, viewKeys, owners);
+    }
+  }
+}
+
+/**
+ * A `ref`/`on*` key of a runtime spread whose value is an object: a stand-in
+ * binds the position (principles §9.2.3); anything else at a behavior key
+ * renders nothing on the server, as compiled. Capture-phase variants can't
+ * ride delegation (dropped, as compiled).
+ */
+function spreadBehaviorAttribute(prop, value) {
+  if (!isSlotValue(value) || prop.startsWith("oncapture:")) return "";
+  return slotBehaviorMarker(prop === "ref" ? "ref" : eventPosition(prop), value);
+}
+
+/**
+ * An object value at an attribute key of a runtime spread: a `class`/`style`
+ * map (which may carry stand-ins as its conditions), a stand-in for the
+ * whole attribute, or any other object, attribute-escaped as its string.
+ */
+function spreadObjectAttribute(prop, value) {
+  if (prop === "style" || prop === "class") return slotClassOrStyle(prop, value);
+  if (value[SLOT_VALUE] !== undefined) return slotAttribute(attrName(prop), value);
+  return ` ${attrName(prop)}="${escape(value, true)}"`;
 }
 
 /**
