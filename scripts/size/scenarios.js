@@ -2839,7 +2839,26 @@ module.exports = [
     // rounded up to the next 0.01 kB. Deltas across this line are not comparable.
     // Rebased onto `next` @ ee49b3eee (2026-09-28): 11768 -> 11768 B, unchanged
     // by the three signals fixes that landed since (#3678, #3684, #3682); cap stays.
-    limit: "11.77 KB",
+    //
+    // Attribute slots, second form (#3704, 2026-09-28): 11.77 ->
+    // 12.51 KB, measured at 12,505 B against `next` @ d0e487b6f's 11,768
+    // (+737 B; 735 B over the cap). +2,649 B minified: frames client +2,626
+    // (32,610 -> 35,236), the retained transport slice +23. The frames bytes
+    // are the feature replacing behavior claims: `_s:<position>` markers
+    // parsed per element (`slotPositions`, `ownedPositions`), a data
+    // occurrence's consumer set bound per position with a render effect per
+    // element (`bindDataOccurrence`, `consumersEqual`), the owned positions
+    // held through every morph path (`applyOwned` + the class/style
+    // splitters, in `morphAttributes` and `#applyAttrs`), and `#syncSlots`
+    // resolving fills by occurrence and args records by id. The `_bnd`
+    // claim path it retires (`bndMap`, `sweepBound`, `fireRefs`, `claimFn`,
+    // `clientProp`, ~1.8 KB unminified) is the offset already in the number.
+    // Dev-only (the `ATTRIBUTE_SLOT_POSITION` orphan reporter) is 0 B here:
+    // a module function behind the flag, not a method. Conscious bump: a
+    // consumer that never binds a slot still carries the position parser
+    // and the owned-attribute morph; a split behind the marker is the
+    // candidate follow-up, like the live reader's split behind the wire slot.
+    limit: "12.51 KB",
     alias: framesAlias,
     external: framesExternal
   },
@@ -2908,6 +2927,13 @@ module.exports = [
     // -3 B minified). The same parking-gate change as the hydrating (no
     // stores) note; brotli layout turns the -3 B minified into a saving on
     // this page. Not ratcheted.
+    // Size-Exception (#3704, 2026-09-28): 44.93 -> 45.57 KB,
+    // measured at 45,562 B against `next` @ d0e487b6f's 44,929 (+633 B;
+    // +2,555 B minified, all of it the frames client) — attribute slots,
+    // second form: the per-position binding of a slot's props on server
+    // elements, held through the morph paths, replacing the `_bnd` claim
+    // sweep (the frames scenario note itemizes it). Accepted by the
+    // maintainer. The cap is frozen again at 45.57 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2959,6 +2985,11 @@ module.exports = [
     // and the CSR app +5 B on the identical -3 B minified core; brotli layout
     // amplifies it here as #3684's and #3675's did. Accepted by the
     // maintainer. The cap is frozen again at 49.10 KB.
+    // Size-Exception (#3704, 2026-09-28): 49.07 -> 49.72 KB,
+    // measured at 49,714 B against `next` @ d0e487b6f's 49,066 (+648 B;
+    // +2,555 B minified) — the same attribute-slot bytes as the base page;
+    // the live path adds nothing of its own. Accepted by the maintainer. The
+    // cap is frozen again at 49.72 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }

@@ -776,9 +776,6 @@ class FrameImpl {
   // and the mount's rebind callback (`ctx.onRebind`) for when it changes.
   #slotConsumers = new Map();
   #slotRebinders = new Map();
-  // Dev: attribute-slot occurrences already reported as orphans (a marker
-  // with no fill or no record), so a persisting orphan reports once.
-  #slotOrphans = null;
   #processedAssets = new WeakSet();
   // The pending re-check for adopt-time occurrences deferred on a
   // still-arriving args record (#2968 — see #syncSlots).
@@ -1076,48 +1073,6 @@ class FrameImpl {
   }
 
   /**
-   * Dev: an attribute-slot occurrence's marked positions cannot bind — no
-   * fill resolves for its prop (`why` = "fill"), or a called occurrence has
-   * no args record once records can no longer arrive ("record"). The
-   * failure this names is otherwise silent: a handler that never fires, a
-   * class that never updates, indistinguishable from nothing happening.
-   * One report per occurrence per frame; the elements ride along in `data`
-   * so a console can jump to them.
-   */
-  #slotOrphan(occurrence, consumers, why) {
-    if (!"_SOLID_DEV_") return;
-    this.#slotOrphans ??= new Set();
-    if (this.#slotOrphans.has(occurrence)) return;
-    this.#slotOrphans.add(occurrence);
-    const prop = propOf(occurrence);
-    const positions = new Set();
-    for (const c of consumers) for (const p of c.positions) positions.add(p.pos);
-    const where = `${consumers.length} element${consumers.length === 1 ? "" : "s"} (positions: ${[...positions].join(", ")})`;
-    DEV.report(
-      OBSERVE.diagnostics.emit(
-        {
-          code: "ATTRIBUTE_SLOT_POSITION",
-          kind: "render",
-          severity: "warn",
-          message:
-            why === "fill"
-              ? `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no client fill ` +
-                `resolves for slot \`${prop}\` — those positions never bind and the elements are inert. ` +
-                `Pass \`${prop}\` to the server component on the client (a function returning the object the ` +
-                `markup reads), or check that the prop name matches on both sides.`
-              : `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no args record ` +
-                `for it arrived and none can — the fill mounts with empty args. A called slot always emits its ` +
-                `record ahead of the markup that reads it, so this is the frame protocol out of step, not the fill: ` +
-                `a client and server from different builds (a stale dev prebundle, a cached asset), or a runtime ` +
-                `bug minting the marker and the record under different ids.`,
-          data: { reason: "orphan", why, occurrence, elements: consumers.map(c => c.element) }
-        },
-        null
-      )
-    );
-  }
-
-  /**
    * Delete an occurrence's args record from the store that OWNS it. A nested
    * occurrence's record lives on the frame whose props proxy emitted it — an
    * ancestor keyed by the root stream — not on the region frame that mounts
@@ -1171,7 +1126,7 @@ class FrameImpl {
         // which content can mean; bound positions never bind, which
         // nothing can mean — the elements sit inert with no error. Dev
         // names them (once per occurrence).
-        if ("_SOLID_DEV_" && consumers) this.#slotOrphan(occurrence, consumers, "fill");
+        if ("_SOLID_DEV_" && consumers) devSlotOrphan(this, occurrence, consumers, "fill");
         continue;
       }
       const record = this.#resolveSlotRecord(occurrence);
@@ -1253,7 +1208,7 @@ class FrameImpl {
         // dev says why its args are empty. A bare occurrence (the prop
         // itself) has no record by design.
         if ("_SOLID_DEV_" && consumers && record === undefined && occurrence.indexOf("#") !== -1)
-          this.#slotOrphan(occurrence, consumers, "record");
+          devSlotOrphan(this, occurrence, consumers, "record");
         // Direct-insert occurrences have no `slot:<id>` record and mount with
         // empty props; render-function occurrences mount with resolved props.
         // Mounting replaces the range interior: on a fresh stream it is
@@ -2741,6 +2696,52 @@ function afterRange(start, id) {
     n = n.nextSibling;
   }
   return null;
+}
+
+/**
+ * Dev: an attribute-slot occurrence's marked positions cannot bind — no
+ * fill resolves for its prop (`why` = "fill"), or a called occurrence has
+ * no args record once records can no longer arrive ("record"). The
+ * failure this names is otherwise silent: a handler that never fires, a
+ * class that never updates, indistinguishable from nothing happening.
+ * One report per occurrence per frame (`slotOrphans`, keyed by frame so
+ * the class carries no dev-only field); the elements ride along in `data`
+ * so a console can jump to them. A module function, not a method, so the
+ * production build sheds it whole with its gated call sites.
+ */
+let slotOrphans;
+function devSlotOrphan(frame, occurrence, consumers, why) {
+  if (!"_SOLID_DEV_") return;
+  let seen = (slotOrphans ??= new WeakMap()).get(frame);
+  if (!seen) slotOrphans.set(frame, (seen = new Set()));
+  if (seen.has(occurrence)) return;
+  seen.add(occurrence);
+  const prop = propOf(occurrence);
+  const positions = new Set();
+  for (const c of consumers) for (const p of c.positions) positions.add(p.pos);
+  const where = `${consumers.length} element${consumers.length === 1 ? "" : "s"} (positions: ${[...positions].join(", ")})`;
+  DEV.report(
+    OBSERVE.diagnostics.emit(
+      {
+        code: "ATTRIBUTE_SLOT_POSITION",
+        kind: "render",
+        severity: "warn",
+        message:
+          why === "fill"
+            ? `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no client fill ` +
+              `resolves for slot \`${prop}\` — those positions never bind and the elements are inert. ` +
+              `Pass \`${prop}\` to the server component on the client (a function returning the object the ` +
+              `markup reads), or check that the prop name matches on both sides.`
+            : `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no args record ` +
+              `for it arrived and none can — the fill mounts with empty args. A called slot always emits its ` +
+              `record ahead of the markup that reads it, so this is the frame protocol out of step, not the fill: ` +
+              `a client and server from different builds (a stale dev prebundle, a cached asset), or a runtime ` +
+              `bug minting the marker and the record under different ids.`,
+        data: { reason: "orphan", why, occurrence, elements: consumers.map(c => c.element) }
+      },
+      null
+    )
+  );
 }
 
 /**
