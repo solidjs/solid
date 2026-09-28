@@ -1,5 +1,15 @@
 # @solidjs/signals
 
+## 2.0.0-rc.11
+
+### Patch Changes
+
+- 58b9582: Index-mode `mapArray` (`<For keyed={false}>`) publishes the optimistic frame (optimistic-list-mutation-matrix finding F1).
+
+  A `mapArray` pass writes the list's per-slot signals — the row accessors of index mode, the index accessors of a keyed `<For>` with a two-argument mapper — with `setSignal`. Under an action's lane pass those writes were staged into the action's transaction instead of joining the lane's frame, so the row readers were served the committed value until the action landed: `<For keyed={false}>` showed the pre-action list for the whole action while the keyed modes showed the optimistic reorder, and a keyed row rendered its old index beside its new neighbours. A lane pass now routes the slot writes through the engine (`landOnOverride`'s slot arm): each is published as a derived override on the slot and the slot joins the lane (lanes stage, A17); a plain pass over a slot still carrying one lands through the same arm (A18: a differing landing supersedes, an equal one confirms and the revert promotes). The writer is picked once per pass, not per slot: a map no lane pass has touched — or whose lanes have all settled — writes its slots with `setSignal` exactly as before.
+
+- d0ad11c: A full flush pass now counts nodes the finalize staged in the ambient batch as scheduled work, matching the fast drain and the park exit. A woken parked transaction is therefore never re-entered over a staged node with no subscriber (an optimistic store settle's keyset bump under a length-only reader); before, the wake adopted and stamped that node, and a later ambient optimistic write to it joined the parked transaction and its override never reverted.
+
 ## 2.0.0-rc.10
 
 ### Patch Changes
