@@ -1620,6 +1620,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if name == "ref" || name.starts_with("prop:") || name.starts_with("on") {
             return Ok(None);
         }
+        // `$key` on an intrinsic element compiles to the `_key` attribute
+        // the frame morph matches keyed elements by, in a spread element's
+        // sources and tail exactly as in the template path
+        // (shared/attr_plan.rs; Babel renames the JSX attribute up front in
+        // `renameElementKey`, ahead of both paths).
+        let name = if name == "$key" {
+            "_key".to_string()
+        } else {
+            name
+        };
         if in_tail && let Some(part) = self.tail_attribute(tag_name, &name, attr) {
             return Ok(Some(SpreadProp::Tail(name, part)));
         }
@@ -1891,8 +1901,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             .plan_attributes(&element.opening_element.attributes, &tag_name)?;
         let has_children = !element.children.is_empty() || outcome.children_replacement.is_some();
         let mut attr_children: Option<AttrChildren<'a>> = None;
-        // Server-components behavior claims: ref/on* positions collected
-        // across the element's attributes (Babel's `claims`).
+        // Server-components handler positions: ref/on* expressions
+        // collected across the element's attributes (Babel's `claims`),
+        // emitted as one `ssrClaim` hole that marks attribute-slot reads.
         let mut claims: std::vec::Vec<(String, Expression<'a>)> = std::vec::Vec::new();
         for plan in outcome.plans {
             self.append_planned_attribute(
@@ -2057,6 +2068,34 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
 
         let is_dynamic_value =
             !plan.marker_static && self.classify().is_dynamic(None, &expression, true);
+        // Server components (principles §9.2.3): a dynamic `class`/`style`
+        // is the one attribute shape the plain SSR output serializes INSIDE
+        // template quotes (`class="${ssrClassName(x)}"`), where an attribute-slot
+        // value read at that position — the whole value, or a name's
+        // condition in object form — would be stringified instead of
+        // bound. Under the option the whole attribute is a runtime hole,
+        // `ssrElementAttribute("class", x)`, whose helper emits the same
+        // bytes for a plain value and the position marker for a stand-in.
+        // Object literals stay objects (no inlining) for the same reason.
+        if self.server_components && (key == "class" || key == "style") {
+            self.uses_ssr_element_attribute = true;
+            let key_literal = self
+                .ast()
+                .expression_string_literal(span, self.ast().str(&key), None);
+            let attr = self.helper_call(
+                span,
+                "_$ssrElementAttribute",
+                vec![key_literal, expression],
+            );
+            let hole = if is_dynamic_value {
+                let arrow = self.arrow_return_expression(span, attr);
+                self.hoist_expression(template, span, arrow, true, false)
+            } else {
+                attr
+            };
+            template.push_expr(hole);
+            return Ok(());
+        }
         let is_boolean = matches!(expression, Expression::BooleanLiteral(_));
         let mut do_escape = !is_boolean;
         let mut value = expression;
@@ -2697,8 +2736,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         )
     }
 
-    /// One guarded whole-attribute behavior-claim hole per element (Babel's
-    /// `claims` emission): duplicate positions merge into arrays (multiple
+    /// One guarded whole-attribute handler-position hole per element (Babel's
+    /// `claims` emission; `ssrClaim` marks attribute-slot reads as `_s:on:*` /
+    /// `_s:ref`): duplicate positions merge into arrays (multiple
     /// refs), and the expressions only evaluate when the render context's
     /// claims flag is set —
     /// `_$sharedConfig.context && _$sharedConfig.context.claims

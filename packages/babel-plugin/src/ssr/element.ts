@@ -542,10 +542,12 @@ function transformAttributes(
   const hasChildren = path.node.children.length > 0,
     attributes = normalizeAttributes(path);
   let children: babelTypes.JSXExpressionContainer | undefined;
-  // Server-components claims: ref/on* positions on server-rendered
-  // intrinsics collect here and emit as one guarded whole-attribute hole
-  // (` _bnd="..."` or "") after the loop. Evaluation is gated on the render
-  // context's claims flag so plain SSR never runs the expressions.
+  // Server-components handler positions: ref/on* expressions on
+  // server-rendered intrinsics collect here and emit as one guarded
+  // whole-attribute hole after the loop, where `ssrClaim` turns attribute-slot
+  // reads into `_s:on:*` / `_s:ref` markers (and drops server-local
+  // functions). Evaluation is gated on the render context's claims flag so
+  // plain SSR never runs the expressions.
   const claims: [string, babelTypes.Expression][] = [];
 
   attributes.forEach(attribute => {
@@ -628,6 +630,30 @@ function transformAttributes(
           checkMember: true,
           checkTags: true
         });
+        // Server components (principles §9.2.3): a dynamic `class`/`style`
+        // is the one attribute shape the plain SSR output serializes INSIDE
+        // template quotes (`class="${ssrClassName(x)}"`), where an attribute-slot
+        // value read at that position — the whole value, or a name's
+        // condition in object form — would be stringified instead of
+        // bound. Under the option the whole attribute is a runtime hole,
+        // `ssrElementAttribute("class", x)`, whose helper emits the same
+        // bytes for a plain value and the position marker for a stand-in.
+        // Object literals stay objects (no inlining) for the same reason.
+        if (info.serverComponents && (key === "class" || key === "style")) {
+          const attr = t.callExpression(registerImportMethod(path, "ssrElementAttribute"), [
+            t.stringLiteral(key),
+            value.expression as babelTypes.Expression
+          ]);
+          results.template.push("");
+          results.templateValues.push(
+            isDynamicValue
+              ? hoistExpression(path, results, t.arrowFunctionExpression([], attr), {
+                  group: true
+                })
+              : attr
+          );
+          return;
+        }
         let doEscape = true;
         let isBoolean =
           t.isBooleanLiteral(value) ||
