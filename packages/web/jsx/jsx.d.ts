@@ -231,7 +231,7 @@ export namespace JSX {
     | boolean
     | null
     | undefined
-    | Record<string, boolean>
+    | Record<string, boolean | undefined>
     | ClassValue[];
 
   const SERIALIZABLE: unique symbol;
