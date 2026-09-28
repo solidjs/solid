@@ -1784,7 +1784,9 @@ function foldHeld(target: StoreNextTarget): boolean {
   return false;
 }
 
-function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
+/** The backing a reader is served. `key` (the get/has/descriptor traps)
+ * scopes a fold hold to the keys the fold touched — see pendingBackingVisible. */
+function readSource(target: StoreNextTarget, key?: PropertyKey): Record<PropertyKey, any> {
   // Adoption hold first (#3074): an adoption staged under a live transaction
   // (or a latest()-pull, PLAIN_HOLD) serves the pre-hold committed view to
   // committed-visibility readers — context-free and children-forbidden ones,
@@ -1803,7 +1805,7 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
         return hv;
     }
   }
-  return pendingBackingVisible(target, false) ? target.pb! : target.v;
+  return pendingBackingVisible(target, false, key) ? target.pb! : target.v;
 }
 
 /** The single pb-vs-committed visibility decision (#3147), shared by per-key
@@ -1821,7 +1823,11 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
  * ordinary pending staging regardless of owner context (the documented
  * divergence from context-free per-key reads) — but never through a hold:
  * held truth stays masked exactly as it is for per-key readers. */
-function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): boolean {
+function pendingBackingVisible(
+  target: StoreNextTarget,
+  speculative: boolean,
+  key?: PropertyKey
+): boolean {
   if (target.pb === null) return false;
   // The writer's own channels compose on the pending backing regardless.
   if (inDraft(target) || getWriteOverride()) return true;
@@ -1845,7 +1851,26 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
     if (speculative) return txn === null || ownsHold(txn);
     return target.fam !== null && c === null && !foldHeld(target) && txn === null;
   }
-  return holdVisible(liveFoldTransition(target), c);
+  const txn = liveFoldTransition(target);
+  // A hold changes what a reader of ONE key sees only through the fold's
+  // writes to that key. A key the fold left alone reads the same from either
+  // backing, so a pass reading it derives nothing from the hold: serve
+  // committed, with no transaction entry and no stale replay (#3688 — a memo
+  // reading an unchanged key beside an independent signal was held with
+  // someone else's action). Per-node reads already have this precision (a
+  // node with nothing staged enters nothing; stageHeldKey skips an equal
+  // value); this is the same rule at the container gate. `wk` is the trap's
+  // record of every write and delete this batch (deletes included, on the
+  // overlay and clone paths alike); null (a fold with no trap writes) or
+  // WK_ALL (an array length write) leaves the whole container held. Same
+  // exclusions as heldFoldTransition: an optimistic family's draft is seeded
+  // from node overrides the trap never saw, and a chained backing's
+  // committed layer is a live proxy, not a frozen twin of the clone.
+  if (txn !== null && key !== undefined && !target.ch && target.fam?.opt !== true) {
+    const wk = target.wk;
+    if (wk != null && wk !== WK_ALL && !wk.has(key)) return false;
+  }
+  return holdVisible(txn, c);
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing
@@ -2180,7 +2205,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // memo parity for latest() reads through a projection.
     if (target.fam !== null && latestReadActive && !inDraft(target) && !getWriteOverride())
       pullProjectionForLatest(target);
-    const src = readSource(target);
+    const src = readSource(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
     if (target.del !== null && src === target.pb && target.del.has(key)) {
@@ -2360,7 +2385,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (key === $OWNER || key === $RECORD) return false;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
-    const src = readSource(target);
+    const src = readSource(target, key);
     let present = key in src;
     // Overlay deletes read as absent in the pending view (#3044).
     if (present && target.del !== null && src === target.pb && target.del.has(key)) present = false;
@@ -2419,7 +2444,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     const obs = getObserver();
     if (target.fam !== null && obs === null && !inDraft(target)) firewallGate(target);
-    const src = readSource(target);
+    const src = readSource(target, key);
     const desc = visibleDescriptor(target, src, key);
     if (!inDraft(target) && obs !== null && !observerHoldsKeySet(target, obs)) {
       // The node is born from the source's presence (as `has` births it),
