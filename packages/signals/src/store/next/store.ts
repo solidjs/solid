@@ -437,6 +437,50 @@ function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
   return true;
 }
 
+// #3706: the keys an adoption under a live hold changed against the held
+// view — the adoption twin of `wk` (#3688). Computed once per adoption, on the
+// first held read (the children are re-pointed by then), keyed on the adopted
+// backing; WK_ALL holds the whole container.
+const heldKeys = new WeakMap<StoreNextTarget, { v: object; keys: Set<PropertyKey> }>();
+
+function heldKey(target: StoreNextTarget, key: PropertyKey): boolean {
+  let rec = heldKeys.get(target);
+  if (rec === undefined || rec.v !== target.v)
+    heldKeys.set(target, (rec = { v: target.v, keys: adoptionChangedKeys(target) }));
+  return rec.keys === WK_ALL || rec.keys.has(key);
+}
+
+function adoptionChangedKeys(target: StoreNextTarget): Set<PropertyKey> {
+  const hv = target.hv!;
+  const v = target.v;
+  // A chained backing, an optimistic family, a chained held view, a swapped
+  // or non-plain prototype (inherited accessors read through `this`): whole.
+  if (
+    target.ch ||
+    target.fam?.opt === true ||
+    (hv as any)[$TARGET] !== undefined ||
+    Object.getPrototypeOf(hv) !== Object.getPrototypeOf(v) ||
+    !plainProto(v)
+  )
+    return WK_ALL;
+  const keys = new Set<PropertyKey>();
+  // Accessors are never invoked: they and a flipped enumerability are changes.
+  for (const key of Reflect.ownKeys(hv))
+    if (
+      !hasOwn.call(v, key) ||
+      isOwnAccessor(hv, key) ||
+      isOwnAccessor(v, key) ||
+      propertyIsEnumerable.call(hv, key) !== propertyIsEnumerable.call(v, key) ||
+      !(
+        isEqual(hv[key as any], v[key as any]) ||
+        sameLogicalSlot(target, hv[key as any], v[key as any])
+      )
+    )
+      keys.add(key);
+  for (const key of Reflect.ownKeys(v)) if (!hasOwn.call(hv, key)) keys.add(key);
+  return keys;
+}
+
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
   if (slotNodeEquals.call(node, node._value, nv)) return;
   node._pendingValue = nv;
@@ -1785,7 +1829,8 @@ function foldHeld(target: StoreNextTarget): boolean {
 }
 
 /** The backing a reader is served. `key` (the get/has/descriptor traps)
- * scopes a fold hold to the keys the fold touched — see pendingBackingVisible. */
+ * scopes a fold hold to the keys the fold touched — see pendingBackingVisible —
+ * and an adoption hold to the keys the adoption changed (adoptionKeyUnchanged). */
 function readSource(target: StoreNextTarget, key?: PropertyKey): Record<PropertyKey, any> {
   // Adoption hold first (#3074): an adoption staged under a live transaction
   // (or a latest()-pull, PLAIN_HOLD) serves the pre-hold committed view to
@@ -1797,9 +1842,10 @@ function readSource(target: StoreNextTarget, key?: PropertyKey): Record<Property
     const hv = heldMaskView(target);
     if (hv !== null) {
       const c = readerContext();
+      if (c === null || c._config & CONFIG_CHILDREN_FORBIDDEN) return hv;
+      // A key the adoption left unchanged derives nothing from the hold (#3706).
       if (
-        c === null ||
-        c._config & CONFIG_CHILDREN_FORBIDDEN ||
+        (key === undefined || heldKey(target, key)) &&
         !holdVisible(ht === PLAIN_HOLD ? null : currentTransition(ht as Transition), c)
       )
         return hv;
