@@ -1022,6 +1022,14 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 12.16 KB, measured rounded up to the next 0.01 kB.
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
+    // 12.16 KB, measured at 12,160 B against `next` @ f1b07761f's 12,154 (+6 B;
+    // -3 B minified). `recompute`'s parking gate drops its effect-only term
+    // (`isEffect && lane` -> `lane`), so a lane pass over a memo parks a lane
+    // frame like an effect's and a `Show` over an optimistic value no longer
+    // holds an unrelated sync write for the action's lifetime. The change
+    // removes tokens; the brotli move is layout over the shifted stream. Core
+    // floor 0 B (9,508 B unchanged, -3 B minified). Exactly at the cap.
     limit: "12.16 KB",
     alias
   },
@@ -1186,6 +1194,11 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 12.05 KB, measured rounded up to the next 0.01 kB.
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
+    // 12.05 KB, measured at 12,011 B against `next` @ f1b07761f's 12,047 (-36 B;
+    // -3 B minified). The same parking-gate change as the `+ isPending/latest`
+    // note; brotli layout turns the -3 B minified into a saving here. Not
+    // lowered (frozen caps only fall on a deliberate ratchet).
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     alias
   },
@@ -1473,6 +1486,15 @@ module.exports = [
     // cost is the call plus `props || {}`, paid once by every scenario that
     // bundles `lazy()`. Accepted by the maintainer ("micro perf on lazy isn't
     // critical, it's the special case"). The cap is frozen again at 19.68 KB.
+    // Size-Exception (#3698, 2026-09-28): 19.68 -> 19.69 KB, measured at
+    // 19,687 B against `next` @ f1b07761f's 19,673 (+14 B; 7 B over the cap;
+    // -3 B minified) — a memo's lane pass parks a lane frame like an effect's
+    // (`recompute`'s parking gate `isEffect && lane` -> `lane`), so a `Show`
+    // over an optimistic value no longer holds an unrelated sync write for
+    // the action's lifetime. The change removes tokens; the brotli growth is
+    // layout over the shifted stream (the base server-components page
+    // measures -54 B on the same -3 B). Accepted by the maintainer. The cap
+    // is frozen again at 19.69 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1849,6 +1871,10 @@ module.exports = [
     // unchanged at 30.63 KB, measured at 30,622 B against `next` @
     // b10c8249d's 30,584 (+38 B; +119 B minified). Same change as the
     // `+ createStore` note (+1 B there); brotli layout over the larger bundle.
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
+    // 30.63 KB, measured at 30,599 B against `next` @ f1b07761f's 30,622 (-23 B;
+    // -3 B minified). Same parking-gate change as the no-stores hydrating
+    // note; brotli layout over the larger bundle turns it into a saving here.
     limit: "30.63 KB",
     alias
   },
@@ -2056,6 +2082,10 @@ module.exports = [
     // at 14,933 B against `next` @ fe1eb684f's 14,909 (+24 B; +38 B minified).
     // Same `lazy()` change as the hydrating note: the `createComponent` call
     // plus `props || {}` in place of a bare `untrack`.
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
+    // 14.94 KB, measured at 14,938 B against `next` @ f1b07761f's 14,933 (+5 B;
+    // -3 B minified). Same parking-gate change as the hydrating note; brotli
+    // layout over the shifted stream.
     limit: "14.94 KB",
     alias
   },
@@ -2303,6 +2333,9 @@ module.exports = [
     // Same `lazy()` change as the hydrating note, and in the observe build
     // `createComponent` is `observedComponent`, so the lazy body now also runs
     // under its labeled root — that is the larger minified delta.
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
+    // 16.36 KB, measured at 16,355 B against `next` @ f1b07761f's 16,356 (-1 B;
+    // -3 B minified). Same parking-gate change as the CSR note.
     limit: "16.36 KB",
     alias: observeAlias
   },
@@ -2662,7 +2695,11 @@ module.exports = [
     // at 30,596 B against `next` @ fe1eb684f's 30,536 (+60 B; +174 B minified).
     // Same `lazy()` change as the observe tier note above: the labeled
     // `observedComponent` root around the lazy body.
-    limit: "30.60 KB",
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): 30.60 -> 30.61 KB,
+    // measured at 30,609 B against `next` @ f1b07761f's 30,596 (+13 B; 9 B over
+    // the cap; -3 B minified) — `recompute`'s parking gate drops its
+    // effect-only term; brotli layout, see the hydrating (no stores) note.
+    limit: "30.61 KB",
     alias: observeAlias
   },
   {
@@ -2846,6 +2883,11 @@ module.exports = [
     // `+ createStore` note, reaching this page through the frames client's
     // container-trace materializer; brotli layout turns the +119 B minified
     // into a saving here. Not ratcheted.
+    // Memo lane passes park a lane frame (#3698, 2026-09-28): cap unchanged at
+    // 44.93 KB, measured at 44,865 B against `next` @ f1b07761f's 44,919 (-54 B;
+    // -3 B minified). The same parking-gate change as the hydrating (no
+    // stores) note; brotli layout turns the -3 B minified into a saving on
+    // this page. Not ratcheted.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2890,6 +2932,13 @@ module.exports = [
     // b10c8249d's 49,066 (-9 B; +119 B minified). The same store change as
     // the base page's note (-10 B there); brotli layout absorbs it on this
     // page too. Not ratcheted.
+    // Size-Exception (#3698, 2026-09-28): 49.07 -> 49.10 KB, measured at
+    // 49,094 B against `next` @ f1b07761f's 49,057 (+37 B; 24 B over the cap;
+    // -3 B minified) — the same parking-gate change as the hydrating (no
+    // stores) note. The change removes code: the base page measures -54 B
+    // and the CSR app +5 B on the identical -3 B minified core; brotli layout
+    // amplifies it here as #3684's and #3675's did. Accepted by the
+    // maintainer. The cap is frozen again at 49.10 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }
