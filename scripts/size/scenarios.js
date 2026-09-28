@@ -2589,7 +2589,12 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 30.46 KB, measured rounded up to the next 0.01 kB.
-    limit: "30.46 KB",
+    // Optimistic store writes revert after a failed action with attribution
+    // enabled (#3692, 2026-09-28): 30453 -> 30513 B (+60 B) against `next` @
+    // 656f0dff6. Engine-side: the fix lives on the attribution path, and the
+    // observe tier scenario above did not move; cap 30.52 KB, measured rounded
+    // up to the next 0.01 kB.
+    limit: "30.52 KB",
     alias: observeAlias
   },
   {
