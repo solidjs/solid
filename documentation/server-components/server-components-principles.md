@@ -1049,9 +1049,11 @@ retired as a pole and survives only as potential authoring sugar.
    engine `spread`s them. Server owns every node, client owns the
    attribute values it declared — the missing row in Stage 6's
    taxonomy (ref lifecycle + slot-arg reactivity). No baselines, no
-   re-assertion, no new engine; optimism is pay-for-use and
-   live-safe by construction. Retroactivity is the one thing given
-   up. Adds stay client JSX in a pre-placed content slot (§9.2.1's
+   re-assertion, no new engine, and no compiler change — spread is
+   the one attribute position SSR already hands to the runtime
+   whole, so `ssrElement` brand-checks the source and both compilers
+   stay untouched. Optimism is pay-for-use and live-safe by
+   construction. Retroactivity is the one thing given up. Adds stay client JSX in a pre-placed content slot (§9.2.1's
    `$key` convergence still covers off-response). Gate unchanged:
    the TodoMVC port.
 8. **Stage 8 — Connection-shaped transport.** Promoted from parked: the
@@ -2313,13 +2315,39 @@ N per-element scopes for N optimistic rows — fine at TodoMVC scale,
 to be measured at HN-comment scale, and paid only by rows that need
 reactivity.
 
+**Spread only, and no compiler change — settled 2026-09-27.** The
+spelling is the spread of a called slot, `{...props.check(args)}`,
+and it is the ONLY attribute position on offer, for a reason that
+is the constraint itself: SSR shares the compiler, and a gated
+transform is the one thing this design must not need. Spread is the
+one attribute position the SSR compiler defers wholesale to the
+runtime. `<input class="toggle" {...props.check(a)} />` compiles
+today, unchanged, to
+
+```js
+_$ssrElement("input", [{ class: "toggle", type: "checkbox" }, props.check(a)], …)
+```
+
+— the spread expression passed through verbatim as a runtime
+source, and `ssrElement` already brand-checks its sources (`$PROXY
+in s` for stores and views). A slot proxy's call result is one more
+branded source: the runtime emits the `_bnd` marker and slot record
+and, at t = 0, runs the fill and serializes its output as
+attributes. A single attribute position (`checked={props.checked(a)}`)
+would NOT work this way: attribute values compile into template
+text through per-kind helpers (`ssrAttribute`, boolean handling,
+`ssrClassList`, `ssrStyle`, static folding), many emission sites,
+some compile-time — a brand there is a compiler change. Stage 6
+needed its compiler round for the opposite reason: handler and ref
+expressions are DROPPED at SSR compile time, so the compiler had to
+emit the guarded `_$claim`. Spreads are never dropped. The client
+face is runtime too — no client compilation of a server component
+exists; the claim engine reads the marker and calls client `spread`
+in a per-element scope. Both faces runtime-only; both compilers
+untouched; parity is free.
+
 **Open, for the build.**
 
-- *Spelling.* The lean is the spread of a called slot,
-  `{...props.check(args)}`, which reads as ordinary JSX and gives
-  the compiler a syntactic hook (a spread whose argument is a call
-  on a props member) in the same round as `$key` and Stage 6's
-  positions. Both compilers, parity tests.
 - *Args duplication.* Whether an occurrence can scope args for
   several fills on one element tree, or whether two calls is simply
   the honest cost.
@@ -2342,9 +2370,9 @@ reactivity.
 **Public surface (flagged).** No export is removed — `predict` never
 shipped. Added: a fourth use site for server-component props
 (attribute fill: a called slot in spread position; `ServerComponent<P>`
-widens accordingly), the compiler transform for it behind the
-server-components option, and one marker position kind in `_bnd`.
-Everything the client writes is `createOptimistic*`, already public.
+widens accordingly) and one marker position kind in `_bnd`. No
+compiler option, no transform. Everything the client writes is
+`createOptimistic*`, already public.
 
 **Acceptance gate — Server Component TodoMVC (restated for the third
 time; the gate itself does not move).** Port `examples/todos` beside
@@ -2355,29 +2383,31 @@ bulk actions, filters, and overlapping transitions. Pass condition:
 a pre-placed content slot — zero imperative DOM writes, zero
 selector coupling, zero new client vocabulary.** Toggle, remove,
 pending/disabled/error markup are attribute fills; add is a content
-slot; counters and filter state are data-shaped. Do not build the
-compiler round until add/remove/toggle success and failure, checkbox
+slot; counters and filter state are data-shaped. Do not call the
+shape settled until add/remove/toggle success and failure, checkbox
 correction, concurrent and bulk mutations, retry/error markup,
 state retention across reordering morphs (focus, typed values), and
-clean hydration are all shown in the port. The simplicity-parity
+clean hydration are all shown in the port, under both mutation
+shapes. The simplicity-parity
 criterion stands, and is now pointed at the one place it can fail:
 if the hand-written layering in the fills is heavier than the
 store's projection in the SPA, that is the finding.
 
-**Machinery ledger.** No net-new engine. Touched, all existing:
-the SSR serializer (spread a fill's output onto the element and emit
-the marker + slot record), the compiler round (recognize the spread
-position; both compilers), the claim engine (a scope per marked
-element receiving reactive args), client `spread` (unchanged), the
-morph (skip client-owned keys on matched elements — the same class
-of exception as foreign ranges). The optimistic engine is
+**Machinery ledger.** No net-new engine, no compiler change.
+Touched, all existing and all runtime: `ssrElement` (recognize the
+branded source among a spread's sources; emit the marker + slot
+record; at t = 0 run the fill and serialize its output), the claim
+engine (a scope per marked element receiving reactive args), client
+`spread` (unchanged), the morph (skip client-owned keys on matched
+elements — the same class of exception as foreign ranges). The optimistic engine is
 `@solidjs/signals`' existing `createOptimistic`/`createOptimisticStore`,
 imported by the app that uses them.
 
 **Consequences for the roadmap.** Stage 7 is "attribute slots," not
-"predictions." It is dependency-shallow in the way Stage 6 was — a
-compiler round plus the claim engine, no transaction machinery, no
-solid-core changes — and independent of Stage 8 in both directions.
+"predictions." It is shallower than Stage 6 was — runtime only, no
+compiler round, the claim engine plus `ssrElement`; no transaction
+machinery, no solid-core changes — and independent of Stage 8 in
+both directions.
 The size-harness "hydrating + stores" row stops being Stage 7's
 floor: a frames page carries the optimistic engine only if the app
 imports it.
