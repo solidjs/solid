@@ -481,7 +481,17 @@ export function dynamic<T extends ValidComponent>(
             // at this seam. Initialize from the LATEST resolved address: the
             // kept binding's own `.address` is the first resolution's and
             // goes stale the moment a later call is kept-delivered.
-            const [address, setAddress] = createSignal((deliveredAddress ??= binding.address));
+            // `ownedWrite`: a delivery is a write from wherever the
+            // resolution lands — a promise microtask for an async source,
+            // but INSIDE the factory's compute when the source is a memo that
+            // already settled the call (the multi-flight `refresh(todos)`
+            // shape, and the hydrated document's first refetch), and inside
+            // the equals gate for a pump's yield. None of those read the
+            // address back, so the owned-scope write guard has nothing to
+            // protect here.
+            const [address, setAddress] = createSignal((deliveredAddress ??= binding.address), {
+              ownedWrite: true
+            });
             sites.add(setAddress);
             onCleanup(() => sites.delete(setAddress));
             return untrack(() => (binding.component as any)(props, address));
