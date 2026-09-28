@@ -782,8 +782,14 @@ export function warnStrictReadUntracked(
   strictReadLabel: string,
   fields?: Partial<Omit<DiagnosticEvent, "sequence" | "ownerPath">>
 ): void {
+  // Name the value when the name says something — a `name` option or a store
+  // key (#3675). The constructors' defaults ("signal", "computed") would only
+  // restate what "reactive value" already says.
+  const nodeName = fields?.nodeName;
+  const named = nodeName !== undefined && nodeName !== "signal" && nodeName !== "computed";
   const message =
-    `[STRICT_READ_UNTRACKED] Reactive value read directly in ${strictReadLabel} will not update. ` +
+    `[STRICT_READ_UNTRACKED] Reactive value${named ? ` "${nodeName}"` : ""} read directly in ` +
+    `${strictReadLabel} will not update. ` +
     `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
   reportDiagnostic(
     emitDiagnostic({

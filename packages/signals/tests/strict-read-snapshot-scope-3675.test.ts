@@ -46,6 +46,23 @@ describe("#3675 strict read under snapshot capture", () => {
     expect(events).toHaveLength(1);
     expect(events[0].data?.strictRead).toBe("<Child>");
     expect(events[0].nodeName).toBe("count");
+    // The console line names the value read (the report's third point).
+    expect(events[0].message).toContain('Reactive value "count" read directly in <Child>');
+  });
+
+  it("an unnamed signal keeps the generic message", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const events: any[] = [];
+    const unsubscribe = OBSERVE!.diagnostics.subscribe(e => {
+      if (e.code === "STRICT_READ_UNTRACKED") events.push(e);
+    });
+    createRoot(() => {
+      const [count] = createSignal(1);
+      createMemo(() => untrack(() => count(), "<Child>"));
+    });
+    unsubscribe();
+    expect(events).toHaveLength(1);
+    expect(events[0].message).toContain("Reactive value read directly in <Child>");
   });
 
   it("control: the same read outside capture warns once", () => {

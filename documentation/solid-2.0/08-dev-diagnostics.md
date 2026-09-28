@@ -302,7 +302,7 @@ These log a warning but don't halt execution. They indicate patterns that will l
 
 #### `STRICT_READ_UNTRACKED`
 
-**Message:** "Reactive value read directly in [context] will not update. Move it into a tracking scope (JSX, a memo, or an effect's compute function)."
+**Message:** "Reactive value "[name]" read directly in [context] will not update. Move it into a tracking scope (JSX, a memo, or an effect's compute function)." The name is the signal's `name` option or the store key that was read; an unnamed signal reads "Reactive value read directly in [context] …".
 
 Reading a signal, signal-backed prop, or store property at the top level of a component body (or in an effect callback) will not track. The value is captured once and never updates.
 

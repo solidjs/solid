@@ -1455,6 +1455,14 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 19.63 KB, measured rounded up to the next 0.01 kB.
+    // Size-Exception (#3675, 2026-09-28): 19.63 -> 19.68 KB, measured at
+    // 19,673 B against `next` @ fe1eb684f's 19,623 (+50 B; +38 B minified) —
+    // `lazy()` renders the loaded component through `createComponent` instead
+    // of a bare `untrack(() => Comp(props))`, so its body carries a component
+    // label and STRICT_READ_UNTRACKED fires for its direct reads. The minified
+    // cost is the call plus `props || {}`, paid once by every scenario that
+    // bundles `lazy()`. Accepted by the maintainer ("micro perf on lazy isn't
+    // critical, it's the special case"). The cap is frozen again at 19.68 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1823,6 +1831,10 @@ module.exports = [
     // 2026-09-28): 30.48 -> 30.63 KB, measured at 30,630 B against `next` @
     // 61a33af5a's 30,480 (+150 B). Same change as the `+ createStore` note
     // (+123 B there); brotli layout over the larger bundle. Core floor 0 B.
+    // lazy() via createComponent (#3675, 2026-09-28): cap unchanged at 30.63 KB,
+    // measured at 30,584 B against `next` @ fe1eb684f's 30,630 (-46 B; +38 B
+    // minified). Same `lazy()` change as the no-stores hydrating note; brotli
+    // layout over the larger bundle turns the +38 B minified into a saving here.
     limit: "30.63 KB",
     alias
   },
@@ -2026,7 +2038,11 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 14.91 KB, measured rounded up to the next 0.01 kB.
-    limit: "14.91 KB",
+    // lazy() via createComponent (#3675, 2026-09-28): 14.91 -> 14.94 KB, measured
+    // at 14,933 B against `next` @ fe1eb684f's 14,909 (+24 B; +38 B minified).
+    // Same `lazy()` change as the hydrating note: the `createComponent` call
+    // plus `props || {}` in place of a bare `untrack`.
+    limit: "14.94 KB",
     alias
   },
   {
@@ -2268,7 +2284,12 @@ module.exports = [
     // observe core, solid.observe.js and web.observe.js are unchanged; the change
     // is the attribution engine's, whose property set shifts the shared mangler
     // layout under this scenario). Every prod scenario byte-identical.
-    limit: "16.35 KB",
+    // lazy() via createComponent (#3675, 2026-09-28): 16.35 -> 16.36 KB, measured
+    // at 16,356 B against `next` @ fe1eb684f's 16,342 (+14 B; +172 B minified).
+    // Same `lazy()` change as the hydrating note, and in the observe build
+    // `createComponent` is `observedComponent`, so the lazy body now also runs
+    // under its labeled root — that is the larger minified delta.
+    limit: "16.36 KB",
     alias: observeAlias
   },
   {
@@ -2623,7 +2644,11 @@ module.exports = [
     // ambient), plus the `initial ` prefix in `formatOrigin`. The server
     // side of the same declaration (`RenderEvent.route`) lives in the server
     // artifacts, outside every scenario here.
-    limit: "30.54 KB",
+    // lazy() via createComponent (#3675, 2026-09-28): 30.54 -> 30.60 KB, measured
+    // at 30,596 B against `next` @ fe1eb684f's 30,536 (+60 B; +174 B minified).
+    // Same `lazy()` change as the observe tier note above: the labeled
+    // `observedComponent` root around the lazy body.
+    limit: "30.60 KB",
     alias: observeAlias
   },
   {
@@ -2795,6 +2820,12 @@ module.exports = [
     // frames client's container-trace materializer (see the baseline note);
     // the `+ createStore` scenario carries the same change at +123 B. The cap
     // is frozen again at 44.89 KB.
+    // Size-Exception (#3675, 2026-09-28): 44.89 -> 44.93 KB, measured at
+    // 44,929 B against `next` @ fe1eb684f's 44,890 (+39 B; +38 B minified) —
+    // `lazy()` renders through `createComponent` instead of a bare `untrack`
+    // so its body is labeled for STRICT_READ_UNTRACKED; the hydrating scenario
+    // carries the same change at +50 B. Accepted by the maintainer. The cap
+    // is frozen again at 44.93 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2829,6 +2860,11 @@ module.exports = [
     // 49,014 B against `next` @ 61a33af5a's 48,976 (+38 B) — the same store
     // change as the base page's note (+164 B there); brotli layout absorbs
     // most of it on this page. The cap is frozen again at 49.02 KB.
+    // Size-Exception (#3675, 2026-09-28): 49.02 -> 49.07 KB, measured at
+    // 49,066 B against `next` @ fe1eb684f's 49,014 (+52 B; +38 B minified) —
+    // the same `lazy()` change as the base page's note (+39 B there); brotli
+    // layout amplifies it on this page. Accepted by the maintainer. The cap
+    // is frozen again at 49.07 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }
