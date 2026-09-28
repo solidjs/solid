@@ -531,11 +531,11 @@ function MyComponent(props) {
   let el;
   const others = omit(props, "children");
   var _el$48 = _tmpl$2();
+  _$spread(_el$48, others, true);
   var _ref$9 = el;
   typeof _ref$9 === "function" || Array.isArray(_ref$9)
     ? _$ref(() => _ref$9, _el$48)
     : (el = _el$48);
-  _$spread(_el$48, others, true);
   _$insert(_el$48, () => props.children);
   return _el$48;
 }

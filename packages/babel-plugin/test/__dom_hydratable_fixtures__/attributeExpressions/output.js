@@ -132,12 +132,12 @@ _$spread(
   ],
   true
 );
-var _ref$ = link;
-typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => _ref$, _el$3) : (link = _el$3);
 _$claimElement(_el$3);
 _$className(_el$3, {
   "ccc ddd": true
 });
+var _ref$ = link;
+typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => _ref$, _el$3) : (link = _el$3);
 _$runHydrationEvents();
 const template = _el$;
 var _el$4 = _$getNextElement(_tmpl$2),
