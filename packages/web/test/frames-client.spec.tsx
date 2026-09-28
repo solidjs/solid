@@ -812,6 +812,55 @@ describe("server components through dynamic", () => {
     dispose();
     container.remove();
   });
+
+  test("a memo-wrapped source delivers a switched address from inside the compute (dev-safe)", async () => {
+    // The multi-flight shape (`todos = createMemo(() => getTodos(...))`,
+    // `dynamic(() => todos())`, `refresh(todos)` in the action) hands
+    // `dynamic` the RESOLVED binding synchronously — the memo settles the
+    // promise — so a kept resolution's delivery (`setAddress` on every
+    // mounted site) runs inside dynamic's own compute, not in a promise
+    // microtask. That write is by design; it must not trip the dev
+    // owned-scope write guard. (The hydrated form is the same path: the
+    // document adopts the per-function placeholder, and the first refetch
+    // resolves the per-address binding — a kept resolution.)
+    const [story, setStory] = createSignal(1);
+    vi.stubGlobal("fetch", async (_base: any, init: any) => {
+      const v = JSON.parse(String(init.body))[0];
+      return storyResponse(v, `Story ${v}`);
+    });
+    const source = createRoot(() => createMemo(() => getStory(story()) as any));
+    const Story = dynamic(() => source());
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const errors: unknown[] = [];
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>...</span>}>
+          <Story comment={(p: any) => <li>{p.text}</li>} />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    window.addEventListener("error", e => errors.push(e.error));
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("h1")!.textContent).toBe("Story 1");
+
+    setStory(2);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(errors).toEqual([]);
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+
+    dispose();
+    container.remove();
+  });
 });
 
 describe("element claims (router link-state contract)", () => {

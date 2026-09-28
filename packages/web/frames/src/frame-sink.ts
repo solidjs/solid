@@ -173,10 +173,14 @@ const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 import {
   renderToStream,
   createLiveHoles,
-  CLAIM_PROP,
   CLAIMS_STREAM,
-  CLAIMS_DOCUMENT
+  CLAIMS_DOCUMENT,
+  slotValue,
+  SLOT_FACE_STREAM,
+  SLOT_FACE_DATA,
+  SLOT_FACE_MARKUP
 } from "../../src/server.js";
+import { devCheck } from "../../src/diagnostics.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
 import {
@@ -811,7 +815,7 @@ export function renderServerComponent(component, options = {}) {
         // is live for the response window. The document face never sets
         // this (t=0 latches to the V1 snapshot).
         ctx.liveHoles = createLiveHoles(sink);
-        // Behavior claims (Stage 6): arm the compiled guard for the whole
+        // Handler positions: arm the compiled `ssrClaim` guard for the whole
         // response — everything here is the component's own render.
         ctx.claims = CLAIMS_STREAM;
       }
@@ -895,9 +899,91 @@ function frameStream(makeCode, options) {
 /** The slot marker range for an occurrence, as a pre-rendered SSR value.
  * `$slot` opts the range out of live-hole marking: a slot is a client-owned
  * position — the server can never re-render it, so a live binding over one
- * would be permanently inert and its markers pure tax. */
+ * would be permanently inert and its markers pure tax.
+ *
+ * `$occurrence` names the occurrence for `ssrElement`, which meets the range
+ * when a slot's return is SPREAD onto an element — the retired shape it
+ * rejects by name (principles §9.2.3). */
 function slotRange(occurrence) {
-  return { t: `<!--slot:${occurrence}:start--><!--slot:${occurrence}:end-->`, $slot: true };
+  return {
+    t: `<!--slot:${occurrence}:start--><!--slot:${occurrence}:end-->`,
+    $slot: true,
+    $occurrence: occurrence
+  };
+}
+
+// A slot call's return serves BOTH things a slot can render (principles
+// §9.2.3): placed as a child it is the marker range (markup slot); read as
+// an object it is the fill's data (attribute slot) — `const row = props.row(a);
+// <li class={row.rowClass}>`. One proxy over the range: a key the range has
+// (prototype included — the engine calls array methods on the document
+// face's range) or the engine probes for passes through; any other string
+// key is a property READ, answered with a `SLOT_VALUE` stand-in naming the
+// occurrence and the key, carrying the t=0 value when the fill ran. The
+// attribute helpers (`@solidjs/web` server) bind the position where the
+// stand-in lands. Reserved for the fill's output, therefore: `$`-prefixed
+// keys, the engine's node keys, and Object/Array prototype member names —
+// the document face checks the output and says so.
+const RANGE_KEYS = new Set(["t", "h", "p", "then"]);
+function slotProxy(range, occurrence, face, content, onData) {
+  return new Proxy(range, {
+    get(target, key, receiver) {
+      if (
+        typeof key !== "string" ||
+        key in target ||
+        key.charCodeAt(0) === 36 /* $ */ ||
+        RANGE_KEYS.has(key)
+      ) {
+        return Reflect.get(target, key, receiver);
+      }
+      // The first property read fixes the proxy's face as DATA (see
+      // repeatKey): a placed range never gets here.
+      if (onData) onData = void onData();
+      return slotValue(occurrence, key, content ? content[key] : undefined, face);
+    }
+  });
+}
+
+/** Classify a document-face fill's return for property reads: a plain
+ *  object is data (its properties are the t=0 values); content — an SSR
+ *  node, a node list, a string, a function — is markup, and a read off it
+ *  is a dev finding at the position that binds it. Nothing (`null`/
+ *  `undefined`) reads as data with no values. */
+function slotFace(range, content) {
+  if (content == null) return SLOT_FACE_DATA;
+  if (typeof content !== "object" || Array.isArray(content)) return SLOT_FACE_MARKUP;
+  if (isServerContent(content)) {
+    // An SSR node is `{ t }` (plus `h`/`p`) and nothing else. An object
+    // with further keys is the fill's DATA that happened to use a node key
+    // — classified as data in every build (a `t` value is unreadable, the
+    // rest binds), and named below in dev.
+    let data = false;
+    for (const key in content) {
+      if (!RANGE_KEYS.has(key)) {
+        data = true;
+        break;
+      }
+    }
+    if (!data) return SLOT_FACE_MARKUP;
+  }
+  if ("_SOLID_DEV_") {
+    for (const key of Object.keys(content)) {
+      if (key in range || key.charCodeAt(0) === 36 || RANGE_KEYS.has(key)) {
+        devCheck({
+          code: "ATTRIBUTE_SLOT_POSITION",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[ATTRIBUTE_SLOT_POSITION] The fill for \`${range.$occurrence}\` returned a key named \`${key}\`, ` +
+            `which is reserved (keys beginning with \`$\`, the node keys \`t\`/\`h\`/\`p\`/\`then\`, and ` +
+            `Object/Array prototype member names): the server reads it as the slot's range, not as a value. ` +
+            `Rename it.`,
+          data: { reason: "reserved-key", occurrence: range.$occurrence, key }
+        });
+      }
+    }
+  }
+  return SLOT_FACE_DATA;
 }
 
 // Occurrence ids embed user data (`$key`), and they land in contexts with
@@ -925,14 +1011,102 @@ function encodeOccurrenceKey(key) {
  * adoption and every later stream.
  */
 function occurrenceId(prop, raw, counts) {
-  const k = raw.$key;
-  // Numbers encode too: exponent forms ("1e+21") carry `+`.
-  if (typeof k === "string" || typeof k === "number") {
-    return `${prop}#${encodeOccurrenceKey(k)}`;
-  }
+  const keyed = keyedId(prop, raw);
+  if (keyed !== undefined) return keyed;
   const n = counts[prop] || 0;
   counts[prop] = n + 1;
   return `${prop}#${n}`;
+}
+
+/** `prop#<$key>` for a call that names its occurrence; `undefined` otherwise. */
+function keyedId(prop, raw) {
+  const k = raw.$key;
+  // Numbers encode too: exponent forms ("1e+21") carry `+`.
+  return typeof k === "string" || typeof k === "number"
+    ? `${prop}#${encodeOccurrenceKey(k)}`
+    : undefined;
+}
+
+/**
+ * Structural identity of a call's args, for collapsing repeated un-keyed
+ * DATA calls (see repeatKey): a canonical string over plain values
+ * — primitives, and arrays / plain objects of them, keys sorted — or
+ * `undefined` when the args hold anything identity can't be read off by
+ * value: a function (a thunk, a handler), a promise or async iterable (the
+ * value tier), a class instance, a getter (compiled props — evaluating it
+ * here would double the read the record path owns). `$key` is excluded:
+ * a keyed call is named, not compared.
+ */
+function structuralArgsKey(raw) {
+  let out = "";
+  // Length-prefixed strings and keys keep the encoding injective.
+  const walk = (v, top) => {
+    if (v === null) out += "N";
+    else if (typeof v === "string") out += "s" + v.length + ":" + v;
+    else if (typeof v === "boolean") out += v ? "T" : "F";
+    else if (typeof v === "undefined") out += "U";
+    else if (typeof v === "number") out += "n" + v + ";";
+    else if (typeof v === "bigint") out += "b" + v + ";";
+    else if (typeof v !== "object") return false;
+    else if (Array.isArray(v)) {
+      out += "[";
+      for (const item of v) if (!walk(item)) return false;
+      out += "]";
+    } else {
+      const proto = Object.getPrototypeOf(v);
+      if (proto !== Object.prototype && proto !== null) return false;
+      out += "{";
+      for (const k of Object.keys(v).sort()) {
+        if (top && k === "$key") continue;
+        const desc = Object.getOwnPropertyDescriptor(v, k);
+        if (desc.get || desc.set) return false;
+        out += "k" + k.length + ":" + k;
+        if (!walk(desc.value)) return false;
+      }
+      out += "}";
+    }
+    return true;
+  };
+  return walk(raw, true) ? out : undefined;
+}
+
+/**
+ * One call is one occurrence however many times the render evaluates it.
+ * The natural attribute-slot shape puts the call in a component prop —
+ * `<TodoRow row={props.row({ id: t.id, completed: t.completed })} />` — and
+ * compiled props are getters: every position the shared component binds
+ * re-evaluates the expression. Without this, each read would mint an
+ * occurrence, run the fill and emit a record (the double-data disease, once
+ * per position). Two names collapse a repeat onto the first call's proxy:
+ *
+ * - `$key`: the occurrence is named, so any repeat is the same occurrence
+ *   whatever its face — the author said so.
+ * - structural args, for a call already known to be DATA: identical args
+ *   give an identical fill output, so binding both sites' positions to one
+ *   occurrence changes nothing on screen. Known-data only, because a placed
+ *   range is not collapsible — two `<props.badge kind="new" />` are two
+ *   ranges — and on the stream face a proxy's face is fixed by its first
+ *   use (property read → data; `t` read → placed). The getter shape reads
+ *   at the call, so the second evaluation finds the first registered; a
+ *   call that is neither read nor placed before an identical call stays a
+ *   separate occurrence (duplicate record, correct output). The document
+ *   face classifies the fill's return at the call and registers there.
+ *
+ * `$key` therefore names an ENTITY — client state inside the fill's scope
+ * follows it across responses — and is optional; without it identity is
+ * positional per prop across responses and structural within one.
+ *
+ * Both names share one per-render map (`repeats`): a keyed call's key is
+ * its occurrence id (`prop#<$key>`), an un-keyed call's is `prop\0<args>`
+ * — disjoint alphabets. The caller registers a keyed proxy at the call and
+ * an un-keyed one when its face is known (first wins), and looks up before
+ * minting. `undefined`: this call can never be recognized as a repeat.
+ */
+function repeatKey(prop, raw) {
+  const keyed = keyedId(prop, raw);
+  if (keyed !== undefined) return keyed;
+  const structural = structuralArgsKey(raw);
+  return structural === undefined ? undefined : prop + "\0" + structural;
 }
 
 /** An async value in the DR-2 value-tier sense: passed whole, rides the data
@@ -1018,6 +1192,8 @@ export function createDocumentSlotProps(
 export function createDocumentSlotProps(clientProps, frameId) {
   const counts = Object.create(null);
   const getters = new Map();
+  // Repeated calls are one occurrence within a render (see repeatKey).
+  const repeats = new Map();
   // `$slot`-tagged like the stream face's slotRange: the engine resolves a
   // slot-tagged value MINT-SUPPRESSED, so fill content — client-owned DOM
   // the adopting frame claims — never grows live-hole markers or bindings.
@@ -1026,6 +1202,11 @@ export function createDocumentSlotProps(clientProps, frameId) {
   // story: arg re-emissions update the adopted occurrence's props. One
   // known coarsening: a region (server JSX arg) placed by the fill resolves
   // inside this suppressed span, so its interior holes keep the t=0 latch.
+  //
+  // The return is the slot PROXY over this range (see slotProxy): placed,
+  // it is the range; read, its properties are the fill's t=0 values — this
+  // being the document face, where the fill ran. A fill that returned
+  // content classifies as markup and reads off it are dev findings.
   const range = (occurrence, content) => {
     const r = [
       { t: `<!--slot:${occurrence}:start-->` },
@@ -1033,7 +1214,10 @@ export function createDocumentSlotProps(clientProps, frameId) {
       { t: `<!--slot:${occurrence}:end-->` }
     ];
     r.$slot = true;
-    return r;
+    r.$occurrence = occurrence;
+    const face = slotFace(r, content);
+    r.$face = face;
+    return slotProxy(r, occurrence, face, face === SLOT_FACE_DATA ? content : undefined);
   };
   // Client content renders under a per-occurrence hydration-key OWNER
   // scope, so the adopting client re-renders each slot under the SAME
@@ -1092,6 +1276,9 @@ export function createDocumentSlotProps(clientProps, frameId) {
             );
           }
           const raw = callArgs[0];
+          const rk = repeatKey(prop, raw);
+          const repeat = rk !== undefined && repeats.get(rk);
+          if (repeat) return repeat;
           const occurrence = occurrenceId(prop, raw, counts);
           const slot = clientProps[prop];
           if (typeof slot !== "function") return range(occurrence, undefined);
@@ -1322,6 +1509,11 @@ export function createDocumentSlotProps(clientProps, frameId) {
               }
             }
           }
+          // The fill ran and its return is classified: a keyed call
+          // registers for repeats whatever its face, an un-keyed one only
+          // as data (two identical placements are two ranges).
+          if (rk !== undefined && (rk === occurrence || out.$face === SLOT_FACE_DATA))
+            repeats.has(rk) || repeats.set(rk, out);
           return out;
         };
         // A slot getter placed directly as a child (`{props.children}`) is a
@@ -1329,10 +1521,6 @@ export function createDocumentSlotProps(clientProps, frameId) {
         // same way it does on the stream face (the impurity gates would
         // latch it anyway — this makes it exact rather than incidental).
         fn.$lhSkip = true;
-        // The claim brand (Stage 6): a stub placed in a ref/on* position
-        // instead of being called claims by prop name — `ssrClaim` reads
-        // this to mint `_bnd`.
-        fn[CLAIM_PROP] = prop;
         getters.set(prop, fn);
       }
       return fn;
@@ -1544,11 +1732,11 @@ export function frameTransformDirectResult(value, { id, args }) {
     // own render is context-isolated.
     serverOwned(() => {
       armDocumentLiveHoles(sharedConfig.context);
-      // Behavior claims (Stage 6): arm the compiled guard for this subtree
-      // (descendant context clones spread-copy it). Minting is additionally
-      // scope-gated inside ssrClaim, so client fill content — which
-      // re-enters the zone owner outside the component barrier — neither
-      // claims nor warns.
+      // Handler positions: arm the compiled `ssrClaim` guard for this
+      // subtree (descendant context clones spread-copy it). Marking is
+      // additionally scope-gated inside ssrClaim, so client fill content —
+      // which re-enters the zone owner outside the component barrier —
+      // neither marks nor warns.
       sharedConfig.context.claims = CLAIMS_DOCUMENT;
       const slotProps = createDocumentSlotProps(props, id);
       // A `live` answer (the declaration's in-process brand lands on this
@@ -1791,6 +1979,8 @@ export function createSlotProps(
 export function createSlotProps(sink, frame) {
   const counts = Object.create(null);
   const getters = new Map();
+  // Repeated calls are one occurrence within a render (see repeatKey).
+  const repeats = new Map();
   return new Proxy(Object.create(null), {
     // Every key virtually exists — a prop is a *position* the client may
     // fill, and the server cannot know which ones the client supplied. This
@@ -1812,8 +2002,11 @@ export function createSlotProps(sink, frame) {
       if (!fn) {
         fn = (...callArgs) => {
           if (callArgs.length === 0 || callArgs[0] === undefined) {
-            return slotRange(prop);
+            return slotProxy(slotRange(prop), prop, SLOT_FACE_STREAM, undefined);
           }
+          const rk = repeatKey(prop, callArgs[0]);
+          const repeat = rk !== undefined && repeats.get(rk);
+          if (repeat) return repeat;
           // Slot records are emit-once: occurrence identity is positional
           // (`counts`), so a live-hole re-evaluation reaching a called slot
           // would mint new occurrences and re-serialize args — the double-
@@ -1992,15 +2185,24 @@ export function createSlotProps(sink, frame) {
               sink.slot(occurrence, { ...args });
             });
           }
-          return slotRange(occurrence);
+          // A keyed call registers for repeats at the call; an un-keyed one
+          // at its first property read — the moment its face is known to be
+          // data (the proxy calls `onData` once, then never again).
+          const keyed = rk === occurrence;
+          const out = slotProxy(
+            slotRange(occurrence),
+            occurrence,
+            SLOT_FACE_STREAM,
+            undefined,
+            rk === undefined || keyed ? undefined : () => repeats.has(rk) || repeats.set(rk, out)
+          );
+          if (keyed) repeats.set(rk, out);
+          return out;
         };
         // A slot getter placed directly as a child (`{props.children}`) is a
         // function-shaped hole; the tag opts it out of live-hole marking the
         // same way `$slot` opts out its returned range.
         fn.$lhSkip = true;
-        // The claim brand (Stage 6): see createDocumentSlotProps — same
-        // contract on the stream face.
-        fn[CLAIM_PROP] = prop;
         getters.set(prop, fn);
       }
       return fn;

@@ -33,7 +33,7 @@ import type { Element as SolidElement } from "solid-js";
 // copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
 // already has). Kept external in rollup.config.js for the same reason the
 // server-functions/client import below is.
-import { insert, delegateEvents } from "@solidjs/web";
+import { insert, assign } from "@solidjs/web";
 import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
 import { COMPONENT_BINDING, createServerComponentHandler } from "./frame-transport.js";
 // The container tier (DR-2 case 3): server projections cross the border as
@@ -52,6 +52,9 @@ import {
 import { materializeContainerTrace } from "solid-js/internal";
 
 setContainerTraceMaterializer(materializeContainerTrace);
+
+// Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
+const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // This import must resolve to the SHARED built instance, not a bundled
 // copy: configuring the server-function client only counts if it's the same
 // module the compiled reference proxies call through
@@ -93,7 +96,7 @@ export {
 // Server components are authored in universal code, so the slot type has to
 // resolve under the browser condition too. Type-only, so nothing crosses into
 // the client bundle.
-export type { Slot } from "./server.js";
+export type { Slot, AttributeSlot } from "./server.js";
 
 /**
  * Client-condition twin of the server face's `asyncArg` (DR-2 value tier):
@@ -160,11 +163,7 @@ export function getFrameHost() {
       revive: reviveContainerTraces,
       // Lets the record-dedupe compare identity-test containers instead of
       // probing them (a pending container's property reads throw not-ready).
-      isContainer: isMaterializedContainer,
-      // Behavior claims: arms document listeners for event types named by
-      // `_bnd` markers. Threaded as an option because the core client entry
-      // must not export the event system into tree-shaken subsets.
-      delegate: delegateEvents
+      isContainer: isMaterializedContainer
     });
   }
   return sharedHost;
@@ -362,6 +361,92 @@ function slotArgsProxy(args: () => Record<string, any>) {
   );
 }
 
+/**
+ * Bind a data occurrence (principles §9.2.3): one computation runs the
+ * fill, and every consuming element's bound positions are written from its
+ * output — diffed per position by `assign`, so a change in one key touches
+ * one attribute. Handlers and refs are bound ONCE per (element, position) as
+ * stable dispatchers that read the latest output, so the fill may return
+ * fresh closures every run without re-adding listeners or re-firing refs.
+ * A consumer change (`ctx.onRebind`: the morph replaced an element, a
+ * response bound a new position) rebinds without re-running the fill.
+ */
+function bindDataOccurrence(fill: (args: any) => any, args: any, ctx: any) {
+  const [consumers, setConsumers] = createSignal<any[]>(ctx.positions);
+  ctx.onRebind(setConsumers);
+  // The fill's output, one computation for the occurrence: what a
+  // position's dispatcher reads at event time.
+  const output = createMemo(() => {
+    const out = fill(args);
+    if (IS_DEV && (out == null || typeof out !== "object" || Array.isArray(out))) {
+      console.warn(
+        `Attribute slot fill returned ${
+          out === null ? "null" : Array.isArray(out) ? "an array" : typeof out
+        }; server markup reads its properties, so it must return an object.`
+      );
+    }
+    return out == null || typeof out !== "object" ? {} : out;
+  });
+  // Per element: the props last assigned (assign's diff state) and the
+  // stable dispatchers minted for its handler/ref positions.
+  const state = new WeakMap<Element, { prev: any; stable: Map<string, any> }>();
+  // Value positions are READ in the compute phase: a fill may return
+  // getters (the shared-component idiom — see rowFor in
+  // examples/todos-server), and a getter read here tracks, so the position
+  // re-writes when its own sources move. Handler and ref positions read
+  // nothing here; their dispatchers read the output at event time.
+  createRenderEffect(
+    () => {
+      const out = output();
+      return consumers().map(({ element, positions }) => ({
+        element,
+        props: propsFor(element, positions, out)
+      }));
+    },
+    writes => {
+      for (const { element, props } of writes)
+        assign(element, props, true, state.get(element)!.prev);
+    }
+  );
+  function propsFor(element: Element, positions: any[], out: any) {
+    let st = state.get(element);
+    if (!st) state.set(element, (st = { prev: {}, stable: new Map() }));
+    const stable = (id: string, make: () => any) => {
+      let d = st!.stable.get(id);
+      if (!d) st!.stable.set(id, (d = make()));
+      return d;
+    };
+    const props: Record<string, any> = {};
+    let classNames: Record<string, boolean> | null = null;
+    let styleProps: Record<string, any> | null = null;
+    for (const { pos, key, name } of positions) {
+      if (pos === "class" || pos === "style") {
+        if (name === undefined) props[pos] = out[key];
+        else if (pos === "class") (classNames || (classNames = {}))[name] = !!out[key];
+        else (styleProps || (styleProps = {}))[name] = out[key];
+      } else if (pos === "ref") {
+        props.ref = stable("ref:" + key, () => (el: Element) => {
+          const r = output()[key];
+          typeof r === "function" && r(el);
+        });
+      } else if (pos.startsWith("on:")) {
+        props["on" + pos.slice(3)] = stable(
+          pos + ":" + key,
+          () =>
+            function (this: Element, e: Event) {
+              const h = output()[key];
+              if (Array.isArray(h)) h[0].call(this, h[1], e);
+              else if (typeof h === "function") h.call(this, e);
+            }
+        );
+      } else props[pos] = out[key];
+    }
+    if (classNames !== null && !("class" in props)) props.class = classNames;
+    if (styleProps !== null && !("style" in props)) props.style = styleProps;
+    return props;
+  }
+}
+
 /** Whether a resolved slot value is reactive at the top level. */
 function isReactiveContent(value: any): boolean {
   if (typeof value === "function") return true;
@@ -404,6 +489,36 @@ function slotsFor(props: Record<string, any>) {
           if (prevFill) {
             fillScopes.delete(key);
             prevFill.dispose();
+          }
+          // Attribute slot (§9.2.3): the occurrence's node is the set of server
+          // elements reading its properties at bound positions. Always under
+          // a per-occurrence owner: the binding must die with the occurrence
+          // (a later response dropping it, or every consumer replaced by
+          // the morph), and there are no placed nodes for the frame's zombie
+          // heuristic to misread.
+          if (ctx && ctx.positions) {
+            const fill = props[prop];
+            if (typeof fill !== "function") {
+              if (IS_DEV) {
+                console.warn(
+                  `Slot \`${prop}\` is read by server markup as data, but the client prop is not a function.`
+                );
+              }
+              return undefined;
+            }
+            const owner = createOwner();
+            fillScopes.set(key, owner);
+            ctx.onCleanup(() => {
+              if (fillScopes.get(key) === owner) fillScopes.delete(key);
+              owner.dispose();
+            });
+            runWithOwner(owner, () => {
+              const args = ctx.onUpdate
+                ? liveSlotProps(slotProps, ctx)
+                : slotArgsProxy(() => slotProps);
+              bindDataOccurrence(fill, args, ctx);
+            });
+            return undefined;
           }
           // Stream-mounted fills (no ambient owner at invocation — the frame
           // called from a chunk microtask) render under a PER-OCCURRENCE
@@ -659,10 +774,6 @@ function boundaryComponent(host: any, fnId: string) {
       // placeholder mount) binds the function id — the argless address.
       id,
       slots: slotsFor(props),
-      // Raw client props (compiled getters — live at every read): behavior
-      // claims (`_bnd` markers on server elements) resolve ref/event props
-      // by name through these at dispatch/materialize time.
-      props,
       ownerScope: boundaryScope(owner),
       reveal: revealSeam(owner),
       // Any apply releases the gate — content ("materialize") is the normal
@@ -1110,9 +1221,6 @@ function adoptBoundary(
     host,
     id: address,
     slots: slotsFor(props),
-    // Raw client props for behavior-claim resolution (see the stream-mount
-    // counterpart above).
-    props,
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     // Any apply for the currently bound address — a morph, a reveal, an

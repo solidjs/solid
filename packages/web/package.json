@@ -41,7 +41,8 @@
     "frames/package.json",
     "performance-tracks/dist",
     "performance-tracks/types",
-    "performance-tracks/package.json"
+    "performance-tracks/package.json",
+    "skills"
   ],
   "exports": {
     ".": {
