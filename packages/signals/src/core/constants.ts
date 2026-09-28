@@ -173,8 +173,11 @@ export const CONFIG_HELD_CHILDREN = 1 << 20;
  * commits the node first, or with the owner's death. While set the parked
  * frame is not a hold (the node is not queued or stamped for it), a
  * superseding pass disposes the never-shown live children on the spot, and a
- * lane-channel dirty on a member is cancelled (`laneZombie`). Effects only: a
- * memo's lane pass publishes an override (A17, #3479). */
+ * lane-channel dirty on a member is cancelled (`laneZombie`). Memos too
+ * (#3698): a memo's lane pass publishes an override (A17, #3479) and is lane
+ * work — parked as a transaction zombie, its previous children queued and
+ * stamped it as the action's pending node, and its next mainline recompute
+ * re-entered the hold. */
 export const CONFIG_LANE_FRAME = 1 << 26;
 
 /** In-flight async node whose inputs were PUBLISHED while it was pending: a

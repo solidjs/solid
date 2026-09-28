@@ -1,0 +1,7 @@
+---
+"@solidjs/signals": patch
+---
+
+A tracked read served an active optimistic override is lane work, not a transaction entry (#3698). The reader is a lane member — its pass publishes a derived override, displays at once, and is promoted or reverted with the action — and lane membership never holds a synchronous write (the #3460 ruling: "a held lane is basically a micro transition from the outside… we wouldn't hold a sync write on a transition. Lanes are the same"). So an unrelated synchronous write that re-runs such a reader publishes at once, `isPending()` on it is false, and the action stays open; entry remains for reads served held or superseded truth (A29, A18 (c)).
+
+A `<Show>` over an optimistic value broke this through its children: the compiler emits a memo inside the `when` getter, so `Show`'s condition memo owns a child, and a lane pass over a memo that owns children parked the previous children as a transaction zombie (#3404) — which queued the memo as the action's pending node "for the zombies alone" and stamped it, so its next mainline recompute re-entered the hold and adopted the unrelated write (`drag()` stayed at the committed value while `latest(drag)` moved and `isPending(drag)` was true, for the action's lifetime). The same mechanism #3662 fixed for effects, now for memos: a memo's lane pass parks a lane frame (`CONFIG_LANE_FRAME`), retired when the lane's queue applies the pass — in the pass's flush for a lane that is not held, at the release for one that is — and the memo is neither queued nor stamped for the action's commit.

@@ -320,16 +320,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // until this node's commit — a transaction-owned node included (#3404):
     // a parked node's children predate the hold, and tearing them down when
     // the source lands ran cleanups before the transaction's atomic reveal.
-    // A lane pass on an effect parks a LANE frame instead (CONFIG_LANE_FRAME,
-    // #3662; A15 lanes corollary): the frame it replaces leaves the screen
-    // when the lane's queue applies this run (A30) — not at the action's
-    // commit — and a held lane defers that with the frame still displayed.
-    // The drain is the lane's first render entry for this pass, pushed before
-    // the pass builds the new frame: cleanups before side effects — the
-    // retired frame's `onCleanup`s run ahead of every effect callback of the
-    // new frame. While the frame waits, the live children were never shown:
-    // a superseding pass disposes them here like held children, and the
-    // parked frame stays.
+    // A LANE pass parks a LANE frame instead (CONFIG_LANE_FRAME, #3662; A15
+    // lanes corollary): the frame it replaces leaves the screen when the
+    // lane's queue applies this pass (A30) — not at the action's commit —
+    // and a held lane defers that with the frame still displayed. The drain
+    // is the lane's first render entry for this pass, pushed before the pass
+    // builds the new frame: cleanups before side effects — the retired
+    // frame's `onCleanup`s run ahead of every effect callback of the new
+    // frame. While the frame waits, the live children were never shown: a
+    // superseding pass disposes them here like held children, and the
+    // parked frame stays. Memos too (#3698): a memo's lane pass publishes an
+    // override (A17) and is lane work, not the transaction's — but parked as
+    // a transaction zombie its previous children made the memo a pending
+    // node of the action "for the zombies alone" (#3662's diagnosis, for
+    // effects), stamped it, and its next mainline recompute re-entered the
+    // hold (the stamped-memo arm above): a `Show` whose `when` getter owns a
+    // compiler-emitted memo held an unrelated sync write for the action's
+    // lifetime, against the #3460 ruling that a lane never holds a sync write.
     if (isEffect === EFFECT_TRACKED || el._config & (CONFIG_HELD_CHILDREN | CONFIG_LANE_FRAME))
       disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) {
@@ -340,7 +347,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._disposal = null;
       el._firstChild = null;
       el._childCount = 0;
-      if (isEffect && lane) {
+      if (lane) {
         el._config |= CONFIG_LANE_FRAME;
         findLane(lane)._effectQueues[0].push(() => {
           el._config &= ~CONFIG_LANE_FRAME;
