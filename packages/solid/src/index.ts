@@ -103,6 +103,7 @@ export {
   createLoadingBoundary,
   createRevealOrder,
   createMemo,
+  createDeferred,
   createSignal,
   createStore,
   createProjection,

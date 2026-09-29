@@ -407,7 +407,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // finally below and in updateIfNecessary — must carry it (#3543): a
   // de-flagged zombie spliced itself out of the LIVE chain at disposal,
   // orphaning the owner's current child, which stayed subscribed forever.
-  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
+  // REACTIVE_REASK stays readable for the pass (createDeferred classifies its
+  // flight by it); the finally below drops it.
+  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
   el._time = clock;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;

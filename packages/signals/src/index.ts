@@ -86,6 +86,7 @@ export type {
 export {
   createSignal,
   createMemo,
+  createDeferred,
   createEffect,
   createRenderEffect,
   createTrackedEffect,

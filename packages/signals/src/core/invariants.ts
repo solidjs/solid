@@ -41,7 +41,9 @@ export const InvariantHooks: {
   pendingProbeActive: (() => boolean) | null;
   /** Fresh oracle for what an isPending companion SHOULD read right now. */
   computePendingState: ((node: AnyNode) => boolean) | null;
-} = { pendingProbeActive: null, computePendingState: null };
+  /** A live createDeferred flight covers the node's verdict (deferred.ts). */
+  coveredByDeferred: ((node: AnyNode) => boolean) | null;
+} = { pendingProbeActive: null, computePendingState: null, coveredByDeferred: null };
 
 // INV-7: nodes that received a transition-held `_pendingValue`. A node still
 // holding one at quiescence with no queued commit is a leak (#2827 class).
@@ -336,7 +338,12 @@ export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean)
     const settled =
       !((node as Computed<any>)._statusFlags & STATUS_PENDING) &&
       node._pendingValue === NOT_PENDING &&
-      (node._x?._overrideValue === undefined || node._x?._overrideValue === NOT_PENDING);
+      (node._x?._overrideValue === undefined || node._x?._overrideValue === NOT_PENDING) &&
+      // A createDeferred flight is invisible to the graph by design — the node
+      // and everything derived from it read as settled values — but the
+      // verdict is loud through the mark channel (markWalk), so a companion
+      // covered by a live flight is not asserting a stale verdict.
+      !InvariantHooks.coveredByDeferred?.(node);
     if (!settled) continue;
 
     const pendingSignal = node._x?._pendingSignal;

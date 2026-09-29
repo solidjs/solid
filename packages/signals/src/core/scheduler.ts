@@ -729,6 +729,7 @@ export class GlobalQueue extends Queue {
   static _recordFresh: ((el: OptimisticNode, value: any) => void) | null = null;
   static _applyReask: ((el: Computed<any>, hadReask: boolean) => boolean) | null = null;
   static _repollVerdicts: ((el: Computed<any>, snap?: boolean) => void) | null = null;
+  static _deferredLanded: ((el: Computed<any>, snap?: boolean) => void) | null = null;
   static _witnessAffects: ((node: OptimisticNode) => void) | null = null;
   // Re-asks probes whose verdict was provisionally suppressed by a fresh read
   // of a held value, once the transaction gains an async blocker (#3028).
@@ -1330,11 +1331,12 @@ function commitPendingNode(n: Signal<any>): void {
     // are still OPEN (no staged value), and their live classification must
     // survive this sweep.
     if (n._x) n._x._reask = false;
+    // The committed hold is the first observable answer for a loading-window
+    // node — the window closes here, not at compute time (#2990). Gated like
+    // the re-ask clear: a window still in flight stays open.
+    c._loading = false;
+    GlobalQueue._deferredLanded?.(c as Computed<any>, true);
   }
-  // The committed hold is the first observable answer for a loading-window
-  // node — the window closes here, not at compute time (#2990). Unconditional
-  // store to an always-present computed slot.
-  c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   // The children this commit publishes are the frame's now (#3404) — and so
   // are the dependencies of the pass that produced the value: the previous

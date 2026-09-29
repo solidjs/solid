@@ -10,6 +10,7 @@ export {
   affects,
   createEffect,
   createMemo,
+  createDeferred,
   createOptimistic,
   createOptimisticStore,
   createErrorBoundary,
