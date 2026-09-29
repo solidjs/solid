@@ -36,6 +36,8 @@ export type {
   CallEvent,
   CallListener,
   CallLive,
+  CallRequestEvent,
+  CallRequestListener,
   FrameAppliedEvent,
   FrameEvent,
   FrameListener,

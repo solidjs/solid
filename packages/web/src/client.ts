@@ -118,14 +118,16 @@ export interface RequestEvent {
 export type { CookieOptions } from "./cookies.js";
 
 // This runtime's records on `OBSERVE.records` (`"invocation"`, `"render"`,
-// `"call"`, `"frame"`), and with them the `HostRecordTypes` augmentation
-// that module declares: the published types resolve to this entry under
-// every condition, so this re-export is what puts the augmentation in a
-// consumer's program.
+// `"call"`, `"request"`, `"frame"`), and with them the `HostRecordTypes`
+// augmentation that module declares: the published types resolve to this
+// entry under every condition, so this re-export is what puts the
+// augmentation in a consumer's program.
 export type {
   CallEvent,
   CallListener,
   CallLive,
+  CallRequestEvent,
+  CallRequestListener,
   FrameAppliedEvent,
   FrameEvent,
   FrameListener,
