@@ -61,9 +61,10 @@ change. The model below makes the working case the contract.
    (`attributeExpressions` fixture), and the cost of the coarser group is
    re-reading a few getters, not DOM writes. An occurrence can span more
    than one server template, so it can group more than client JSX would;
-   that costs reads, not effects. Text positions (G1) are the exception,
-   as inserts are in client JSX: each is its own range with its own
-   effect. Rebinds keep today's path (`ctx.onRebind` feeds the effect's
+   that costs reads, not effects. Text positions (G1) join the same
+   effect: a binding value at a text position is a primitive, so its
+   write is attribute-shaped — client JSX gives an insert its own effect
+   for content generality a binding value never has. Rebinds keep today's path (`ctx.onRebind` feeds the effect's
    consumer list; an element that leaves gets a final empty write).
 4. **Handlers and refs bind once, through `assign`.** Read once when the
    element binds, untracked, and handed to `assign`/`assignProp`
@@ -232,5 +233,6 @@ Each is a change to documented or observable behavior:
 5. Docs and skill in the same PR; changeset for `@solidjs/web`; the PR
    body lists every change above under its own heading.
 
-G1 (text positions) follows: a text position is a consumer with its own
-effect beside the occurrence's value effect.
+G1 (text positions) follows
+([`text-positions.md`](./text-positions.md)): a text position is one more
+value position in the occurrence's effect.

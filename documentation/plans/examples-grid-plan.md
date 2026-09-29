@@ -322,7 +322,7 @@ value to branch on, and a stand-in is always truthy.
   - One render effect per occurrence for its value positions, as today —
     client JSX's grouping (a template's attributes share one effect); a
     getter's change re-reads the occurrence and `assign` writes only what
-    changed. Text positions get their own effect, as inserts do.
+    changed. Text positions (G1) join that effect.
   - Handlers and refs are read once and bound through `assign` /
     `assignProp` — delegated as client JSX delegates, tuples and the
     `dispatchAsInteraction` wrap for free; the own listener goes, fan-out
@@ -346,13 +346,16 @@ value to branch on, and a stand-in is always truthy.
 
 - **G1 — Text positions.** `{t.label}` as a child: a binding-slot value at
   a text position. Today it renders nothing on either face and raises the
-  "placed as TEXT" finding (principles §9.2.3, open). Needs a content
-  marker pair (a parent-element `_s:text` marker so discovery stays in the
-  claim sweep), a text consumer with its own effect beside G2's, morph
-  ownership of the range, and face parity; primitives only, anything else
-  stays a finding. Server side runtime-only as far as read — the resolver
-  already receives the stand-in. **Changes documented behavior**
-  (flagged). Design reviewed before code, after G2. Blocks `hackernews`;
+  "placed as TEXT" finding (principles §9.2.3, open). Design and decisions:
+  `documentation/plans/text-positions.md` — a comment pair around the value
+  (`<!--_s:t=occ:key-->…<!--/_s:t-->`, the t=0 value inside on the
+  document face, empty on the stream face, as attributes split), found by
+  the claim sweep that already tests comments; the write in G2's
+  per-occurrence effect; the morph skipping owned text ranges (today it
+  would reset them); primitives only, anything else a finding; raw-text
+  parents (`<textarea>`, `<title>`, `<style>`, `<script>`) a documented
+  rule, since the SSR compile is shared. Runtime only, no compiler change.
+  **Changes documented behavior** (flagged). After G2. Blocks `hackernews`;
   `todos-server`'s count wants it.
 - **G3 — Server-only modules — resolved 2026-09-29.** The vite plugin's
   `server-only` boundary marker enforces `src/server/` (authoring layout,
