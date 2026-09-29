@@ -11,7 +11,7 @@ import {
   type Owner
 } from "./signals.js";
 import { IS_DEV, IS_OBSERVE, devCheck, errorText } from "./diagnostics.js";
-import { sharedConfig, type ResolvedAssets } from "./shared.js";
+import { sharedConfig, callerRenderContext, type ResolvedAssets } from "./shared.js";
 import type { Element as SolidElement } from "../types.js";
 
 export function enableHydration() {}
@@ -113,26 +113,6 @@ function observedComponent<T extends Record<string, any>>(
 }
 
 type AssetContext = NonNullable<typeof sharedConfig.context>;
-
-// The render a call made outside a render pass belongs to (`preload()`, the
-// `moduleUrl` getter — a router warming a route, a route data function, code
-// after an `await`): the caller's own, found by walking its owner to the root
-// its renderer claimed. `@solidjs/web` files each render's root owner → its
-// context in a process-wide WeakMap under this registered symbol, releasing
-// it on the root's disposal. The module-global `sharedConfig.context` is
-// whichever render started or finished last — possibly another request's.
-const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
-
-function callerRenderContext(): AssetContext | undefined {
-  const roots = (globalThis as any)[RENDER_ROOTS] as WeakMap<object, AssetContext> | undefined;
-  if (!roots) return undefined;
-  // `_parent` is one of the cross-package owner fields (see `emitFinding`).
-  // Disposal unlinks it, so a disposed subtree walks to no render at all.
-  for (let o: any = getOwner(); o; o = o._parent) {
-    const ctx = roots.get(o);
-    if (ctx) return ctx;
-  }
-}
 
 // Dev CHECK: a `lazy()` component whose client assets the render could not
 // map — `LAZY_ASSET_UNMAPPED`. One condition, two shapes: the resolver threw

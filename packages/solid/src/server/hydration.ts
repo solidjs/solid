@@ -15,7 +15,7 @@ import {
   ownerId
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
-import { sharedConfig, NoHydrateContext } from "./shared.js";
+import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
 import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
 import type { BoundaryEvent, BoundaryLive } from "./observe.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
@@ -647,6 +647,20 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
     setContext(NoHydrateContext, true);
     return props.children;
   }) as unknown as SolidElement;
+}
+
+/** Server: always `false` — nothing is claimed here. See the client entry. */
+export function isHydrating(): boolean {
+  return false;
+}
+
+/**
+ * Server: whether the caller's owner belongs to a render in progress and is
+ * not under `<NoHydration>` (or is back under a nested `<Hydration>`). See
+ * the client entry.
+ */
+export function isHydratable(): boolean {
+  return !!callerRenderContext() && !getContext(NoHydrateContext);
 }
 
 /**

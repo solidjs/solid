@@ -190,6 +190,26 @@ export const sharedConfig: SharedConfig = {
 const IS_DEV = "_SOLID_DEV_" as string | boolean;
 if (IS_DEV) sharedConfig.devPeekNextContextId = devPeekNextChildId;
 
+// The render a call made outside a render pass belongs to (`preload()`, the
+// `moduleUrl` getter — a router warming a route, a route data function, code
+// after an `await`): the caller's own, found by walking its owner to the root
+// its renderer claimed. `@solidjs/web` files each render's root owner → its
+// context in a process-wide WeakMap under this registered symbol, releasing
+// it on the root's disposal. The module-global `sharedConfig.context` is
+// whichever render started or finished last — possibly another request's.
+const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
+
+export function callerRenderContext(): HydrationContext | undefined {
+  const roots = (globalThis as any)[RENDER_ROOTS] as WeakMap<object, HydrationContext> | undefined;
+  if (!roots) return undefined;
+  // `_parent` is one of the cross-package owner fields (see `emitFinding`).
+  // Disposal unlinks it, so a disposed subtree walks to no render at all.
+  for (let o: any = getOwner(); o; o = o._parent) {
+    const ctx = roots.get(o);
+    if (ctx) return ctx;
+  }
+}
+
 /**
  * Gives the core's `OBSERVE.attribution.withOrigin` its one server meaning.
  * The server reimplements reactivity and installs no attribution engine, so

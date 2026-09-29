@@ -274,6 +274,44 @@ function isHydrationInProgress(): boolean {
   return !_hydrationDone && (sharedConfig.hydrating || _pendingBoundaries > 0);
 }
 
+/**
+ * Whether the code running now is claiming server-rendered DOM: the root
+ * pass of `hydrate()`, or code under a streamed `<Loading>` boundary while
+ * that boundary resumes. `false` on the server, in client-only renders,
+ * after hydration, and in a render a resume window triggers outside the
+ * resuming boundary (that render builds fresh DOM).
+ *
+ * Not reactive: read it where a component or primitive is created. While it
+ * is `true`, render what the server rendered, and switch to the client-only
+ * value from `onSettled`.
+ *
+ * @example
+ * ```ts
+ * const [width, setWidth] = createSignal(isHydrating() ? 0 : el.offsetWidth);
+ * onSettled(() => setWidth(el.offsetWidth));
+ * ```
+ */
+export function isHydrating(): boolean {
+  return sharedConfig.hydrating && (!sharedConfig.isClaiming || sharedConfig.isClaiming());
+}
+
+/**
+ * Whether the calling owner sits where hydration applies — not under
+ * `<NoHydration>`, or back under a nested `<Hydration>` — so a value keyed
+ * to this position reaches a hydrating client. On the server it also
+ * requires the owner to belong to a render in progress. `false` with no
+ * owner (a promise continuation, an IO callback): read it where the owner
+ * is known. On the client, `<Hydration>` is a passthrough, so inside a
+ * `<NoHydration>` zone (which renders only outside hydration) this stays
+ * `false` even under a nested `<Hydration>`.
+ *
+ * Solid decides this itself for its own values. A library writing keyed
+ * values with `getHydrationWriter()` reads it to make the same decision.
+ */
+export function isHydratable(): boolean {
+  return !!getOwner() && !getContext(NoHydrateContext);
+}
+
 // Registers a callback to run once when all hydration completes (all
 // boundaries hydrated or cancelled). If hydration is already complete (or not
 // hydrating), fires via queueMicrotask. Reached as

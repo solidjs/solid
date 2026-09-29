@@ -1783,6 +1783,7 @@ export function renderToString(code, options = {}) {
   // render's dispose so a later read outside any render does not find a
   // stale one on the lingering context.
   const context = sharedConfig.context;
+  context.writer = createHydrationWriter(context, () => !closed);
   const requestEvent = peekRequestEvent();
   if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
@@ -1795,6 +1796,7 @@ export function renderToString(code, options = {}) {
       d => {
         dispose = d;
         rootOwner = claimRenderRoot(context);
+        if (requestEvent) claimEventRender(requestEvent, context);
         return resolveSSRSync(escape(code()));
       },
       { id: renderId }
@@ -2893,6 +2895,7 @@ export function renderToStream(code, options = {}) {
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   render = timeDocument(context, context.trace, "stream", requestEvent);
   registerEntryAssets(manifest);
+  context.writer = createHydrationWriter(context, () => !completed);
 
   // The request's abort is a disconnect the transport could not report (see
   // the `signal` option). Armed once the root exists — `abandon` reaches the
@@ -2909,6 +2912,7 @@ export function renderToStream(code, options = {}) {
         d();
       };
       rootOwner = claimRenderRoot(context);
+      if (requestEvent) claimEventRender(requestEvent, context);
       const res = resolveSSRNode(escape(code()));
       if (!res.h.length) return res.t[0];
       rootHoles = [];
@@ -6177,6 +6181,96 @@ function claimRenderRoot(context) {
 // down before its root existed.
 function settleRender(render, root, outcome) {
   runWithOwner(root || null, () => render.settle(outcome));
+}
+
+/** A render's keyed server-to-client value channel (`getHydrationWriter`). */
+export interface HydrationWriter {
+  /**
+   * Whether the render takes promises and async iterables (`renderToStream`).
+   * `renderToString` takes synchronous values only; `write` throws on an
+   * async one.
+   */
+  readonly async: boolean;
+  /**
+   * Serializes `value` for the client under `key`, readable there with
+   * `takeHydrationValue(key)`. Returns `false` without writing when `key` was
+   * already written by this render (the first write wins) or the render no
+   * longer takes values (a finished `renderToString`, a completed stream).
+   * `deferStream` holds the shell until a promise settles. Prefix keys with
+   * the library's own namespace (`"sq:"`); Solid's own entries are keyed by
+   * hydration id.
+   */
+  write(key: string, value: unknown, options?: { deferStream?: boolean }): boolean;
+}
+
+/** A keyed value taken from the hydration registry (`takeHydrationValue`). */
+export type HydrationValue<T = unknown> =
+  | { status: "resolved"; value: T }
+  | { status: "rejected"; error: unknown }
+  | { status: "pending"; promise: Promise<T> };
+
+// Request event → the renders open for it, for a caller with no owner (an IO
+// callback, code after an `await`): only the request scope says which
+// request it belongs to. Released by the root's own disposal, with the
+// render-root claim.
+const eventRenders = new WeakMap();
+
+function claimEventRender(event, context) {
+  let renders = eventRenders.get(event);
+  if (!renders) eventRenders.set(event, (renders = new Set()));
+  renders.add(context);
+  onCleanup(() => renders.delete(context));
+}
+
+// A render's keyed-value channel: the first write of a key wins, a key counts
+// as written only once `serialize` took it (it throws on an async value in
+// `renderToString`), and nothing is written once the render stopped taking
+// values. Not gated on `<NoHydration>`: the caller decides (`isHydratable`).
+function createHydrationWriter(context, isOpen) {
+  const keys = new Set();
+  return {
+    async: !!context.async,
+    write(key, value, options) {
+      if (!isOpen() || keys.has(key)) return false;
+      context.serialize(key, value, options && options.deferStream);
+      keys.add(key);
+      return true;
+    }
+  };
+}
+
+/**
+ * The keyed server-to-client value channel of the render the caller belongs
+ * to — found through the caller's owner, else (no owner) through the request
+ * scope when exactly one render is open for that request. `undefined`
+ * outside any render and on the client. Never another request's render.
+ *
+ * Capture it where the render is known (component setup) to write from IO
+ * later. A write is not gated on `<NoHydration>`: read `isHydratable()` where
+ * the value is produced to decide. Read the value on the client with
+ * `takeHydrationValue(key)`.
+ *
+ * @example
+ * ```ts
+ * const writer = getHydrationWriter();
+ * if (writer && isHydratable()) writer.write("sq:" + hash, data);
+ * ```
+ */
+export function getHydrationWriter(): HydrationWriter | undefined;
+
+export function getHydrationWriter() {
+  let ctx = renderContextOf(getOwner());
+  if (!ctx) {
+    const event = peekRequestEvent();
+    const renders = event && eventRenders.get(event);
+    if (renders && renders.size === 1) for (const c of renders) ctx = c;
+  }
+  return ctx && ctx.writer;
+}
+
+/** Server stub — the registry is the client's. See the client entry. */
+export function takeHydrationValue<T = unknown>(_key: string): HydrationValue<T> | undefined {
+  return undefined;
 }
 
 // Disposal unlinks an owner (`_parent = null`), so a disposed subtree walks
