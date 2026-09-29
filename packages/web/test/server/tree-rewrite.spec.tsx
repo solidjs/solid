@@ -37,6 +37,21 @@ describe("rewriteTree", () => {
     expect(taken).toEqual(["a"]);
   });
 
+  it("one value at two paths is one replacement: the output keeps the input's identity", () => {
+    // `{ a: gen, b: gen }` is a graph with ONE async iterable; its border form
+    // has one seat, referenced twice, and the serializer writes it once — so
+    // the client materializes one iterable too, exactly as one generator at
+    // two props behaves in the author's own code (readers of one generator
+    // share its yields). Two seats would be a faithful copy of nothing.
+    const { taken, visit } = seats();
+    const gen = swappable("g");
+    const out = rewriteTree({ a: gen, b: [gen], c: { d: gen } }, visit, false);
+    expect(out.a).toEqual({ seat: "g" });
+    expect(out.b[0]).toBe(out.a);
+    expect(out.c.d).toBe(out.a);
+    expect(taken).toEqual(["g"]);
+  });
+
   it("acyclic with nothing to swap returns the value itself", () => {
     const { visit } = seats();
     const src = { a: [1, 2, { b: "c" }], d: null };

@@ -16,16 +16,27 @@ const template = (
 );
 
 // A spread element's named `ref`/`on*` compile to the same claim map a
-// template element's do — duplicate refs merged, a tuple kept whole —
-// handed to `ssrElement` as a thunk it reads only inside a server
-// component's render, wherever the attributes sit relative to the spreads
-// (before, between, after). Plain SSR drops them; the tail after the last
-// spread still bakes its statics; the spread's own handler keys are the
-// runtime's to bind.
+// template element's do — duplicate refs merged, a tuple kept whole, a
+// duplicate handler last-wins — keyed by the index of the source each
+// attribute sits before, handed to `ssrElement` as a thunk it reads only
+// inside a server component's render, wherever the attributes sit relative
+// to the spreads (before, between, after): the runtime settles a handler
+// position in source order, as the client's `mergeProps` does. Plain SSR
+// drops them; the tail after the last spread still bakes its statics; the
+// spread's own handler keys are the runtime's to bind.
 const spread = (
   <button {...rest} onClick={row.go} ref={row.el} class="static">
     <span onInput={row.type} {...more} onKeyDown={[row.key, 1]} {...last} />
     <i ref={[row.a, row.b]} ref={row.c} {...last} onClick={localHandler} />
+    <em
+      onClick={row.first}
+      {...rest}
+      onClick={row.second}
+      title="t"
+      onClick={row.third}
+      {...last}
+    />
+    <u {...rest} ref={row.el} />
   </button>
 );
 

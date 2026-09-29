@@ -998,35 +998,17 @@ function createElement(
   // Server components (principles §9.2.3): the named `ref`/`on*` attributes
   // of a spread element are handler positions like a template element's,
   // and compile to the same claim map — `{ click: expr, ref: [a, b] }`,
-  // duplicate refs merged — handed to `ssrElement` as a thunk it reads only
-  // inside a server component's render (the gate the template path's
-  // `ssrClaim` guard reads), so plain SSR never evaluates the expressions.
-  // The runtime merges it with the spread's own handler keys: a named ref
-  // joins, a named handler wins. Plain SSR output is unchanged (dropped, as
-  // a server element has no handlers to run).
-  const claims: [string, babelTypes.Expression][] = [];
-  if (serverComponents) {
-    for (const attribute of attributes) {
-      const node = attribute.node;
-      if (!t.isJSXAttribute(node) || !t.isJSXExpressionContainer(node.value)) continue;
-      const expression = node.value.expression;
-      if (
-        t.isJSXEmptyExpression(expression) ||
-        t.isStringLiteral(expression) ||
-        t.isNumericLiteral(expression) ||
-        t.isBooleanLiteral(expression)
-      )
-        continue;
-      const key = t.isJSXNamespacedName(node.name)
-        ? `${node.name.namespace.name}:${node.name.name.name}`
-        : node.name.name;
-      if (key === "ref") claims.push(["ref", expression]);
-      else if (key.startsWith("on")) {
-        const pos = key.slice(2).toLowerCase();
-        if (pos) claims.push([pos, expression]);
-      }
-    }
-  }
+  // duplicate refs merged, a duplicate handler last-wins as the template
+  // path strips it — keyed by the index of the source each attribute sits
+  // before (`<b {...a} onClick={go} {...b}>` → `{ 1: { click: go } }`, the
+  // spreads being sources 0 and 2), and handed to `ssrElement` as a thunk
+  // it reads only inside a server component's render (the gate the template
+  // path's `ssrClaim` guard reads), so plain SSR never evaluates the
+  // expressions. The runtime settles each handler position in source order,
+  // as the client's `mergeProps(a, { onClick: go }, b)` does — a spread at
+  // that index or later owns it — and merges every ref. Plain SSR output is
+  // unchanged (dropped, as a server element has no handlers to run).
+  const claims: [number, string, babelTypes.Expression][] = [];
 
   let props: babelTypes.Expression[];
   // Attributes written AFTER the last spread are markup, not a source: no
@@ -1047,7 +1029,13 @@ function createElement(
   // keys.
   const tail: Array<string | babelTypes.Expression> = [];
   const skipKeys: string[] = [];
-  if (propAttributes.length === 1 && t.isJSXSpreadAttribute(propAttributes[0].node)) {
+  if (
+    propAttributes.length === 1 &&
+    t.isJSXSpreadAttribute(propAttributes[0].node) &&
+    // A `ref` beside the lone spread is a claim under `serverComponents`;
+    // the loop below places it.
+    !(serverComponents && attributes.length > 1)
+  ) {
     props = [propAttributes[0].node.argument];
   } else {
     props = [];
@@ -1093,8 +1081,30 @@ function createElement(
             : node.name.name;
 
         if (hasChildren && key === "children") return;
-        if (key === "ref") return;
-        if (key.startsWith("prop:") || key.startsWith("on")) return;
+        if (key === "ref" || key.startsWith("on")) {
+          if (serverComponents && t.isJSXExpressionContainer(value)) {
+            const expression = value.expression;
+            const pos = key === "ref" ? "ref" : key.slice(2).toLowerCase();
+            if (
+              pos &&
+              !(
+                t.isJSXEmptyExpression(expression) ||
+                t.isStringLiteral(expression) ||
+                t.isNumericLiteral(expression) ||
+                t.isBooleanLiteral(expression)
+              )
+            ) {
+              // The index of the source this attribute sits before: the
+              // sources pushed so far, plus the running literal if it will
+              // be pushed ahead of the next spread. The literal never
+              // carries a handler key, so a spread's index is either below
+              // this or at/after it — never ambiguous.
+              claims.push([props.length + (runningObject.length ? 1 : 0), pos, expression]);
+            }
+          }
+          return;
+        }
+        if (key.startsWith("prop:")) return;
         if (i > lastSpread) {
           const part = tailAttribute(path, tagName, key, node);
           if (part !== undefined) {
@@ -1173,17 +1183,45 @@ function createElement(
   }
   if (claims.length) {
     if (!skipKeys.length) args.push(t.identifier("undefined"), t.identifier("undefined"));
-    args.push(t.arrowFunctionExpression([], claimMap(claims)));
+    args.push(t.arrowFunctionExpression([], claimSegments(claims)));
   }
   const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
 }
 
 /**
+ * A spread element's claim map by source index (`createElement`): `{ 1: {
+ * click: go }, 3: { ref: el } }`. A handler position keeps its LAST named
+ * attribute only — the template path's duplicate strip, applied here to the
+ * claims (a later attribute wins whatever sits between, so the earlier one
+ * is never read on either side); refs merge within a segment as `claimMap`
+ * merges them, and across segments at the runtime.
+ */
+function claimSegments(
+  claims: [number, string, babelTypes.Expression][]
+): babelTypes.ObjectExpression {
+  const lastHandler = new Map<string, number>();
+  claims.forEach(([, pos], i) => {
+    if (pos !== "ref") lastHandler.set(pos, i);
+  });
+  const segments = new Map<number, [string, babelTypes.Expression][]>();
+  claims.forEach(([index, pos, expr], i) => {
+    if (pos !== "ref" && lastHandler.get(pos) !== i) return;
+    let list = segments.get(index);
+    if (!list) segments.set(index, (list = []));
+    list.push([pos, expr]);
+  });
+  return t.objectExpression(
+    [...segments].map(([index, list]) => t.objectProperty(t.numericLiteral(index), claimMap(list)))
+  );
+}
+
+/**
  * The compiled claim map of an element's handler positions, `{ click: expr,
- * ref: [a, b] }`: duplicate event keys were last-wins-stripped by
- * `normalizeAttributes`; `ref` is exempt from that pass (client semantics
- * fire every ref), so multiple refs merge into an array value.
+ * ref: [a, b] }`: duplicate event keys were last-wins-stripped by the
+ * template path's duplicate strip (or `claimSegments`); `ref` is exempt from
+ * that pass (client semantics fire every ref), so multiple refs merge into
+ * an array value.
  */
 function claimMap(claims: [string, babelTypes.Expression][]): babelTypes.ObjectExpression {
   const byPos = new Map<string, babelTypes.Expression[]>();

@@ -2818,19 +2818,25 @@ during render — which predates all of this.
   runtime's derivation (`onClick` → `click`), on a template element
   and a spread element alike: under `serverComponents` both compile
   their named `ref`/`on*` to one claim map (`{ click: expr, ref:
-  [a, b] }` — duplicate refs merged, a handler tuple kept whole) that
-  is read only inside a server component's render — the template
-  element's as the guarded `ssrClaim` hole, the spread element's as
-  a thunk `ssrElement` takes (`<button {...rest} onClick={row.go}
-  />`), so plain SSR never evaluates a handler expression. A spread's
-  own handler keys bind through the same reading; where a named
-  attribute and a spread carry the same position, refs merge (the
-  client fires every ref) and the named handler wins (the client's
-  `mergeProps` keeps one). A server-local function at any of these
-  is a finding (`server-local`). `prop:*` positions are not bindable
-  (the server renders no properties): a stand-in there is a finding
-  (`prop`) on the runtime spread path; the compiled form drops
-  `prop:*` as SSR always has.
+  [a, b] }` — duplicate refs merged, a handler tuple kept whole, a
+  duplicate handler last-wins) that is read only inside a server
+  component's render — the template element's as the guarded
+  `ssrClaim` hole, the spread element's as a thunk `ssrElement`
+  takes, keyed by the index of the source each attribute sits before
+  (`<b {...a} onClick={go} {...b}>` → `{ 1: { click: go } }`) — so
+  plain SSR never evaluates a handler expression. A spread's own
+  handler keys bind through the same reading, and a handler position
+  settles in *source order*, because the marker promises what the
+  client binds and the client compiles the same element to
+  `mergeProps(a, { onClick: go }, b)`: the last source that has the
+  key wins, a named attribute being a source at its position, a
+  nullish value being "not set". Refs merge whatever their order (the
+  client fires every ref). A server-local function at any of these
+  is a finding (`server-local`) — where it is the one the client
+  would bind. `prop:*` positions are not bindable (the server renders
+  no properties): a stand-in there is a finding (`prop`) on the
+  runtime spread path; the compiled form drops `prop:*` as SSR
+  always has.
 - *The occurrence is the call, not the element.* `$key` on the call
   is occurrence identity (client state follows the entity across
   responses); `$key` on the `<li>` is morph identity for the node.

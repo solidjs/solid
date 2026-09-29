@@ -43,22 +43,33 @@ var _v$ = _$sharedConfig.context && _$sharedConfig.context.claims ? _$ssrClaim({
 // expressions.
 const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _v$4);
 // A spread element's named `ref`/`on*` compile to the same claim map a
-// template element's do — duplicate refs merged, a tuple kept whole —
-// handed to `ssrElement` as a thunk it reads only inside a server
-// component's render, wherever the attributes sit relative to the spreads
-// (before, between, after). Plain SSR drops them; the tail after the last
-// spread still bakes its statics; the spread's own handler keys are the
-// runtime's to bind.
-const spread = _$ssrElement("button", rest, [_$ssrElement("span", [more, last], undefined, false, undefined, undefined, () => ({
-	input: row.type,
-	keydown: [row.key, 1]
-})), _$ssrElement("i", last, undefined, false, undefined, undefined, () => ({
-	ref: [[row.a, row.b], row.c],
-	click: localHandler
-}))], false, _sk$, " class=\"static\"", () => ({
+// template element's do — duplicate refs merged, a tuple kept whole, a
+// duplicate handler last-wins — keyed by the index of the source each
+// attribute sits before, handed to `ssrElement` as a thunk it reads only
+// inside a server component's render, wherever the attributes sit relative
+// to the spreads (before, between, after): the runtime settles a handler
+// position in source order, as the client's `mergeProps` does. Plain SSR
+// drops them; the tail after the last spread still bakes its statics; the
+// spread's own handler keys are the runtime's to bind.
+const spread = _$ssrElement("button", rest, [
+	_$ssrElement("span", [more, last], undefined, false, undefined, undefined, () => ({
+		0: { input: row.type },
+		1: { keydown: [row.key, 1] }
+	})),
+	_$ssrElement("i", last, undefined, false, undefined, undefined, () => ({
+		0: { ref: [[row.a, row.b], row.c] },
+		1: { click: localHandler }
+	})),
+	_$ssrElement("em", [
+		rest,
+		{ title: "t" },
+		last
+	], undefined, false, undefined, undefined, () => ({ 2: { click: row.third } })),
+	_$ssrElement("u", rest, undefined, false, undefined, undefined, () => ({ 1: { ref: row.el } }))
+], false, _sk$, " class=\"static\"", () => ({ 1: {
 	click: row.go,
 	ref: row.el
-}));
+} }));
 var _g$ = _$ssrGroup(() => {
 	return [_$ssrElementAttribute("class", status()), _$ssrElementAttribute("style", row.style)];
 }, 2), _v$7 = _$sharedConfig.context && _$sharedConfig.context.claims ? _$ssrClaim({ click: props.onPick }) : "", _v$8 = () => {

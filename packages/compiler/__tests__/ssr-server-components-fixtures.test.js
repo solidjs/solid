@@ -51,6 +51,10 @@ describe("SSR serverComponents attribute slots", () => {
     expect(output).not.toContain("row.el");
     expect(output).not.toContain("row.key");
     expect(output).not.toContain("localHandler");
+    expect(output).not.toContain("row.first");
+    expect(output).not.toContain("row.third");
     expect(output).toMatch(/_\$ssrElement\("button", rest, \[/);
+    // A lone spread beside a `ref` stays the bare props argument.
+    expect(output).toMatch(/_\$ssrElement\("u", rest, undefined, false\)/);
   });
 });

@@ -26,10 +26,12 @@
  * the first pass — a cycle revisits its nodes on every level down to the
  * catch — and every node of the clone pass answer from the record, so a
  * visitor's side effects run once per node whichever way the walk went.
- * Walks that replace nothing never pay the lookup. A shared subtree is
- * visited at each of its occurrences on the first pass and once on the
- * clone pass (its copy is shared the same way). `path` is built (`.key`,
- * `[i]`) only when `withPath`.
+ * Walks that replace nothing never pay the lookup. A value reachable at two
+ * paths is one node: its replacement is shared (one seat for one iterable —
+ * the identity the input had, which the serializer writes once and the
+ * client materializes once), and a shared subtree with nothing to replace
+ * is visited at each occurrence on the first pass and once on the clone
+ * pass. `path` is built (`.key`, `[i]`) only when `withPath`.
  */
 export const DESCEND: unique symbol = Symbol("descend");
 

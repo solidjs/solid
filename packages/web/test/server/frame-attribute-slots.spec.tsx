@@ -281,10 +281,11 @@ describe("attribute slots — stream face", () => {
     // a thunk it reads only inside a server component's render. So the
     // shapes are the template path's: a handler before, between or after
     // the spreads; an array ref; duplicate refs merged; a handler tuple; a
-    // named ref joining the spread's own; a named handler over the
-    // spread's own (the client's mergeProps keeps one); a server-local
-    // function raising `server-local`. Statics after the last spread still
-    // bake into the tail; the markers follow the sources' attributes.
+    // named ref joining the spread's own; a named handler after the spread
+    // over the spread's own (source order — see the next spec); a
+    // server-local function raising `server-local`. Statics after the last
+    // spread still bake into the tail; the markers follow the sources'
+    // attributes.
     const local = () => {};
     const Spread = (props: any) => {
       const row = props.row({ id: 1 });
@@ -312,6 +313,62 @@ describe("attribute slots — stream face", () => {
     );
     expect(html).toContain('<i id="i" _s:ref="row#0:a,row#0:b,row#0:c">');
     expect(html).not.toContain("row#0:lose");
+    expect(findings("server-local").map(e => (e.data as any).position)).toEqual(["click"]);
+    expect(findings()).toHaveLength(1);
+  });
+
+  it("a handler position on a compiled spread element settles in source order, as the client's mergeProps does", async () => {
+    // The marker is a promise about what the client binds, and the client
+    // compiles the same element to `spread(el, mergeProps(a, { onClick }, b))`
+    // — the LAST source that has the key wins, a named attribute being a
+    // source at its position. So a spread after a named handler owns the
+    // position; a spread between two attributes loses to the later one and
+    // beats the earlier; a spread that lacks the key (or carries `undefined`,
+    // which `mergeProps` reads as "not set") leaves the named handler in
+    // place; a duplicate named handler keeps the last only (the template
+    // path's strip); a spread's server-local function owns the position and
+    // binds nothing (with its finding). The sources may be plain literals or
+    // — a spread CALL, thunked by the compiler — collected through the
+    // owners pass; both paths carry the source index.
+    const local = () => {};
+    const Prec = (props: any) => {
+      const row = props.row({ id: 1 });
+      const withClick = { title: "w", onClick: row.spread };
+      const b = { onClick: row.b };
+      const plain = { "data-p": "1" };
+      const pick = () => b;
+      // TypeScript reads the same order (TS2783: a later spread with the key
+      // overwrites the named attribute), hence the expect-errors.
+      return (
+        <div>
+          {/* @ts-expect-error TS2783 */}
+          <button onClick={row.go} {...withClick} />
+          {/* @ts-expect-error TS2783 */}
+          <a {...plain} onClick={row.go} {...b} />
+          <i {...plain} onClick={row.go} {...plain} />
+          {/* @ts-expect-error TS17001 — a duplicate handler keeps the last, as the template path does */}
+          <b {...plain} onClick={row.first} onClick={row.second} />
+          {/* @ts-expect-error TS2783 */}
+          <u onClick={row.go} {...{ onClick: local }} />
+          {/* @ts-expect-error TS2783 */}
+          <s onClick={row.go} {...{ onClick: undefined }} />
+          {/* @ts-expect-error TS2783 */}
+          <em {...plain} onClick={row.go} {...pick()} />
+          <q {...pick()} onClick={row.go} />
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(Prec, { frame: { id: "ds6p" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain('<button title="w" _s:on:click="row#0:spread">');
+    expect(html).toContain('<a data-p="1" _s:on:click="row#0:b">');
+    expect(html).toContain('<i data-p="1" _s:on:click="row#0:go">');
+    expect(html).toContain('<b data-p="1" _s:on:click="row#0:second">');
+    expect(html).toContain("<u></u>");
+    expect(html).toContain('<s _s:on:click="row#0:go">');
+    expect(html).toContain('<em data-p="1" _s:on:click="row#0:b">');
+    expect(html).toContain('<q _s:on:click="row#0:go">');
+    expect(html).not.toContain("row#0:first");
     expect(findings("server-local").map(e => (e.data as any).position)).toEqual(["click"]);
     expect(findings()).toHaveLength(1);
   });

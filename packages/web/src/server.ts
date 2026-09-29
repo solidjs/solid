@@ -4268,7 +4268,7 @@ export function ssrElement(
   needsId: boolean,
   skip?: (key: string) => boolean,
   attrs?: string | (() => string),
-  claims?: () => Record<string, unknown>
+  claims?: () => Record<number, Record<string, unknown>>
 ): { t: string };
 
 export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
@@ -4310,6 +4310,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   let proxy = false;
   let viewKeys = null;
   let owners = null;
+  // Under `slots`, the collecting pass also records which source each key
+  // came from (`ownerIndex`, parallel to `viewKeys`): a handler position's
+  // precedence against the element's named claims is source order
+  // (spreadBehaviorMarkers).
+  let ownerIndex = null;
   // An attribute slot's object spread whole (`<li {...row}>`) is the retired
   // 09-27 shape (principles §9.2.3): the client would decide what it owns
   // and the template could not show it. Its range tag (`$slot`) is how it
@@ -4340,7 +4345,8 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       else {
         viewKeys = [];
         owners = [];
-        collectSpreadSources(tag, props, viewKeys, owners, slots);
+        if (slots) ownerIndex = [];
+        collectSpreadSources(tag, props, viewKeys, owners, slots, ownerIndex);
       }
     }
   } else if (props == null) {
@@ -4361,10 +4367,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // already does), so skipped props leave no stray whitespace behind:
   // `<li _hk=0>` rather than `<li _hk=0 >` (#3382).
   let result = info.open + hk;
-  // Handler/ref positions met under `slots` (principles §9.2.3), by position;
-  // emitted as one marker each after the walk, merged with the compiled
-  // `claims` (see spreadBehaviorMarkers). Never touched outside a server
-  // component's render.
+  // Handler/ref positions met under `slots` (principles §9.2.3), by position
+  // with the index of the source that owns each; emitted as one marker each
+  // after the walk, settled against the compiled `claims` in source order
+  // (see spreadBehaviorMarkers). Never touched outside a server component's
+  // render.
   let behaviors = null;
   // One walk over one prop body: the outer loop runs once for a single props
   // object and once per source otherwise. With several sources every
@@ -4447,7 +4454,14 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       // share it); strings and booleans — the walk's common case — never
       // do, and outside a server component the ladder is the pre-slot one.
       if (prop === "ref" || prop.startsWith("on")) {
-        if (slots) behaviors = spreadBehaviorPosition(behaviors, prop, value, ctx.claims);
+        if (slots)
+          behaviors = spreadBehaviorPosition(
+            behaviors,
+            prop,
+            value,
+            ctx.claims,
+            ownerIndex !== null ? ownerIndex[i] : s
+          );
         continue;
       }
       if (slots && typeof value === "object") {
@@ -4486,10 +4500,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // would move them ahead of the element's own key.
   // `claims` is the compiled claim map of the element's named `ref`/`on*`
   // attributes (the spread element's counterpart of the template path's
-  // guarded `ssrClaim` hole), a thunk read only inside a server component's
-  // render — the same gate the template path's guard reads — so plain SSR
-  // never evaluates a handler expression. Called here, after the walk and
-  // before the tail thunk, for the same hydration-id reason.
+  // guarded `ssrClaim` hole), keyed by the source index each attribute sits
+  // before, a thunk read only inside a server component's render — the same
+  // gate the template path's guard reads — so plain SSR never evaluates a
+  // handler expression. Called here, after the walk and before the tail
+  // thunk, for the same hydration-id reason.
   if (slots && (behaviors !== null || claims !== undefined))
     result += spreadBehaviorMarkers(behaviors, claims, ctx.claims);
   if (attrs !== undefined) result += typeof attrs === "function" ? attrs() : attrs;
@@ -4847,40 +4862,67 @@ function eventPosition(prop) {
  * A `ref`/`on*` key met by `ssrElement`'s walk under `slots` — in a
  * source, whatever its shape: a stand-in, a list of them (refs), a handler
  * tuple, a server-local function — collected by position into `behaviors`
- * (`pos` → marker entries) exactly as `ssrClaim` reads the compiled claim
- * map, so the spread path and the template path bind the same shapes and
- * raise the same finding. A later source owns a key outright (the walk
- * reads only the owner), so within the sources a position is one value.
+ * (`entries`: `pos` → marker entries) exactly as `ssrClaim` reads the
+ * compiled claim map, so the spread path and the template path bind the
+ * same shapes and raise the same finding. A later source owns a key
+ * outright (the walk reads only the owner), so within the sources a
+ * position is one value; `at` records the owner's source index for a
+ * handler — what a named claim is settled against (spreadBehaviorMarkers) —
+ * whatever the value turned out to be (a server-local function owns the
+ * position as the client sees it, and binds nothing).
  */
-function spreadBehaviorPosition(behaviors, prop, value, mode) {
+function spreadBehaviorPosition(behaviors, prop, value, mode, index) {
   const pos = prop === "ref" ? "ref" : eventPosition(prop);
+  behaviors ||= { entries: new Map(), at: new Map() };
+  if (pos !== "ref") behaviors.at.set(pos, index);
   const entries = claimEntries(pos, value, mode);
-  if (entries) (behaviors ||= new Map()).set(pos, entries);
+  if (entries) behaviors.entries.set(pos, entries);
   return behaviors;
 }
 
 /**
  * The behavior markers of a spread element: the sources' (`behaviors`)
- * merged with its compiled claim map (`claims` — the named `ref`/`on*`
- * attributes, a thunk `ssrElement` calls only under `slots`, so plain SSR
- * never evaluates them). A named ref joins the sources' (the client fires
- * every ref); a named handler replaces the sources' (the client's
- * `mergeProps` keeps one). One marker per position, in first-seen order.
+ * settled against its compiled claim map (`claims` — the named `ref`/`on*`
+ * attributes, keyed by the index of the source each sits before; a thunk
+ * `ssrElement` calls only under `slots`, so plain SSR never evaluates
+ * them). The marker promises what the client binds, and the client's
+ * `spread(el, mergeProps(a, { onClick }, b))` keeps the LAST source that
+ * has the key, a named attribute being a source at its position: a named
+ * handler at index `k` binds unless a spread at index `k` or later owns the
+ * position; a later named attribute overrides an earlier one (the
+ * compilers keep only the last, so a segment never repeats a handler); a
+ * nullish value is "not set" and takes nothing, as `mergeProps` reads it.
+ * Refs merge whatever their order (the client fires every ref). One marker
+ * per position.
  */
 function spreadBehaviorMarkers(behaviors, claims, mode) {
   if (claims !== undefined) {
-    const map = claims();
-    for (const pos in map) {
-      const entries = claimEntries(pos, map[pos], mode);
-      if (!entries) continue;
-      behaviors ||= new Map();
-      const prior = pos === "ref" ? behaviors.get("ref") : undefined;
-      behaviors.set(pos, prior ? prior + "," + entries : entries);
+    const segments = claims();
+    // Integer keys enumerate in ascending order: source order.
+    for (const k in segments) {
+      const map = segments[k];
+      for (const pos in map) {
+        const value = map[pos];
+        if (value == null) continue;
+        behaviors ||= { entries: new Map(), at: new Map() };
+        if (pos === "ref") {
+          const entries = claimEntries("ref", value, mode);
+          if (!entries) continue;
+          const prior = behaviors.entries.get("ref");
+          behaviors.entries.set("ref", prior ? prior + "," + entries : entries);
+          continue;
+        }
+        const at = behaviors.at.get(pos);
+        if (at !== undefined && at >= +k) continue;
+        const entries = claimEntries(pos, value, mode);
+        if (entries) behaviors.entries.set(pos, entries);
+        else behaviors.entries.delete(pos);
+      }
     }
   }
   let out = "";
   if (behaviors !== null) {
-    for (const [pos, entries] of behaviors)
+    for (const [pos, entries] of behaviors.entries)
       out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
   }
   return out;
@@ -4893,14 +4935,34 @@ function spreadBehaviorMarkers(behaviors, claims, mode) {
  * source contributes nothing (#3297); a slot's return spread whole is the
  * retired shape (`slotSpreadSource`, probed only under `slots` — see the
  * walk); everything else is collected through its leaves (`sourceOwners`).
+ * Under `slots` (`ownerIndex` given) each key also records the index of the
+ * source it came from, kept in step with `sourceOwners`' merge (a key seen
+ * again moves to the end, owned by the later source): what settles a
+ * handler position against the element's named claims.
  */
-function collectSpreadSources(tag, props, viewKeys, owners, slots) {
+function collectSpreadSources(tag, props, viewKeys, owners, slots, ownerIndex) {
   for (let i = 0; i < props.length; i++) {
     let s = props[i];
     if (typeof s === "function") s = s();
     if (s != null) {
       if (slots && !($PROXY in s) && s.$slot === true) s = slotSpreadSource(tag, s);
-      sourceOwners(s, viewKeys, owners);
+      if (ownerIndex === null) sourceOwners(s, viewKeys, owners);
+      else {
+        const ks = [];
+        const os = [];
+        sourceOwners(s, ks, os);
+        for (let j = 0; j < ks.length; j++) {
+          const at = viewKeys.indexOf(ks[j]);
+          if (at !== -1) {
+            viewKeys.splice(at, 1);
+            owners.splice(at, 1);
+            ownerIndex.splice(at, 1);
+          }
+          viewKeys.push(ks[j]);
+          owners.push(os[j]);
+          ownerIndex.push(i);
+        }
+      }
     }
   }
 }

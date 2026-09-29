@@ -1005,9 +1005,11 @@ function withoutStandIns(value, key, occurrence) {
 
 function standInArgFinding(sv, key, occurrence, path) {
   if ("_SOLID_DEV_") {
-    // Once per (occurrence, arg, path) per render: the document face
-    // scrubs the fill's arg and the record's separately, and a live
-    // re-evaluation of the same getter is the same misuse.
+    // Once per (occurrence, arg, path) per render — and a stand-in shared
+    // between two paths is met once, at its first (`rewriteTree` answers
+    // the second from its record): the document face scrubs the fill's arg
+    // and the record's separately, and a live re-evaluation of the same
+    // getter is the same misuse.
     const ctx = sharedConfig.context;
     if (ctx) {
       const id = `${occurrence}\u0000${key}${path}\u0000arg`;
