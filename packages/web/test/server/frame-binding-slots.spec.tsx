@@ -1,7 +1,7 @@
 /**
  * @jsxImportSource @solidjs/web
  */
-// Attribute slots (server-components-principles.md §9.2.3), server face: a slot
+// Binding slots (server-components-principles.md §9.2.3), server face: a slot
 // call's return READ as an object — `const row = props.row(args)` — with
 // its properties bound at positions of the server component's own markup:
 //
@@ -33,7 +33,7 @@ import { createJSONDataTable } from "../../serialization/src/serializer.js";
 const collect = (stream: any): Promise<any[]> => stream;
 
 // A server component's dynamic holes are live-addressed (`data-lha`, `lh:`
-// comments — Stage 3); the attribute-slot contract is the rest of the markup.
+// comments — Stage 3); the binding-slot contract is the rest of the markup.
 const plain = (html: string) =>
   html.replace(/ data-lha="\d+"/g, "").replace(/<!--lh:\/?\d+-->/g, "");
 
@@ -60,7 +60,7 @@ afterEach(() => {
 const findings = (reason?: string) =>
   capture.events.filter(
     (e: DiagnosticEvent) =>
-      e.code === "ATTRIBUTE_SLOT_POSITION" &&
+      e.code === "BINDING_SLOT_POSITION" &&
       (reason === undefined || (e.data as any).reason === reason)
   );
 
@@ -70,7 +70,7 @@ const TODOS = [
 ];
 
 // The shared row: the same component the client renders for an optimistic
-// insert — its `row` is an attribute slot here (§9.2.3's acceptance shape).
+// insert — its `row` is a binding slot here (§9.2.3's acceptance shape).
 function TodoRow(props: { todo: (typeof TODOS)[number]; row: any }) {
   const row = props.row({
     $key: props.todo.id,
@@ -101,7 +101,7 @@ function KeyedRow(props: { id: string; title: string; row: any }) {
   );
 }
 
-describe("attribute slots — stream face", () => {
+describe("binding slots — stream face", () => {
   it("a `$key`ed call in a component prop is ONE occurrence and ONE record however often the getter re-evaluates it", async () => {
     const ServerComp = (props: any) => (
       <ul>
@@ -281,12 +281,12 @@ describe("attribute slots — stream face", () => {
     // a template element's `ssrClaim` hole reads, handed to `ssrElement` as
     // a thunk it reads only inside a server component's render. So the
     // shapes are the template path's: a handler before, between or after
-    // the spreads; an array ref; duplicate refs merged; a handler tuple; a
-    // named ref joining the spread's own; a named handler after the spread
-    // over the spread's own (source order — see the next spec); a
-    // server-local function raising `server-local`. Statics after the last
-    // spread still bake into the tail; the markers follow the sources'
-    // attributes.
+    // the spreads; an array ref; duplicate refs merged; a handler tuple
+    // raising `tuple` and binding nothing; a named ref joining the spread's
+    // own; a named handler after the spread over the spread's own (source
+    // order — see the next spec); a server-local function raising
+    // `server-local`. Statics after the last spread still bake into the
+    // tail; the markers follow the sources' attributes.
     const local = () => {};
     const Spread = (props: any) => {
       const row = props.row({ id: 1 });
@@ -309,13 +309,12 @@ describe("attribute slots — stream face", () => {
     expect(html).toContain(
       '<button data-k="v" _s:on:input="row#0:type" _s:ref="row#0:spreadRef,row#0:el" _s:on:click="row#0:go" class="static">'
     );
-    expect(html).toContain(
-      '<span title="t" data-z="1" _s:on:input="row#0:before" _s:on:keydown="row#0:key">'
-    );
+    expect(html).toContain('<span title="t" data-z="1" _s:on:input="row#0:before">');
     expect(html).toContain('<i id="i" _s:ref="row#0:a,row#0:b,row#0:c">');
     expect(html).not.toContain("row#0:lose");
     expect(findings("server-local").map(e => (e.data as any).position)).toEqual(["click"]);
-    expect(findings()).toHaveLength(1);
+    expect(findings("tuple").map(e => (e.data as any).position)).toEqual(["keydown"]);
+    expect(findings()).toHaveLength(2);
   });
 
   it("a handler position on a compiled spread element settles in source order, as the client's spread does", async () => {
@@ -422,7 +421,7 @@ describe("attribute slots — stream face", () => {
   });
 
   it("a handler position inside a live hole carries its marker on every re-emission, with an unrelated render interleaved", async () => {
-    // The chat example's `codeBlock` shape: a zero-arg attribute slot read at an
+    // The chat example's `codeBlock` shape: a zero-arg binding slot read at an
     // event position INSIDE a live hole (an async-iterable-fed memo). The
     // consumer is absent from the hole's first states and appears only when
     // the text grows a code block; each sweep re-evaluates the template
@@ -684,9 +683,32 @@ describe("attribute slots — stream face", () => {
     expect(findings("stringified").length).toBe(1);
     expect(findings("server-local").length).toBe(1);
   });
+
+  it("an array at a handler position is a tuple the marker cannot carry: a dev finding, nothing bound; an array ref still merges", async () => {
+    // A marker names keys, never data: `[row.key, 1]` would bind `key` and
+    // drop the `1`, and `[row.go, row.data]` would bind `data` as a second
+    // handler. The tuple belongs in the fill (`onKeyDown: [handler, data]`),
+    // which the client binds as client JSX binds one.
+    const ServerComp = (props: any) => {
+      const row = props.row({ id: 1 });
+      return (
+        <li onKeyDown={[row.key, 1]} onClick={[row.go, row.data]} ref={[row.a, row.b]}>
+          x
+        </li>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds5t" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain('_s:ref="row#0:a,row#0:b"');
+    expect(html).not.toContain("_s:on:");
+    const tuples = findings("tuple");
+    expect(tuples.map(e => (e.data as any).position)).toEqual(["keydown", "click"]);
+    expect(tuples[0].message).toContain("[handler, data]");
+    expect(findings()).toHaveLength(2);
+  });
 });
 
-describe("attribute slots — document face (t=0)", () => {
+describe("binding slots — document face (t=0)", () => {
   it("runs the fill at t=0 and writes each position's value beside its marker", async () => {
     const ServerComp = (props: any) => (
       <ul>

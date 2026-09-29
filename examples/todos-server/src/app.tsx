@@ -5,7 +5,7 @@
 // client's part of it is one FILL per data context — `rowFor` for a row,
 // `listFor` for the list — a function of the server's args (and the
 // client's intent, errors and filter) returning the values the server
-// template binds. The server rows read those through an attribute slot; the
+// template binds. The server rows read those through a binding slot; the
 // pending rows (todos the server has not seen) are the only client markup,
 // and they are `TodoRow` again, handed the same fill's result directly.
 import { createContext, Errored, For, Loading, useContext } from "solid-js";
@@ -50,12 +50,11 @@ function TodoList(props: { filter: Filter }) {
 
   // A row's behavior, from the server's view of it (`completed` as of the
   // last response) and the client's (intent over it, errors beside it).
-  // Same function for a server row (through the `row` attribute slot) and a
-  // pending one (passed to <TodoRow> directly). Values are getters and
-  // handlers are plain closures: building the object reads nothing, so the
-  // reads happen where the template binds each property — a tracking scope
-  // for a value, event time for a handler — and each position updates on
-  // its own.
+  // Same function for a server row (through the `row` binding slot) and a
+  // pending one (passed to <TodoRow> directly). The fill runs once per
+  // occurrence, as a component body does, so values are getters — a
+  // top-level read would be read once — and handlers are plain closures
+  // that read at event time.
   const rowFor = (p: Entity): RowBehavior => ({
     get rowClass() {
       return {
@@ -123,9 +122,15 @@ function TodoList(props: { filter: Filter }) {
         );
       }}
       filters={() => ({
-        all: props.filter === "all",
-        active: props.filter === "active",
-        completed: props.filter === "completed"
+        get all() {
+          return props.filter === "all";
+        },
+        get active() {
+          return props.filter === "active";
+        },
+        get completed() {
+          return props.filter === "completed";
+        }
       })}
     />
   );

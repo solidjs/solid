@@ -10,7 +10,7 @@
 // The search field is NOT a client position either (the React demo's
 // SearchField.client.js, and this file's `search` slot until Stage 6): its
 // markup is server chrome like everything else, and the CLIENT contributes
-// an ATTRIBUTE slot (principles §9.2.3) — one call, `props.search()`, returning
+// a BINDING slot (principles §9.2.3) — one call, `props.search()`, returning
 // the values and handlers this template reads at positions: the input's
 // `value` and `onInput`, the form's `onSubmit`, the spinner's class and
 // `aria-busy`. The client owns exactly those positions; the router state
@@ -24,13 +24,13 @@
 // (The React demo needed a client component here because its navigation was
 // a context call — ours is just an href.)
 import type { JSX } from "@solidjs/web";
-import type { AttributeSlot } from "@solidjs/web/frames";
+import type { BindingSlot } from "@solidjs/web/frames";
 import EditButton from "~/components/EditButton";
 import type { SearchBehavior } from "~/components/searchField";
 
 export async function appView() {
   return (props: {
-    search: AttributeSlot<{}, SearchBehavior>;
+    search: BindingSlot<{}, SearchBehavior>;
     noteList: JSX.Element;
     children: JSX.Element;
   }) => {

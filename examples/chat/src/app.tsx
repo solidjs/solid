@@ -18,7 +18,7 @@ let nextId = 0;
 
 // Behavior for SERVER-rendered elements: every code block in a reply
 // carries a copy button the server renders with `onClick={block.onCopy}`,
-// where `block` is the `codeBlock` ATTRIBUTE slot's value — the object the fill
+// where `block` is the `codeBlock` BINDING slot's value — the object the fill
 // below returns. The marker in the markup names the occurrence and key; the
 // client binds this handler on every button, including blocks that streamed
 // in mid-sentence. It reads the code from the element it was clicked in, so

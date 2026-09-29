@@ -51,15 +51,49 @@ setAsyncIterableSharer(shareAsyncIterable);
  */
 export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidElement;
 
+declare const slotError: unique symbol;
+
 /**
- * An attribute slot (principles §9.2.3): the client renders an object instead of
- * markup, and the server template consumes it by reading properties at
- * positions — `const row = props.row({ id, completed });` then
+ * A binding slot's rejected return shape: assigning to it fails, and the
+ * error names the reason `M`.
+ * @experimental
+ */
+export type SlotError<M extends string> = { [slotError]: M };
+
+/**
+ * What a binding slot's fill may return: `J` when it is a plain object with no
+ * `$`-prefixed key (reserved for occurrence identity), otherwise a
+ * `SlotError` naming why not.
+ * @experimental
+ */
+export type SlotOutput<J> = J extends readonly unknown[]
+  ? SlotError<"binding slot output must be an object, not an array">
+  : J extends Node
+    ? SlotError<"binding slot output must be an object, not a DOM node">
+    : J extends (...args: any[]) => any
+      ? SlotError<"binding slot output must be an object, not a function">
+      : J extends PromiseLike<unknown> | AsyncIterable<unknown>
+        ? SlotError<"binding slot output must be settled, not async">
+        : Extract<keyof J, `$${string}`> extends never
+          ? J
+          : SlotError<`reserved key: ${Extract<keyof J, `$${string}`> & string}`>;
+
+/**
+ * A binding slot (principles §9.2.3): the client renders an object instead of
+ * markup, and the server template binds its properties at positions —
+ * `const row = props.row({ id, completed });` then
  * `<li class={row.rowClass} hidden={row.removed}><input checked={row.done}
  * onInput={row.toggle} /></li>`. One call is one data context: any element
  * in the template may read from it, and the client owns exactly the values
  * the template read. Keys are the client's names; the position decides what
- * a property IS (attribute, class name, style property, handler, ref).
+ * a property IS (attribute, class name, style property, handler, ref). On
+ * the server a property is a stand-in, never the value: bind it, never
+ * branch on it or compute with it.
+ *
+ * The fill runs once per occurrence, untracked, as a component body does:
+ * state it creates lives with the occurrence, a top-level read is a
+ * one-time read, and a getter is the reactive form. Handlers and refs are
+ * read once, when an element binds.
  *
  * `P` is the args the server passes (reactive props to the fill, as for
  * `Slot`); `J` is the object the fill returns — the same type a shared
@@ -74,9 +108,9 @@ export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidEleme
  * prop.
  * @experimental
  */
-export type AttributeSlot<P = {}, J extends object = Record<string, unknown>> = {} extends P
-  ? (props?: P & { $key?: string | number }) => J
-  : (props: P & { $key?: string | number }) => J;
+export type BindingSlot<P = {}, J extends object = Record<string, unknown>> = {} extends P
+  ? (props?: P & { $key?: string | number }) => SlotOutput<J>
+  : (props: P & { $key?: string | number }) => SlotOutput<J>;
 
 /**
  * Types an async value crossing the slot border (DR-2, value tier). What you

@@ -413,9 +413,9 @@ const SLOT_START = /^slot:(.+):start$/;
 const SLOT_END = /^slot:(.+):end$/;
 const slotEnd = id => `slot:${id}:end`;
 
-// === Attribute slots (principles §9.2.3: a slot read at positions of server markup) ===
+// === Binding slots (principles §9.2.3: a slot read at positions of server markup) ===
 //
-// A server element that reads an attribute slot's properties carries one marker
+// A server element that reads a binding slot's properties carries one marker
 // per bound position — `_s:<attribute>="<occurrence>:<key>"`, with the
 // class name / style property appended for a name inside `class`/`style`
 // (`_s:class="row#1:done=completed,row#1:busy=pending"`), `_s:on:<event>`
@@ -1384,7 +1384,7 @@ class FrameImpl {
       // interior reactively insert before `end` and return undefined — the
       // frame then never touches the interior (morphs protect slot ranges).
       range: end ? { start, end } : undefined,
-      // Attribute slot (§9.2.3): the positions of server markup that read this
+      // Binding slot (§9.2.3): the positions of server markup that read this
       // occurrence — `[{ element, positions: [{ pos, key, name }] }]` in
       // document order. The consumer runs the fill, writes each position
       // from its returned object, and returns undefined (there is nothing
@@ -1665,7 +1665,7 @@ class FrameImpl {
   }
 
   /** Collect this frame's own top-level slot ranges (bounded to its content),
-   *  and — for the slot sync — its attribute-slot elements into the same map. */
+   *  and — for the slot sync — its binding-slot elements into the same map. */
   #collectSlots(found, elements) {
     collectSlots(this.#firstContent(), this.#end, found, elements);
   }
@@ -1880,7 +1880,7 @@ class FrameImpl {
     if (!el) return false;
     const parsed = parseFragment(`<i${text}></i>`).firstChild;
     const keepOpen = preservesOpen(el);
-    // Attribute-slot positions the rebuilt text marks stay the client's, as in
+    // Binding-slot positions the rebuilt text marks stay the client's, as in
     // the root morph (`morphAttributes`).
     const owned = parsed ? ownedPositions(parsed) : null;
     const current = el.attributes;
@@ -2540,7 +2540,7 @@ function preservesOpen(el) {
   return t === "DETAILS" || t === "DIALOG";
 }
 
-// Attribute-slot ownership (principles §9.2.3). The INCOMING element's `_s:*`
+// Binding-slot ownership (principles §9.2.3). The INCOMING element's `_s:*`
 // markers say which of its positions a client fill writes: `_s:hidden` owns
 // the `hidden` attribute; `_s:class="occ:k=done"` owns the class name
 // `done` and `_s:class="occ:k"` the whole `class` string (likewise `style`
@@ -2609,7 +2609,7 @@ function morphOwnedStyle(oldEl, value, names) {
 
 /**
  * Apply the server's value for `name` (null: absent) to an element with
- * attribute-slot positions: a client-owned attribute is left alone; owned
+ * binding-slot positions: a client-owned attribute is left alone; owned
  * `class`/`style` NAMES are re-imposed over the server's string. Returns
  * whether the attribute changed, or undefined when the position is not
  * owned and the caller writes it.
@@ -2699,7 +2699,7 @@ function afterRange(start, id) {
 }
 
 /**
- * Dev: an attribute-slot occurrence's marked positions cannot bind — no
+ * Dev: a binding-slot occurrence's marked positions cannot bind — no
  * fill resolves for its prop (`why` = "fill"), or a called occurrence has
  * no args record once records can no longer arrive ("record"). The
  * failure this names is otherwise silent: a handler that never fires, a
@@ -2723,16 +2723,16 @@ function devSlotOrphan(frame, occurrence, consumers, why) {
   DEV.report(
     OBSERVE.diagnostics.emit(
       {
-        code: "ATTRIBUTE_SLOT_POSITION",
+        code: "BINDING_SLOT_POSITION",
         kind: "render",
         severity: "warn",
         message:
           why === "fill"
-            ? `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no client fill ` +
+            ? `[BINDING_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no client fill ` +
               `resolves for slot \`${prop}\` — those positions never bind and the elements are inert. ` +
               `Pass \`${prop}\` to the server component on the client (a function returning the object the ` +
               `markup reads), or check that the prop name matches on both sides.`
-            : `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no args record ` +
+            : `[BINDING_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no args record ` +
               `for it arrived and none can — the fill mounts with empty args. A called slot always emits its ` +
               `record ahead of the markup that reads it, so this is the frame protocol out of step, not the fill: ` +
               `a client and server from different builds (a stale dev prebundle, a cached asset), or a runtime ` +

@@ -2,7 +2,7 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-// Attribute slots (server-components-principles.md §9.2.3), client face: server
+// Binding slots (server-components-principles.md §9.2.3), client face: server
 // elements carry `_s:<position>="<occurrence>:<key>[=<name>]"` markers for
 // the positions a client fill owns. The occurrence is the slot CALL (one
 // data context), so the frame mounts it once — the fill runs once with the
@@ -18,7 +18,7 @@
 //
 // The server side is hand-framed Responses (marker-bearing html and slot
 // records, exactly what the server face emits — pinned by
-// test/server/frame-attribute-slots.spec.tsx) behind a stubbed fetch.
+// test/server/frame-binding-slots.spec.tsx) behind a stubbed fetch.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createSignal, flush, Loading, OBSERVE } from "solid-js";
 // From the packaged entry, not `../src`: the frames client writes positions
@@ -96,11 +96,11 @@ function makeHost() {
 
 const getTodos = createServerReference(ID);
 
-describe("attribute slots through server-component mounts", () => {
+describe("binding slots through server-component mounts", () => {
   beforeEach(() => installServerComponents(makeHost()));
   afterEach(() => vi.unstubAllGlobals());
 
-  test("one fill per occurrence writes every consuming element's positions, follows client state and live args, and survives morphs", async () => {
+  test("one fill per occurrence writes every consuming element's positions, follows client state and live args through getters, and survives morphs", async () => {
     let todos: Todo[] = [
       { id: "1", title: "a", completed: false },
       { id: "2", title: "b", completed: true }
@@ -115,7 +115,8 @@ describe("attribute slots through server-component mounts", () => {
     const [removed, setRemoved] = createSignal<string | null>(null);
     const events: string[] = [];
     const refs: Element[] = [];
-    const runs: string[] = [];
+    let builds = 0;
+    const removedReads: string[] = [];
 
     const List = dynamic(() => getTodos() as any);
     const container = document.createElement("div");
@@ -125,14 +126,18 @@ describe("attribute slots through server-component mounts", () => {
         <Loading fallback={<span>...</span>}>
           <List
             row={(p: any) => {
-              const done = toggled() === p.id ? !p.completed : p.completed;
-              runs.push(`row:${p.id}:${done}`);
+              builds++;
               return {
-                done,
-                removed: removed() === p.id,
-                opacity: removed() === p.id ? "0.5" : undefined,
-                // Fresh closures every run: the binding must not re-add
-                // listeners or re-fire refs for them.
+                get done() {
+                  return toggled() === p.id ? !p.completed : p.completed;
+                },
+                get removed() {
+                  removedReads.push(p.id);
+                  return removed() === p.id;
+                },
+                get opacity() {
+                  return removed() === p.id ? "0.5" : undefined;
+                },
                 toggle: () => events.push(`toggle:${p.id}`),
                 remove: () => events.push(`remove:${p.id}`),
                 box: (el: Element) => refs.push(el)
@@ -153,7 +158,7 @@ describe("attribute slots through server-component mounts", () => {
     const input1 = li1.querySelector("input") as HTMLInputElement;
     const input2 = li2.querySelector("input") as HTMLInputElement;
     const button1 = li1.querySelector("button") as HTMLButtonElement;
-    expect(runs).toEqual(["row:1:false", "row:2:true"]);
+    expect(builds).toBe(2);
     expect(li1.className).toBe("todo");
     expect(li2.className).toBe("todo completed");
     expect(li1.hidden).toBe(false);
@@ -161,14 +166,13 @@ describe("attribute slots through server-component mounts", () => {
     expect(input2.checked).toBe(true);
     expect(refs).toEqual([input1, input2]);
 
-    // Handlers dispatch through delegation to the latest output.
+    // Handlers dispatch through the element's binding.
     input1.dispatchEvent(new Event("input", { bubbles: true }));
     button1.click();
     expect(events).toEqual(["toggle:1", "remove:1"]);
 
-    // Client state changes rerun the fill; only the changed positions
-    // touch the DOM. Handlers stay bound once (one dispatch per event), refs
-    // do not re-fire.
+    // Client state changes re-read the getters; the fill never re-runs.
+    // Handlers stay bound once (one dispatch per event), refs do not re-fire.
     setToggled("1");
     flush();
     expect(li1.className).toBe("todo completed");
@@ -181,6 +185,7 @@ describe("attribute slots through server-component mounts", () => {
     flush();
     expect(li2.hidden).toBe(true);
     expect((li2.querySelector("button") as HTMLElement).style.opacity).toBe("0.5");
+    expect(builds).toBe(2);
 
     // Server re-render (args re-emitted, the server's own class changed):
     // the morph KEEPS the keyed elements and their client-owned positions —
@@ -203,9 +208,8 @@ describe("attribute slots through server-component mounts", () => {
     expect(li2.className).toBe("todo big completed");
     expect(li2.hidden).toBe(true);
     expect((li2.querySelector("button") as HTMLElement).style.opacity).toBe("0.5");
-    // Live props into the same computation: no re-invocation, one rerun of
-    // the fill for the occurrence whose args changed.
-    expect(runs.slice(-1)).toEqual(["row:1:false"]);
+    // Live args into the same occurrence: no re-invocation.
+    expect(builds).toBe(2);
     expect(refs).toEqual([input1, input2]);
     button1.click();
     expect(events.slice(-1)).toEqual(["remove:1"]);
@@ -217,11 +221,162 @@ describe("attribute slots through server-component mounts", () => {
     await cycle();
     expect(container.querySelector('li[_key="2"]')).toBeNull();
     expect(container.querySelector('li[_key="1"]')).toBe(li1);
-    const before = runs.length;
+    removedReads.length = 0;
     setRemoved("1");
     flush();
     expect(li1.hidden).toBe(true);
-    expect(runs.slice(before)).toEqual(["row:1:false"]);
+    expect(removedReads.length).toBeGreaterThan(0);
+    expect(removedReads.every(id => id === "1")).toBe(true);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a fill runs once, as a component body does: a top-level read is a one-time read dev names, and state created in the body survives", async () => {
+    const capture = OBSERVE!.diagnostics.capture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", async () =>
+      listResponse(1, [{ id: "1", title: "a", completed: false }])
+    );
+    const [hide, setHide] = createSignal(false, { name: "hide" });
+    let builds = 0;
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => {
+              builds++;
+              // A plain value computed in the body: read once, like a
+              // component's top-level read.
+              const hidden = hide();
+              // Local state: lives as long as the occurrence.
+              const [done, setDone] = createSignal(false);
+              return {
+                removed: hidden,
+                get done() {
+                  return done();
+                },
+                toggle: () => setDone(d => !d),
+                remove: () => {},
+                box: () => {}
+              };
+            }}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const li = container.querySelector('li[_key="1"]') as HTMLLIElement;
+    const input = li.querySelector("input") as HTMLInputElement;
+    expect(builds).toBe(1);
+    expect(li.hidden).toBe(false);
+    const strict = capture.events.filter(e => e.code === "STRICT_READ_UNTRACKED");
+    expect(strict).toHaveLength(1);
+    expect((strict[0].data as any).strictRead).toContain("`row`");
+
+    // The local signal drives its getter.
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(input.checked).toBe(true);
+    expect(li.className).toBe("todo completed");
+
+    // The top-level read does not track: the body does not re-run, the
+    // plain value stays, and the local state is not recreated.
+    setHide(true);
+    flush();
+    expect(builds).toBe(1);
+    expect(li.hidden).toBe(false);
+    expect(input.checked).toBe(true);
+
+    capture.stop();
+    warn.mockRestore();
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a getter's change re-reads the occurrence and writes only the position that moved", async () => {
+    vi.stubGlobal("fetch", async () =>
+      listResponse(1, [{ id: "1", title: "a", completed: false }])
+    );
+    const [done, setDone] = createSignal(false);
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              get done() {
+                return done();
+              },
+              removed: false,
+              opacity: "0.5",
+              toggle: () => {},
+              remove: () => {},
+              box: () => {}
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const li = container.querySelector('li[_key="1"]') as HTMLLIElement;
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver(r => records.push(...r));
+    observer.observe(li, { attributes: true, subtree: true, childList: true });
+    setDone(true);
+    flush();
+    await settle();
+    observer.disconnect();
+    expect(li.className).toBe("todo completed");
+    expect(records.map(r => [(r.target as Element).tagName, r.attributeName])).toEqual([
+      ["LI", "class"]
+    ]);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("handlers bind as client JSX binds them: delegated events dispatch at the root, after a native listener between", async () => {
+    vi.stubGlobal("fetch", async () =>
+      listResponse(1, [{ id: "1", title: "a", completed: false }])
+    );
+    const order: string[] = [];
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              done: false,
+              removed: false,
+              toggle: () => {},
+              remove: (e: MouseEvent) => {
+                order.push(`remove:${(e.currentTarget as Element).tagName}`);
+              },
+              box: () => {}
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const ul = container.querySelector("ul") as HTMLUListElement;
+    ul.addEventListener("click", () => order.push("ul"));
+    (container.querySelector("button") as HTMLButtonElement).click();
+    expect(order).toEqual(["ul", "remove:BUTTON"]);
 
     dispose();
     flush();
@@ -433,10 +588,12 @@ describe("attribute slots through server-component mounts", () => {
     container.remove();
   });
 
-  test("two keys bound at ONE ref or handler position fan out: every ref fires, every handler dispatches", async () => {
-    // The server merges duplicate positions on an element into one marker
+  test("two keys bound at ONE ref position fan out, every ref firing; a handler position binds one key, the last", async () => {
+    // The server merges duplicate refs on an element into one marker
     // (`_s:ref="row#0:a,row#0:b"`, pinned by the compiler fixtures); the
-    // client must honor every entry, not the last one written.
+    // client must honor every entry. Duplicate handlers are last-wins on the
+    // server, so a handler marker names one key; given two, the client binds
+    // the last, as the server would have.
     vi.stubGlobal("fetch", async () =>
       frameResponse(ID, [
         { type: "start", id: ID, version: 1 },
@@ -473,7 +630,7 @@ describe("attribute slots through server-component mounts", () => {
     const li = container.querySelector("li") as HTMLLIElement;
     expect(log).toEqual(["ref:a:LI", "ref:b:LI"]);
     li.click();
-    expect(log.slice(2)).toEqual(["h1", "h2"]);
+    expect(log.slice(2)).toEqual(["h2"]);
 
     dispose();
     flush();
@@ -742,7 +899,7 @@ describe("attribute slots through server-component mounts", () => {
     // The inert element is otherwise indistinguishable from "nothing
     // happened": one finding per occurrence, however many syncs saw it.
     const orphans = capture.events.filter(
-      e => e.code === "ATTRIBUTE_SLOT_POSITION" && (e.data as any).reason === "orphan"
+      e => e.code === "BINDING_SLOT_POSITION" && (e.data as any).reason === "orphan"
     );
     expect(orphans.length).toBe(1);
     expect(orphans[0].severity).toBe("warn");
@@ -754,7 +911,7 @@ describe("attribute slots through server-component mounts", () => {
     expect(orphans[0].message).toContain("no client fill resolves for slot `missing`");
     expect(orphans[0].message).toContain("positions: on:click, hidden");
     expect(
-      warn.mock.calls.filter(c => String(c[0]).includes("[ATTRIBUTE_SLOT_POSITION]")).length
+      warn.mock.calls.filter(c => String(c[0]).includes("[BINDING_SLOT_POSITION]")).length
     ).toBe(1);
     capture.stop();
     warn.mockRestore();
@@ -798,7 +955,7 @@ describe("attribute slots through server-component mounts", () => {
     expect(btn.hidden).toBe(false);
     expect((container.querySelector("i") as HTMLElement).className).toBe("");
     const shapes = capture.events.filter(
-      e => e.code === "ATTRIBUTE_SLOT_POSITION" && (e.data as any).reason === "fill-shape"
+      e => e.code === "BINDING_SLOT_POSITION" && (e.data as any).reason === "fill-shape"
     );
     expect(shapes.map(e => e.data)).toEqual([
       { reason: "fill-shape", occurrence: "node#0", shape: "a DOM node" },
@@ -807,7 +964,7 @@ describe("attribute slots through server-component mounts", () => {
     expect(shapes[0].message).toContain("returned a DOM node");
     expect(shapes[1].message).toContain("the client prop is an object, not a function");
     expect(
-      warn.mock.calls.filter(c => String(c[0]).includes("[ATTRIBUTE_SLOT_POSITION]")).length
+      warn.mock.calls.filter(c => String(c[0]).includes("[BINDING_SLOT_POSITION]")).length
     ).toBe(2);
     capture.stop();
     warn.mockRestore();
@@ -859,7 +1016,7 @@ describe("attribute slots through server-component mounts", () => {
     flush();
     await settle();
     const orphans = capture.events.filter(
-      e => e.code === "ATTRIBUTE_SLOT_POSITION" && (e.data as any).reason === "orphan"
+      e => e.code === "BINDING_SLOT_POSITION" && (e.data as any).reason === "orphan"
     );
     expect(orphans.length).toBe(1);
     expect(orphans[0].data).toMatchObject({ why: "record", occurrence: "row#9" });

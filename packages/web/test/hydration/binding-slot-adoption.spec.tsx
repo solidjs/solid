@@ -2,15 +2,15 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-// Attribute slots (server-components-principles.md §9.2.3) at t=0: the document
+// Binding slots (server-components-principles.md §9.2.3) at t=0: the document
 // face ran the fill on the server and wrote each position's value beside
-// its marker (pinned by test/server/frame-attribute-slots.spec.tsx). Adoption
+// its marker (pinned by test/server/frame-binding-slots.spec.tsx). Adoption
 // mounts the occurrence from the `sc:slot:` record — the hydration attach:
 // the fill runs on the client with the same args and writes the same
 // values (idempotent), and from then on the positions are the client's:
 // client state moves them, handlers dispatch, refs fire with the adopted
 // elements. (Morphs around owned positions after a later response are
-// pinned by test/frames-attribute-slots.spec.tsx.)
+// pinned by test/frames-binding-slots.spec.tsx.)
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createSignal, flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
@@ -35,7 +35,7 @@ function makeHost() {
 
 const FID = "todos/list";
 
-describe("attribute-slot adoption at t=0", () => {
+describe("binding-slot adoption at t=0", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delete (globalThis as any)._$HY;
@@ -80,11 +80,14 @@ describe("attribute-slot adoption at t=0", () => {
       () => (
         <List
           row={(p: any) => {
-            const done = toggled() === p.id ? !p.completed : p.completed;
-            runs.push(`row:${p.id}:${done}`);
+            runs.push(`row:${p.id}`);
             return {
-              done,
-              removed: removed() === p.id,
+              get done() {
+                return toggled() === p.id ? !p.completed : p.completed;
+              },
+              get removed() {
+                return removed() === p.id;
+              },
               toggle: () => events.push(`toggle:${p.id}`),
               box: (el: Element) => refs.push(el)
             };
@@ -102,7 +105,7 @@ describe("attribute-slot adoption at t=0", () => {
     const li2 = container.querySelector('li[_key="2"]') as HTMLLIElement;
     const input1 = li1.querySelector("input") as HTMLInputElement;
     const input2 = li2.querySelector("input") as HTMLInputElement;
-    expect(runs).toEqual(["row:1:false", "row:2:true"]);
+    expect(runs).toEqual(["row:1", "row:2"]);
     expect(li2.className).toBe("todo completed");
     expect(input2.checked).toBe(true);
     expect(input1.checked).toBe(false);
@@ -118,6 +121,8 @@ describe("attribute-slot adoption at t=0", () => {
     setRemoved("2");
     flush();
     expect(li2.hidden).toBe(true);
+    // The getters moved the positions; the fill itself never re-ran.
+    expect(runs).toEqual(["row:1", "row:2"]);
     expect(refs).toEqual([input1, input2]);
 
     dispose();

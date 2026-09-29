@@ -18,6 +18,7 @@ import {
   flush,
   getOwner,
   Loading,
+  OBSERVE,
   onCleanup
 } from "solid-js";
 import { dynamic, registerElementClaim } from "../src/index.js";
@@ -858,6 +859,42 @@ describe("server components through dynamic", () => {
     expect(errors).toEqual([]);
     expect(div.querySelector("h1")!.textContent).toBe("Story 2");
 
+    dispose();
+    container.remove();
+  });
+
+  test("a template fill runs as a component body: a top-level read of its props is a one-time read dev names", async () => {
+    const capture = OBSERVE!.diagnostics.capture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", async () => storyResponse(1, "Solo", "hello"));
+    const Story = dynamic(() => getStory(1) as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>...</span>}>
+          <Story
+            comment={(p: any) => {
+              const text = p.text;
+              return <li>{text}</li>;
+            }}
+          />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("ul li")!.textContent).toBe("hello");
+    const strict = capture.events.filter(e => e.code === "STRICT_READ_UNTRACKED");
+    expect(strict).toHaveLength(1);
+    expect((strict[0].data as any).strictRead).toContain("`comment`");
+    capture.stop();
+    warn.mockRestore();
     dispose();
     container.remove();
   });

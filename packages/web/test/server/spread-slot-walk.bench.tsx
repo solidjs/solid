@@ -7,7 +7,7 @@
 //           row.removed, onClick: row.pick }}>`: one occurrence per row,
 //           read at a class-name, an attribute and a handler position. The
 //           walk mints three markers per element and the sink one record
-//           per occurrence — the per-row cost of an attribute slot.
+//           per occurrence — the per-row cost of a binding slot.
 //   armed — the same spread with plain string values: the gate is up (the
 //           `context.claims` read per element) but no value is an object,
 //           so every slot probe short-circuits. The control — what a

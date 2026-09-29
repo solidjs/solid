@@ -85,7 +85,7 @@ for the toggle's label; `todos-server`'s count wants it.
   hole already reaches the resolver with the stand-in.
 - Occurrence, key and encoding reuse `slotEntry`/`encodeSlotKey`
   (`server.ts:4794–4805`); the client decodes as `slotPositions` does.
-- Existing server spec to rewrite: `frame-attribute-slots.spec.tsx:963`
+- Existing server spec to rewrite: `frame-binding-slots.spec.tsx:986`
   ("a stand-in placed as text … renders NOTHING at t=0 too"). Its
   stringified and coerced cases stay findings.
 
