@@ -4033,3 +4033,297 @@ as an event stream (a header would put a third answer shape behind
 a URL caches already hold for the second — #3094 — and reads carry
 no transport header — #3406); a server-side `live` declaration may
 cross-check in dev but cannot decide (topology); (f) is the plan's.
+
+### 9.6 Stage 9 seed — mutations through a live connection (2026-09-28)
+
+Recorded from the fit conversation (§10); nothing here is built.
+The question that raised it: in the live quadrant, where does a
+rejected mutation live? The seed answers it, and finds that the
+answer is not the reason to build what the seed describes.
+
+**The observation: per-connection server memory already exists.**
+`examples/room`'s `presence` joins the room in the generator's
+frame and leaves in its `finally` — state that lives exactly as
+long as the connection, held by no store, owned by no request.
+§9.5's "the server remembers nothing" is a rule about RECONNECT
+(any instance answers any reconnect; the resumed render derives
+everything from durable state); it says nothing against a
+connection's own locals, which are the connection's for as long as
+it lives. What does NOT exist is a way for the client to reach that
+memory. Mutations are separate, stateless server functions; a live
+loop learns of them only through shared state (`send` → `post` →
+`notify` → `watchMessages` re-yields). That path carries FACTS
+about the room. A rejection is a fact about a request, and the
+room's feed has no place for it — which is why `room`'s composer
+catches the rejected `send` into a client signal, and why the
+transcript acknowledges the post through `until` on its own echo
+instead of through the mutation's response.
+
+**Three shapes, in order of how much they cost.**
+
+- **(A) Feed echo — today.** The mutation writes shared state; every
+  loop watching that state re-yields. Acknowledgement is the echo
+  (`until` on the authoritative view, never on the tab's own
+  optimistic row). Rejections are client state: one signal, cleared
+  by the next attempt. No mechanism; adequate wherever a rejection
+  is rare and its message is generic.
+- **(B) Sibling response — the recommended shape for rejections,
+  unverified.** The mutation is single-flight into a BOUNDED sibling
+  address — the composer, the form, the row's own editor — not into
+  the live one. Its response carries the rejection as server
+  markup (the Q5 rule in §10.3: a rejection's home is the response
+  that produced it), and the live transcript keeps streaming
+  untouched. No new mechanism, but two things to verify: the flight
+  collector must carry a non-redirect result alongside regions
+  (`notes` exercises redirects only), and the target must never be
+  the live address — §9.5 client-face item 4 makes a single-flight
+  region for a live address a supersession, hence a death, hence a
+  reconnect that would render the rejection away.
+- **(C) Connection inbox — the LiveView shape.** The client sends an
+  event UP the connection's identity (a `POST` to the live address
+  carrying the connection id, or any mutation call carrying it in a
+  header); in the live scope the component reads `inbox()`, an
+  async iterable of what arrived, `for await`s it beside its
+  sources, validates, updates its locals, and re-yields with the
+  rejection — or the "3 people typing", or the per-viewer cursor —
+  rendered into THIS connection's markup only. Combined with
+  attribute slots on the latency-sensitive positions this is
+  LiveView with two things LiveView lacks: HTML-first t = 0 with no
+  socket required to render, and optimistic feel that does not
+  depend on the round trip.
+
+**What (C) costs, honestly.**
+
+1. *Routing.* The event must reach the instance holding the
+   connection: sticky routing or a per-process bus; multi-instance
+   needs a broker. §9.5 deliberately avoided connection registries
+   and "any instance answers any reconnect" is what makes the live
+   tier deployable on ordinary backends. (C) narrows that
+   precondition the way "backends that hold connections" already
+   narrows it — documented like the HTTP/2 one, not hidden.
+2. *Loss on death.* Connection memory dies with the connection. By
+   the re-derivability line (§9.3: if losing the transport loses
+   the value, the value belonged in durable state) only things that
+   are FINE to lose may live there — presence, typing, in-progress
+   validation, the last rejection. A draft is not one of them.
+   Chaos reconnect is the enforcement: it must make visible what
+   state a death dropped.
+3. *Latency.* Acknowledgement is a round trip through the stream —
+   LiveView's known weakness. Attribute slots cover the optimistic
+   positions, so the weakness is confined to server-owned state,
+   which is the state that could not be optimistic anyway.
+4. *Surface.* A server authoring primitive (`inbox()` or its
+   equivalent), a client verb that names a connection, a
+   server-minted connection id the client can present (the SSE
+   `id:` field or a header on the first event is the natural home).
+   Every one of these is public API — flagged.
+
+**Position.** (A) is what ships. (B) is the answer to the question
+that raised this seed, and it needs a verification pass, not a
+design. (C) is a real design and should be gated on an example
+that (A) + (B) cannot express — per-viewer validation as you type,
+shared cursors, typing indicators — never on error handling. Errors
+do not justify (C); if nothing else does either, (C) stays a seed.
+
+**Deliberately absent:** WebSocket (still the carrier where an
+upstream is native; still deferred until (C) is more than a seed),
+any change to stateless reconnect, any cursor protocol.
+
+---
+
+## 10. Fit — where the design sits in the solution space (2026-09-28)
+
+Recorded from the conversation after the Stage 7 gate (§9.2.3), with
+Stages 1–8 built and PR #3704 the last heavy feature. Two questions
+were asked before advising anyone: where do server components fit,
+and which parts of what was built might be unnecessary. This section
+answers the first and frames the second as candidates with the
+evidence each needs. It sits above §9.2.3's placement principle —
+that principle decides where one ELEMENT lives; this section decides
+whether a COMPONENT should be a server component at all.
+
+### 10.1 Three axes, not one
+
+"How interactive is it" is the axis everyone reaches for and it does
+not sort the examples: a chat room and TodoMVC are both interactive
+and land in opposite corners. Three axes do:
+
+1. **Content weight** — how much markup per unit of state. A story
+   list is heavy; a checkbox is a bit.
+2. **Origin of change** — who changes the truth. Server-originated
+   (other users, time, systems) or client-originated (this user).
+   This axis decides *live*.
+3. **Client-owned position density** — on one element, the ratio of
+   positions the client owns (a class condition, a handler, a
+   `checked`) to content the server owns. This axis decides
+   *attribute slot vs client component*, and it is the one TodoMVC
+   fails.
+
+### 10.2 The five quadrants
+
+Each: the shape, the examples that have it, the mechanism that
+serves it, where a rejection lives, and a standing.
+
+**Q1 — Reading surfaces.** Heavy content, server-originated change,
+almost no client positions. Story lists, note lists, docs,
+dashboards, reports. Served by the core (Stages 1–5): single-copy
+HTML (A1), addresses (A3) and sites (A4), navigation as rebind,
+refetch as morph, hover preload isolation as a non-event, `$key`
+survival. The client ships no rendering code and no data layer for
+this content. Rejections: none — the render's own failures reach
+boundaries, `:error` records, and truncation (L1, §5.5). *Standing:
+the unambiguous best case; every axiom earns its keep here.*
+Examples: `hackernews`, `notes`' list.
+
+**Q2 — Feeds.** Heavy content that keeps changing without this
+user: transcripts, rooms, tickers, AI generation, presence. Served
+by live holes (Stage 3), liveness at t = 0 (Stage 4), the `live`
+transport (Stage 8): the document is v0, reconnect is conditional,
+one connection per address. This is the only quadrant where server
+memory legitimately exists — per connection, for the connection's
+life (`presence`'s join/leave). Rejections: a mutation into a feed
+is acknowledged by the feed's echo; the rejection itself has no
+home in the feed — §9.6. *Standing: second-strongest, and the case
+nothing else in the field serves without a client component per
+widget.* Examples: `room`, `chat`.
+
+**Q3 — Annotated server markup.** Heavy content with one or two
+client-owned positions per element: a `selected` class on a nav
+link, a copy button's handler, an expand toggle, `hidden` from a
+client-side filter, a table's sort indicators. Served by attribute
+slots (§9.2.3) with markup slots for the elements that exist only
+because of client state. The ratio is one to ten. Rejections: none
+(behavior only). *Standing: this is what attribute slots are for,
+and the advice writes itself — bind the position, don't lift the
+element.* Examples: `chat`'s `codeBlock`, `notes`' `search` field.
+
+**Q4 — Widgets.** Small data, this user's alone, changing faster
+than a round trip, with dense interaction on every element:
+TodoMVC, forms, editors, drag and drop, canvases. Served by a
+client component — in a markup slot when the shell around it is
+server markup — with the server component as shell and data
+source. Attribute slots CAN carry it (`todos-server` proved it:
+seven client-owned positions per row) and MUST NOT be the
+recommendation. Rejections: client state, trivially. *Standing: not
+a server-component case. The design's answer here predates Stage 7
+and is unchanged by it.* Example: `todos` (the SPA control).
+
+**Q5 — Collaborative lists.** Server truth that others see, mutated
+by this user, with optimistic feedback expected: toggling, voting,
+editing rows of a shared list. Both server- and client-originated
+at once, which is what makes it the hard quadrant. Served by
+single-flight mutations — the response carries the fresh regions
+AND the rejection — with attribute slots on the optimistic
+positions. Multi-flight (a write, then `refresh`) works and cannot
+carry a rejection: a refetch is a pure function of durable state.
+Rejections: in the mutation's response, server-rendered — a
+rejection is per request, not entity state, and its home is the
+response that produced it. Transport failures: client, one generic
+state, never per-row bookkeeping. *Standing: carries the most
+concepts of any quadrant.* `todos-server` is its worst case and not
+representative: it is a Q4 app wearing Q5 clothes. Example: `notes`'
+save/delete (single-flight by redirect); a proper Q5 example is a
+follow-up.
+
+The examples on the map:
+
+```text
+example          quadrant        role
+───────          ────────        ────
+hackernews       Q1              front door for the core
+hackernews-spa   —               client control for hackernews
+notes            Q1 + Q3 + Q5    list + search slot + single-flight mutations
+chat             Q2 + Q3         live generation + attribute slot
+room             Q2              live transport end to end
+todos            Q4              client control for todos-server
+todos-server     Q5 (worst)      acceptance gate for §9.2.3; not advice
+effect           —               data tier, no frames
+```
+
+### 10.3 Where a rejection lives — one rule per shape
+
+- A render's own failure → the boundary (L1, §5.5).
+- A single-flight rejection → the response, as markup (Q5).
+- A multi-flight rejection → nowhere good; the refetch cannot carry
+  it. This is what forced `errors` onto the client in
+  `todos-server`. The shape stays supported and stops being taught
+  for optimism.
+- A transport failure → the client, one generic state.
+- A rejection in the live quadrant → §9.6: today the client (A); the
+  recommended home is a bounded sibling's single-flight response
+  (B); server memory (C) is a design for other things.
+
+### 10.4 The advice, as rules of thumb
+
+1. **If the truth changes without this user, it is live.** Q2 —
+   declare it, and let the document be v0.
+2. **If the client owns more than a couple of positions on an
+   element, or the element exists because of client state, it is a
+   client component.** §9.2.3's placement principle decides this per
+   element; the ratio decides it per component. A server component
+   whose every element fails the ratio is a client component with a
+   server shell.
+3. **If this user changes the truth faster than a round trip, the
+   optimistic state is client-owned** and the server component is
+   the shell and the data source — Q4. When others must see the
+   change, it is Q5: single-flight, response carries the verdict.
+
+### 10.5 Candidates to evaluate against the map
+
+Candidates, not verdicts. Each names what it serves, the evidence
+today, its cost, a proposed disposition, and what would decide it.
+
+- **Multi-flight as the taught optimistic shape.** Serves Q5 by
+  composing plain server functions; required as plumbing. Evidence:
+  `todos-server` is built on it and needed a client error store to
+  compensate. Disposition: demote in the docs and examples, keep
+  the mechanism. Decides: rewrite `todos-server` around single-flight
+  with server-rendered rejections; if the row logic shrinks toward
+  the SPA's, the demotion is right.
+- **Attribute slots on dense elements.** Not a mechanism question.
+  The §9.2.3 record reads as if per-position binding is the default
+  for any server row; it should state the ratio and point Q4 at
+  client components. Disposition: docs.
+- **Container tier (Stage 5, projections across the border).**
+  Serves Q2's value-shaped live state — `chat`'s `usage` store is
+  exactly its case. Cost: ~7.1 KB brotli eager on every SC page
+  (size audit F4; B.2 plans the lazy load behind the server-driven
+  preload seam, §D). Disposition: pay-for-use, already planned. The
+  fit question — does any quadrant need it by DEFAULT — answers no,
+  which makes the packaging fix sufficient and deletion wrong.
+- **Live attribute holes (`data-lha`, Stage 3).** Serves Q2 when an
+  ATTRIBUTE, not content, changes server-side. Evidence: no example
+  is known to depend on it (to verify). Cost: attribute-area capture
+  and re-emission on both faces, plus the morph's handling.
+  Disposition: evaluate; if no example needs it, a candidate for the
+  live tier's pay-for-use split (size audit §E) or removal.
+- **Conditional reconnect (B4 have-list).** Serves Q2 with large
+  transcripts; paid only by `live`. Disposition: keep. The unbuilt
+  document-face ledger seeding (§9.5 client-face item 3) is the part
+  to question: it saves one morph per live frame per page load, and
+  quiet resume already guarantees no fallback flash. Decides:
+  measure the morph on `room` before building it.
+- **Liveness at t = 0 (Stage 4 `sc:live`, §9.5 B3).** Serves Q2
+  being HTML-first. Disposition: keep; re-read for simplification
+  once §9.6 decides whether connection state is a thing the design
+  acknowledges, since an inbox changes what "catch-up" means.
+- **Two mutation shapes.** Collapse to one story per quadrant:
+  single-flight for Q5, feed echo (or §9.6 B) for Q2, multi-flight as
+  plumbing nobody is taught. Disposition: docs.
+- **Behavior across the border (Stage 6 `_bnd`)** — retired by
+  §9.2.3. **`predict` (Stage 7 first form)** — retired by §9.2.2.
+  Nothing left to evaluate.
+
+### 10.6 Follow-ups this section implies
+
+- `server-components.md` gains a "when to reach for it" section
+  derived from 10.2 and 10.4; `11-server-components.md` links it.
+- §9.2.3 gains the ratio note.
+- `todos-server` becomes one of: the Q4 shape (the row as a client
+  component in a markup slot, honestly labelled as the shape for
+  widgets) or a proper Q5 example (single-flight with
+  server-rendered rejections). Its current shape should not be the
+  example anyone learns from. *Decided 2026-09-29: Q5; the per-example
+  plan is `documentation/plans/examples-grid-plan.md`.*
+- `notes` and `chat` become the front door for attribute slots.
+- §9.6 (B) gets its verification pass on the flight collector.
