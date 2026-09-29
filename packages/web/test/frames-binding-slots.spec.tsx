@@ -8,8 +8,9 @@
 // data context), so the frame mounts it once — the fill runs once with the
 // occurrence's args (live: re-emitted args flow into the same computation)
 // — and writes every consuming element's positions from the returned
-// object: attributes, class names and style properties by name, handlers
-// as stable dispatchers reading the latest output, refs once per element.
+// object: attributes, class names and style properties by name, text
+// between its `<!--_s:t=…-->` pair, handlers and refs read once when an
+// element binds.
 // The morph keeps the elements (keyed) and reads the same markers off
 // incoming markup to skip the client's positions, so a server re-render
 // can't strip a client-owned value between the morph and the fill's next
@@ -1093,6 +1094,358 @@ describe("binding slots through server-component mounts", () => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     expect(events).toEqual(["toggle:1"]);
     expect(doneReads).toBe(reads);
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a TEXT position: the fill writes between the markers, apart from the server's static text; a getter rewrites it; a refetch keeps the client's text", async () => {
+    // The stream face: an empty pair per text position, the zero-arg `list`
+    // and the called `row#1` beside the server's own text (` items left`,
+    // ` left` — the second in the compiler's insert range, as a child among
+    // siblings is).
+    let tail = " items left";
+    const [version, setVersion] = createSignal(1);
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: version() },
+        { type: "slot", id: ID, version: version(), key: "row#1", args: { id: "1" } },
+        {
+          type: "html",
+          id: ID,
+          version: version(),
+          html:
+            `<footer><strong><!--_s:t=list:remaining--><!--/_s:t--></strong>${tail}` +
+            `<ul><li _key="1"><label><!--_s:t=row#1:title--><!--/_s:t--></label>` +
+            `<span><!--$--><!--_s:t=row#1:count--><!--/_s:t--><!--/--> left</span></li></ul></footer>`
+        },
+        { type: "complete", id: ID, version: version() }
+      ])
+    );
+    const [remaining, setRemaining] = createSignal<unknown>(3);
+    const [count, setCount] = createSignal(2);
+    let builds = 0;
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            list={() => ({
+              get remaining() {
+                return remaining();
+              }
+            })}
+            row={() => {
+              builds++;
+              return {
+                title: "Hello <b>",
+                get count() {
+                  return count();
+                }
+              };
+            }}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const strong = container.querySelector("strong") as HTMLElement;
+    const label = container.querySelector("label") as HTMLElement;
+    const span = container.querySelector("span") as HTMLElement;
+    const footer = container.querySelector("footer") as HTMLElement;
+    // Written between the markers, as text (never parsed as markup).
+    expect(strong.textContent).toBe("3");
+    expect(strong.childNodes).toHaveLength(3);
+    expect(label.textContent).toBe("Hello <b>");
+    expect(label.children).toHaveLength(0);
+    // The value is its own text node; the static text beside it is the server's.
+    expect(span.textContent).toBe("2 left");
+    const countText = span.childNodes[2] as Text;
+    expect(countText.nodeType).toBe(3);
+    expect(countText.data).toBe("2");
+    expect(footer.textContent).toBe("3 items leftHello <b>2 left");
+    const remainingText = strong.childNodes[1] as Text;
+
+    // A getter's sources move: the same text node is rewritten in place.
+    setRemaining(2);
+    setCount(5);
+    flush();
+    expect(strong.childNodes[1]).toBe(remainingText);
+    expect(remainingText.data).toBe("2");
+    expect(countText.data).toBe("5");
+    // Numbers render, zero included; nullish and booleans clear.
+    setRemaining(0);
+    flush();
+    expect(strong.textContent).toBe("0");
+    setRemaining(null);
+    flush();
+    expect(strong.textContent).toBe("");
+    setRemaining(true);
+    flush();
+    expect(strong.textContent).toBe("");
+    setRemaining(4);
+    flush();
+    expect(strong.textContent).toBe("4");
+
+    // A refetch re-sends the empty pairs: the morph keeps the client's text
+    // (and its node) while the server's own text beside it updates.
+    tail = " items to go";
+    setVersion(2);
+    await cycle();
+    expect(container.querySelector("strong")).toBe(strong);
+    expect(strong.childNodes[1]).toBe(remainingText);
+    expect(strong.textContent).toBe("4");
+    expect(span.childNodes[2]).toBe(countText);
+    expect(footer.textContent).toBe("4 items to goHello <b>5 left");
+    expect(builds).toBe(1);
+    setCount(6);
+    flush();
+    expect(span.textContent).toBe("6 left");
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("another occurrence taking a TEXT position writes its own value; a position the server releases is the server's again and gets no final write", async () => {
+    // Positional ids: v1 renders rows [a, b] as `row#0`, `row#1`; v2 marks
+    // the kept first li for `row#1` (another occurrence at the same
+    // position); v3 keeps `row#1` alive on the li's `hidden` but releases
+    // its text — the server writes the li's content itself.
+    let shape = 1;
+    const [version, setVersion] = createSignal(1);
+    const html = () =>
+      shape === 1
+        ? `<ul><li><!--_s:t=row#0:title--><!--/_s:t--></li><li><!--_s:t=row#1:title--><!--/_s:t--></li></ul>`
+        : shape === 2
+          ? `<ul><li><!--_s:t=row#1:title--><!--/_s:t--></li></ul>`
+          : `<ul><li _s:hidden="row#1:gone">server text</li></ul>`;
+    vi.stubGlobal("fetch", async () => {
+      const v = version();
+      const chunks: any[] = [{ type: "start", id: ID, version: v }];
+      if (shape === 1)
+        chunks.push({ type: "slot", id: ID, version: v, key: "row#0", args: { name: "a" } });
+      chunks.push({ type: "slot", id: ID, version: v, key: "row#1", args: { name: "b" } });
+      chunks.push({ type: "html", id: ID, version: v, html: html() });
+      chunks.push({ type: "complete", id: ID, version: v });
+      return frameResponse(ID, chunks);
+    });
+    const [suffix, setSuffix] = createSignal("");
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={(p: any) => ({
+              get title() {
+                return p.name + suffix();
+              },
+              gone: false
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const [liA, liB] = Array.from(container.querySelectorAll("li"));
+    expect(liA.textContent).toBe("a");
+    expect(liB.textContent).toBe("b");
+
+    shape = 2;
+    setVersion(2);
+    await cycle();
+    const lis = Array.from(container.querySelectorAll("li"));
+    expect(lis).toEqual([liA]);
+    expect(liA.textContent).toBe("b");
+    setSuffix("!");
+    flush();
+    expect(liA.textContent).toBe("b!");
+
+    shape = 3;
+    setVersion(3);
+    await cycle();
+    expect(container.querySelector("li")).toBe(liA);
+    expect(liA.textContent).toBe("server text");
+    expect(liA.hidden).toBe(false);
+    setSuffix("?");
+    flush();
+    expect(liA.textContent).toBe("server text");
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("an element binding a handler, an attribute and TEXT from one occurrence is one consumer: a counter button keeps all three", async () => {
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: 1 },
+        { type: "slot", id: ID, version: 1, key: "row#0", args: {} },
+        {
+          type: "html",
+          id: ID,
+          version: 1,
+          html: `<p><button _s:aria-pressed="row#0:odd" _s:on:click="row#0:bump"><!--_s:t=row#0:count--><!--/_s:t--></button></p>`
+        },
+        { type: "complete", id: ID, version: 1 }
+      ])
+    );
+    const [count, setCount] = createSignal(0);
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              get count() {
+                return count();
+              },
+              get odd() {
+                return count() % 2 === 1 ? "true" : "false";
+              },
+              bump: () => setCount(c => c + 1)
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const button = container.querySelector("button") as HTMLButtonElement;
+    expect(button.textContent).toBe("0");
+    button.click();
+    flush();
+    expect(button.textContent).toBe("1");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    button.click();
+    flush();
+    expect(button.textContent).toBe("2");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a TEXT range the morph re-creates (same element, same key, new markers) rebinds and is written", async () => {
+    // v2 moves the server's text from before the pair to after it: the
+    // sibling-scoped morph lands the incoming pair as new nodes and removes
+    // the old ones, so the consumer is the same element and key at a new
+    // start marker — which must count as a change, or the empty new range
+    // is never written.
+    let shape = 1;
+    const [version, setVersion] = createSignal(1);
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: version() },
+        { type: "slot", id: ID, version: version(), key: "row#0", args: {} },
+        {
+          type: "html",
+          id: ID,
+          version: version(),
+          html:
+            shape === 1
+              ? `<p>by <!--_s:t=row#0:who--><!--/_s:t--></p>`
+              : `<p><!--_s:t=row#0:who--><!--/_s:t--> wrote</p>`
+        },
+        { type: "complete", id: ID, version: version() }
+      ])
+    );
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List row={() => ({ who: "ada" })} />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const p = container.querySelector("p") as HTMLElement;
+    expect(p.textContent).toBe("by ada");
+    shape = 2;
+    setVersion(2);
+    await cycle();
+    expect(container.querySelector("p")).toBe(p);
+    expect(p.textContent).toBe("ada wrote");
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
+  test("a non-primitive at a TEXT position is a `text-shape` finding and clears; markup belongs in a template slot", async () => {
+    const capture = OBSERVE!.diagnostics.capture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", async () =>
+      frameResponse(ID, [
+        { type: "start", id: ID, version: 1 },
+        { type: "slot", id: ID, version: 1, key: "row#0", args: {} },
+        {
+          type: "html",
+          id: ID,
+          version: 1,
+          html:
+            `<p><!--_s:t=row#0:obj--><!--/_s:t-->|<!--_s:t=row#0:list--><!--/_s:t-->|` +
+            `<!--_s:t=row#0:el--><!--/_s:t-->|<!--_s:t=row#0:fn--><!--/_s:t-->|` +
+            `<!--_s:t=row#0:ok--><!--/_s:t--></p>`
+        },
+        { type: "complete", id: ID, version: 1 }
+      ])
+    );
+    const [obj, setObj] = createSignal<unknown>({ a: 1 });
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List
+            row={() => ({
+              get obj() {
+                return obj();
+              },
+              list: ["x", "y"],
+              el: document.createElement("b"),
+              fn: () => "x",
+              ok: "ok"
+            })}
+          />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const p = container.querySelector("p") as HTMLElement;
+    expect(p.textContent).toBe("||||ok");
+    expect(p.querySelector("b")).toBeNull();
+    const shapes = () =>
+      capture.events.filter(
+        e => e.code === "BINDING_SLOT_POSITION" && (e.data as any).reason === "text-shape"
+      );
+    expect(shapes().map(e => e.data)).toEqual([
+      { reason: "text-shape", occurrence: "row#0", key: "obj", shape: "object" },
+      { reason: "text-shape", occurrence: "row#0", key: "list", shape: "an array" },
+      { reason: "text-shape", occurrence: "row#0", key: "el", shape: "a DOM node" },
+      { reason: "text-shape", occurrence: "row#0", key: "fn", shape: "function" }
+    ]);
+    expect(shapes()[0].message).toContain("template slot");
+    // Once the value is a primitive it renders.
+    setObj("fine");
+    flush();
+    expect(p.textContent).toBe("fine||||ok");
+    capture.stop();
+    warn.mockRestore();
     dispose();
     flush();
     container.remove();

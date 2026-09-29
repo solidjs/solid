@@ -3371,6 +3371,77 @@ object); it is an error today, so adding it later is not breaking.
   `STRICT_READ_UNTRACKED` ("an effect callback") for any fill with
   a ref; refs are read once, untracked, at bind now.
 
+#### 9.2.5 Amendment — binding slots: text positions (2026-09-29)
+
+Design: `documentation/plans/text-positions.md`. A binding-slot
+value placed as a child — `<strong>{list.remaining}</strong> items
+left` — is a position, like an attribute: the server writes the
+t = 0 value on the document face and nothing on the stream face,
+and the client owns the text from there.
+
+**The model.**
+
+- *A marker pair around the value.*
+  `<!--_s:t=<occurrence>:<key>-->` + text + `<!--/_s:t-->`. One
+  marker cannot work on either face: on the stream face the value is
+  empty, so there is no text node to find; on the document face it
+  merges with static text beside it (`3 items left`). The end marker
+  bounds the range on both. The entry is `slotEntry`'s encoding, and
+  occurrence ids are already encoded for comment contexts, so the
+  entry cannot close the comment. A child among siblings sits inside
+  the compiler's own `<!--$-->…<!--/-->` insert range, as any dynamic
+  child does.
+- *Primitives only, as a client insert renders them.* A string or
+  number renders (escaped on the server, `node.data` on the client);
+  `null`, `undefined` and booleans render empty. Anything else — an
+  object, an array, a node, a function — is the client's
+  `text-shape` finding and clears: markup belongs in a template
+  slot. A read off a fill that returned markup keeps the `markup`
+  finding and emits an empty pair.
+- *Both server walkers emit it.* `resolveSSRNode` (live holes,
+  element children) and `tryResolveString` (a `ssr()` hole's sync
+  path — `renderToString`, a component's `children`). The compiled
+  template is unchanged.
+- *Discovery rides the slot walk.* `collectSlots` already visits
+  every child of server-owned markup; a start marker registers
+  `{ pos: "text", key, start }` on its parent element's consumer
+  entry for the occurrence — the entry its attribute markers
+  opened, if any, so an element is one consumer however its
+  positions are spelled. Two entries for one element would each
+  treat the other's handler as released. `consumersEqual` compares
+  `start`: a pair the morph re-creates is a consumer change.
+- *The occurrence's one effect writes it.* Text values are read in
+  the compute phase beside the other value positions and written
+  into the range's one text node, created between the markers when
+  absent. A primitive-only write is attribute-shaped, so it needs
+  no effect of its own.
+- *The morph keeps a pair it meets again.* An incoming start marker
+  meeting an old one with the same data skips both ranges, keeping
+  the old interior — the text analogue of the same-slot-range
+  skip. Anything else reconciles as ordinary nodes; the consumer
+  change that follows rebinds the owner. No relocation index: the
+  interior is one text node the owner rewrites on rebind. A pair
+  the server stops emitting is the server's again and gets no final
+  write, as a released attribute.
+
+**The raw-text rule.** A binding value is never the content of a
+raw-text element — `<textarea>`, `<title>`, `<style>`, `<script>`
+— where a comment is literal text and the markers would land in the
+content. `<textarea>` binds `value=`; a style binds a style
+property. Stated, not checked: the resolver does not know the
+parent, and a compiler check would add a code path to every SSR
+output (the SSR compile is one compile; `serverComponents` is a
+setting on it) for a misuse only server components can make. In
+`<textarea>` and `<title>` a violation shows on first render; in
+`<style>` and `<script>` it can fail silently.
+
+This supersedes, in 9.2.3: text positions "deferred, not rejected"
+("Rules of the shape"), "a text child" among the coercions that
+render nothing, and the open item; in its build record, "placed as
+text" among the misuses. The `text` finding reason is retired. The
+rule's sentence widens with it: **a slot property is a JSX
+attribute value or a text child, whole, and nothing else.**
+
 ### 9.3 Stage 8 seed — connection-shaped transport (2026-08-17)
 
 Recorded from the design conversation; nothing here is built (the

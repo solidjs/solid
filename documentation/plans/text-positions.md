@@ -1,9 +1,10 @@
 # Text positions
 
-Status: design for review, 2026-09-29. Gap G1 in
+Status: implemented 2026-09-29 (principles §9.2.5). Gap G1 in
 [`examples-grid-plan.md`](./examples-grid-plan.md); builds on
 [`binding-slot-execution.md`](./binding-slot-execution.md) (G2), and lands
-after it. Decisions recorded; ready for implementation review.
+after it. Where the build departed from this text it is corrected in place,
+marked _(as built)_.
 
 A binding slot's value placed as a child — `<a>{t.label}</a>`,
 `<strong>{list.remaining}</strong> items left` — becomes a position the
@@ -54,7 +55,11 @@ for the toggle's label; `todos-server`'s count wants it.
    marker. It never enters slot-range interiors or nested frames, so only
    server-owned markup can hold one. `consumersEqual` also compares
    `start`. No parent-element marker is needed: the walk that finds slot
-   ranges finds these at no extra traversal.
+   ranges finds these at no extra traversal. _(As built: the position
+   joins the parent's EXISTING consumer entry for the occurrence when its
+   attribute markers opened one. Two entries for one element each treat
+   the other's handler as released — a counter button,
+   `<button onClick={row.bump}>{row.count}</button>`, lost its handler.)_
 4. **Client write.** The occurrence's one value effect writes a text
    position as `node.data = String(v)` into the range's one text node,
    creating it between the markers when absent (the stream face, or an
@@ -82,7 +87,11 @@ for the toggle's label; `todos-server`'s count wants it.
 ## Checks made before writing
 
 - The compiled server template needs no change for ordinary parents: the
-  hole already reaches the resolver with the stand-in.
+  hole already reaches the resolver with the stand-in. _(As built: two
+  resolvers, not one. `resolveSSRNode` sees it under live holes and in
+  element children; `tryResolveString`, a `ssr()` hole's sync path, sees
+  it under `renderToString` and through a component's `children`, where
+  it fell to `unrecognizedInsert`. Both emit the pair.)_
 - Occurrence, key and encoding reuse `slotEntry`/`encodeSlotKey`
   (`server.ts:4794–4805`); the client decodes as `slotPositions` does.
 - Existing server spec to rewrite: `frame-binding-slots.spec.tsx:986`
@@ -131,7 +140,9 @@ for the toggle's label; `todos-server`'s count wants it.
    another occurrence taking the same position; server release; a
    non-primitive finding.
 2. Server: the resolver branch; `slotTextPosition` removed. No compiler
-   change.
+   change. The writer rides on the stand-in (`slotValue` sets it), so the
+   resolvers only call it: a server render with no binding slots does not
+   retain it (the `renderToString` floor, #3722).
 3. Client: discovery in `collectSlots`, `consumersEqual`, the write in the
    occurrence's computation, the morph skip.
 4. Docs in the same PR: §9.2.3 (text joins the position kinds; the finding

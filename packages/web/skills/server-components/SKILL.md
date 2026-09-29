@@ -82,7 +82,7 @@ an async value is a type error on both sides (`BindingSlot`'s return is
 
 ## The one rule for binding slots
 
-> **A slot property is a JSX attribute value, whole, and nothing else.**
+> **A slot property is a JSX attribute value or a text child, whole, and nothing else.**
 
 Legal positions: an attribute (`hidden={row.removed}`, `checked={row.done}`,
 `title={row.error}`), a class name inside object form
@@ -91,8 +91,12 @@ Legal positions: an attribute (`hidden={row.removed}`, `checked={row.done}`,
 an event (`onInput={row.onToggle}`), a ref (`ref={row.ref}`) — on an element
 with a spread too (`<button {...rest} onClick={row.go} />` — the last
 source that has the key wins, `undefined` included, as the client's
-spread reads it). Not a `prop:*`
-property, not a text child, not inside another slot call's args (nested in
+spread reads it) — and a text child (`<strong>{list.remaining}</strong> items
+left`): a string or number renders, nullish and booleans render empty, and
+the client owns the text between a `<!--_s:t=…-->` marker pair. Never the
+content of `<textarea>`, `<title>`, `<style>` or `<script>`, where the
+markers would be literal text — bind `value=` or a style property there.
+Not a `prop:*` property, not inside another slot call's args (nested in
 plain objects and arrays included). Reserved keys the fill must not use:
 keys beginning with `$` or a digit, `length`, `slice`, `t`/`h`/`p`, `then`,
 `constructor`/`toString`/`valueOf`/`toJSON`; anything else (`filter`, `map`
@@ -107,16 +111,18 @@ nothing can be computed from it on the server. Every one of these is wrong:
 | ``class={`todo ${row.done}`}``                                         | stringified: not the whole value                                                      | `class={{ todo: true, completed: row.done }}` or return `rowClass` from the fill                 |
 | `row.count > 3 ? "a" : "b"`                                            | comparison on a stand-in                                                              | decide in the fill; return the decided value                                                     |
 | `if (row.error) …`, `row.error && <button/>`, `<Show when={row.done}>` | truthiness: a stand-in is an object and **always truthy** — the branch always renders | presence → `hidden={…}` or a class; a node that exists because of client state → a template slot |
-| `<strong>{row.count}</strong>`                                         | text is not a bindable position yet                                                   | a template slot for the text                                                                     |
+| `<strong>{row.label}</strong>` where the fill returns JSX for `label`  | a text position renders a string or number                                            | a template slot for markup                                                                       |
+| `<textarea>{row.draft}</textarea>`                                     | raw-text content: the markers land in the text                                        | `value={row.draft}`                                                                              |
 | `format(row.title)` (a server helper)                                  | the helper receives a stand-in                                                        | do the formatting in the fill                                                                    |
 | `<li {...row}>`                                                        | spread: the template must show what the client owns                                   | name each position                                                                               |
 | `onClick={() => …}` on a server element                                | a server function can never run in the browser                                        | bind a slot property or a form `action`                                                          |
 | `onKeyDown={[row.key, 1]}`                                             | a tuple: a marker names keys, never data                                              | return `onKeyDown: [handler, data]` from the fill; bind `onKeyDown={row.onKeyDown}`              |
 
-Every case except truthiness is a dev finding (`BINDING_SLOT_POSITION`)
-and renders **nothing on either face**, so it shows on the first render.
-Truthiness has no runtime hook: if a retry button appears on every row, this
-is why.
+Every case except truthiness and raw-text content is a dev finding
+(`BINDING_SLOT_POSITION`) and renders **nothing on either face**, so it
+shows on the first render. Truthiness has no runtime hook: if a retry button
+appears on every row, this is why. Raw-text content has none either; in
+`<textarea>` and `<title>` the markers show as text.
 
 ## Writing the fill
 
@@ -201,7 +207,6 @@ cannot be marked — the `inline` finding below.
 | `spread`       | error (throws) | a slot's return was spread onto an element                                                                                                      | name each position                                                                                                                                                |
 | `stringified`  | warn           | template literal / concatenation                                                                                                                | whole value at one position                                                                                                                                       |
 | `coerced`      | warn           | comparison, arithmetic, `==`                                                                                                                    | decide in the fill                                                                                                                                                |
-| `text`         | warn           | placed as a text child                                                                                                                          | template slot                                                                                                                                                     |
 | `inline`       | warn           | reached `class`/`style` inside template quotes                                                                                                  | compile with `serverComponents: true`                                                                                                                             |
 | `markup`       | warn           | the fill returned JSX but the template read a property                                                                                          | return an object, or place the slot                                                                                                                               |
 | `server-local` | warn           | a server function at `on*`/`ref`                                                                                                                | bind a slot property                                                                                                                                              |
@@ -210,9 +215,10 @@ cannot be marked — the `inline` finding below.
 | `arg`          | warn           | a slot property passed in another slot call's argument (nested in plain objects/arrays; `data.path`)                                            | pass the server's own value, or read it in the fill from client state                                                                                             |
 | `prop`         | warn           | a slot property at a `prop:*` key of a spread                                                                                                   | bind the attribute form, or set the property in the fill's ref                                                                                                    |
 | `fill-shape`   | warn (client)  | the fill returned a non-object (`null`, array, DOM node, async value, primitive), or the prop read as data is not a function                    | return a plain object from a function prop                                                                                                                        |
+| `text-shape`   | warn (client)  | a text position received a non-primitive (object, array, DOM node, function, async value — `data.key`, `data.shape`)                            | return a string or number; markup goes in a template slot                                                                                                         |
 | `orphan`       | warn (client)  | markers for an occurrence that can never bind: `data.why` `"fill"` — no fill for the prop; `"record"` — a called occurrence with no args record | `fill`: pass the prop / match the name on both sides. `record`: not the fill — rebuild client and server together (stale prebundle, cached asset), else report it |
 
-Every reason but `fill-shape` and `orphan` comes from the server render.
+Every reason but `fill-shape`, `text-shape` and `orphan` comes from the server render.
 `orphan` is the one failure this model cannot otherwise show you: the
 element is inert — a handler that never fires, a class that never updates —
 with no error.
