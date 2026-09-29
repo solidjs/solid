@@ -2923,7 +2923,7 @@ module.exports = [
     // (12,695 -> 12,708), fb4e637ad moved `sharedConfig` after it (12,708 ->
     // 12,704); both modules are external, so the bytes are brotli layout
     // across the two import statements, as in the #3470 note above.
-    // Size-Exception (binding-slot text positions, 2026-09-29): 12.71 ->
+    // Size-Exception (#3714, 2026-09-29): 12.71 ->
     // 12.98 KB, measured at 12,963 B against #3713 @ 73640f5cd's 12,694
     // (+269 B; 253 B over the cap; +760 B minified, 40,194 -> 40,954). A
     // binding-slot value placed as a child is a position the client owns:
@@ -3027,7 +3027,7 @@ module.exports = [
     // measured at 45,943 B against `next` @ bf87f27de's 45,904 (+39 B; +105 B
     // minified). Same latch change as the `+ every store` note. Accepted by
     // the maintainer. The cap is frozen again at 45.95 KB.
-    // Size-Exception (binding-slot text positions, 2026-09-29): 45.95 ->
+    // Size-Exception (#3714, 2026-09-29): 45.95 ->
     // 46.21 KB, measured at 46,204 B against #3713 @ 73640f5cd's 45,934
     // (+270 B; 254 B over the cap; +760 B minified). The frames client's
     // text-position bytes (the frames note, +269 B there); nothing of this
@@ -3105,7 +3105,7 @@ module.exports = [
     // instead of a memo and an own listener; the code shrinks, and brotli
     // layout amplifies it here (the frames scenario measures -2 B). Accepted
     // by the maintainer. The cap is frozen again at 50.15 KB.
-    // Size-Exception (binding-slot text positions, 2026-09-29): 50.15 ->
+    // Size-Exception (#3714, 2026-09-29): 50.15 ->
     // 50.35 KB, measured at 50,346 B against #3713 @ 73640f5cd's 50,150
     // (+196 B; 196 B over the cap; +760 B minified). The same text-position
     // bytes as the base page; brotli layout absorbs some of them here.
@@ -3147,7 +3147,7 @@ module.exports = [
     // 5efaf260b, 20,356 B (71,723 B minified) with the floor scenario's
     // shaking fixes (the stub gap-fill set, the heartbeat, `Feature` reads);
     // cap 20.36 KB, measured rounded up to the next 0.01 kB.
-    // Size-Exception (binding-slot text positions, 2026-09-30): 20.36 ->
+    // Size-Exception (#3714, 2026-09-30): 20.36 ->
     // 20.38 KB, measured at 20,372 B against #3713 @ 73640f5cd's 20,356
     // (+16 B; 12 B over the cap; -35 B minified, 71,723 -> 71,688). The
     // resolvers call a text writer the stand-in carries instead of writing
