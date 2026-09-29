@@ -785,9 +785,12 @@ describe("the request record", () => {
     await vi.waitFor(() => expect(left).toHaveLength(1));
     const { live } = left[0];
     // Reconstructed BEFORE the record was delivered: the request listener
-    // reads it, and the transport's send is untouched by the read.
+    // reads it, and the transport's send is untouched by the read. ONE
+    // `Request` for both records, so the body is read through a clone —
+    // the documented way — and stays whole for the "call" listener.
     expect(live.request).toBeInstanceOf(Request);
-    expect(await live.request!.text()).toBe(wire.calls[0].init.body);
+    expect(await live.request!.clone().text()).toBe(wire.calls[0].init.body);
+    expect(live.request!.bodyUsed).toBe(false);
     expect(live.response).toBeUndefined();
 
     wire.answer(jsonResponse({ n: 2 }));
@@ -799,6 +802,59 @@ describe("the request record", () => {
     expect(live.response!.bodyUsed).toBe(false);
     expect(live.result).toEqual({ n: 2 });
     expect(live.request).toBe(left[0].live.request);
+    // The "call" listener still reads the shared request's body in full.
+    expect(settled[0].live.request!.bodyUsed).toBe(false);
+    expect(await settled[0].live.request!.text()).toBe(wire.calls[0].init.body);
+  });
+
+  test("the shared request's body reads once: read directly at the send, it is spent for the call listener", async () => {
+    const left = requests({ bodies: true });
+    const settled = calls();
+    vi.stubGlobal("fetch", async () => jsonResponse(1));
+    // The documented consequence of the shared handle: a listener that
+    // reads `live.request.text()` rather than `live.request.clone().text()`
+    // leaves the other record's listener a consumed body.
+    unsubscribes.push(
+      OBSERVE!.records.subscribe("request", (_event, live) => {
+        void live.request!.text();
+      })
+    );
+    await createServerReference("requests/spent")({ a: 1 });
+    expect(left[0].live.request).toBe(settled[0].live.request);
+    expect(settled[0].live.request!.bodyUsed).toBe(true);
+  });
+
+  test("the live is filled on every settle — a request listener alone reads the outcome off it", async () => {
+    const left = requests();
+    const wire = deferredFetch();
+    const pending = createServerReference("requests/filled")({ a: 1 });
+    await vi.waitFor(() => expect(left).toHaveLength(1));
+    const { live } = left[0];
+    expect(live.response).toBeUndefined();
+    expect(live.result).toBeUndefined();
+
+    const answer = jsonResponse({ n: 3 });
+    wire.answer(answer);
+    expect(await pending).toEqual({ n: 3 });
+    // No "call" listener anywhere, no "call" record — and the object the
+    // request listener holds has the settle on it regardless: the
+    // transport's own response (no clone without a "call" bodies opt-in)
+    // and the result.
+    expect(live.response).toBe(answer);
+    expect(live.response!.bodyUsed).toBe(true);
+    expect(live.result).toEqual({ n: 3 });
+    expect(live.error).toBeUndefined();
+
+    // And the error, for a call that failed.
+    const failure = new TypeError("network down");
+    vi.stubGlobal("fetch", async () => {
+      throw failure;
+    });
+    await expect(createServerReference("requests/filled-error")()).rejects.toBe(failure);
+    expect(left).toHaveLength(2);
+    expect(left[1].live.error).toBe(failure);
+    expect(left[1].live.result).toBeUndefined();
+    expect(left[1].live.response).toBeUndefined();
   });
 
   test("bodies on the request subscription alone reconstructs live.request; a bodies-less call listener beside it gets the same", async () => {
@@ -997,13 +1053,15 @@ describe("the request record", () => {
     }
   });
 
-  test("a request listener alone: the observation exists, the request is delivered, and the call gate is fixed at the call's start", async () => {
+  test("a request listener alone: the observation exists, the request is delivered, and no call record is built — the gate is the call's start's", async () => {
     const left = requests();
     const wire = deferredFetch();
     const pending = createServerReference("requests/alone")();
     await vi.waitFor(() => expect(left).toHaveLength(1));
-    // A "call" listener arriving mid-call hears nothing of this call: the
-    // gate was read once, at the start, when there was none.
+    // The observation was opened with no "call" listener, so this call
+    // builds no "call" record: one arriving mid-call has nothing to hear —
+    // not because it arrived late, but because the gate was closed when
+    // the call started (the next test is the other case).
     const late = calls();
     wire.answer(jsonResponse("ok"));
     expect(await pending).toBe("ok");
@@ -1014,6 +1072,71 @@ describe("the request record", () => {
     expect(left).toHaveLength(2);
     expect(late).toHaveLength(1);
     expect(late[0].live).toBe(left[1].live);
+  });
+
+  test("gated per call, delivered per emission: a listener subscribing mid-call hears the records that fire after it", async () => {
+    const left = requests();
+    const settled = calls();
+    const wire = deferredFetch();
+    const pending = createServerReference("requests/mid-call")();
+    await vi.waitFor(() => expect(left).toHaveLength(1));
+    // The "call" gate was open at the start (`settled` was there), so the
+    // settle record is built — and delivered to whoever is subscribed the
+    // moment it fires: a second "call" listener that arrived after the
+    // send hears this call's settle without ever having seen its
+    // "request". A "request" listener arriving now hears nothing of this
+    // call: its record already fired.
+    const lateCalls = calls();
+    const lateRequests = requests();
+    wire.answer(jsonResponse("ok"));
+    expect(await pending).toBe("ok");
+    expect(settled).toHaveLength(1);
+    expect(lateCalls).toHaveLength(1);
+    expect(lateCalls[0].live).toBe(left[0].live);
+    expect(lateCalls[0].event).toBe(settled[0].event);
+    expect(lateRequests).toHaveLength(0);
+  });
+
+  test("a throwing prepareRequest: nothing was handed to fetch, so no request record — one call record, outcome error", async () => {
+    const left = requests();
+    const settled = calls();
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const failure = new Error("no session");
+    try {
+      configureServerFunctionsClient({
+        prepareRequest: () => {
+          throw failure;
+        }
+      });
+      await expect(createServerReference("requests/unprepared")()).rejects.toBe(failure);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(left).toHaveLength(0);
+      expect(settled).toHaveLength(1);
+      expect(settled[0].event.outcome).toBe("error");
+      expect(settled[0].live.error).toBe(failure);
+    } finally {
+      resetClientConfig();
+    }
+  });
+
+  test("a fetch that throws synchronously: the request was handed to fetch, so its record is delivered; the call says how it ended", async () => {
+    const left = requests();
+    const settled = calls();
+    const failure = new TypeError("refused to send");
+    // Not a rejection — a throw from `fetch` itself. "Left" means handed
+    // to `fetch`, not that it reached the network.
+    vi.stubGlobal("fetch", () => {
+      throw failure;
+    });
+    await expect(createServerReference("requests/sync-throw")()).rejects.toBe(failure);
+    expect(left).toHaveLength(1);
+    expect(left[0].event.id).toBe("requests/sync-throw");
+    expect(settled).toHaveLength(1);
+    expect(settled[0].live).toBe(left[0].live);
+    expect(settled[0].event.outcome).toBe("error");
+    expect(settled[0].event.status).toBeUndefined();
+    expect(left[0].live.error).toBe(failure);
   });
 
   test("a throwing request listener is reported; the call, its record and the other listeners are unaffected", async () => {
