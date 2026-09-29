@@ -173,7 +173,16 @@ there is nothing to diff.)
   staged under the transaction — the adoption's notification ran before the
   node existed and the drain has nothing left to say. (The #3336 PR adds the
   same for setter-staged `pb` holds and makes the first tracked read serve
-  the node's value; the two compose.)
+  the node's value; the two compose.) The unit of the hold is the **key**
+  the adoption changed, not the container (#3706; the fold hold's `wk` rule,
+  #3688): `adoptPB` records the adopted object, and the keys it changed
+  against `hv` are computed once, on the first held read (own on both, never
+  an accessor, same enumerability, slot equality) — so a mainline setter
+  write during the hold, which replaces the backing, is never counted as the
+  adoption's. A get/has/descriptor read of any other key is served from the
+  backing to every reader and is not born holding. Keyless reads (`ownKeys`,
+  `$TRACK`, `deep()`), chained backings, optimistic families and a swapped
+  or non-plain prototype hold the whole container.
 
 ## 4. Identity rules
 

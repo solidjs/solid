@@ -310,6 +310,8 @@ export function getNode(
     //    committed is the held view `hv[key]`, staged is `v[key]`.
     const fold = heldFoldTransition(target);
     let held = heldAdoptionTransition(target);
+    // A key the adoption left unchanged is not born holding (#3706).
+    if (held !== null && !heldKey(target, key)) held = null;
     if (held !== null) current = (target.hv as any)[key];
     else if ((held = fold) !== null) current = (target.v as any)[key];
     // Create-floor diet: slotSignal bakes the whole node into one literal —
@@ -435,6 +437,51 @@ function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
   }
   enterStagedRead(null, txn);
   return true;
+}
+
+// #3706: the keys an adoption under a live hold changed against the held
+// view — the adoption twin of `wk` (#3688), keyed on the target. adoptPB
+// records `[adopted object]`; the keys are diffed against IT, once, on the
+// first held read (its children are re-pointed by then), and replace the
+// entry. Never against the live backing — a mainline write during the hold
+// replaces that, and its key is not the adoption's. WK_ALL holds the whole
+// container.
+const heldKeys = new WeakMap<StoreNextTarget, [object] | Set<PropertyKey>>();
+
+function heldKey(target: StoreNextTarget, key: PropertyKey): boolean {
+  let keys = heldKeys.get(target)!;
+  if (Array.isArray(keys)) heldKeys.set(target, (keys = adoptionChangedKeys(target, keys[0])));
+  return keys === WK_ALL || keys.has(key);
+}
+
+function adoptionChangedKeys(target: StoreNextTarget, v: any): Set<PropertyKey> {
+  const hv = target.hv!;
+  // A chained backing, an optimistic family, a chained held view, a swapped
+  // or non-plain prototype (inherited accessors read through `this`): whole.
+  if (
+    v[$TARGET] !== undefined ||
+    target.fam?.opt === true ||
+    (hv as any)[$TARGET] !== undefined ||
+    Object.getPrototypeOf(hv) !== Object.getPrototypeOf(v) ||
+    !plainProto(v)
+  )
+    return WK_ALL;
+  const keys = new Set<PropertyKey>();
+  // Accessors are never invoked: they and a flipped enumerability are changes.
+  for (const key of Reflect.ownKeys(hv))
+    if (
+      !hasOwn.call(v, key) ||
+      isOwnAccessor(hv, key) ||
+      isOwnAccessor(v, key) ||
+      propertyIsEnumerable.call(hv, key) !== propertyIsEnumerable.call(v, key) ||
+      !(
+        isEqual(hv[key as any], v[key as any]) ||
+        sameLogicalSlot(target, hv[key as any], v[key as any])
+      )
+    )
+      keys.add(key);
+  for (const key of Reflect.ownKeys(v)) if (!hasOwn.call(hv, key)) keys.add(key);
+  return keys;
 }
 
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
@@ -942,6 +989,7 @@ export function adoptPB(
     if (heldMaskView(target) === null) target.hv = target.v;
     target.ht = activeTransition ?? PLAIN_HOLD;
     if (!eager && activeTransition !== null) heldAdoptions.add(target);
+    heldKeys.set(target, [incoming]);
   }
   target.pb = null;
   // Overlay and accessor-scan state describe the OUTGOING backing — a
@@ -1785,7 +1833,8 @@ function foldHeld(target: StoreNextTarget): boolean {
 }
 
 /** The backing a reader is served. `key` (the get/has/descriptor traps)
- * scopes a fold hold to the keys the fold touched — see pendingBackingVisible. */
+ * scopes a fold hold to the keys the fold touched — see pendingBackingVisible —
+ * and an adoption hold to the keys the adoption changed (heldKey). */
 function readSource(target: StoreNextTarget, key?: PropertyKey): Record<PropertyKey, any> {
   // Adoption hold first (#3074): an adoption staged under a live transaction
   // (or a latest()-pull, PLAIN_HOLD) serves the pre-hold committed view to
@@ -1795,7 +1844,9 @@ function readSource(target: StoreNextTarget, key?: PropertyKey): Record<Property
   const ht = target.ht;
   if (ht !== null && !latestReadActive && !inDraft(target) && !getWriteOverride()) {
     const hv = heldMaskView(target);
-    if (hv !== null) {
+    // A key the adoption left unchanged derives nothing from the hold, for
+    // any reader (#3706): the backing serves it.
+    if (hv !== null && (key === undefined || heldKey(target, key))) {
       const c = readerContext();
       if (
         c === null ||

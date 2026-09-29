@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+Reading a store key a derived store's adoption left unchanged no longer holds the reader with the transaction that adopted it (#3706). Confirming one optimistic move while another was pending landed the authoritative array on the derived base store under the still-open transaction, and the adoption-hold arm of `readSource` entered every deriving read of that container into the transaction: a memo reading `drag() === cards[0].id` beside an independent `drag` signal was held until the second move settled, and `isPending(drag)` went true. The adoption hold is now key-scoped like the fold hold (#3688): the keys an adoption changed against the held view are recorded once per adoption (own on both backings, never an accessor, same enumerability, the store's slot equality so a re-ingested row is the same logical slot) and a get/has/descriptor read of any other key is served with no entry and no stale replay. Keyless reads (`ownKeys`, `$TRACK`, `deep()`), chained backings, optimistic families and a swapped or non-plain prototype keep the whole-container hold.
