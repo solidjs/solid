@@ -22,9 +22,12 @@
  *    the platform/tier conditions pick the same build the app runs) and
  *    declared here with their signatures spelled out, because the main
  *    entries mark them `@internal` and strip them from their declarations.
+ *    The boundary primitives behind `Errored`, `Loading`, and `Reveal` are
+ *    read back the same way (real on both entries), for renderers that
+ *    build boundaries without the components.
  */
 import * as core from "solid-js";
-import type { ServerErrorHook, ServerErrorSite } from "solid-js";
+import type { Accessor, RevealOrder, ServerErrorHook, ServerErrorSite } from "solid-js";
 
 export {
   mergeSources,
@@ -117,3 +120,22 @@ export const materializeContainerTrace: (marker: {
   $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
   $ta?: number;
 }) => unknown = core.materializeContainerTrace as any;
+
+/** The primitive behind `<Errored>`: `fn()`, or `fallback(error, reset)` once something under it throws. */
+export const createErrorBoundary: <T, U>(
+  fn: () => T,
+  fallback: (error: Accessor<unknown>, reset: () => void) => U
+) => Accessor<T | U> = core.createErrorBoundary;
+
+/** The primitive behind `<Loading>`: `fallback()` while async reads under `fn` are pending, else `fn()`. */
+export const createLoadingBoundary: <T, U>(
+  fn: () => T,
+  fallback: () => U,
+  options?: { on?: () => any }
+) => Accessor<T | U> = core.createLoadingBoundary;
+
+/** The primitive behind `<Reveal>`: coordinates when the loading boundaries under `fn` reveal. */
+export const createRevealOrder: <T>(
+  fn: () => T,
+  options?: { order?: () => RevealOrder; collapsed?: () => boolean }
+) => T = core.createRevealOrder;

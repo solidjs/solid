@@ -99,9 +99,6 @@ export {
   sharedConfig,
   enableHydration,
   createRoot,
-  createErrorBoundary,
-  createLoadingBoundary,
-  createRevealOrder,
   createMemo,
   createSignal,
   createStore,
@@ -118,6 +115,15 @@ export {
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
 export { materializeContainerTrace } from "./client/hydration.js";
+// The boundary primitives behind `Errored`, `Loading` and `Reveal`: exported
+// at runtime (typed for renderers through `solid-js/internal`), `@internal`
+// because application code should use the components.
+/** @internal */
+export {
+  createErrorBoundary,
+  createLoadingBoundary,
+  createRevealOrder
+} from "./client/hydration.js";
 // Stub exports — only meaningful on the server entry; the client entry
 // satisfies the export surface so isomorphic builds don't break.
 /** @internal */

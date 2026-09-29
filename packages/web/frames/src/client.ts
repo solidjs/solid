@@ -17,7 +17,6 @@
 // state survive (policy A).
 
 import {
-  createLoadingBoundary,
   createMemo,
   createOwner,
   createRenderEffect,
@@ -51,7 +50,7 @@ import {
   reviveContainerTraces,
   setContainerTraceMaterializer
 } from "./frame-container-plugin.js";
-import { materializeContainerTrace } from "solid-js/internal";
+import { createLoadingBoundary, materializeContainerTrace } from "solid-js/internal";
 
 setContainerTraceMaterializer(materializeContainerTrace);
 
