@@ -610,6 +610,8 @@ async function createRequest(base, id, options, meta) {
     }
     init = prepared || init;
   }
+  // The send, as observed: the `"request"` record leaves from here — the
+  // final address and init, immediately before `fetch` receives them.
   if (IS_OBSERVE && observation) observation.request(base, init);
   const send = config.fetch || fetch;
   return send(base, init);
@@ -725,8 +727,10 @@ async function initializeResponse(base, id, options, args, meta) {
 // arguments ride pre-encoded in the url (wire args empty) — a handler keying
 // state by the call (function + arguments) must still see the real ones.
 // Observe tier: the `"call"` record (`OBSERVE.records`, see `CallEvent`) —
-// the call as the caller awaited it, request through decode; with no
-// listener the dispatch runs bare, not even reading the clock. The wrapper
+// the call as the caller awaited it, request through decode — and the
+// `"request"` record beside it (see `CallRequestEvent`), delivered from
+// `createRequest` at the send; with no listener for either the dispatch
+// runs bare, not even reading the clock. The wrapper
 // exists in the observe and dev artifacts only: `fetchServerFunction` below
 // is the dispatch itself where the literal folds, so prod pays neither the
 // extra frame nor the promise hop.

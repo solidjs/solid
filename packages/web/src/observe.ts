@@ -1,8 +1,9 @@
 // This runtime's records on `OBSERVE.records` (see `Records` in
 // @solidjs/signals): the TYPES of every record `@solidjs/web` emits, on
-// either platform, and the emitters for the client's — the `"call"` record
-// (a server-function call made from the browser) and the client half of the
-// `"frame"` record (a frame stream applied). The server's emitters — the
+// either platform, and the emitters for the client's — the `"request"` and
+// `"call"` records (a server-function call made from the browser: the
+// request left; the call settled) and the client half of the `"frame"`
+// record (a frame stream applied). The server's emitters — the
 // `"invocation"` and `"render"` records and the frame's server half — are
 // in server-observe.ts, which needs the server runtime; this module needs
 // nothing of either platform's runtime, so every entry bundles it.
@@ -271,37 +272,47 @@ export interface CallEvent {
 }
 
 /**
- * The live half of a call, for in-process consumers. `error` is the value
- * as thrown to the caller — a decoded server error, or the transport's own
- * failure. The bodies — `request`, and `response` as an unread clone — are
- * a body viewer's (devtools' network panel), and are taken only while a
- * `"call"` listener asked for them
- * (`OBSERVE.records.subscribe("call", fn, { bodies: true })`): each costs
- * the call a reconstruction and a transient double-buffer of the payload,
- * which a consumer that reads ids, statuses and timings never pays. With
- * no such listener `request` is absent and `response` is the transport's
- * own object, consumed by its decode. Whether bodies are taken is read once,
+ * The live half of a call, for in-process consumers — ONE object across
+ * the call's records: the same `CallLive` is handed to the `"request"`
+ * listener at the send and to the `"call"` listener at settle, filled in
+ * as the call proceeds (`args` from the start, `request` at the send,
+ * `response` and `result`/`error` at settle), so an in-process consumer
+ * joins a call's request to its settle by identity — the way `origin`
+ * joins a record to the interaction's — with no id-plus-time join and no
+ * sequence number. `error` is the value as thrown to the caller — a
+ * decoded server error, or the transport's own failure. The bodies —
+ * `request`, and `response` as an unread clone — are a body viewer's
+ * (devtools' network panel), and are taken only while a listener asked for
+ * them (`OBSERVE.records.subscribe("call", fn, { bodies: true })`, or the
+ * same on `"request"` for the request alone): each costs the call a
+ * reconstruction and a transient double-buffer of the payload, which a
+ * consumer that reads ids, statuses and timings never pays. With no such
+ * listener `request` is absent and `response` is the transport's own
+ * object, consumed by its decode. Whether bodies are taken is read once,
  * as the call starts.
  */
 export interface CallLive {
   args: unknown[];
   /**
-   * Bodies opted in: the request as dispatched — the final url and
-   * `RequestInit` (the transport's headers, the `prepareRequest` hook
-   * applied), built into a `Request` of the listener's own at the send, so
-   * its headers and body are readable in full and reading them touches
-   * nothing the transport sent. Built WITH the body only when the body has
-   * a shape a second `Request` can hold without a competing consumer —
-   * `string`, `URLSearchParams`, `FormData`, `Blob`, `ArrayBuffer` or a
-   * view of one — and WITHOUT it otherwise (a `ReadableStream` or an async
-   * iterable, the transport's streaming-upload contract: reconstructing
-   * one would consume it ahead of the send), so the request then reads as
-   * bodyless. Absent without the opt-in; when the call failed before the
-   * request was built (argument serialization threw); when the address is
-   * relative and there is no `location` to resolve it against (absent
-   * beats a URL that was never sent); and when the reconstruction itself
-   * failed (an init the `Request` constructor rejects but the configured
-   * `fetch` tolerates) — a reconstruction never fails the call.
+   * Bodies opted in — by a `"call"` listener or a `"request"` listener
+   * (`observed("call", "bodies") || observed("request", "bodies")`): the
+   * request as dispatched — the final url and `RequestInit` (the
+   * transport's headers, the `prepareRequest` hook applied), built into a
+   * `Request` of the listener's own at the send, so its headers and body
+   * are readable in full and reading them touches nothing the transport
+   * sent. Set before the `"request"` record is delivered, so that listener
+   * reads it too. Built WITH the body only when the body has a shape a
+   * second `Request` can hold without a competing consumer — `string`,
+   * `URLSearchParams`, `FormData`, `Blob`, `ArrayBuffer` or a view of one
+   * — and WITHOUT it otherwise (a `ReadableStream` or an async iterable,
+   * the transport's streaming-upload contract: reconstructing one would
+   * consume it ahead of the send), so the request then reads as bodyless.
+   * Absent without the opt-in; when the call failed before the request was
+   * built (argument serialization threw); when the address is relative and
+   * there is no `location` to resolve it against (absent beats a URL that
+   * was never sent); and when the reconstruction itself failed (an init
+   * the `Request` constructor rejects but the configured `fetch`
+   * tolerates) — a reconstruction never fails the call.
    */
   request?: Request;
   /**
@@ -332,6 +343,58 @@ export interface CallLive {
 }
 
 export type CallListener = (event: CallEvent, live: CallLive) => void;
+
+// --- "request": a server-function request left, from the client ---------------
+
+/**
+ * One server-function request LEFT the browser — delivered on
+ * `OBSERVE.records.subscribe("request", …)` at the send: after the
+ * arguments were serialized and `prepareRequest` had its say, immediately
+ * before the transport's `fetch` is handed the request. The `"call"`
+ * record of the same call follows at settle; this one exists because that
+ * one cannot show a call that is still in flight, or one that never
+ * settles (a hung fetch) — a network panel's pending row. The two records
+ * share their `CallLive` by identity (see `CallLive`): the object handed
+ * here is the object handed to the `"call"` listener, so an in-process
+ * consumer joins them with no id-plus-time join and no sequence number.
+ *
+ * Emitted only for a request that was sent: a call that failed before its
+ * request was built (argument serialization threw) emits no `"request"` —
+ * only its `"call"` settle; a call an integration answered locally (a
+ * handler's `intercept`) made no request and emits neither. A deferred or
+ * streaming result emits `"request"` at the send and `"call"` at handoff,
+ * as today. Serializable; `live.request` (under `bodies`) rides beside it.
+ */
+export interface CallRequestEvent {
+  /**
+   * Which end recorded it. Only `"client"` exists today — the request left
+   * the browser. The server half (the request arrived, ahead of its
+   * `"invocation"`) is `"server"`, additive later, the way the `"frame"`
+   * record has two halves.
+   */
+  side: "client";
+  /** The function id — the same `id` the call's `"call"` and the server's `"invocation"` carry. */
+  id: string;
+  /** The function's source name, by the same rule as `CallEvent.name`. */
+  name?: string;
+  /**
+   * `performance.now()` at the send — when the request was handed to
+   * `fetch`, after serialization and `prepareRequest`. NOT the call's
+   * `CallEvent.at`, which is when the call was made: the gap between them
+   * is what building the request cost (an async `prepareRequest`
+   * included), and `CallEvent.at + durationMs` is never before this.
+   */
+  at: number;
+  /** `GET` for a GET-encoded read (`GET(fn)`), `POST` otherwise — as on `CallEvent`. */
+  method: "GET" | "POST";
+  /**
+   * What the call ran for — the same object `CallEvent.origin` carries,
+   * read at dispatch (see `CallEvent.origin` for the rule).
+   */
+  origin?: ChangeOrigin;
+}
+
+export type CallRequestListener = (event: CallRequestEvent, live: CallLive) => void;
 
 // --- "frame": a frame stream, produced (server) or applied (client) ------------
 
@@ -454,6 +517,12 @@ declare module "solid-js" {
     render: { event: RenderEvent; live: RenderLive };
     /** Server-function calls, from the client — see `CallEvent`. */
     call: { event: CallEvent; live: CallLive };
+    /**
+     * Server-function requests left, from the client — see
+     * `CallRequestEvent`; the `live` is the call's own, shared with its
+     * `"call"` record.
+     */
+    request: { event: CallRequestEvent; live: CallLive };
     /** Frame streams, produced or applied — see `FrameEvent`. */
     frame: { event: FrameEvent; live: FrameLive };
   }
@@ -520,6 +589,7 @@ export interface CallObservation {
   /**
    * The request is about to be sent: the address and the final
    * `RequestInit` — what the transport's `fetch` receives, hook applied.
+   * The `"request"` record is delivered from here.
    */
   request(url: string, init: RequestInit): void;
   /** The response arrived (before decode); its status goes on the record. */
@@ -531,9 +601,10 @@ export interface CallObservation {
 /**
  * Opens the observation of one server-function call from the client, as
  * the request is about to be built; the runtime reports the request as it
- * is sent, the response when it arrives and the settle when the caller
- * gets its answer. `undefined` with no listener or outside observe builds
- * — the runtime then does nothing extra, not even read the clock.
+ * is sent (the `"request"` record), the response when it arrives and the
+ * settle when the caller gets its answer (the `"call"` record). `undefined`
+ * with no listener for either record or outside observe builds — the
+ * runtime then does nothing extra, not even read the clock.
  */
 export function observeCall(
   id: string,
@@ -543,17 +614,31 @@ export function observeCall(
 ): CallObservation | undefined {
   if (!IS_OBSERVE) return undefined;
   const channel = records();
-  if (channel === undefined || !channel.observed("call")) return undefined;
+  if (channel === undefined) return undefined;
+  // Every gate is read ONCE, here, as the call starts — which records it
+  // delivers and whether bodies are taken for them — so a subscription
+  // that arrives or leaves mid-call cannot leave a call with a `"request"`
+  // and no `"call"` (or the reverse), or a record with a clone and no
+  // request. A `"call"` listener alone, a `"request"` listener alone, or
+  // both: the observation exists for either.
+  const observedCall = channel.observed("call");
+  const observedRequest = channel.observed("request");
+  if (!observedCall && !observedRequest) return undefined;
   const at = performance.now();
-  // Bodies are taken only for a listener that asked (see `CallLive`), and
-  // the question is asked ONCE, here: a subscription that arrives or
-  // leaves mid-call cannot leave the record with a clone and no request,
-  // or the reverse.
+  // Bodies are taken only for a listener that asked (see `CallLive`). The
+  // request is reconstructed for a `"request"` listener's opt-in as much as
+  // a `"call"` listener's — it is the `"request"` record's own live handle
+  // — while the response clone is the `"call"` record's alone.
   const bodies = channel.observed("call", "bodies");
+  const requestBodies = bodies || channel.observed("request", "bodies");
   // Provenance is read NOW, at the call site, where the handler's or the
-  // recompute's frame is still open; by settle it is long gone.
+  // recompute's frame is still open; by the send it is gone (an async
+  // `prepareRequest` intervenes), by settle long gone.
   const origin = currentOrigin();
-  let request: Request | undefined;
+  // ONE live object for the call's records (see `CallLive`): handed to the
+  // `"request"` listener at the send and to the `"call"` listener at
+  // settle, filled in between — the identity IS the join.
+  const live: CallLive = { args };
   let response: Response | undefined;
   let clone: Response | undefined;
   let settled = false;
@@ -562,8 +647,19 @@ export function observeCall(
       // The send keeps its `(address, init)` shape — a configured `fetch`
       // does not branch on whether devtools are attached — so what the
       // listener gets is a reconstruction of the dispatched request, the
-      // listener's own to read.
-      if (bodies) request = reconstructRequest(url, init);
+      // listener's own to read. Built BEFORE the record is delivered, so
+      // the `"request"` listener finds it on `live`; a reconstruction that
+      // failed leaves `live.request` absent and the record still goes out
+      // — the request was sent either way.
+      if (requestBodies) {
+        const request = reconstructRequest(url, init);
+        if (request !== undefined) live.request = request;
+      }
+      if (!observedRequest) return;
+      const event: CallRequestEvent = { side: "client", id, at: performance.now(), method };
+      if (name !== undefined) event.name = name;
+      if (origin !== undefined) event.origin = origin;
+      channel.emit("request", event, live);
     },
     response(r) {
       response = r;
@@ -586,12 +682,15 @@ export function observeCall(
     settle(outcome, value) {
       if (settled) return;
       settled = true;
+      // The `"call"` gate as it stood at the call's start: with a `"request"`
+      // listener alone the observation exists for that record, and the
+      // settle delivers nothing — not to a `"call"` listener that arrived
+      // mid-call either (no clone was taken for it: `bodies` was false).
+      if (!observedCall) return;
       const event: CallEvent = { id, at, durationMs: performance.now() - at, method, outcome };
       if (name !== undefined) event.name = name;
       if (response !== undefined) event.status = response.status;
       if (origin !== undefined) event.origin = origin;
-      const live: CallLive = { args };
-      if (request !== undefined) live.request = request;
       if (outcome === "ok") {
         live.result = value;
         if (isDeferredBody(value)) {
