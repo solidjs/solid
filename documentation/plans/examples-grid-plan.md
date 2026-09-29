@@ -52,6 +52,49 @@ data is one line each side (`codeBlock={() => ({ onCopy })}` on the client,
 more than an object literal; where one does, that is a §9.2.3 ergonomics
 finding to raise, not something example code hides.
 
+**Authoring layout** (decided 2026-09-29, every example with a server
+side, twins included). One screen is one file; the directive marks the
+server part in place:
+
+- A server component is a function-level `"use server"` inside its client
+  wrapper, in the file that uses it:
+  `const getStory = query(async (id: string) => { "use server"; … }, "story")`.
+  The binding is the wrapper, so the name is the server function's name
+  (`getStory`, as any server function is named) and there is no second
+  name to invent. Actions likewise (`action(async (…) => { "use server"; … })`).
+- The route file holds the screen: its query with the server component
+  inline, server-only helpers the component renders (a recursive
+  `Comment`), the slot's type, and the route component with its fills
+  inline. Everything referenced only from `"use server"` bodies is pruned
+  from the client build.
+- A route file exports only what the router reads — its default component
+  and `preload`. The query, helpers and types stay module-private; a query
+  is exported only when another screen shares it.
+- `src/server/` holds only server-only modules (`hn.ts` and its capture,
+  `db.ts`), each beginning `import "server-only";` — the vite plugin's
+  boundary marker, which fails the build if the module reaches a client
+  bundle — and imported by namespace (`hn.getStory`, `db.getTodos`), so
+  the data layer echoing the server function's name reads as intended.
+  Mixed files (the route files) never import the marker. Inline in a mixed
+  file goes only markup and helpers whose leak would be harmless; secrets,
+  server APIs and heavy data live behind the marker.
+- `src/` is otherwise client and flat: `app.tsx`, `routes/`, `types.ts`.
+  No `lib/`, no `api.ts`; `components/` only when there are client
+  components.
+
+Verified against the toolchain (not yet by an example build): the
+directive pass extracts an inline `"use server"` inside `query(…)` and
+names it from the enclosing binding (`getStory-<hash>`, not an anonymous
+ordinal — stable across reordering); a module-level helper and a
+namespace import used only by server bodies are absent from the client
+output (compiler fixtures `nested-functions`, `dead-code-scoped`, and a
+direct run of the route-file shape); `serverFunctions.components` installs
+its result transforms globally and turns on `serverComponents` for every
+SSR compile, so neither depends on the directive's level; a non-exported
+wrapper registers exactly as an exported one. The first example PR
+confirms with its build: passing with the `server-only` markers in place
+(pruning precedes resolution) and failing on a deliberate client import.
+
 ## The map
 
 ```text
@@ -82,30 +125,53 @@ owning it (`chat`).
 
 ## Per-example disposition
 
-### `hackernews` — bottom-left, reads. KEEP; one binding change + README
+### `hackernews` — bottom-left, reads. KEEP; collapse → binding slot, layout, README. Blocked on G1, G2
 
 The front door: the simplest server component, navigation over server
 markup, a single stateful client concern. Its layering moment is comment
 collapse — client state on server-rendered elements deep in a tree, surviving
-navigation. Today that is a `Toggle` client component wrapping a markup slot
-(`toggle={p => <Toggle>{p.children}</Toggle>}`); under §9.2.3's placement
-principle a thread exists because the server has comments, so it is server
-markup and the collapse is an attribute slot (`class` and `onClick` bound on
-the server's own elements). Convert it; it is the idiomatic form and the
-example gets smaller. README repositioned to the coordinate and twin.
+navigation. Today that is a `Toggle` client component wrapping a template
+slot (`toggle={p => <Toggle>{p.children}</Toggle>}`); under §9.2.3's
+placement principle a thread exists because the server has comments, so it
+is server markup and the collapse is a binding slot.
 
-### `hackernews-spa` — top-left. KEEP as is
+Target shape (reviewed 2026-09-29): the recursive `Comment` is a server
+component and the client never sees the tree — per comment with replies, one
+`props.toggle({ $key: c.id })` call whose properties bind the toggle's
+`open` class, its `onClick`, its label (text position, G1) and the replies'
+`display`. The fill is the SPA twin's `Toggle` almost line for line, under
+G2's execution model: a signal in the fill body (it runs once per
+occurrence), getters over it, `onToggle` as a plain handler; `$key` makes
+the state follow the comment across refetches and die with it, as in the
+SPA. No store, no client components. Markup stays byte-identical to the
+twin's. In the authoring layout the screen is `routes/story.tsx` —
+`getStory` with the server component inline, `Comment`, the `Toggle`
+bindings interface and `ToggleSlot`, the route component with the fill
+inline — over `server/hn.ts`; `lib/`, `views.tsx`, `api.ts` and
+`components/` go. Example-local fixes riding along: `CommentDefinition`
+gains the `id` the data already carries; the README's "`$key` keeps it
+attached" claim becomes true (today no key is passed); the bundle check
+can grep `comment-children` too.
 
-The twin; exists only as the comparison. README names the coordinate.
+### `hackernews-spa` — top-left. KEEP; layout only
 
-### `notes` — middle-left, the RSC coordinate. KEEP; README only
+The twin; exists only as the comparison. README names the coordinate. Takes
+the authoring layout: each route file's `query` carries its server function
+inline over `server/hn.ts` (a plain server-only module, no longer a
+module-level `"use server"` file). Diffing the twins then shows the thesis
+at the route file: the same `getStory`, returning JSON in one and markup in
+the other, and client components in one only.
+
+### `notes` — middle-left, the RSC coordinate. KEEP; authoring layout + README
 
 React's own server-components demo ported: client islands whose state
 survives server updates around them, single-flight mutations by redirect,
-the search field as the idiomatic attribute slot. Its layering moment is the
+the search field as the idiomatic binding slot. Its layering moment is the
 editor keeping its draft while the sidebar list refreshes around it — the
 "shared client state preserved" line the HTML-partial tools cannot cross.
-Code unchanged; README repositioned. The overlap with `chat` (both are
+Behavior unchanged; the code moves to the authoring layout (queries and
+actions inline in the files that use them, `server/` for `db.ts`) and the
+README is repositioned. The overlap with `chat` (both are
 sidebar + viewer + mutations) is intentional: opposite sides of the grid,
 different audience.
 
@@ -124,7 +190,7 @@ history.
 
 Target: the write side of the HTMX corner, made enviable rather than
 mimicked. Server markup throughout; every mutation a compiler-claimed
-`<form action={x.with(...)}>` that works without JS; **one** attribute slot
+`<form action={x.with(...)}>` that works without JS; **one** binding slot
 with **one** position (`done`) fed by an optimistic store the action writes
 before it yields; single-flight responses that morph the row back. About
 ten lines of client code, no component beyond the root, instant toggles.
@@ -133,7 +199,7 @@ its error and a retry form. Layering moment: the optimistic toggle.
 
 Scope line: toggle, remove, and add are optimistic. If any of them needs
 more than a store write inside its action, it is not slick and it is out
-(the pending-row-for-add markup slot is the first candidate to fall; the
+(the pending-row-for-add template slot is the first candidate to fall; the
 README may describe it as the increment). Bulk actions stay plain forms.
 Pending feedback, if the router marks a submitting claimed form
 (`aria-busy` / `data-pending`), is CSS only — see V4.
@@ -146,8 +212,8 @@ the request, with the thread a `live` server component projecting durable
 state (close the tab, come back, caught up in one morph; two tabs agree);
 real model with the fake as no-key fallback; structured message parts;
 stop / regenerate / rename / delete as forms; the optimistic user bubble as
-a client element in a markup slot cleared by `until` on the echo; copy
-button as the attribute slot; native `<details>` for collapse. Failed
+a client element in a template slot cleared by `until` on the echo; copy
+button as the binding slot; native `<details>` for collapse. Failed
 generations are facts about the thread — durable, server-rendered with a
 retry. Absorbs `room`'s `/` page. The `usage` projection goes (token usage
 is a number on the finished message), which removes the container tier's
@@ -217,6 +283,75 @@ Off-grid on purpose. `rendering` is the one kitchen sink.
   runtime adopts `moveBefore()` behind feature detection (a runtime
   behaviour change — flagged, no API surface).
 
+## Gaps (found by writing the examples)
+
+Each example is written in its ideal shape first. Where that shape needs
+something the framework lacks, the gap is recorded here and the example is
+not done while it blocks it — no workaround in example code.
+
+Vocabulary (settled 2026-09-29): a server component hands the client one
+of two things, as Solid's compiler splits JSX into templates and bindings.
+A **template slot** (`Slot<Args>`) is placed; the client fills it with
+markup. A **binding slot** (`BindingSlot<Args, Bindings>`, today
+`AttributeSlot`) is called for an object whose properties the server puts
+at positions and never computes with. The name speaks to the server
+author, where the misuse happens: `DataSlot` and `PropsSlot` both read as a
+value to branch on, and a stand-in is always truthy.
+
+- **G2 — Binding-slot execution model.** First, because the rest builds on
+  it. The fill runs in a memo today (`bindDataOccurrence`), which makes a
+  plain-looking body reactive, disposes state created in it on the first
+  eager re-run, and made getters look necessary while one render effect
+  per occurrence made them pointless; handlers are dispatched through a
+  frames-own listener that bypasses delegation. Settled:
+  - A slot is always a function; each call is an occurrence with its own
+    scope, run once, untracked, with live args — as a template slot's
+    fill already runs. Args are optional; the scope is why a no-args slot
+    is still a function.
+  - It returns an object only: plain values (static), getters (reactive),
+    handlers and refs as values. Arrays, DOM nodes, functions and async
+    values are excluded — the existing `fill-shape` finding, and a
+    `SlotError` type constraint on `Bindings` (prototyped: a bad shape
+    fails at the server's use and the client's fill with the reason in
+    the message). The accessor return is deferred: getters are Solid's
+    idiom for a props-like object, `createMemo` in the body covers
+    "compute once, share", and a function return being an error today
+    keeps adding it later non-breaking.
+  - One render effect per consuming element, so a getter's change re-runs
+    only the elements that read it.
+  - Handlers and refs are read once and bound through `assign` /
+    `assignProp` — delegated as client JSX delegates, tuples and the
+    `dispatchAsInteraction` wrap for free; the own listener goes, fan-out
+    stays for merged refs only (duplicate named handlers are last-wins
+    since #3704).
+  - Rename `AttributeSlot` → `BindingSlot` and its diagnostic code.
+
+  Public changes (flagged): an eager plain-object fill stops updating;
+  handlers become delegated; the type is renamed and constrained; the
+  diagnostic code is renamed. Open, in the design
+  (`documentation/plans/binding-slot-execution.md`): the handler-tuple bug
+  (a server-side `onKeyDown={[row.key, 1]}` appears to lose its data —
+  reproduce first); the dev signal for top-level reads that no longer
+  track; an opaque `Bound<T>` server-side view of the bindings (touches
+  `jsx.d.ts`). The comments in `todos-server`'s `rowFor` and `notes`'
+  `searchField.ts` claiming per-position updates become true of getters
+  under this model; `notes`' getters stay (its keys have different
+  sources). Blocks `hackernews`.
+
+- **G1 — Text positions.** `{t.label}` as a child: a binding-slot value at
+  a text position. Today it renders nothing on either face and raises the
+  "placed as TEXT" finding (principles §9.2.3, open). Needs a content
+  marker pair (a parent-element `_s:text` marker so discovery stays in the
+  claim sweep), a text consumer beside G2's per-element consumers, morph
+  ownership of the range, and face parity; primitives only, anything else
+  stays a finding. Server side runtime-only as far as read — the resolver
+  already receives the stand-in. **Changes documented behavior**
+  (flagged). Design reviewed before code, after G2. Blocks `hackernews`;
+  `todos-server`'s count wants it.
+- **G3 — Server-only modules — resolved 2026-09-29.** The vite plugin's
+  `server-only` boundary marker enforces `src/server/` (authoring layout,
+  above). No framework change.
+
 ## Order
 
 _Revised 2026-09-29, #3704 merged: least work to most, one example per
@@ -225,16 +360,18 @@ written — the shape and its details are the deliverable. Server
 components are unreleased, so the flagships carry no deadline; the
 examples that are already right carry the most value per hour._
 
-1. README pass on the examples that are right today: `notes`,
-   `hackernews-spa`, `todos` (README only); `hackernews` (the `Toggle` →
-   attribute slot change, then README).
-2. `todos-server` reshape (V1–V4 first). Target decided 2026-09-29: the
+1. G2 (binding-slot execution), design then code.
+2. G1 (text positions), design then code.
+3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout.
+4. README and authoring-layout pass: `notes`, `todos` (and anything left
+   of `hackernews-spa`).
+5. `todos-server` reshape (V1–V4 first). Target decided 2026-09-29: the
    Q5 shape above — single-flight, server-rendered rejections, one
-   attribute slot with one position — not the Q4 wrap.
-3. `chat-flagship.md`, then `chat`.
-4. `board-flagship.md`, then `board`.
-5. Retire `room`.
-6. V5, then the `migrating-element` decision.
+   binding slot with one position — not the Q4 wrap.
+6. `chat-flagship.md`, then `chat`.
+7. `board-flagship.md`, then `board`.
+8. Retire `room`.
+9. V5, then the `migrating-element` decision.
 
 ## Follow-ups this plan creates
 
