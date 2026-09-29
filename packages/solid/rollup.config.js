@@ -47,10 +47,11 @@ const build = (input, name, external, isDev, isObserve) => ({
 
 const client = ["@solidjs/signals"];
 const server = ["@solidjs/signals", "stream"];
-// The refresh runtime imports the main entry ("solid-js") rather than
-// relative sources so it shares module state ($DEVCOMP, DEV) with the
-// solid-js instance the app resolves at build time.
-const refresh = ["solid-js", "@solidjs/signals"];
+// The refresh runtime imports the main entry ("solid-js", and its seams
+// through "solid-js/internal") rather than relative sources so it shares
+// module state ($DEVCOMP, DEV) with the solid-js instance the app resolves
+// at build time.
+const refresh = ["solid-js", "solid-js/internal", "@solidjs/signals"];
 
 export default [
   build("src/index.ts", "solid", client, false, false),

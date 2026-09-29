@@ -25,8 +25,7 @@ import {
   getOwner,
   OBSERVE,
   onCleanup,
-  runWithOwner,
-  sharedConfig
+  runWithOwner
 } from "solid-js";
 import type { Element as SolidElement } from "solid-js";
 // `insert` MUST resolve to the shared @solidjs/web instance the compiled app
@@ -50,7 +49,7 @@ import {
   reviveContainerTraces,
   setContainerTraceMaterializer
 } from "./frame-container-plugin.js";
-import { createLoadingBoundary, materializeContainerTrace } from "solid-js/internal";
+import { createLoadingBoundary, materializeContainerTrace, sharedConfig } from "solid-js/internal";
 
 setContainerTraceMaterializer(materializeContainerTrace);
 

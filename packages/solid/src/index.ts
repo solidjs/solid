@@ -82,7 +82,7 @@ export type {
 } from "@solidjs/signals";
 
 // needs wrappers
-export { $DEVCOMP, children, createContext, useContext } from "./client/core.js";
+export { children, createContext, useContext } from "./client/core.js";
 
 export type {
   ChildrenReturn,
@@ -96,7 +96,6 @@ export * from "./client/component.js";
 export * from "./client/flow.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
-  sharedConfig,
   enableHydration,
   createRoot,
   createMemo,
@@ -114,7 +113,9 @@ export {
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
-export { materializeContainerTrace } from "./client/hydration.js";
+export { materializeContainerTrace, sharedConfig } from "./client/hydration.js";
+/** @internal */
+export { $DEVCOMP } from "./client/core.js";
 // The boundary primitives behind `Errored`, `Loading` and `Reveal`: exported
 // at runtime (typed for renderers through `solid-js/internal`), `@internal`
 // because application code should use the components.

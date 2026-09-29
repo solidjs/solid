@@ -24,10 +24,12 @@
  *    entries mark them `@internal` and strip them from their declarations.
  *    The boundary primitives behind `Errored`, `Loading`, and `Reveal` are
  *    read back the same way (real on both entries), for renderers that
- *    build boundaries without the components.
+ *    build boundaries without the components, and so are `sharedConfig`
+ *    (the hydration/SSR coordination object) and the `$DEVCOMP` brand.
  */
 import * as core from "solid-js";
 import type { Accessor, RevealOrder, ServerErrorHook, ServerErrorSite } from "solid-js";
+import type { HydrationContext } from "./server/shared.js";
 
 export {
   mergeSources,
@@ -139,3 +141,71 @@ export const createRevealOrder: <T>(
   fn: () => T,
   options?: { order?: () => RevealOrder; collapsed?: () => boolean }
 ) => T = core.createRevealOrder;
+
+/**
+ * The shape `sharedConfig` has on either entry. The two objects share the
+ * name, not the members: the client's carries hydration state, populated by
+ * `enableHydration()` and the DOM runtime's `hydrate()`; the server's carries
+ * the render's `context` and the id allocator. Every member is therefore
+ * optional — a member is present only on the tier (and, for some, only in
+ * the phase) that sets it.
+ */
+interface SharedConfig {
+  /**
+   * Both: the next hydration key under the current owner, `undefined` under
+   * `NoHydration`. Server: always present. Client: assigned by
+   * `enableHydration()`, read only behind a `hydrating` check.
+   */
+  getNextContextId?: () => string | undefined;
+  /**
+   * Both, dev builds only: the id `getNextContextId()` would hand out next,
+   * read without consuming it (`undefined` outside an id-carrying tree).
+   * Callers gate on `_SOLID_DEV_`.
+   */
+  devPeekNextContextId?: () => string | undefined;
+  /** Server: the hydration context of the render in progress, absent outside one. */
+  context?: HydrationContext;
+  /** Client: whether a hydration pass is claiming server-rendered DOM right now. */
+  hydrating?: boolean;
+  /** Client: whether hydration has completed. */
+  done?: boolean;
+  resources?: { [key: string]: any };
+  /** Client: reads a serialized value by id from the hydration payload. */
+  load?: (id: string) => Promise<any> | any;
+  /** Client: whether the hydration payload carries `id`. */
+  has?: (id: string) => boolean;
+  /** Client: collects the server-rendered nodes under the hydration root `key` into `registry`. */
+  gather?: (key: string) => void;
+  /** Client: the server-rendered nodes of the active root, by hydration key. */
+  registry?: Map<string, object>;
+  /**
+   * Client: the registry/gather pair each streamed boundary registered
+   * under, keyed by boundary id, so a late resume claims against its own root.
+   */
+  boundaryScopes?: Map<string, { registry?: Map<string, object>; gather?: (key: string) => void }>;
+  captureBoundaryScope?: (id: string) => void;
+  cleanupFragment?: (id: string) => void;
+  loadModuleAssets?: (mapping: Record<string, string>) => Promise<void> | undefined;
+  completed?: WeakSet<object> | null;
+  events?: any[] | null;
+  verifyHydration?: () => void;
+  /** Client: whether a hydration pass is still claiming — absent means "not hydrating". */
+  isHydrationInProgress?: () => boolean;
+  /** Client: runs `callback` once all hydration completes — absent means it already has. */
+  onHydrationEnd?: (callback: () => void) => void;
+  /** Client: whether a render under the current owner is part of the claim in progress — absent means "claiming". */
+  isClaiming?: () => boolean;
+}
+
+/**
+ * The hydration/SSR coordination object the core shares with its renderers
+ * — the client entry's or the server entry's, whichever the app runs.
+ */
+export const sharedConfig: SharedConfig = core.sharedConfig;
+
+/**
+ * Dev builds: the brand the component wrapper sets on every component it
+ * runs (`Comp[$DEVCOMP] === true`), read by the refresh runtime and
+ * devtools. Other builds: a symbol nothing sets.
+ */
+export const $DEVCOMP: symbol = core.$DEVCOMP;

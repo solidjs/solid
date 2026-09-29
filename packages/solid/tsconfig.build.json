@@ -6,7 +6,8 @@
     "rootDir": "./src",
     "baseUrl": "",
     "paths": {
-      "solid-js": ["./src/index.ts"]
+      "solid-js": ["./src/index.ts"],
+      "solid-js/internal": ["./src/internal.ts"]
     }
   },
   "include": ["./src"]

@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { COMPOSED_BODY_FRAMING, ChildProperties, isHttpNavigationTarget } from "./constants.js";
 import {
-  sharedConfig,
   createRoot as root,
   getOwner,
   runWithOwner,
@@ -11,6 +10,7 @@ import {
   $PROXY
 } from "solid-js";
 import {
+  sharedConfig,
   ssrHandleError,
   creationStamp,
   inServerComponentScope,

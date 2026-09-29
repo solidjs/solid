@@ -3,7 +3,7 @@
  */
 import * as r from "../../src/server.js";
 import { renderToFrameStream } from "../../frames/src/frame-sink.js";
-import { sharedConfig } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import { describe, expect, it, vi } from "vitest";
 
 globalThis.TextEncoder = function () {

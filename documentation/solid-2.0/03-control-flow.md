@@ -160,11 +160,11 @@ configureClientErrors({
 render(() => <App />, root, undefined, { onError });
 ```
 
-- Fires when an `Errored` (or `createErrorBoundary`) collected a failure and renders its fallback. An **uncaught** error is not this hook's: nothing contained it, the reactive system halts (`REACTIVITY_HALTED`), and the cause goes to the platform's `reportError` — `window.onerror`, the channel every monitor and every `addEventListener("error")` already listens on. One event, one channel.
+- Fires when an `Errored` collected a failure and renders its fallback. An **uncaught** error is not this hook's: nothing contained it, the reactive system halts (`REACTIVITY_HALTED`), and the cause goes to the platform's `reportError` — `window.onerror`, the channel every monitor and every `addEventListener("error")` already listens on. One event, one channel.
 - **Once per error object**: a `reset()` that recomputes the same failing node re-collects the same error and says nothing new; a primitive thrown has no identity and is reported per sight.
 - `ownerPath` is where the error was **thrown** — labels root-first up the owner chain of the computation that threw (component labels and named primitives; the compiler's inner memos ride along by their default name) — and `boundaryPath` where it was **met**, the same labels up the `<Errored>`'s own chain: what broke, and what the user saw. Both where the runtime keeps owner names (the observe and dev artifacts; production owners carry none). When the throw crossed no computation the engine could name, `ownerPath` is the boundary's.
 - No return: the client has no wire to map for. A throwing hook is reported on the console and ignored — a monitor never takes the app down.
-- Pay-for-use: the hook machinery rides with `createErrorBoundary` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner, so `render` retains nothing for an app that passes none.
+- Pay-for-use: the hook machinery rides with `Errored` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner, so `render` retains nothing for an app that passes none.
 
 An effect's own error arm (`createEffect(compute, effect, onError)`) is the author handling the failure and is not reported here.
 

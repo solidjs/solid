@@ -8,7 +8,6 @@ import {
   getOwner,
   getNextChildId,
   NotReadyError,
-  sharedConfig,
   type Component
 } from "solid-js";
 import type { JSX } from "../jsx/jsx.js";
@@ -23,7 +22,7 @@ import {
   setAsyncIterableSharer,
   setContainerTraceResolver
 } from "../frames/src/frame-container-plugin.js";
-import { getProjectionTrace, shareAsyncIterable } from "solid-js/internal";
+import { getProjectionTrace, shareAsyncIterable, sharedConfig } from "solid-js/internal";
 
 setContainerTraceResolver(getProjectionTrace);
 // The same seam carries the async-iterable sharer: the border walk swaps
@@ -180,8 +179,7 @@ export function dynamic<T extends ValidComponent>(
   });
   const deferStream = !!options?.deferStream;
   return props => {
-    // Client `solid-js` types don't expose the server `sharedConfig.context`.
-    const ctx = (sharedConfig as { context?: any }).context;
+    const ctx = sharedConfig.context;
     let gated = !deferStream || !ctx?.async;
     const value = createMemo(
       () => {
@@ -377,9 +375,9 @@ export function Portal(props: { mount?: Element; children: JSX.Element }) {
  * applies on settle under the boundary that owned the render, best-effort.
  */
 function registerClientOnlyPreload(moduleUrl: string): void {
-  // Client `solid-js` types don't expose the server `sharedConfig.context`
-  // hydration bag (`serialize`, `registerAsset`, …). The server runtime
-  // (`server.ts`) is `@ts-nocheck` for the same split.
+  // `_currentBoundaryId`, restored around the async apply below, is an
+  // `@internal` member of the server's hydration context, absent from its
+  // published type.
   const ctx = (sharedConfig as { context?: any }).context;
   if (!ctx?.registerAsset || !ctx.resolveAssets) return;
   const registerAsset = ctx.registerAsset;

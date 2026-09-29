@@ -36,23 +36,33 @@ const INTERNAL = [
   "inServerComponentScope",
   "creationStamp",
   "getProjectionTrace",
-  "materializeContainerTrace"
+  "materializeContainerTrace",
+  // boundary primitives behind Errored/Loading/Reveal (#3709)
+  "createErrorBoundary",
+  "createLoadingBoundary",
+  "createRevealOrder",
+  // hydration/SSR coordination object and the dev component brand
+  "sharedConfig",
+  "$DEVCOMP"
 ];
 
 const typesDir = resolve(import.meta.dirname, "../types");
 const read = (file: string) => readFileSync(resolve(typesDir, file), "utf8");
+// `\b` cannot bound a name that starts with `$`; bound on identifier characters.
+const mentions = (declarations: string, name: string) =>
+  new RegExp(`(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`).test(declarations);
 
 test.each([
   ["client", "index.d.ts"],
   ["server", "server/index.d.ts"]
 ])("no internal name reaches the %s entry's declarations", (_tier, file) => {
   const declarations = read(file);
-  const leaked = INTERNAL.filter(name => new RegExp(`\\b${name}\\b`).test(declarations));
+  const leaked = INTERNAL.filter(name => mentions(declarations, name));
   expect(leaked).toEqual([]);
 });
 
 test("solid-js/internal's declarations carry the protocol and the seams", () => {
   const declarations = read("internal.d.ts");
-  const missing = INTERNAL.filter(name => !new RegExp(`\\b${name}\\b`).test(declarations));
+  const missing = INTERNAL.filter(name => !mentions(declarations, name));
   expect(missing).toEqual([]);
 });

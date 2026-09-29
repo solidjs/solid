@@ -196,7 +196,7 @@ before returning.
 
 An earlier uncaught error halted the reactive system; subsequent updates are
 ignored. Do not treat this code as the bug — find the original error above
-it (or add an error boundary via `createErrorBoundary`/`<Errored>`) and fix
+it (or add an error boundary with `<Errored>`) and fix
 that.
 
 ### INVARIANT_VIOLATION

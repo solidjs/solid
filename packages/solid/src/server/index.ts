@@ -12,12 +12,10 @@ export {
   createMemo,
   createOptimistic,
   createOptimisticStore,
-  createErrorBoundary,
   createOwner,
   createProjection,
   createReaction,
   createRenderEffect,
-  createRevealOrder,
   createRoot,
   createSignal,
   createStore,
@@ -113,8 +111,8 @@ export type {
 // — and the surface it declares onto `OBSERVE.server`.
 export type { BoundaryEvent, BoundaryLive, BoundaryListener, ServerTrace } from "./observe.js";
 
-// Wrappers — context, children, dev symbols
-export { $DEVCOMP, children, createContext, useContext } from "./core.js";
+// Wrappers — context, children
+export { children, createContext, useContext } from "./core.js";
 export type {
   ChildrenReturn,
   Context,
@@ -131,12 +129,20 @@ export * from "./flow.js";
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
-export { sharedConfig, createLoadingBoundary, NoHydration, Hydration } from "./hydration.js";
+export { NoHydration, Hydration } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
 
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
+/** @internal */
+export { sharedConfig, createLoadingBoundary } from "./hydration.js";
+/** @internal */
+export { $DEVCOMP } from "./core.js";
+// The boundary primitives behind `Errored` and `Reveal` (`Loading`'s is the
+// SSR-aware one above), `@internal` as on the client entry.
+/** @internal */
+export { createErrorBoundary, createRevealOrder } from "./signals.js";
 /** @internal */
 export {
   creationStamp,

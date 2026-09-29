@@ -14,7 +14,7 @@
 // frames/dist/server.* each carry their own copy of this file) and a
 // subscriber must be reached by an invocation observed in any of them; the
 // channel is the core's, process-wide.
-import { sharedConfig } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import {
   frameCensus,
   isDeferredBody,
@@ -240,8 +240,8 @@ export function observeInvocation<T>(context: InvocationContext, execute: () => 
   // The boundary whose pass is running NOW — a direct call is synchronous
   // up to its first await, so this is the boundary that made it; read here,
   // at the start, since by settle another boundary may be rendering. (The
-  // published `sharedConfig` type is the client's; the server's context
-  // carries the id the boundary set for its pass.)
+  // id the boundary set for its pass is an `@internal` member of the
+  // server's context, absent from its published type.)
   const boundary = context.direct
     ? ((sharedConfig as ServerSharedConfig).context?._currentBoundaryId ?? undefined)
     : undefined;

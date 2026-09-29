@@ -21,14 +21,13 @@ import {
   runWithOwner,
   untrack,
   omit,
-  sharedConfig,
-  $DEVCOMP,
   Component,
   createEffect,
   createRenderEffect,
   type Owner,
   type Setter
 } from "solid-js";
+import { sharedConfig, $DEVCOMP } from "solid-js/internal";
 import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";

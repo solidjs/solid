@@ -7,7 +7,6 @@ import {
   createOwner,
   createRoot as root,
   onCleanup,
-  sharedConfig,
   untrack,
   merge as mergeProps,
   $PROXY,
@@ -22,6 +21,7 @@ import {
 } from "solid-js";
 import type { ClientErrorHook } from "solid-js";
 import {
+  sharedConfig,
   viewOf,
   OmitView,
   sourceKeys,

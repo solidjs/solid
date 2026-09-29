@@ -35,14 +35,8 @@ import {
   renderToString,
   useHead
 } from "@solidjs/web";
-import {
-  OBSERVE,
-  createMemo,
-  lazy,
-  NotReadyError,
-  sharedConfig,
-  type DiagnosticEvent
-} from "solid-js";
+import { OBSERVE, createMemo, lazy, NotReadyError, type DiagnosticEvent } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import type { JSX } from "@solidjs/web";
 
 function delay(ms: number) {

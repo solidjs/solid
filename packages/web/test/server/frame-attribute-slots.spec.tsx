@@ -21,7 +21,8 @@
 // `class`/`style` through runtime holes where the stand-in is seen.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Loading, renderToStream } from "@solidjs/web";
-import { createMemo, merge, OBSERVE, sharedConfig, type DiagnosticEvent } from "solid-js";
+import { createMemo, merge, OBSERVE, type DiagnosticEvent } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import {
   frameTransformDirectResult,
   renderServerComponent,

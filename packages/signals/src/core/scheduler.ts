@@ -532,7 +532,7 @@ export function haltReactivity(cause?: unknown): void {
   let message = "[REACTIVITY_HALTED]";
   if (__DEV__) {
     message +=
-      " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with createErrorBoundary/<Errored> or treat this as a crash.";
+      " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
     emitDiagnostic({
       code: "REACTIVITY_HALTED",
       kind: "error",
