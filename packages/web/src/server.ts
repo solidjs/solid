@@ -3,6 +3,7 @@ import { COMPOSED_BODY_FRAMING, ChildProperties, isHttpNavigationTarget } from "
 import {
   createRoot as root,
   getOwner,
+  onCleanup,
   runWithOwner,
   createComponent,
   untrack,
@@ -22,6 +23,7 @@ import {
 } from "solid-js/internal";
 import type { ServerErrorSite } from "solid-js/internal";
 import { effect, memo } from "./render.js";
+import { setRequestErrorHook } from "./request-error-hook.js";
 // Trace context (W3C `traceparent`): derived per request, exposed through
 // `getTraceContext()`, emitted on the response head at commit and in the
 // shell head — see trace.ts for the tiering and the carriers.
@@ -1725,6 +1727,9 @@ export function renderToString(code, options = {}) {
   });
   const tracking = createAssetTracking();
   const headRegistry = createHeadRegistry();
+  // Render-local, never on the context: the finished context lingers as the
+  // module global, and another request's writes must not read this latch.
+  let closed = false;
   sharedConfig.context = {
     nonce: options.nonce,
     escape: escape,
@@ -1736,7 +1741,7 @@ export function renderToString(code, options = {}) {
       registerHeadTags(headRegistry, sharedConfig.context, tracking, null, nonce, tags);
     },
     serialize(id, p) {
-      if (sharedConfig.context.noHydrate) return;
+      if (closed) return;
       if (
         p != null &&
         typeof p === "object" &&
@@ -1779,20 +1784,23 @@ export function renderToString(code, options = {}) {
   // stale one on the lingering context.
   const context = sharedConfig.context;
   const requestEvent = peekRequestEvent();
+  if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   const render = timeDocument(context, context.trace, "string", requestEvent);
   let dispose;
+  let rootOwner;
   let rendered = false;
   try {
     const html = root(
       d => {
         dispose = d;
+        rootOwner = claimRenderRoot(context);
         return resolveSSRSync(escape(code()));
       },
       { id: renderId }
     );
     serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
-    sharedConfig.context.noHydrate = true;
+    closed = true;
     serializer.close();
     const head = renderShellHead(
       headRegistry,
@@ -1831,7 +1839,7 @@ export function renderToString(code, options = {}) {
   } finally {
     // The render record settles before the trace is let go: a listener
     // reading `getTraceContext()` from its callback finds the render's.
-    if (render) render.settle(rendered ? "complete" : "error");
+    if (render) settleRender(render, rootOwner, rendered ? "complete" : "error");
     // Release the graph before returning (#3385): a deferred dispose held
     // every root — and every memo under it — until the next macrotask, so
     // nothing was freed across a synchronous loop of renders.
@@ -1932,11 +1940,13 @@ export function renderToStream(code, options = {}) {
   // `await provideRequestEvent(event, () => renderToStream(...))` is the
   // storage module's own documented shape.
   const requestEvent = peekRequestEvent();
+  if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   let dispose;
   let dead = false;
   // The render's `"render"` record (`timeDocument`, once the context is up):
   // its shell stamped at `doShell`, settled at `onDone` or by the wind-down.
   let render;
+  let rootOwner;
   // The serializer (created below, once the sink is assembled) — hoisted so
   // the wind-down can close it. `abandon` is only ever reached after the
   // render starts, by which point it is assigned; the hoist keeps that from
@@ -2017,7 +2027,7 @@ export function renderToStream(code, options = {}) {
     if (disconnect) disconnected = true;
     // The render's record ends here, with how: the client left, or the
     // render failed (the render error's finding says why).
-    if (render) render.settle(disconnect ? "abandoned" : "error");
+    if (render) settleRender(render, rootOwner, disconnect ? "abandoned" : "error");
     // The live sink wrapper (post-shell) is handed to the failure
     // completion below; pre-shell there is none yet.
     const sink = writable;
@@ -2079,7 +2089,7 @@ export function renderToStream(code, options = {}) {
     // boundary that already reported this error with its location leaves
     // this a no-op (once per error). With no hook anywhere the failure is
     // never silent.
-    reportServerError(err, { kind: "render", handling: "failed" }, null);
+    reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
     if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
     abandon();
   };
@@ -2231,7 +2241,7 @@ export function renderToStream(code, options = {}) {
     completed = true;
     // The stream is whole: the render record settles (its shell was stamped
     // by `doShell` above), before the graph it describes is released.
-    if (render) render.settle("complete");
+    if (render) settleRender(render, rootOwner, "complete");
     if (firstFlushed) dispose();
   };
   // FrameSink seam (design in frame-sink.js): semantic emission routes through
@@ -2697,7 +2707,6 @@ export function renderToStream(code, options = {}) {
         html.slice(last + placeholder.length + 1);
     },
     serialize(id, p, deferStream) {
-      if (sharedConfig.context.noHydrate) return;
       // The channels the runtime opens to the client — an async source's
       // promise, a live source's iterable — reject or throw with the RAW
       // failure, and seroval encodes that reason as a value for the client
@@ -2899,6 +2908,7 @@ export function renderToStream(code, options = {}) {
         if (onAbort) signal.removeEventListener("abort", onAbort);
         d();
       };
+      rootOwner = claimRenderRoot(context);
       const res = resolveSSRNode(escape(code()));
       if (!res.h.length) return res.t[0];
       rootHoles = [];
@@ -6093,7 +6103,7 @@ function serializerErrorHook(hook) {
   return hook === undefined
     ? undefined
     : err => {
-        reportServerError(err, { kind: "render", handling: "serialize" }, null);
+        reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
       };
 }
 
@@ -6120,13 +6130,64 @@ export function configureServerErrors(config) {
 export function getRequestEvent(): RequestEvent | undefined;
 
 export function getRequestEvent() {
-  return (globalThis as any)[RequestContext]
-    ? (globalThis as any)[RequestContext].getStore() ||
-        (sharedConfig.context && sharedConfig.context.event) ||
-        console.warn(
-          "RequestEvent is missing. This is most likely due to accessing `getRequestEvent` non-managed async scope in a partially polyfilled environment. Try moving it above all `await` calls."
-        )
-    : undefined;
+  const store = (globalThis as any)[RequestContext];
+  if (!store) return undefined;
+  const event = store.getStore();
+  if (event) return event;
+  // The store is empty where it does not follow the call (a sync-only
+  // polyfill across an `await`, a callback it never saw). The event an
+  // integration put on its render's context (`sharedConfig.context.event`)
+  // is taken from the caller's own render, found through its owner — never
+  // off the module global, which is whichever render started or finished
+  // last and can belong to another request.
+  const ctx = renderContextOf(getOwner());
+  return (
+    (ctx && ctx.event) ||
+    console.warn(
+      "RequestEvent is missing. This is most likely due to accessing `getRequestEvent` non-managed async scope in a partially polyfilled environment. Try moving it above all `await` calls."
+    )
+  );
+}
+
+// Render root owner → that render's context. Claimed from inside the root
+// and released by the root's own disposal, which runs before the owner goes
+// back to the pool: a reissued owner must not answer for its old render.
+// Parked on the global under a registered symbol, like `RequestContext`:
+// the server-functions entry bundles its own copy of `getRequestEvent`
+// (a direct call's event) and must see the roots this copy's renders claim.
+const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
+
+function renderRoots(): WeakMap<object, any> {
+  const g = globalThis as any;
+  return g[RENDER_ROOTS] || (g[RENDER_ROOTS] = new WeakMap());
+}
+
+function claimRenderRoot(context) {
+  const owner = getOwner();
+  const roots = renderRoots();
+  roots.set(owner, context);
+  onCleanup(() => roots.delete(owner));
+  return owner;
+}
+
+// A render record settles off its render's pass — after the string root
+// returned, from the stream's completion or wind-down — so it settles under
+// the render's root owner: a listener reading `getTraceContext()` from its
+// callback finds this render's trace. `root` is unset only for a stream torn
+// down before its root existed.
+function settleRender(render, root, outcome) {
+  runWithOwner(root || null, () => render.settle(outcome));
+}
+
+// Disposal unlinks an owner (`_parent = null`), so a disposed subtree walks
+// to no render at all.
+function renderContextOf(owner) {
+  const roots = (globalThis as any)[RENDER_ROOTS];
+  if (!roots) return undefined;
+  for (; owner; owner = owner._parent) {
+    const context = roots.get(owner);
+    if (context) return context;
+  }
 }
 
 // The runtime's own silent read of the request scope's event, for
@@ -6188,16 +6249,19 @@ function timeDocument(context, trace, mode, requestEvent) {
  * otherwise; in observe/dev builds, merged with the installed provider's
  * answer (`OBSERVE.server.trace`). Same object for every read within the
  * request, direct server-function calls included. For a render outside a
- * request scope, the render's own trace. `undefined` outside both, and on
- * the client. Forward it downstream from a server function with
- * `getTraceContext()?.entries.traceparent`.
+ * request scope, the render's own trace, read within it (under its owner).
+ * `undefined` outside both, and on the client. Forward it downstream from a
+ * server function with `getTraceContext()?.entries.traceparent`.
  */
 export function getTraceContext(): TraceContext | undefined;
 
 export function getTraceContext() {
   const event = peekRequestEvent();
   if (event) return traceForEvent(event).context;
-  const ctx = sharedConfig.context;
+  // Outside a request scope the trace is the caller's own render's, found
+  // through its owner (see `getRequestEvent`) — never the module global's,
+  // which can be another render's.
+  const ctx = renderContextOf(getOwner());
   return ctx && ctx.trace ? ctx.trace.context : undefined;
 }
 

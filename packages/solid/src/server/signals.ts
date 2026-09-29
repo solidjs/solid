@@ -3278,8 +3278,12 @@ export { NoHydrateContext };
 // `wrapInvocation` has: ambient (`configureServerErrors` in `@solidjs/web`,
 // parked on `globalThis` under a registered symbol so a bundled build and an
 // instrumented `--import`ed copy share it) and per request
-// (`renderToStream(code, { onError })`, set on the SSR context as
-// `errorPolicy`; the server-function handler's option is passed explicitly).
+// (`renderToStream(code, { onError })`, the server-function handler's
+// option). The per-request hook is always passed by the caller, from the
+// render or request the failure belongs to — a boundary's `errorPolicy` off
+// the context it was created under, the renderer's own option — never read
+// off the module-global `sharedConfig.context`: that is whichever render
+// touched it last, so an async failure would reach another request's hook.
 // Prod-tier code throughout: no `OBSERVE`, no finding text.
 const SAFE_ERROR = Symbol.for("solid.SafeError");
 const SERVER_ERRORS = Symbol.for("solid-js/server/errors");
@@ -3339,11 +3343,12 @@ function currentRequestEvent(): unknown {
  * Tells the server error hook about `value` — once per error object, at
  * first sight — and returns `{ mapped: true, value }` when the hook (now or
  * on an earlier sight) gave a wire value, `{ mapped: false }` otherwise.
- * `hook` is a per-request override (the server-function handler's option);
- * without one the SSR context's `errorPolicy` (`renderToStream`'s option)
- * answers, then the ambient registration. A throwing hook is reported on the
- * console and treated as having said nothing. `ownerPath` is filled from
- * `subject` when the site did not name it.
+ * `hook` is the hook of the render or request the failure belongs to (a
+ * render's `onError`, the server-function handler's), `undefined` when it
+ * has none or the failure belongs to none — the ambient registration then
+ * answers alone. A throwing hook is reported on the console and treated as
+ * having said nothing. `ownerPath` is filled from `subject` when the site
+ * did not name it.
  * @internal
  */
 export function reportServerError(
@@ -3357,8 +3362,7 @@ export function reportServerError(
     return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false };
   }
   if (verdict !== undefined) verdict.reported = true;
-  const ctx = sharedConfig.context as { errorPolicy?: ServerErrorHook } | undefined;
-  const target = hook ?? (ctx && ctx.errorPolicy) ?? ambientServerErrorHook();
+  const target = hook ?? ambientServerErrorHook();
   if (target === undefined) return { mapped: false };
   const context: ServerErrorSite = { ...site };
   const boundary = subject ? ownerLabels(subject) : undefined;
@@ -3420,17 +3424,19 @@ function ownerLabels(subject: DiagnosticSubject): string[] | undefined {
  * original in `data.error` — advisory (`info`): the failure itself is the
  * `SSR_RENDER_ERROR_CONTAINED` finding's, and this is the record of what
  * the wire carried instead.
- * `subject` locates it (the boundary's owner; `null` from a funnel).
+ * `subject` locates it (the boundary's owner; `null` from a funnel); `hook`
+ * is the owning render's, as `reportServerError` takes it.
  * @internal
  */
 export function ssrSanitizeError(
   value: unknown,
   subject?: DiagnosticSubject | null,
-  site?: ServerErrorSite
+  site?: ServerErrorSite,
+  hook?: ServerErrorHook
 ): unknown {
   const verdict = verdictOf(value);
   if (site !== undefined) {
-    const report = reportServerError(value, site, subject);
+    const report = reportServerError(value, site, subject, hook);
     if (report.mapped) return record(value, report.value, verdict, subject);
   }
   if (verdict !== undefined && verdict.decided) return verdict.wire;
@@ -3597,11 +3603,12 @@ export function createErrorBoundary<T, U>(
   // mismatch). See `ssrSanitizeError`.
   const handleError = (err: any) => {
     reportContained(err);
-    const wire = ssrSanitizeError(err, owner, {
-      kind: "render",
-      handling: "fallback",
-      boundary: boundaryId
-    });
+    const wire = ssrSanitizeError(
+      err,
+      owner,
+      { kind: "render", handling: "fallback", boundary: boundaryId },
+      ctx && ctx.errorPolicy
+    );
     serializeError(wire);
     return renderFallback(wire);
   };

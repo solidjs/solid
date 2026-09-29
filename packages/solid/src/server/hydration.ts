@@ -323,7 +323,12 @@ function ssrLoadingBoundary(
           // The server error hook hears of it here, before the channel
           // carries it (the `_fr` rejection, a transport sink's error chunk
           // read the verdict the hook decides).
-          reportServerError(err, { kind: "render", handling: "client", boundary: id }, o);
+          reportServerError(
+            err,
+            { kind: "render", handling: "client", boundary: id },
+            o,
+            ctx.errorPolicy
+          );
           streamedOnError = done(undefined, err);
           throw err;
         }
@@ -366,7 +371,13 @@ function ssrLoadingBoundary(
       // when it delivers) and the failure is met next by the parent handler
       // — an <Errored> rendering its fallback — or fails the request below.
       const streamed = ctx.flushed !== undefined && ctx.flushed();
-      if (streamed) reportServerError(err, { kind: "render", handling: "client", boundary: id }, o);
+      if (streamed)
+        reportServerError(
+          err,
+          { kind: "render", handling: "client", boundary: id },
+          o,
+          ctx.errorPolicy
+        );
       if (done(undefined, err)) {
         reportRouted(err, "client");
         record("error", true, err);
@@ -376,7 +387,12 @@ function ssrLoadingBoundary(
     record("error", false, err);
     if (!parentHandler) {
       reportRouted(err, "failed");
-      reportServerError(err, { kind: "render", handling: "failed", boundary: id }, o);
+      reportServerError(
+        err,
+        { kind: "render", handling: "failed", boundary: id },
+        o,
+        ctx.errorPolicy
+      );
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
     }
@@ -385,7 +401,12 @@ function ssrLoadingBoundary(
     } catch (caught) {
       if (caught !== err) {
         reportRouted(caught, "failed");
-        reportServerError(caught, { kind: "render", handling: "failed", boundary: id }, o);
+        reportServerError(
+          caught,
+          { kind: "render", handling: "failed", boundary: id },
+          o,
+          ctx.errorPolicy
+        );
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
     }

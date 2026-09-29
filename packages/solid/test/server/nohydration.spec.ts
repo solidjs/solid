@@ -4,6 +4,7 @@ import { createRoot, createMemo, createProjection, lazy } from "../../src/server
 import { NoHydration, Hydration } from "../../src/server/hydration.js";
 import { sharedConfig } from "../../src/server/shared.js";
 import { NoHydrateContext, getContext, createErrorBoundary } from "../../src/server/signals.js";
+import { inClaimedRender } from "./render-root.js";
 
 function createMockSSRContext(options: { async?: boolean } = {}) {
   const serialized = new Map<string, any>();
@@ -660,6 +661,23 @@ describe("NoHydration / Hydration (server)", () => {
     expect(LazyComp.moduleUrl).toBe("/assets/MyComp-abc123.js");
   });
 
+  test("lazy() moduleUrl and preload() ignore a global context that is not the caller's render", async () => {
+    // Another request's render, left as the global: nothing attributes the
+    // read or the hint to it.
+    const { context, modules } = createMockSSRContext({ async: true });
+    context.resolveAssetsSync = context.resolveAssets;
+    sharedConfig.context = context;
+
+    const LazyComp = lazy(
+      () => Promise.resolve({ default: () => "content" }),
+      undefined,
+      "src/MyComp.tsx"
+    );
+    expect(LazyComp.moduleUrl).toBe("src/MyComp.tsx");
+    await LazyComp.preload();
+    expect(modules).toEqual([]);
+  });
+
   test("lazy() moduleUrl is undefined when not provided", () => {
     const LazyComp = lazy(() => Promise.resolve({ default: () => "content" }));
     expect(LazyComp.moduleUrl).toBeUndefined();
@@ -675,7 +693,7 @@ describe("NoHydration / Hydration (server)", () => {
       "src/MyComp.tsx"
     );
     // The mock manifest resolves every id to js: ["module.js"].
-    expect(LazyComp.moduleUrl).toBe("module.js");
+    expect(inClaimedRender(context, () => LazyComp.moduleUrl)).toBe("module.js");
   });
 
   test("lazy() moduleUrl access registers modulepreload hints (island signal)", () => {
@@ -695,7 +713,7 @@ describe("NoHydration / Hydration (server)", () => {
     );
     // Access without rendering — as an island renderer stamping a container
     // attribute would. This is the only preload signal for NoHydration lazy.
-    void LazyComp.moduleUrl;
+    inClaimedRender(context, () => LazyComp.moduleUrl);
 
     const jsAssets = modules.filter(m => m.type === "module");
     const preloadAssets = modules.filter(m => m.type === "preload");
@@ -713,7 +731,7 @@ describe("NoHydration / Hydration (server)", () => {
       undefined,
       "src/MyComp.tsx"
     );
-    expect(LazyComp.moduleUrl).toBe("src/MyComp.tsx");
+    expect(inClaimedRender(context, () => LazyComp.moduleUrl)).toBe("src/MyComp.tsx");
   });
 
   test("lazy() moduleUrl uses the sync resolution fast path (islands in dev)", () => {
@@ -729,7 +747,7 @@ describe("NoHydration / Hydration (server)", () => {
       undefined,
       "src/MyComp.tsx"
     );
-    expect(LazyComp.moduleUrl).toBe("/src/MyComp.tsx");
+    expect(inClaimedRender(context, () => LazyComp.moduleUrl)).toBe("/src/MyComp.tsx");
     // The access is still the island preload signal.
     const jsAssets = modules.filter(m => m.type === "module");
     expect(jsAssets.map(a => a.href)).toEqual(["/src/MyComp.tsx"]);
@@ -746,6 +764,6 @@ describe("NoHydration / Hydration (server)", () => {
       undefined,
       "src/MyComp.tsx"
     );
-    expect(LazyComp.moduleUrl).toBe("src/MyComp.tsx");
+    expect(inClaimedRender(context, () => LazyComp.moduleUrl)).toBe("src/MyComp.tsx");
   });
 });

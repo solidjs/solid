@@ -2883,7 +2883,15 @@ module.exports = [
     // detaching the listeners it attached (a kept un-keyed element carried
     // one per occurrence that ever bound it and fired twice; a dropped
     // occurrence's handler ran through its disposed fill). Cap unchanged.
-    limit: "12.70 KB",
+    // Boundary primitives and `sharedConfig` behind `solid-js/internal`
+    // (#3709, fb4e637ad, 2026-09-29): 12.70 -> 12.71 KB, measured at 12,704 B
+    // against `next` @ ad1ecc577's 12,695 (+9 B; 4 B over the cap; 0 B
+    // minified, 40,215 both). #3709 moved `createLoadingBoundary` from the
+    // `from "solid-js"` statement to the `from "solid-js/internal"` one
+    // (12,695 -> 12,708), fb4e637ad moved `sharedConfig` after it (12,708 ->
+    // 12,704); both modules are external, so the bytes are brotli layout
+    // across the two import statements, as in the #3470 note above.
+    limit: "12.71 KB",
     alias: framesAlias,
     external: framesExternal
   },

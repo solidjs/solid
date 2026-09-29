@@ -1713,13 +1713,7 @@ function armDocumentLiveHoles(ctx) {
   // documents (no data channel), and hostless environments latch at t=0:
   // mark nothing. `null` records the decision (the arming checks are
   // `!== undefined`).
-  if (
-    !live ||
-    !ctx.async ||
-    ctx.noHydrate ||
-    !ctx.serialize ||
-    typeof ReadableStream !== "function"
-  ) {
+  if (!live || !ctx.async || !ctx.serialize || typeof ReadableStream !== "function") {
     ctx.liveHoles = null;
     if (live) live.holes = null;
     return;

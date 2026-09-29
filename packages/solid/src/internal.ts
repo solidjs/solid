@@ -78,20 +78,25 @@ export const inLiveServerComponentScope: () => boolean = core.inLiveServerCompon
  * be serialized or rendered for it — the value itself in the dev build or
  * when branded with `markSafeError`, else one generic `Error` per original
  * (recorded once as `SERVER_ERROR_SANITIZED`, `data.source: "ssr"`). `subject` locates the finding;
- * `null` from a serialization funnel. Client: identity.
+ * `null` from a serialization funnel. With a `site`, the hook hears of it
+ * first (`hook` as `reportServerError` takes it). Client: identity.
  */
 export const ssrSanitizeError: (
   value: unknown,
   subject?: object | null,
-  site?: ServerErrorSite
+  site?: ServerErrorSite,
+  hook?: ServerErrorHook
 ) => unknown = core.ssrSanitizeError;
 
 /**
  * Server: tells the server error hook about a failure — once per error
  * object, at first sight — with where it was met; `{ mapped: true, value }`
  * when the hook gave a wire value (now or earlier), `{ mapped: false }`
- * otherwise. `hook` is a per-request override ahead of the SSR context's
- * `errorPolicy` and the ambient registration. Client: `{ mapped: false }`.
+ * otherwise. `hook` is the hook of the render or request the failure
+ * belongs to (a render's `onError`, the server-function handler's) — the
+ * caller's to name, never read off the global SSR context — ahead of the
+ * ambient registration; `undefined` leaves the ambient one alone.
+ * Client: `{ mapped: false }`.
  */
 export const reportServerError: (
   value: unknown,
