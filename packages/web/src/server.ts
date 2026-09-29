@@ -3,6 +3,7 @@ import { COMPOSED_BODY_FRAMING, ChildProperties, isHttpNavigationTarget } from "
 import {
   createRoot as root,
   getOwner,
+  onCleanup,
   runWithOwner,
   createComponent,
   untrack,
@@ -1790,6 +1791,7 @@ export function renderToString(code, options = {}) {
     const html = root(
       d => {
         dispose = d;
+        claimRenderRoot(context);
         return resolveSSRSync(escape(code()));
       },
       { id: renderId }
@@ -2901,6 +2903,7 @@ export function renderToStream(code, options = {}) {
         if (onAbort) signal.removeEventListener("abort", onAbort);
         d();
       };
+      claimRenderRoot(context);
       const res = resolveSSRNode(escape(code()));
       if (!res.h.length) return res.t[0];
       rootHoles = [];
@@ -6122,13 +6125,54 @@ export function configureServerErrors(config) {
 export function getRequestEvent(): RequestEvent | undefined;
 
 export function getRequestEvent() {
-  return (globalThis as any)[RequestContext]
-    ? (globalThis as any)[RequestContext].getStore() ||
-        (sharedConfig.context && sharedConfig.context.event) ||
-        console.warn(
-          "RequestEvent is missing. This is most likely due to accessing `getRequestEvent` non-managed async scope in a partially polyfilled environment. Try moving it above all `await` calls."
-        )
-    : undefined;
+  const store = (globalThis as any)[RequestContext];
+  if (!store) return undefined;
+  const event = store.getStore();
+  if (event) return event;
+  // The store is empty where it does not follow the call (a sync-only
+  // polyfill across an `await`, a callback it never saw). The event an
+  // integration put on its render's context (`sharedConfig.context.event`)
+  // is taken from the caller's own render, found through its owner — never
+  // off the module global, which is whichever render started or finished
+  // last and can belong to another request.
+  const ctx = renderContextOf(getOwner());
+  return (
+    (ctx && ctx.event) ||
+    console.warn(
+      "RequestEvent is missing. This is most likely due to accessing `getRequestEvent` non-managed async scope in a partially polyfilled environment. Try moving it above all `await` calls."
+    )
+  );
+}
+
+// Render root owner → that render's context. Claimed from inside the root
+// and released by the root's own disposal, which runs before the owner goes
+// back to the pool: a reissued owner must not answer for its old render.
+// Parked on the global under a registered symbol, like `RequestContext`:
+// the server-functions entry bundles its own copy of `getRequestEvent`
+// (a direct call's event) and must see the roots this copy's renders claim.
+const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
+
+function renderRoots(): WeakMap<object, any> {
+  const g = globalThis as any;
+  return g[RENDER_ROOTS] || (g[RENDER_ROOTS] = new WeakMap());
+}
+
+function claimRenderRoot(context) {
+  const owner = getOwner();
+  const roots = renderRoots();
+  roots.set(owner, context);
+  onCleanup(() => roots.delete(owner));
+}
+
+// Disposal unlinks an owner (`_parent = null`), so a disposed subtree walks
+// to no render at all.
+function renderContextOf(owner) {
+  const roots = (globalThis as any)[RENDER_ROOTS];
+  if (!roots) return undefined;
+  for (; owner; owner = owner._parent) {
+    const context = roots.get(owner);
+    if (context) return context;
+  }
 }
 
 // The runtime's own silent read of the request scope's event, for
