@@ -273,8 +273,7 @@ describe("#3706 unchanged key read under an adoption hold", () => {
   // target for slot equality and the container hold stands. Freeing it needs
   // the adoption to carry per-child held views: a positional lazy
   // materialization aliased reordered rows and split proxy identity by
-  // reader context under review. Left as a design call, tracked as the
-  // #3706 follow-up.
+  // reader context under review. Left as a design call, tracked in #3712.
   for (const read of ["find", "index-id"] as const) {
     it.fails(
       `a row first read AFTER the adoption (${read}) derives nothing from the hold (third playground)`,
