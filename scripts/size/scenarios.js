@@ -2862,6 +2862,11 @@ module.exports = [
     // consumer that never binds a slot still carries the position parser
     // and the owned-attribute morph; a split behind the marker is the
     // candidate follow-up, like the live reader's split behind the wire slot.
+    // Review fixes (#3704, same day): 12,693 -> 12,695 B (+2 B; +35 B
+    // minified, frames client 35,835 -> 35,870): an occurrence's `onCleanup`
+    // detaching the listeners it attached (a kept un-keyed element carried
+    // one per occurrence that ever bound it and fired twice; a dropped
+    // occurrence's handler ran through its disposed fill). Cap unchanged.
     limit: "12.70 KB",
     alias: framesAlias,
     external: framesExternal
@@ -2937,7 +2942,10 @@ module.exports = [
     // second form: the per-position binding of a slot's props on server
     // elements, held through the morph paths, replacing the `_bnd` claim
     // sweep (the frames scenario note itemizes it). Accepted by the
-    // maintainer. The cap is frozen again at 45.76 KB.
+    // maintainer. Review fixes, same PR: 45,756 -> 45,761 B (+5 B; +35 B
+    // minified — the occurrence's listener detach, frames note), over the
+    // rounded cap by 1 B; 45.76 -> 45.77 KB under the same exception. The
+    // cap is frozen again at 45.77 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -2993,7 +3001,8 @@ module.exports = [
     // measured at 49,951 B against `next` @ 695836771's 49,094 (+857 B;
     // +3,165 B minified) — the same attribute-slot bytes as the base page;
     // the live path adds nothing of its own. Accepted by the maintainer. The
-    // cap is frozen again at 49.96 KB.
+    // cap is frozen again at 49.96 KB. Review fixes, same PR: 49,951 ->
+    // 49,901 B (-50 B; +35 B minified — brotli layout), under the cap.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }

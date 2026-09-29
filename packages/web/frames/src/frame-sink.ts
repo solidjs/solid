@@ -965,34 +965,91 @@ function slotProxy(range, occurrence, face, content, onData) {
 
 /**
  * A slot arg's form at the serialization border: `toBorderForm`, after one
- * check the border alone can make — the arg is another slot's stand-in
- * (`props.child({ parentId: parent.id })`, `parent` a slot). The server
- * has no value there (it is the client's), so the record ships `undefined`
- * for that arg and dev says why; serializing the stand-in would hand the
- * client an object where it expects the value. Top level only: a stand-in
- * nested inside an arg is the same misuse as any expression over one
- * (§9.2.3 — "the WHOLE value at one position"), which the rule catches.
- * Container first: the stand-in probe is a property read, and a pending
- * projection proxy's reads throw not-ready (see isContainerTraced).
+ * check the border alone can make — the arg is, or carries, another slot's
+ * stand-in (`props.child({ parentId: parent.id })`, `parent` a slot;
+ * `{ nested: { x: row.done } }`, `[row.done]`). The server has no value
+ * there (it is the client's), so the record ships `undefined` at that
+ * position and dev says why; serializing the stand-in would hand the
+ * client an object where it expects the value (`{ k, v, f }` — and on the
+ * document face `v` is the t=0 value, which hydration then contradicts).
  */
 function argBorderForm(value, key, occurrence) {
-  if (!isContainerTraced(value) && isSlotValue(value)) {
-    if ("_SOLID_DEV_") {
-      devCheck({
-        code: "ATTRIBUTE_SLOT_POSITION",
-        kind: "ssr",
-        severity: "warn",
-        message:
-          `[ATTRIBUTE_SLOT_POSITION] Arg \`${key}\` of \`${occurrence}\` is another slot's value ` +
-          `(\`${value.k}\` of \`${value[SLOT_VALUE]}\`). The server does not have it — the client owns ` +
-          `it — so it cannot be passed as data; the record carries \`undefined\`. Pass the server's own ` +
-          `value, or have the client fill read it from its own state.`,
-        data: { reason: "arg", occurrence, key, from: value[SLOT_VALUE], fromKey: value.k }
-      });
+  return toBorderForm(withoutStandIns(value, key, occurrence, ""), true);
+}
+
+/**
+ * A slot arg with every stand-in in it replaced by `undefined`, copy-on-
+ * write (untouched subtrees pass by reference), the same walk as
+ * `toBorderForm`: a container first (a WeakMap probe — a pending
+ * projection proxy's property reads throw not-ready), then arrays and
+ * plain objects by their leaves; anything exotic is the app's and is not
+ * read. A stand-in is a plain object, so the probe runs on those alone.
+ * Both faces take the same arg: the document face's t=0 fill reads what
+ * hydration will (see createDocumentSlotProps), the records carry it.
+ */
+function withoutStandIns(value, key, occurrence, path) {
+  if (value == null || typeof value !== "object" || isContainerTraced(value)) return value;
+  if (Array.isArray(value)) {
+    let out = value;
+    for (let i = 0; i < value.length; i++) {
+      const next = withoutStandIns(value[i], key, occurrence, `${path}[${i}]`);
+      if (next !== value[i]) {
+        if (out === value) out = value.slice();
+        out[i] = next;
+      }
     }
-    return undefined;
+    return out;
   }
-  return toBorderForm(value, true);
+  if (Object.getPrototypeOf(value) === Object.prototype) {
+    if (isSlotValue(value)) {
+      if ("_SOLID_DEV_") standInArgFinding(value, key, occurrence, path);
+      return undefined;
+    }
+    let out = value;
+    for (const k of Object.keys(value)) {
+      const next = withoutStandIns(value[k], key, occurrence, `${path}.${k}`);
+      if (next !== value[k]) {
+        if (out === value) out = { ...value };
+        out[k] = next;
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+function standInArgFinding(sv, key, occurrence, path) {
+  if ("_SOLID_DEV_") {
+    // Once per (occurrence, arg, path) per render: the document face
+    // scrubs the fill's arg and the record's separately, and a live
+    // re-evaluation of the same getter is the same misuse.
+    const ctx = sharedConfig.context;
+    if (ctx) {
+      const id = `${occurrence}\u0000${key}${path}\u0000arg`;
+      const seen = ctx.slotFindings || (ctx.slotFindings = new Set());
+      if (seen.has(id)) return;
+      seen.add(id);
+    }
+    const where = path === "" ? `Arg \`${key}\`` : `Arg \`${key}${path}\``;
+    devCheck({
+      code: "ATTRIBUTE_SLOT_POSITION",
+      kind: "ssr",
+      severity: "warn",
+      message:
+        `[ATTRIBUTE_SLOT_POSITION] ${where} of \`${occurrence}\` is another slot's value ` +
+        `(\`${sv.k}\` of \`${sv[SLOT_VALUE]}\`). The server does not have it — the client owns ` +
+        `it — so it cannot be passed as data; the arg carries \`undefined\` there on both faces. ` +
+        `Pass the server's own value, or have the client fill read it from its own state.`,
+      data: {
+        reason: "arg",
+        occurrence,
+        key,
+        path: path === "" ? undefined : path,
+        from: sv[SLOT_VALUE],
+        fromKey: sv.k
+      }
+    });
+  }
 }
 
 /** Classify a document-face fill's return for property reads: a plain
@@ -1490,7 +1547,11 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 configurable: true
               });
             } else {
-              resolved[key] = value;
+              // What hydration will read: a stand-in anywhere in the arg is
+              // `undefined` in the record (argBorderForm), so the t=0 fill
+              // takes the same value — the one-record shape holds for the
+              // args the fill saw, not only the ones it shipped.
+              resolved[key] = vals[key] = withoutStandIns(value, key, occurrence, "");
             }
           }
           const out = suppressedFill(() =>
@@ -1794,21 +1855,33 @@ export function frameTransformDirectResult(value, { id, args }) {
     // the client's content keeps full app context while the component's
     // own render is context-isolated.
     serverOwned(() => {
-      armDocumentLiveHoles(sharedConfig.context);
-      // Handler positions: arm the compiled `ssrClaim` guard for this
-      // subtree (descendant context clones spread-copy it). Marking is
-      // additionally scope-gated inside ssrClaim, so client fill content —
-      // which re-enters the zone owner outside the component barrier —
-      // neither marks nor warns.
-      sharedConfig.context.claims = CLAIMS_DOCUMENT;
-      const slotProps = createDocumentSlotProps(props, id);
-      // A `live` answer (the declaration's in-process brand lands on this
-      // wrapper after it is made, before it renders) marks the scope live:
-      // every async source inside takes its first value and closes — the
-      // document completes, and the standing render is the client's
-      // connection after hydration (RFC 11 §9.5, Server face 3). Read at
-      // render, not at wrap: the brand arrives from `live`, outside.
-      return serverComponentScope(() => component(slotProps), !!wrapped[LIVE_SOURCE]);
+      const page = sharedConfig.context;
+      armDocumentLiveHoles(page);
+      // Handler positions: arm the compiled `ssrClaim` guard — and the
+      // spread walk's slot probes — for this subtree, on a render context
+      // DERIVED from the page's (prototype: every shared field and method
+      // reads through, as a Loading boundary's buffered context does). The
+      // page's own context never carries `claims`, so the document's
+      // elements after the component keep the pre-slot walk; a late hole
+      // minted inside re-emits under its mint-time context — this one —
+      // and stays armed. Marking is additionally scope-gated inside
+      // ssrClaim, so client fill content — which re-enters the zone owner
+      // outside the component barrier — neither marks nor warns.
+      const ctx = Object.create(page);
+      ctx.claims = CLAIMS_DOCUMENT;
+      sharedConfig.context = ctx;
+      try {
+        const slotProps = createDocumentSlotProps(props, id);
+        // A `live` answer (the declaration's in-process brand lands on this
+        // wrapper after it is made, before it renders) marks the scope live:
+        // every async source inside takes its first value and closes — the
+        // document completes, and the standing render is the client's
+        // connection after hydration (RFC 11 §9.5, Server face 3). Read at
+        // render, not at wrap: the brand arrives from `live`, outside.
+        return serverComponentScope(() => component(slotProps), !!wrapped[LIVE_SOURCE]);
+      } finally {
+        sharedConfig.context = page;
+      }
     }),
     { t: FRAME_ELEMENT_CLOSE }
   ];

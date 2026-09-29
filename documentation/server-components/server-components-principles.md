@@ -2806,9 +2806,26 @@ during render — which predates all of this.
   finding (`reserved-key`).
 - *A stand-in is not an argument.* `props.child({ parentId:
   parent.id })` passes another slot's value as data the server does
-  not have; the record carries `undefined` for that arg and dev
-  says so (`arg`). Pass the server's own value, or read it in the
-  client fill from client state.
+  not have — at the top or nested (`{ nested: { x: row.done } }`,
+  `[row.done]`); the arg carries `undefined` at that path on both
+  faces (the record, and the document face's t = 0 fill, which must
+  read what hydration will) and dev says so (`arg`, with the path).
+  Pass the server's own value, or read it in the client fill from
+  client state.
+- *A handler position is `on<Event>`.* The marker carries the
+  runtime's derivation (`onClick` → `click`); `on:` and `oncapture:`
+  are not 2.0 syntaxes, and a stand-in at such a key of a runtime
+  spread is a dev finding (`event-name`) that renders nothing — it
+  would otherwise mint a marker naming no event. `prop:*` positions
+  are likewise not bindable (the server renders no properties): a
+  stand-in there is a finding (`prop`) on the runtime spread path;
+  the compiled form drops `prop:*` as SSR always has. *Known gap:*
+  under `serverComponents`, both compilers drop `ref`/`on*` on an
+  element that also has a spread (`<button {...rest} onClick=
+  {row.go} />`) — no marker, no finding, the element inert. The fix
+  is the claim hole template elements get; until it lands, bind
+  handlers on elements without a spread, or put the handler key
+  inside the spread object.
 - *The occurrence is the call, not the element.* `$key` on the call
   is occurrence identity (client state follows the entity across
   responses); `$key` on the `<li>` is morph identity for the node.
@@ -3087,7 +3104,17 @@ the text above, the build is right and the text is amended here:
   function is `ATTRIBUTE_SLOT_POSITION`, and nothing writes `_bnd`. The
   arming enum (`CLAIMS_STREAM` / `CLAIMS_DOCUMENT`) is unchanged and
   still what keeps client fill content, which re-enters the zone
-  owner, from marking or warning.
+  owner, from marking or warning. On the document face the enum is
+  armed on a render context *derived* from the page's (prototype
+  inheritance, as a Loading boundary's buffered context) for the
+  component's subtree alone: the page's own elements after the
+  component keep the pre-slot walk, and a late hole minted inside
+  re-emits under its mint-time context, still armed. On the client,
+  the listeners an occurrence attaches are its own: its end (a later
+  response drops it; a positional id now names another row) detaches
+  them, so a kept un-keyed element carries one listener, not one per
+  occurrence that ever bound it, and a dropped occurrence's handler
+  never fires through its disposed fill.
 - *A repeated call is one occurrence per render, on both faces —
   keyed or not.* Found by the first todos port, which emitted eleven
   `sc:slot:…row#<id>` records per row (one per position read through

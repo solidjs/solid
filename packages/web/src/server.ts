@@ -4853,6 +4853,22 @@ function collectSpreadSources(tag, props, viewKeys, owners, slots) {
  */
 function spreadBehaviorAttribute(prop, value) {
   if (!isSlotValue(value)) return "";
+  if (prop.startsWith("on:") || prop.startsWith("oncapture:")) {
+    // Not event syntaxes in 2.0 (a handler is `onClick`; the marker carries
+    // the runtime's lowercased derivation, `click`). A stand-in here would
+    // mint a marker naming no event (`_s:on::myevent`) or the wrong one
+    // (`capture:click`), which the client would listen for and never hear.
+    // Say so; nothing renders (either face).
+    slotFinding(
+      value,
+      "event-name",
+      prop,
+      `[${ATTRIBUTE_SLOT_POSITION}] \`${value.k}\` of slot \`${propOfOccurrence(value[SLOT_VALUE])}\` is bound ` +
+        `at \`${prop}\`. \`on:\` and \`oncapture:\` are not handler positions (the syntax is gone in 2.0): ` +
+        `nothing renders here. Bind \`on<Event>\` (\`onClick\`), or attach the listener in the client fill's ref.`
+    );
+    return "";
+  }
   return slotBehaviorMarker(prop === "ref" ? "ref" : eventPosition(prop), value);
 }
 

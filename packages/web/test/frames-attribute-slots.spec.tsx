@@ -289,6 +289,78 @@ describe("attribute slots through server-component mounts", () => {
     container.remove();
   });
 
+  test("an occurrence's end detaches the listeners it attached: a positional shift dispatches once, a dropped occurrence's handler never fires", async () => {
+    // Positional occurrence ids (the documented default): v1 renders rows
+    // [a, b] as `row#0`, `row#1`; v2 renders [b] as `row#0`. Un-keyed, the
+    // morph KEEPS the first li and re-marks it for `row#0` — so the element
+    // `row#1` bound at v1 is gone, while the element `row#0` bound at v1 is
+    // now b's. Every listener v1 attached must go with its occurrence, or
+    // the kept element carries two and a click on b fires twice (once
+    // through the disposed `row#1` fill). v3 renders the same li with no
+    // markers at all: the server stopped calling the slot, the element
+    // stays, and a click must reach nothing.
+    let shape = 1;
+    const [version, setVersion] = createSignal(1);
+    const rows = () =>
+      shape === 1
+        ? `<li _s:on:click="row#0:pick">a</li><li _s:on:click="row#1:pick">b</li>`
+        : shape === 2
+          ? `<li _s:on:click="row#0:pick">b</li>`
+          : `<li>b</li>`;
+    vi.stubGlobal("fetch", async () => {
+      const v = version();
+      const chunks: any[] = [{ type: "start", id: ID, version: v }];
+      if (shape === 1) {
+        chunks.push({ type: "slot", id: ID, version: v, key: "row#0", args: { name: "a" } });
+        chunks.push({ type: "slot", id: ID, version: v, key: "row#1", args: { name: "b" } });
+      } else if (shape === 2) {
+        chunks.push({ type: "slot", id: ID, version: v, key: "row#0", args: { name: "b" } });
+      }
+      chunks.push({ type: "html", id: ID, version: v, html: `<ul>${rows()}</ul>` });
+      chunks.push({ type: "complete", id: ID, version: v });
+      return frameResponse(ID, chunks);
+    });
+    const events: string[] = [];
+    const List = dynamic(() => getTodos() as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <Loading fallback={<span>...</span>}>
+          <List row={(p: any) => ({ pick: () => events.push(`pick:${p.name}`) })} />
+        </Loading>
+      ),
+      container
+    );
+    await cycle();
+    const [liA, liB] = Array.from(container.querySelectorAll("li"));
+    liA.click();
+    liB.click();
+    expect(events).toEqual(["pick:a", "pick:b"]);
+
+    shape = 2;
+    setVersion(2);
+    await cycle();
+    const lis = Array.from(container.querySelectorAll("li"));
+    expect(lis).toHaveLength(1);
+    expect(lis[0]).toBe(liA);
+    expect(lis[0].textContent).toBe("b");
+    liA.click();
+    expect(events).toEqual(["pick:a", "pick:b", "pick:b"]);
+
+    shape = 3;
+    setVersion(3);
+    await cycle();
+    expect(container.querySelector("li")).toBe(liA);
+    expect(liA.hasAttribute("_s:on:click")).toBe(false);
+    liA.click();
+    expect(events).toEqual(["pick:a", "pick:b", "pick:b"]);
+
+    dispose();
+    flush();
+    container.remove();
+  });
+
   test("a rebind that RELEASES value positions leaves the server's own attributes alone; released handlers unbind", async () => {
     // v1: the client owns a class name, a style property and `hidden` on the
     // li, and a click on the button. v2 re-renders the li with only `hidden`

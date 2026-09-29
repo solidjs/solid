@@ -436,6 +436,14 @@ function bindDataOccurrence(fill: (args: any) => any, args: any, ctx: any) {
       bound = next;
     }
   );
+  // The occurrence's end (a later response dropped it, a positional id now
+  // names another row's data) unbinds what it bound: the listeners it
+  // attached are its own — the element may outlive the occurrence (a morph
+  // keeps un-keyed elements) and another occurrence may bind it next, so a
+  // listener left behind fires a disposed fill's handler, and twice.
+  onCleanup(() => {
+    for (const element of bound) write(element, {}, {});
+  });
   function write(element: Element, props: Record<string, any>, handlers: Record<string, string[]>) {
     const st = state.get(element)!;
     // A value position the server RELEASED (a rebind whose incoming markup

@@ -21,7 +21,7 @@
 // `class`/`style` through runtime holes where the stand-in is seen.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Loading, renderToStream } from "@solidjs/web";
-import { createMemo, OBSERVE, type DiagnosticEvent } from "solid-js";
+import { createMemo, OBSERVE, sharedConfig, type DiagnosticEvent } from "solid-js";
 import {
   frameTransformDirectResult,
   renderServerComponent,
@@ -275,6 +275,26 @@ describe("attribute slots — stream face", () => {
     expect(findings()).toHaveLength(1);
   });
 
+  it("`on:x` / `oncapture:x` keys of a runtime spread bound to a stand-in are dev findings; no marker renders", async () => {
+    // Neither syntax exists in 2.0. Derived as `onClick` is, they minted a
+    // marker naming no event (`_s:on::myevent`) or the wrong one
+    // (`_s:on:capture:click`), which the client listened for in vain.
+    const Spread = (props: any) => {
+      const row = props.row({ id: 1 });
+      return <li {...{ "on:myEvent": row.g, "oncapture:click": row.c, onClick: row.ok }} />;
+    };
+    const chunks = await collect(renderServerComponent(Spread, { frame: { id: "ds6e" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain('<li _s:on:click="row#0:ok">');
+    expect(html).not.toContain("_s:on::");
+    expect(html).not.toContain("capture");
+    expect(findings("event-name").map(e => (e.data as any).position)).toEqual([
+      "on:myEvent",
+      "oncapture:click"
+    ]);
+    expect(findings()).toHaveLength(2);
+  });
+
   it("a handler position inside a live hole carries its marker on every re-emission, with an unrelated render interleaved", async () => {
     // The chat example's `codeBlock` shape: a zero-arg attribute slot read at an
     // event position INSIDE a live hole (an async-iterable-fed memo). The
@@ -386,6 +406,84 @@ describe("attribute slots — stream face", () => {
       { reason: "arg", occurrence: "child#0", key: "parentId", from: "parent#0", fromKey: "id" }
     ]);
     expect(findings()).toHaveLength(1);
+  });
+
+  it("stand-ins NESTED in a slot's arg are `undefined` at their path on both faces, each a dev finding; the t=0 fill reads what hydration will", async () => {
+    // `{ nested: { x: parent.done } }` and `[parent.done]`: the stand-in used
+    // to serialize as its own shape (`{ k, v, f }` — on the document face
+    // with the t=0 value in `v`) with no finding, and the document face's
+    // fill saw the live stand-in while hydration saw the record.
+    const ServerComp = (props: any) => {
+      const parent = props.parent({ id: "p1" });
+      const child = props.child({
+        nested: { x: parent.done, keep: 1 },
+        list: [parent.done, "b"],
+        own: "x"
+      });
+      return (
+        <div class={parent.cls}>
+          <span class={child.cls} />
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "dsan" } }));
+    const slots = chunks.filter(c => c.type === "slot");
+    const table = createJSONDataTable();
+    for (const c of chunks.filter(x => x.type === "data")) table.apply(c);
+    const args = slots[1].args;
+    expect(args.own).toBe("x");
+    const nested = table.resolve(args.nested) as any;
+    expect(nested).toEqual({ x: undefined, keep: 1 });
+    expect("x" in nested).toBe(true);
+    expect(table.resolve(args.list)).toEqual([undefined, "b"]);
+    expect(findings("arg").map(e => e.data as any)).toEqual([
+      {
+        reason: "arg",
+        occurrence: "child#0",
+        key: "nested",
+        path: ".x",
+        from: "parent#0",
+        fromKey: "done"
+      },
+      {
+        reason: "arg",
+        occurrence: "child#0",
+        key: "list",
+        path: "[0]",
+        from: "parent#0",
+        fromKey: "done"
+      }
+    ]);
+    expect(findings()).toHaveLength(2);
+
+    // Document face: the fill's arg at t=0 is the record's arg.
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsand" }) as any;
+    const seen: any[] = [];
+    const html = plain(
+      await document(() =>
+        Inline({
+          parent: () => ({ done: true, cls: "p" }),
+          child: (p: any) => {
+            seen.push(p);
+            return {
+              cls: p.nested.x === undefined && p.list[0] === undefined ? "scrubbed" : "leaked"
+            };
+          }
+        })
+      )
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0].nested).toEqual({ x: undefined, keep: 1 });
+    expect(seen[0].list).toEqual([undefined, "b"]);
+    expect(html).toContain('<span class="scrubbed" _s:class="child#0:cls">');
+    // One finding per (arg, path) for this render — the fill's arg and the
+    // record are one scrub, not two — on top of the stream render's two.
+    expect(
+      findings("arg")
+        .slice(2)
+        .map(e => (e.data as any).path)
+    ).toEqual([".x", "[0]"]);
+    expect(findings()).toHaveLength(4);
   });
 
   it("a server-local function at a ref/on* position is a dev finding; a stand-in in a template string is another", async () => {
@@ -558,6 +656,49 @@ describe("attribute slots — document face (t=0)", () => {
     expect(html.match(/<!--slot:note:start--><b[^>]*>new<\/b><!--slot:note:end-->/g)).toHaveLength(
       2
     );
+    expect(findings()).toEqual([]);
+  });
+
+  it("the document face arms `claims` on the component's own render context: the page after it keeps the pre-slot walk, a late hole inside stays armed", async () => {
+    // `claims` used to be set on the PAGE's context and never cleared, so
+    // every spread element the document rendered after a server component
+    // took the slot-aware walk. It now lives on a context derived from the
+    // page's for the component's subtree — and a hole that resolves after
+    // the component returned (a Loading boundary's async content) re-emits
+    // under that mint-time context, so its handler marker still renders.
+    const seen: any[] = [];
+    const Probe = () => {
+      seen.push(sharedConfig.context && (sharedConfig.context as any).claims);
+      return null;
+    };
+    const Late = (props: { block: any }) => {
+      const t = createMemo(() => new Promise<string>(r => setTimeout(() => r("Copy"), 5)));
+      return (
+        <button type="button" onClick={props.block.copy}>
+          {t()}
+        </button>
+      );
+    };
+    const ServerComp = (props: any) => {
+      const block = props.codeBlock();
+      return (
+        <Loading fallback={<p>...</p>}>
+          <Late block={block} />
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dscl" }) as any;
+    const html = plain(
+      await document(() => [
+        <Probe />,
+        Inline({ codeBlock: () => ({ copy: () => {} }) }),
+        <Probe />,
+        <div {...{ class: { a: true } }} onClick={() => {}} />
+      ])
+    );
+    expect(seen).toEqual([undefined, undefined]);
+    expect(html).toContain('<button type="button" _s:on:click="codeBlock:copy">Copy</button>');
+    expect(html).toMatch(/<div _hk=\d+ class="a"><\/div>/);
     expect(findings()).toEqual([]);
   });
 
