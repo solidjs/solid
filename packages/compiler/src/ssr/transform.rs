@@ -1509,10 +1509,13 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         Option<(std::vec::Vec<String>, std::vec::Vec<TailPart<'a>>)>,
     )> {
         // The DOM transform handles `ref` outside its spread prop sources.
+        // Under `serverComponents` it stays one (see `spread_prop_property`).
+        let server_components = self.server_components;
         let mut prop_attributes = attributes.iter().filter(|attr| {
-            !matches!(attr, JSXAttributeItem::Attribute(attr)
-                if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
-                    if name.name == "ref"))
+            server_components
+                || !matches!(attr, JSXAttributeItem::Attribute(attr)
+                    if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
+                        if name.name == "ref"))
         });
         if let (Some(JSXAttributeItem::SpreadAttribute(spread)), None) =
             (prop_attributes.next(), prop_attributes.next())
@@ -1617,9 +1620,21 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if has_children && name == "children" {
             return Ok(None);
         }
-        if name == "ref" || name.starts_with("prop:") || name.starts_with("on") {
+        // Server components (principles §9.2.3): a named `ref`/`on*` on a
+        // spread element is a handler position like any other, and
+        // `ssrElement`'s walk binds an attribute-slot value found at such a
+        // key of a SOURCE (`_s:on:<event>` / `_s:ref`, or nothing for a
+        // server-local function). So the attribute rides as a source
+        // property — a getter when dynamic, like every other attribute —
+        // wherever it sits relative to the spreads, instead of dropping as
+        // plain SSR drops it (a server element has no handlers to run).
+        let behavior_source = self.server_components && (name == "ref" || name.starts_with("on"));
+        if !behavior_source
+            && (name == "ref" || name.starts_with("prop:") || name.starts_with("on"))
+        {
             return Ok(None);
         }
+        let in_tail = in_tail && !behavior_source;
         // `$key` on an intrinsic element compiles to the `_key` attribute
         // the frame morph matches keyed elements by, in a spread element's
         // sources and tail exactly as in the template path
@@ -2036,15 +2051,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             return Ok(());
         }
         if let Some(rest) = key.strip_prefix("on") {
-            // Capture-phase variants can't ride delegation; they drop as
-            // before. `on:x` keeps the raw name, `onXxx` lowercases — the
-            // same event-name derivation as the client runtime.
-            if self.server_components && !key.starts_with("oncapture:") {
-                let pos = if let Some(raw) = rest.strip_prefix(':') {
-                    raw.to_string()
-                } else {
-                    rest.to_lowercase()
-                };
+            // `onXxx` lowercases to the event name — the client runtime's
+            // own derivation (`onClick` -> `click`); the position is bound
+            // under it.
+            if self.server_components {
+                let pos = rest.to_lowercase();
                 if !pos.is_empty() {
                     claims.push((pos, expression));
                 }
@@ -2079,14 +2090,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         // Object literals stay objects (no inlining) for the same reason.
         if self.server_components && (key == "class" || key == "style") {
             self.uses_ssr_element_attribute = true;
-            let key_literal = self
-                .ast()
-                .expression_string_literal(span, self.ast().str(&key), None);
-            let attr = self.helper_call(
-                span,
-                "_$ssrElementAttribute",
-                vec![key_literal, expression],
-            );
+            let key_literal =
+                self.ast()
+                    .expression_string_literal(span, self.ast().str(&key), None);
+            let attr =
+                self.helper_call(span, "_$ssrElementAttribute", vec![key_literal, expression]);
             let hole = if is_dynamic_value {
                 let arrow = self.arrow_return_expression(span, attr);
                 self.hoist_expression(template, span, arrow, true, false)

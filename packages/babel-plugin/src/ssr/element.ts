@@ -590,11 +590,10 @@ function transformAttributes(
       }
       if (key.startsWith("prop:")) return;
       if (key.startsWith("on")) {
-        // Capture-phase variants can't ride delegation; v1 drops them as
-        // before. `on:x` keeps the raw name, `onXxx` lowercases — the same
-        // event-name derivation as the client runtime.
-        if (info.serverComponents && !key.startsWith("oncapture:")) {
-          const pos = key.startsWith("on:") ? key.slice(3) : key.slice(2).toLowerCase();
+        // `onXxx` lowercases to the event name — the client runtime's own
+        // derivation (`onClick` -> `click`); the position is bound under it.
+        if (info.serverComponents) {
+          const pos = key.slice(2).toLowerCase();
           if (pos) claims.push([pos, value.expression as babelTypes.Expression]);
         }
         return;
@@ -959,7 +958,7 @@ function transformChildren(
 
 function createElement(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
-  { topLevel, hydratable }: SSRTransformInfo
+  { topLevel, hydratable, serverComponents }: SSRTransformInfo
 ): SSRSpreadTransformResult {
   const tagName = getTagName(path.node),
     config = getConfig(path),
@@ -1007,11 +1006,28 @@ function createElement(
       return memo;
     }, []);
 
-  // The DOM transform handles `ref` outside its spread prop sources.
-  const propAttributes = attributes.filter(attribute => {
-    const node = attribute.node;
-    return !(t.isJSXAttribute(node) && t.isJSXIdentifier(node.name) && node.name.name === "ref");
-  });
+  // The DOM transform handles `ref` outside its spread prop sources. Under
+  // `serverComponents` it stays one: see `behaviorSource` below.
+  const propAttributes = serverComponents
+    ? attributes
+    : attributes.filter(attribute => {
+        const node = attribute.node;
+        return !(
+          t.isJSXAttribute(node) &&
+          t.isJSXIdentifier(node.name) &&
+          node.name.name === "ref"
+        );
+      });
+  // Server components (principles §9.2.3): a named `ref`/`on*` on a spread
+  // element is a handler position like any other, and the spread walk in
+  // `ssrElement` already binds an attribute-slot value found at such a key
+  // of a SOURCE (`_s:on:<event>` / `_s:ref`, or nothing for a server-local
+  // function). So the attribute rides as a source property — a getter when
+  // dynamic, like every other attribute — wherever it sits relative to the
+  // spreads, instead of being dropped as plain SSR drops it (a server
+  // element has no handlers to run). Plain SSR output is unchanged.
+  const behaviorSource = (key: string) =>
+    serverComponents && (key === "ref" || (key.startsWith("on") && !key.startsWith("prop:")));
 
   let props: babelTypes.Expression[];
   // Attributes written AFTER the last spread are markup, not a source: no
@@ -1078,9 +1094,11 @@ function createElement(
             : node.name.name;
 
         if (hasChildren && key === "children") return;
-        if (key === "ref") return;
-        if (key.startsWith("prop:") || key.startsWith("on")) return;
-        if (i > lastSpread) {
+        if (!behaviorSource(key)) {
+          if (key === "ref") return;
+          if (key.startsWith("prop:") || key.startsWith("on")) return;
+        }
+        if (i > lastSpread && !behaviorSource(key)) {
           const part = tailAttribute(path, tagName, key, node);
           if (part !== undefined) {
             if (typeof part === "string" && typeof tail[tail.length - 1] === "string")

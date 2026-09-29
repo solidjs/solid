@@ -7,13 +7,24 @@ const template = (
     <button class="copy" onClick={props.onCopy} ref={props.btn}>
       Copy
     </button>
-    <input onInput={props.onType} on:custom-thing={props.onCustom} />
+    <input onInput={props.onType} onKeyDown={props.onKey} />
     <span onClick={localHandler}>warns at render when the gate is open</span>
     <a href="/x" ref={first} ref={second}>
       multiple refs merge to an array
     </a>
-    <section oncapture:click={props.onCapture}>capture variants stay dropped</section>
   </div>
+);
+
+// A spread element has no claim hole: its named `ref`/`on*` ride as SOURCE
+// properties (a getter when dynamic), before or after the spreads, and
+// `ssrElement`'s walk binds a slot value found at such a key of a source
+// exactly as it does for one inside the spread object. Plain SSR drops
+// them; the tail after the last spread still bakes its statics.
+const spread = (
+  <button {...rest} onClick={row.go} ref={row.el} class="static">
+    <span {...more} onInput={row.type} />
+    <i ref={row.only} {...last} />
+  </button>
 );
 
 // A dynamic `class`/`style` is a whole-attribute element-attribute hole

@@ -2806,26 +2806,24 @@ during render — which predates all of this.
   finding (`reserved-key`).
 - *A stand-in is not an argument.* `props.child({ parentId:
   parent.id })` passes another slot's value as data the server does
-  not have — at the top or nested (`{ nested: { x: row.done } }`,
-  `[row.done]`); the arg carries `undefined` at that path on both
-  faces (the record, and the document face's t = 0 fill, which must
-  read what hydration will) and dev says so (`arg`, with the path).
-  Pass the server's own value, or read it in the client fill from
-  client state.
+  not have — at the top or nested in plain objects and arrays
+  (`{ nested: { x: row.done } }`, `[row.done]`; a `Map`, `Set` or
+  class instance is the app's and is not walked); the arg carries
+  `undefined` at that path on both faces (the record, and the
+  document face's t = 0 fill, which must read what hydration will)
+  and dev says so (`arg`, with the path). A cyclic arg crosses as a
+  cycle. Pass the server's own value, or read it in the client fill
+  from client state.
 - *A handler position is `on<Event>`.* The marker carries the
-  runtime's derivation (`onClick` → `click`); `on:` and `oncapture:`
-  are not 2.0 syntaxes, and a stand-in at such a key of a runtime
-  spread is a dev finding (`event-name`) that renders nothing — it
-  would otherwise mint a marker naming no event. `prop:*` positions
-  are likewise not bindable (the server renders no properties): a
-  stand-in there is a finding (`prop`) on the runtime spread path;
-  the compiled form drops `prop:*` as SSR always has. *Known gap:*
-  under `serverComponents`, both compilers drop `ref`/`on*` on an
-  element that also has a spread (`<button {...rest} onClick=
-  {row.go} />`) — no marker, no finding, the element inert. The fix
-  is the claim hole template elements get; until it lands, bind
-  handlers on elements without a spread, or put the handler key
-  inside the spread object.
+  runtime's derivation (`onClick` → `click`), on a template element
+  (the compiled claim hole) and on a spread element alike: under
+  `serverComponents` a spread element's named `ref`/`on*` ride as
+  source properties (`<button {...rest} onClick={row.go} />`) and
+  `ssrElement`'s walk binds them exactly as it binds a key inside
+  the spread object. `prop:*` positions are not bindable (the server
+  renders no properties): a stand-in there is a finding (`prop`) on
+  the runtime spread path; the compiled form drops `prop:*` as SSR
+  always has.
 - *The occurrence is the call, not the element.* `$key` on the call
   is occurrence identity (client state follows the entity across
   responses); `$key` on the `<li>` is morph identity for the node.

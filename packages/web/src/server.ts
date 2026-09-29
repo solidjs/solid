@@ -624,6 +624,14 @@ function applyAssetTracking(context, tracking, manifest, noScripts) {
   });
   context.registerModule = tracking.registerModule;
   context.getBoundaryModules = tracking.getBoundaryModules;
+  // The per-request resolution cache lazy() reads (`resolveLazyAssets`),
+  // created on the ROOT context: render contexts derive from it by
+  // prototype (a Loading boundary's buffered context, a server-owned
+  // frame's claims context), and a cache the first lazy() on the page
+  // created lazily on a derived context would be that subtree's alone —
+  // the next lazy() outside it would start a second Map and re-ask the
+  // resolver for every module the first already resolved.
+  context._lazyAssets = new Map();
   // A manifest can be the static object produced by a build (sync lookups,
   // entry enumeration) or a resolver — the primitive a dev server implements
   // against its live module graph: `{ resolve, resolveSync? }`, where
@@ -4853,22 +4861,6 @@ function collectSpreadSources(tag, props, viewKeys, owners, slots) {
  */
 function spreadBehaviorAttribute(prop, value) {
   if (!isSlotValue(value)) return "";
-  if (prop.startsWith("on:") || prop.startsWith("oncapture:")) {
-    // Not event syntaxes in 2.0 (a handler is `onClick`; the marker carries
-    // the runtime's lowercased derivation, `click`). A stand-in here would
-    // mint a marker naming no event (`_s:on::myevent`) or the wrong one
-    // (`capture:click`), which the client would listen for and never hear.
-    // Say so; nothing renders (either face).
-    slotFinding(
-      value,
-      "event-name",
-      prop,
-      `[${ATTRIBUTE_SLOT_POSITION}] \`${value.k}\` of slot \`${propOfOccurrence(value[SLOT_VALUE])}\` is bound ` +
-        `at \`${prop}\`. \`on:\` and \`oncapture:\` are not handler positions (the syntax is gone in 2.0): ` +
-        `nothing renders here. Bind \`on<Event>\` (\`onClick\`), or attach the listener in the client fill's ref.`
-    );
-    return "";
-  }
   return slotBehaviorMarker(prop === "ref" ? "ref" : eventPosition(prop), value);
 }
 

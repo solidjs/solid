@@ -45,5 +45,9 @@ describe("SSR serverComponents attribute slots", () => {
     expect(output).not.toContain("sharedConfig");
     expect(output).not.toContain("ssrElementAttribute");
     expect(output).toContain("ssrClassName");
+    // Spread elements: `ref`/`on*` drop from the sources as before.
+    expect(output).not.toContain("onClick");
+    expect(output).not.toContain("onInput");
+    expect(output).not.toContain("get ref");
   });
 });

@@ -185,6 +185,7 @@ import {
 import { devCheck } from "../../src/diagnostics.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
+import { DESCEND, rewriteTree } from "./tree-rewrite.js";
 import {
   ChunkReader,
   createChunk,
@@ -974,48 +975,33 @@ function slotProxy(range, occurrence, face, content, onData) {
  * document face `v` is the t=0 value, which hydration then contradicts).
  */
 function argBorderForm(value, key, occurrence) {
-  return toBorderForm(withoutStandIns(value, key, occurrence, ""), true);
+  return toBorderForm(withoutStandIns(value, key, occurrence), true);
 }
 
 /**
- * A slot arg with every stand-in in it replaced by `undefined`, copy-on-
- * write (untouched subtrees pass by reference), the same walk as
- * `toBorderForm`: a container first (a WeakMap probe — a pending
- * projection proxy's property reads throw not-ready), then arrays and
- * plain objects by their leaves; anything exotic is the app's and is not
- * read. A stand-in is a plain object, so the probe runs on those alone.
- * Both faces take the same arg: the document face's t=0 fill reads what
- * hydration will (see createDocumentSlotProps), the records carry it.
+ * A slot arg with every stand-in in it replaced by `undefined` — the same
+ * rewrite as `toBorderForm` (copy-on-write, plain arrays and objects by
+ * their leaves, a cycle rewritten as a cycle; see rewriteTree): a
+ * container first (a WeakMap probe — a pending projection proxy's
+ * property reads throw not-ready), then the stand-in test on plain
+ * objects alone; anything exotic is the app's and is not read. Both faces
+ * take the same arg: the document face's t=0 fill reads what hydration
+ * will (see createDocumentSlotProps), the records carry it.
  */
-function withoutStandIns(value, key, occurrence, path) {
-  if (value == null || typeof value !== "object" || isContainerTraced(value)) return value;
-  if (Array.isArray(value)) {
-    let out = value;
-    for (let i = 0; i < value.length; i++) {
-      const next = withoutStandIns(value[i], key, occurrence, `${path}[${i}]`);
-      if (next !== value[i]) {
-        if (out === value) out = value.slice();
-        out[i] = next;
+function withoutStandIns(value, key, occurrence) {
+  if (value == null || typeof value !== "object") return value;
+  return rewriteTree(
+    value,
+    (v, path) => {
+      if (v == null || typeof v !== "object" || isContainerTraced(v)) return v;
+      if (Object.getPrototypeOf(v) === Object.prototype && isSlotValue(v)) {
+        if ("_SOLID_DEV_") standInArgFinding(v, key, occurrence, path);
+        return undefined;
       }
-    }
-    return out;
-  }
-  if (Object.getPrototypeOf(value) === Object.prototype) {
-    if (isSlotValue(value)) {
-      if ("_SOLID_DEV_") standInArgFinding(value, key, occurrence, path);
-      return undefined;
-    }
-    let out = value;
-    for (const k of Object.keys(value)) {
-      const next = withoutStandIns(value[k], key, occurrence, `${path}.${k}`);
-      if (next !== value[k]) {
-        if (out === value) out = { ...value };
-        out[k] = next;
-      }
-    }
-    return out;
-  }
-  return value;
+      return DESCEND;
+    },
+    true
+  );
 }
 
 function standInArgFinding(sv, key, occurrence, path) {
@@ -1142,11 +1128,12 @@ function keyedId(prop, raw) {
  * `undefined` when the args hold anything identity can't be read off by
  * value: a function (a thunk, a handler), a promise or async iterable (the
  * value tier), a class instance, a getter (compiled props — evaluating it
- * here would double the read the record path owns). `$key` is excluded:
- * a keyed call is named, not compared.
+ * here would double the read the record path owns), a cycle (no finite
+ * by-value form). `$key` is excluded: a keyed call is named, not compared.
  */
 function structuralArgsKey(raw) {
   let out = "";
+  let ancestors;
   // Length-prefixed strings and keys keep the encoding injective.
   const walk = (v, top) => {
     if (v === null) out += "N";
@@ -1156,22 +1143,34 @@ function structuralArgsKey(raw) {
     else if (typeof v === "number") out += "n" + v + ";";
     else if (typeof v === "bigint") out += "b" + v + ";";
     else if (typeof v !== "object") return false;
-    else if (Array.isArray(v)) {
-      out += "[";
-      for (const item of v) if (!walk(item)) return false;
-      out += "]";
-    } else {
-      const proto = Object.getPrototypeOf(v);
-      if (proto !== Object.prototype && proto !== null) return false;
-      out += "{";
-      for (const k of Object.keys(v).sort()) {
-        if (top && k === "$key") continue;
-        const desc = Object.getOwnPropertyDescriptor(v, k);
-        if (desc.get || desc.set) return false;
-        out += "k" + k.length + ":" + k;
-        if (!walk(desc.value)) return false;
+    else {
+      const isArray = Array.isArray(v);
+      if (!isArray) {
+        const proto = Object.getPrototypeOf(v);
+        if (proto !== Object.prototype && proto !== null) return false;
       }
-      out += "}";
+      if (ancestors === undefined) ancestors = new Set();
+      else if (ancestors.has(v)) return false;
+      ancestors.add(v);
+      try {
+        if (isArray) {
+          out += "[";
+          for (const item of v) if (!walk(item)) return false;
+          out += "]";
+        } else {
+          out += "{";
+          for (const k of Object.keys(v).sort()) {
+            if (top && k === "$key") continue;
+            const desc = Object.getOwnPropertyDescriptor(v, k);
+            if (desc.get || desc.set) return false;
+            out += "k" + k.length + ":" + k;
+            if (!walk(desc.value)) return false;
+          }
+          out += "}";
+        }
+      } finally {
+        ancestors.delete(v);
+      }
     }
     return true;
   };
@@ -1551,7 +1550,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
               // `undefined` in the record (argBorderForm), so the t=0 fill
               // takes the same value — the one-record shape holds for the
               // args the fill saw, not only the ones it shipped.
-              resolved[key] = vals[key] = withoutStandIns(value, key, occurrence, "");
+              resolved[key] = vals[key] = withoutStandIns(value, key, occurrence);
             }
           }
           const out = suppressedFill(() =>
@@ -1691,15 +1690,17 @@ const FRAME_ELEMENT_CLOSE = `</${FRAME_TAG}>`;
  * ships last values, then the channel closes (an open stream would hold the
  * response forever).
  *
- * CONTEXT GEOMETRY: components render under per-component context CLONES,
- * so the ctx a server component arms under is usually not the root object
- * the renderer's flush loop reads. Everything read DOWNWARD (`liveHoles`,
- * `commit` — consumed by the subtree under the arm point) rides the clone:
- * descendants spread-copy it. Everything read at the ROOT (the end latch,
- * and the once-per-document arming dedupe — a second component elsewhere
- * arms under a sibling clone that never saw the first) rides `ctx.live`,
- * the shared slot the root context creates and every clone carries by
- * reference.
+ * CONTEXT GEOMETRY: the ctx a server component arms under is not always
+ * the root object the renderer's flush loop reads — it may be a DERIVED
+ * context (`Object.create(root)`: a Loading boundary's buffered context,
+ * or the claims-arming context `frameTransformDirectResult` renders a
+ * server-owned frame under). Everything read DOWNWARD (`liveHoles`,
+ * `commit` — consumed by the subtree under the arm point) is written on
+ * that ctx and inherited by whatever derives from it below. Everything
+ * read at the ROOT (the end latch, and the once-per-document arming dedupe
+ * — a second component elsewhere arms under a sibling derived ctx that
+ * never saw the first) rides `ctx.live`, the shared slot the root context
+ * creates and every derived context inherits by reference.
  */
 function armDocumentLiveHoles(ctx) {
   if (!ctx || ctx.liveHoles !== undefined) return;
@@ -2148,7 +2149,9 @@ export function createSlotProps(sink, frame) {
           // would mint new occurrences and re-serialize args — the double-
           // data disease. First render stamps the engine so the enclosing
           // hole latches instead of binding; a sweep that gets here anyway
-          // (the escalated-first-render case) aborts and closes the binding.
+          // (the escalated-first-render case) flags the engine (`gateHit`)
+          // and hands back an inert placeholder — the engine discards that
+          // sweep's value and closes the binding.
           const live = sharedConfig.context && sharedConfig.context.liveHoles;
           if (live) {
             if (live.sweeping) {

@@ -275,24 +275,30 @@ describe("attribute slots — stream face", () => {
     expect(findings()).toHaveLength(1);
   });
 
-  it("`on:x` / `oncapture:x` keys of a runtime spread bound to a stand-in are dev findings; no marker renders", async () => {
-    // Neither syntax exists in 2.0. Derived as `onClick` is, they minted a
-    // marker naming no event (`_s:on::myevent`) or the wrong one
-    // (`_s:on:capture:click`), which the client listened for in vain.
+  it("named `ref`/`on*` on a compiled spread element bind: before or after the spread, mixed with a spread's own", async () => {
+    // A spread element has no `ssrClaim` hole; under `serverComponents` the
+    // compiler keeps its named `ref`/`on*` as source properties and
+    // `ssrElement`'s walk mints the same markers it does for a key inside
+    // the spread object. Statics after the last spread still bake into the
+    // tail; a server-local handler at such a key renders nothing.
     const Spread = (props: any) => {
       const row = props.row({ id: 1 });
-      return <li {...{ "on:myEvent": row.g, "oncapture:click": row.c, onClick: row.ok }} />;
+      const rest = { "data-k": "v", onInput: row.type };
+      const local = () => {};
+      return (
+        <button {...rest} onClick={row.go} ref={row.el} class="static">
+          <i ref={row.only} {...{ title: "t" }} onKeyDown={local} />
+        </button>
+      );
     };
-    const chunks = await collect(renderServerComponent(Spread, { frame: { id: "ds6e" } }));
+    const chunks = await collect(renderServerComponent(Spread, { frame: { id: "ds6s" } }));
     const html = plain(chunks.find(c => c.type === "html").html);
-    expect(html).toContain('<li _s:on:click="row#0:ok">');
-    expect(html).not.toContain("_s:on::");
-    expect(html).not.toContain("capture");
-    expect(findings("event-name").map(e => (e.data as any).position)).toEqual([
-      "on:myEvent",
-      "oncapture:click"
-    ]);
-    expect(findings()).toHaveLength(2);
+    expect(html).toContain(
+      '<button data-k="v" _s:on:input="row#0:type" _s:on:click="row#0:go" _s:ref="row#0:el" class="static">'
+    );
+    expect(html).toContain('<i _s:ref="row#0:only" title="t">');
+    expect(html).not.toContain("keydown");
+    expect(findings()).toEqual([]);
   });
 
   it("a handler position inside a live hole carries its marker on every re-emission, with an unrelated render interleaved", async () => {
@@ -484,6 +490,59 @@ describe("attribute slots — stream face", () => {
         .map(e => (e.data as any).path)
     ).toEqual([".x", "[0]"]);
     expect(findings()).toHaveLength(4);
+  });
+
+  it("a cyclic slot arg crosses the border as a cycle; a shared acyclic subtree is scrubbed at every occurrence", async () => {
+    // Both walks (`withoutStandIns`, `toBorderForm`) used to recurse without
+    // a guard — a self-referencing arg overflowed the stack on both faces.
+    const ServerComp = (props: any) => {
+      const parent = props.parent({ id: "p1" });
+      const meta: any = { tag: "m", x: parent.done };
+      meta.self = meta;
+      const shared = { y: parent.done, keep: 2 };
+      const child = props.child({ meta, pair: [shared, shared], own: "x" });
+      return (
+        <div class={parent.cls}>
+          <span class={child.cls} />
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "dscy" } }));
+    expect(chunks.find(c => c.type === "error")).toBeUndefined();
+    const slots = chunks.filter(c => c.type === "slot");
+    const table = createJSONDataTable();
+    for (const c of chunks.filter(x => x.type === "data")) table.apply(c);
+    const args = slots[1].args;
+    const meta = table.resolve(args.meta) as any;
+    expect(meta.tag).toBe("m");
+    expect(meta.self).toBe(meta);
+    // The stand-in at `meta.x` is scrubbed on the copy the record ships …
+    expect("x" in meta).toBe(true);
+    expect(meta.x).toBeUndefined();
+    const pair = table.resolve(args.pair) as any[];
+    expect(pair).toEqual([
+      { y: undefined, keep: 2 },
+      { y: undefined, keep: 2 }
+    ]);
+    expect(findings("arg").map(e => (e.data as any).path)).toEqual([".x", "[0].y", "[1].y"]);
+
+    // … and the document face's t=0 fill sees the same cycle and scrub.
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dscyd" }) as any;
+    const seen: any[] = [];
+    const html = plain(
+      await document(() =>
+        Inline({
+          parent: () => ({ done: true, cls: "p" }),
+          child: (p: any) => {
+            seen.push(p);
+            return { cls: p.meta.self === p.meta && p.meta.x === undefined ? "cyclic" : "flat" };
+          }
+        })
+      )
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0].pair[0]).toEqual({ y: undefined, keep: 2 });
+    expect(html).toContain('<span class="cyclic" _s:class="child#0:cls">');
   });
 
   it("a server-local function at a ref/on* position is a dev finding; a stand-in in a template string is another", async () => {

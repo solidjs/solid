@@ -2,6 +2,7 @@ import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
+import { ssrElement as _$ssrElement } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrClaim as _$ssrClaim } from "r-server";
 import { sharedConfig as _$sharedConfig } from "r-server";
@@ -10,7 +11,7 @@ var _tmpl$ = [
     ">Copy</button><input",
     "><span",
     '>warns at render when the gate is open</span><a href="/x"',
-    ">multiple refs merge to an array</a><section>capture variants stay dropped</section></div>"
+    ">multiple refs merge to an array</a></div>"
   ],
   _tmpl$2 = ["<li", "", "", ">", "</li>"],
   _tmpl$3 = [
@@ -22,6 +23,7 @@ var _tmpl$ = [
     '><span class="static stays">',
     "</span></li>"
   ];
+var _sk$ = k => k === "class";
 var _v$ =
     _$sharedConfig.context && _$sharedConfig.context.claims
       ? _$ssrClaim({
@@ -33,7 +35,7 @@ var _v$ =
     _$sharedConfig.context && _$sharedConfig.context.claims
       ? _$ssrClaim({
           input: props.onType,
-          "custom-thing": props.onCustom
+          keydown: props.onKey
         })
       : "",
   _v$3 =
@@ -53,6 +55,57 @@ var _v$ =
 // the render context's claims flag so plain SSR never evaluates the
 // expressions.
 const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _v$4);
+
+// A spread element has no claim hole: its named `ref`/`on*` ride as SOURCE
+// properties (a getter when dynamic), before or after the spreads, and
+// `ssrElement`'s walk binds a slot value found at such a key of a source
+// exactly as it does for one inside the spread object. Plain SSR drops
+// them; the tail after the last spread still bakes its statics.
+const spread = _$ssrElement(
+  "button",
+  [
+    rest,
+    {
+      get onClick() {
+        return row.go;
+      },
+      get ref() {
+        return row.el;
+      }
+    }
+  ],
+  [
+    _$ssrElement(
+      "span",
+      [
+        more,
+        {
+          get onInput() {
+            return row.type;
+          }
+        }
+      ],
+      undefined,
+      false
+    ),
+    _$ssrElement(
+      "i",
+      [
+        {
+          get ref() {
+            return row.only;
+          }
+        },
+        last
+      ],
+      undefined,
+      false
+    )
+  ],
+  false,
+  _sk$,
+  ' class="static"'
+);
 
 // A dynamic `class`/`style` is a whole-attribute element-attribute hole
 // rather than a value inside template quotes, so a slot value read at the
