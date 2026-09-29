@@ -1,5 +1,45 @@
 # solid-js
 
+## 2.0.0-rc.12
+
+### Patch Changes
+
+- 7b8fd28: `until`'s `signal` option types as the global `AbortSignal` when the DOM lib or `@types/node` declares one, and as the minimal abort surface `until` uses otherwise, so the published declarations type-check with neither lib under `skipLibCheck: false` (previously TS2304).
+- 5bef430: Move `createErrorBoundary`, `createLoadingBoundary` and `createRevealOrder` types to `solid-js/internal`; they remain runtime exports of `solid-js` but are no longer part of its public types (#3709)
+- 7f9bd7a: `lazy()`'s `preload()` and `moduleUrl`, and `getTraceContext()` outside a request scope, resolve the caller's own render instead of the global SSR context
+
+  Both read the module-global `sharedConfig.context`, which is whichever render started or finished last. A `preload()` or `moduleUrl` read made outside the component's own render pass (a route data function, code after an `await`) registered its modulepreload/stylesheet hints into, and resolved its URL through the manifest of, whatever render held the global, possibly another concurrent request's page. An unscoped `getTraceContext()` read the same way could return another render's trace. Both now resolve the render through the caller's owner, walking to the render root the renderer claimed. A call no render can be attributed to hints nowhere, and `moduleUrl` returns the raw specifier and `getTraceContext()` returns `undefined`. The component's own render still registers its assets when it mounts. A render's `"render"` observe record settles under the render's root owner, so its listener still reads that render's trace.
+
+- 51a1a49: Server errors reach their own request's `onError`, never another request's. The server error hook picked the per-request hook off the module-global `sharedConfig.context`, which is whichever render touched it last, and a finished `renderToString` context stays there. So a failure that landed later from async work went to another in-flight or finished request's `onError`. That request's handler got the error with all its details, and its return became the wire value this request's client received. The affected paths are a `<Loading>` boundary failing from its resume loop (`failed` pre-shell, `client` post-shell), a streamed hydration value that won't serialize, a server function dispatched over HTTP without a handler `onError` (its thrown tail and result-graph channels), and an in-process server-function call during SSR that rejects late or is made after an `await`.
+
+  `reportServerError` no longer reads the global context. Every caller passes the hook of the render or request the failure belongs to. Boundaries pass the `errorPolicy` of the context they were created under, and the renderer passes its own `onError`. An HTTP-dispatched server function uses its handler's hook. An in-process call uses the hook of the render serving the request it was made under, which the render files against its request event when it starts. A failure no render or request owns reaches the ambient `configureServerErrors` hook alone.
+
+- d0e487b: `STRICT_READ_UNTRACKED` now fires in two places it was skipped (#3675). In `@solidjs/signals`, `read()` served a snapshot-scope reader the captured value and returned before the strict-read check, so a component body's direct read stayed silent during the hydration pass and only warned after client navigation; the check now runs first. In `solid-js`, `lazy()` rendered the loaded component through a bare `untrack()` instead of `createComponent`, so its body had no component label and its direct reads were never checked — and, in dev/observe builds, its owner carried no component name for diagnostics. It now renders through `createComponent`; production output is unchanged. The warning's console line also names the value that was read when it has a name — a signal's `name` option or the store key: `Reactive value "count" read directly in <Child> will not update.` (the `nodeName` field already carried it).
+- fe1eb68: The route the document arrived on, declared by the router with the call it already uses. `NavigationRef.initial` on `OBSERVE.attribution.withOrigin`: a router wraps the work that establishes its initial match (building its context) instead of a location write, on both sides. On the client the attribution engine opens the frame at the time origin (`at` defaults to `0`, the document's own navigation start; a router mounted late passes its own), takes no `from`, and settles it `committed` with `writes: 0` when the frame closes, so the first `"navigation"` record (`NavigationEvent.initial: true`) names the route the page loaded as — the pageload's route pattern, which every navigation but the first already had. It is a declaration, not a timing: kept out of `feedback().navigations`. On the server, where there is no engine, the server entry's `withOrigin` files the ref on the render, and the request's `"render"` record carries it as `RenderEvent.route` (`{ name, to, params }`, read from the ref when the render settles) — the name a consumer gives the request (`http.route`) where the URL would scatter one page across as many names as it has parameters. New type `RenderRoute` from `@solidjs/web`.
+
+  `NavigationRef.interaction`: a router that awaits between the request and the write (guards or loaders resolved in its core before it publishes the location) captures `OBSERVE.attribution.currentOrigin()` in the request and hands it back on the ref, and the write it publishes later joins the click as if it had been synchronous. Declared beats ambient: the key's presence is the declaration, and an interaction on the stack at write time is used only when the key is absent.
+
+  `formatOrigin` renders the initial declaration `initial navigation to /users/:id (/users/42)`. Prod artifacts byte-identical; the observe tier's client artifacts byte-identical.
+
+- fb4e637: `sharedConfig` and `$DEVCOMP` are no longer part of `solid-js`'s public types; they are typed from `solid-js/internal` (not public API, no semver guarantee). Their runtime exports from `solid-js` are unchanged. Libraries that import `sharedConfig` from `solid-js` must switch to `solid-js/internal`. Under `skipLibCheck: false`, `solid-js`'s declarations now type-check clean (they re-exported both names after stripping them, #3709). The `REACTIVITY_HALTED` message now points to `<Errored>` only.
+- 0bf5758: Observe tier: `OBSERVE.include(owner)` and a body viewer's `"call"` record.
+  - `OBSERVE.include(owner)` re-admits an owner subtree under an excluded one; `isExcluded` answers by the nearest marked ancestor, so an observer that renders the app inside its own shell (`<DevToolbar><App /></DevToolbar>`) can hide its chrome and still see the app. One mark per owner — a later `exclude`/`include` on the same owner replaces it — and a mark belongs at the owner's creation (the engine caches each node's verdict on first read).
+  - `OBSERVE.records.subscribe(type, listener, { bodies?: boolean })` — a listener that reads the live handles an emitter pays per record to take asks for them; `OBSERVE.records.observed(type, "bodies")` is that emitter's second gate, true only while such a listener of the type is installed (`RecordSubscribeOptions` exported from `@solidjs/signals` and `solid-js`). Accepted for any type; meaningful today for `"call"`.
+  - The `"call"` record's bodies are taken only under that opt-in — a plain listener (an APM adapter, the performance tracks) gets no `live.request` and the transport's own `live.response`, as before. With it, `live.request` is the request as dispatched (final url and `RequestInit`, `prepareRequest` applied), built into a `Request` of the listener's own — with the body only when it is a `string`, `URLSearchParams`, `FormData`, `Blob`, `ArrayBuffer` or a view of one, and without it for a `ReadableStream` or an async iterable (a streaming upload); `live.response` is an unread `clone()` taken before the transport's decode. The clone is not taken for an event-stream response, is cancelled at settle for a deferred result (a generator's stream — the branch would buffer every chunk for nobody), and falls back to the transport's object when `clone()` refuses (an already-read response a configured `fetch` handed over); the request is absent when the address is relative and there is no `location` to resolve it against, and when the `Request` constructor rejects what the configured `fetch` accepted — nothing taken for the record can fail the call. `CallEvent.name` carries the reference's metadata name (the compiler's dev-only seed, or an explicit label, which survives to production).
+
+- Updated dependencies [7b8fd28]
+- Updated dependencies [656f0df]
+- Updated dependencies [6958367]
+- Updated dependencies [d281b4f]
+- Updated dependencies [d21c2be]
+- Updated dependencies [f1b0776]
+- Updated dependencies [d0e487b]
+- Updated dependencies [ad1ecc5]
+- Updated dependencies [fe1eb68]
+- Updated dependencies [fb4e637]
+- Updated dependencies [0bf5758]
+  - @solidjs/signals@2.0.0-rc.12
+
 ## 2.0.0-rc.11
 
 ### Patch Changes

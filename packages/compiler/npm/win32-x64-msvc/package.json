@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/compiler-win32-x64-msvc",
-  "version": "2.0.0-rc.11",
+  "version": "2.0.0-rc.12",
   "cpu": [
     "x64"
   ],
