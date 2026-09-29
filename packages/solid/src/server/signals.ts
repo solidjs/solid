@@ -99,7 +99,8 @@ import type {
   Owner,
   Store,
   StoreSetter,
-  Context
+  Context,
+  UntilOptions
 } from "@solidjs/signals";
 
 import { sharedConfig, NoHydrateContext } from "./shared.js";
@@ -3842,10 +3843,7 @@ export function resolve<T>(fn: () => T): Promise<T> {
   throw new Error("resolve is not implemented on the server");
 }
 
-export function until<T>(
-  fn: () => T,
-  options?: { timeout?: number; signal?: AbortSignal }
-): Promise<T> {
+export function until<T>(fn: () => T, options?: UntilOptions): Promise<T> {
   throw new Error("until is not implemented on the server");
 }
 
