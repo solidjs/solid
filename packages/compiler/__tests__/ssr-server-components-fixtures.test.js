@@ -45,9 +45,12 @@ describe("SSR serverComponents attribute slots", () => {
     expect(output).not.toContain("sharedConfig");
     expect(output).not.toContain("ssrElementAttribute");
     expect(output).toContain("ssrClassName");
-    // Spread elements: `ref`/`on*` drop from the sources as before.
-    expect(output).not.toContain("onClick");
-    expect(output).not.toContain("onInput");
-    expect(output).not.toContain("get ref");
+    // Spread elements: `ref`/`on*` drop as before — no claim thunk, no
+    // source property, and the handler expressions do not appear at all.
+    expect(output).not.toContain("row.go");
+    expect(output).not.toContain("row.el");
+    expect(output).not.toContain("row.key");
+    expect(output).not.toContain("localHandler");
+    expect(output).toMatch(/_\$ssrElement\("button", rest, \[/);
   });
 });

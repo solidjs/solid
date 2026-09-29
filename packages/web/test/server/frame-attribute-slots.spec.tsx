@@ -275,30 +275,72 @@ describe("attribute slots — stream face", () => {
     expect(findings()).toHaveLength(1);
   });
 
-  it("named `ref`/`on*` on a compiled spread element bind: before or after the spread, mixed with a spread's own", async () => {
-    // A spread element has no `ssrClaim` hole; under `serverComponents` the
-    // compiler keeps its named `ref`/`on*` as source properties and
-    // `ssrElement`'s walk mints the same markers it does for a key inside
-    // the spread object. Statics after the last spread still bake into the
-    // tail; a server-local handler at such a key renders nothing.
+  it("named `ref`/`on*` on a compiled spread element bind through the claim map: every shape the template path binds", async () => {
+    // A spread element compiles its named `ref`/`on*` to the same claim map
+    // a template element's `ssrClaim` hole reads, handed to `ssrElement` as
+    // a thunk it reads only inside a server component's render. So the
+    // shapes are the template path's: a handler before, between or after
+    // the spreads; an array ref; duplicate refs merged; a handler tuple; a
+    // named ref joining the spread's own; a named handler over the
+    // spread's own (the client's mergeProps keeps one); a server-local
+    // function raising `server-local`. Statics after the last spread still
+    // bake into the tail; the markers follow the sources' attributes.
+    const local = () => {};
     const Spread = (props: any) => {
       const row = props.row({ id: 1 });
-      const rest = { "data-k": "v", onInput: row.type };
-      const local = () => {};
+      const rest = { "data-k": "v", onInput: row.type, ref: row.spreadRef, onClick: row.lose };
       return (
         <button {...rest} onClick={row.go} ref={row.el} class="static">
-          <i ref={row.only} {...{ title: "t" }} onKeyDown={local} />
+          <span
+            onInput={row.before}
+            {...{ title: "t" }}
+            onKeyDown={[row.key, 1]}
+            {...{ "data-z": 1 }}
+          />
+          {/* @ts-expect-error TS17001 — duplicate `ref` is JS-valid; the compilers merge them */}
+          <i ref={[row.a, row.b]} ref={row.c} {...{ id: "i" }} onClick={local} />
         </button>
       );
     };
     const chunks = await collect(renderServerComponent(Spread, { frame: { id: "ds6s" } }));
     const html = plain(chunks.find(c => c.type === "html").html);
     expect(html).toContain(
-      '<button data-k="v" _s:on:input="row#0:type" _s:on:click="row#0:go" _s:ref="row#0:el" class="static">'
+      '<button data-k="v" _s:on:input="row#0:type" _s:ref="row#0:spreadRef,row#0:el" _s:on:click="row#0:go" class="static">'
     );
-    expect(html).toContain('<i _s:ref="row#0:only" title="t">');
-    expect(html).not.toContain("keydown");
-    expect(findings()).toEqual([]);
+    expect(html).toContain(
+      '<span title="t" data-z="1" _s:on:input="row#0:before" _s:on:keydown="row#0:key">'
+    );
+    expect(html).toContain('<i id="i" _s:ref="row#0:a,row#0:b,row#0:c">');
+    expect(html).not.toContain("row#0:lose");
+    expect(findings("server-local").map(e => (e.data as any).position)).toEqual(["click"]);
+    expect(findings()).toHaveLength(1);
+  });
+
+  it("a compiled spread element's handler expressions never evaluate outside a server component", async () => {
+    // The spec suite compiles with `serverComponents: true`, as a whole SSR
+    // build does. A page element with a spread is still plain SSR: the claim
+    // thunk is read only under an armed render context, so a handler
+    // expression there is as unevaluated as the template path's guarded
+    // hole leaves it.
+    let evaluated = 0;
+    const handler = () => {
+      evaluated++;
+      return () => {};
+    };
+    const Page = () => (
+      <div>
+        <button {...{ "data-k": "v" }} onClick={handler()} ref={handler()}>
+          x
+        </button>
+        <a onClick={handler()} href="/">
+          y
+        </a>
+      </div>
+    );
+    const html = await document(() => <Page />);
+    expect(html).toContain('<button data-k="v">x</button>');
+    expect(html).toContain('<a href="/">y</a>');
+    expect(evaluated).toBe(0);
   });
 
   it("a handler position inside a live hole carries its marker on every re-emission, with an unrelated render interleaved", async () => {
@@ -492,7 +534,7 @@ describe("attribute slots — stream face", () => {
     expect(findings()).toHaveLength(4);
   });
 
-  it("a cyclic slot arg crosses the border as a cycle; a shared acyclic subtree is scrubbed at every occurrence", async () => {
+  it("a cyclic slot arg crosses the border as a cycle; a shared acyclic subtree is scrubbed at every occurrence, reported once", async () => {
     // Both walks (`withoutStandIns`, `toBorderForm`) used to recurse without
     // a guard — a self-referencing arg overflowed the stack on both faces.
     const ServerComp = (props: any) => {
@@ -524,7 +566,9 @@ describe("attribute slots — stream face", () => {
       { y: undefined, keep: 2 },
       { y: undefined, keep: 2 }
     ]);
-    expect(findings("arg").map(e => (e.data as any).path)).toEqual([".x", "[0].y", "[1].y"]);
+    // One finding per stand-in: the second occurrence of `shared.y` answers
+    // from the walk's record of the first (see rewriteTree).
+    expect(findings("arg").map(e => (e.data as any).path)).toEqual([".x", "[0].y"]);
 
     // … and the document face's t=0 fill sees the same cycle and scrub.
     const Inline = frameTransformDirectResult(ServerComp, { id: "dscyd" }) as any;

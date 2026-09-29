@@ -2811,19 +2811,26 @@ during render — which predates all of this.
   class instance is the app's and is not walked); the arg carries
   `undefined` at that path on both faces (the record, and the
   document face's t = 0 fill, which must read what hydration will)
-  and dev says so (`arg`, with the path). A cyclic arg crosses as a
-  cycle. Pass the server's own value, or read it in the client fill
-  from client state.
+  and dev says so (`arg`, with the path — once per stand-in, at its
+  first path). A cyclic arg crosses as a cycle. Pass the server's own
+  value, or read it in the client fill from client state.
 - *A handler position is `on<Event>`.* The marker carries the
   runtime's derivation (`onClick` → `click`), on a template element
-  (the compiled claim hole) and on a spread element alike: under
-  `serverComponents` a spread element's named `ref`/`on*` ride as
-  source properties (`<button {...rest} onClick={row.go} />`) and
-  `ssrElement`'s walk binds them exactly as it binds a key inside
-  the spread object. `prop:*` positions are not bindable (the server
-  renders no properties): a stand-in there is a finding (`prop`) on
-  the runtime spread path; the compiled form drops `prop:*` as SSR
-  always has.
+  and a spread element alike: under `serverComponents` both compile
+  their named `ref`/`on*` to one claim map (`{ click: expr, ref:
+  [a, b] }` — duplicate refs merged, a handler tuple kept whole) that
+  is read only inside a server component's render — the template
+  element's as the guarded `ssrClaim` hole, the spread element's as
+  a thunk `ssrElement` takes (`<button {...rest} onClick={row.go}
+  />`), so plain SSR never evaluates a handler expression. A spread's
+  own handler keys bind through the same reading; where a named
+  attribute and a spread carry the same position, refs merge (the
+  client fires every ref) and the named handler wins (the client's
+  `mergeProps` keeps one). A server-local function at any of these
+  is a finding (`server-local`). `prop:*` positions are not bindable
+  (the server renders no properties): a stand-in there is a finding
+  (`prop`) on the runtime spread path; the compiled form drops
+  `prop:*` as SSR always has.
 - *The occurrence is the call, not the element.* `$key` on the call
   is occurrence identity (client state follows the entity across
   responses); `$key` on the `<li>` is morph identity for the node.

@@ -989,11 +989,10 @@ function argBorderForm(value, key, occurrence) {
  * will (see createDocumentSlotProps), the records carry it.
  */
 function withoutStandIns(value, key, occurrence) {
-  if (value == null || typeof value !== "object") return value;
   return rewriteTree(
     value,
     (v, path) => {
-      if (v == null || typeof v !== "object" || isContainerTraced(v)) return v;
+      if (isContainerTraced(v)) return v;
       if (Object.getPrototypeOf(v) === Object.prototype && isSlotValue(v)) {
         if ("_SOLID_DEV_") standInArgFinding(v, key, occurrence, path);
         return undefined;

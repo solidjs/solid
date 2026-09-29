@@ -185,7 +185,6 @@ export function toBorderForm(value, envelopeContainers) {
   return rewriteTree(
     value,
     v => {
-      if (v == null || typeof v !== "object") return v;
       if (resolve) {
         const trace = resolve(v);
         if (trace) return { [TRACE]: trace };

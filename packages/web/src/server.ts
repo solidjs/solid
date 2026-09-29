@@ -4267,10 +4267,11 @@ export function ssrElement(
   children: any,
   needsId: boolean,
   skip?: (key: string) => boolean,
-  attrs?: string | (() => string)
+  attrs?: string | (() => string),
+  claims?: () => Record<string, unknown>
 ): { t: string };
 
-export function ssrElement(tag, props, children, needsId, skip, attrs) {
+export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // The hydration key must be allocated before the props thunk runs: dynamic
   // props (`mergeProps(() => ...)`) create a memo, which consumes a child id.
   // The client claims the element (getNextElement) before applying the spread,
@@ -4360,6 +4361,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // already does), so skipped props leave no stray whitespace behind:
   // `<li _hk=0>` rather than `<li _hk=0 >` (#3382).
   let result = info.open + hk;
+  // Handler/ref positions met under `slots` (principles §9.2.3), by position;
+  // emitted as one marker each after the walk, merged with the compiled
+  // `claims` (see spreadBehaviorMarkers). Never touched outside a server
+  // component's render.
+  let behaviors = null;
   // One walk over one prop body: the outer loop runs once for a single props
   // object and once per source otherwise. With several sources every
   // source's key list is taken once up front, and "a later source owns this
@@ -4441,7 +4447,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
       // share it); strings and booleans — the walk's common case — never
       // do, and outside a server component the ladder is the pre-slot one.
       if (prop === "ref" || prop.startsWith("on")) {
-        if (slots && typeof value === "object") result += spreadBehaviorAttribute(prop, value);
+        if (slots) behaviors = spreadBehaviorPosition(behaviors, prop, value, ctx.claims);
         continue;
       }
       if (slots && typeof value === "object") {
@@ -4478,6 +4484,14 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // source it replaces had its getters read: the expressions run at the same
   // point in the hydration-id sequence. Evaluating it in argument position
   // would move them ahead of the element's own key.
+  // `claims` is the compiled claim map of the element's named `ref`/`on*`
+  // attributes (the spread element's counterpart of the template path's
+  // guarded `ssrClaim` hole), a thunk read only inside a server component's
+  // render — the same gate the template path's guard reads — so plain SSR
+  // never evaluates a handler expression. Called here, after the walk and
+  // before the tail thunk, for the same hydration-id reason.
+  if (slots && (behaviors !== null || claims !== undefined))
+    result += spreadBehaviorMarkers(behaviors, claims, ctx.claims);
   if (attrs !== undefined) result += typeof attrs === "function" ? attrs() : attrs;
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
@@ -4829,10 +4843,47 @@ function eventPosition(prop) {
   return prop.slice(2).toLowerCase();
 }
 
-/** A handler or ref position bound to a stand-in (runtime spread path). */
-function slotBehaviorMarker(position, sv) {
-  slotMarkupRead(sv, position);
-  return slotMarker(position === "ref" ? "ref" : "on:" + position, slotEntry(sv));
+/**
+ * A `ref`/`on*` key met by `ssrElement`'s walk under `slots` — in a
+ * source, whatever its shape: a stand-in, a list of them (refs), a handler
+ * tuple, a server-local function — collected by position into `behaviors`
+ * (`pos` → marker entries) exactly as `ssrClaim` reads the compiled claim
+ * map, so the spread path and the template path bind the same shapes and
+ * raise the same finding. A later source owns a key outright (the walk
+ * reads only the owner), so within the sources a position is one value.
+ */
+function spreadBehaviorPosition(behaviors, prop, value, mode) {
+  const pos = prop === "ref" ? "ref" : eventPosition(prop);
+  const entries = claimEntries(pos, value, mode);
+  if (entries) (behaviors ||= new Map()).set(pos, entries);
+  return behaviors;
+}
+
+/**
+ * The behavior markers of a spread element: the sources' (`behaviors`)
+ * merged with its compiled claim map (`claims` — the named `ref`/`on*`
+ * attributes, a thunk `ssrElement` calls only under `slots`, so plain SSR
+ * never evaluates them). A named ref joins the sources' (the client fires
+ * every ref); a named handler replaces the sources' (the client's
+ * `mergeProps` keeps one). One marker per position, in first-seen order.
+ */
+function spreadBehaviorMarkers(behaviors, claims, mode) {
+  if (claims !== undefined) {
+    const map = claims();
+    for (const pos in map) {
+      const entries = claimEntries(pos, map[pos], mode);
+      if (!entries) continue;
+      behaviors ||= new Map();
+      const prior = pos === "ref" ? behaviors.get("ref") : undefined;
+      behaviors.set(pos, prior ? prior + "," + entries : entries);
+    }
+  }
+  let out = "";
+  if (behaviors !== null) {
+    for (const [pos, entries] of behaviors)
+      out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
+  }
+  return out;
 }
 
 /**
@@ -4852,16 +4903,6 @@ function collectSpreadSources(tag, props, viewKeys, owners, slots) {
       sourceOwners(s, viewKeys, owners);
     }
   }
-}
-
-/**
- * A `ref`/`on*` key of a runtime spread whose value is an object: a stand-in
- * binds the position (principles §9.2.3); anything else at a behavior key
- * renders nothing on the server, as compiled.
- */
-function spreadBehaviorAttribute(prop, value) {
-  if (!isSlotValue(value)) return "";
-  return slotBehaviorMarker(prop === "ref" ? "ref" : eventPosition(prop), value);
 }
 
 /**
@@ -4931,38 +4972,61 @@ export function ssrClaim(map: Record<string, unknown>): string;
 export function ssrClaim(map) {
   const mode = sharedConfig.context && sharedConfig.context.claims;
   if (!mode) return "";
-  const inScope =
-    mode === CLAIMS_STREAM ||
-    (typeof inServerComponentScope === "function" && inServerComponentScope());
   let out = "";
   for (const pos in map) {
-    const value = map[pos];
-    const list = Array.isArray(value) ? value : [value];
-    let entries = "";
-    for (const v of list) {
-      if (isSlotValue(v)) {
-        slotMarkupRead(v, pos);
-        entries += (entries ? "," : "") + slotEntry(v);
-      } else if ("_SOLID_DEV_" && inScope && typeof v === "function" && !v.$slotWarned) {
-        // Once per function: a live hole evaluates its expression more than
-        // once, and a row template hands the same handler to every row.
-        v.$slotWarned = true;
-        devCheck({
-          code: ATTRIBUTE_SLOT_POSITION,
-          kind: "ssr",
-          severity: "warn",
-          message:
-            `[${ATTRIBUTE_SLOT_POSITION}] A \`${pos}\` position on a server-rendered element received a server-local ` +
-            `function — it can never run. Bind an attribute slot's property there ` +
-            `(\`const row = props.row(args); ${pos === "ref" ? "ref" : "onX"}={row.${pos === "ref" ? "ref" : "onX"}}\`) ` +
-            `so the client supplies it, or bind a mutation to \`action=\`.`,
-          data: { reason: "server-local", position: pos }
-        });
-      }
-    }
+    const entries = claimEntries(pos, map[pos], mode);
     if (entries) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
   }
   return out;
+}
+
+/**
+ * One handler/ref position's marker entries (`occ:key[,occ:key…]`, "" for
+ * none): a stand-in, or a list of values (several refs; a handler tuple)
+ * each read for its stand-in. A server-local function — the one shape that
+ * can never run — is a dev finding inside the component barrier (`mode` is
+ * the render context's claims enum: the stream face is always in scope, the
+ * document face asks `inServerComponentScope`).
+ */
+function claimEntries(pos, value, mode) {
+  if (Array.isArray(value)) {
+    // Nested lists flatten: a merged duplicate of an array ref is
+    // `[[a, b], c]`.
+    let entries = "";
+    for (const v of value) {
+      const inner = claimEntries(pos, v, mode);
+      if (inner) entries += (entries ? "," : "") + inner;
+    }
+    return entries;
+  }
+  if (isSlotValue(value)) {
+    slotMarkupRead(value, pos);
+    return slotEntry(value);
+  }
+  if ("_SOLID_DEV_" && typeof value === "function" && !value.$slotWarned && claimInScope(mode)) {
+    // Once per function: a live hole evaluates its expression more than
+    // once, and a row template hands the same handler to every row.
+    value.$slotWarned = true;
+    devCheck({
+      code: ATTRIBUTE_SLOT_POSITION,
+      kind: "ssr",
+      severity: "warn",
+      message:
+        `[${ATTRIBUTE_SLOT_POSITION}] A \`${pos}\` position on a server-rendered element received a server-local ` +
+        `function — it can never run. Bind an attribute slot's property there ` +
+        `(\`const row = props.row(args); ${pos === "ref" ? "ref" : "onX"}={row.${pos === "ref" ? "ref" : "onX"}}\`) ` +
+        `so the client supplies it, or bind a mutation to \`action=\`.`,
+      data: { reason: "server-local", position: pos }
+    });
+  }
+  return "";
+}
+
+function claimInScope(mode) {
+  return (
+    mode === CLAIMS_STREAM ||
+    (typeof inServerComponentScope === "function" && inServerComponentScope())
+  );
 }
 
 // --- <select value> resolution (solidjs/solid#3013) ---------------------------

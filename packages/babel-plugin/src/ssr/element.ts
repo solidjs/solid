@@ -796,23 +796,7 @@ function transformAttributes(
     }
   });
   if (claims.length) {
-    // Duplicate event keys were already last-wins-stripped above; `ref` is
-    // exempt from that pass (client semantics fire every ref), so multiple
-    // refs merge into an array value.
-    const byPos = new Map<string, babelTypes.Expression[]>();
-    for (const [pos, expr] of claims) {
-      let list = byPos.get(pos);
-      if (!list) byPos.set(pos, (list = []));
-      list.push(expr);
-    }
-    const map = t.objectExpression(
-      [...byPos].map(([pos, exprs]) =>
-        t.objectProperty(
-          t.stringLiteral(pos),
-          exprs.length === 1 ? exprs[0] : t.arrayExpression(exprs)
-        )
-      )
-    );
+    const map = claimMap(claims);
     // `_$sharedConfig.context && _$sharedConfig.context.claims
     //    ? _$ssrClaim({...}) : ""`
     // — the claims flag is only set inside a server component's render
@@ -1006,28 +990,43 @@ function createElement(
       return memo;
     }, []);
 
-  // The DOM transform handles `ref` outside its spread prop sources. Under
-  // `serverComponents` it stays one: see `behaviorSource` below.
-  const propAttributes = serverComponents
-    ? attributes
-    : attributes.filter(attribute => {
-        const node = attribute.node;
-        return !(
-          t.isJSXAttribute(node) &&
-          t.isJSXIdentifier(node.name) &&
-          node.name.name === "ref"
-        );
-      });
-  // Server components (principles §9.2.3): a named `ref`/`on*` on a spread
-  // element is a handler position like any other, and the spread walk in
-  // `ssrElement` already binds an attribute-slot value found at such a key
-  // of a SOURCE (`_s:on:<event>` / `_s:ref`, or nothing for a server-local
-  // function). So the attribute rides as a source property — a getter when
-  // dynamic, like every other attribute — wherever it sits relative to the
-  // spreads, instead of being dropped as plain SSR drops it (a server
-  // element has no handlers to run). Plain SSR output is unchanged.
-  const behaviorSource = (key: string) =>
-    serverComponents && (key === "ref" || (key.startsWith("on") && !key.startsWith("prop:")));
+  // The DOM transform handles `ref` outside its spread prop sources.
+  const propAttributes = attributes.filter(attribute => {
+    const node = attribute.node;
+    return !(t.isJSXAttribute(node) && t.isJSXIdentifier(node.name) && node.name.name === "ref");
+  });
+  // Server components (principles §9.2.3): the named `ref`/`on*` attributes
+  // of a spread element are handler positions like a template element's,
+  // and compile to the same claim map — `{ click: expr, ref: [a, b] }`,
+  // duplicate refs merged — handed to `ssrElement` as a thunk it reads only
+  // inside a server component's render (the gate the template path's
+  // `ssrClaim` guard reads), so plain SSR never evaluates the expressions.
+  // The runtime merges it with the spread's own handler keys: a named ref
+  // joins, a named handler wins. Plain SSR output is unchanged (dropped, as
+  // a server element has no handlers to run).
+  const claims: [string, babelTypes.Expression][] = [];
+  if (serverComponents) {
+    for (const attribute of attributes) {
+      const node = attribute.node;
+      if (!t.isJSXAttribute(node) || !t.isJSXExpressionContainer(node.value)) continue;
+      const expression = node.value.expression;
+      if (
+        t.isJSXEmptyExpression(expression) ||
+        t.isStringLiteral(expression) ||
+        t.isNumericLiteral(expression) ||
+        t.isBooleanLiteral(expression)
+      )
+        continue;
+      const key = t.isJSXNamespacedName(node.name)
+        ? `${node.name.namespace.name}:${node.name.name.name}`
+        : node.name.name;
+      if (key === "ref") claims.push(["ref", expression]);
+      else if (key.startsWith("on")) {
+        const pos = key.slice(2).toLowerCase();
+        if (pos) claims.push([pos, expression]);
+      }
+    }
+  }
 
   let props: babelTypes.Expression[];
   // Attributes written AFTER the last spread are markup, not a source: no
@@ -1094,11 +1093,9 @@ function createElement(
             : node.name.name;
 
         if (hasChildren && key === "children") return;
-        if (!behaviorSource(key)) {
-          if (key === "ref") return;
-          if (key.startsWith("prop:") || key.startsWith("on")) return;
-        }
-        if (i > lastSpread && !behaviorSource(key)) {
+        if (key === "ref") return;
+        if (key.startsWith("prop:") || key.startsWith("on")) return;
+        if (i > lastSpread) {
           const part = tailAttribute(path, tagName, key, node);
           if (part !== undefined) {
             if (typeof part === "string" && typeof tail[tail.length - 1] === "string")
@@ -1174,8 +1171,35 @@ function createElement(
     }
     args.push(registerSkip(path, skipKeys), markup);
   }
+  if (claims.length) {
+    if (!skipKeys.length) args.push(t.identifier("undefined"), t.identifier("undefined"));
+    args.push(t.arrowFunctionExpression([], claimMap(claims)));
+  }
   const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
+}
+
+/**
+ * The compiled claim map of an element's handler positions, `{ click: expr,
+ * ref: [a, b] }`: duplicate event keys were last-wins-stripped by
+ * `normalizeAttributes`; `ref` is exempt from that pass (client semantics
+ * fire every ref), so multiple refs merge into an array value.
+ */
+function claimMap(claims: [string, babelTypes.Expression][]): babelTypes.ObjectExpression {
+  const byPos = new Map<string, babelTypes.Expression[]>();
+  for (const [pos, expr] of claims) {
+    let list = byPos.get(pos);
+    if (!list) byPos.set(pos, (list = []));
+    list.push(expr);
+  }
+  return t.objectExpression(
+    [...byPos].map(([pos, exprs]) =>
+      t.objectProperty(
+        t.stringLiteral(pos),
+        exprs.length === 1 ? exprs[0] : t.arrayExpression(exprs)
+      )
+    )
+  );
 }
 
 /**

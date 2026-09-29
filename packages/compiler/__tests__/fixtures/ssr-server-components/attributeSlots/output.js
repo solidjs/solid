@@ -42,23 +42,23 @@ var _v$ = _$sharedConfig.context && _$sharedConfig.context.claims ? _$ssrClaim({
 // the render context's claims flag so plain SSR never evaluates the
 // expressions.
 const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _v$4);
-// A spread element has no claim hole: its named `ref`/`on*` ride as SOURCE
-// properties (a getter when dynamic), before or after the spreads, and
-// `ssrElement`'s walk binds a slot value found at such a key of a source
-// exactly as it does for one inside the spread object. Plain SSR drops
-// them; the tail after the last spread still bakes its statics.
-const spread = _$ssrElement("button", [rest, {
-	get onClick() {
-		return row.go;
-	},
-	get ref() {
-		return row.el;
-	}
-}], [_$ssrElement("span", [more, { get onInput() {
-	return row.type;
-} }], undefined, false), _$ssrElement("i", [{ get ref() {
-	return row.only;
-} }, last], undefined, false)], false, _sk$, " class=\"static\"");
+// A spread element's named `ref`/`on*` compile to the same claim map a
+// template element's do — duplicate refs merged, a tuple kept whole —
+// handed to `ssrElement` as a thunk it reads only inside a server
+// component's render, wherever the attributes sit relative to the spreads
+// (before, between, after). Plain SSR drops them; the tail after the last
+// spread still bakes its statics; the spread's own handler keys are the
+// runtime's to bind.
+const spread = _$ssrElement("button", rest, [_$ssrElement("span", [more, last], undefined, false, undefined, undefined, () => ({
+	input: row.type,
+	keydown: [row.key, 1]
+})), _$ssrElement("i", last, undefined, false, undefined, undefined, () => ({
+	ref: [[row.a, row.b], row.c],
+	click: localHandler
+}))], false, _sk$, " class=\"static\"", () => ({
+	click: row.go,
+	ref: row.el
+}));
 var _g$ = _$ssrGroup(() => {
 	return [_$ssrElementAttribute("class", status()), _$ssrElementAttribute("style", row.style)];
 }, 2), _v$7 = _$sharedConfig.context && _$sharedConfig.context.claims ? _$ssrClaim({ click: props.onPick }) : "", _v$8 = () => {

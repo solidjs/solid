@@ -15,15 +15,17 @@ const template = (
   </div>
 );
 
-// A spread element has no claim hole: its named `ref`/`on*` ride as SOURCE
-// properties (a getter when dynamic), before or after the spreads, and
-// `ssrElement`'s walk binds a slot value found at such a key of a source
-// exactly as it does for one inside the spread object. Plain SSR drops
-// them; the tail after the last spread still bakes its statics.
+// A spread element's named `ref`/`on*` compile to the same claim map a
+// template element's do — duplicate refs merged, a tuple kept whole —
+// handed to `ssrElement` as a thunk it reads only inside a server
+// component's render, wherever the attributes sit relative to the spreads
+// (before, between, after). Plain SSR drops them; the tail after the last
+// spread still bakes its statics; the spread's own handler keys are the
+// runtime's to bind.
 const spread = (
   <button {...rest} onClick={row.go} ref={row.el} class="static">
-    <span {...more} onInput={row.type} />
-    <i ref={row.only} {...last} />
+    <span onInput={row.type} {...more} onKeyDown={[row.key, 1]} {...last} />
+    <i ref={[row.a, row.b]} ref={row.c} {...last} onClick={localHandler} />
   </button>
 );
 
