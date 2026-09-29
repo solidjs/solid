@@ -45,6 +45,7 @@ import {
   tracking,
   ext
 } from "./core.js";
+import { deferredMark } from "./deferred.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { dispose } from "./owner.js";
@@ -218,6 +219,9 @@ function markWalk(
   // stopped at errored nodes. A DIRECT mark on an errored node still reads
   // pending (the count check above), also matching.
   if ((el as Computed<any>)._statusFlags & STATUS_ERROR) return false;
+  // A createDeferred flight: the graph is served the committed value, so the
+  // verdict learns of the flight here (docs/create-deferred.md §6).
+  if (deferredMark(el)) return true;
   if (seen.has(el)) return false;
   seen.add(el);
   const firewall = (el as FirewallSignal<any>)._firewall;

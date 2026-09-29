@@ -28,6 +28,7 @@ import {
   trackedEffect,
   untrack
 } from "./core/index.js";
+import { deferredCompute, installDeferred, unansweredFlight } from "./core/deferred.js";
 import { emitDiagnostic, registerGraph, reportDiagnostic } from "./core/dev.js";
 import { installOptimisticEngine } from "./core/optimistic.js";
 import {
@@ -439,6 +440,64 @@ export function createMemo<T>(
   options?: MemoOptions<T>
 ): SourceAccessor<T> {
   return accessor<T>(computed<T>(compute as any, options));
+}
+
+/**
+ * Creates an async memo that **may lag the global clock, but never leads it**.
+ *
+ * ```typescript
+ * const value = createDeferred<T>(compute, options?: MemoOptions<T>);
+ * ```
+ *
+ * A plain async memo holds: while a refetch is in flight, everything that
+ * reads it suspends, and the write that caused the refetch is held with it
+ * until the fetch lands — one atomic commit, gated on the slowest fetch in
+ * the tick. `createDeferred` opts one node out of that coordination. Once it
+ * has a committed value, a refetch is invisible to the graph: readers keep
+ * getting the previous answer, the input's write commits immediately, and
+ * the landing commits on its own schedule. The flight is still visible to
+ * `isPending`, which is what drives the panel's "refreshing" indicator.
+ *
+ * - **First load is unchanged.** Before the first answer there is nothing to
+ *   serve, so reads suspend to the nearest `<Loading>` like any async memo.
+ *   `loadingValue` composes: a node born committed has no first-load window.
+ * - **It never leads.** Reads never return a value the rest of the graph has
+ *   not committed. A flight asked against a write that a sibling is holding
+ *   reveals with that write, not ahead of it.
+ * - **Errors propagate.** A rejected refetch throws to the nearest
+ *   `<Errored>`; the stale value never masks it.
+ * - **`refresh(d)` / `until(() => d())`** wait for the landed truth.
+ *
+ * Use it for **independent widgets** where showing the previous answer with
+ * a refreshing indicator is fine (dashboards, feeds, search-as-you-type).
+ * Keep the default `createMemo` for **coherent views** whose parts must agree.
+ *
+ * @param compute a function that receives its previous value and returns a value, Promise, or AsyncIterable
+ * @param options `MemoOptions` -- id, name, equals, unobserved, lazy, transparent, loadingValue
+ *
+ * @example
+ * ```tsx
+ * const rows = createDeferred(() => fetchPanelRows(store.period));
+ *
+ * <section class={{ stale: isPending(rows) }}>
+ *   <For each={rows()}>{row => <Row row={row} />}</For>
+ * </section>
+ * ```
+ */
+export function createDeferred<T>(
+  compute: ComputeFunction<NoInfer<T>, T>,
+  options: MemoOptions<T> & { loadingValue: T }
+): SourceAccessor<T>;
+export function createDeferred<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): SourceAccessor<T>;
+export function createDeferred<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): SourceAccessor<T> {
+  installDeferred();
+  return accessor<T>(computed<T>(deferredCompute(compute as any), options));
 }
 
 /**
@@ -873,7 +932,12 @@ export function refresh<T>(
               queue._parent = waiter._queue;
               waiter._queue = queue;
             }
-            return read(node);
+            const value = read(node);
+            // D9: a createDeferred re-ask is served the committed value; the
+            // waiter parks on the flight and its landing's settle walk
+            // re-runs it.
+            if (unansweredFlight(node, null)) throw new NotReadyError(node);
+            return value;
           },
           value => {
             res(typeof target === "function" ? value : target);
@@ -1008,17 +1072,21 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
         dispose();
       };
       effect(
-        awaiting === null
-          ? fn
-          : () => {
-              const value = fn();
-              // Runs inside the compute (pure phase): the confirming
-              // transition's stamps are live and its commit hasn't run, so
-              // the merge lands before any reveal. Falsy evaluations skip —
-              // non-flipping updates were never named as the confirmation.
-              if (value) entangleConfirmingTransitions(getObserver() as Computed<any>, awaiting);
-              return value;
-            },
+        () => {
+          const value = fn();
+          const self = getObserver() as Computed<any>;
+          // D9: the predicate is authoritative — a createDeferred flight it
+          // reaches is served the committed value, so it parks on the flight
+          // instead of confirming against the previous answer.
+          const flight = unansweredFlight(self);
+          if (flight) throw new NotReadyError(flight);
+          // Runs inside the compute (pure phase): the confirming
+          // transition's stamps are live and its commit hasn't run, so
+          // the merge lands before any reveal. Falsy evaluations skip —
+          // non-flipping updates were never named as the confirmation.
+          if (awaiting !== null && value) entangleConfirmingTransitions(self, awaiting);
+          return value;
+        },
         value => {
           // Falsy is "not yet": keep the subscription live and wait for the
           // next evaluation. Only a truthy settled value resolves.

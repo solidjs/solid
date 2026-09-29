@@ -620,6 +620,7 @@ export function handleAsync<T>(
     // quiet re-ask classification follows the same schedule (#3178).
     if (el._pendingValue === NOT_PENDING) {
       el._loading = false;
+      GlobalQueue._deferredLanded?.(el);
       if (wasReask) el._x!._reask = false;
       // The landing published: the dependency tail the flight's pass left
       // linked goes now (A30, #3410). A transition-held landing has not
