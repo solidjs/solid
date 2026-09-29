@@ -52,6 +52,33 @@ setAsyncIterableSharer(shareAsyncIterable);
 export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidElement;
 
 /**
+ * An attribute slot (principles §9.2.3): the client renders an object instead of
+ * markup, and the server template consumes it by reading properties at
+ * positions — `const row = props.row({ id, completed });` then
+ * `<li class={row.rowClass} hidden={row.removed}><input checked={row.done}
+ * onInput={row.toggle} /></li>`. One call is one data context: any element
+ * in the template may read from it, and the client owns exactly the values
+ * the template read. Keys are the client's names; the position decides what
+ * a property IS (attribute, class name, style property, handler, ref).
+ *
+ * `P` is the args the server passes (reactive props to the fill, as for
+ * `Slot`); `J` is the object the fill returns — the same type a shared
+ * component takes as a prop when the client renders it directly, so one
+ * `TodoRow` serves both sides. `$key` is occurrence identity, as for `Slot`,
+ * and optional: within a render, repeated calls with structurally equal
+ * args are one occurrence (a call in a component prop is re-evaluated per
+ * position the component binds), so the natural spelling needs no key;
+ * `$key` is for state inside the fill's scope that must follow the entity
+ * across responses. A slot with no args (`P` empty) is called bare —
+ * `const filters = props.filters();` — and is one occurrence named by the
+ * prop.
+ * @experimental
+ */
+export type AttributeSlot<P = {}, J extends object = Record<string, unknown>> = {} extends P
+  ? (props?: P & { $key?: string | number }) => J
+  : (props: P & { $key?: string | number }) => J;
+
+/**
  * Types an async value crossing the slot border (DR-2, value tier). What you
  * pass is what ships — the promise / async iterable itself rides the data
  * channel — but the client's prop READ settles: it suspends into the covering

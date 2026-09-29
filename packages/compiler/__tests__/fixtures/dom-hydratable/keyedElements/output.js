@@ -3,9 +3,11 @@ import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { scope as _$scope } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
+import { spread as _$spread } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
+import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<ul><li>Apple`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<ul><li>`);
 // `$key` is server markup identity (SSR-only): a DOM compile strips it from
@@ -31,3 +33,16 @@ const componentKey = _$createComponent(Row, {
 		return item.text;
 	}
 });
+var _el$4 = _$getNextElement(_tmpl$2);
+var _el$5 = _el$4.firstChild;
+_$spread(_el$5, [{ class: "todo" }, () => {
+	return item.attrs;
+}], true);
+_$insert(_el$5, _$scope(() => {
+	return item.text;
+}));
+_$runHydrationEvents();
+// On a spread element the same rule applies to the spread path: the key
+// joins the element's sources (renamed for SSR, dropped for DOM) rather than
+// the template.
+const spreadKey = _el$4;

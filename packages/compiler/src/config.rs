@@ -79,9 +79,11 @@ pub struct TransformOptions {
     pub validate: Option<bool>,
     pub omit_nested_closing_tags: Option<bool>,
     pub omit_last_closing_tag: Option<bool>,
-    /// Babel's `serverComponents`: SSR-only. `ref`/`on*` positions on
-    /// intrinsic elements compile to a guarded `_$ssrClaim` hole (the
-    /// `_bnd` behavior-claim marker) instead of dropping.
+    /// Babel's `serverComponents`: SSR-only. Attribute-slot positions on
+    /// intrinsic elements stay bindable: `ref`/`on*` compile to a guarded
+    /// `_$ssrClaim` hole instead of dropping, and a dynamic `class`/`style`
+    /// compiles to a whole-attribute `_$ssrElementAttribute` hole instead of
+    /// a value inside template quotes.
     pub server_components: Option<bool>,
     /// SSR-only (default `true`): a component's props literal with getters
     /// compiles to a module-level constructor with shared getters instead of

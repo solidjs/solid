@@ -280,15 +280,6 @@ export interface FrameHostOptions {
    * identity only.
    */
   isContainer?(value: unknown): boolean;
-  /**
-   * Arms event types for behavior claims: the `_bnd` sweep collects the
-   * event names it finds and hands them here so delegated dispatch can
-   * reach them. Platform glue passes its `delegateEvents` — the option
-   * exists (rather than client.js importing the event system) so
-   * tree-shaken subsets without events pay nothing. Frames registered
-   * with this host inherit it unless they pass their own `delegate`.
-   */
-  delegate?(eventNames: Iterable<string>): void;
 }
 
 /**
@@ -301,13 +292,6 @@ export interface FrameOptions {
   id?: string;
   /** Client content keyed by prop name (occurrences resolve by prop). */
   slots?: Record<string, Slot>;
-  /**
-   * Raw client props for behavior-claim resolution: server elements carrying
-   * `_bnd="pos=prop"` markers (compiled under the `serverComponents` option)
-   * resolve ref/event positions by name through this object — read live at
-   * dispatch/materialize time, so compiled prop getters stay latest-value.
-   */
-  props?: Record<string, unknown>;
   /**
    * Adopt existing server-rendered DOM: the first apply morphs against it,
    * and slots sync immediately (hydration attach) — a document-SSR boot
@@ -325,8 +309,6 @@ export interface FrameOptions {
    * streamed chunks).
    */
   ownerScope?<T>(fn: () => T): T;
-  /** Per-frame override of the host's `delegate` (see FrameHostOptions). */
-  delegate?(eventNames: Iterable<string>): void;
   /**
    * Boundary-driven segment reveal. When present, `#revealSegment` hands the
    * placeholder seam to this hook instead of swapping imperatively: the binding
@@ -415,119 +397,6 @@ function claimNode(handlers, el) {
 
 const claimedAttr = name => name === "href" || name === "action";
 
-// === Behavior claims (Stage 6: ref/event props on server elements) ===
-//
-// Server markup carries `_bnd="pos=prop[,pos=prop]*"` markers (compiled
-// under the `serverComponents` option) naming which CLIENT props hold the
-// behavior for each position. Dispatch resolves by name through the frame's
-// live props at event time — latest-props by construction, no table. The
-// seam with client.js is a registered symbol read from inside its delegation
-// walk (importless in both directions, zero top-level bytes there); THIS
-// module is the only writer. Document-listener arming flows the other way as
-// a host/frame option (`delegate`, wired by the platform glue to
-// delegateEvents) — publishing it from client.js would drag the whole event
-// system into every tree-shaken subset of the core entry.
-const BOUND_SEAM = Symbol.for("solid.bnd");
-const boundSeam = globalThis[BOUND_SEAM] || (globalThis[BOUND_SEAM] = {});
-const BND_ATTR = "_bnd";
-const BND_SELECTOR = "[_bnd]";
-
-// Parsed on demand — the string is a handful of entries and reads happen
-// per dispatch / per sweep, so a cache would cost more bytes than it saves.
-function bndMap(el) {
-  const s = el.getAttribute(BND_ATTR);
-  if (!s) return undefined;
-  const map = {};
-  for (const entry of s.split(",")) {
-    const eq = entry.indexOf("=");
-    if (eq < 1) continue;
-    const pos = entry.slice(0, eq);
-    const prop = decodeURIComponent(entry.slice(eq + 1));
-    // Repeated positions (multiple refs) accumulate.
-    const prev = map[pos];
-    if (prev === undefined) map[pos] = prop;
-    else if (Array.isArray(prev)) prev.push(prop);
-    else map[pos] = [prev, prop];
-  }
-  return map;
-}
-
-// Dispatch-time resolution for the delegation walk. The owning frame rides
-// a sweep-stamped expando (not an ancestor climb: range-bounded frames have
-// no wrapping element, and morphs re-stamp replaced elements on re-sweep).
-boundSeam.resolve = (el, type) => {
-  const frame = el._$bndFrame;
-  if (!frame) return undefined;
-  const map = bndMap(el);
-  const prop = map && map[type];
-  if (typeof prop !== "string") return undefined;
-  return claimFn(frame, type, prop);
-};
-
-/** Read one claimed prop off the frame, warning (dev) on non-functions. */
-function claimFn(frame, pos, prop) {
-  const fn = frame.clientProp(prop);
-  if (typeof fn === "function") return fn;
-  if ("_SOLID_DEV_" && fn !== undefined) {
-    console.warn(
-      `A server element claims \`${pos}\` from client prop \`${prop}\`, but the mounted ` +
-        `frame's prop is not a function.`
-    );
-  }
-  return undefined;
-}
-
-/**
- * Sweep one materialized/morph-touched subtree for `_bnd` markers: stamp
- * each marked element with its owning frame (dispatch resolution), arm
- * document listeners for claimed event types, and fire ref positions.
- * Dormant cost without markers: one selector query per apply.
- */
-function sweepBound(root, frame, delegate, scope) {
-  const isElement = root.nodeType === ELEMENT_NODE;
-  if (!isElement && root.nodeType !== 11 /* DOCUMENT_FRAGMENT_NODE */) return;
-  let els;
-  if (isElement && root.hasAttribute(BND_ATTR)) (els = []).push(root);
-  const found = root.querySelectorAll(BND_SELECTOR);
-  if (found.length) {
-    els || (els = []);
-    for (let i = 0; i < found.length; i++) els.push(found[i]);
-  }
-  if (!els) return;
-  // The whole marker pass runs under the creator's ownerScope (the client
-  // component that passed the props): refs get effects, context, and
-  // onCleanup inside the callback, bounded by the frame's owner — the
-  // contract §9.1 promises. Arming is scope-indifferent, so one wrap covers
-  // everything.
-  const run = () => {
-    let types;
-    for (const el of els) {
-      el._$bndFrame = frame;
-      const map = bndMap(el);
-      if (!map) continue;
-      for (const pos in map) {
-        if (pos === "ref") fireRefs(frame, el, map.ref);
-        else (types || (types = [])).push(pos);
-      }
-    }
-    if (types && delegate) delegate(types);
-  };
-  scope ? scope(run) : run();
-}
-
-// Ref-position dedupe rides an expando: refs fire once per (element, prop) —
-// a morph that replaces the element re-fires on the fresh node (fresh
-// expando); a re-sweep over a kept node does not.
-function fireRefs(frame, el, prop) {
-  const fired = el._$bndFired || (el._$bndFired = new Set());
-  for (const p of Array.isArray(prop) ? prop : [prop]) {
-    if (fired.has(p)) continue;
-    fired.add(p);
-    const fn = claimFn(frame, "ref", p);
-    if (fn) fn(el);
-  }
-}
-
 /** Sweep `root` (element or fragment) and its claimable interior. */
 function claimTree(handlers, root) {
   const isElement = root.nodeType === ELEMENT_NODE;
@@ -542,7 +411,72 @@ const placeholderId = name => `pl-${name}`;
 
 const SLOT_START = /^slot:(.+):start$/;
 const SLOT_END = /^slot:(.+):end$/;
-const slotEnd = id => `slot:${id}:end`; /**
+const slotEnd = id => `slot:${id}:end`;
+
+// === Attribute slots (principles §9.2.3: a slot read at positions of server markup) ===
+//
+// A server element that reads an attribute slot's properties carries one marker
+// per bound position — `_s:<attribute>="<occurrence>:<key>"`, with the
+// class name / style property appended for a name inside `class`/`style`
+// (`_s:class="row#1:done=completed,row#1:busy=pending"`), `_s:on:<event>`
+// for a handler, `_s:ref` for a ref. The OCCURRENCE is the slot call (one
+// data context — `props.row({ id, completed })`), not the element: any
+// number of elements consume it, and the sync mounts it once, handing the
+// consumer every (element, position, key) it found. The fill runs once per
+// occurrence with the occurrence's args (the same `slot:<occurrence>` record
+// a markup slot's call emits) and writes each position from its returned
+// object; a re-emitted record updates the args in place, as for markup
+// occurrences. The elements stay server-owned: the morph keeps them (keyed
+// or positional), and reads the markers off INCOMING markup to know which
+// positions are the client's (see `morphAttributes`) — no ownership table.
+const SLOT_MARKER = "_s:";
+
+/**
+ * Parse one element's `_s:*` markers into positions grouped by occurrence:
+ * `{ [occurrence]: [{ pos, key, name }] }`, or null. `pos` is the marker's
+ * position as written (`class`, `hidden`, `on:click`, `ref`), `name` the
+ * class name / style property for a member position. Keys and names are
+ * percent-encoded on the wire (they are client-controlled strings landing
+ * in a `,`/`:`/`=`-delimited grammar) and decoded here.
+ */
+function slotPositions(el) {
+  const attrs = el.attributes;
+  let out = null;
+  for (let i = 0; i < attrs.length; i++) {
+    const attr = attrs[i];
+    if (!attr.name.startsWith(SLOT_MARKER)) continue;
+    const pos = attr.name.slice(SLOT_MARKER.length);
+    for (const entry of attr.value.split(",")) {
+      const colon = entry.indexOf(":");
+      if (colon < 1) continue;
+      const occurrence = entry.slice(0, colon);
+      const eq = entry.indexOf("=", colon);
+      const key = decodeURIComponent(
+        eq === -1 ? entry.slice(colon + 1) : entry.slice(colon + 1, eq)
+      );
+      const name = eq === -1 ? undefined : decodeURIComponent(entry.slice(eq + 1));
+      out || (out = Object.create(null));
+      (out[occurrence] || (out[occurrence] = [])).push({ pos, key, name });
+    }
+  }
+  return out;
+}
+
+/** Whether a data occurrence's consumer set changed (elements or positions). */
+function consumersEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.element !== y.element || x.positions.length !== y.positions.length) return false;
+    for (let j = 0; j < x.positions.length; j++) {
+      const p = x.positions[j];
+      const q = y.positions[j];
+      if (p.pos !== q.pos || p.key !== q.key || p.name !== q.name) return false;
+    }
+  }
+  return true;
+} /**
  * Maps a wire chunk onto resident-store record writes. `data` chunks map to
  * no records — they are response-scoped and the host applies them through
  * its data hook.
@@ -708,10 +642,6 @@ export function createFrameHost(options = {}) {
     return true;
   };
   return {
-    // Document-listener arming for behavior-claim event positions: the
-    // platform glue passes delegateEvents here so frames can arm types no
-    // compiled client handler ever registered (see the seam note above).
-    delegate: options.delegate,
     register(id, frame) {
       let set = frames.get(id);
       if (!set) frames.set(id, (set = new Set()));
@@ -842,6 +772,10 @@ class FrameImpl {
   #slotRegions = new Map();
   #slotResolvedRefs = new Map();
   #slotNodes = new Map();
+  // Data occurrences (§9.2.3): the consumer set last handed to the mount,
+  // and the mount's rebind callback (`ctx.onRebind`) for when it changes.
+  #slotConsumers = new Map();
+  #slotRebinders = new Map();
   #processedAssets = new WeakSet();
   // The pending re-check for adopt-time occurrences deferred on a
   // still-arriving args record (#2968 — see #syncSlots).
@@ -862,25 +796,10 @@ class FrameImpl {
   // longer matches the sweep selector), mirroring compiled setAttribute.
   // Stable identity so it threads into the morph without allocation.
   #claimTree = (node, direct) => {
-    // Behavior claims sweep first, and unconditionally — `_bnd` markers are
-    // this frame's own contract, not a registered-consumer one. `direct`
-    // re-checks (in-place attribute rewrites) are nav-claim specific; a
-    // morph that rewrites `_bnd` in place re-parses at next dispatch, and
-    // kept elements keep their stamp.
-    if (!direct && node.nodeType !== TEXT_NODE && node.nodeType !== COMMENT_NODE) {
-      const o = this.#options;
-      sweepBound(node, this, o.delegate || (o.host && o.host.delegate), o.ownerScope);
-    }
     const handlers = claimHandlers();
     if (!handlers) return;
     this.#scoped(() => (direct ? claimNode(handlers, node) : claimTree(handlers, node)));
   };
-
-  /** A raw client prop, read live — behavior-claim resolution (`_bnd`). */
-  clientProp(name) {
-    const props = this.#options.props;
-    return props ? props[name] : undefined;
-  }
 
   /** Run `fn` under the creator's `ownerScope` (when provided). */
   #scoped(fn) {
@@ -1189,13 +1108,27 @@ class FrameImpl {
     // "comment#0"); the callback is looked up by its prop — the part before
     // "#" — so one callback services N occurrences from an iterated render
     // prop.
+    // Data occurrences (`_s:*` markers, principles §9.2.3) land in the same
+    // map, keyed the same way, with their CONSUMERS as the occurrence's
+    // node: an array of `{ element, positions }` in document order. The
+    // loop below treats them as occurrences whose mount binds those
+    // positions rather than filling a range (no interior, no regions, never
+    // replaced), and whose consumer set may change without a re-call.
     const found = new Map();
-    if (root) collectSlots(root.firstChild, null, found);
-    else this.#collectSlots(found);
+    if (root) collectSlots(root.firstChild, null, found, found);
+    else this.#collectSlots(found, found);
 
     for (const [occurrence, start] of found) {
       const callback = this.#resolveSlot(propOf(occurrence));
-      if (!callback) continue; // no client impl for this prop up the tree
+      const consumers = Array.isArray(start) ? start : null;
+      if (!callback) {
+        // No client impl for this prop up the tree. A range stays empty,
+        // which content can mean; bound positions never bind, which
+        // nothing can mean — the elements sit inert with no error. Dev
+        // names them (once per occurrence).
+        if ("_SOLID_DEV_" && consumers) devSlotOrphan(this, occurrence, consumers, "fill");
+        continue;
+      }
       const record = this.#resolveSlotRecord(occurrence);
       // A record whose data refs have not ARRIVED yet is not applicable: the
       // producer emits the slot chunk before the `data` chunks carrying its
@@ -1218,7 +1151,12 @@ class FrameImpl {
       // though state can't survive a destroyed node.
       const prev = this.#slotNodes.get(occurrence);
       const prevFirst = Array.isArray(prev) ? prev[0] : prev;
-      const zombie = this.#mountedSlots.has(occurrence) && prevFirst && !prevFirst.parentNode;
+      // A data occurrence is never a zombie: its nodes are the server's
+      // consumers, not the fill's output — a replaced element is a consumer
+      // change (rebind, below), and an occurrence no element reads any more
+      // is simply not found (unmounted at the end).
+      const zombie =
+        !consumers && this.#mountedSlots.has(occurrence) && prevFirst && !prevFirst.parentNode;
       if (zombie) {
         this.#mountedSlots.delete(occurrence);
         this.#runSlotCleanups(occurrence);
@@ -1261,6 +1199,16 @@ class FrameImpl {
           });
           continue;
         }
+        // A CALLED occurrence (`prop#n`) always has a record — the producer
+        // emits it at the call, ahead of the markup that reads it — so
+        // marked positions with none here, once records can no longer
+        // arrive, are the protocol's invariant broken (a record dropped, or
+        // marker and record minted under different ids), never something
+        // the fill can fix. The mount below still runs, as it always has;
+        // dev says why its args are empty. A bare occurrence (the prop
+        // itself) has no record by design.
+        if ("_SOLID_DEV_" && consumers && record === undefined && occurrence.indexOf("#") !== -1)
+          devSlotOrphan(this, occurrence, consumers, "record");
         // Direct-insert occurrences have no `slot:<id>` record and mount with
         // empty props; render-function occurrences mount with resolved props.
         // Mounting replaces the range interior: on a fresh stream it is
@@ -1287,8 +1235,19 @@ class FrameImpl {
         // its entries during the invoke instead.
         if (this.#options.adopt) this.#discoverRegions(occurrence, start);
         const nodes = this.#invokeSlot(occurrence, callback, record, start, this.#options.adopt);
-        if (nodes) this.#replaceRange(occurrence, start, nodes);
-        this.#slotNodes.set(occurrence, nodes);
+        // A data occurrence's nodes are its consuming elements (so the
+        // zombie check above sees a morph that replaced them all); its mount
+        // never returns nodes to place.
+        if (consumers) {
+          this.#slotNodes.set(
+            occurrence,
+            consumers.map(c => c.element)
+          );
+          this.#slotConsumers.set(occurrence, consumers);
+        } else {
+          if (nodes) this.#replaceRange(occurrence, start, nodes);
+          this.#slotNodes.set(occurrence, nodes);
+        }
         this.#mountedSlots.add(occurrence);
         // Re-scan after invoke: a fresh mount's regions come from
         // #resolveArgs during the invoke, and the callback's output may have
@@ -1298,7 +1257,22 @@ class FrameImpl {
         // large adopted tree).
         if (!this.#options.adopt || nodes) this.#discoverRegions(occurrence, start);
         this.#bindRegions(occurrence);
-      } else if (record !== this.#slotArgs.get(occurrence)) {
+        continue;
+      }
+      // A mounted data occurrence whose CONSUMERS changed — a morph replaced
+      // one of its elements, a response added or dropped a bound position
+      // — rebinds in place: the fill's computation stays, the binding gets
+      // the new set. Independent of an args change, which follows below.
+      if (consumers && !consumersEqual(this.#slotConsumers.get(occurrence), consumers)) {
+        this.#slotConsumers.set(occurrence, consumers);
+        this.#slotNodes.set(
+          occurrence,
+          consumers.map(c => c.element)
+        );
+        const rebind = this.#slotRebinders.get(occurrence);
+        if (rebind) rebind(consumers);
+      }
+      if (record !== this.#slotArgs.get(occurrence)) {
         // A re-sent record differing only in {$ref} identity may carry the
         // SAME values (tables rotate per response, so the store-write
         // dedupe stays conservative). Value-compare the new refs against
@@ -1332,8 +1306,15 @@ class FrameImpl {
         // reusing its cached server-content regions. Same contract: an
         // undefined return keeps the current interior.
         const nodes = this.#invokeSlot(occurrence, callback, record, start);
-        if (nodes) this.#replaceRange(occurrence, start, nodes);
-        this.#slotNodes.set(occurrence, nodes);
+        if (consumers)
+          this.#slotNodes.set(
+            occurrence,
+            consumers.map(c => c.element)
+          );
+        else {
+          if (nodes) this.#replaceRange(occurrence, start, nodes);
+          this.#slotNodes.set(occurrence, nodes);
+        }
         this.#bindRegions(occurrence);
       }
     }
@@ -1360,6 +1341,7 @@ class FrameImpl {
     // binding's updater so a stream args-change can't push props into a
     // disposed instance. The new invocation re-registers if it wants updates.
     this.#slotUpdaters.delete(occurrence);
+    this.#slotRebinders.delete(occurrence);
     const cleanups = this.#slotCleanups.get(occurrence) ?? [];
     // One walk yields both the interior and the end marker. The end marker is
     // part of the consumer contract (ctx.range): a framework binding that owns
@@ -1367,7 +1349,10 @@ class FrameImpl {
     // insert before — the markers are the only stable nodes in the range.
     let existing = [];
     let end = null;
-    if (start) end = eachInRange(start, occurrence, n => existing.push(n));
+    // A data occurrence's node is its consumer list: no interior to collect,
+    // no end marker. The consumer gets the positions instead.
+    const positions = Array.isArray(start) ? start : undefined;
+    if (start && !positions) end = eachInRange(start, occurrence, n => existing.push(n));
     const ctx = {
       // Identity for hydration-claim scoping: consumers derive the same
       // key prefix the document producer used for this occurrence. The
@@ -1398,7 +1383,16 @@ class FrameImpl {
       // The range's own markers, when it has them: consumers that bind the
       // interior reactively insert before `end` and return undefined — the
       // frame then never touches the interior (morphs protect slot ranges).
-      range: end ? { start, end } : undefined
+      range: end ? { start, end } : undefined,
+      // Attribute slot (§9.2.3): the positions of server markup that read this
+      // occurrence — `[{ element, positions: [{ pos, key, name }] }]` in
+      // document order. The consumer runs the fill, writes each position
+      // from its returned object, and returns undefined (there is nothing
+      // to place). `onRebind` receives the new set when consumers change
+      // (a morph replaced an element; a response bound a new position)
+      // without the args changing — the fill's computation survives.
+      positions,
+      onRebind: positions ? fn => this.#slotRebinders.set(occurrence, fn) : undefined
     };
     // One record shape (A5): the t=0 record carries used regions as
     // `{$frame}` refs like any stream record would, and #resolveArgs
@@ -1431,10 +1425,12 @@ class FrameImpl {
   #unmountSlot(key) {
     this.#mountedSlots.delete(key);
     this.#slotNodes.delete(key);
+    this.#slotConsumers.delete(key);
     // Long-session hygiene: an occurrence gone from the stream releases its
     // record and caches — keyed churn must not accumulate forever.
     this.#slotArgs.delete(key);
     this.#slotUpdaters.delete(key);
+    this.#slotRebinders.delete(key);
     this.#slotResolvedRefs.delete(key);
     this.#removeSlotRecord(key);
     this.#runSlotCleanups(key);
@@ -1547,7 +1543,9 @@ class FrameImpl {
    * their own slot sync — this is what wires nested occurrences at boot.
    */
   #discoverRegions(slotKey, start) {
-    if (!start) return;
+    // A data occurrence has no interior (its args are data; a region arg
+    // has nowhere to render at an attribute position).
+    if (!start || Array.isArray(start)) return;
     const regions = this.#regionsFor(slotKey);
     eachInRange(start, slotKey, n => collectRegionElements(n, regions));
   }
@@ -1666,9 +1664,10 @@ class FrameImpl {
     }
   }
 
-  /** Collect this frame's own top-level slot ranges (bounded to its content). */
-  #collectSlots(found) {
-    collectSlots(this.#firstContent(), this.#end, found);
+  /** Collect this frame's own top-level slot ranges (bounded to its content),
+   *  and — for the slot sync — its attribute-slot elements into the same map. */
+  #collectSlots(found, elements) {
+    collectSlots(this.#firstContent(), this.#end, found, elements);
   }
 
   /** Find a fragment placeholder `<template id="pl-NAME">` bounded to this
@@ -1801,10 +1800,8 @@ class FrameImpl {
       parent.insertBefore(fragment, this.#end);
       this.#hasContent = true;
     } else {
-      // #claimTree self-gates each half (nav claims on registered handlers,
-      // the behavior-claim sweep on `_bnd` presence), so it threads in
-      // unconditionally — reconcile-inserted subtrees must sweep markers
-      // even when no nav-claim consumer registered.
+      // #claimTree self-gates on registered nav-claim handlers, so it
+      // threads in unconditionally.
       const claim = this.#claimTree;
       // Frame-wide displaced-range index. Slot ranges are keyed by occurrence
       // id, unique within this frame's content, and a keyed re-render can move
@@ -1855,9 +1852,6 @@ class FrameImpl {
       }
       return false;
     }
-    // Unconditional for the same reason as the root morph: hole re-emissions
-    // carry `_bnd` markers (the chat copy-button shape — an event prop inside
-    // a streaming hole), and those must sweep regardless of nav consumers.
     reconcileChildren(open.parentNode, parseFragment(html), open, close, this.#claimTree);
     return true;
   }
@@ -1886,21 +1880,32 @@ class FrameImpl {
     if (!el) return false;
     const parsed = parseFragment(`<i${text}></i>`).firstChild;
     const keepOpen = preservesOpen(el);
+    // Attribute-slot positions the rebuilt text marks stay the client's, as in
+    // the root morph (`morphAttributes`).
+    const owned = parsed ? ownedPositions(parsed) : null;
     const current = el.attributes;
     for (let i = current.length - 1; i >= 0; i--) {
       const name = current[i].name;
       if (name === "data-lha" || (keepOpen && name === "open")) continue;
-      if (!parsed || !parsed.hasAttribute(name)) el.removeAttribute(name);
+      if (!parsed || !parsed.hasAttribute(name)) {
+        if (applyOwned(el, name, "", owned) !== undefined) continue;
+        el.removeAttribute(name);
+      }
     }
     if (parsed) {
       for (let i = 0; i < parsed.attributes.length; i++) {
         const { name, value } = parsed.attributes[i];
         if (keepOpen && name === "open") continue;
+        if (applyOwned(el, name, value, owned) !== undefined) continue;
         if (el.getAttribute(name) !== value) el.setAttribute(name, value);
       }
     }
     if (removed)
-      for (const name of removed) if (!(keepOpen && name === "open")) el.removeAttribute(name);
+      for (const name of removed) {
+        if (keepOpen && name === "open") continue;
+        if (applyOwned(el, name, "", owned) !== undefined) continue;
+        el.removeAttribute(name);
+      }
     return true;
   }
 
@@ -1911,9 +1916,6 @@ class FrameImpl {
 
   /** Sweep-claim the frame's existing content (the adoption path). */
   #claimContent() {
-    // No consumer gate here: #claimTree self-gates each half (nav claims on
-    // registered handlers, the behavior-claim sweep on `_bnd` presence), and
-    // adopted content must sweep markers even when no router registered.
     let n = this.#firstContent();
     while (n && n !== this.#end) {
       this.#claimTree(n);
@@ -2344,7 +2346,7 @@ function findPlaceholder(n, end, id) {
  * child-owned (the child discovers, with callbacks and records threaded
  * down), so slots belonging to nested frames / client content are ignored.
  */
-function collectSlots(n, end, out) {
+function collectSlots(n, end, out, elements) {
   while (n && n !== end) {
     const id = slotStartId(n);
     if (id !== null) {
@@ -2353,7 +2355,26 @@ function collectSlots(n, end, out) {
       n = afterRange(n, id);
       continue;
     }
-    if (n.nodeType === ELEMENT_NODE && !isFrameElement(n)) collectSlots(n.firstChild, null, out);
+    if (n.nodeType === ELEMENT_NODE && !isFrameElement(n)) {
+      // Data occurrences (`_s:*` markers), when the caller wants them — the
+      // slot sync does; the morph's range index does not (an element is
+      // reconciled as an element, not relocated as a protected range). The
+      // element's positions join its occurrence's consumer list, in document
+      // order. The element's interior is still walked: it is server content
+      // and may hold further occurrences of either kind.
+      if (elements !== undefined && n.hasAttributes()) {
+        const byOccurrence = slotPositions(n);
+        if (byOccurrence !== null) {
+          for (const occurrence in byOccurrence) {
+            let consumers = elements.get(occurrence);
+            if (consumers === undefined) elements.set(occurrence, (consumers = []));
+            else if (!Array.isArray(consumers)) continue; // a range claimed the id (dev range check)
+            consumers.push({ element: n, positions: byOccurrence[occurrence] });
+          }
+        }
+      }
+      collectSlots(n.firstChild, null, out, elements);
+    }
     n = n.nextSibling;
   }
 }
@@ -2519,15 +2540,106 @@ function preservesOpen(el) {
   return t === "DETAILS" || t === "DIALOG";
 }
 
+// Attribute-slot ownership (principles §9.2.3). The INCOMING element's `_s:*`
+// markers say which of its positions a client fill writes: `_s:hidden` owns
+// the `hidden` attribute; `_s:class="occ:k=done"` owns the class name
+// `done` and `_s:class="occ:k"` the whole `class` string (likewise `style`
+// and its properties); `_s:on:*` / `_s:ref` are not attributes and need no
+// guard. A position the client owns is left alone by the morph: not
+// removed, not set. `class`/`style` are shared attributes — the server's
+// classes and the fill's toggled names live in one string — so when a fill
+// owns NAMES within them the morph applies the server's value and re-imposes
+// the owned names' live state on top. The markers themselves are ordinary
+// attributes and morph like any other, which is what lets the slot sync
+// see a consumer change.
+function ownedPositions(el) {
+  const attrs = el.attributes;
+  let out = null;
+  for (let i = 0; i < attrs.length; i++) {
+    const name = attrs[i].name;
+    if (!name.startsWith(SLOT_MARKER)) continue;
+    const pos = name.slice(SLOT_MARKER.length);
+    if (pos === "ref" || pos.startsWith("on:")) continue;
+    out || (out = { attrs: new Set(), class: null, style: null });
+    if (pos !== "class" && pos !== "style") {
+      out.attrs.add(pos);
+      continue;
+    }
+    for (const entry of attrs[i].value.split(",")) {
+      const eq = entry.indexOf("=");
+      if (eq === -1) {
+        out.attrs.add(pos); // a whole-value read owns the attribute
+        continue;
+      }
+      (out[pos] || (out[pos] = [])).push(decodeURIComponent(entry.slice(eq + 1)));
+    }
+  }
+  return out;
+}
+
+/** Set `class` to the server's value with the fill-owned class names' live
+ *  state preserved. Returns whether the attribute changed. */
+function morphOwnedClass(oldEl, value, names) {
+  const list = oldEl.classList;
+  const set = new Set(value ? value.split(/\s+/) : []);
+  set.delete("");
+  for (const name of names) list.contains(name) ? set.add(name) : set.delete(name);
+  const next = [...set].join(" ");
+  if (next === (oldEl.getAttribute("class") || "")) return false;
+  next ? oldEl.setAttribute("class", next) : oldEl.removeAttribute("class");
+  return true;
+}
+
+/** Set `style` to the server's value with the fill-owned properties' live
+ *  values preserved. Returns whether the attribute changed. */
+function morphOwnedStyle(oldEl, value, names) {
+  const style = oldEl.style;
+  const saved = names.map(name => [
+    name,
+    style.getPropertyValue(name),
+    style.getPropertyPriority(name)
+  ]);
+  const before = oldEl.getAttribute("style");
+  value ? oldEl.setAttribute("style", value) : oldEl.removeAttribute("style");
+  for (const [name, v, priority] of saved) {
+    v ? style.setProperty(name, v, priority) : style.removeProperty(name);
+  }
+  return oldEl.getAttribute("style") !== before;
+}
+
+/**
+ * Apply the server's value for `name` (null: absent) to an element with
+ * attribute-slot positions: a client-owned attribute is left alone; owned
+ * `class`/`style` NAMES are re-imposed over the server's string. Returns
+ * whether the attribute changed, or undefined when the position is not
+ * owned and the caller writes it.
+ */
+function applyOwned(oldEl, name, value, owned) {
+  if (owned === null) return undefined;
+  if (owned.attrs.has(name)) return false;
+  if ((name === "class" || name === "style") && owned[name] !== null) {
+    return name === "class"
+      ? morphOwnedClass(oldEl, value, owned.class)
+      : morphOwnedStyle(oldEl, value, owned.style);
+  }
+  return undefined;
+}
+
 function morphAttributes(oldEl, newEl, claim) {
   let reclaim = false;
   let changed = false;
   const keepOpen = preservesOpen(oldEl);
+  const owned = ownedPositions(newEl);
   const oldAttrs = oldEl.attributes;
   for (let i = oldAttrs.length - 1; i >= 0; i--) {
     const name = oldAttrs[i].name;
     if (keepOpen && name === "open") continue;
     if (!newEl.hasAttribute(name)) {
+      const handled = applyOwned(oldEl, name, "", owned);
+      if (handled !== undefined) {
+        changed = handled || changed;
+        continue;
+      }
       oldEl.removeAttribute(name);
       changed = true;
       reclaim ||= claimedAttr(name);
@@ -2536,11 +2648,17 @@ function morphAttributes(oldEl, newEl, claim) {
   const newAttrs = newEl.attributes;
   for (let i = 0; i < newAttrs.length; i++) {
     const attr = newAttrs[i];
-    if (keepOpen && attr.name === "open") continue;
-    if (oldEl.getAttribute(attr.name) !== attr.value) {
-      oldEl.setAttribute(attr.name, attr.value);
+    const name = attr.name;
+    if (keepOpen && name === "open") continue;
+    const handled = applyOwned(oldEl, name, attr.value, owned);
+    if (handled !== undefined) {
+      changed = handled || changed;
+      continue;
+    }
+    if (oldEl.getAttribute(name) !== attr.value) {
+      oldEl.setAttribute(name, attr.value);
       changed = true;
-      reclaim ||= claimedAttr(attr.name);
+      reclaim ||= claimedAttr(name);
     }
   }
   // The morph is the only write path for server-owned elements, and it makes
@@ -2578,6 +2696,52 @@ function afterRange(start, id) {
     n = n.nextSibling;
   }
   return null;
+}
+
+/**
+ * Dev: an attribute-slot occurrence's marked positions cannot bind — no
+ * fill resolves for its prop (`why` = "fill"), or a called occurrence has
+ * no args record once records can no longer arrive ("record"). The
+ * failure this names is otherwise silent: a handler that never fires, a
+ * class that never updates, indistinguishable from nothing happening.
+ * One report per occurrence per frame (`slotOrphans`, keyed by frame so
+ * the class carries no dev-only field); the elements ride along in `data`
+ * so a console can jump to them. A module function, not a method, so the
+ * production build sheds it whole with its gated call sites.
+ */
+let slotOrphans;
+function devSlotOrphan(frame, occurrence, consumers, why) {
+  if (!"_SOLID_DEV_") return;
+  let seen = (slotOrphans ??= new WeakMap()).get(frame);
+  if (!seen) slotOrphans.set(frame, (seen = new Set()));
+  if (seen.has(occurrence)) return;
+  seen.add(occurrence);
+  const prop = propOf(occurrence);
+  const positions = new Set();
+  for (const c of consumers) for (const p of c.positions) positions.add(p.pos);
+  const where = `${consumers.length} element${consumers.length === 1 ? "" : "s"} (positions: ${[...positions].join(", ")})`;
+  DEV.report(
+    OBSERVE.diagnostics.emit(
+      {
+        code: "ATTRIBUTE_SLOT_POSITION",
+        kind: "render",
+        severity: "warn",
+        message:
+          why === "fill"
+            ? `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no client fill ` +
+              `resolves for slot \`${prop}\` — those positions never bind and the elements are inert. ` +
+              `Pass \`${prop}\` to the server component on the client (a function returning the object the ` +
+              `markup reads), or check that the prop name matches on both sides.`
+            : `[ATTRIBUTE_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no args record ` +
+              `for it arrived and none can — the fill mounts with empty args. A called slot always emits its ` +
+              `record ahead of the markup that reads it, so this is the frame protocol out of step, not the fill: ` +
+              `a client and server from different builds (a stale dev prebundle, a cached asset), or a runtime ` +
+              `bug minting the marker and the record under different ids.`,
+        data: { reason: "orphan", why, occurrence, elements: consumers.map(c => c.element) }
+      },
+      null
+    )
+  );
 }
 
 /**

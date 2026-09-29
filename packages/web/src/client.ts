@@ -2619,18 +2619,7 @@ function eventHandler(e, container, state) {
       value
     });
   const handleNode = () => {
-    let handler = node[key];
-    // Server-claimed handler (`_bnd` marker, Stage 6 behavior claims):
-    // resolved at dispatch through the frame runtime's registered-symbol
-    // seam — latest-props by construction, importless in both directions.
-    // The read lives entirely inside this walk (no module-level state):
-    // client.js contributes ZERO top-level bytes to tree-shaken subsets,
-    // and the seam stays live for markers adopted before the frame runtime
-    // loads (the document face). Only pays when no compiled handler exists.
-    if (handler === undefined && node.hasAttribute && node.hasAttribute("_bnd")) {
-      const seam = globalThis[Symbol.for("solid.bnd")];
-      if (seam) handler = seam.resolve(node, e.type);
-    }
+    const handler = node[key];
     if (handler && !node.disabled) {
       const data = node[`${key}Data`];
       data !== undefined

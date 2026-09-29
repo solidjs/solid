@@ -69,6 +69,14 @@ impl<'a> AstDomTransform<'a, '_> {
                     {
                         continue;
                     }
+                    // `$key` is server markup identity: a DOM compile strips
+                    // it (Babel's `renameElementKey` removes the attribute
+                    // before the spread is processed; shared/attr_plan.rs is
+                    // the template path's copy of the same rule).
+                    if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name) if name.name == "$key")
+                    {
+                        continue;
+                    }
                     running_props.push(self.spread_attribute_property(attr, tag_name)?);
                 }
             }

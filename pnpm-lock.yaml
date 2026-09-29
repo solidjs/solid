@@ -331,6 +331,25 @@ importers:
         specifier: ^7.0.0
         version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
 
+  examples/todos-server:
+    dependencies:
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../../packages/web
+      solid-js:
+        specifier: workspace:*
+        version: link:../../packages/solid
+      unstorage:
+        specifier: ^1.17.5
+        version: 1.17.5
+    devDependencies:
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.35
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+      vite:
+        specifier: ^8.0.0
+        version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+
   packages/babel-plugin:
     dependencies:
       '@babel/helper-module-imports':
@@ -3512,10 +3531,6 @@ packages:
     resolution: {integrity: sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA==}
     engines: {node: '>=8.6'}
 
-  picomatch@4.0.3:
-    resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
-    engines: {node: '>=12'}
-
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
@@ -5915,7 +5930,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.8
       estree-walker: 2.0.2
-      picomatch: 4.0.3
+      picomatch: 4.0.5
     optionalDependencies:
       rollup: 4.59.0
 
@@ -7142,8 +7157,6 @@ snapshots:
 
   picomatch@2.3.1: {}
 
-  picomatch@4.0.3: {}
-
   picomatch@4.0.4: {}
 
   picomatch@4.0.5: {}
@@ -7456,8 +7469,8 @@ snapshots:
 
   tinyglobby@0.2.16:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
+      fdir: 6.5.0(picomatch@4.0.5)
+      picomatch: 4.0.5
 
   tinyglobby@0.2.17:
     dependencies:

@@ -5,57 +5,54 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-// The demo's SearchField.client.js, dissolved (Stage 6). The search field's
-// MARKUP lives in the server shell (server/App.tsx); what remains here is
-// pure behavior — a bag of functions the client hands the server component:
+// The demo's SearchField.client.js, dissolved. The search field's MARKUP
+// lives in the server shell (server/App.tsx); what remains here is the
+// behavior the client contributes, as ONE attribute slot (principles §9.2.3):
+// the server calls `props.search()` once and reads the returned object's
+// properties at positions — `value`/`onInput` on the input, `onSubmit` on
+// the form, the spinner's active class and `aria-busy`. The client binds
+// exactly those positions on the server's elements.
 //
-// - `onSearch`/`onSubmit` are event props: the server marks the elements,
-//   and the document-level delegation walk resolves them through the
-//   frame's live props at dispatch time.
-// - `searchInput`/`spinner` are ref props: they fire with the adopted
-//   elements under this component's owner, so the effects inside sync
-//   server-rendered DOM against client router state (the input restores
-//   `?searchText` on deep links and back/forward; the spinner tracks the
-//   pending navigation) and dispose with the app.
-//
-// A word on fit, because this file shows the PATTERN'S BOUNDARY as much as
-// the pattern. Event props and one-way refs (the spinner) are the sweet
-// spot: behavior on chrome you'd never ship a component for — and in chat's
-// copy buttons, on markup the client couldn't author at all. The input's
-// value-sync effect below is the edge: once an element's STATE must track
-// client reactivity, a ref means hand-writing the binding that JSX's
-// `value={...}` gives a client component for free. We keep the input server
-// chrome here because one three-line effect is a fair trade for dissolving
-// the shell's last hydration island — but when an element is mostly client
-// state, make it a client position and let JSX do the syncing.
+// The values are getters over router state, so each position tracks its
+// own reads and updates alone: the input restores `?searchText` on deep
+// links and back/forward, the spinner tracks the pending navigation. Before
+// attribute slots this file was refs hand-syncing that DOM (the pattern's
+// boundary then — an element whose STATE tracks client reactivity wanted a
+// client component). Now the binding is what the template says: a value
+// position over client state is the same one line on both sides.
 //
 // Search state itself is unchanged: the `?searchText` query param, so typing
 // navigates — the router reruns the root preload and the notes-list server
 // component refetches, morphing the list boundary in place.
 import { useSearchParams } from "@solidjs/router";
-import { createEffect, isPending } from "solid-js";
+import { isPending } from "solid-js";
+
+/** What the client decides about the search field. */
+export interface SearchBehavior {
+  value: string;
+  active: boolean;
+  /** `aria-busy` wants the string, not the boolean's bare attribute. */
+  busy: "true" | "false";
+  onInput: (e: InputEvent) => void;
+  onSubmit: (e: SubmitEvent) => void;
+}
 
 export default function searchField() {
   const [search, setParams] = useSearchParams();
-  const isSearching = () => isPending(() => search.searchText);
-  return {
-    onSearch: (e: InputEvent) => {
+  const isSearching = () => !!isPending(() => search.searchText);
+  return (): SearchBehavior => ({
+    get value() {
+      return (search.searchText as string) || "";
+    },
+    get active() {
+      return isSearching();
+    },
+    get busy() {
+      return isSearching() ? "true" : "false";
+    },
+    onInput: (e: InputEvent) => {
       setParams({ searchText: (e.target as HTMLInputElement).value });
     },
-    onSubmit: (e: SubmitEvent) => e.preventDefault(),
-    searchInput: (el: HTMLInputElement) => {
-      createEffect(
-        () => (search.searchText as string) || "",
-        text => {
-          el.value = text;
-        }
-      );
-    },
-    spinner: (el: HTMLElement) => {
-      createEffect(isSearching, active => {
-        el.classList.toggle("spinner--active", !!active);
-        el.setAttribute("aria-busy", String(!!active));
-      });
-    }
-  };
+    onSubmit: (e: SubmitEvent) => e.preventDefault()
+  });
 }
