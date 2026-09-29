@@ -1082,6 +1082,8 @@ retired as a pole and survives only as potential authoring sugar.
    over HTTP/2 is the precondition. The seed's watermark (causal settlement for Stage 7) is retired:
    settlement is convergence (§9.2 amendment), and the two stages are
    independent. Plan: `documentation/plans/stage8-connection-transport.md`.
+9. **Stage 9 — Mutations through a live connection.** Seed recorded
+   2026-09-28 (§9.6); not scheduled.
 
 Ordering note (revised 2026-09-22): Stage 8 now precedes Stage 7,
 and the two are independent. The 08-18 reasoning below still holds
@@ -4043,8 +4045,9 @@ answer is not the reason to build what the seed describes.
 
 **The observation: per-connection server memory already exists.**
 `examples/room`'s `presence` joins the room in the generator's
-frame and leaves in its `finally` — state that lives exactly as
-long as the connection, held by no store, owned by no request.
+frame and leaves in its `finally` — an entry in the room's
+module-level map that lives exactly as long as the connection,
+owned by no request.
 §9.5's "the server remembers nothing" is a rule about RECONNECT
 (any instance answers any reconnect; the resumed render derives
 everything from durable state); it says nothing against a
@@ -4088,9 +4091,9 @@ instead of through the mutation's response.
   rejection — or the "3 people typing", or the per-viewer cursor —
   rendered into THIS connection's markup only. Combined with
   attribute slots on the latency-sensitive positions this is
-  LiveView with two things LiveView lacks: HTML-first t = 0 with no
-  socket required to render, and optimistic feel that does not
-  depend on the round trip.
+  LiveView with two things LiveView lacks: client-owned
+  interactivity that works before and without the connection, and
+  optimistic feel that does not depend on the round trip.
 
 **What (C) costs, honestly.**
 
@@ -4141,6 +4144,10 @@ answers the first and frames the second as candidates with the
 evidence each needs. It sits above §9.2.3's placement principle —
 that principle decides where one ELEMENT lives; this section decides
 whether a COMPONENT should be a server component at all.
+Slot names here predate the 2026-09-29 rename: a *markup slot* is
+a **template slot** (`Slot`) and an *attribute slot* a **binding
+slot** (`BindingSlot`; the code still says `AttributeSlot` until
+`documentation/plans/binding-slot-execution.md` lands).
 
 ### 10.1 Three axes, not one
 
@@ -4325,5 +4332,6 @@ today, its cost, a proposed disposition, and what would decide it.
   server-rendered rejections). Its current shape should not be the
   example anyone learns from. *Decided 2026-09-29: Q5; the per-example
   plan is `documentation/plans/examples-grid-plan.md`.*
-- `notes` and `chat` become the front door for attribute slots.
+- `hackernews`, then `notes` and `chat`, become the front door for
+  binding slots (the plan's order).
 - §9.6 (B) gets its verification pass on the flight collector.

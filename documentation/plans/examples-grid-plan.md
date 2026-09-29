@@ -5,9 +5,10 @@ and §9.6, with Stages 1–8 built and #3704 (attribute slots, second form)
 the last heavy feature. Status: DIRECTION AGREED in conversation; nothing
 here is built. This page is the checklist for the example set as a whole;
 the two flagships get their own plans (linked below) and this page does not
-design them. Design record: `documentation/server-components/
-server-components-principles.md` §10 (fit) and §9.6 (live mutations seed).
-The grid is the one in "The Grand Unifying Architecture of Frontend"
+design them. Design record:
+`documentation/server-components/server-components-principles.md` §10 (fit)
+and §9.6 (live mutations seed). The grid is the one in
+["The Grand Unifying Architecture of Frontend"](https://dev.to/playfulprogramming/the-grand-unifying-architecture-of-frontend-bhk)
 (dev.to, 2026-09-22): response window on the horizontal axis
 (request/response → persistent), affordance weight on the vertical
 (server-owned markup → client-owned state), and three responsibilities every
@@ -48,9 +49,10 @@ Priority order; a lower item never overrides a higher one.
 
 The trivial case must stay trivial: one client position with no per-item
 data is one line each side (`codeBlock={() => ({ onCopy })}` on the client,
-`onClick={block.onCopy}` on the server). No example may need a fill to be
-more than an object literal; where one does, that is a §9.2.3 ergonomics
-finding to raise, not something example code hides.
+`onClick={block.onCopy}` on the server). A stateless fill is the object
+literal; a fill that owns state is its signals plus the literal. No example
+may need more; where one does, that is a §9.2.3 ergonomics finding to
+raise, not something example code hides.
 
 **Authoring layout** (decided 2026-09-29, every example with a server
 side, twins included). One screen is one file; the directive marks the
@@ -221,9 +223,9 @@ only example — flagged, consistent with principles §10.5.
 
 ### `board` — top-right FLAGSHIP. NEW (own plan)
 
-Plan: `documentation/plans/board-flagship.md`. Pure data tier, no frames:
-one board of lists and cards as a `live` source, reconciled by id into an
-optimistic nested store; moves and reorders as optimistic writes with
+Plan: `documentation/plans/board-flagship.md` (to write first). Pure data
+tier, no frames: one board of lists and cards as a `live` source, reconciled
+by id into an optimistic nested store; moves and reorders as optimistic writes with
 `until`; two tabs converging; rejected moves reverting; presence. Drag
 within and between lists with pointer events, fractional ordering. Scope:
 create / rename / archive, titles only, no card detail. Absorbs `room`'s
@@ -275,7 +277,8 @@ Off-grid on purpose. `rendering` is the one kitchen sink.
   generator (the optimistic write) before the server call.
 - **V4 — Router pending state on a submitting claimed form.** Whether the
   router marks the form (`aria-busy` / `data-pending`) for the action's
-  life. If not, a small router feature, not an example hack.
+  life. If not, a small router feature (public router behaviour —
+  flagged), not an example hack.
 - **V5 — Media migration.** A playing native `<video>` and a YouTube
   `<iframe>` moved through the `<Show>` migration path, Chrome and
   Firefox, with and without `moveBefore()` in place of `insertBefore` in
