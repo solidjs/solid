@@ -816,20 +816,24 @@ module.exports = [
     // signal's write with someone else's action. Container-wide reads
     // (ownKeys, $TRACK, deep) still hold. On the store read path, paid by
     // every store user; core floor 0 B.
-    // Size-Exception (#3706, 2026-09-29): 16.71 -> 16.86 KB, measured at
-    // 16,853 B against `next` @ fb4e637a's 16,708 (+145 B; +554 B minified).
-    // The adoption hold is key-scoped like the fold hold (#3688): the keys
-    // an adoption changed against the held view are recorded once per
-    // adoption (`heldKeys`, computed on the first held read so re-pointed
-    // children compare as one slot: own on both, never an accessor, same
-    // enumerability, slot equality; a swapped or non-plain prototype, a
-    // chained backing or an optimistic family hold the whole container) and
-    // `readSource` answers a get/has/descriptor read with one set lookup —
-    // a memo reading `cards[0].id` beside an independent signal no longer
-    // holds that signal's write with the transaction that adopted the array.
-    // The per-read compare variant measured +327 B minified (+59 B here).
-    // On the store read path, paid by every store user; core floor 0 B.
-    limit: "16.86 KB",
+    // Size-Exception (#3706, 2026-09-29): 16.71 -> 16.85 KB, measured at
+    // 16,848 B against `next` @ 7f9bd7a6d's 16,708 (+140 B; +578 B minified).
+    // The adoption hold is key-scoped like the fold hold (#3688): adoptPB
+    // records the adopted object, the keys it changed against the held view
+    // are computed once, on the first held read (`heldKeys`, diffed against
+    // that object so re-pointed children compare as one slot and a mainline
+    // write during the hold is not counted: own on both, never an accessor,
+    // same enumerability, slot equality; a swapped or non-plain prototype, a
+    // chained backing or an optimistic family hold the whole container), and
+    // `readSource` and getNode's born-holding path answer with one set
+    // lookup — a memo reading `cards[0].id` beside an independent signal no
+    // longer holds that signal's write with the transaction that adopted the
+    // array. The per-read compare variant measured +327 B minified (+59 B
+    // here); recorded keys were chosen for the single `has(key)` rule shared
+    // with `wk` and for covering enumerability and inherited accessors.
+    // Accepted by the maintainer. On the store read path, paid by every
+    // store user; core floor 0 B.
+    limit: "16.85 KB",
     alias
   },
   {
@@ -1888,10 +1892,11 @@ module.exports = [
     // 30.63 KB, measured at 30,599 B against `next` @ f1b07761f's 30,622 (-23 B;
     // -3 B minified). Same parking-gate change as the no-stores hydrating
     // note; brotli layout over the larger bundle turns it into a saving here.
-    // Size-Exception (#3706, 2026-09-29): 30.63 -> 30.76 KB, measured at
-    // 30,754 B against `next` @ fb4e637a's 30,608 (+146 B; +556 B minified).
-    // Same adoption-hold change as the `+ createStore` note (+145 B there).
-    limit: "30.76 KB",
+    // Size-Exception (#3706, 2026-09-29): 30.63 -> 30.74 KB, measured at
+    // 30,738 B against `next` @ 7f9bd7a6d's 30,608 (+130 B; +580 B minified).
+    // Same adoption-hold change as the `+ createStore` note (+140 B there).
+    // Accepted by the maintainer.
+    limit: "30.74 KB",
     alias
   },
   {
@@ -2970,11 +2975,12 @@ module.exports = [
     // minified — the occurrence's listener detach, frames note), over the
     // rounded cap by 1 B; 45.76 -> 45.77 KB under the same exception. The
     // cap is frozen again at 45.77 KB.
-    // Size-Exception (#3706, 2026-09-29): 45.77 -> 45.85 KB, measured at
-    // 45,850 B against `next` @ fb4e637a's 45,761 (+89 B; 80 B over the cap;
-    // +558 B minified). Same adoption-hold change as the `+ createStore`
+    // Size-Exception (#3706, 2026-09-29): 45.77 -> 45.91 KB, measured at
+    // 45,904 B against `next` @ 7f9bd7a6d's 45,761 (+143 B; 134 B over the
+    // cap; +582 B minified). Same adoption-hold change as the `+ createStore`
     // note, reaching this page through the frames client's container-trace
-    // materializer. The cap is frozen again at 45.85 KB.
+    // materializer. Accepted by the maintainer. The cap is frozen again at
+    // 45.91 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3032,10 +3038,11 @@ module.exports = [
     // the live path adds nothing of its own. Accepted by the maintainer. The
     // cap is frozen again at 49.96 KB. Review fixes, same PR: 49,951 ->
     // 49,901 B (-50 B; +35 B minified — brotli layout), under the cap.
-    // Size-Exception (#3706, 2026-09-29): 49.96 -> 50.16 KB, measured at
-    // 50,158 B against `next` @ fb4e637a's 49,955 (+203 B; 198 B over the
-    // cap; +557 B minified). Same adoption-hold change as the base page's
-    // note (+89 B there). The cap is frozen again at 50.16 KB.
+    // Size-Exception (#3706, 2026-09-29): 49.96 -> 50.09 KB, measured at
+    // 50,085 B against `next` @ 7f9bd7a6d's 49,955 (+130 B; 125 B over the
+    // cap; +581 B minified). Same adoption-hold change as the base page's
+    // note (+143 B there). Accepted by the maintainer. The cap is frozen
+    // again at 50.09 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }

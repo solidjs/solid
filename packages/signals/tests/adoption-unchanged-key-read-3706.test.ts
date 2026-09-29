@@ -27,7 +27,8 @@ import {
   createStore,
   flush,
   isPending,
-  latest
+  latest,
+  untrack
 } from "../src/index.js";
 
 type Card = { id: string; column: number };
@@ -272,7 +273,8 @@ describe("#3706 unchanged key read under an adoption hold", () => {
   // target for slot equality and the container hold stands. Freeing it needs
   // the adoption to carry per-child held views: a positional lazy
   // materialization aliased reordered rows and split proxy identity by
-  // reader context under review. Left as a design call.
+  // reader context under review. Left as a design call, tracked as the
+  // #3706 follow-up.
   for (const read of ["find", "index-id"] as const) {
     it.fails(
       `a row first read AFTER the adoption (${read}) derives nothing from the hold (third playground)`,
@@ -559,5 +561,74 @@ describe("#3706 unchanged key read under an adoption hold", () => {
     flush();
     expect(store.saved).toBe(true);
     dispose();
+  });
+
+  // The record is what the ADOPTION changed, not what changed since the hold
+  // began: a mainline setter write during the hold replaces the backing, and
+  // the key it wrote is not held with the adopting transaction.
+  describe("a mainline setter write during the hold to a key the adoption left unchanged", () => {
+    function heldSave(read: (n: number, stable: () => string) => string) {
+      const gate = deferred();
+      const [server, setServer] = createSignal({ saved: false, stable: "same" });
+      const [store, setStore] = createStore(() => server(), { saved: false, stable: "same" });
+      const [n, setN] = createSignal(0);
+      let reader!: () => string;
+      const dispose = createRoot(d => {
+        reader = createMemo(() => read(n(), () => store.stable));
+        createRenderEffect(reader, () => {});
+        return d;
+      });
+      flush();
+      const save = action(function* save() {
+        setServer(s => ({ ...s, saved: true }));
+        yield gate.promise;
+      });
+      const p = save();
+      flush();
+      setStore(s => void (s.stable = "edited"));
+      flush();
+      return {
+        store,
+        n,
+        setN,
+        reader,
+        settle: async () => {
+          gate.resolve();
+          await p;
+          flush();
+          dispose();
+        }
+      };
+    }
+
+    it("a tracked memo reading it does not make an independent signal pending", async () => {
+      const t = heldSave((n, stable) => `${n}:${stable()}`);
+      t.setN(1);
+      flush();
+      expect(isPending(t.n)).toBe(false);
+      expect(t.reader()).toBe("1:edited");
+      expect(t.store.saved).toBe(false);
+      await t.settle();
+    });
+
+    it("an untracked read serves the write", async () => {
+      const t = heldSave((n, stable) => `${n}:${stable()}`);
+      expect(untrack(() => t.store.stable)).toBe("edited");
+      expect(t.store.stable).toBe("edited");
+      expect(t.store.saved).toBe(false);
+      await t.settle();
+    });
+
+    it("a fresh node, after the reader drops the key and reads it again, is not born holding", async () => {
+      const t = heldSave((n, stable) => (n === 1 ? "off" : `${n}:${stable()}`));
+      t.setN(1);
+      flush();
+      expect(t.reader()).toBe("off");
+      t.setN(2);
+      flush();
+      expect(isPending(t.n)).toBe(false);
+      expect(t.reader()).toBe("2:edited");
+      await t.settle();
+    });
   });
 });
