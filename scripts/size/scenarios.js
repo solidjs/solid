@@ -3078,7 +3078,7 @@ module.exports = [
     // measured at 50,115 B against `next` @ bf87f27de's 50,085 (+30 B; +105 B
     // minified). Same latch change as the base page's note. Accepted by the
     // maintainer. The cap is frozen again at 50.12 KB.
-    // Size-Exception (binding-slot execution, 2026-09-29): 50.12 -> 50.15 KB,
+    // Size-Exception (#3713, 2026-09-29): 50.12 -> 50.15 KB,
     // measured at 50,150 B against `next` @ cce43eb44's 50,070 (+80 B; 30 B
     // over the cap; -5 B minified). The fill runs once through `assign`
     // instead of a memo and an own listener; the code shrinks, and brotli
