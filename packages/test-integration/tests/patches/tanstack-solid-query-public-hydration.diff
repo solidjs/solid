@@ -1,0 +1,183 @@
+diff --git a/packages/solid-query-devtools/src/clientOnly.tsx b/packages/solid-query-devtools/src/clientOnly.tsx
+index 1d0dc6d..591db21 100644
+--- a/packages/solid-query-devtools/src/clientOnly.tsx
++++ b/packages/solid-query-devtools/src/clientOnly.tsx
+@@ -1,9 +1,9 @@
+ import {
+   createMemo,
+   createSignal,
++  isHydrating,
+   omit,
+   onSettled,
+-  sharedConfig,
+   untrack,
+ } from 'solid-js'
+ import { isServer } from '@solidjs/web'
+@@ -30,8 +30,8 @@ export default function clientOnly<T extends Component<any>>(
+     let Comp: T | undefined
+     let m: boolean
+     const rest = omit(props, 'fallback')
+-    if ((Comp = comp()) && !sharedConfig.hydrating) return Comp(rest)
+-    const [mounted, setMounted] = createSignal(!sharedConfig.hydrating)
++    if ((Comp = comp()) && !isHydrating()) return Comp(rest)
++    const [mounted, setMounted] = createSignal(!isHydrating())
+     onSettled(() => {
+       setMounted(true)
+     })
+diff --git a/packages/solid-query/src/QueryClientProvider.tsx b/packages/solid-query/src/QueryClientProvider.tsx
+index 8e1797a..676fb52 100644
+--- a/packages/solid-query/src/QueryClientProvider.tsx
++++ b/packages/solid-query/src/QueryClientProvider.tsx
+@@ -1,5 +1,5 @@
+-import { createContext, onCleanup, sharedConfig, useContext } from 'solid-js'
+-import { REVALIDATE_HEADER } from '@solidjs/web'
++import { createContext, isHydratable, onCleanup, useContext } from 'solid-js'
++import { REVALIDATE_HEADER, getHydrationWriter } from '@solidjs/web'
+ import { hydrate } from '@tanstack/query-core'
+ import { subscribeFlightData } from '@solidjs/web/server-functions'
+ import type { DehydratedState, Query } from '@tanstack/query-core'
+@@ -148,16 +148,8 @@ export type QueryClientProviderProps = {
+  * serialize, so seroval's cross-reference dedupe emits it once.
+  */
+ function serializeCacheOnServer(client: QueryClient): void {
+-  const ctx = (
+-    sharedConfig as unknown as {
+-      context?: {
+-        async?: boolean
+-        noHydrate?: boolean
+-        serialize: (key: string, value: unknown) => void
+-      }
+-    }
+-  ).context
+-  if (!ctx || !ctx.async || ctx.noHydrate) return
++  const writer = getHydrationWriter()
++  if (!writer || !writer.async || !isHydratable()) return
+ 
+   const cache = client.getQueryCache()
+   // The standard dehydrate filter gates the wire here too, so apps keep
+@@ -175,7 +167,7 @@ function serializeCacheOnServer(client: QueryClient): void {
+     const state = query.state
+     if (state.status === 'success') {
+       seen.add(query.queryHash)
+-      ctx.serialize(HYDRATION_KEY_PREFIX + query.queryHash, {
++      writer.write(HYDRATION_KEY_PREFIX + query.queryHash, {
+         data: state.data,
+         t: state.dataUpdatedAt,
+       })
+@@ -185,7 +177,7 @@ function serializeCacheOnServer(client: QueryClient): void {
+       const promise = query.promise as Promise<unknown> | undefined
+       if (!promise) return
+       seen.add(query.queryHash)
+-      ctx.serialize(
++      writer.write(
+         HYDRATION_KEY_PREFIX + query.queryHash,
+         promise.then(() => ({
+           data: query.state.data,
+diff --git a/packages/solid-query/src/cacheAggregate.ts b/packages/solid-query/src/cacheAggregate.ts
+index d08ab86..6beeacb 100644
+--- a/packages/solid-query/src/cacheAggregate.ts
++++ b/packages/solid-query/src/cacheAggregate.ts
+@@ -2,8 +2,8 @@ import {
+   createEffect,
+   createOptimistic,
+   createSignal,
++  isHydrating,
+   onCleanup,
+-  sharedConfig,
+   untrack,
+ } from 'solid-js'
+ import type { Accessor } from 'solid-js'
+@@ -47,8 +47,7 @@ export function createCacheAggregate<T>(
+   read: (prev: T) => T,
+   empty: T,
+ ): Accessor<T> {
+-  const hydratedMount =
+-    !isServer && (sharedConfig as { hydrating?: boolean }).hydrating === true
++  const hydratedMount = isHydrating()
+ 
+   // Cast: createSignal's value overload excludes functions (a function
+   // argument means a compute); aggregate values are counts and arrays.
+diff --git a/packages/solid-query/src/useBaseQuery.ts b/packages/solid-query/src/useBaseQuery.ts
+index f469a27..7486950 100644
+--- a/packages/solid-query/src/useBaseQuery.ts
++++ b/packages/solid-query/src/useBaseQuery.ts
+@@ -7,10 +7,11 @@ import {
+   isPending as isValuePending,
+   onCleanup,
+   resolve,
++  isHydrating,
+   runWithOwner,
+-  sharedConfig,
+   untrack,
+ } from 'solid-js'
++import { takeHydrationValue } from '@solidjs/web'
+ import { HYDRATION_KEY_PREFIX, useQueryClient } from './QueryClientProvider'
+ import { useIsRestoring } from './isRestoring'
+ import type { UseBaseQueryOptions, UseBaseQueryResult } from './types'
+@@ -166,12 +167,10 @@ export function useBaseQueryLayer<
+   )
+ 
+   /**
+-   * `sharedConfig.hydrating` is Solid's own "this component is being
+-   * hydrated" flag, captured at setup. (The server build's sharedConfig
+-   * has no such field — undefined there, and unused.)
++   * Solid's own "this component is being hydrated" answer, captured at
++   * setup. Always false on the server.
+    */
+-  const hydratedMount =
+-    !isServer && (sharedConfig as { hydrating?: boolean }).hydrating === true
++  const hydratedMount = isHydrating()
+ 
+   /**
+    * One version signal per hook, bumped by cache events for this query hash.
+@@ -336,10 +335,6 @@ export function useBaseQueryLayer<
+ 
+   if (!isServer) {
+     cacheSub = activeClient.getQueryCache().subscribe(onCacheEvent)
+-    const sc = sharedConfig as unknown as {
+-      has?: (id: string) => boolean
+-      load?: (id: string) => any
+-    }
+     const registryKey =
+       HYDRATION_KEY_PREFIX + untrack(defaultedOptions).queryHash
+     const primeAndAttach = (entry?: Partial<HydratedEntry> | null) => {
+@@ -348,24 +343,12 @@ export function useBaseQueryLayer<
+       attach()
+     }
+     const settle = hydratedMount ? primeAndAttach : prime
+-    if (sc.has?.(registryKey)) {
+-      const entry = sc.load!(registryKey)
+-      delete (globalThis as unknown as { _$HY: { r: Record<string, unknown> } })
+-        ._$HY.r[registryKey]
+-      if (entry != null && typeof entry === 'object') {
+-        // Settled serialization refs are stamped `s`/`v`; still-streaming
+-        // ones are plain thenable refs that land with their chunk.
+-        if (entry.s === 1) settle(entry.v)
+-        else if (entry.s === 2) settle()
+-        else if (typeof entry.then === 'function')
+-          entry.then(settle, () => settle())
+-        else settle(entry)
+-      } else {
+-        settle(entry)
+-      }
+-    } else if (hydratedMount) {
+-      primeAndAttach()
+-    }
++    const entry = takeHydrationValue<Partial<HydratedEntry> | null>(registryKey)
++    if (entry?.status === 'resolved') settle(entry.value)
++    else if (entry?.status === 'rejected') settle()
++    else if (entry?.status === 'pending')
++      entry.promise.then(settle, () => settle())
++    else if (hydratedMount) primeAndAttach()
+     if (!hydratedMount) {
+       createRenderEffect(
+         () => isRestoring(),
+@@ -544,7 +527,7 @@ export function useBaseQueryLayer<
+        * priming; if a fetch is genuinely needed, the post-priming observer
+        * attach issues it outside the window.
+        */
+-      if (!isServer && (sharedConfig as { hydrating?: boolean }).hydrating) {
++      if (isHydrating()) {
+         return NEVER
+       }
+       /**
