@@ -23,6 +23,7 @@ import {
 } from "solid-js/internal";
 import type { ServerErrorSite } from "solid-js/internal";
 import { effect, memo } from "./render.js";
+import { setRequestErrorHook } from "./request-error-hook.js";
 // Trace context (W3C `traceparent`): derived per request, exposed through
 // `getTraceContext()`, emitted on the response head at commit and in the
 // shell head — see trace.ts for the tiering and the carriers.
@@ -1783,6 +1784,7 @@ export function renderToString(code, options = {}) {
   // stale one on the lingering context.
   const context = sharedConfig.context;
   const requestEvent = peekRequestEvent();
+  if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   const render = timeDocument(context, context.trace, "string", requestEvent);
   let dispose;
@@ -1937,6 +1939,7 @@ export function renderToStream(code, options = {}) {
   // `await provideRequestEvent(event, () => renderToStream(...))` is the
   // storage module's own documented shape.
   const requestEvent = peekRequestEvent();
+  if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   let dispose;
   let dead = false;
   // The render's `"render"` record (`timeDocument`, once the context is up):
@@ -2084,7 +2087,7 @@ export function renderToStream(code, options = {}) {
     // boundary that already reported this error with its location leaves
     // this a no-op (once per error). With no hook anywhere the failure is
     // never silent.
-    reportServerError(err, { kind: "render", handling: "failed" }, null);
+    reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
     if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
     abandon();
   };
@@ -6098,7 +6101,7 @@ function serializerErrorHook(hook) {
   return hook === undefined
     ? undefined
     : err => {
-        reportServerError(err, { kind: "render", handling: "serialize" }, null);
+        reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
       };
 }
 

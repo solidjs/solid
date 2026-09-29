@@ -98,8 +98,10 @@ export type HydrationContext = {
   failRender?: (err: any) => void;
   /**
    * @internal The per-request server error hook (`renderToStream`'s
-   * `onError`), set by @solidjs/web; consulted by `reportServerError`
-   * ahead of the ambient registration.
+   * `onError`), set by @solidjs/web. The boundaries read it off the context
+   * they were created under and hand it to `reportServerError`, ahead of the
+   * ambient registration — never off the module global, which may be
+   * another request's context by the time an async failure lands.
    */
   errorPolicy?: (error: unknown, context: any) => unknown | void;
   /**

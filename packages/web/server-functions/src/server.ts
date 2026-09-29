@@ -22,6 +22,7 @@ import {
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
 import { reportServerError } from "solid-js/internal";
+import { requestErrorHook } from "../../src/request-error-hook.js";
 import { observeInvocation } from "../../src/server-observe.js";
 import { emitFinding, errorText } from "../../src/diagnostics.js";
 import { encodeFlashCookie, setFlashSecret } from "./flash.js";
@@ -1355,6 +1356,10 @@ export function createServerReference({ id, fn, name }) {
       // the function during a render. Resolved — and validated (#3238) —
       // per invocation, before the body can run.
       const wrap = resolveWrapInvocation(config.wrapInvocation);
+      // The call reports through the hook of the render serving the request
+      // it was made under, resolved now: when it fails, no render may be on
+      // the stack and the global SSR context may be another request's.
+      const hook = requestErrorHook(ogEvt);
       // Exactly-once is enforced on this leg too (#3246, see
       // provideEventOnce): a broken hook used to double-commit or skip the
       // body silently during a render, where there is no status line to
@@ -1368,7 +1373,8 @@ export function createServerReference({ id, fn, name }) {
         return observeInvocation({ id, direct: true, event: evt, args }, () =>
           reportDirectFailure(
             () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
-            id
+            id,
+            hook
           )
         );
       });
@@ -3379,7 +3385,10 @@ export function sanitizeServerError(value: unknown): unknown;
 // call that throws during SSR is reported here as the function's failure
 // and the <Errored> that contains it reuses the answer without reporting
 // again. Per-request hooks ride the event (the handler's option); the
-// channel sites read the event off the scope their operations run in.
+// channel sites read the event off the scope their operations run in. A
+// direct call reports through the hook of the render serving its request
+// (`requestErrorHook`). None is ever read off the global SSR context: that
+// is whichever render touched it last, and may be another request's.
 const REQUEST_ERROR_HOOKS = new WeakMap();
 
 function siteFor(handling, event, direct) {
@@ -3413,16 +3422,18 @@ function currentEvent() {
 }
 
 /**
- * Reports a direct call's failure as the function's (`direct: true`) and
- * rethrows the ORIGINAL: the render that made the call contains it, and the
- * wire policy there reuses the verdict decided here.
+ * Reports a direct call's failure as the function's (`direct: true`) through
+ * `hook` (its request's render's) and rethrows the ORIGINAL: the render that
+ * made the call contains it, and the wire policy there reuses the verdict
+ * decided here.
  */
-function reportDirectFailure(run, id) {
+function reportDirectFailure(run, id, hook) {
   const report = error => {
     reportServerError(
       error,
       { kind: "server-function", handling: "thrown", functionId: id, direct: true },
-      null
+      null,
+      hook
     );
     throw error;
   };
