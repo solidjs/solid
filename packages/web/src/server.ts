@@ -1788,12 +1788,13 @@ export function renderToString(code, options = {}) {
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   const render = timeDocument(context, context.trace, "string", requestEvent);
   let dispose;
+  let rootOwner;
   let rendered = false;
   try {
     const html = root(
       d => {
         dispose = d;
-        claimRenderRoot(context);
+        rootOwner = claimRenderRoot(context);
         return resolveSSRSync(escape(code()));
       },
       { id: renderId }
@@ -1838,7 +1839,7 @@ export function renderToString(code, options = {}) {
   } finally {
     // The render record settles before the trace is let go: a listener
     // reading `getTraceContext()` from its callback finds the render's.
-    if (render) render.settle(rendered ? "complete" : "error");
+    if (render) settleRender(render, rootOwner, rendered ? "complete" : "error");
     // Release the graph before returning (#3385): a deferred dispose held
     // every root — and every memo under it — until the next macrotask, so
     // nothing was freed across a synchronous loop of renders.
@@ -1945,6 +1946,7 @@ export function renderToStream(code, options = {}) {
   // The render's `"render"` record (`timeDocument`, once the context is up):
   // its shell stamped at `doShell`, settled at `onDone` or by the wind-down.
   let render;
+  let rootOwner;
   // The serializer (created below, once the sink is assembled) — hoisted so
   // the wind-down can close it. `abandon` is only ever reached after the
   // render starts, by which point it is assigned; the hoist keeps that from
@@ -2025,7 +2027,7 @@ export function renderToStream(code, options = {}) {
     if (disconnect) disconnected = true;
     // The render's record ends here, with how: the client left, or the
     // render failed (the render error's finding says why).
-    if (render) render.settle(disconnect ? "abandoned" : "error");
+    if (render) settleRender(render, rootOwner, disconnect ? "abandoned" : "error");
     // The live sink wrapper (post-shell) is handed to the failure
     // completion below; pre-shell there is none yet.
     const sink = writable;
@@ -2239,7 +2241,7 @@ export function renderToStream(code, options = {}) {
     completed = true;
     // The stream is whole: the render record settles (its shell was stamped
     // by `doShell` above), before the graph it describes is released.
-    if (render) render.settle("complete");
+    if (render) settleRender(render, rootOwner, "complete");
     if (firstFlushed) dispose();
   };
   // FrameSink seam (design in frame-sink.js): semantic emission routes through
@@ -2906,7 +2908,7 @@ export function renderToStream(code, options = {}) {
         if (onAbort) signal.removeEventListener("abort", onAbort);
         d();
       };
-      claimRenderRoot(context);
+      rootOwner = claimRenderRoot(context);
       const res = resolveSSRNode(escape(code()));
       if (!res.h.length) return res.t[0];
       rootHoles = [];
@@ -6165,6 +6167,16 @@ function claimRenderRoot(context) {
   const roots = renderRoots();
   roots.set(owner, context);
   onCleanup(() => roots.delete(owner));
+  return owner;
+}
+
+// A render record settles off its render's pass — after the string root
+// returned, from the stream's completion or wind-down — so it settles under
+// the render's root owner: a listener reading `getTraceContext()` from its
+// callback finds this render's trace. `root` is unset only for a stream torn
+// down before its root existed.
+function settleRender(render, root, outcome) {
+  runWithOwner(root || null, () => render.settle(outcome));
 }
 
 // Disposal unlinks an owner (`_parent = null`), so a disposed subtree walks
@@ -6237,16 +6249,19 @@ function timeDocument(context, trace, mode, requestEvent) {
  * otherwise; in observe/dev builds, merged with the installed provider's
  * answer (`OBSERVE.server.trace`). Same object for every read within the
  * request, direct server-function calls included. For a render outside a
- * request scope, the render's own trace. `undefined` outside both, and on
- * the client. Forward it downstream from a server function with
- * `getTraceContext()?.entries.traceparent`.
+ * request scope, the render's own trace, read within it (under its owner).
+ * `undefined` outside both, and on the client. Forward it downstream from a
+ * server function with `getTraceContext()?.entries.traceparent`.
  */
 export function getTraceContext(): TraceContext | undefined;
 
 export function getTraceContext() {
   const event = peekRequestEvent();
   if (event) return traceForEvent(event).context;
-  const ctx = sharedConfig.context;
+  // Outside a request scope the trace is the caller's own render's, found
+  // through its owner (see `getRequestEvent`) — never the module global's,
+  // which can be another render's.
+  const ctx = renderContextOf(getOwner());
   return ctx && ctx.trace ? ctx.trace.context : undefined;
 }
 

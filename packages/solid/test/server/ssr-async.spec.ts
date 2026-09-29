@@ -17,6 +17,7 @@ import { ssrHandleError } from "../../src/server/hydration.js";
 import { Loading } from "../../src/server/flow.js";
 import { sharedConfig } from "../../src/server/shared.js";
 import { createErrorBoundary, shareAsyncIterable } from "../../src/server/signals.js";
+import { inClaimedRender } from "./render-root.js";
 
 // ============================================================================
 // Mock SSR Context Infrastructure
@@ -4437,7 +4438,7 @@ describe("Asset Manifest + lazy()", () => {
       undefined,
       "./Route.tsx"
     );
-    await LazyRoute.preload!();
+    await inClaimedRender(context, () => LazyRoute.preload!());
 
     expect(registered).toEqual([
       { type: "style", value: "/assets/Route.css" },
@@ -4471,8 +4472,8 @@ describe("Asset Manifest + lazy()", () => {
       undefined,
       "./Once.tsx"
     );
-    await LazyOnce.preload!();
-    await LazyOnce.preload!();
+    await inClaimedRender(context, () => LazyOnce.preload!());
+    await inClaimedRender(context, () => LazyOnce.preload!());
     createRoot(
       () => {
         LazyOnce({});
@@ -4661,7 +4662,7 @@ describe("Asset Manifest + lazy()", () => {
 
     const Comp = (props: any) => "async-dev";
     const LazyComp = lazy(() => Promise.resolve({ default: Comp }), undefined, "./AsyncDev.tsx");
-    await LazyComp.preload!();
+    await inClaimedRender(context, () => LazyComp.preload!());
     // preload() now hints the module too; this case covers the render pass.
     registered.length = 0;
 
@@ -4760,7 +4761,7 @@ describe("Asset Manifest + lazy()", () => {
     const LazyComp = lazy(() =>
       Promise.resolve({ default: Comp, $$moduleUrl: "src/Glob.tsx" } as any)
     );
-    await LazyComp.preload!();
+    await inClaimedRender(context, () => LazyComp.preload!());
 
     let thunk: any;
     createRoot(
