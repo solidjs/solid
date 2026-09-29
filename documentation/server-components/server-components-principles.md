@@ -2828,12 +2828,16 @@ during render — which predates all of this.
   handler keys bind through the same reading, and a handler position
   settles in *source order*, because the marker promises what the
   client binds and the client compiles the same element to
-  `mergeProps(a, { onClick: go }, b)`: the last source that has the
-  key wins, a named attribute being a source at its position, a
-  nullish value being "not set". Refs merge whatever their order (the
-  client fires every ref). A server-local function at any of these
-  is a finding (`server-local`) — where it is the one the client
-  would bind. `prop:*` positions are not bindable (the server renders
+  `spread(el, [a, { onClick: go }, b])`: the last source that *has*
+  the key wins (`collectProps` shadows an earlier source's key by
+  presence; `merge()` looks a key up with `in`), a named attribute
+  being a source at its position — so a key holding `undefined`
+  owns the position too, and binds nothing (`<b {...rest}
+  onClick={cond ? row.go : undefined}>` binds nothing when `cond` is
+  false, on both sides). Refs merge whatever their order (the client
+  fires every ref); a nullish ref contributes nothing. A server-local
+  function at any of these is a finding (`server-local`) — where it
+  is the one the client would bind. `prop:*` positions are not bindable (the server renders
   no properties): a stand-in there is a finding (`prop`) on the
   runtime spread path; the compiled form drops `prop:*` as SSR
   always has.

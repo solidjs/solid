@@ -85,7 +85,8 @@ Legal positions: an attribute (`hidden={row.removed}`, `checked={row.done}`,
 (`class={row.rowClass}`), a style property (`style={{ opacity: row.fade }}`),
 an event (`onInput={row.onToggle}`), a ref (`ref={row.ref}`) — on an element
 with a spread too (`<button {...rest} onClick={row.go} />` — the last
-source with the key wins, as `mergeProps` reads it). Not a `prop:*`
+source that has the key wins, `undefined` included, as the client's
+spread reads it). Not a `prop:*`
 property, not a text child, not inside another slot call's args (nested in
 plain objects and arrays included). Reserved keys the fill must not use:
 keys beginning with `$` or a digit, `length`, `slice`, `t`/`h`/`p`, `then`,

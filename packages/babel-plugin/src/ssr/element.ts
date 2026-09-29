@@ -1005,9 +1005,10 @@ function createElement(
   // it reads only inside a server component's render (the gate the template
   // path's `ssrClaim` guard reads), so plain SSR never evaluates the
   // expressions. The runtime settles each handler position in source order,
-  // as the client's `mergeProps(a, { onClick: go }, b)` does — a spread at
-  // that index or later owns it — and merges every ref. Plain SSR output is
-  // unchanged (dropped, as a server element has no handlers to run).
+  // as the client's `spread(el, [a, { onClick: go }, b])` does — a spread at
+  // that index or later that HAS the key owns it — and merges every ref.
+  // Plain SSR output is unchanged (dropped, as a server element has no
+  // handlers to run).
   const claims: [number, string, babelTypes.Expression][] = [];
 
   let props: babelTypes.Expression[];

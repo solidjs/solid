@@ -4439,8 +4439,23 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       const value = props[prop];
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
-      // `style=""` here made the server disagree with it (#3382).
-      if (value == undefined) continue;
+      // `style=""` here made the server disagree with it (#3382). A nullish
+      // handler/ref key still OWNS its position under `slots`: the client's
+      // spread shadows an earlier source's key by presence (`collectProps`,
+      // `sourceHas`), then attaches nothing for `undefined` — so a named
+      // handler before this source binds nothing either.
+      if (value == undefined) {
+        if (slots && claims !== undefined && (prop === "ref" || prop.startsWith("on")))
+          behaviors = spreadBehaviorPosition(
+            behaviors,
+            prop,
+            value,
+            ctx.claims,
+            ownerIndex !== null ? ownerIndex[i] : s,
+            true
+          );
+        continue;
+      }
       if (prop.startsWith("prop:")) {
         // A property write has no server side; a stand-in there is named.
         if (slots && typeof value === "object") spreadPropPosition(prop, value);
@@ -4460,7 +4475,8 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
             prop,
             value,
             ctx.claims,
-            ownerIndex !== null ? ownerIndex[i] : s
+            ownerIndex !== null ? ownerIndex[i] : s,
+            claims !== undefined
           );
         continue;
       }
@@ -4861,22 +4877,33 @@ function eventPosition(prop) {
 /**
  * A `ref`/`on*` key met by `ssrElement`'s walk under `slots` — in a
  * source, whatever its shape: a stand-in, a list of them (refs), a handler
- * tuple, a server-local function — collected by position into `behaviors`
- * (`entries`: `pos` → marker entries) exactly as `ssrClaim` reads the
- * compiled claim map, so the spread path and the template path bind the
- * same shapes and raise the same finding. A later source owns a key
- * outright (the walk reads only the owner), so within the sources a
- * position is one value; `at` records the owner's source index for a
- * handler — what a named claim is settled against (spreadBehaviorMarkers) —
- * whatever the value turned out to be (a server-local function owns the
- * position as the client sees it, and binds nothing).
+ * tuple, a server-local function, nothing — collected by position into
+ * `behaviors` exactly as `ssrClaim` reads the compiled claim map, so the
+ * spread path and the template path bind the same shapes and raise the
+ * same finding. A later source owns a key outright (the walk reads only
+ * the owner), so within the sources a position is one value. With no
+ * compiled claims on the element (`settle` false — the common spread, and
+ * the gated walk's hot path) the map is `pos` → marker entries, empty
+ * positions left out. With claims to settle, `pos` → `{ e: entries, at:
+ * owning source index }`, every position recorded whatever its value: a
+ * server-local function or `undefined` owns the position as the client
+ * sees it (`collectProps` shadows by key presence) and binds nothing
+ * (spreadBehaviorMarkers).
  */
-function spreadBehaviorPosition(behaviors, prop, value, mode, index) {
+function spreadBehaviorPosition(behaviors, prop, value, mode, index, settle) {
   const pos = prop === "ref" ? "ref" : eventPosition(prop);
-  behaviors ||= { entries: new Map(), at: new Map() };
-  if (pos !== "ref") behaviors.at.set(pos, index);
-  const entries = claimEntries(pos, value, mode);
-  if (entries) behaviors.entries.set(pos, entries);
+  const entries = value == null ? "" : claimEntries(pos, value, mode);
+  if (!settle) {
+    if (entries) (behaviors ||= new Map()).set(pos, entries);
+    return behaviors;
+  }
+  behaviors ||= new Map();
+  const b = behaviors.get(pos);
+  if (b === undefined) behaviors.set(pos, { e: entries, at: index });
+  else {
+    b.e = entries;
+    b.at = index;
+  }
   return behaviors;
 }
 
@@ -4886,14 +4913,17 @@ function spreadBehaviorPosition(behaviors, prop, value, mode, index) {
  * attributes, keyed by the index of the source each sits before; a thunk
  * `ssrElement` calls only under `slots`, so plain SSR never evaluates
  * them). The marker promises what the client binds, and the client's
- * `spread(el, mergeProps(a, { onClick }, b))` keeps the LAST source that
- * has the key, a named attribute being a source at its position: a named
- * handler at index `k` binds unless a spread at index `k` or later owns the
- * position; a later named attribute overrides an earlier one (the
- * compilers keep only the last, so a segment never repeats a handler); a
- * nullish value is "not set" and takes nothing, as `mergeProps` reads it.
- * Refs merge whatever their order (the client fires every ref). One marker
- * per position.
+ * `spread(el, [a, { onClick }, b])` keeps the LAST source that HAS the key
+ * (`collectProps`: a later source's key shadows by presence; `merge()`'s
+ * lookup is `property in s`), a named attribute being a source at its
+ * position: a named handler at index `k` binds unless a spread at index
+ * `k` or later owns the position — with any value, `undefined` included —
+ * and a nullish named handler that is not so owned clears the position
+ * (the client attaches nothing for `undefined`); a later named attribute
+ * overrides an earlier one (the compilers keep only the last, so a segment
+ * never repeats a handler). Refs merge whatever their order (the client
+ * fires every ref); a nullish ref contributes nothing. One marker per
+ * position.
  */
 function spreadBehaviorMarkers(behaviors, claims, mode) {
   if (claims !== undefined) {
@@ -4903,27 +4933,29 @@ function spreadBehaviorMarkers(behaviors, claims, mode) {
       const map = segments[k];
       for (const pos in map) {
         const value = map[pos];
-        if (value == null) continue;
-        behaviors ||= { entries: new Map(), at: new Map() };
+        behaviors ||= new Map();
+        const b = behaviors.get(pos);
         if (pos === "ref") {
+          if (value == null) continue;
           const entries = claimEntries("ref", value, mode);
           if (!entries) continue;
-          const prior = behaviors.entries.get("ref");
-          behaviors.entries.set("ref", prior ? prior + "," + entries : entries);
+          if (b === undefined) behaviors.set("ref", { e: entries, at: -1 });
+          else b.e = b.e ? b.e + "," + entries : entries;
           continue;
         }
-        const at = behaviors.at.get(pos);
-        if (at !== undefined && at >= +k) continue;
-        const entries = claimEntries(pos, value, mode);
-        if (entries) behaviors.entries.set(pos, entries);
-        else behaviors.entries.delete(pos);
+        if (b !== undefined && b.at >= +k) continue;
+        const entries = value == null ? "" : claimEntries(pos, value, mode);
+        if (b === undefined) behaviors.set(pos, { e: entries, at: -1 });
+        else b.e = entries;
       }
     }
   }
   let out = "";
   if (behaviors !== null) {
-    for (const [pos, entries] of behaviors.entries)
-      out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
+    for (const [pos, b] of behaviors) {
+      const e = claims === undefined ? b : b.e;
+      if (e) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, e);
+    }
   }
   return out;
 }

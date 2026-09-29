@@ -48,7 +48,7 @@ const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _v$4);
 // attribute sits before, handed to `ssrElement` as a thunk it reads only
 // inside a server component's render, wherever the attributes sit relative
 // to the spreads (before, between, after): the runtime settles a handler
-// position in source order, as the client's `mergeProps` does. Plain SSR
+// position in source order, as the client's spread does. Plain SSR
 // drops them; the tail after the last spread still bakes its statics; the
 // spread's own handler keys are the runtime's to bind.
 const spread = _$ssrElement("button", rest, [

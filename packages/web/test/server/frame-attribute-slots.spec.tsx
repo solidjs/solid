@@ -21,7 +21,7 @@
 // `class`/`style` through runtime holes where the stand-in is seen.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Loading, renderToStream } from "@solidjs/web";
-import { createMemo, OBSERVE, sharedConfig, type DiagnosticEvent } from "solid-js";
+import { createMemo, merge, OBSERVE, sharedConfig, type DiagnosticEvent } from "solid-js";
 import {
   frameTransformDirectResult,
   renderServerComponent,
@@ -317,19 +317,23 @@ describe("attribute slots — stream face", () => {
     expect(findings()).toHaveLength(1);
   });
 
-  it("a handler position on a compiled spread element settles in source order, as the client's mergeProps does", async () => {
+  it("a handler position on a compiled spread element settles in source order, as the client's spread does", async () => {
     // The marker is a promise about what the client binds, and the client
-    // compiles the same element to `spread(el, mergeProps(a, { onClick }, b))`
-    // — the LAST source that has the key wins, a named attribute being a
-    // source at its position. So a spread after a named handler owns the
-    // position; a spread between two attributes loses to the later one and
-    // beats the earlier; a spread that lacks the key (or carries `undefined`,
-    // which `mergeProps` reads as "not set") leaves the named handler in
-    // place; a duplicate named handler keeps the last only (the template
-    // path's strip); a spread's server-local function owns the position and
-    // binds nothing (with its finding). The sources may be plain literals or
-    // — a spread CALL, thunked by the compiler — collected through the
-    // owners pass; both paths carry the source index.
+    // compiles the same element to `spread(el, [a, { onClick }, b])`
+    // — the LAST source that HAS the key wins (`collectProps` shadows an
+    // earlier source's key by presence; `merge()` looks a key up with `in`),
+    // a named attribute being a source at its position. So a spread after a
+    // named handler owns the position; a spread between two attributes loses
+    // to the later one and beats the earlier; a spread that lacks the key
+    // leaves the named handler in place, while one that carries the key as
+    // `undefined` owns it and binds nothing — as does a nullish named
+    // handler after a spread (`onClick={cond ? row.go : undefined}`, the
+    // shape that will be written); a duplicate named handler keeps the last
+    // only (the template path's strip); a spread's server-local function
+    // owns the position and binds nothing (with its finding). The sources
+    // may be plain literals, a `merge()` view, or — a spread CALL, thunked by
+    // the compiler — collected through the owners pass; every path carries
+    // the source index.
     const local = () => {};
     const Prec = (props: any) => {
       const row = props.row({ id: 1 });
@@ -337,6 +341,7 @@ describe("attribute slots — stream face", () => {
       const b = { onClick: row.b };
       const plain = { "data-p": "1" };
       const pick = () => b;
+      const cond = false;
       // TypeScript reads the same order (TS2783: a later spread with the key
       // overwrites the named attribute), hence the expect-errors.
       return (
@@ -352,6 +357,12 @@ describe("attribute slots — stream face", () => {
           <u onClick={row.go} {...{ onClick: local }} />
           {/* @ts-expect-error TS2783 */}
           <s onClick={row.go} {...{ onClick: undefined }} />
+          <var {...b} onClick={cond ? row.go : undefined} />
+          {/* @ts-expect-error TS2322 — `null` is not a typed handler; the runtime reads it as `undefined` does */}
+          <abbr {...b} onClick={null} />
+          <dfn {...{ onClick: undefined }} onClick={row.go} />
+          {/* @ts-expect-error TS2783 */}
+          <kbd onClick={row.go} {...merge(b, { onClick: undefined })} />
           {/* @ts-expect-error TS2783 */}
           <em {...plain} onClick={row.go} {...pick()} />
           <q {...pick()} onClick={row.go} />
@@ -365,7 +376,11 @@ describe("attribute slots — stream face", () => {
     expect(html).toContain('<i data-p="1" _s:on:click="row#0:go">');
     expect(html).toContain('<b data-p="1" _s:on:click="row#0:second">');
     expect(html).toContain("<u></u>");
-    expect(html).toContain('<s _s:on:click="row#0:go">');
+    expect(html).toContain("<s></s>");
+    expect(html).toContain("<var></var>");
+    expect(html).toContain("<abbr></abbr>");
+    expect(html).toContain('<dfn _s:on:click="row#0:go">');
+    expect(html).toContain("<kbd></kbd>");
     expect(html).toContain('<em data-p="1" _s:on:click="row#0:b">');
     expect(html).toContain('<q _s:on:click="row#0:go">');
     expect(html).not.toContain("row#0:first");
@@ -392,11 +407,16 @@ describe("attribute slots — stream face", () => {
         <a onClick={handler()} href="/">
           y
         </a>
+        <i {...{ "data-i": "1", onInput: undefined, ref: undefined }} onClick={handler()}>
+          z
+        </i>
       </div>
     );
     const html = await document(() => <Page />);
     expect(html).toContain('<button data-k="v">x</button>');
     expect(html).toContain('<a href="/">y</a>');
+    // A nullish handler key in a plain-SSR spread walks as before: skipped.
+    expect(html).toContain('<i data-i="1">z</i>');
     expect(evaluated).toBe(0);
   });
 
