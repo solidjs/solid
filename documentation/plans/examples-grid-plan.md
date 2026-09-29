@@ -300,10 +300,9 @@ value to branch on, and a stand-in is always truthy.
 
 - **G2 — Binding-slot execution model.** First, because the rest builds on
   it. The fill runs in a memo today (`bindDataOccurrence`), which makes a
-  plain-looking body reactive, disposes state created in it on the first
-  eager re-run, and made getters look necessary while one render effect
-  per occurrence made them pointless; handlers are dispatched through a
-  frames-own listener that bypasses delegation. Settled:
+  plain-looking body reactive and disposes state created in it on the
+  first eager re-run; handlers are dispatched through a frames-own
+  listener that bypasses delegation. Settled:
   - A slot is always a function; each call is an occurrence with its own
     scope, run once, untracked, with live args — as a template slot's
     fill already runs. Args are optional; the scope is why a no-args slot
@@ -317,8 +316,10 @@ value to branch on, and a stand-in is always truthy.
     idiom for a props-like object, `createMemo` in the body covers
     "compute once, share", and a function return being an error today
     keeps adding it later non-breaking.
-  - One render effect per consuming element, so a getter's change re-runs
-    only the elements that read it.
+  - One render effect per occurrence for its value positions, as today —
+    client JSX's grouping (a template's attributes share one effect); a
+    getter's change re-reads the occurrence and `assign` writes only what
+    changed. Text positions get their own effect, as inserts do.
   - Handlers and refs are read once and bound through `assign` /
     `assignProp` — delegated as client JSX delegates, tuples and the
     `dispatchAsInteraction` wrap for free; the own listener goes, fan-out
@@ -326,23 +327,25 @@ value to branch on, and a stand-in is always truthy.
     since #3704).
   - Rename `AttributeSlot` → `BindingSlot` and its diagnostic code.
 
-  Public changes (flagged): an eager plain-object fill stops updating;
-  handlers become delegated; the type is renamed and constrained; the
-  diagnostic code is renamed. Open, in the design
-  (`documentation/plans/binding-slot-execution.md`): the handler-tuple bug
-  (a server-side `onKeyDown={[row.key, 1]}` appears to lose its data —
-  reproduce first); the dev signal for top-level reads that no longer
-  track; an opaque `Bound<T>` server-side view of the bindings (touches
-  `jsx.d.ts`). The comments in `todos-server`'s `rowFor` and `notes`'
-  `searchField.ts` claiming per-position updates become true of getters
-  under this model; `notes`' getters stay (its keys have different
-  sources). Blocks `hackernews`.
+  Design and decisions: `documentation/plans/binding-slot-execution.md` —
+  top-level reads in either fill warn through 2.0's existing
+  `STRICT_READ_UNTRACKED`; a server-side handler tuple (which loses its
+  data today — reproduce first) becomes a finding, the fill returning the
+  tuple instead; no `Bound<T>` type (truthiness on a stand-in stays caught
+  by the rule alone). Public changes (flagged): an eager plain-object fill
+  stops updating; fill state lives with the occurrence; handlers become
+  delegated and are read once; the type is renamed and constrained; the
+  diagnostic code is renamed; template fills gain the untracked-read
+  warning. The comments in `todos-server`'s `rowFor` and `notes`'
+  `searchField.ts` saying each position updates alone are corrected in
+  the README pass: getters re-read with their occurrence and only changed
+  positions are written. Blocks `hackernews`.
 
 - **G1 — Text positions.** `{t.label}` as a child: a binding-slot value at
   a text position. Today it renders nothing on either face and raises the
   "placed as TEXT" finding (principles §9.2.3, open). Needs a content
   marker pair (a parent-element `_s:text` marker so discovery stays in the
-  claim sweep), a text consumer beside G2's per-element consumers, morph
+  claim sweep), a text consumer with its own effect beside G2's, morph
   ownership of the range, and face parity; primitives only, anything else
   stays a finding. Server side runtime-only as far as read — the resolver
   already receives the stand-in. **Changes documented behavior**
