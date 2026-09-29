@@ -1725,6 +1725,9 @@ export function renderToString(code, options = {}) {
   });
   const tracking = createAssetTracking();
   const headRegistry = createHeadRegistry();
+  // Render-local, never on the context: the finished context lingers as the
+  // module global, and another request's writes must not read this latch.
+  let closed = false;
   sharedConfig.context = {
     nonce: options.nonce,
     escape: escape,
@@ -1736,7 +1739,7 @@ export function renderToString(code, options = {}) {
       registerHeadTags(headRegistry, sharedConfig.context, tracking, null, nonce, tags);
     },
     serialize(id, p) {
-      if (sharedConfig.context.noHydrate) return;
+      if (closed) return;
       if (
         p != null &&
         typeof p === "object" &&
@@ -1792,7 +1795,7 @@ export function renderToString(code, options = {}) {
       { id: renderId }
     );
     serializeFragmentAssets("", tracking.boundaryModules, sharedConfig.context, renderId);
-    sharedConfig.context.noHydrate = true;
+    closed = true;
     serializer.close();
     const head = renderShellHead(
       headRegistry,
@@ -2697,7 +2700,6 @@ export function renderToStream(code, options = {}) {
         html.slice(last + placeholder.length + 1);
     },
     serialize(id, p, deferStream) {
-      if (sharedConfig.context.noHydrate) return;
       // The channels the runtime opens to the client — an async source's
       // promise, a live source's iterable — reject or throw with the RAW
       // failure, and seroval encodes that reason as a value for the client
