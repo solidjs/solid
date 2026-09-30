@@ -5,15 +5,20 @@
 
 use crate::error::Result;
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::{Expression, JSXChild, JSXElement, JSXExpression, Statement};
-use oxc_span::GetSpan;
+use oxc_ast::ast::{
+    CommentPosition, Expression, JSXChild, JSXElement, JSXExpression, Program, Statement,
+};
+use oxc_ast_visit::{Visit, walk};
+use oxc_span::{GetSpan, Span};
+use std::collections::HashMap;
 
 use crate::shared::array::expression_to_array_element;
 use crate::shared::ast::arrow_return_expression;
+use crate::shared::classify::jsx_text_is_filtered;
 use crate::shared::condition::{is_condition_shape, transform_condition_inline};
 use crate::shared::fragment::lower_fragment;
 use crate::shared::mode_lower::{ModeLower, mode_ast};
-use crate::shared::utils::{decode_html_entities, is_coverage_ignore_pragma, trim_jsx_text};
+use crate::shared::utils::{coverage_ignore_block_comments, decode_html_entities, trim_jsx_text};
 
 /// The extra seam component children need beyond [`ModeLower`]: element
 /// children keep their setup statements (template declarations + operations)
@@ -29,10 +34,9 @@ pub(crate) struct ComponentChildren<'a> {
     pub(crate) value: Expression<'a>,
     pub(crate) needs_getter: bool,
     pub(crate) setup: std::vec::Vec<Statement<'a>>,
-    /// The source anchor of an authored coverage pragma. Oxc attaches a JSX
-    /// empty-expression comment to its closing `}`, so the synthetic getter
-    /// uses that span to retain the pragma in generated output.
-    pub(crate) coverage_pragma_span: Option<oxc_span::Span>,
+    /// Where the authored coverage pragmas are anchored; see
+    /// [`anchor_coverage_pragmas`].
+    pub(crate) coverage_pragma_span: Option<Span>,
 }
 
 enum ChildKind {
@@ -198,27 +202,75 @@ pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
     })
 }
 
-pub(crate) fn component_children_coverage_pragma_span(
+/// Babel's `filterChildren` hand-off: coverage pragmas in empty expression
+/// containers accumulate until the next child that survives the filter, and
+/// the first such child's pragmas lead the `children` getter — whatever kind
+/// of child it is.
+fn component_children_coverage_pragmas(
     children: &[JSXChild<'_>],
     source: &str,
-) -> Option<oxc_span::Span> {
-    let mut pending = None;
+) -> std::vec::Vec<Span> {
+    let mut pending = std::vec::Vec::new();
     for child in children {
         match child {
             JSXChild::ExpressionContainer(container)
                 if matches!(container.expression, JSXExpression::EmptyExpression(_)) =>
             {
-                if is_coverage_ignore_pragma(source, container.span) {
-                    pending = Some(oxc_span::Span::new(
-                        container.span.end - 1,
-                        container.span.end,
-                    ));
-                }
+                pending.extend(coverage_ignore_block_comments(source, container.span));
             }
-            JSXChild::Text(text) if trim_jsx_text(&text.value).is_empty() => {}
-            _ if pending.is_some() => return pending,
+            JSXChild::Text(text) if jsx_text_is_filtered(&text.value) => {}
+            _ if !pending.is_empty() => return pending,
             _ => {}
         }
     }
-    None
+    std::vec::Vec::new()
+}
+
+/// The span the `children` getter takes so codegen prints the authored
+/// pragmas ahead of it: the first pragma's own start, which
+/// [`anchor_coverage_pragmas`] attaches every pragma of the run to.
+pub(crate) fn component_children_coverage_pragma_span(
+    children: &[JSXChild<'_>],
+    source: &str,
+) -> Option<Span> {
+    component_children_coverage_pragmas(children, source)
+        .first()
+        .copied()
+}
+
+/// Oxc attaches a comment to the token after it, so each `{/* … */}` pragma
+/// hangs off its container's `}` and disappears with the JSX. Re-attach every
+/// pragma of a run to the first pragma's start — a position no other node
+/// starts at — so only the pragmas print, ahead of the getter spanned there.
+pub(crate) fn anchor_coverage_pragmas(program: &mut Program<'_>, source: &str) {
+    struct Collector<'s> {
+        source: &'s str,
+        anchors: HashMap<u32, u32>,
+    }
+    impl<'a> Visit<'a> for Collector<'_> {
+        fn visit_jsx_element(&mut self, element: &JSXElement<'a>) {
+            let pragmas = component_children_coverage_pragmas(&element.children, self.source);
+            if let Some(anchor) = pragmas.first() {
+                for pragma in &pragmas {
+                    self.anchors.insert(pragma.start, anchor.start);
+                }
+            }
+            walk::walk_jsx_element(self, element);
+        }
+    }
+
+    let mut collector = Collector {
+        source,
+        anchors: HashMap::new(),
+    };
+    collector.visit_program(program);
+    if collector.anchors.is_empty() {
+        return;
+    }
+    for comment in program.comments.iter_mut() {
+        if let Some(&anchor) = collector.anchors.get(&comment.span.start) {
+            comment.attached_to = anchor;
+            comment.position = CommentPosition::Leading;
+        }
+    }
 }

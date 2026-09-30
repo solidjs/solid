@@ -414,6 +414,7 @@ function transformComponentChildren(
 
   let transformedChildren: t.Expression | t.Expression[] = filteredChildren.reduce(
     (memo: t.Expression[], path: BabelPath<JSXNode>) => {
+      coverageIgnoreComments ||= getCoverageIgnoreComments(path);
       if (t.isJSXText(path.node)) {
         const v = decode(trimWhitespace((path.node.extra?.raw as string | undefined) ?? ""));
         if (v.length) {
@@ -421,7 +422,6 @@ function transformComponentChildren(
           memo.push(t.stringLiteral(v));
         }
       } else {
-        coverageIgnoreComments ||= getCoverageIgnoreComments(path);
         const child = transformNode(path, {
           topLevel: true,
           componentChild: true,

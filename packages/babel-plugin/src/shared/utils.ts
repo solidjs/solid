@@ -243,13 +243,13 @@ export function getStaticExpression(
   );
 }
 
-// remove unnecessary JSX Text nodes
 const coverageIgnoreCommentData = "solid.coverageIgnoreComments";
 
 export function getCoverageIgnoreComments(path: NodePath): t.Comment[] | undefined {
   return path.getData(coverageIgnoreCommentData) as t.Comment[] | undefined;
 }
 
+// remove unnecessary JSX Text nodes
 export function filterChildren<TPath extends NodePath>(children: TPath[]): TPath[] {
   const filtered: TPath[] = [];
   let pendingCoverageIgnoreComments: t.Comment[] = [];
@@ -258,8 +258,9 @@ export function filterChildren<TPath extends NodePath>(children: TPath[]): TPath
     const child = path.node;
     if (t.isJSXExpressionContainer(child) && t.isJSXEmptyExpression(child.expression)) {
       pendingCoverageIgnoreComments.push(
-        ...(child.expression.innerComments?.filter(comment =>
-          /^\s*(istanbul|c8)\s+ignore\b/.test(comment.value)
+        ...(child.expression.innerComments?.filter(
+          comment =>
+            comment.type === "CommentBlock" && /^\s*(istanbul|c8)\s+ignore\b/.test(comment.value)
         ) ?? [])
       );
       continue;

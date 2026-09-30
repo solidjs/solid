@@ -3,10 +3,11 @@ const fs = require("fs");
 const path = require("path");
 
 const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin/test/__dom_fixtures__");
-const coveragePragmasFixture = path.resolve(
+const coveragePragmasDir = path.resolve(
   __dirname,
-  "../../babel-plugin/test/__shared_fixtures__/coveragePragmas/code.js"
+  "../../babel-plugin/test/__shared_fixtures__/coveragePragmas"
 );
+const coveragePragmas = require(path.join(coveragePragmasDir, "expected"));
 
 function readFixture(name) {
   return fs.readFileSync(path.join(babelDomFixtures, name, "code.js"), "utf8");
@@ -93,22 +94,20 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain('_$createComponent(Child, { name: "Jake" });');
   });
 
-  it.each([
-    ["dom", "istanbul"],
-    ["universal", "istanbul"],
-    ["ssr", "istanbul"],
-    ["dom", "c8"],
-    ["universal", "c8"],
-    ["ssr", "c8"]
-  ])("preserves a %s ignore comment in %s component children getters", (generate, tool) => {
-    const result = transform(fs.readFileSync(coveragePragmasFixture, "utf8"), {
-      filename: "coveragePragmas.jsx",
-      moduleName: "r-dom",
-      generate
-    });
+  it.each(["dom", "ssr", "universal"])(
+    "carries authored coverage pragmas onto %s component children getters",
+    generate => {
+      const result = transform(fs.readFileSync(path.join(coveragePragmasDir, "code.js"), "utf8"), {
+        filename: "coveragePragmas.jsx",
+        moduleName: "r-dom",
+        generate
+      });
 
-    expect(result.code).toMatch(new RegExp(`/\\* ${tool} ignore next \\*/\\s*get children\\(\\)`));
-  });
+      expect(coveragePragmas.pragmasByExport(result.code)).toEqual(
+        coveragePragmas.expectedFor(generate)
+      );
+    }
+  );
 
   it("memoizes dynamic conditional component props by default", () => {
     const result = transform("const view = <Comp render={state.dynamic ? good() : bad} />;", {
