@@ -1,5 +1,18 @@
 # solid-js
 
+## 2.0.0-rc.13
+
+### Patch Changes
+
+- b68a907: Fix: after the root hydration pass, a node that adopted its serialized server value and sits outside every still-pending streamed boundary now updates on a client write (a navigation or a cache write while a slow boundary streams in) instead of re-adopting its server value until the whole page finished hydrating. The wait contradicted the snapshot design: snapshots exist so everything outside an incomplete boundary hydrates and moves on, while each pending boundary later hydrates against its server snapshot and then catches up to the client's newer state. Streamed boundary owners are now marked pending until they resume or are disposed; nodes under a pending boundary, and nodes in the claim in progress (the root pass, or the resuming boundary's own subtree), keep the latch as before.
+- 1f9d41a: Public hydration API, so data libraries (Solid Router, TanStack Solid Query / Router) no longer reach into `sharedConfig` from `solid-js/internal`:
+  - `isHydrating()` (`solid-js`): whether the running code is claiming server-rendered DOM — the root pass of `hydrate()`, or code under a streamed boundary while that boundary resumes. `false` on the server. Not reactive.
+  - `isHydratable()` (`solid-js`): whether the calling owner sits where hydration applies — `false` under `<NoHydration>`, `true` again inside a nested `<Hydration>`, `false` with no owner; on the server it also requires the owner to belong to a render in progress. The client `<Hydration>` stays a passthrough: a client `<NoHydration>` zone renders only outside hydration, so there the answer stays `false`.
+  - `getHydrationWriter()` (`@solidjs/web`, server): the caller's render's keyed server-to-client channel, found through the owner, else through the request scope when exactly one render is open for the request; `undefined` outside a render and on the client. `write(key, value, { deferStream })` — the first write of a key wins, a key counts as written only once serialized, a write after the render closed returns `false`, and a promise under `renderToString` throws. Writes are not gated on `<NoHydration>`: the library decides with `isHydratable()`.
+  - `takeHydrationValue(key)` (`@solidjs/web`, client): reads and removes the value written under `key`, as a `HydrationValue` — `resolved`, `rejected`, or `pending` with the streaming promise. `undefined` on the server. Tests can seed `globalThis._$HY = { r: { key: value } }`.
+  - New types `HydrationWriter` and `HydrationValue` (`@solidjs/web`).
+  - @solidjs/signals@2.0.0-rc.13
+
 ## 2.0.0-rc.12
 
 ### Patch Changes

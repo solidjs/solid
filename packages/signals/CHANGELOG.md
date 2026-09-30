@@ -1,5 +1,7 @@
 # @solidjs/signals
 
+## 2.0.0-rc.13
+
 ## 2.0.0-rc.12
 
 ### Patch Changes
