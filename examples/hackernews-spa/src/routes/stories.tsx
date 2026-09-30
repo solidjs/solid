@@ -1,12 +1,16 @@
-import { type RoutePreloadFuncArgs, type RouteSectionProps } from "@solidjs/router";
+import { query, type RoutePreloadFuncArgs, type RouteSectionProps } from "@solidjs/router";
 import { For, Show, createMemo } from "solid-js";
 import Story from "~/components/story";
-import { getStories } from "~/lib/api";
+import * as hn from "~/server/hn";
 import type { StoryTypes } from "~/types";
 
+const getStories = query(async (type: StoryTypes, page: number) => {
+  "use server";
+  return hn.getStories(type, page);
+}, "stories");
+
 /** `/` and the four named feeds all render this; the path names the feed. */
-export const storyType = (pathname: string): StoryTypes =>
-  (pathname.split("/")[1] || "top") as StoryTypes;
+const storyType = (pathname: string): StoryTypes => (pathname.split("/")[1] || "top") as StoryTypes;
 
 // The feed routes take no params, so the open `RouteSectionProps` is honest here.
 export const preload = ({ location }: RoutePreloadFuncArgs) => {

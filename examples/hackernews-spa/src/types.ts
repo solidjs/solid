@@ -1,4 +1,5 @@
 export interface CommentDefinition {
+  id: number;
   user: string;
   time_ago: string;
   content: string;
@@ -6,7 +7,7 @@ export interface CommentDefinition {
 }
 
 export interface StoryDefinition {
-  id: string;
+  id: number;
   points: string;
   url: string;
   title: string;

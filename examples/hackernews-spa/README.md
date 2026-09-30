@@ -2,7 +2,8 @@
 
 A real HackerNews client built the conventional way: server functions return
 JSON, client components render everything, and the document ships standard
-hydration data.
+hydration data. It sits in the client-owned, request/response corner of the
+examples, beside `todos`.
 
 It is the comparison twin of [../hackernews](../hackernews) — the *same
 application*, with the same routes, the same markup, and the same data layer,
@@ -31,16 +32,20 @@ carries content once and ships only the components that own state.
 
 ## How it's wired
 
-- [src/lib/hn.ts](./src/lib/hn.ts) — the data source, server-only. Live HN API,
-  except story `30186326` ("Facebook loses users for the first time", 1,406
-  comments, 14 levels deep), which is served from a capture so the big thread
-  is deterministic.
-- [src/lib/api.ts](./src/lib/api.ts) — `query()` wrappers so the router can
-  preload on hover and dedupe the call the route then makes.
+- [src/routes/](./src/routes) — one file per screen: its server function
+  inside `query` (so the router can preload on hover and dedupe the call the
+  route then makes, and the result lands in the hydration data), and the route
+  component that renders it. Only the default component and `preload` are
+  exported. The twin's route files hold the same `getStory`, returning markup
+  instead of data.
+- [src/server/hn.ts](./src/server/hn.ts) — the data source, identical to the
+  twin's. Live HN API, except story `30186326` ("Facebook loses users for the
+  first time", 1,406 comments, 14 levels deep), which is served from a capture
+  so the big thread is deterministic. It begins `import "server-only"`, which
+  fails the build if it is ever imported from client code.
 - [src/components/](./src/components) — the templates: nav, story, comment,
-  and the collapse toggle. In the twin, only the toggle exists on the client.
-- [src/routes/](./src/routes) — one route component per view, each reading its
-  query.
+  and the collapse toggle. The twin has no client components: its markup is
+  server components, and the toggle is a fill on server markup.
 - [vite.config.ts](./vite.config.ts) — the turnkey `ssr` object generates the
   entries and the serving layer, so there is no `entry-server`, `entry-client`,
   or dev-server script here. `serverFunctions` serves the `/_server` endpoint.

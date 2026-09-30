@@ -235,6 +235,23 @@ describe("binding slots — stream face", () => {
     );
   });
 
+  it("a class ARRAY binds its object entries' names as the object form does; its strings stay inline", async () => {
+    const ServerComp = (props: any) => {
+      const t = props.toggle({ $key: 7 });
+      return (
+        <div class={["toggle", { open: t.open }]}>
+          <a onClick={t.onToggle}>{t.label}</a>
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds1a" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain(
+      '<div class="toggle" _s:class="toggle#7:open=open"><a _s:on:click="toggle#7:onToggle"><!--_s:t=toggle#7:label--><!--/_s:t--></a></div>'
+    );
+    expect(findings()).toEqual([]);
+  });
+
   it("keys and class names percent-encode onto the marker alphabet", async () => {
     const ServerComp = (props: any) => {
       const row = props.row({ id: 1 });
@@ -790,6 +807,42 @@ describe("binding slots — document face (t=0)", () => {
     // The occurrence's t=0 record, keyed for the adopting frame's store.
     expect(html).toContain("sc:slot:dsd0:row#1");
     expect(html).toContain("sc:slot:dsd0:row#2");
+    expect(findings()).toEqual([]);
+  });
+
+  it("a class ARRAY writes its strings and its bound names' t=0 values into one class attribute", async () => {
+    const ServerComp = (props: any) => (
+      <ul>
+        {[1, 2].map(id => {
+          const t = props.toggle({ $key: id });
+          return (
+            <li>
+              <div class={["toggle", { open: t.open }]}>
+                <a onClick={t.onToggle}>{t.label}</a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd1a" }) as any;
+    let calls = 0;
+    const html = plain(
+      await document(() =>
+        Inline({
+          toggle: () => {
+            const open = calls++ === 0;
+            return { open, label: open ? "[-]" : "[+] comments collapsed", onToggle: () => {} };
+          }
+        })
+      )
+    );
+    expect(html).toContain(
+      '<div class="toggle open" _s:class="toggle#1:open=open"><a _s:on:click="toggle#1:onToggle"><!--_s:t=toggle#1:label-->[-]<!--/_s:t--></a></div>'
+    );
+    expect(html).toContain(
+      '<div class="toggle" _s:class="toggle#2:open=open"><a _s:on:click="toggle#2:onToggle"><!--_s:t=toggle#2:label-->[+] comments collapsed<!--/_s:t--></a></div>'
+    );
     expect(findings()).toEqual([]);
   });
 
