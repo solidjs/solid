@@ -142,15 +142,21 @@ heavier way to do what the browser already does. Both twins now render the
 same `<details>`, every route in this twin is a server route, and the client
 ships the router, the loading boundary, and a navigation dim
 (`useIsRouting()`) that both twins share. The binding-slot demos are
-`todos-server`, `notes`' search field and `chat`'s copy button.
+`todos-server` and `chat`'s copy button (`notes`' search field was one until
+its shell moved to the client; see `notes` below).
 
-Open: the proof that no content is sent twice when a client component places
-server content conditionally (occlusion: an unplaced region ships as an
-`sc:region:` record, never as markup too) has no end-to-end test. The early
-demo showed it live (`b3f48999e`, deep replies collapsed by default) and
-`63cd06688` dropped it when the collapse became `display: none`. The only
-spec, `frames-occlusion-client.spec.tsx`, feeds the client hand-written
-records; the server side of that decision in `frame-sink.ts` is untested.
+Closed (2026-09-30): the proof that no content is sent twice when a client
+component places server content conditionally (occlusion: an unplaced region
+ships as an `sc:region:` record, never as markup too) had no end-to-end test.
+The early demo showed it live (`b3f48999e`, deep replies collapsed by
+default) and `63cd06688` dropped it when the collapse became
+`display: none`; the only spec, `frames-occlusion-client.spec.tsx`, fed the
+client hand-written records. `test/server/frame-occlusion-document.spec.tsx`
+now covers the server side (each excerpt once: markup where placed, a record
+where not; late placement locked to records), and
+`test/hydration/frame-occlusion-document.spec.tsx` the client (adopt, then
+expand, collapse and re-expand with the network stubbed to throw; each text
+on screen once). `notes`' sidebar excerpt is the live demo.
 
 The superseded binding-slot shape, as reviewed and first built:
 
@@ -201,18 +207,37 @@ module-level `"use server"` file). Diffing the twins then shows the thesis
 at the route file: the same `getStory`, returning JSON in one and markup in
 the other, and client components in one only.
 
-### `notes` — middle-left, the RSC coordinate. KEEP; authoring layout + README
+### `notes` — middle-left, the RSC coordinate. KEEP; authoring layout + README. Built 2026-09-30
 
 React's own server-components demo ported: client islands whose state
-survives server updates around them, single-flight mutations by redirect,
-the search field as the idiomatic binding slot. Its layering moment is the
-editor keeping its draft while the sidebar list refreshes around it — the
-"shared client state preserved" line the HTML-partial tools cannot cross.
-Behavior unchanged; the code moves to the authoring layout (queries and
-actions inline in the files that use them, `server/` for `db.ts`) and the
-README is repositioned. The overlap with `chat` (both are
-sidebar + viewer + mutations) is intentional: opposite sides of the grid,
+survives server updates around them, and single-flight mutations by
+redirect. Its layering moment is the editor keeping its draft while the
+sidebar list refreshes around it — the "shared client state preserved" line
+the HTML-partial tools cannot cross. The code is in the authoring layout
+(queries and actions inline in the files that use them, `server/` for
+`db.ts`) and the README names the coordinate. The overlap with `chat` (both
+are sidebar + viewer + mutations) is intentional: opposite sides of the grid,
 different audience.
+
+Revised in review (2026-09-30), toward React's own shape:
+
+- The shell is a client component, as React's `App.js` is. Only the sidebar
+  list and the note preview are server components. The server shell had
+  existed only to host a binding slot: once the shell was on the client,
+  the search field was a client component, as it is in the demo. Finding:
+  a binding slot needs a position inside server markup, and in this app the
+  only such positions are the per-note ones `SidebarNoteContent` already
+  owns.
+- The editor's data is a plain query returning the note (`getNoteEdit`).
+  Before, it was a server component used as a data loader, filling the
+  editor slot with raw text.
+- The excerpt mounts only while expanded, as in the demo, so collapsed
+  excerpts ship once as records (the occlusion specs above).
+- `router.tsx` holds the route table, the root preload and `getNoteList`,
+  and `server-config.ts` passes that Router to the flight collector. This is
+  the fullstack template's layout. The collector takes a router instance
+  because not every app uses Solid Router; each router template does this
+  wiring itself.
 
 ### `todos` — top-left. KEEP as is
 
