@@ -18,6 +18,7 @@ import {
   computed,
   CONFIG_AUTO_DISPOSE,
   getOwner,
+  GlobalQueue,
   handleAsync,
   isDisposed,
   STATUS_PENDING,
@@ -27,6 +28,7 @@ import {
 } from "../../core/index.js";
 
 import {
+  activeTransition,
   projectionWriteActive,
   scheduleWithheld,
   setProjectionWriteActive
@@ -240,6 +242,16 @@ function cloneState<T extends object>(v: T, shallow: boolean): T {
   return shallow ? (Array.isArray(v) ? (v.slice() as T) : { ...v }) : JSON.parse(JSON.stringify(v));
 }
 
+// Held past this flush: the transaction is parked by more than the node's own flight.
+function landingHeld(owner: Computed<any>): boolean {
+  const t = activeTransition;
+  if (t === null) return false;
+  if (t._actions.length || GlobalQueue._transitionBlocked?.(t)) return true;
+  for (const source of t._asyncReporters.keys())
+    if (source !== owner && source._x?._pendingSources?.size) return true;
+  return false;
+}
+
 export function runProjectionComputedNext<T extends object>(
   wrappedStore: Store<T>,
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
@@ -304,8 +316,8 @@ export function runProjectionComputedNext<T extends object>(
       };
       const sync = handleAsync(owner, result, commit);
       if (!owner._loading) commit(sync as void | T);
-      // A sync landing over a pending flight initializes as asyncWrite's does (#3181 walk).
-      if (owner._x?._inFlight == null && owner._statusFlags & STATUS_PENDING)
+      // Recompute's settle walk for a superseded flight skips an uninitialized node.
+      if (owner._x?._pendingSources?.has(owner) && !landingHeld(owner))
         owner._statusFlags &= ~STATUS_UNINITIALIZED;
     },
     false
