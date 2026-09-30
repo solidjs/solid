@@ -8,7 +8,7 @@
  * whose waste is cheap are not reported. `checks: false` folds it off.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, costs } from "../src/attribution.js";
 import type { AttributionOptions } from "../src/attribution.js";
 import {
   createEffect,
@@ -189,6 +189,13 @@ describe("WASTED_RECOMPUTE", () => {
         return () => s.v;
       });
       expect(events).toHaveLength(0);
+      // Every consumer reads the same fact: the records and costs() agree.
+      const reruns = attribution.history("rerun").filter(e => e.nodeName === "draft projection");
+      expect(reruns).toHaveLength(10);
+      expect(reruns.every(e => e.changed)).toBe(true);
+      const scope = costs().scopes.find(s => s.name === "draft projection");
+      expect(scope?.runs).toBe(10);
+      expect(scope?.wastedMs).toBe(0);
     });
 
     it("a projection that returns a value to reconcile is not waste", () => {

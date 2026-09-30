@@ -169,8 +169,9 @@ export interface RerunEvent {
    * effect phase re-fires on every recompute), so the engine derives this
    * fact itself: an effect run whose compute output is identical to the
    * previous run's reports `changed: false` — the phase re-fired with the
-   * same input, pure waste. Side-effect-only computes (`undefined` output)
-   * are exempt: identity of `undefined` proves nothing about their work.
+   * same input, pure waste. Side-effect-only computes (`undefined` output —
+   * effects, projections, memos that work by writing) report `true`:
+   * identity of `undefined` proves nothing about their work.
    * Summed as `wastedMs` in costs() (plain, non-held runs only — see
    * `phase`).
    */
@@ -1395,15 +1396,15 @@ function checkHotTime(el: Computed<any>, selfMs: number, causes: ChangeRecord[])
  * fix is upstream: an equality boundary on the part of the input the scope
  * depends on, or a narrower read. Plain runs only — a held or overlay run
  * may be replayed and is never blamed as waste. A run that committed
- * `undefined` (`noValue`) is never waste either: its work is a side effect
- * (a projection's draft writes, a write from inside a memo), not its output.
+ * `undefined` arrives here as changed (see `recomputeEnd`): its work is a
+ * side effect (a projection's draft writes, a write from inside a memo), not
+ * its output.
  */
 function checkWastedRecompute(
   el: Computed<any>,
   at: number,
   phase: RerunEvent["phase"],
   changed: boolean,
-  noValue: boolean,
   selfMs: number,
   causes: ChangeRecord[]
 ): void {
@@ -1420,7 +1421,7 @@ function checkWastedRecompute(
     node._devWasteWarned = false;
   }
   node._devWasteRuns = node._devWasteRuns! + 1;
-  if (!changed && !noValue) {
+  if (!changed) {
     node._devWasted = node._devWasted! + 1;
     node._devWastedMs = node._devWastedMs! + selfMs;
   }
@@ -1467,7 +1468,6 @@ function recordRerun(
   frame: RunFrame,
   timing: { selfMs: number; totalMs: number },
   changed: boolean,
-  noValue: boolean,
   phase: "plain" | "held" | "optimistic",
   held: boolean
 ): void {
@@ -1502,7 +1502,7 @@ function recordRerun(
   checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, causes);
   checkHotTime(el, timing.selfMs, causes);
-  checkWastedRecompute(el, frame.start, phase, changed, noValue, timing.selfMs, causes);
+  checkWastedRecompute(el, frame.start, phase, changed, timing.selfMs, causes);
   checkDepWidth(el);
   // The record: built only when something wanted it at run start (see
   // `wantsRerun`) — a listener, a fold, the log.
@@ -4169,13 +4169,18 @@ const engineHooks: AttributionHooks = {
         frame.prevValue,
         el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value
       );
+    // The same exemption for memos: a run that committed `undefined` did its
+    // work as a side effect (a projection's draft writes or reconcile, a
+    // write from inside a memo), so core's `undefined === undefined` gate
+    // proves nothing. Reported as changed, so no consumer counts it as waste.
+    if (!changed && (el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) === undefined)
+      changed = true;
     if (frame.causes !== null)
       recordRerun(
         el,
         frame,
         { selfMs, totalMs },
         changed,
-        (el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) === undefined,
         optimistic ? "optimistic" : transition ? "held" : "plain",
         held
       );
