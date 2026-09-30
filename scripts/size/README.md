@@ -4,7 +4,8 @@ Tree-shaken import-cost tracking: `scenarios.js` defines scenario entries
 (signals floor, +createStore, +isPending/latest, the render+one-signal simple
 app, a representative CSR app, a hydrating pair — with and without store
 primitives — that keeps the store engine pay-for-use under `hydrate()`, the
-frames client as a package, and two server-component PAGES: base and live)
+frames client as a package, two server-component PAGES: base and live, and
+two server-entry floors: `getRequestEvent`/`isServer` and `renderToString`)
 with hard brotli limits on the eager entry chunk. CI fails when a scenario
 exceeds its limit — that means tree-shaking regressed, or a deliberate feature
 landed and the limit should be bumped in the same PR with a reason.
@@ -19,6 +20,13 @@ change. Code splitting is real — a scenario's `import()` yields a lazy chunk
 that is reported and never counted; the seroval codec the page scenarios load
 lazily shows up that way at its true size.
 
+Scenarios bundle for the browser unless they set `platform`/`conditions`.
+The `server:` scenarios bundle for Node (Rolldown's node conditions, no
+`development`) with `solid-js`/`@solidjs/web` aliased to their
+`dist/server.js` — what the `node` export condition selects — and seroval
+bundled from `@solidjs/web`'s own dependency edge, as the page scenarios
+bundle it.
+
 Until 2026-09-26 the harness measured with esbuild through `size-limit`. The
 switch re-based every cap (Rolldown lands 4–9% lower on the same artifacts;
 the table is in the switch PR and each scenario's ledger note in
@@ -27,8 +35,9 @@ the table is in the switch PR and each scenario's ledger note in
 ## Frozen floor caps
 
 The three floor scenarios — the signals floor, the simple app, and the
-hydrating app without stores — and the two server-component page scenarios
-have their caps in `floor-caps.json`, not in `scenarios.js`. They are
+hydrating app without stores — the two server-component page scenarios, and
+the two server-entry floors have their caps in `floor-caps.json`, not in
+`scenarios.js`. They are
 **frozen**: a PR may lower them, never raise them. `check-floor-caps.mjs`
 diffs the file against the PR's base branch in CI and fails on a raise unless
 the PR body contains a line starting with `Size-Exception:` naming why the

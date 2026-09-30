@@ -221,7 +221,7 @@ setContainerTraceStreamMint(iterable => {
  * and deserialize halves, so the set lives on the decode side and the
  * encode module composes over it.
  */
-export const DEFAULT_WEB_PLUGINS = Object.freeze([
+export const DEFAULT_WEB_PLUGINS = /* @__PURE__ */ Object.freeze([
   AbortSignalPlugin,
   // BlobPlugin,
   CustomEventPlugin,
@@ -263,8 +263,11 @@ export function resolveSerializerPlugins(customPlugins) {
 
 // Codec payloads may come from an untrusted peer, so the defaults protect
 // the decoding side: RegExp is disabled (ReDoS via deserialized patterns)
-// and parse depth is capped well below Seroval's own limit.
-const JSON_CODEC_DISABLED_FEATURES = Feature.RegExp;
+// and parse depth is capped well below Seroval's own limit. The flag is
+// read on use, not hoisted: a module-level read of `Feature`'s members is a
+// side effect to Rolldown and esbuild, so bundles that never decode would
+// retain it.
+const jsonCodecDisabledFeatures = () => Feature.RegExp;
 const JSON_CODEC_DEPTH_LIMIT = 64;
 
 // Single source of truth for codec defaults — encode and decode must agree
@@ -279,7 +282,7 @@ export function resolveCodecOptions({
   return {
     plugins: resolveSerializerPlugins(plugins),
     disabledFeatures:
-      disabledFeatures === undefined ? JSON_CODEC_DISABLED_FEATURES : disabledFeatures,
+      disabledFeatures === undefined ? jsonCodecDisabledFeatures() : disabledFeatures,
     depthLimit: depthLimit === undefined ? JSON_CODEC_DEPTH_LIMIT : depthLimit,
     serializeErrorStacks
   };

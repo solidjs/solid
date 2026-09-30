@@ -108,8 +108,11 @@ export interface JSONSerializerOptions extends JSONCodecOptions {
 }
 
 // Features excluded from emitted scripts so output stays runnable on ~ES2017
-// targets (AggregateError is ES2021, BigInt typed arrays are ES2020).
-const DEFAULT_DISABLED_FEATURES = Feature.AggregateError | Feature.BigIntTypedArray;
+// targets (AggregateError is ES2021, BigInt typed arrays are ES2020). Read
+// in `createSerializer`, not hoisted: a module-level read of `Feature`'s
+// members is a side effect to Rolldown and esbuild, so every bundle of the
+// server entry would retain it, serializing or not.
+const defaultDisabledFeatures = () => Feature.AggregateError | Feature.BigIntTypedArray;
 
 // A serialized Error's `.stack` leaks server file paths, internal function
 // names and the shape of the deployment to anyone who can trigger a throw,
@@ -181,7 +184,7 @@ export function createSerializer(options) {
     plugins: resolveSerializerPlugins(options.plugins),
     disabledFeatures:
       (options.disabledFeatures === undefined
-        ? DEFAULT_DISABLED_FEATURES
+        ? defaultDisabledFeatures()
         : options.disabledFeatures) | serializeOnlyDisabledFeatures(options.serializeErrorStacks)
   });
 } /**
