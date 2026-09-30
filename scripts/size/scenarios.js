@@ -3012,6 +3012,16 @@ module.exports = [
     // measured at 45,943 B against `next` @ bf87f27de's 45,904 (+39 B; +105 B
     // minified). Same latch change as the `+ every store` note. Accepted by
     // the maintainer. The cap is frozen again at 45.95 KB.
+    // Size-Exception (fake Promise statics, 2026-09-30): 45.95 -> 46.04 KB,
+    // measured at 46,036 B against `next` @ cce43eb44's 45,937 (+99 B; 86 B
+    // over the cap; +67 B minified). The hydration trace's fake `Promise`
+    // gains `withResolvers` and `try`, so a traced compute calling them
+    // adopts the server value instead of throwing out of hydration. About
+    // 60 B of the minified cost is the property names. None of ~90
+    // equivalent encodings fit the two hydrating and two page caps at once
+    // (brotli layout moved each by up to ±100 B); this is the smallest
+    // minified form. Accepted by the maintainer. The cap is frozen again at
+    // 46.04 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3078,6 +3088,11 @@ module.exports = [
     // measured at 50,115 B against `next` @ bf87f27de's 50,085 (+30 B; +105 B
     // minified). Same latch change as the base page's note. Accepted by the
     // maintainer. The cap is frozen again at 50.12 KB.
+    // Size-Exception (fake Promise statics, 2026-09-30): 50.12 -> 50.17 KB,
+    // measured at 50,166 B against `next` @ cce43eb44's 50,070 (+96 B; 46 B
+    // over the cap; +67 B minified). Same fake-`Promise` change as the base
+    // page's note. Accepted by the maintainer. The cap is frozen again at
+    // 50.17 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
