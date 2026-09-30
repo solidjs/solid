@@ -526,6 +526,22 @@ describe("Specialized Element AST", () => {
     });
   });
 
+  it("raw text elements: self-closing textarea inside an element", () => {
+    const ast = jsx`<div><textarea /></div>`;
+
+    expect(ast).toEqual({
+      type: ROOT_NODE,
+      children: [
+        {
+          type: ELEMENT_NODE,
+          name: "div",
+          props: [],
+          children: [{ type: ELEMENT_NODE, name: "textarea", props: [], children: [] }]
+        }
+      ]
+    });
+  });
+
   it("comments: braced comment ignored", () => {
     const ast = jsx`<div>{/* a comment */}hello</div>`;
 
