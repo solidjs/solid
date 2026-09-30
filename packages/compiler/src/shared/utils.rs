@@ -234,6 +234,57 @@ pub(crate) fn source_from_span(span: Span, source: &str) -> &str {
     &source[span.start as usize..span.end as usize]
 }
 
+/// Spans of the coverage-pragma block comments inside a JSX empty expression
+/// container (`{/* istanbul ignore next */}`). Line comments never count,
+/// matching Babel's `CommentBlock`-only filter.
+pub(crate) fn coverage_ignore_block_comments(source: &str, span: Span) -> std::vec::Vec<Span> {
+    let mut comments = std::vec::Vec::new();
+    let Some(text) = source.get(span.start as usize..span.end as usize) else {
+        return comments;
+    };
+    let mut index = 0;
+    while index < text.len() {
+        let rest = &text[index..];
+        if rest.starts_with("//") {
+            index += rest
+                .find(['\n', '\r', '\u{2028}', '\u{2029}'])
+                .unwrap_or(rest.len());
+        } else if let Some(body) = rest.strip_prefix("/*") {
+            let Some(end) = body.find("*/") else {
+                break;
+            };
+            if is_coverage_ignore_comment(&body[..end]) {
+                let start = span.start + index as u32;
+                comments.push(Span::new(start, start + end as u32 + 4));
+            }
+            index += end + 4;
+        } else {
+            index += rest.chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    comments
+}
+
+/// `/^\s*(istanbul|c8)\s+ignore\b/` — `\b` is ASCII-word based, as in JS.
+fn is_coverage_ignore_comment(comment: &str) -> bool {
+    let comment = comment.trim_start();
+    ["istanbul", "c8"].iter().any(|tool| {
+        let Some(rest) = comment.strip_prefix(tool) else {
+            return false;
+        };
+        if !rest.chars().next().is_some_and(char::is_whitespace) {
+            return false;
+        }
+        let Some(rest) = rest.trim_start().strip_prefix("ignore") else {
+            return false;
+        };
+        !rest
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
+    })
+}
+
 /// Exact port of Babel's `trimWhitespace`: strip `\r`; for multiline text,
 /// drop each continuation line's indentation and all-whitespace lines, then
 /// join with spaces (the first line keeps its leading, and the last line its

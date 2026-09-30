@@ -283,6 +283,8 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         crate::tsrx::clear_generated_spans(&mut program, options.source_map);
     }
 
+    crate::shared::component_children::anchor_coverage_pragmas(&mut program, source);
+
     match options.generate {
         Generate::Dom => {
             let mut transform = AstDomTransform::new(

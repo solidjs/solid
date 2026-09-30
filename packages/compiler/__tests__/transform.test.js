@@ -3,6 +3,11 @@ const fs = require("fs");
 const path = require("path");
 
 const babelDomFixtures = path.resolve(__dirname, "../../babel-plugin/test/__dom_fixtures__");
+const coveragePragmasDir = path.resolve(
+  __dirname,
+  "../../babel-plugin/test/__shared_fixtures__/coveragePragmas"
+);
+const coveragePragmas = require(path.join(coveragePragmasDir, "expected"));
 
 function readFixture(name) {
   return fs.readFileSync(path.join(babelDomFixtures, name, "code.js"), "utf8");
@@ -88,6 +93,21 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain('import { createComponent as _$createComponent } from "r-dom";');
     expect(result.code).toContain('_$createComponent(Child, { name: "Jake" });');
   });
+
+  it.each(["dom", "ssr", "universal"])(
+    "carries authored coverage pragmas onto %s component children getters",
+    generate => {
+      const result = transform(fs.readFileSync(path.join(coveragePragmasDir, "code.js"), "utf8"), {
+        filename: "coveragePragmas.jsx",
+        moduleName: "r-dom",
+        generate
+      });
+
+      expect(coveragePragmas.pragmasByExport(result.code)).toEqual(
+        coveragePragmas.expectedFor(generate)
+      );
+    }
+  );
 
   it("memoizes dynamic conditional component props by default", () => {
     const result = transform("const view = <Comp render={state.dynamic ? good() : bad} />;", {
