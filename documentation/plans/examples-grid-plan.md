@@ -133,15 +133,26 @@ owning it (`chat`).
 
 ## Per-example disposition
 
-### `hackernews` — bottom-left, reads. KEEP; collapse → binding slot, layout, README. Built 2026-09-29
+### `hackernews` — bottom-left, reads. KEEP; collapse → `<details>`, server routes, layout, README. Built 2026-09-29
 
 The front door: the simplest server component, navigation over server
-markup, a single stateful client concern. Its layering moment is comment
-collapse — client state on server-rendered elements deep in a tree, surviving
-navigation. Today that is a `Toggle` client component wrapping a template
-slot (`toggle={p => <Toggle>{p.children}</Toggle>}`); under §9.2.3's
-placement principle a thread exists because the server has comments, so it
-is server markup and the collapse is a binding slot.
+markup, and no client code. Revised in review (2026-09-29): the collapse only
+hides replies, which is native `<details>`, so a binding slot there was a
+heavier way to do what the browser already does. Both twins now render the
+same `<details>`, every route in this twin is a server route, and the client
+ships the router, the loading boundary, and a navigation dim
+(`useIsRouting()`) that both twins share. The binding-slot demos are
+`todos-server`, `notes`' search field and `chat`'s copy button.
+
+Open: the proof that no content is sent twice when a client component places
+server content conditionally (occlusion: an unplaced region ships as an
+`sc:region:` record, never as markup too) has no end-to-end test. The early
+demo showed it live (`b3f48999e`, deep replies collapsed by default) and
+`63cd06688` dropped it when the collapse became `display: none`. The only
+spec, `frames-occlusion-client.spec.tsx`, feeds the client hand-written
+records; the server side of that decision in `frame-sink.ts` is untested.
+
+The superseded binding-slot shape, as reviewed and first built:
 
 Target shape (reviewed 2026-09-29): the recursive `Comment` is a server
 component and the client never sees the tree — per comment with replies, one
@@ -173,8 +184,9 @@ Follow-up in review: the feeds and the user page are server routes
 (`serverRouteComponent`, router 2.0.0-next.31), so they have no route
 component and no `preload`. The feeds are one `/:type?` route filtered to
 the five feed names, with `page` from a hand-written search schema; the SPA
-twin mirrors the pattern and filter and parses `?page` itself. The story
-route keeps its component because of the fill. The nav is outside `Loading`,
+twin mirrors the pattern and filter and parses `?page` itself. (The story
+route kept its component for the fill until the move to `<details>`, when it
+became a server route too.) The nav is outside `Loading`,
 since it does no I/O. Router next.29 broke client navigation to the user
 page: it sent a schema-less route's args as `{ params, search: undefined }`,
 which the JSON argument check rejects, and nothing was logged. next.30
@@ -367,7 +379,8 @@ value to branch on, and a stand-in is always truthy.
   warning. The comments in `todos-server`'s `rowFor` and `notes`'
   `searchField.ts` saying each position updates alone are corrected in
   the README pass: getters re-read with their occurrence and only changed
-  positions are written. Blocks `hackernews`.
+  positions are written. (Blocked `hackernews` until its collapse moved to
+  `<details>`.)
 
 - **G1 — Text positions.** `{t.label}` as a child: a binding-slot value at
   a text position. Today it renders nothing on either face and raises the
@@ -380,8 +393,9 @@ value to branch on, and a stand-in is always truthy.
   would reset them); primitives only, anything else a finding; raw-text
   parents (`<textarea>`, `<title>`, `<style>`, `<script>`) a documented
   rule, since the SSR compile is shared. Runtime only, no compiler change.
-  **Changes documented behavior** (flagged). After G2. Blocks `hackernews`;
-  `todos-server`'s count wants it.
+  **Changes documented behavior** (flagged). After G2. `todos-server`'s
+  count wants it. (Blocked `hackernews` until its collapse moved to
+  `<details>`.)
 - **G3 — Server-only modules — resolved 2026-09-29.** The vite plugin's
   `server-only` boundary marker enforces `src/server/` (authoring layout,
   above). No framework change.
