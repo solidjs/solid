@@ -21,6 +21,7 @@ import {
   handleAsync,
   isDisposed,
   STATUS_PENDING,
+  STATUS_UNINITIALIZED,
   type Computed,
   type Refreshable
 } from "../../core/index.js";
@@ -303,6 +304,9 @@ export function runProjectionComputedNext<T extends object>(
       };
       const sync = handleAsync(owner, result, commit);
       if (!owner._loading) commit(sync as void | T);
+      // A sync landing over a pending flight initializes as asyncWrite's does (#3181 walk).
+      if (owner._x?._inFlight == null && owner._statusFlags & STATUS_PENDING)
+        owner._statusFlags &= ~STATUS_UNINITIALIZED;
     },
     false
   );
