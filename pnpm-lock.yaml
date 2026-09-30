@@ -314,7 +314,7 @@ importers:
     devDependencies:
       '@solidjs/vite-plugin':
         specifier: 3.0.0-next.35
-        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0))
+        version: 3.0.0-next.35(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -328,8 +328,8 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2
       vite:
-        specifier: ^7.0.0
-        version: 7.3.3(@types/node@25.6.0)(lightningcss@1.33.0)(terser@5.49.0)
+        specifier: ^8.0.0
+        version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
 
   examples/todos-server:
     dependencies:

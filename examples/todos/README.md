@@ -1,6 +1,16 @@
-# Solid 2.0 Todos
+# Todos — TodoMVC as a client app
 
-A small TodoMVC built on Solid 2.0 to exercise the patterns AI tools and humans most commonly need to write:
+TodoMVC built the client-side way: the browser holds the list, renders every
+element, and talks to an API. It sits in the client-owned, request/response
+corner of the examples, beside `hackernews-spa`.
+
+Its twin is [../todos-server](../todos-server), the same app with the list
+rendered on the server. It is also the baseline for the planned `board`
+example, which keeps this client ownership and adds a live data tier.
+
+The part to read is [src/todos.ts](./src/todos.ts): fetching, per-item
+optimistic writes, per-item errors with retry, and bulk actions, layered by
+how the primitives compose. What it exercises:
 
 - **`createOptimisticStore` (derived form)** — async projection that re-fetches via `refresh(todos)`; the optimistic overlay covers each in-flight action.
 - **`action` generators** — every mutation is an `action(function* () { ... })` so writes between yields are batched into a single transition.
