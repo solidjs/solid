@@ -1849,6 +1849,13 @@ export function renderToString(code, options = {}) {
     if (dispose) dispose();
   }
 }
+
+// `createSSRResponse`'s sink method for a render that ended before its shell
+// reached the sink — failed or aborted. A bare `end()` with nothing written
+// is a successful empty document, so the two need separate roads; every
+// other `pipe` sink keeps the plain `end()` (failure) or silence (abort).
+const SHELL_ABANDONED = Symbol();
+
 export function renderToStream<T>(
   fn: () => T,
   options?: {
@@ -1986,6 +1993,9 @@ export function renderToStream(code, options = {}) {
   let disconnected = false;
   let failed = false;
   let onFailed;
+  // A disconnect leaves the sink alone, but `createSSRResponse`'s promise
+  // still waits on a shell that will never come (see `SHELL_ABANDONED`).
+  let onDisconnectedBeforeShell;
   // What the render still hands the serializer once it is torn down: a
   // rejection with nobody to hear it is owned here; an iterable is never
   // started, so there is nothing to return.
@@ -2074,7 +2084,7 @@ export function renderToStream(code, options = {}) {
     if (!disconnect) {
       failed = true;
       onFailed && onFailed(sink);
-    }
+    } else if (!sink && onDisconnectedBeforeShell) onDisconnectedBeforeShell();
   };
   // A retry pass that throws a REAL error (not NotReady) can have nothing on
   // the stack to catch it: the initial render pass throws synchronously out
@@ -3270,12 +3280,18 @@ export function renderToStream(code, options = {}) {
       // A render failure (see `abandon`) ends the sink: it is still alive —
       // the RENDER died — and leaving it open would hang the response. Post-
       // shell through the live wrapper (coalesced bytes flush first); pre-
-      // shell nothing was written, end the raw sink.
+      // shell nothing was written: `createSSRResponse`'s sink answers it
+      // (`SHELL_ABANDONED`), any other raw sink is ended.
+      const abandoned = w[SHELL_ABANDONED];
       onFailure(sink => {
         try {
-          sink ? sink.end() : w.end();
+          sink ? sink.end() : abandoned ? abandoned() : w.end();
         } catch (_) {}
       });
+      if (abandoned) {
+        if (disconnected) abandoned();
+        else onDisconnectedBeforeShell = abandoned;
+      }
       function flush() {
         allSettled(blockingPromises).then(awaited => {
           scheduleFlush(() => {
@@ -6735,6 +6751,10 @@ export function createSSRResponse(
  *   can only be honored client-side, so stream completion appends
  *   `<script>window.location=...</script>` for relative or HTTP(S) targets
  *   (carrying `options.nonce` for strict `script-src` CSPs) before closing.
+ *   A render that fails (`onError` hears `handling: "failed"`) or is
+ *   aborted through its `signal` before the shell flushes has no page: the
+ *   promise resolves with a bodyless 500 (a pre-flush `Location` still
+ *   redirects) and the stub is committed. The promise never rejects.
  *
  * `options.transformChunk(chunk)` rewrites each outgoing HTML chunk (entry
  * script injection, doctype prefixes, ...). The default `content-type` is
@@ -6776,7 +6796,7 @@ export function createSSRResponse(result, event, options = {}) {
         closed = true;
       }
     };
-    result.pipe({
+    const sink = {
       write(chunk) {
         if (!flushed) {
           flushed = true;
@@ -6812,6 +6832,8 @@ export function createSSRResponse(result, event, options = {}) {
         enqueue(transformChunk ? transformChunk(chunk) : chunk);
       },
       end() {
+        // An empty document's shell reaches the sink as no write at all.
+        if (!flushed) sink.write("");
         if (closed || !controller) return;
         // A Location that appears here was written after the head went out
         // (a pre-flush one short-circuited above) — client-side is the only
@@ -6830,8 +6852,19 @@ export function createSSRResponse(result, event, options = {}) {
         try {
           controller.close();
         } catch {}
+      },
+      [SHELL_ABANDONED]() {
+        if (flushed) return;
+        flushed = closed = true;
+        if (stub) commitResponseStub(stub, { event });
+        const head = deriveHead(stub, responseInit);
+        // No page was produced: a pre-flush Location still preempts it, and
+        // otherwise a status set before the failure does not describe it.
+        const status = stub && stub.headers.get("Location") ? getExpectedRedirectStatus(stub) : 500;
+        resolve(new Response(null, { status, headers: head.headers }));
       }
-    });
+    };
+    result.pipe(sink);
   });
 } /**
  * Composes fetch-style middleware into one function of the same shape;
