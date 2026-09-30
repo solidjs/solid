@@ -37,7 +37,8 @@ carries content once and ships only the components that own state.
   route then makes, and the result lands in the hydration data), and the route
   component that renders it. Only the default component and `preload` are
   exported. The twin's route files hold the same `getStory`, returning markup
-  instead of data.
+  instead of data; its feeds and user page have no route component at all,
+  because there the router makes the call.
 - [src/server/hn.ts](./src/server/hn.ts) — the data source, identical to the
   twin's. Live HN API, except story `30186326` ("Facebook loses users for the
   first time", 1,406 comments, 14 levels deep), which is served from a capture

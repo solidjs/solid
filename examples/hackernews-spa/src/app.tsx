@@ -13,15 +13,16 @@ import User, { preload as preloadUser } from "~/routes/user";
 import "./app.css";
 
 // Explicit route tree rather than the file routes a metaframework provides:
-// this example is plain Vite. The feed paths are enumerated instead of a
-// splat so the typed path proxy stays useful.
+// this example is plain Vite. The same table as the server-components twin:
+// the feed is an optional param the filter limits to the five feed names.
 // `defineRoute` types each route's component and preload from its own `path`,
 // so the `:id` routes read `params.id` as `string` rather than
 // `string | undefined`.
 const Router = createRouter({
   routes: [
     defineRoute({
-      path: ["/", "/top", "/new", "/show", "/ask", "/job"],
+      path: "/:type?",
+      matchFilters: { type: ["top", "new", "show", "ask", "job"] },
       component: Stories,
       preload: preloadStories
     }),

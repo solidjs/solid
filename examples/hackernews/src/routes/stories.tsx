@@ -1,10 +1,28 @@
-import { query, type RoutePreloadFuncArgs, type RouteSectionProps } from "@solidjs/router";
-import { dynamic } from "@solidjs/web";
+import {
+  query,
+  serverRouteComponent,
+  type RouteParams,
+  type ServerRouteArgs,
+  type StandardSchemaV1
+} from "@solidjs/router";
 import * as hn from "~/server/hn";
 import type { StoryTypes } from "~/types";
 
-const getStories = query(async (type: StoryTypes, page: number) => {
+/** The feeds' `?page=`: a number, page 1 when absent or not one. */
+export const searchSchema: StandardSchemaV1<{ page?: string }, { page: number }> = {
+  "~standard": {
+    version: 1,
+    vendor: "hackernews",
+    validate: raw => ({ value: { page: Number((raw as { page?: string }).page) || 1 } })
+  }
+};
+
+type Args = ServerRouteArgs<RouteParams<"/:type?">, { page: number }>;
+
+const getStories = query(async ({ params, search }: Args) => {
   "use server";
+  const type = (params.type || "top") as StoryTypes;
+  const page = search.page;
   const stories = await hn.getStories(type, page);
   return () => (
     <div class="news-view">
@@ -71,22 +89,8 @@ const getStories = query(async (type: StoryTypes, page: number) => {
   );
 }, "stories");
 
-/** `/` and the four named feeds all render this; the path names the feed. */
-const storyType = (pathname: string): StoryTypes => (pathname.split("/")[1] || "top") as StoryTypes;
-
-// The feed routes take no params, so the open `RoutePreloadFuncArgs` is honest here.
-export const preload = ({ location }: RoutePreloadFuncArgs) => {
-  void getStories(storyType(location.pathname), Number(location.query.page) || 1);
-};
-
-export default function Stories(props: RouteSectionProps) {
-  // `dynamic` over the query-wrapped server component is the whole client
-  // surface. The source is tracked, so changing feed or page re-calls it and
-  // the response morphs this boundary in place — no remount, no fallback
-  // re-flash. `query` gives the call cache identity: a hover preload warms
-  // the same entry this render reads.
-  const View = dynamic(() =>
-    getStories(storyType(props.location.pathname), Number(props.location.query.page) || 1)
-  );
-  return <View />;
-}
+// The router derives the call from the match — the `type` param and the
+// schema's `page` — so changing feed or page re-calls it and the response
+// morphs this boundary in place, and link hover makes the same call ahead of
+// the click. `query` gives the call cache identity, so both read one entry.
+export default serverRouteComponent(getStories);

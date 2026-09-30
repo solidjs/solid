@@ -74,15 +74,26 @@ const getStory = query(async (id: string) => {
 }, "story");
 ```
 
-On the client side there is no server-component API at all. `dynamic()` over
-the call is the entire surface:
+On the client side the only question is how the call gets made. A screen with
+nothing for the client to fill — the feeds, the user page — is a server route:
+the router makes the call from the match (the route's params, and the feeds'
+`page` through the route's search schema), on navigation and on link hover
+alike, so there is no route component and no `preload` to write:
+
+```tsx
+export default serverRouteComponent(getUser);
+```
+
+The thread has a client half, the collapse fill, so it is an ordinary route
+component, and `dynamic()` over the call is its entire surface:
 
 ```tsx
 const View = dynamic(() => getStory(props.params.id));
 ```
 
-The source is tracked, so navigating to another story re-calls it and the
-response morphs that boundary in place — no remount, no fallback re-flash.
+Either way the call is tracked, so navigating to another story or feed re-calls
+it and the response morphs that boundary in place — no remount, no fallback
+re-flash.
 
 ## What to look at
 
@@ -96,7 +107,7 @@ that produced it.
 grep the client JavaScript (`dist/client/assets/*.js`) for
 `item-view-comments-header` or `comment-children` and neither is there. The
 server component bodies, `Comment`, and the `hn` data layer they use are
-removed from the client build; what ships is the router, the loading fallbacks,
+removed from the client build; what ships is the router, the loading fallback,
 and the `toggle` fill. (The 1,406-comment capture stays on the server in both
 apps.)
 
@@ -110,17 +121,18 @@ JSON, and the boundary morphs as they arrive.
 
 ## How it's wired
 
-- [src/routes/](./src/routes) — one file per screen: its server component
-  inside `query`, the server-only helpers it renders (the recursive `Comment`),
-  the slot's type, and the route component with its fill. Only the default
-  component and `preload` are exported.
+- [src/routes/](./src/routes) — one file per screen, each holding its server
+  component inside `query`. The feeds and the user page export it as a server
+  route (the feeds also export their `?page` search schema); the thread also
+  holds the server-only recursive `Comment`, the slot's type, and the route
+  component with its fill, and exports its `preload`.
 - [src/server/hn.ts](./src/server/hn.ts) — the data source. Live HN API, except
   story `30186326` ("Facebook loses users for the first time", 1,406 comments,
   14 levels deep), which is served from a capture so the big thread is
   deterministic. It begins `import "server-only"`, which fails the build if it
   is ever imported from client code.
-- [src/app.tsx](./src/app.tsx) — the router, the loading boundaries, and the
-  nav's server component.
+- [src/app.tsx](./src/app.tsx) — the route table (the same as the SPA twin's),
+  the loading boundary, and the nav's server component.
 - [vite.config.ts](./vite.config.ts) — identical to the SPA twin's but for one
   flag: `serverFunctions: { components: true }`. That flag is the entire wiring
   difference between the two apps. The turnkey `start` object generates the

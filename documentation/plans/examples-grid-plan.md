@@ -169,6 +169,17 @@ fills. In the browser the collapsed state keeps its element and text node
 through a `revalidate("story")` refetch. The bundle check greps the client
 JavaScript, since `app.css` carries both class names.
 
+Follow-up in review: the feeds and the user page are server routes
+(`serverRouteComponent`, router 2.0.0-next.31), so they have no route
+component and no `preload`. The feeds are one `/:type?` route filtered to
+the five feed names, with `page` from a hand-written search schema; the SPA
+twin mirrors the pattern and filter and parses `?page` itself. The story
+route keeps its component because of the fill. The nav is outside `Loading`,
+since it does no I/O. Router next.29 broke client navigation to the user
+page: it sent a schema-less route's args as `{ params, search: undefined }`,
+which the JSON argument check rejects, and nothing was logged. next.30
+(#615) fixed that, so every example that uses the router moved to next.31.
+
 ### `hackernews-spa` — top-left. KEEP; layout only. Built 2026-09-29
 
 The twin; exists only as the comparison. README names the coordinate. Takes
