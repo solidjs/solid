@@ -239,10 +239,16 @@ Revised in review (2026-09-30), toward React's own shape:
   because not every app uses Solid Router; each router template does this
   wiring itself.
 
-### `todos` — top-left. KEEP as is
+### `todos` — top-left. KEEP; README + small cleanups. Built 2026-09-30
 
 The SPA control: optimistic store over `refresh`, client-held API mock.
-Twin of `todos-server`; also the pedagogical control for `board`.
+Twin of `todos-server`; also the pedagogical control for `board`. No server
+side, so the authoring layout does not apply. The pass: the README names the
+coordinate and the twin; Vite 8, as in the other grid examples; the error
+map moves into `createTodos`; an unused `TodoActions` type goes; both
+checkboxes use `onChange`. The `todos.ts` header keeps its instruction (read
+it for the layering, not the syntax), which exists because agents reading
+the example missed the layering, but it is no longer phrased as a rebuke.
 
 ### `todos-server` — bottom-left, writes. RESHAPE
 

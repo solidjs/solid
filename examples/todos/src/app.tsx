@@ -44,7 +44,7 @@ function TodoItem(props: { todo: Todo }) {
           class="toggle"
           type="checkbox"
           checked={props.todo.completed}
-          onInput={e => toggleTodo(props.todo.id, e.currentTarget.checked)}
+          onChange={e => toggleTodo(props.todo.id, e.currentTarget.checked)}
         />
         <label>{props.todo.title}</label>
         <Show when={props.todo.error}>
