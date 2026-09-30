@@ -1,7 +1,8 @@
-"use server";
-// The HN data source, server-only. Module-level directive: the client build
-// replaces this whole module with reference proxies, so the cached thread
-// below never reaches the browser — important, because it is 600KB.
+import "server-only";
+// The HN data source. Only `"use server"` bodies import it, and the client
+// build replaces those with references, so the cached thread below (600KB)
+// never reaches the browser; the `server-only` marker fails the build if
+// this module is ever imported from client code.
 import type { StoryDefinition, StoryTypes, UserDefinition } from "~/types";
 import cachedStory from "./story-30186326.json";
 

@@ -96,6 +96,12 @@ SSR compile, so neither depends on the directive's level; a non-exported
 wrapper registers exactly as an exported one. The first example PR
 confirms with its build: passing with the `server-only` markers in place
 (pruning precedes resolution) and failing on a deliberate client import.
+_Confirmed by `hackernews`' build (2026-09-29): both hold, the references
+are named from their bindings (`getStory-<hash>`, the same in both twins),
+and a module with the marker needs
+`/// <reference types="@solidjs/vite-plugin/boundary-modules" />` in
+`vite-env.d.ts`, since TypeScript 6 rejects an undeclared side-effect
+import (TS2882)._
 
 ## The map
 
@@ -127,7 +133,7 @@ owning it (`chat`).
 
 ## Per-example disposition
 
-### `hackernews` — bottom-left, reads. KEEP; collapse → binding slot, layout, README. Blocked on G1, G2
+### `hackernews` — bottom-left, reads. KEEP; collapse → binding slot, layout, README. Built 2026-09-29
 
 The front door: the simplest server component, navigation over server
 markup, a single stateful client concern. Its layering moment is comment
@@ -155,7 +161,15 @@ gains the `id` the data already carries; the README's "`$key` keeps it
 attached" claim becomes true (today no key is passed); the bundle check
 can grep `comment-children` too.
 
-### `hackernews-spa` — top-left. KEEP; layout only
+_As built:_ the shape above, with `StoryDefinition.id` also typed `number`
+(the capture and the live API both carry numbers). The thread's markup is
+byte-identical to the twin's with hydration and slot markers stripped
+(feed and user pages too); 652 of the 1,406 comments have replies, so 652
+fills. In the browser the collapsed state keeps its element and text node
+through a `revalidate("story")` refetch. The bundle check greps the client
+JavaScript, since `app.css` carries both class names.
+
+### `hackernews-spa` — top-left. KEEP; layout only. Built 2026-09-29
 
 The twin; exists only as the comparison. README names the coordinate. Takes
 the authoring layout: each route file's `query` carries its server function
@@ -371,7 +385,8 @@ examples that are already right carry the most value per hour._
 
 1. G2 (binding-slot execution), design then code.
 2. G1 (text positions), design then code.
-3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout.
+3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout
+   (built 2026-09-29).
 4. README and authoring-layout pass: `notes`, `todos` (and anything left
    of `hackernews-spa`).
 5. `todos-server` reshape (V1–V4 first). Target decided 2026-09-29: the

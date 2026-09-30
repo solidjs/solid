@@ -1,8 +1,10 @@
 # HackerNews — Solid Server Components
 
-A real HackerNews client built with **Solid Server Components**: the story
-lists, threads, and user pages are rendered on the server and arrive as HTML,
-while the browser gets the router and the one component that owns state.
+A real HackerNews client where the server owns the markup: story lists,
+threads, and user pages are server components that arrive as HTML, and the
+browser gets the router and the few decisions only the client can make. It is
+the reads half of the server-owned, request/response corner of the examples
+(`todos-server` is the writes half).
 
 Its twin, [../hackernews-spa](../hackernews-spa), is the *same application* —
 same routes, same markup, same data layer — built the conventional way, with
@@ -14,26 +16,69 @@ pnpm dev                  # http://localhost:3004
 pnpm build && pnpm start  # http://localhost:3004
 ```
 
+## Comment collapse: client state on server markup
+
+The thread is server markup at any depth, and collapsing a comment's replies is
+client state. The server component calls a **binding slot** for each comment
+that has replies and puts the result's properties at positions on its own
+elements ([src/routes/story.tsx](./src/routes/story.tsx)):
+
+```tsx
+const t = c.comments.length ? props.toggle({ $key: c.id }) : null;
+// …
+<div class={["toggle", { open: t.open }]}>
+  <a onClick={t.onToggle}>{t.label}</a>
+</div>
+<ul class="comment-children" style={{ display: t.display }}>
+  {c.comments.map(reply => <Comment comment={reply} toggle={props.toggle} />)}
+</ul>
+```
+
+The client fills the slot in the same file. The fill runs once per comment, like
+a component body — this is the SPA twin's `Toggle` without its markup:
+
+```tsx
+<View
+  toggle={() => {
+    const [open, setOpen] = createSignal(true);
+    return {
+      get open() { return open(); },
+      get label() { return open() ? "[-]" : "[+] comments collapsed"; },
+      get display() { return open() ? "block" : "none"; },
+      onToggle: () => setOpen(o => !o)
+    };
+  }}
+/>
+```
+
+There are no client components. The 1,406-comment thread has 652 comments with
+replies: 652 fills, each owning a class name, a click handler, a text node and
+a style property on elements the server rendered. The replies inside are server
+markup again, so a subtree streams as HTML once at any depth. The state never
+appears in a request, and `$key` keeps it on its comment across refetches: a
+refetched thread morphs around the positions the client owns.
+
 ## What a server component is
 
 A `"use server"` function that **returns a function** is a server component.
 The function's arguments are the server's inputs; the returned component's
-props are client positions — holes the client fills, which never travel to the
-server. From [src/lib/views.tsx](./src/lib/views.tsx):
+props are the slots the client fills, which never travel to the server. Each
+route file holds its screen's server component inside the router's `query`,
+which gives the call cache identity and preloading:
 
 ```tsx
-export async function storyView(id: string) {
-  const story = await getStory(id);
-  return (props: { toggle: Slot }) => <div class="item-view">…</div>;
-}
+const getStory = query(async (id: string) => {
+  "use server";
+  const story = await hn.getStory(id);
+  return (props: { toggle: ToggleSlot }) => <div class="item-view">…</div>;
+}, "story");
 ```
 
 On the client side there is no server-component API at all. `dynamic()` over
-the call is the entire surface ([src/routes/story.tsx](./src/routes/story.tsx)):
+the call is the entire surface:
 
 ```tsx
-const View = dynamic(() => storyView(props.params.id));
-return <View toggle={p => <Toggle>{p.children}</Toggle>} />;
+const View = dynamic(() => getStory(props.params.id));
 ```
 
 The source is tracked, so navigating to another story re-calls it and the
@@ -47,21 +92,13 @@ render to feed. Compare with the same view in the SPA twin, where each comment
 is present twice: once as the HTML the server painted, and again as the JSON
 that produced it.
 
-**The single client component in a 1,406-comment thread.**
-[src/components/toggle.tsx](./src/components/toggle.tsx) owns collapse state
-and nothing else. The server calls `props.toggle` for each comment that has
-replies, and the replies inside it are server markup again — so a subtree
-streams as HTML once at any depth, with client behavior interleaved. Collapse
-state is client state: it never appears in a request, and `$key` keeps it
-attached to its comment across refetches.
-
 **The client bundle.** No story, comment, or list templates reach the browser:
-grep `dist/client/` for `item-view-comments-header` and it isn't there, because
-[src/lib/views.tsx](./src/lib/views.tsx) is a `"use server"` module and the
-client build strips it. What *is* there is the router, the loading fallbacks,
-and `Toggle` — which is why `comment-children` still appears, since the client
-owns the replies list it wraps. (The 1,406-comment capture stays on the server
-in both apps; `hn.ts` is server-only either way.)
+grep the client JavaScript (`dist/client/assets/*.js`) for
+`item-view-comments-header` or `comment-children` and neither is there. The
+server component bodies, `Comment`, and the `hn` data layer they use are
+removed from the client build; what ships is the router, the loading fallbacks,
+and the `toggle` fill. (The 1,406-comment capture stays on the server in both
+apps.)
 
 **The nav is a server component too.** It is static chrome with no reactive
 input, so it renders inline at t=0, the client adopts it, and navigation
@@ -73,18 +110,20 @@ JSON, and the boundary morphs as they arrive.
 
 ## How it's wired
 
-- [src/lib/hn.ts](./src/lib/hn.ts) — the data source, server-only. Live HN API,
-  except story `30186326` ("Facebook loses users for the first time", 1,406
-  comments, 14 levels deep), which is served from a capture so the big thread
-  is deterministic.
-- [src/lib/views.tsx](./src/lib/views.tsx) — the server components. Every view
-  here renders the exact markup its SPA counterpart renders in the browser.
-- [src/routes/](./src/routes) — one `dynamic()` call each, no templates.
-- [src/app.tsx](./src/app.tsx) — the router, the loading boundaries, and
-  nothing else. There are no story, comment, or list templates on this side.
+- [src/routes/](./src/routes) — one file per screen: its server component
+  inside `query`, the server-only helpers it renders (the recursive `Comment`),
+  the slot's type, and the route component with its fill. Only the default
+  component and `preload` are exported.
+- [src/server/hn.ts](./src/server/hn.ts) — the data source. Live HN API, except
+  story `30186326` ("Facebook loses users for the first time", 1,406 comments,
+  14 levels deep), which is served from a capture so the big thread is
+  deterministic. It begins `import "server-only"`, which fails the build if it
+  is ever imported from client code.
+- [src/app.tsx](./src/app.tsx) — the router, the loading boundaries, and the
+  nav's server component.
 - [vite.config.ts](./vite.config.ts) — identical to the SPA twin's but for one
   flag: `serverFunctions: { components: true }`. That flag is the entire wiring
-  difference between the two apps. The turnkey `ssr` object generates the
+  difference between the two apps. The turnkey `start` object generates the
   entries, the render plugin, and the document bootstrap, so nothing in `src/`
   imports the frames runtime.
 - [server.js](./server.js) — a plain node server: static assets, the SSR
