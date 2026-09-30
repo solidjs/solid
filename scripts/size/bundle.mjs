@@ -77,14 +77,16 @@ export async function bundle(scenario) {
   const b = await rolldown({
     input: synthetic ? ENTRY : target,
     cwd: here,
-    platform: "browser",
+    // A scenario's `platform`/`conditions` pick what its third-party imports
+    // (seroval) resolve to; our own packages are routed by `alias` either way.
+    platform: scenario.platform ?? "browser",
     treeshake: true,
     logLevel: "silent",
     external: scenario.external ?? [],
     // Rolldown's alias matches like Vite's: the first entry whose key equals
     // the specifier or prefixes it at a `/` wins, so scenarios list subpath
     // aliases before the bare package.
-    resolve: { alias },
+    resolve: { alias, ...(scenario.conditions && { conditionNames: scenario.conditions }) },
     plugins: [
       {
         name: "scenario-entry",

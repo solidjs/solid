@@ -1,9 +1,11 @@
-// Import-cost scenarios for #2883, measured against the built browser-prod
-// artifacts. Each entry is bundled by size.mjs with Rolldown (bundle.mjs):
-// `path` is the entry (or, with `import`, the module a synthetic entry
-// imports the named bindings from), `alias` routes bare specifiers to the
-// built dists so nothing here touches the workspace dependency graph,
-// `external` leaves specifiers unbundled, and `limit` is the brotli cap on
+// Import-cost scenarios for #2883, measured against the built prod artifacts
+// (browser, and the server entry for the `server:` scenarios). Each entry is
+// bundled by size.mjs with Rolldown (bundle.mjs): `path` is the entry (or,
+// with `import`, the module a synthetic entry imports the named bindings
+// from), `alias` routes bare specifiers to the built dists so nothing here
+// touches the workspace dependency graph, `external` leaves specifiers
+// unbundled, `platform` (default "browser") and `conditions` set how
+// third-party imports resolve, and `limit` is the brotli cap on
 // the eager entry chunk. Lazy chunks are reported, never counted. Limits
 // carry a little headroom over the sizes at landing: a breach means
 // tree-shaking regressed (or a deliberate feature landed — bump the limit in
@@ -28,7 +30,8 @@ const alias = {
   "@solidjs/signals": "../../packages/signals/dist/prod/index.js"
 };
 
-// The three floor caps and the two server-component page caps are FROZEN
+// The three floor caps, the two server-component page caps and the two
+// server-entry floors are FROZEN
 // (size-reduction effort, 2026-09-26 — documentation/plans/size-reduction-audit.md
 // §A): they live in floor-caps.json, and check-floor-caps.mjs fails a PR that raises one
 // without a `Size-Exception:` line in its body. Lowering is always allowed.
@@ -89,6 +92,23 @@ const framesExternal = [
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
 ];
+
+// Server entry (2026-09-30): what a server bundle (Vite SSR, a Worker) keeps
+// of `@solidjs/web`. `solid-js` and `@solidjs/web` route to the artifacts
+// their `node` export condition selects (dist/server.js); `solid-js/internal`
+// has one artifact for every condition and re-enters `solid-js` through this
+// alias. Nothing is external — seroval resolves from @solidjs/web's own
+// dependency edge and is bundled, as the page scenarios bundle it (there it
+// splits into a lazy chunk; the server entry imports it statically). The
+// scenarios pin `platform: "node"` and Rolldown's node conditions without
+// `development`, so seroval resolves to its production build.
+const serverAlias = {
+  "solid-js/internal": "../../packages/solid/dist/internal.js",
+  "solid-js": "../../packages/solid/dist/server.js",
+  "@solidjs/web": "../../packages/web/dist/server.js",
+  "@solidjs/signals": "../../packages/signals/dist/prod/index.js"
+};
+const serverConditions = ["import", "node", "default"];
 
 // RC.6 correctness reconciliation (2026-09-01): these caps were last
 // reconciled before #3181's synchronous superseded-flight settle walk, the
@@ -3060,5 +3080,46 @@ module.exports = [
     // maintainer. The cap is frozen again at 50.12 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
+  },
+  {
+    name: "server: floor (getRequestEvent + isServer)",
+    // What a server module that only asks "am I on the server / which
+    // request is this" retains of the server entry — the import an
+    // isomorphic helper or a middleware makes. Nothing here serializes, so
+    // seroval-plugins/web and the event-stream heartbeat must not be
+    // retained.
+    // Landing (2026-09-30): the harness had no server scenario, and
+    // module-level statements Rollup shakes but Rolldown and esbuild keep
+    // (the frozen default plugin set, `Feature` reads, the stub gap-fill
+    // set, the heartbeat's `TextEncoder`) held all of seroval-plugins/web
+    // here: 3,451 B (13,402 B minified) on `next` @ 5efaf260b, 1,331 B
+    // (3,324 B minified) with them fixed; cap 1.34 KB, measured rounded up
+    // to the next 0.01 kB. What remains is seroval's own `__SEROVAL_REFS__`
+    // global and the server entry's module-level registrations (container
+    // trace resolver and stream mint, async-iterable sharer — the solid-js
+    // bytes are the two functions they register), which are behavior, not
+    // shaking.
+    path: "../../packages/web/dist/server.js",
+    import: "{ getRequestEvent, isServer }",
+    limit: floorCaps["server: floor (getRequestEvent + isServer)"],
+    alias: serverAlias,
+    platform: "node",
+    conditions: serverConditions
+  },
+  {
+    name: "server: renderToString (the server-render floor)",
+    // The synchronous server render with nothing else imported: the SSR
+    // runtime, the hydration serializer (seroval and the default plugin set
+    // are genuinely used here), solid-js's server build and signals.
+    // Landing (2026-09-30): 20,471 B (71,985 B minified) on `next` @
+    // 5efaf260b, 20,356 B (71,723 B minified) with the floor scenario's
+    // shaking fixes (the stub gap-fill set, the heartbeat, `Feature` reads);
+    // cap 20.36 KB, measured rounded up to the next 0.01 kB.
+    path: "../../packages/web/dist/server.js",
+    import: "{ renderToString }",
+    limit: floorCaps["server: renderToString (the server-render floor)"],
+    alias: serverAlias,
+    platform: "node",
+    conditions: serverConditions
   }
 ];
