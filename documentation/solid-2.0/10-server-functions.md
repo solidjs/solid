@@ -266,6 +266,8 @@ configureServerFunctionsClient({
 
 **Single hook, not a chain** — composition is userland (wrap functions if you need layers). Note the symmetry this completes: server-side global policy is the existing handler hooks (`createEvent` / `transformResult` / `handleNoJS`); client-side global policy is `prepareRequest`.
 
+**Hydration cost.** The hook is awaited before the request is sent, as is argument encoding through the codec. So once either is in play, a server function called from a compute that adopts a serialized value during hydration sends a real, discarded duplicate request (see [RFC 05 — the tracking run](05-async-data.md#the-tracking-run-known-limitations)). Keep server functions called from hydrating computes to reads.
+
 #### `invoke`: the per-call invocator
 
 The call-scoped slot was empty in the first draft — its two candidate consumers had found better homes, and the standing rule was "revisit only with a concrete use case in hand." The use case arrived ([#3057](https://github.com/solidjs/solid/issues/3057)): a data layer supersedes a query — navigation, a newer search keystroke — and needs the in-flight HTTP request cancelled, which no declaration or session hook can express because it is a fact about _one call_. `invoke` fills the slot:
