@@ -26,7 +26,7 @@
 //     writes) and materializes on the client as a live read-only store:
 //     `<Status>` reads `props.usage.tokens` like local state and each
 //     field updates granularly, no re-shipping, no domain keys.
-//   - BEHAVIOR: `codeBlock` is an ATTRIBUTE slot (principles §9.2.3): the client
+//   - BEHAVIOR: `codeBlock` is a BINDING slot (principles §9.2.3): the client
 //     fill returns an object — `{ onCopy }` — and the server reads its
 //     properties at positions (`onClick={block.onCopy}` on each code block's
 //     copy button, inside the streaming hole). The markup carries a marker
@@ -42,7 +42,7 @@
 // cases. (To hand the client the async value ITSELF — the raw promise or
 // iterable, consumer-controlled — wrap it in `asyncArg` instead.)
 import { createMemo, createProjection, Loading } from "solid-js";
-import { type AttributeSlot, type Slot } from "@solidjs/web/frames";
+import { type BindingSlot, type Slot } from "@solidjs/web/frames";
 import { Marked } from "marked";
 import hljs from "highlight.js/lib/core";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -68,7 +68,7 @@ const escapeHtml = (text: string) => text.replace(/[&<>]/g, c => HTML_ESCAPES[c]
  * HTML (`innerHTML` — the browser never parses markdown), but code blocks
  * come back as JSX so each can carry a copy BUTTON — an element the server
  * renders with behavior from the client: `onClick={block.onCopy}` reads a
- * attribute slot's property at an event position, which marks the button
+ * binding slot's property at an event position, which marks the button
  * (`_s:on:click="codeBlock:onCopy"`) for the client to bind. No client
  * component wraps the block; the handler reads the code off the DOM it was
  * clicked in.
@@ -134,9 +134,9 @@ function closePartial(md: string): string {
 
 export type StatusSlot = Slot<{ progress: string; stats: Stats; usage: Usage }>;
 export type CopyHandler = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
-/** The client's behavior for a code block: one attribute slot, called once per
+/** The client's behavior for a code block: one binding slot, called once per
  *  reply (no args), read at every copy button's `onClick`. */
-export type CodeBlockSlot = AttributeSlot<{}, { onCopy: CopyHandler }>;
+export type CodeBlockSlot = BindingSlot<{}, { onCopy: CopyHandler }>;
 
 /**
  * The generation's structured face as a live STORE (DR-2 case 3): a
@@ -233,7 +233,7 @@ function Message(props: { text: AsyncIterable<string>; block: { onCopy: CopyHand
         {segmentsOf(closePartial(text())).map(segment =>
           segment.code ? (
             // Behavior from the client on a server element: `block.onCopy`
-            // is an attribute-slot read at an event position, so this button
+            // is a binding-slot read at an event position, so this button
             // carries a marker that rides every hole re-emission — the
             // client binds it mid-stream and rebinds after each morph.
             // The handler reads its code from the DOM at dispatch.

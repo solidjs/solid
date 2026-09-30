@@ -843,9 +843,9 @@ JavaScript or through a cast. Fix: call the function at the hole
 (`{renderHead()}` — a call hole is scoped on both sides) or assign the built
 value first and insert that.
 
-### ATTRIBUTE_SLOT_POSITION
+### BINDING_SLOT_POSITION
 
-An attribute slot's property (`const row = props.row(args); row.done`)
+A binding slot's property (`const row = props.row(args); row.done`)
 landed where the server template cannot bind it. The rule: a slot property
 is a JSX attribute value, whole, and nothing else. `data.reason`:
 `"spread"` (throws — the slot's whole return spread onto an element; name
@@ -858,7 +858,8 @@ was compiled without the `serverComponents` compiler option), `"text"`
 (placed as text, not a bindable position yet), `"markup"` (read off a slot
 whose client fill returned content, not an object), `"server-local"` (a
 `ref`/`on*` position got a plain server function — bind a slot property or
-an `action=`), `"reserved-key"` (the fill's object used a key the slot's
+an `action=`), `"tuple"` (an `on*` position got an array — return the
+`[handler, data]` tuple from the fill instead), `"reserved-key"` (the fill's object used a key the slot's
 range occupies), `"orphan"` (client, kind `render`: an element carries
 markers for an occurrence that can never bind — `data.why` `"fill"`, no
 client fill for the prop; `"record"`, a called occurrence with no args

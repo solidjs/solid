@@ -15,8 +15,8 @@ export default defineConfig({
   // compiled `<Comp />` reaches the server `createComponent` with its label
   // and diagnostics carry `ownerPath` (server-diagnostics.spec.tsx pins it).
   // `serverComponents`: what the plugin passes for an SSR build with
-  // `serverFunctions.components` — attribute-slot positions (`ref`/`on*`, dynamic
-  // `class`/`style`) compile to runtime holes (test/server/frame-attribute-slots).
+  // `serverFunctions.components` — binding-slot positions (`ref`/`on*`, dynamic
+  // `class`/`style`) compile to runtime holes (test/server/frame-binding-slots).
   plugins: [
     solidPlugin({
       compiler,

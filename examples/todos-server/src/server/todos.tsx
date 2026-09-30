@@ -3,13 +3,14 @@
 // app.tsx: the markup is the same, but this side renders DATA only — titles,
 // counts, ids, the server's `completed` — and never a pending row, an error
 // class or a retry button. Those belong to the client, and the client puts
-// them on the server's own elements through ATTRIBUTE SLOTS: a slot CALLED with
+// them on the server's own elements through BINDING SLOTS: a slot CALLED with
 // the element's data context and READ as an object, its properties bound
-// at positions of the template. The fill on the other side receives the
-// args as reactive props and returns the values; the runtime writes each
-// bound position, re-runs the fill when the args change (a refetch) or the
-// client's state does (an optimistic write), and morphs around the
-// positions so a new response never clobbers a client-owned value.
+// at positions of the template. The fill on the other side runs once per
+// occurrence with the args as reactive props and returns the values, its
+// getters tracking the args (a refetch) and the client's state (an
+// optimistic write); the runtime writes each bound position that moves, and
+// morphs around the positions so a new response never clobbers a
+// client-owned value.
 //
 // One call per data context: `props.row(entity)` is the row's whole client
 // behavior, consumed by the row's <li>, its checkbox and its buttons
@@ -20,7 +21,7 @@
 // rendered — an optimistic add — so `<props.pending />` is a pre-placed
 // MARKUP slot where the client renders its in-flight rows: the same
 // `TodoRow`, with the same fill's result passed directly.
-import type { AttributeSlot, Slot } from "@solidjs/web/frames";
+import type { BindingSlot, Slot } from "@solidjs/web/frames";
 import * as db from "~/lib/db";
 import { TodoRow, type RowBehavior } from "~/todo-row";
 
@@ -43,11 +44,11 @@ export interface FilterBehavior {
 }
 
 export interface TodoListProps {
-  list: AttributeSlot<{ total: number; active: string[]; completed: string[] }, ListBehavior>;
-  row: AttributeSlot<Entity, RowBehavior>;
+  list: BindingSlot<{ total: number; active: string[]; completed: string[] }, ListBehavior>;
+  row: BindingSlot<Entity, RowBehavior>;
   pending: Slot;
   count: Slot<{ remaining: number; total: number }>;
-  filters: AttributeSlot<{}, FilterBehavior>;
+  filters: BindingSlot<{}, FilterBehavior>;
 }
 
 export async function todoListView() {

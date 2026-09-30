@@ -2905,7 +2905,7 @@ module.exports = [
     // args records by id. The `_bnd` claim path it retires (`bndMap`,
     // `sweepBound`, `fireRefs`, `claimFn`, `clientProp`, ~1.8 KB
     // unminified) is the offset already in the number. Dev-only (the
-    // `ATTRIBUTE_SLOT_POSITION` orphan and fill-shape reporters) is 0 B
+    // `BINDING_SLOT_POSITION` orphan and fill-shape reporters) is 0 B
     // here: module functions behind the flag, not methods. Conscious bump: a
     // consumer that never binds a slot still carries the position parser
     // and the owned-attribute morph; a split behind the marker is the
@@ -3093,6 +3093,13 @@ module.exports = [
     // over the cap; +67 B minified). Same fake-`Promise` change as the base
     // page's note. Accepted by the maintainer. The cap is frozen again at
     // 50.17 KB.
+    // #3713 (binding-slot execution, 2026-09-30): no cap change. Measured
+    // at 50,150 B against `next` @ cce43eb44's 50,070 (+80 B; -5 B
+    // minified), a 50.15 KB raise the maintainer accepted; merged with
+    // `next` @ 3c1f809ff it measures 50,125 B against that base's 50,166
+    // (-41 B; -5 B minified), under the fake-`Promise` cap above. The fill
+    // runs once through `assign` instead of a memo and an own listener; the
+    // code shrinks, and brotli layout moves the page either way.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },

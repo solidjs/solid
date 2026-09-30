@@ -14,12 +14,12 @@ this file is the operative subset.
 
 - Exists because of **server data** (a todo row, a nav link, a search
   form the server renders)? It is **server markup**. Client behavior or a
-  client-driven value on it is an **attribute slot** — bind, never wrap.
+  client-driven value on it is a **binding slot** — bind, never wrap.
   Do not wrap a server-rendered element in a client component to give it a
   handler or a class.
 - Exists because of **client state alone** (an optimistic add, a modal, a
   drag ghost, an editor open over a field)? It is a **client component**
-  placed through a **markup slot**.
+  placed through a **template slot**.
 
 When the client confirms an optimistic entity and the server renders it, the
 row _becomes_ server markup; `$key` on the element reconciles the two.
@@ -27,19 +27,19 @@ row _becomes_ server markup; `$key` on the element reconciles the two.
 ## The two kinds of slot
 
 ```tsx
-import type { AttributeSlot, Slot } from "@solidjs/web/frames";
+import type { BindingSlot, Slot } from "@solidjs/web/frames";
 
 interface TodosProps {
-  pending: Slot; // markup: the client returns JSX
-  row: AttributeSlot<{ id: string; completed: boolean }, RowBehavior>; // attributes: the client returns an object
-  filters: AttributeSlot<{}, FilterBehavior>; // no args: called bare
+  pending: Slot; // template: the client returns JSX
+  row: BindingSlot<{ id: string; completed: boolean }, RowBehavior>; // bindings: the client returns an object
+  filters: BindingSlot<{}, FilterBehavior>; // no args: called bare
 }
 ```
 
-A **markup slot** is placed as an element: `<props.pending />`. The client
+A **template slot** is placed as an element: `<props.pending />`. The client
 owns those nodes.
 
-An **attribute slot** is _called_ once per data context and its properties
+A **binding slot** is _called_ once per data context and its properties
 are _bound_ at positions of the server's own template:
 
 ```tsx
@@ -72,10 +72,15 @@ export async function todoList() {
 The client passes the fill — a function of the args that returns the object:
 
 ```tsx
-<Todos row={rowFor} filters={() => ({ all: filter() === "all", … })} pending={() => <For each={adds}>{…}</For>} />
+<Todos row={rowFor} filters={() => ({ get all() { return filter() === "all"; }, … })} pending={() => <For each={adds}>{…}</For>} />
 ```
 
-## The one rule for attribute slots
+The fill must return a plain object. An array, a DOM node, a function or
+an async value is a type error on both sides (`BindingSlot`'s return is
+`SlotOutput<J>`, a branded `SlotError` naming the reason) and a
+`fill-shape` finding at runtime.
+
+## The one rule for binding slots
 
 > **A slot property is a JSX attribute value, whole, and nothing else.**
 
@@ -97,25 +102,32 @@ The server **does not have the value** — on the stream face a property read
 is a stand-in with no value, on the document face only the initial one — so
 nothing can be computed from it on the server. Every one of these is wrong:
 
-| Wrong                                                                  | Why                                                                                   | Write instead                                                                                  |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| ``class={`todo ${row.done}`}``                                         | stringified: not the whole value                                                      | `class={{ todo: true, completed: row.done }}` or return `rowClass` from the fill               |
-| `row.count > 3 ? "a" : "b"`                                            | comparison on a stand-in                                                              | decide in the fill; return the decided value                                                   |
-| `if (row.error) …`, `row.error && <button/>`, `<Show when={row.done}>` | truthiness: a stand-in is an object and **always truthy** — the branch always renders | presence → `hidden={…}` or a class; a node that exists because of client state → a markup slot |
-| `<strong>{row.count}</strong>`                                         | text is not a bindable position yet                                                   | a markup slot for the text                                                                     |
-| `format(row.title)` (a server helper)                                  | the helper receives a stand-in                                                        | do the formatting in the fill                                                                  |
-| `<li {...row}>`                                                        | spread: the template must show what the client owns                                   | name each position                                                                             |
-| `onClick={() => …}` on a server element                                | a server function can never run in the browser                                        | bind a slot property or a form `action`                                                        |
+| Wrong                                                                  | Why                                                                                   | Write instead                                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| ``class={`todo ${row.done}`}``                                         | stringified: not the whole value                                                      | `class={{ todo: true, completed: row.done }}` or return `rowClass` from the fill                 |
+| `row.count > 3 ? "a" : "b"`                                            | comparison on a stand-in                                                              | decide in the fill; return the decided value                                                     |
+| `if (row.error) …`, `row.error && <button/>`, `<Show when={row.done}>` | truthiness: a stand-in is an object and **always truthy** — the branch always renders | presence → `hidden={…}` or a class; a node that exists because of client state → a template slot |
+| `<strong>{row.count}</strong>`                                         | text is not a bindable position yet                                                   | a template slot for the text                                                                     |
+| `format(row.title)` (a server helper)                                  | the helper receives a stand-in                                                        | do the formatting in the fill                                                                    |
+| `<li {...row}>`                                                        | spread: the template must show what the client owns                                   | name each position                                                                               |
+| `onClick={() => …}` on a server element                                | a server function can never run in the browser                                        | bind a slot property or a form `action`                                                          |
+| `onKeyDown={[row.key, 1]}`                                             | a tuple: a marker names keys, never data                                              | return `onKeyDown: [handler, data]` from the fill; bind `onKeyDown={row.onKeyDown}`              |
 
-Every case except truthiness is a dev finding (`ATTRIBUTE_SLOT_POSITION`)
+Every case except truthiness is a dev finding (`BINDING_SLOT_POSITION`)
 and renders **nothing on either face**, so it shows on the first render.
 Truthiness has no runtime hook: if a retry button appears on every row, this
 is why.
 
 ## Writing the fill
 
-- **Values as getters, handlers as plain closures** when a shared client
-  component also consumes the object (the usual case):
+- **The fill runs once per occurrence, as a component body does.** It runs
+  untracked, under the occurrence's owner, with live args. State it
+  creates (a signal, a memo, an `onCleanup`) lives as long as the
+  occurrence. A top-level read is read once, and `STRICT_READ_UNTRACKED`
+  names it.
+- **Values as getters, handlers as plain closures.** A getter is the
+  reactive form, as on a component's props object; a plain value never
+  updates:
 
   ```tsx
   const rowFor = (p: { id: string; completed: boolean }): RowBehavior => ({
@@ -133,11 +145,11 @@ is why.
   });
   ```
 
-  A client `<TodoRow row={rowFor(todo)} />` reads `props.row.onToggle` once,
-  untracked, in its body; a plain-value fill would do its reactive reads
-  there and never update (`STRICT_READ_UNTRACKED` names it). Getters move
-  each read to the position that binds it. Plain values are fine when only
-  the server template reads the object.
+  Each getter is read where its position binds, so a change moves the
+  positions that read it. The same object serves a client
+  `<TodoRow row={rowFor(todo)} />`, whose body reads it the same way. A
+  plain value is right only for what never changes (a constant handler,
+  a fixed class).
 
 - **Name it like a props interface**, because it is one (a shared component
   takes it as a prop). Handlers are `on` + intent — `onToggle`, `onRemove`,
@@ -147,9 +159,10 @@ is why.
   runtime reads nothing into the prefix — the position decides what a
   property is — but a reader can tell a handler from a value without
   opening the type.
-- The fill runs once per occurrence (one call); each bound position tracks
-  its own reads; handlers dispatch to the fill's _current_ handler; a ref
-  fires once per element.
+- Handlers and refs are read once, when an element binds, and bind as in
+  client JSX: delegated events delegate, a `[handler, data]` tuple returned
+  from the fill binds as a tuple, a ref fires once per element. A handler
+  behind a getter is read once, as `onClick={cond() ? a : b}` is.
 - **`$key` is optional.** A call repeated within a render (a component
   prop re-evaluates it per position) is one occurrence either way. Add
   `$key: t.id` when the fill holds its own state (an edit draft, a signal
@@ -162,7 +175,7 @@ is why.
 ## Shared components
 
 One component can render on both sides: on the server its `row` prop is
-the attribute slot's return, on the client it is the fill's result. It
+the binding slot's return, on the client it is the fill's result. It
 cannot tell and need not. Put `$key={props.id}` on the element it renders
 (morph identity) — the slot call's own `$key` is a different key for a
 different job. Do not read `document`/`window` during render; that is the
@@ -181,21 +194,22 @@ cannot be marked — the `inline` finding below.
 
 ## Diagnostics
 
-`ATTRIBUTE_SLOT_POSITION` (`data.reason`):
+`BINDING_SLOT_POSITION` (`data.reason`):
 
 | reason         | severity       | what happened                                                                                                                                   | fix                                                                                                                                                               |
 | -------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `spread`       | error (throws) | a slot's return was spread onto an element                                                                                                      | name each position                                                                                                                                                |
 | `stringified`  | warn           | template literal / concatenation                                                                                                                | whole value at one position                                                                                                                                       |
 | `coerced`      | warn           | comparison, arithmetic, `==`                                                                                                                    | decide in the fill                                                                                                                                                |
-| `text`         | warn           | placed as a text child                                                                                                                          | markup slot                                                                                                                                                       |
+| `text`         | warn           | placed as a text child                                                                                                                          | template slot                                                                                                                                                     |
 | `inline`       | warn           | reached `class`/`style` inside template quotes                                                                                                  | compile with `serverComponents: true`                                                                                                                             |
 | `markup`       | warn           | the fill returned JSX but the template read a property                                                                                          | return an object, or place the slot                                                                                                                               |
 | `server-local` | warn           | a server function at `on*`/`ref`                                                                                                                | bind a slot property                                                                                                                                              |
+| `tuple`        | warn           | an array at an `on*` position                                                                                                                   | return the tuple from the fill                                                                                                                                    |
 | `reserved-key` | warn           | the fill used a reserved key                                                                                                                    | rename it                                                                                                                                                         |
 | `arg`          | warn           | a slot property passed in another slot call's argument (nested in plain objects/arrays; `data.path`)                                            | pass the server's own value, or read it in the fill from client state                                                                                             |
 | `prop`         | warn           | a slot property at a `prop:*` key of a spread                                                                                                   | bind the attribute form, or set the property in the fill's ref                                                                                                    |
-| `fill-shape`   | warn (client)  | the fill returned a non-object (`null`, array, DOM node, primitive), or the prop read as data is not a function                                 | return a plain object from a function prop                                                                                                                        |
+| `fill-shape`   | warn (client)  | the fill returned a non-object (`null`, array, DOM node, async value, primitive), or the prop read as data is not a function                    | return a plain object from a function prop                                                                                                                        |
 | `orphan`       | warn (client)  | markers for an occurrence that can never bind: `data.why` `"fill"` — no fill for the prop; `"record"` — a called occurrence with no args record | `fill`: pass the prop / match the name on both sides. `record`: not the fill — rebuild client and server together (stale prebundle, cached asset), else report it |
 
 Every reason but `fill-shape` and `orphan` comes from the server render.
@@ -203,4 +217,6 @@ Every reason but `fill-shape` and `orphan` comes from the server render.
 element is inert — a handler that never fires, a class that never updates —
 with no error.
 
-`STRICT_READ_UNTRACKED` inside a fill: use getters (above).
+`STRICT_READ_UNTRACKED` naming a fill ("the \`row\` binding-slot fill",
+"the \`comment\` template-slot fill"): a top-level read in its body; use
+getters (above).

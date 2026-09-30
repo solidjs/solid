@@ -3,7 +3,7 @@
 // this file only fills its client positions — the notes list (a server
 // component of its own, keyed by the search param) and the route outlet.
 // The search field isn't a client position either: its markup is server
-// chrome, and searchField() is an ATTRIBUTE slot fill — the values and handlers
+// chrome, and searchField() is a BINDING slot fill — the values and handlers
 // the server template binds at positions on its own elements (§9.2.3).
 // Nothing here fetches data; every read
 // goes through a `dynamic()` over a server-component query. Links (the

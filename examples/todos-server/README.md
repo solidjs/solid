@@ -5,7 +5,7 @@ markup that the SPA's `MainSection`, `TodoItem` and `Footer` produced is now
 returned by one `"use server"` component and arrives as HTML; the browser
 keeps the header, the optimistic state, and — the point of this example —
 every behavior those components had, bound to the server's own elements
-through **attribute slots**. The row is one component, `TodoRow`, that both
+through **binding slots**. The row is one component, `TodoRow`, that both
 sides render.
 
 Same deliberately unreliable API as the SPA (400 ms saves, ~33% of them
@@ -17,10 +17,10 @@ pnpm dev                  # http://localhost:3010
 pnpm build && pnpm start  # http://localhost:3010
 ```
 
-## Attribute slots
+## Binding slots
 
 A slot renders one of two things: markup (placed as `<props.pending />`) or
-**attribute values** — a plain object the server template consumes by
+**bindings** — a plain object the server template consumes by
 reading its properties at positions: an attribute, a class name, a style
 property, a handler, a ref. The server component calls the slot once per
 data context and reads from the result wherever it likes
@@ -46,7 +46,7 @@ const filters = props.filters();
 it binds `row.rowClass`, `row.removed`, `row.done`, `row.onToggle`,
 `row.onRemove`, `row.onRetry`, `row.error` at attribute, class, event and
 handler positions and cannot tell — does not need to — whether `row` is an
-attribute slot's value (server) or the fill's result passed directly (client).
+binding slot's value (server) or the fill's result passed directly (client).
 
 The object is a props interface — `TodoRow` takes it as a prop on the client
 path — so it is named like one: handlers are `on` + intent (`onToggle`,
@@ -75,16 +75,18 @@ const rowFor = (p: Entity): RowBehavior => ({
   onRetry: () => actions.retryTodo(p.id)
 });
 
-<Todos list={listFor} row={rowFor} filters={() => ({ all: filter === "all", … })} pending={…} count={…} />
+<Todos list={listFor} row={rowFor} filters={() => ({ get all() { return filter === "all"; }, … })} pending={…} count={…} />
 ```
 
-The values are getters because the same `rowFor` result is a client
-component's prop for the pending rows: a handler position (`onInput={props.row.onToggle}`)
-is read once in the component body, and a getter-shaped object reads no
-reactive state there. On the server each read at a position marks the
+The values are getters because a fill runs once per occurrence, as a
+component body does: a top-level read in it is read once, and a getter is
+the reactive form — the same shape a client component's props object has,
+which is why the same `rowFor` result is also `TodoRow`'s prop for the
+pending rows. Handlers and refs are read once, when an element binds. On
+the server each read at a position marks the
 element (`_s:class="row#0001:rowClass"`, `_s:on:input="row#0001:onToggle"`);
 the client binds exactly those positions, writes the values that change,
-dispatches events to the current handler, and a response morphing the list
+binds handlers as client JSX does (delegated where it delegates), and a response morphing the list
 skips the positions a fill owns. At document SSR the fill runs inline, so
 `checked` and `class="todo completed"` are in the HTML before JavaScript; on
 hydration the fill binds to the same nodes.

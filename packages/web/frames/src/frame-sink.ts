@@ -910,7 +910,7 @@ function slotRange(occurrence) {
 
 // A slot call's return serves BOTH things a slot can render (principles
 // §9.2.3): placed as a child it is the marker range (markup slot); read as
-// an object it is the fill's data (attribute slot) — `const row = props.row(a);
+// an object it is the fill's data (binding slot) — `const row = props.row(a);
 // <li class={row.rowClass}>`. One proxy over the range: the keys the engine
 // reads off a range pass through — an EXPLICIT set, the same on both faces
 // (the document face's range is an array, the stream face's a plain
@@ -1012,11 +1012,11 @@ function standInArgFinding(sv, key, occurrence, path) {
     }
     const where = path === "" ? `Arg \`${key}\`` : `Arg \`${key}${path}\``;
     devCheck({
-      code: "ATTRIBUTE_SLOT_POSITION",
+      code: "BINDING_SLOT_POSITION",
       kind: "ssr",
       severity: "warn",
       message:
-        `[ATTRIBUTE_SLOT_POSITION] ${where} of \`${occurrence}\` is another slot's value ` +
+        `[BINDING_SLOT_POSITION] ${where} of \`${occurrence}\` is another slot's value ` +
         `(\`${sv.k}\` of \`${sv[SLOT_VALUE]}\`). The server does not have it — the client owns ` +
         `it — so it cannot be passed as data; the arg carries \`undefined\` there on both faces. ` +
         `Pass the server's own value, or have the client fill read it from its own state.`,
@@ -1058,11 +1058,11 @@ function slotFace(range, content) {
     for (const key of Object.keys(content)) {
       if (isRangeKey(key)) {
         devCheck({
-          code: "ATTRIBUTE_SLOT_POSITION",
+          code: "BINDING_SLOT_POSITION",
           kind: "ssr",
           severity: "warn",
           message:
-            `[ATTRIBUTE_SLOT_POSITION] The fill for \`${range.$occurrence}\` returned a key named \`${key}\`, ` +
+            `[BINDING_SLOT_POSITION] The fill for \`${range.$occurrence}\` returned a key named \`${key}\`, ` +
             `which is reserved (keys beginning with \`$\` or a digit, \`length\`, \`slice\`, the node keys \`t\`/\`h\`/\`p\`, ` +
             `\`then\`, \`constructor\`, \`toString\`, \`valueOf\`, \`toJSON\`): the server reads it as the ` +
             `slot's range, not as a value. Rename it.`,
@@ -1173,7 +1173,7 @@ function structuralArgsKey(raw) {
 
 /**
  * One call is one occurrence however many times the render evaluates it.
- * The natural attribute-slot shape puts the call in a component prop —
+ * The natural binding-slot shape puts the call in a component prop —
  * `<TodoRow row={props.row({ id: t.id, completed: t.completed })} />` — and
  * compiled props are getters: every position the shared component binds
  * re-evaluates the expression. Without this, each read would mint an

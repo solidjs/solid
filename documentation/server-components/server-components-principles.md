@@ -2446,9 +2446,9 @@ imports it.
 
 **Build record (2026-09-27, same night; runtime as shipped).** The
 shape above is in `packages/web` behind three test files
-(`test/server/frame-attribute-slots.spec.tsx`,
-`test/frames-attribute-slots.spec.tsx`,
-`test/hydration/attribute-slot-adoption.spec.tsx`). Where the build
+(`test/server/frame-binding-slots.spec.tsx`,
+`test/frames-binding-slots.spec.tsx`,
+`test/hydration/binding-slot-adoption.spec.tsx`). Where the build
 departed from the text above, the build is right and the text is
 amended here:
 
@@ -3038,9 +3038,9 @@ the finding.
 
 **Build record (2026-09-28, same day; runtime as built).** The shape
 above is in `packages/web` behind three test files
-(`test/server/frame-attribute-slots.spec.tsx`, both faces;
-`test/frames-attribute-slots.spec.tsx`, the client binding;
-`test/hydration/attribute-slot-adoption.spec.tsx`, t = 0 adoption), the
+(`test/server/frame-binding-slots.spec.tsx`, both faces;
+`test/frames-binding-slots.spec.tsx`, the client binding;
+`test/hydration/binding-slot-adoption.spec.tsx`, t = 0 adoption), the
 compiler round behind one shared server-components fixture
 (`attributeSlots`, Babel and native), and the 09-27 attribute-slot build
 — never committed — is gone with its three specs, `_bnd`'s spec and
@@ -3247,10 +3247,10 @@ Findings from the port, none of them slot mechanics:
   specs for an occurrence whose only consumer arrives in a segment
   revealed after the record and the first flush, in a live hole's
   re-emission, and in a hole that re-emits before its segment
-  reveals, all bind (`test/frames-attribute-slots.spec.tsx`); and
+  reveals, all bind (`test/frames-binding-slots.spec.tsx`); and
   the server emits the marker on every sweep of a live hole with an
   unrelated document render interleaved
-  (`test/server/frame-attribute-slots.spec.tsx`). The runtime is
+  (`test/server/frame-binding-slots.spec.tsx`). The runtime is
   clean in every ordering the model has; what the two runs saw was
   a Vite dep cache holding the prebundled client from the
   stash-and-rebuild experiment (`.vite` was cleared only on the
@@ -3276,6 +3276,100 @@ Still open from the list above, unchanged: text positions;
 client-created entities without client markup; actions against
 pending ids as a general concern (the port's sequencing is an
 example's answer).
+
+#### 9.2.4 Amendment — binding slots: the fill runs once (2026-09-29)
+
+Design: `documentation/plans/binding-slot-execution.md`. Two slot
+kinds, named for what the server does with them: a **template
+slot** (`Slot<Args>`) is placed and the client fills it with
+markup; a **binding slot** (`BindingSlot<Args, Bindings>`, until
+now `AttributeSlot`) is called, and the server binds the returned
+object's properties at positions — attributes, class names, style
+properties, handlers, refs — and never branches or computes on
+them (a stand-in is always truthy). No alias for the old name.
+
+**Why.** 9.2.3 ran the binding fill in `createMemo(() =>
+fill(args))`: a top-level read in the body tracked, so an eager
+fill re-ran on every change and disposed whatever its body had
+created — a signal, a memo, an `onCleanup` — with it. The template
+fill ran once, untracked, under its occurrence's owner. Same slot
+border, two execution models; the binding fill that `hackernews`
+wants (a signal in the body, getters over it, a handler) worked
+only because its memo happened to track nothing.
+
+**The model.**
+
+- *One call, one scope.* The fill runs once per occurrence,
+  `untrack(() => fill(args), label)`, under the occurrence's owner,
+  with live args — as a template fill and a component body run.
+  State created in the body lives as long as the occurrence. A
+  top-level read is a one-time read, and dev names it
+  (`STRICT_READ_UNTRACKED`, "the \`row\` binding-slot fill"); getters
+  are the reactive form, as on a component's props object.
+- *An object only.* Arrays, DOM nodes, functions and async values
+  are the `fill-shape` finding at runtime (async values newly
+  named) and a `SlotError<reason>` at the type level:
+  `BindingSlot`'s return is `SlotOutput<J>`, which is `J` for a
+  plain object without a `$`-prefixed key and a branded error
+  otherwise, so the mistake fails both where the client passes its
+  fill and where the server reads the slot.
+- *One render effect per occurrence* for the value positions,
+  unchanged: a getter's change re-reads the occurrence's positions
+  and `assign` writes only the one that moved. Per element was
+  considered and dropped — more effects to save getter re-reads.
+- *Handlers and refs bind once, through `assign`.* Read once,
+  untracked, when an element binds, and handed to
+  `assign`/`assignProp` as client JSX hands them: delegated for the
+  events it delegates (so a handler's `stopPropagation()` no longer
+  stops a native ancestor listener, as in client JSX), tuples,
+  `dispatchAsInteraction`. The frames-own listener and its
+  dispatch-time read of the current output are gone. A handler
+  position names one key (last wins, as the server already
+  emits); several keys at one `ref` position still fan out through
+  a stable dispatcher. Delegated slots are released only by the
+  occurrence that set them, so an element moving between
+  occurrences keeps the incoming handler.
+- *A server-side handler tuple is a finding.* `claimEntries`
+  flattened an array at every position, so
+  `onKeyDown={[row.key, 1]}` dropped `1` silently and
+  `[row.key, row.data]` emitted `data` as a second handler. Arrays
+  now flatten at `ref` only (merged refs); at a handler position
+  the array binds nothing and raises `BINDING_SLOT_POSITION`,
+  reason `tuple` — the tuple belongs in the fill, which
+  `assignProp` binds.
+- *Template fills get the same label.* They run under
+  `untrack(fn, "the \`comment\` template-slot fill")`. Found on the
+  way: only a streamed invocation was untracked before (inside
+  `runWithOwner(fillOwner, …)`); a live render — reveal-boundary
+  content, a non-adopted mount — called the fill inside the
+  ambient tracked computation. Both paths are untracked now.
+- *Names.* The diagnostic code is `BINDING_SLOT_POSITION`
+  (was `ATTRIBUTE_SLOT_POSITION`); the specs are
+  `test/server/frame-binding-slots.spec.tsx`,
+  `test/frames-binding-slots.spec.tsx` and
+  `test/hydration/binding-slot-adoption.spec.tsx`. The wire is
+  untouched.
+
+This supersedes, in 9.2.3: the `createMemo` mount and the
+dispatch-time handler read ("Binding: values in the compute
+phase"), the per-(element, event) listener that fans out to every
+key ("What folds in"), and "a live-delivered arg change re-runs
+the fill" — an arg change now moves the getters that read it.
+Deferred: a fill returning an accessor (one effect over a whole
+object); it is an error today, so adding it later is not breaking.
+
+**Findings.**
+
+- *One example fill was eager.* `todos-server`'s `filters` built
+  `{ all: props.filter === "all", … }` in the body and relied on the
+  memo re-running; under run-once it would have frozen at the
+  first filter. It is getters now, like its siblings `rowFor` and
+  `listFor`. The design's pre-check had cleared the examples; it
+  missed this one.
+- *A spurious dev warning is gone.* The ref dispatcher read the
+  memo's output inside `assign`'s effect callback, which raised
+  `STRICT_READ_UNTRACKED` ("an effect callback") for any fill with
+  a ref; refs are read once, untracked, at bind now.
 
 ### 9.3 Stage 8 seed — connection-shaped transport (2026-08-17)
 
@@ -4146,8 +4240,7 @@ that principle decides where one ELEMENT lives; this section decides
 whether a COMPONENT should be a server component at all.
 Slot names here predate the 2026-09-29 rename: a *markup slot* is
 a **template slot** (`Slot`) and an *attribute slot* a **binding
-slot** (`BindingSlot`; the code still says `AttributeSlot` until
-`documentation/plans/binding-slot-execution.md` lands).
+slot** (`BindingSlot`, renamed in the code by §9.2.4).
 
 ### 10.1 Three axes, not one
 

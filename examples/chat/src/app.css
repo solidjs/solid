@@ -103,7 +103,7 @@ body {
 }
 
 /* Code blocks are server-rendered with a client-wired copy button (the
-   `codeBlock` attribute slot) — the wrapper anchors the button over the pre. */
+   `codeBlock` binding slot) — the wrapper anchors the button over the pre. */
 .md .code-block {
   position: relative;
   margin: 0 0 12px;

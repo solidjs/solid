@@ -1,7 +1,7 @@
 // The row. One component, no directive, no side: the server renders it for
 // every todo it has, the client renders it for every todo the server does
 // not have yet (an add in flight, or one that failed). What differs is what
-// `row` IS at the call site — on the server an ATTRIBUTE SLOT (server/todos.tsx:
+// `row` IS at the call site — on the server a BINDING SLOT (server/todos.tsx:
 // `props.row({ id, completed })`), whose properties are stand-ins the
 // positions below bind and the client owns; on the client the fill's result
 // itself (app.tsx: `rowFor(todo)`), so the same positions are ordinary

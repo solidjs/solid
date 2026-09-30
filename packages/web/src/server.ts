@@ -4236,7 +4236,7 @@ export function ssrClassName(value) {
   if (typeof value === "number") return "" + value;
   if (!value) return "";
   if (typeof value === "string") return escape(value, true);
-  // An attribute-slot value here (whole, or as a class-name's condition) landed
+  // A binding-slot value here (whole, or as a class-name's condition) landed
   // inside `class="…"` quotes, where its position marker cannot be emitted
   // (see ssrElementAttribute): the element was compiled without the
   // `serverComponents` option. Say so; nothing renders (either face).
@@ -4345,7 +4345,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // precedence against the element's named claims is source order
   // (spreadBehaviorMarkers).
   let ownerIndex = null;
-  // An attribute slot's object spread whole (`<li {...row}>`) is the retired
+  // A binding slot's object spread whole (`<li {...row}>`) is the retired
   // 09-27 shape (principles §9.2.3): the client would decide what it owns
   // and the template could not show it. Its range tag (`$slot`) is how it
   // surfaces among the sources; name the positions instead. The tag is
@@ -4359,7 +4359,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // a stand-in is only ever met inside a server component's render, where
   // the frame renderers arm `context.claims` (the compiled `ssrClaim`
   // guard's value), so a render with no server components walks exactly
-  // as it did before attribute slots existed.
+  // as it did before binding slots existed.
   const ctx = renderConfig.context;
   const slots = ctx !== undefined && ctx.claims !== undefined;
   if (Array.isArray(props)) {
@@ -4491,7 +4491,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
         if (slots && typeof value === "object") spreadPropPosition(prop, value);
         continue;
       }
-      // An attribute-slot value at this key (principles §9.2.3) binds the position
+      // A binding-slot value at this key (principles §9.2.3) binds the position
       // the key names: an attribute, a handler, a ref, or — for `class` /
       // `style` objects — a name inside the attribute. A stand-in is an
       // object, so under `slots` every object value takes the one helper
@@ -4590,7 +4590,7 @@ export function ssrElementAttribute(key, value) {
   //
   // Under the `serverComponents` compiler option a dynamic `class`/`style`
   // on an intrinsic element compiles to THIS helper rather than into
-  // template quotes, so an attribute-slot value (principles §9.2.3) — the whole
+  // template quotes, so a binding-slot value (principles §9.2.3) — the whole
   // value, or a name's condition inside the object — can emit its position
   // marker beside the attribute.
   if (value == undefined) return "";
@@ -4610,7 +4610,7 @@ export function ssrAttribute(key, value) {
   // from a JSX attribute name (see setAttr in babel-plugin/src/ssr/element.js)
   // which can never contain `"`, `<`, `&`, or `>`. `value` is already
   // attribute-escaped by the compiler via `_$escape(..., true)` — which
-  // passes an attribute-slot value through untouched, so the position it names
+  // passes a binding-slot value through untouched, so the position it names
   // is bound here (principles §9.2.3). Both are trusted here so this hot
   // path stays a pure string concatenation.
   if (value == null || value === false) return "";
@@ -4628,10 +4628,10 @@ export function ssrHydrationKey() {
   return hk ? ` _hk=${hk}` : "";
 }
 
-// ---- Attribute slots: positions in server markup that a client fill's values own ----
+// ---- Binding slots: positions in server markup that a client fill's values own ----
 //
 // (server-components-principles.md §9.2.3.) A slot is a client render; a
-// ATTRIBUTE slot's fill returns a plain object instead of JSX, and the server
+// BINDING slot's fill returns a plain object instead of JSX, and the server
 // template consumes it by reading properties at positions:
 //
 //   const row = props.row({ id, completed });
@@ -4679,7 +4679,7 @@ export function ssrHydrationKey() {
 export const CLAIMS_STREAM = 1;
 export const CLAIMS_DOCUMENT = 2;
 
-/** The brand on an attribute slot's stand-in for one property read. */
+/** The brand on a binding slot's stand-in for one property read. */
 export const SLOT_VALUE = /*#__PURE__*/ Symbol.for("solid.slot-value");
 /** Marker attribute prefix on a consuming element (`_s:class`, `_s:on:click`, `_s:ref`). */
 export const SLOT_MARKER = "_s:";
@@ -4688,7 +4688,7 @@ export const SLOT_FACE_STREAM = 0;
 export const SLOT_FACE_DATA = 1;
 export const SLOT_FACE_MARKUP = 2;
 
-const ATTRIBUTE_SLOT_POSITION = "ATTRIBUTE_SLOT_POSITION";
+const BINDING_SLOT_POSITION = "BINDING_SLOT_POSITION";
 
 /**
  * Report a position finding once per (occurrence, key, reason, position) for
@@ -4707,7 +4707,7 @@ function slotFinding(sv, reason, position, message, severity = "warn") {
       seen.add(id);
     }
     devCheck({
-      code: ATTRIBUTE_SLOT_POSITION,
+      code: BINDING_SLOT_POSITION,
       kind: "ssr",
       severity,
       message,
@@ -4723,7 +4723,7 @@ export function isSlotValue(value) {
 }
 
 /**
- * An attribute slot's stand-in for one property read. `face` says what the
+ * A binding slot's stand-in for one property read. `face` says what the
  * occurrence's fill produced where this read happens: nothing (the stream
  * face never runs fills), a data object (the document face — `value` is
  * the t=0 value of `key`), or markup (the document face ran the fill and
@@ -4762,12 +4762,12 @@ function slotValueString(sv, reason) {
       reason,
       undefined,
       reason === "coerced"
-        ? `[${ATTRIBUTE_SLOT_POSITION}] \`${prop}\`'s \`${sv.k}\` is an attribute-slot value used in an expression ` +
+        ? `[${BINDING_SLOT_POSITION}] \`${prop}\`'s \`${sv.k}\` is a binding-slot value used in an expression ` +
             `(a comparison, arithmetic, or a branch on its result). The server does not have the value — ` +
             `the client owns it — so nothing can be computed from it here. It must be the WHOLE value of ` +
             `an attribute, class name, style property, handler or ref; a decision that depends on it ` +
             `belongs in the client fill (return the decided value) or in a markup slot.`
-        : `[${ATTRIBUTE_SLOT_POSITION}] \`${prop}\`'s \`${sv.k}\` is an attribute-slot value ` +
+        : `[${BINDING_SLOT_POSITION}] \`${prop}\`'s \`${sv.k}\` is a binding-slot value ` +
             `and was stringified outside a bindable position — it must be the WHOLE value of an attribute, ` +
             `class name, style property, handler or ref (\`class={row.${sv.k}}\`, not \`class={\`x \${row.${sv.k}}\`}\`). ` +
             `If it is, the element was compiled without the \`serverComponents\` compiler option. ` +
@@ -4783,7 +4783,7 @@ function slotTextPosition(sv) {
       sv,
       "text",
       undefined,
-      `[${ATTRIBUTE_SLOT_POSITION}] \`${sv.k}\` of slot \`${propOfOccurrence(sv[SLOT_VALUE])}\` is placed as TEXT. ` +
+      `[${BINDING_SLOT_POSITION}] \`${sv.k}\` of slot \`${propOfOccurrence(sv[SLOT_VALUE])}\` is placed as TEXT. ` +
         `Text is not a bindable position yet: nothing renders here on either face. ` +
         `Bind it to an attribute, or render the text in a markup slot.`
     );
@@ -4797,7 +4797,7 @@ function slotMarkupRead(sv, position) {
       sv,
       "markup",
       position,
-      `[${ATTRIBUTE_SLOT_POSITION}] \`${position}\` reads \`${sv.k}\` off slot \`${propOfOccurrence(sv[SLOT_VALUE])}\`, ` +
+      `[${BINDING_SLOT_POSITION}] \`${position}\` reads \`${sv.k}\` off slot \`${propOfOccurrence(sv[SLOT_VALUE])}\`, ` +
         `but the client fill returned markup, not an object. A slot renders one or the other: ` +
         `return an object (\`{ ${sv.k}: … }\`) for positions, or place the slot as content.`
     );
@@ -4812,7 +4812,7 @@ function slotValueInline(kind, sv) {
       sv,
       "inline",
       kind,
-      `[${ATTRIBUTE_SLOT_POSITION}] An attribute-slot value (\`${sv.k}\` of \`${propOfOccurrence(sv[SLOT_VALUE])}\`) ` +
+      `[${BINDING_SLOT_POSITION}] A binding-slot value (\`${sv.k}\` of \`${propOfOccurrence(sv[SLOT_VALUE])}\`) ` +
         `reached \`${kind}\` inside template quotes, where its position marker cannot be emitted — the ` +
         `element was compiled without the \`serverComponents\` compiler option. Nothing renders here ` +
         `on either face.`
@@ -5040,7 +5040,7 @@ function spreadPropPosition(prop, value) {
       value,
       "prop",
       prop,
-      `[${ATTRIBUTE_SLOT_POSITION}] \`${value.k}\` of slot \`${propOfOccurrence(value[SLOT_VALUE])}\` is bound ` +
+      `[${BINDING_SLOT_POSITION}] \`${value.k}\` of slot \`${propOfOccurrence(value[SLOT_VALUE])}\` is bound ` +
         `at \`${prop}\`. Property positions are not bindable (the server renders no properties): nothing ` +
         `renders here. Bind the attribute form (\`${prop.slice(5)}\`), or set the property in the client fill's ref.`
     );
@@ -5067,11 +5067,11 @@ function slotSpreadSource(tag, source) {
   if ("_SOLID_DEV_") {
     const occurrence = source.$occurrence;
     const text =
-      `[${ATTRIBUTE_SLOT_POSITION}] A slot${occurrence ? ` (\`${propOfOccurrence(occurrence)}\`)` : ""} is spread ` +
-      `onto a server-rendered <${tag}>. An attribute slot binds by position — name each one ` +
+      `[${BINDING_SLOT_POSITION}] A slot${occurrence ? ` (\`${propOfOccurrence(occurrence)}\`)` : ""} is spread ` +
+      `onto a server-rendered <${tag}>. A binding slot binds by position — name each one ` +
       `(\`class={row.rowClass} onClick={row.remove}\`) so the template shows what the client owns.`;
     recordFinding({
-      code: ATTRIBUTE_SLOT_POSITION,
+      code: BINDING_SLOT_POSITION,
       kind: "ssr",
       severity: "error",
       message: text,
@@ -5106,13 +5106,34 @@ export function ssrClaim(map) {
 
 /**
  * One handler/ref position's marker entries (`occ:key[,occ:key…]`, "" for
- * none): a stand-in, or a list of values (several refs; a handler tuple)
- * each read for its stand-in. A server-local function — the one shape that
+ * none): a stand-in, or at `ref` a list of values (several refs) each read
+ * for its stand-in; a list at a handler position is a tuple, a dev finding
+ * that binds nothing. A server-local function — the one shape that
  * can never run — is a dev finding inside the component barrier (`mode` is
  * the render context's claims enum: the stream face is always in scope, the
  * document face asks `inServerComponentScope`).
  */
 function claimEntries(pos, value, mode) {
+  if (Array.isArray(value) && pos !== "ref") {
+    // A handler tuple (`[row.key, 1]`): a marker names keys, never data, so
+    // the tuple's data would not reach the client and nothing binds. The
+    // tuple belongs in the fill, which the client binds as client JSX does.
+    if ("_SOLID_DEV_") {
+      const sv = value.find(isSlotValue);
+      if (sv !== undefined) {
+        slotFinding(
+          sv,
+          "tuple",
+          pos,
+          `[${BINDING_SLOT_POSITION}] A \`${pos}\` handler position on a server-rendered element received ` +
+            `an array. A position marker names the slot's keys, never data, so a tuple's data cannot reach ` +
+            `the client — nothing binds here. Return the tuple from the fill (\`[handler, data]\`) and ` +
+            `bind that one property.`
+        );
+      } else claimEntries(pos, value[0], mode);
+    }
+    return "";
+  }
   if (Array.isArray(value)) {
     // Nested lists flatten: a merged duplicate of an array ref is
     // `[[a, b], c]`.
@@ -5132,12 +5153,12 @@ function claimEntries(pos, value, mode) {
     // once, and a row template hands the same handler to every row.
     value.$slotWarned = true;
     devCheck({
-      code: ATTRIBUTE_SLOT_POSITION,
+      code: BINDING_SLOT_POSITION,
       kind: "ssr",
       severity: "warn",
       message:
-        `[${ATTRIBUTE_SLOT_POSITION}] A \`${pos}\` position on a server-rendered element received a server-local ` +
-        `function — it can never run. Bind an attribute slot's property there ` +
+        `[${BINDING_SLOT_POSITION}] A \`${pos}\` position on a server-rendered element received a server-local ` +
+        `function — it can never run. Bind a slot's property there ` +
         `(\`const row = props.row(args); ${pos === "ref" ? "ref" : "onX"}={row.${pos === "ref" ? "ref" : "onX"}}\`) ` +
         `so the client supplies it, or bind a mutation to \`action=\`.`,
       data: { reason: "server-local", position: pos }
@@ -5362,7 +5383,7 @@ export function escape(s, attr) {
       // so coerce to the final string here first — matching what the
       // client DOM receives — and run it through the normal string path.
       if (s == null || t === "boolean" || t === "number") return s;
-      // An attribute slot's stand-in passes through: the attribute helper it is
+      // A binding slot's stand-in passes through: the attribute helper it is
       // headed for binds the position and serializes the t=0 value itself.
       if (t === "object" && s[SLOT_VALUE] !== undefined) return s;
       return escape(String(s), attr);
@@ -5990,7 +6011,7 @@ export function resolveSSRNode(
       result.t[result.t.length - 1] += node.t;
       ssrTextTail = false;
     } else if (node[SLOT_VALUE] !== undefined) {
-      // An attribute-slot value at a TEXT position (`<b>{row.count}</b>`): not a
+      // A binding-slot value at a TEXT position (`<b>{row.count}</b>`): not a
       // bindable position yet (principles §9.2.3, open). Nothing renders on
       // either face — the document face never shows a t=0 value the stream
       // face cannot reproduce — and dev says so (slotTextPosition).

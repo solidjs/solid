@@ -1,8 +1,8 @@
 # Binding-slot execution
 
-Status: design for review, 2026-09-29. Gap G2 in
-[`examples-grid-plan.md`](./examples-grid-plan.md). Decisions recorded;
-ready for implementation review.
+Status: implemented 2026-09-29 (principles §9.2.4). Gap G2 in
+[`examples-grid-plan.md`](./examples-grid-plan.md). Two checks below
+were corrected by the implementation; each says so in place.
 
 A server component hands the client one of two slot kinds. A **template
 slot** (`Slot<Args>`) is placed and filled with markup. A **binding slot**
@@ -129,7 +129,10 @@ one source reading as noise.
 
 - **The template fill runs untracked.** Yes: `runWithOwner(fillOwner, …)`
   at line 726; `runWithOwner` clears `tracking` with the owner (the
-  comment at line 754 relies on it).
+  comment at line 754 relies on it). *Corrected in implementation:* only
+  the streamed invocation; a live render (reveal-boundary content, a
+  non-adopted mount) called the fill inside the ambient tracked
+  computation. The `untrack(fn, label)` wrap covers both.
 - **The dev signal exists.** 2.0's `STRICT_READ_UNTRACKED`
   (`08-dev-diagnostics.md:303`) fires for untracked reads in a scope
   entered with `untrack(fn, label)` (`packages/signals/src/core/core.ts:1601`);
@@ -147,7 +150,9 @@ one source reading as noise.
 - **What relies on the memo re-running.** The examples do not: `todos-server`'s
   `rowFor` and `notes`' `searchField` return getters over client state and
   handlers that read lazily; `chat`'s `codeBlock` returns one static
-  handler. One spec does: the first case in
+  handler. *Corrected in implementation:* `todos-server`'s `filters`
+  fill was eager (`{ all: props.filter === "all", … }`) and relied on
+  the re-run; it is getters now. One spec does: the first case in
   `packages/web/test/frames-attribute-slots.spec.tsx` (line 103) computes
   `done` and `removed` eagerly from a signal and live args and asserts
   re-runs (`runs`). It is rewritten to getters, and its assertions become

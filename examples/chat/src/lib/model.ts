@@ -105,7 +105,7 @@ const GREETING = `Welcome to **Solid Chat** — and yes, I am typing this *into 
 
 \`\`\`jsx
 // even this code block streamed in as highlighted HTML —
-// and its Copy button reads a client attribute slot on a server element
+// and its Copy button reads a client binding slot on a server element
 <button class="copy-code" onClick={block.copy}>Copy</button>
 \`\`\`
 
