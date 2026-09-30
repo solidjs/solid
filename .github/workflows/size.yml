@@ -4,15 +4,17 @@ name: Size
 # standalone npm package OUTSIDE the pnpm workspace on purpose: adding its
 # tooling to the workspace graph re-keys pnpm peer instances (vitest,
 # @codspeed/vitest-plugin), which relocates the benchmark harness and shows
-# up as phantom CodSpeed regressions. The limits in size/.size-limit.js are
-# the strict tree-shaking gate; the retained-module-graph assertions in
-# packages/signals/tests/treeshake.test.ts stay the which-module
-# diagnostic underneath.
+# up as phantom CodSpeed regressions. The limits in scripts/size/scenarios.js
+# are the strict tree-shaking gate, measured with Rolldown (the bundler Vite
+# ships); the retained-module-graph assertions in
+# packages/signals/tests/treeshake.test.ts stay the which-module diagnostic
+# underneath.
 # The check job also runs on direct pushes to next: it is self-contained
 # (absolute limits, no base ref), and PR-only triggering let the
 # +createStore scenario sit failing at a release commit unnoticed — direct
 # pushes never measured. The compare job stays PR-only; it needs a PR
-# context (base branch, comment target).
+# context (base branch, comment target). The floor-cap freeze step in check
+# is PR-only for the same reason (it diffs against the base branch).
 on:
   push:
     branches: [next]
@@ -46,29 +48,83 @@ jobs:
       - run: pnpm build
       - run: npm ci --no-audit --no-fund
         working-directory: scripts/size
-      - run: npm run size
+      # size.mjs gates every scenario against its cap and prints the lazy
+      # chunks and per-package minified bytes for each, so a bump is
+      # attributed in the same log that reports it. The JSON feeds the
+      # compare job's PR comment.
+      - run: npm run size -- --json size-head.json
         working-directory: scripts/size
+      - if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-head
+          path: scripts/size/size-head.json
+      # The floor and page caps (scripts/size/floor-caps.json) are frozen: a PR
+      # may lower them, never raise them, unless its body carries a
+      # `Size-Exception:` line. Compared against the PR's base branch, so
+      # PR events only.
+      - if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+      - if: github.event_name == 'pull_request'
+        run: npm run check-floor-caps -- "origin/${{ github.base_ref }}"
+        working-directory: scripts/size
+        env:
+          SIZE_EXCEPTION: ${{ github.event.pull_request.body }}
 
-  # Best-effort base-vs-head delta comment. Requires the base branch to also
-  # carry scripts/size/, so it is informational and never blocks: continue-on-error
-  # keeps bootstrap PRs (and any action hiccup) green. PR events only — the
-  # action resolves the PR base ref and posts a PR comment, neither of which
-  # exists on a push event.
+  # Best-effort base-vs-head delta comment. Builds the base branch and
+  # measures its artifacts with the HEAD's harness (SIZE_PACKAGES_ROOT), so
+  # both columns come from the same scenarios and the same Rolldown; the head
+  # numbers are the check job's. Informational and never blocks:
+  # continue-on-error keeps bootstrap PRs (and any hiccup) green. PR events
+  # only — it needs a base ref and a comment target.
   compare:
-    if: github.event_name == 'pull_request'
+    # always(): the comment is most useful on the PR whose check failed.
+    if: always() && github.event_name == 'pull_request'
+    needs: check
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: pnpm
-      - uses: andresz1/size-limit-action@v1
-        continue-on-error: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          package_manager: npm
-          directory: scripts/size
-          build_script: build
+          workspaces: base/packages/compiler
+      - run: pnpm install --frozen-lockfile
+        working-directory: base
+      - run: pnpm --filter @solidjs/compiler run build
+        working-directory: base
+      - run: pnpm build
+        working-directory: base
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/size
+      - run: node size.mjs --json size-base.json || true
+        working-directory: scripts/size
+        env:
+          SIZE_PACKAGES_ROOT: ${{ github.workspace }}/base
+      - uses: actions/download-artifact@v4
+        with:
+          name: size-head
+          path: scripts/size
+      - run: node report.mjs size-head.json size-base.json > size-comment.md
+        working-directory: scripts/size
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync("scripts/size/size-comment.md", "utf8");
+            const marker = "<!-- size-report -->";
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const mine = comments.find(c => c.user.type === "Bot" && c.body.startsWith(marker));
+            if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });

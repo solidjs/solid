@@ -12,12 +12,10 @@ export {
   createMemo,
   createOptimistic,
   createOptimisticStore,
-  createErrorBoundary,
   createOwner,
   createProjection,
   createReaction,
   createRenderEffect,
-  createRevealOrder,
   createRoot,
   createSignal,
   createStore,
@@ -113,8 +111,8 @@ export type {
 // — and the surface it declares onto `OBSERVE.server`.
 export type { BoundaryEvent, BoundaryLive, BoundaryListener, ServerTrace } from "./observe.js";
 
-// Wrappers — context, children, dev symbols
-export { $DEVCOMP, children, createContext, useContext } from "./core.js";
+// Wrappers — context, children
+export { children, createContext, useContext } from "./core.js";
 export type {
   ChildrenReturn,
   Context,
@@ -131,17 +129,26 @@ export * from "./flow.js";
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
-export { sharedConfig, createLoadingBoundary, NoHydration, Hydration } from "./hydration.js";
+export { NoHydration, Hydration, isHydrating, isHydratable } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
 
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
+export { sharedConfig, createLoadingBoundary } from "./hydration.js";
+/** @internal */
+export { $DEVCOMP } from "./core.js";
+// The boundary primitives behind `Errored` and `Reveal` (`Loading`'s is the
+// SSR-aware one above), `@internal` as on the client entry.
+/** @internal */
+export { createErrorBoundary, createRevealOrder } from "./signals.js";
+/** @internal */
 export {
   creationStamp,
   runInServerComponentScope,
   inServerComponentScope,
+  inLiveServerComponentScope,
   getProjectionTrace,
   shareAsyncIterable,
   ssrSanitizeError,
@@ -150,6 +157,10 @@ export {
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
+// After the runtime modules above, so this import adds no edge to the module
+// graph's evaluation order (shared.js is long loaded) and the prod artifact
+// is unchanged.
+import { installServerWithOrigin } from "./shared.js";
 
 /**
  * @internal — client-only (see client/hydration.ts). The server stub is
@@ -173,7 +184,10 @@ export function materializeContainerTrace(marker: unknown): unknown {
 // regardless of, the web runtime that emits into them.
 const IS_DEV = "_SOLID_DEV_" as string | boolean;
 const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
-if (IS_OBSERVE) _OBSERVE!.server = serverSlots();
+if (IS_OBSERVE) {
+  _OBSERVE!.server = serverSlots();
+  installServerWithOrigin(_OBSERVE!);
+}
 export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
 export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
 // The console face is the core's; the repair-guide footer under each first

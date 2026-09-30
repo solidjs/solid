@@ -27,6 +27,7 @@ import {
   type Component
 } from "solid-js";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
+import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
 
 function delay(ms: number) {
   return new Promise(r => setTimeout(r, ms));
@@ -2543,26 +2544,31 @@ describe("SSR — insert effect alignment (PR #2592)", () => {
 });
 
 describe("SSR — dynamic() Promise component sources (#2779)", () => {
+  // Since #3666 an async dynamic() instance serializes its landing for the
+  // client to adopt, so a Promise of a COMPONENT must be a server component
+  // (a flight reference — hence the codec plugin); a client component
+  // function is the one shape that cannot cross and is a dev error
+  // (dynamic-async-component-diagnostic.spec.tsx).
+  const plugins = { plugins: [ServerComponentPlugin] };
   test("dynamic() awaits a Promise component source", async () => {
     function Inner(props: { name: string }) {
       return <span>Hello {props.name}</span>;
     }
+    const InnerSC = frameTransformDirectResult(Inner, { id: "ssr-stream/inner", args: [] });
     function App() {
-      const Comp = dynamic<Component<{ name: string }>>(() =>
-        asyncValue(Inner as Component<{ name: string }>, 10)
-      );
+      const Comp = dynamic<Component<{ name: string }>>(() => asyncValue(InnerSC, 10));
       return (
         <div>
           <Comp name="Ada" />
         </div>
       );
     }
-    const { chunks } = await collectChunks(() => <App />);
-    expect(chunks.join("")).toMatch(/Hello\s*(<!--\$-->)?Ada/);
+    const { chunks } = await collectChunks(() => <App />, plugins);
+    expect(chunks.join("")).toMatch(/Hello\s*(?:<!--[^>]*-->)*Ada/);
     // Awaited form — the shell must wait on the blocked root hole rather
     // than completing with an unfinished render (the "" from the issue).
-    const awaited = await renderComplete(() => <App />);
-    expect(awaited).toMatch(/Hello\s*(<!--\$-->)?Ada/);
+    const awaited = await renderComplete(() => <App />, plugins);
+    expect(awaited).toMatch(/Hello\s*(?:<!--[^>]*-->)*Ada/);
   });
 
   test("dynamic() awaits a Promise tag-name source", async () => {
@@ -2580,11 +2586,12 @@ describe("SSR — dynamic() Promise component sources (#2779)", () => {
     function Inner(props: { name: string }) {
       return <span>Hi {props.name}</span>;
     }
+    const InnerSC = frameTransformDirectResult(Inner, { id: "ssr-stream/inner-prop", args: [] });
     function App() {
-      return <Dynamic component={asyncValue(Inner, 10) as any} name="Bea" />;
+      return <Dynamic component={asyncValue(InnerSC, 10) as any} name="Bea" />;
     }
-    const { chunks } = await collectChunks(() => <App />);
-    expect(chunks.join("")).toMatch(/Hi\s*(<!--\$-->)?Bea/);
+    const { chunks } = await collectChunks(() => <App />, plugins);
+    expect(chunks.join("")).toMatch(/Hi\s*(?:<!--[^>]*-->)*Bea/);
   });
 
   test("rejected Promise source surfaces to Errored", async () => {

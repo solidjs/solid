@@ -542,10 +542,12 @@ function transformAttributes(
   const hasChildren = path.node.children.length > 0,
     attributes = normalizeAttributes(path);
   let children: babelTypes.JSXExpressionContainer | undefined;
-  // Server-components claims: ref/on* positions on server-rendered
-  // intrinsics collect here and emit as one guarded whole-attribute hole
-  // (` _bnd="..."` or "") after the loop. Evaluation is gated on the render
-  // context's claims flag so plain SSR never runs the expressions.
+  // Server-components handler positions: ref/on* expressions on
+  // server-rendered intrinsics collect here and emit as one guarded
+  // whole-attribute hole after the loop, where `ssrClaim` turns attribute-slot
+  // reads into `_s:on:*` / `_s:ref` markers (and drops server-local
+  // functions). Evaluation is gated on the render context's claims flag so
+  // plain SSR never runs the expressions.
   const claims: [string, babelTypes.Expression][] = [];
 
   attributes.forEach(attribute => {
@@ -588,11 +590,10 @@ function transformAttributes(
       }
       if (key.startsWith("prop:")) return;
       if (key.startsWith("on")) {
-        // Capture-phase variants can't ride delegation; v1 drops them as
-        // before. `on:x` keeps the raw name, `onXxx` lowercases — the same
-        // event-name derivation as the client runtime.
-        if (info.serverComponents && !key.startsWith("oncapture:")) {
-          const pos = key.startsWith("on:") ? key.slice(3) : key.slice(2).toLowerCase();
+        // `onXxx` lowercases to the event name — the client runtime's own
+        // derivation (`onClick` -> `click`); the position is bound under it.
+        if (info.serverComponents) {
+          const pos = key.slice(2).toLowerCase();
           if (pos) claims.push([pos, value.expression as babelTypes.Expression]);
         }
         return;
@@ -628,6 +629,30 @@ function transformAttributes(
           checkMember: true,
           checkTags: true
         });
+        // Server components (principles §9.2.3): a dynamic `class`/`style`
+        // is the one attribute shape the plain SSR output serializes INSIDE
+        // template quotes (`class="${ssrClassName(x)}"`), where an attribute-slot
+        // value read at that position — the whole value, or a name's
+        // condition in object form — would be stringified instead of
+        // bound. Under the option the whole attribute is a runtime hole,
+        // `ssrElementAttribute("class", x)`, whose helper emits the same
+        // bytes for a plain value and the position marker for a stand-in.
+        // Object literals stay objects (no inlining) for the same reason.
+        if (info.serverComponents && (key === "class" || key === "style")) {
+          const attr = t.callExpression(registerImportMethod(path, "ssrElementAttribute"), [
+            t.stringLiteral(key),
+            value.expression as babelTypes.Expression
+          ]);
+          results.template.push("");
+          results.templateValues.push(
+            isDynamicValue
+              ? hoistExpression(path, results, t.arrowFunctionExpression([], attr), {
+                  group: true
+                })
+              : attr
+          );
+          return;
+        }
         let doEscape = true;
         let isBoolean =
           t.isBooleanLiteral(value) ||
@@ -771,23 +796,7 @@ function transformAttributes(
     }
   });
   if (claims.length) {
-    // Duplicate event keys were already last-wins-stripped above; `ref` is
-    // exempt from that pass (client semantics fire every ref), so multiple
-    // refs merge into an array value.
-    const byPos = new Map<string, babelTypes.Expression[]>();
-    for (const [pos, expr] of claims) {
-      let list = byPos.get(pos);
-      if (!list) byPos.set(pos, (list = []));
-      list.push(expr);
-    }
-    const map = t.objectExpression(
-      [...byPos].map(([pos, exprs]) =>
-        t.objectProperty(
-          t.stringLiteral(pos),
-          exprs.length === 1 ? exprs[0] : t.arrayExpression(exprs)
-        )
-      )
-    );
+    const map = claimMap(claims);
     // `_$sharedConfig.context && _$sharedConfig.context.claims
     //    ? _$ssrClaim({...}) : ""`
     // — the claims flag is only set inside a server component's render
@@ -933,7 +942,7 @@ function transformChildren(
 
 function createElement(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
-  { topLevel, hydratable }: SSRTransformInfo
+  { topLevel, hydratable, serverComponents }: SSRTransformInfo
 ): SSRSpreadTransformResult {
   const tagName = getTagName(path.node),
     config = getConfig(path),
@@ -986,6 +995,21 @@ function createElement(
     const node = attribute.node;
     return !(t.isJSXAttribute(node) && t.isJSXIdentifier(node.name) && node.name.name === "ref");
   });
+  // Server components (principles §9.2.3): the named `ref`/`on*` attributes
+  // of a spread element are handler positions like a template element's,
+  // and compile to the same claim map — `{ click: expr, ref: [a, b] }`,
+  // duplicate refs merged, a duplicate handler last-wins as the template
+  // path strips it — keyed by the index of the source each attribute sits
+  // before (`<b {...a} onClick={go} {...b}>` → `{ 1: { click: go } }`, the
+  // spreads being sources 0 and 2), and handed to `ssrElement` as a thunk
+  // it reads only inside a server component's render (the gate the template
+  // path's `ssrClaim` guard reads), so plain SSR never evaluates the
+  // expressions. The runtime settles each handler position in source order,
+  // as the client's `spread(el, [a, { onClick: go }, b])` does — a spread at
+  // that index or later that HAS the key owns it — and merges every ref.
+  // Plain SSR output is unchanged (dropped, as a server element has no
+  // handlers to run).
+  const claims: [number, string, babelTypes.Expression][] = [];
 
   let props: babelTypes.Expression[];
   // Attributes written AFTER the last spread are markup, not a source: no
@@ -1006,7 +1030,13 @@ function createElement(
   // keys.
   const tail: Array<string | babelTypes.Expression> = [];
   const skipKeys: string[] = [];
-  if (propAttributes.length === 1 && t.isJSXSpreadAttribute(propAttributes[0].node)) {
+  if (
+    propAttributes.length === 1 &&
+    t.isJSXSpreadAttribute(propAttributes[0].node) &&
+    // A `ref` beside the lone spread is a claim under `serverComponents`;
+    // the loop below places it.
+    !(serverComponents && attributes.length > 1)
+  ) {
     props = [propAttributes[0].node.argument];
   } else {
     props = [];
@@ -1052,8 +1082,30 @@ function createElement(
             : node.name.name;
 
         if (hasChildren && key === "children") return;
-        if (key === "ref") return;
-        if (key.startsWith("prop:") || key.startsWith("on")) return;
+        if (key === "ref" || key.startsWith("on")) {
+          if (serverComponents && t.isJSXExpressionContainer(value)) {
+            const expression = value.expression;
+            const pos = key === "ref" ? "ref" : key.slice(2).toLowerCase();
+            if (
+              pos &&
+              !(
+                t.isJSXEmptyExpression(expression) ||
+                t.isStringLiteral(expression) ||
+                t.isNumericLiteral(expression) ||
+                t.isBooleanLiteral(expression)
+              )
+            ) {
+              // The index of the source this attribute sits before: the
+              // sources pushed so far, plus the running literal if it will
+              // be pushed ahead of the next spread. The literal never
+              // carries a handler key, so a spread's index is either below
+              // this or at/after it — never ambiguous.
+              claims.push([props.length + (runningObject.length ? 1 : 0), pos, expression]);
+            }
+          }
+          return;
+        }
+        if (key.startsWith("prop:")) return;
         if (i > lastSpread) {
           const part = tailAttribute(path, tagName, key, node);
           if (part !== undefined) {
@@ -1130,8 +1182,63 @@ function createElement(
     }
     args.push(registerSkip(path, skipKeys), markup);
   }
+  if (claims.length) {
+    if (!skipKeys.length) args.push(t.identifier("undefined"), t.identifier("undefined"));
+    args.push(t.arrowFunctionExpression([], claimSegments(claims)));
+  }
   const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
+}
+
+/**
+ * A spread element's claim map by source index (`createElement`): `{ 1: {
+ * click: go }, 3: { ref: el } }`. A handler position keeps its LAST named
+ * attribute only — the template path's duplicate strip, applied here to the
+ * claims (a later attribute wins whatever sits between, so the earlier one
+ * is never read on either side); refs merge within a segment as `claimMap`
+ * merges them, and across segments at the runtime.
+ */
+function claimSegments(
+  claims: [number, string, babelTypes.Expression][]
+): babelTypes.ObjectExpression {
+  const lastHandler = new Map<string, number>();
+  claims.forEach(([, pos], i) => {
+    if (pos !== "ref") lastHandler.set(pos, i);
+  });
+  const segments = new Map<number, [string, babelTypes.Expression][]>();
+  claims.forEach(([index, pos, expr], i) => {
+    if (pos !== "ref" && lastHandler.get(pos) !== i) return;
+    let list = segments.get(index);
+    if (!list) segments.set(index, (list = []));
+    list.push([pos, expr]);
+  });
+  return t.objectExpression(
+    [...segments].map(([index, list]) => t.objectProperty(t.numericLiteral(index), claimMap(list)))
+  );
+}
+
+/**
+ * The compiled claim map of an element's handler positions, `{ click: expr,
+ * ref: [a, b] }`: duplicate event keys were last-wins-stripped by the
+ * template path's duplicate strip (or `claimSegments`); `ref` is exempt from
+ * that pass (client semantics fire every ref), so multiple refs merge into
+ * an array value.
+ */
+function claimMap(claims: [string, babelTypes.Expression][]): babelTypes.ObjectExpression {
+  const byPos = new Map<string, babelTypes.Expression[]>();
+  for (const [pos, expr] of claims) {
+    let list = byPos.get(pos);
+    if (!list) byPos.set(pos, (list = []));
+    list.push(expr);
+  }
+  return t.objectExpression(
+    [...byPos].map(([pos, exprs]) =>
+      t.objectProperty(
+        t.stringLiteral(pos),
+        exprs.length === 1 ? exprs[0] : t.arrayExpression(exprs)
+      )
+    )
+  );
 }
 
 /**

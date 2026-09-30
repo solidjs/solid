@@ -28,7 +28,9 @@ import {
   unwrapOverride,
   CONFIG_AUTHORITATIVE_READ,
   CONFIG_HELD_TRUTH,
-  CONFIG_OPTIMISTIC
+  CONFIG_OPTIMISTIC,
+  CONFIG_OVERRIDE_SUPERSEDED,
+  REACTIVE_RECOMPUTING_DEPS
 } from "../../core/constants.js";
 import {
   context,
@@ -308,6 +310,8 @@ export function getNode(
     //    committed is the held view `hv[key]`, staged is `v[key]`.
     const fold = heldFoldTransition(target);
     let held = heldAdoptionTransition(target);
+    // A key the adoption left unchanged is not born holding (#3706).
+    if (held !== null && !heldKey(target, key)) held = null;
     if (held !== null) current = (target.hv as any)[key];
     else if ((held = fold) !== null) current = (target.v as any)[key];
     // Create-floor diet: slotSignal bakes the whole node into one literal —
@@ -435,6 +439,51 @@ function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
   return true;
 }
 
+// #3706: the keys an adoption under a live hold changed against the held
+// view — the adoption twin of `wk` (#3688), keyed on the target. adoptPB
+// records `[adopted object]`; the keys are diffed against IT, once, on the
+// first held read (its children are re-pointed by then), and replace the
+// entry. Never against the live backing — a mainline write during the hold
+// replaces that, and its key is not the adoption's. WK_ALL holds the whole
+// container.
+const heldKeys = new WeakMap<StoreNextTarget, [object] | Set<PropertyKey>>();
+
+function heldKey(target: StoreNextTarget, key: PropertyKey): boolean {
+  let keys = heldKeys.get(target)!;
+  if (Array.isArray(keys)) heldKeys.set(target, (keys = adoptionChangedKeys(target, keys[0])));
+  return keys === WK_ALL || keys.has(key);
+}
+
+function adoptionChangedKeys(target: StoreNextTarget, v: any): Set<PropertyKey> {
+  const hv = target.hv!;
+  // A chained backing, an optimistic family, a chained held view, a swapped
+  // or non-plain prototype (inherited accessors read through `this`): whole.
+  if (
+    v[$TARGET] !== undefined ||
+    target.fam?.opt === true ||
+    (hv as any)[$TARGET] !== undefined ||
+    Object.getPrototypeOf(hv) !== Object.getPrototypeOf(v) ||
+    !plainProto(v)
+  )
+    return WK_ALL;
+  const keys = new Set<PropertyKey>();
+  // Accessors are never invoked: they and a flipped enumerability are changes.
+  for (const key of Reflect.ownKeys(hv))
+    if (
+      !hasOwn.call(v, key) ||
+      isOwnAccessor(hv, key) ||
+      isOwnAccessor(v, key) ||
+      propertyIsEnumerable.call(hv, key) !== propertyIsEnumerable.call(v, key) ||
+      !(
+        isEqual(hv[key as any], v[key as any]) ||
+        sameLogicalSlot(target, hv[key as any], v[key as any])
+      )
+    )
+      keys.add(key);
+  for (const key of Reflect.ownKeys(v)) if (!hasOwn.call(hv, key)) keys.add(key);
+  return keys;
+}
+
 function stageHeldKey(node: Signal<any>, nv: any, txn: Transition): void {
   if (slotNodeEquals.call(node, node._value, nv)) return;
   node._pendingValue = nv;
@@ -531,6 +580,25 @@ export function getHasNode(
     markDescendants(target);
   }
   return node;
+}
+
+/** Did `obs` link `target`'s key-set node in its CURRENT pass? The mirror of
+ * link()'s O(1) repeat-touch check: the node's newest subscriber link is
+ * this observer's, and — during a recompute — carries this pass's dep
+ * generation (a link left from a previous pass is stale: the observer may
+ * not re-read the key set this time). No dep-list scan, no allocation. A
+ * probe observer (isPending()/latest() sentinel) never links, so it always
+ * falls through to the presence read. */
+function observerHoldsKeySet(target: StoreNextTarget, obs: Owner): boolean {
+  const k = target.k;
+  if (k === null) return false;
+  const l = k._subsTail;
+  return (
+    l !== null &&
+    l._sub === obs &&
+    (!((obs as Computed<any>)._flags & REACTIVE_RECOMPUTING_DEPS) ||
+      l._gen === (obs as Computed<any>)._depGen)
+  );
 }
 
 export function getKeySetNode(target: StoreNextTarget): Signal<number> {
@@ -637,6 +705,24 @@ function cloneRaw(source: Record<PropertyKey, any>, t: StoreNextTarget): Record<
   return clone;
 }
 
+/** Shallow copy of a WIDE plain-data (sc 2) backing for the overlay rebuild
+ * (#3689). Own keys land on a null-prototype object — V8 creates those in
+ * dictionary mode, so the copy is O(keys) hash inserts — and the prototype
+ * is attached after. A spread builds a fast-mode object one map transition
+ * per key; from a source in dictionary mode (a backing that took deletes)
+ * whose key order differs from the last copy's, every transition is a fresh
+ * map with an O(keys) descriptor copy: measured 270 µs vs 28 µs at 400 keys,
+ * 1.3 ms vs 75 µs at 1000. Narrow, stable-shaped backings keep the spread
+ * (cloneRaw): there the clone IC copies the property store at once and is
+ * 3–8× cheaper than any per-key loop. */
+function wideClone(source: Record<PropertyKey, any>, t: StoreNextTarget): Record<PropertyKey, any> {
+  const clone = Object.create(null);
+  for (const key of Reflect.ownKeys(source)) clone[key] = source[key as any];
+  Object.setPrototypeOf(clone, Object.prototype);
+  clone[$OWNER] = t;
+  return clone;
+}
+
 /** Copy own `key` from `from` onto `to`. A plain data slot (enumerable,
  * writable, configurable, no accessor) is a bare assignment — the common case
  * and the cheap one; anything else goes through defineProperty so accessors
@@ -678,22 +764,70 @@ function scanAccessorsOnce(target: StoreNextTarget): boolean {
  * prototype); above it the clone's O(keys) copy dominates (#3044). */
 const OVERLAY_MIN_KEYS = 32;
 
+/** Overlay commit choice (#3689): flatten in place, or rebuild the backing
+ * (materializePB, then the clone path's swap)? Measured on V8 (Node 26): a
+ * committed backing that has served as an overlay prototype is kept as a
+ * FAST-MODE prototype object up to V8's descriptor limit (1020 own
+ * properties), and there every in-place DELETE is O(keys) — normalize to
+ * dictionary plus re-optimize as a prototype, ~0.08 µs × keys — and every
+ * in-place ADD is a map transition copying the descriptors, ~0.006 µs ×
+ * keys. Detaching the overlay first does not help: prototype-ness is a
+ * property of the object's map. One rebuild (wideClone, deletes, writes) is
+ * ~0.07–0.09 µs × keys — the price of ONE in-place delete. So a fold that
+ * deleted anything, or added more than ~16 keys, commits cheaper rebuilt (a
+ * 400-key record churning 100 keys per commit, 10,000 membership readers:
+ * 4.7 ms → 0.22 ms per step); a pure rewrite of existing keys — the
+ * overlay's home case — stays in place at O(written).
+ * Past the descriptor limit V8 keeps the backing in dictionary mode where
+ * every in-place op is O(1), and a rebuild would be a pure O(keys) loss on
+ * exactly the growing-record pattern the overlay exists for (#3044) — the
+ * count gate keeps those in place. The gate reads `kc`, which the set trap
+ * counts up for keys new to the container and the delete commit counts down. */
+const OVERLAY_REBUILD_MAX_KEYS = 1024;
+const OVERLAY_REBUILD_MIN_ADDS = 16;
+
+function overlayRebuilds(t: StoreNextTarget, pb: Record<PropertyKey, any>): boolean {
+  if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
+  if (t.del !== null && t.del.size !== 0) return true;
+  // Every trap write records its key, so the written-key count bounds the
+  // adds — the common few-key fold (#3044's growing record) answers here
+  // without enumerating the overlay.
+  const wk = t.wk;
+  if (wk !== null && wk !== WK_ALL && wk.size <= OVERLAY_REBUILD_MIN_ADDS) return false;
+  const v = t.v;
+  let adds = 0;
+  for (const key of Reflect.ownKeys(pb))
+    if (!hasOwn.call(v, key) && ++adds > OVERLAY_REBUILD_MIN_ADDS) return true;
+  return false;
+}
+
 /** Downgrade a prototype-overlay pending backing to the clone path: builds
  * the real container (committed + overlay writes − deletes) that fold will
  * SWAP in as the committed backing, exactly as if the draft had started on
  * the clone path. Consumers that need a complete container (reconcile's
- * diff walks, drafts escaping into other storage) call this. */
-export function materializePB(target: StoreNextTarget): void {
-  if (!target.ovl) return;
-  const proto = target.pb!;
-  const clone = cloneRaw(target.v, target);
-  for (const key of Reflect.ownKeys(proto)) copyOwn(clone, proto, key);
+ * diff walks, drafts escaping into other storage) call this, and so does the
+ * commit itself when the fold changed the key set (overlayRebuilds). Returns
+ * the pending backing (the clone, or the pb as-is when not an overlay). */
+export function materializePB(target: StoreNextTarget): Record<PropertyKey, any> {
+  const pb = target.pb!;
+  if (!target.ovl) return pb;
+  const clone = target.sc === 2 ? wideClone(target.v, target) : cloneRaw(target.v, target);
+  // Deletes before writes (#3689): on a fast-mode clone (the descriptor
+  // path) the first delete normalizes it once, and the writes then land as
+  // O(1) dictionary adds instead of O(keys) map transitions each. Order is
+  // free semantically — a rewritten key left `del` at write time, so no
+  // write targets a deleted key.
   if (target.del !== null) {
     for (const key of target.del) delete (clone as any)[key];
+    target.kc -= target.del.size;
     target.del = null;
   }
+  // Plain-data grade (sc 2): bare assignment, as flattenOverlay does.
+  for (const key of Reflect.ownKeys(pb))
+    target.sc === 2 ? ((clone as any)[key] = pb[key as any]) : copyOwn(clone, pb, key);
   target.pb = clone;
   target.ovl = false;
+  return clone;
 }
 
 function ensurePB(target: StoreNextTarget): Record<PropertyKey, any> {
@@ -855,6 +989,7 @@ export function adoptPB(
     if (heldMaskView(target) === null) target.hv = target.v;
     target.ht = activeTransition ?? PLAIN_HOLD;
     if (!eager && activeTransition !== null) heldAdoptions.add(target);
+    heldKeys.set(target, [incoming]);
   }
   target.pb = null;
   // Overlay and accessor-scan state describe the OUTGOING backing — a
@@ -996,6 +1131,7 @@ function flattenOverlay(t: StoreNextTarget, pb: Record<PropertyKey, any>): void 
     t.sc === 2 ? ((v as any)[key] = pb[key as any]) : copyOwn(v, pb, key);
   if (t.del !== null) {
     for (const key of t.del) delete (v as any)[key];
+    t.kc -= t.del.size;
     t.del = null;
   }
   t.pb = null;
@@ -1057,11 +1193,13 @@ function drainFolds(): void {
         foldOlds.set(t, old); // re-queue: commit happens when the hold settles
         continue;
       }
-      if (t.ovl) {
+      if (t.ovl && (t.v !== old || !overlayRebuilds(t, pb))) {
         // Overlay flatten (#3044): the backing keeps its identity, so the
         // `t.v === old` gate below skips path copying (the parent slot
         // already points here) and the adopted-notify (setter notifications
-        // happened at write time).
+        // happened at write time). A backing privatized mid-batch is a fresh
+        // clone, never a prototype — in-place writes into it are cheap, and
+        // the merge branch below is what a materialized pb would need anyway.
         flattenOverlay(t, pb);
       } else if (t.v !== old) {
         // Privatized mid-batch (#3271): an earlier fold in this drain
@@ -1105,7 +1243,10 @@ function drainFolds(): void {
         t.pb = null;
         t.wk = null; // written-keys window closes with the fold commit
       } else {
-        t.v = pb;
+        // An overlay whose fold changed the key set rebuilds (#3689) and
+        // takes the swap like a clone-path draft: the parent slot re-points
+        // in the path copy below.
+        t.v = t.ovl ? materializePB(t) : pb;
         t.ch = false; // pb is always a plain clone
         t.pb = null;
         t.wk = null; // written-keys window closes with the fold commit
@@ -1387,8 +1528,12 @@ function notifyWrites(t: StoreNextTarget): void {
     if (t.ht !== null) t.ht = t.hv = null;
     // Overlay landing (#3352): flatten in place — identity-stable, and
     // privatizeCommitted re-slots the parent itself when it has to clone an
-    // unowned seed, so no path copy is needed.
-    if (t.ovl) return flattenOverlay(t, pb);
+    // unowned seed, so no path copy is needed. A landing that changed the
+    // key set rebuilds instead (#3689) and swaps like a clone-path landing.
+    if (t.ovl) {
+      if (!overlayRebuilds(t, pb)) return flattenOverlay(t, pb);
+      pb = materializePB(t);
+    }
     const oldBacking = t.v;
     t.pb = null;
     t.v = pb;
@@ -1687,7 +1832,10 @@ function foldHeld(target: StoreNextTarget): boolean {
   return false;
 }
 
-function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
+/** The backing a reader is served. `key` (the get/has/descriptor traps)
+ * scopes a fold hold to the keys the fold touched — see pendingBackingVisible —
+ * and an adoption hold to the keys the adoption changed (heldKey). */
+function readSource(target: StoreNextTarget, key?: PropertyKey): Record<PropertyKey, any> {
   // Adoption hold first (#3074): an adoption staged under a live transaction
   // (or a latest()-pull, PLAIN_HOLD) serves the pre-hold committed view to
   // committed-visibility readers — context-free and children-forbidden ones,
@@ -1696,7 +1844,9 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
   const ht = target.ht;
   if (ht !== null && !latestReadActive && !inDraft(target) && !getWriteOverride()) {
     const hv = heldMaskView(target);
-    if (hv !== null) {
+    // A key the adoption left unchanged derives nothing from the hold, for
+    // any reader (#3706): the backing serves it.
+    if (hv !== null && (key === undefined || heldKey(target, key))) {
       const c = readerContext();
       if (
         c === null ||
@@ -1706,7 +1856,7 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
         return hv;
     }
   }
-  return pendingBackingVisible(target, false) ? target.pb! : target.v;
+  return pendingBackingVisible(target, false, key) ? target.pb! : target.v;
 }
 
 /** The single pb-vs-committed visibility decision (#3147), shared by per-key
@@ -1724,7 +1874,11 @@ function readSource(target: StoreNextTarget): Record<PropertyKey, any> {
  * ordinary pending staging regardless of owner context (the documented
  * divergence from context-free per-key reads) — but never through a hold:
  * held truth stays masked exactly as it is for per-key readers. */
-function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): boolean {
+function pendingBackingVisible(
+  target: StoreNextTarget,
+  speculative: boolean,
+  key?: PropertyKey
+): boolean {
   if (target.pb === null) return false;
   // The writer's own channels compose on the pending backing regardless.
   if (inDraft(target) || getWriteOverride()) return true;
@@ -1748,7 +1902,26 @@ function pendingBackingVisible(target: StoreNextTarget, speculative: boolean): b
     if (speculative) return txn === null || ownsHold(txn);
     return target.fam !== null && c === null && !foldHeld(target) && txn === null;
   }
-  return holdVisible(liveFoldTransition(target), c);
+  const txn = liveFoldTransition(target);
+  // A hold changes what a reader of ONE key sees only through the fold's
+  // writes to that key. A key the fold left alone reads the same from either
+  // backing, so a pass reading it derives nothing from the hold: serve
+  // committed, with no transaction entry and no stale replay (#3688 — a memo
+  // reading an unchanged key beside an independent signal was held with
+  // someone else's action). Per-node reads already have this precision (a
+  // node with nothing staged enters nothing; stageHeldKey skips an equal
+  // value); this is the same rule at the container gate. `wk` is the trap's
+  // record of every write and delete this batch (deletes included, on the
+  // overlay and clone paths alike); null (a fold with no trap writes) or
+  // WK_ALL (an array length write) leaves the whole container held. Same
+  // exclusions as heldFoldTransition: an optimistic family's draft is seeded
+  // from node overrides the trap never saw, and a chained backing's
+  // committed layer is a live proxy, not a frozen twin of the clone.
+  if (txn !== null && key !== undefined && !target.ch && target.fam?.opt !== true) {
+    const wk = target.wk;
+    if (wk != null && wk !== WK_ALL && !wk.has(key)) return false;
+  }
+  return holdVisible(txn, c);
 }
 
 /** #3164 fold: HELD truth on an optimistic family — a pending backing
@@ -1854,6 +2027,23 @@ function nodeValue(node: Signal<any>, backing: any): any {
   return v === (FORCE as any) ? backing : v;
 }
 
+/** The override a composed READER view (keys, descriptors, snapshot/deep,
+ * optimisticView) takes from an armed node whose override is active — the
+ * override itself, unless the node's own source superseded it (#3331,
+ * CONFIG_OVERRIDE_SUPERSEDED): then the reader-aware selection `serve`
+ * makes through nodeValue, so the composed view agrees with what `get`,
+ * `in` and `length` serve the same reader (a deriving pass: the staged
+ * truth; a lane pass or a context-free read: the override, A18). Composing
+ * the raw override left Object.keys / snapshot() / deep() one row behind the
+ * traps at a landing whose shape differed from the optimistic frame (F5
+ * parity cases). Draft and authoritative callers never reach here — the
+ * writer composes on hasActiveOverride, truth authors on the backing. */
+export function readerOverride(node: Signal<any>, committed: any): any {
+  return node._config & CONFIG_OVERRIDE_SUPERSEDED
+    ? nodeValue(node, committed)
+    : unwrapOverride(node._x?._overrideValue);
+}
+
 /** §7b: a chained target's child found as a RAW — from its pending backing
  * (a cloneRaw of the inner proxy, whose descriptors yield the inner store's
  * raws) or from the deep() walk's descriptor read through the chain — must
@@ -1897,22 +2087,47 @@ function serveDataKey(
   // §6: on optimistic arrays LENGTH IS A VIEW, not a node value — one home
   // (backing ± presence overrides) for both length and indices makes torn
   // iteration impossible (a length node's value rides different visibility
-  // rails than index overrides mid-settle). The node still carries
-  // subscriptions; its value is never served here.
+  // rails than index overrides mid-settle). The node carries subscriptions;
+  // its committed `_value` is never served here.
   if (key === "length" && target.fam?.opt === true && !chained && Array.isArray(src)) {
     if (!inDraft(target)) {
       const node = target.n?.length;
       if (node !== undefined) {
-        if (getObserver() !== null) readNode(node);
+        // An override-covered length node answers through the node's
+        // reader-aware selection (serve: A17, the lane gate, A18
+        // supersession) with the backing's length as committed — the rule
+        // every index node takes through `get`, so `length` and indices
+        // resolve against ONE rule for this reader. The view composition
+        // below used to answer here and knows nothing of supersession
+        // (#3331): at a landing whose length differs from the optimistic
+        // frame, mapArray's tracked `length` (the get trap's node path) saw
+        // the staged truth while its untracked `slice` inside its owner saw
+        // the override, so `_items` came up short and the next pass keyed an
+        // undefined row (F5, optimistic-list-mutation-matrix `differ`).
+        if (getObserver() !== null) {
+          const nv = readNode(node);
+          if (hasActiveOverride(node) && !authoritativeServe())
+            return nv === (FORCE as any) ? (src as any[]).length : nv;
+        } else if (hasActiveOverride(node) && !authoritativeServe()) {
+          return nodeValue(node, (src as any[]).length);
+        }
       } else if (getObserver() !== null) {
         readNode(getNode(target, key, backingValue));
       }
     }
     // Truth authors read the backing's own length — an optimistic row from
     // the caller's transaction must not shift where the author's next write
-    // lands (#3108).
+    // lands (#3108). A tentative draft that has seeded its backing from the
+    // view already carries the overrides in `src` (the draft arm every other
+    // channel gates on draftSeesOverrides — `get`, `has`, visibleKeys,
+    // snapshotWalk, #3665): composing them again put a slot the draft had
+    // just spliced out back on top of its shrunken backing, so `length` read
+    // one too long mid-splice and the second splice left a hole (F3,
+    // optimistic-list-mutation-matrix "move head->tail + move middle").
     return (
-      (authoritativeServe() ? src : optHooks!.optimisticView(target, src, inDraft(target))) as any[]
+      (authoritativeServe() || (inDraft(target) && !draftSeesOverrides(target))
+        ? src
+        : optHooks!.optimisticView(target, src, inDraft(target))) as any[]
     ).length;
   }
   if (inDraft(target)) {
@@ -2041,7 +2256,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // memo parity for latest() reads through a projection.
     if (target.fam !== null && latestReadActive && !inDraft(target) && !getWriteOverride())
       pullProjectionForLatest(target);
-    const src = readSource(target);
+    const src = readSource(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
     if (target.del !== null && src === target.pb && target.del.has(key)) {
@@ -2196,7 +2411,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
         !authoritativeServe()
       ) {
         const node = target.n?.[key];
-        if (node !== undefined && visibleOverride(node))
+        // The draft is a WRITER channel (hasActiveOverride's rule): it
+        // composes on the tick's own unflushed adds, as the has trap's draft
+        // arm, visibleKeys and optimisticView do. Reader-gating this arm
+        // (visibleOverride) made a second setter in the same action read
+        // `undefined` where the first had pushed a row (#3665, rc.9).
+        if (node !== undefined && hasActiveOverride(node))
           v = unwrapOverride(node._x?._overrideValue);
       }
       if (target.s) return serveShallow(target, key, v);
@@ -2216,7 +2436,7 @@ const traps: ProxyHandler<StoreNextTarget> = {
     if (key === $OWNER || key === $RECORD) return false;
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
     if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
-    const src = readSource(target);
+    const src = readSource(target, key);
     let present = key in src;
     // Overlay deletes read as absent in the pending view (#3044).
     if (present && target.del !== null && src === target.pb && target.del.has(key)) present = false;
@@ -2229,8 +2449,14 @@ const traps: ProxyHandler<StoreNextTarget> = {
         if (hasActiveOverride(node)) present = !!nv;
       } else if (!authoritativeServe()) {
         const node = target.h?.[key as any];
-        if (node !== undefined && visibleOverride(node))
-          present = !!unwrapOverride(node._x?._overrideValue);
+        // The get trap's untracked selection (nodeValue → serve), so `in`
+        // agrees with the tracked branch above and with `get`: a presence
+        // override the landing superseded (#3331 — an optimistic delete
+        // whose slot the truth refilled) answers the staged truth for a
+        // deriving reader. Reading the override directly said "absent" while
+        // `get` served the landed row, and HasProperty-driven copies (slice,
+        // spread, map) left a hole (F5 `differ: delete *`).
+        if (node !== undefined && hasActiveOverride(node)) present = !!nodeValue(node, present);
       }
     } else if (target.fam?.opt && draftSeesOverrides(target) && !authoritativeServe()) {
       const node = target.h?.[key as any];
@@ -2256,11 +2482,22 @@ const traps: ProxyHandler<StoreNextTarget> = {
     // re-ran for an optimistic add or delete, and an isPending() probe over
     // it witnessed nothing). The value it reports rides the value node's
     // view through visibleDescriptor.
+    //
+    // EXCEPT for an enumerator (#3664): Object.keys / for...in / spread /
+    // Object.entries / JSON.stringify take this trap once per key right
+    // after `ownKeys`, which already subscribed the observer to the key-set
+    // node — and that node bumps on every membership change, committed or
+    // optimistic, so a presence node per key adds nothing the enumerator
+    // can observe (rc.9 birthed one per key per object: ~640 B and a graph
+    // node each, 10x the memory of a 30-key row's reader). When the
+    // observer holds the key-set node in THIS pass, skip the presence read;
+    // a lone descriptor read keeps its per-key precision.
     if (pendingCheckActive) witnessAffectsMark(target as any, key);
-    if (target.fam !== null && getObserver() === null && !inDraft(target)) firewallGate(target);
-    const src = readSource(target);
+    const obs = getObserver();
+    if (target.fam !== null && obs === null && !inDraft(target)) firewallGate(target);
+    const src = readSource(target, key);
     const desc = visibleDescriptor(target, src, key);
-    if (!inDraft(target) && getObserver() !== null) {
+    if (!inDraft(target) && obs !== null && !observerHoldsKeySet(target, obs)) {
       // The node is born from the source's presence (as `has` births it),
       // not the override-adjusted answer.
       let present = key in src;
@@ -2305,10 +2542,12 @@ const traps: ProxyHandler<StoreNextTarget> = {
       }
     } else {
       if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
-      // Live own-key estimate for the overlay/clone choice (#3360): `in`
-      // sees through an overlay to the committed keys, so this counts keys
-      // NEW to the container. Deletes are not un-counted (a stale high
-      // count only picks the overlay a little early).
+      // Live own-key estimate for the overlay/clone choice (#3360) and the
+      // overlay's commit choice (#3689): `in` sees through an overlay to the
+      // committed keys, so this counts keys NEW to the container. Overlay
+      // deletes are counted down when they commit (`del` is exact); clone-
+      // path deletes are not (a stale high count on a narrow container only
+      // picks the overlay a little early).
       if (!(key in pb)) target.kc++;
     }
     // Own data keys literally named "prototype"/"constructor" land as data —
@@ -2591,7 +2830,13 @@ function visibleKeys(target: StoreNextTarget, src: Record<PropertyKey, any>): (s
       const node = target.h[key as any];
       if (!(draft ? hasActiveOverride(node) : visibleOverride(node))) continue;
       set ??= new Set(keys);
-      if (unwrapOverride(node._x?._overrideValue)) set.add(key);
+      // Reader arm: a superseded presence override answers as `in` does
+      // (readerOverride, #3331) — Object.keys listed one row fewer than the
+      // traps served after a landing refilled an optimistically deleted slot.
+      const present = draft
+        ? unwrapOverride(node._x?._overrideValue)
+        : readerOverride(node, set.has(key));
+      if (present) set.add(key);
       else set.delete(key);
     }
     if (set !== null) return [...set] as (string | symbol)[];
@@ -2614,14 +2859,34 @@ function visibleDescriptor(
     if (target.del !== null && target.del.has(key)) return undefined;
     if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
   }
-  if (!authoritativeServe() && target.fam?.opt && !inDraft(target)) {
+  // Draft arm, the twin of visibleKeys' (#3665): a draft still composing on
+  // the live view (no view-seeded backing yet) serves the writer rule
+  // (hasActiveOverride); once ensurePB has seeded the draft's own backing,
+  // `src` carries the view. Without it ownKeys listed a key the descriptor
+  // reported absent, and every enumerator — Object.keys, spread, entries,
+  // JSON.stringify, deep() — dropped the row a previous setter had added.
+  const draft = inDraft(target);
+  if (!authoritativeServe() && target.fam?.opt && (!draft || draftSeesOverrides(target))) {
     const node = target.h?.[key as any];
-    if (node !== undefined && visibleOverride(node)) {
-      if (!unwrapOverride(node._x?._overrideValue)) return undefined; // opt delete
+    if (node !== undefined && (draft ? hasActiveOverride(node) : visibleOverride(node))) {
+      // Reader arm: presence as `in` serves it (readerOverride, #3331).
+      const present = draft
+        ? unwrapOverride(node._x?._overrideValue)
+        : readerOverride(node, desc !== undefined);
+      if (!present) return undefined; // opt delete
       if (desc === undefined) {
         const vn = target.n?.[key as any];
         return {
-          value: vn !== undefined ? nodeValue(vn, undefined) : undefined,
+          // In a draft the value is the override itself (nodeValue routes
+          // through serve — the reader rule — and would answer undefined).
+          value:
+            vn === undefined
+              ? undefined
+              : draft
+                ? hasActiveOverride(vn)
+                  ? unwrapOverride(vn._x?._overrideValue)
+                  : undefined
+                : nodeValue(vn, undefined),
           writable: true,
           enumerable: true,
           configurable: true
@@ -2775,8 +3040,17 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreNextFamily |
   // object and snapshots via the owned/copy path (pinned `not.toBe` identity).
   if (optOwners !== null) {
     let view: any = src;
-    for (let i = optOwners.length - 1; i >= 0; i--)
-      view = optHooks!.optimisticView(optOwners[i], view);
+    for (let i = optOwners.length - 1; i >= 0; i--) {
+      const o = optOwners[i];
+      // Draft twin (#3665): deep()/snapshot() inside a setter is the writer's
+      // channel and composes on the tick's own unflushed adds
+      // (hasActiveOverride). A draft that has seeded its own backing from
+      // the view already carries them in `src` — composing again would
+      // clobber the draft's later writes with the overrides they superseded.
+      const draft = inDraft(o);
+      if (draft && !draftSeesOverrides(o)) continue;
+      view = optHooks!.optimisticView(o, view, draft);
+    }
     if (view !== src) {
       const cachedView = seen.get(src);
       if (cachedView !== undefined) return cachedView;

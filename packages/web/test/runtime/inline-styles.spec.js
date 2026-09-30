@@ -9,7 +9,7 @@
  * gating since a parsed <style> is already applied.
  */
 import * as r from "../../src/server.js";
-import { sharedConfig } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 
 globalThis.TextEncoder = function () {
   return { encode: v => v };

@@ -15,7 +15,7 @@ import {
   ownerId
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
-import { sharedConfig, NoHydrateContext } from "./shared.js";
+import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
 import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
 import type { BoundaryEvent, BoundaryLive } from "./observe.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
@@ -323,7 +323,12 @@ function ssrLoadingBoundary(
           // The server error hook hears of it here, before the channel
           // carries it (the `_fr` rejection, a transport sink's error chunk
           // read the verdict the hook decides).
-          reportServerError(err, { kind: "render", handling: "client", boundary: id }, o);
+          reportServerError(
+            err,
+            { kind: "render", handling: "client", boundary: id },
+            o,
+            ctx.errorPolicy
+          );
           streamedOnError = done(undefined, err);
           throw err;
         }
@@ -366,7 +371,13 @@ function ssrLoadingBoundary(
       // when it delivers) and the failure is met next by the parent handler
       // — an <Errored> rendering its fallback — or fails the request below.
       const streamed = ctx.flushed !== undefined && ctx.flushed();
-      if (streamed) reportServerError(err, { kind: "render", handling: "client", boundary: id }, o);
+      if (streamed)
+        reportServerError(
+          err,
+          { kind: "render", handling: "client", boundary: id },
+          o,
+          ctx.errorPolicy
+        );
       if (done(undefined, err)) {
         reportRouted(err, "client");
         record("error", true, err);
@@ -376,7 +387,12 @@ function ssrLoadingBoundary(
     record("error", false, err);
     if (!parentHandler) {
       reportRouted(err, "failed");
-      reportServerError(err, { kind: "render", handling: "failed", boundary: id }, o);
+      reportServerError(
+        err,
+        { kind: "render", handling: "failed", boundary: id },
+        o,
+        ctx.errorPolicy
+      );
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
     }
@@ -385,7 +401,12 @@ function ssrLoadingBoundary(
     } catch (caught) {
       if (caught !== err) {
         reportRouted(caught, "failed");
-        reportServerError(caught, { kind: "render", handling: "failed", boundary: id }, o);
+        reportServerError(
+          caught,
+          { kind: "render", handling: "failed", boundary: id },
+          o,
+          ctx.errorPolicy
+        );
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
     }
@@ -626,6 +647,20 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
     setContext(NoHydrateContext, true);
     return props.children;
   }) as unknown as SolidElement;
+}
+
+/** Server: always `false` — nothing is claimed here. See the client entry. */
+export function isHydrating(): boolean {
+  return false;
+}
+
+/**
+ * Server: whether the caller's owner belongs to a render in progress and is
+ * not under `<NoHydration>` (or is back under a nested `<Hydration>`). See
+ * the client entry.
+ */
+export function isHydratable(): boolean {
+  return !!callerRenderContext() && !getContext(NoHydrateContext);
 }
 
 /**

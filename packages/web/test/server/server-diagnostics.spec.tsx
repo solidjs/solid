@@ -35,14 +35,8 @@ import {
   renderToString,
   useHead
 } from "@solidjs/web";
-import {
-  OBSERVE,
-  createMemo,
-  lazy,
-  NotReadyError,
-  sharedConfig,
-  type DiagnosticEvent
-} from "solid-js";
+import { OBSERVE, createMemo, lazy, NotReadyError, type DiagnosticEvent } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import type { JSX } from "@solidjs/web";
 
 function delay(ms: number) {
@@ -268,6 +262,52 @@ describe("SSR_STREAM_ABANDONED (wiring)", () => {
     expect(event.data!.pendingFragments).toBe(1);
     expect(event.message).toContain("(sink)");
     expect(event.ownerPath).toBeUndefined();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  test("the request's signal aborting records the disconnect, and nothing more reaches the sink", async () => {
+    const never = new Promise<string>(() => {});
+    function Slow() {
+      const stuck = createMemo(async () => never);
+      return <p>{stuck()}</p>;
+    }
+    const controller = new AbortController();
+    let writes = 0;
+    let ended = 0;
+    renderToStream(
+      () => (
+        <html>
+          <body>
+            <Loading fallback={<i>loading</i>}>
+              <Slow />
+            </Loading>
+          </body>
+        </html>
+      ),
+      { signal: controller.signal }
+    ).pipe({
+      write() {
+        writes++;
+      },
+      end() {
+        ended++;
+      }
+    });
+    await delay(10);
+    expect(writes).toBeGreaterThan(0);
+    const before = writes;
+
+    controller.abort();
+    await delay(10);
+    const [event, ...rest] = byCode("SSR_STREAM_ABANDONED");
+    expect(rest).toHaveLength(0);
+    expect(event.data!.reason).toBe("signal");
+    expect(event.data!.pendingFragments).toBe(1);
+    expect(event.data!.shellFlushed).toBe(true);
+    expect(event.message).toContain("(signal)");
+    // A disconnect: the sink is never touched again, not even to end it.
+    expect(writes).toBe(before);
+    expect(ended).toBe(0);
     expect(error).not.toHaveBeenCalled();
   });
 

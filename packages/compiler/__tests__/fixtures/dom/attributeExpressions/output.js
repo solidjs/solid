@@ -110,12 +110,12 @@ _$spread(_el$2, [
 		}
 	}
 ], true);
+_$claimElement(_el$3);
+_$className(_el$3, { "ccc ddd": true });
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 	return _ref$;
 }, _el$3) : link = _el$3;
-_$claimElement(_el$3);
-_$className(_el$3, { "ccc ddd": true });
 const template = _el$;
 var _el$4 = _tmpl$2();
 var _el$5 = _el$4.firstChild;

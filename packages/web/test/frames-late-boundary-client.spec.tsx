@@ -24,6 +24,7 @@
 // delivers it, and stream into that same element afterwards.
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, enableHydration, flush, Loading } from "solid-js";
+import { dynamic } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
@@ -43,6 +44,8 @@ const FID = "late/feed";
 // Distinct ids per test: a boundary is claimable exactly once per page.
 const FID_HELD = "late/held";
 const FID_EXHAUSTED = "late/exhausted";
+const FID_DEFERRED = "late/deferred";
+const FID_MISSED = "late/missed";
 
 /** A pending `<id>_fr` declaration as the serializer writes it: an unsettled
  *  promise ref — the ledger reads `.s` for settlement, never awaits it. */
@@ -269,6 +272,112 @@ describe("boundary that arrives after the shell flush", () => {
     // A client-owned frame for the id, ready to take the stream a call fills
     // it with — rather than a permanently pending boundary.
     expect(mount.querySelectorAll(`solid-frame[data-fid="${FID_EXHAUSTED}"]`).length).toBe(1);
+
+    dispose();
+  });
+
+  // The same moment seen from a CALL rather than a placeholder: a source
+  // that calls the server function (`dynamic(() => feed())`) while the
+  // boundary is still on its way. The intercept's answer is "not yet", not
+  // "no": a deferred local answer that lands with the reveal — fetching
+  // would render on the wire what the document is already streaming.
+  test("a call for a boundary still arriving is answered when it lands, without a fetch", async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    (window as any)._$HY = { r: {}, fe() {} };
+    enableHydration();
+    declareFragment("1902");
+    vi.stubGlobal("fetch", () => {
+      throw new Error("fetch must not be called while the boundary is arriving");
+    });
+    const host = makeHost();
+    installServerComponents(host);
+
+    const feed = createServerReference(FID_DEFERRED);
+    const Feed = dynamic(() => feed());
+    const appEl = document.getElementById("app") as HTMLElement;
+    let mount!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={mount}>
+        <Loading fallback={<span>fallback</span>}>
+          <Feed />
+        </Loading>
+      </div>;
+      appEl.appendChild(mount);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    // Pending on the document's answer: the fallback stands, nothing fetched.
+    expect(mount.textContent).toBe("fallback");
+
+    swapIn(
+      mount,
+      `<solid-frame data-fid="${FID_DEFERRED}" style="display:contents"><ul><li>server-item</li></ul></solid-frame>`
+    );
+    flush();
+    await settle();
+    flush();
+    await settle();
+    flush();
+
+    // Landed: the call resolved to the binding and the mount adopted the
+    // server's element (one frame, the swapped-in one).
+    const frames = mount.querySelectorAll(`solid-frame[data-fid="${FID_DEFERRED}"]`);
+    expect(frames.length).toBe(1);
+    expect(frames[0].textContent).toContain("server-item");
+    expect(mount.textContent).not.toContain("fallback");
+
+    dispose();
+  });
+
+  // ...and when the page runs out of reveals without delivering it, the
+  // deferred answer is a miss after all: the call goes to the wire.
+  test("a call for a boundary that never arrives fetches once the page is exhausted", async () => {
+    document.body.innerHTML =
+      '<div id="app"><template id="pl-1902"></template>fallback<!--pl-1902--></div>';
+    (window as any)._$HY = { r: {}, fe() {}, done: true };
+    enableHydration();
+    declareFragment("1902");
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", async (input: any) => {
+      fetched.push(typeof input === "string" ? input : input.url);
+      return frameResponse(FID_MISSED, "<ul><li>fetched-item</li></ul>");
+    });
+    const host = makeHost();
+    installServerComponents(host);
+
+    const feed = createServerReference(FID_MISSED);
+    const Feed = dynamic(() => feed());
+    const appEl = document.getElementById("app") as HTMLElement;
+    let mount!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={mount}>
+        <Loading fallback={<span>fallback</span>}>
+          <Feed />
+        </Loading>
+      </div>;
+      appEl.appendChild(mount);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    expect(fetched).toEqual([]);
+
+    // The last reveal carried someone else's content.
+    swapIn(mount, "<span>unrelated</span>");
+    flush();
+    await settle();
+    flush();
+    await settle();
+    flush();
+
+    expect(fetched).toHaveLength(1);
+    await settle();
+    flush();
+    expect(mount.querySelectorAll(`solid-frame[data-fid="${FID_MISSED}"]`).length).toBe(1);
+    expect(mount.textContent).toContain("fetched-item");
 
     dispose();
   });

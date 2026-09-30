@@ -196,7 +196,7 @@ before returning.
 
 An earlier uncaught error halted the reactive system; subsequent updates are
 ignored. Do not treat this code as the bug — find the original error above
-it (or add an error boundary via `createErrorBoundary`/`<Errored>`) and fix
+it (or add an error boundary with `<Errored>`) and fix
 that.
 
 ### INVARIANT_VIOLATION
@@ -629,7 +629,12 @@ them as `artifact.attribution.feedback` / `.costs` already.
   fast or preload it on hover/intent; a route that is always `redirected`
   into is paying a hop the link could skip. `attribution.history("navigation")`
   lists each navigation with its `outcome`, its `redirects` (the abandoned
-  destinations) and, when held, the `HoldEvent` itself.
+  destinations) and, when held, the `HoldEvent` itself. The first entry is
+  the route the document arrived on when the router declares it (`initial:
+true` on the ref, around its initial match): `initial: true`, `writes: 0`,
+  `at` the time origin — a declaration of the route, not a wait, and not a
+  row in this table. On the server the same declaration is `RenderEvent.route`
+  on the request's `"render"` record.
 - `flights` — one row per async source: `flights` started, `landed`,
   `abandoned` (superseded by a newer flight before landing), `landedMs`,
   `worstMs`. A source with many abandoned flights is re-asking on every
@@ -649,7 +654,8 @@ Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
 The server runtime reports on the same channel, with the same `in <App> ›
 <Page>` line. Two groups. **Findings** (`SSR_RENDER_ERROR_CONTAINED`,
 `SSR_SUBTREE_ABANDONED`, `SSR_STREAM_ABANDONED`, `LATE_HEADER_WRITE`,
-`SERVER_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`) are facts about a render
+`DYNAMIC_ASYNC_COMPONENT`, `SERVER_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`)
+are facts about a render
 that exist in observe builds too — an APM sees them in production; in dev
 they print. **Checks** (the rest, `SSR_BOUNDARY_WATERFALL` and
 `SSR_CLIENT_CONTENT_MASKED` included) are dev-only guidance. A captured
@@ -676,9 +682,10 @@ read its own `<Loading>` so its siblings ship independently.
 
 ### SSR_STREAM_ABANDONED
 
-The client went away (`data.reason: "consumer"`) or the sink failed
-(`"sink"`) while `data.pendingFragments` were still rendering; the render was
-torn down. Not an app bug. At volume it is the cost of renders nobody waited
+The client went away (`data.reason: "consumer"`), the sink failed
+(`"sink"`), or the request's `signal` aborted (`"signal"` — `renderToStream`'s
+`signal` option, how a frame-stream response learns its reader is gone) while
+`data.pendingFragments` were still rendering; the render was torn down. Not an app bug. At volume it is the cost of renders nobody waited
 for: make the pending data faster or move it behind navigation.
 
 ### LATE_HEADER_WRITE
@@ -688,6 +695,18 @@ dropped (dev throws instead). `data.method`/`data.name` say which. Move the
 write before the first flush — before any `<Loading>` fallback can ship — or
 before the handler returns; a cookie set from inside a late-streaming
 component never reaches the browser.
+
+### DYNAMIC_ASYNC_COMPONENT
+
+An async `dynamic()` source resolved to a client component function. The
+instance memo serializes its landing for the client to adopt (#3666) and a
+function has no encoding, so the memo rejects with this message in every
+tier (the nearest `<Errored>` / `onError` contains it) instead of leaving
+the client pending or re-running the source under the boundary — the
+phantom-fallback bug the adoption fixed. `data.component` names the
+function. Move the async upstream (a `createAsync`/`createMemo` the source
+reads synchronously) or use `lazy()` for code; a server component or a tag
+name may stay async.
 
 ### SERVER_ERROR_SANITIZED
 
@@ -761,6 +780,16 @@ for the wait, then a client render. Give the client-only read its own
 read it before the async data so the boundary hands off on its first pass
 (no finding for that case).
 
+### SSR_UNDECLARED_LIVE_SOURCE
+
+A server component rendered into a document read an async iterable that
+was still producing `data.afterMs` (5s) later: an undeclared unbounded
+source pumps into the document and holds it open for as long as it
+produces. Declare the server function `live(...)` — the document then takes
+each source's first value and closes it, and the client connects for the
+rest after hydration — or bound the source. Frame-stream renders (a live
+connection) are never judged.
+
 ### LAZY_ASSET_UNMAPPED
 
 A `lazy()` component's client chunk could not be resolved for the page
@@ -814,14 +843,32 @@ JavaScript or through a cast. Fix: call the function at the hole
 (`{renderHead()}` — a call hole is scoped on both sides) or assign the built
 value first and insert that.
 
-### BEHAVIOR_CLAIM_DROPPED
+### ATTRIBUTE_SLOT_POSITION
 
-A behavior position (an event handler) on a server-rendered element got
-something the wire cannot carry: a client prop through a spread
-(`data.reason: "spread"` — write the position out, `onClick={props.x}`) or a
-function that exists only on the server (`"server-local"` — pass it from the
-client through the server component's props, or bind a mutation to
-`action=`).
+An attribute slot's property (`const row = props.row(args); row.done`)
+landed where the server template cannot bind it. The rule: a slot property
+is a JSX attribute value, whole, and nothing else. `data.reason`:
+`"spread"` (throws — the slot's whole return spread onto an element; name
+each position instead), `"stringified"` (coerced into a string — a template
+literal, a concatenation), `"coerced"` (used in an expression — a
+comparison, arithmetic, a branch on its result; the server has no value to
+compute with, so decide in the client fill and return the decided value),
+`"inline"` (reached `class`/`style` inside template quotes — the element
+was compiled without the `serverComponents` compiler option), `"text"`
+(placed as text, not a bindable position yet), `"markup"` (read off a slot
+whose client fill returned content, not an object), `"server-local"` (a
+`ref`/`on*` position got a plain server function — bind a slot property or
+an `action=`), `"reserved-key"` (the fill's object used a key the slot's
+range occupies), `"orphan"` (client, kind `render`: an element carries
+markers for an occurrence that can never bind — `data.why` `"fill"`, no
+client fill for the prop; `"record"`, a called occurrence with no args
+record once none can arrive, which is the protocol out of step — client
+and server from different builds — not a fill mistake). For
+`stringified`/`coerced`/`inline`/`text` NOTHING
+renders at the position on either face, so the misuse shows on the first
+render, not the first refetch. Truthiness (`if (row.done)`) has no hook and
+is the one misuse only the rule catches — a stand-in is always truthy.
+The fuller guide is `@solidjs/web`'s `skills/server-components/SKILL.md`.
 
 ## Verifying a fix
 

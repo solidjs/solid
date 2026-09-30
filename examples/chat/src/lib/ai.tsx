@@ -26,12 +26,14 @@
 //     writes) and materializes on the client as a live read-only store:
 //     `<Status>` reads `props.usage.tokens` like local state and each
 //     field updates granularly, no re-shipping, no domain keys.
-//   - BEHAVIOR: `copy={…}` is a client FUNCTION passed as a prop. The
-//     server puts it in an event position on an intrinsic element
-//     (`onClick={props.copy}` on each code block's copy button, inside the
-//     streaming hole) — the markup carries a claim marker naming the prop
-//     and the browser's delegation resolves it through this frame's live
-//     props at dispatch (Stage 6). No client component wraps the button.
+//   - BEHAVIOR: `codeBlock` is an ATTRIBUTE slot (principles §9.2.3): the client
+//     fill returns an object — `{ onCopy }` — and the server reads its
+//     properties at positions (`onClick={block.onCopy}` on each code block's
+//     copy button, inside the streaming hole). The markup carries a marker
+//     per bound position naming the occurrence and key; the client binds
+//     the handler on every button the markup has, and rebinds as holes
+//     re-emit. One occurrence serves every block. No client component
+//     wraps the button.
 //
 // Slots render as JSX (`<props.status …/>`), never as calls: the compiler
 // wraps each prop in a getter, so reads defer to the slot border where the
@@ -40,7 +42,7 @@
 // cases. (To hand the client the async value ITSELF — the raw promise or
 // iterable, consumer-controlled — wrap it in `asyncArg` instead.)
 import { createMemo, createProjection, Loading } from "solid-js";
-import { type Slot } from "@solidjs/web/frames";
+import { type AttributeSlot, type Slot } from "@solidjs/web/frames";
 import { Marked } from "marked";
 import hljs from "highlight.js/lib/core";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -65,11 +67,11 @@ const escapeHtml = (text: string) => text.replace(/[&<>]/g, c => HTML_ESCAPES[c]
  * Split the markdown into PROSE and CODE segments. Prose renders as opaque
  * HTML (`innerHTML` — the browser never parses markdown), but code blocks
  * come back as JSX so each can carry a copy BUTTON — an element the server
- * renders with behavior from the client (Stage 6): `onClick={props.copy}`
- * on a server intrinsic mints a `_bnd` marker naming the client prop, and
- * the browser's event delegation resolves it through the mounted frame's
- * live props at dispatch. No client component wraps the block; the handler
- * reads the code off the DOM it was clicked in.
+ * renders with behavior from the client: `onClick={block.onCopy}` reads a
+ * attribute slot's property at an event position, which marks the button
+ * (`_s:on:click="codeBlock:onCopy"`) for the client to bind. No client
+ * component wraps the block; the handler reads the code off the DOM it was
+ * clicked in.
  */
 function segmentsOf(md: string) {
   const tokens = marked.lexer(md);
@@ -132,6 +134,9 @@ function closePartial(md: string): string {
 
 export type StatusSlot = Slot<{ progress: string; stats: Stats; usage: Usage }>;
 export type CopyHandler = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
+/** The client's behavior for a code block: one attribute slot, called once per
+ *  reply (no args), read at every copy button's `onClick`. */
+export type CodeBlockSlot = AttributeSlot<{}, { onCopy: CopyHandler }>;
 
 /**
  * The generation's structured face as a live STORE (DR-2 case 3): a
@@ -156,7 +161,7 @@ function usageStore(gen: Generation) {
 
 export async function reply(prompt: string) {
   const gen = generate(prompt);
-  return (props: { status: StatusSlot; copy: CopyHandler }) => {
+  return (props: { status: StatusSlot; codeBlock: CodeBlockSlot }) => {
     // Async values read through memos: `progress()` is the iterable's
     // latest yield, `stats()` the promise's resolution (not-ready until it
     // lands). The same reads would feed markup holes — here they feed the
@@ -164,9 +169,12 @@ export async function reply(prompt: string) {
     const progress = createMemo(() => gen.progress);
     const stats = createMemo(() => gen.stats);
     const usage = usageStore(gen);
+    // The data context for every code block in this reply: one call, one
+    // occurrence; its properties bind wherever the markup reads them.
+    const block = props.codeBlock();
     return (
       <section class="reply">
-        <Message text={gen.text} copy={props.copy} />
+        <Message text={gen.text} block={block} />
         <props.status progress={progress()} stats={stats()} usage={usage} />
       </section>
     );
@@ -189,13 +197,14 @@ export async function reply(prompt: string) {
  */
 export async function welcome() {
   const gen = greet();
-  return (props: { status: StatusSlot; copy: CopyHandler }) => {
+  return (props: { status: StatusSlot; codeBlock: CodeBlockSlot }) => {
     const progress = createMemo(() => gen.progress);
     const stats = createMemo(() => gen.stats);
     const usage = usageStore(gen);
+    const block = props.codeBlock();
     return (
       <section class="reply">
-        <Message text={gen.text} copy={props.copy} />
+        <Message text={gen.text} block={block} />
         <props.status progress={progress()} stats={stats()} usage={usage} />
       </section>
     );
@@ -216,21 +225,20 @@ export async function welcome() {
  * motivates an eventual patch format for hole re-emissions: streamed text is
  * append-mostly, so a prefix-check could ship just the tail.)
  */
-function Message(props: { text: AsyncIterable<string>; copy: CopyHandler }) {
+function Message(props: { text: AsyncIterable<string>; block: { onCopy: CopyHandler } }) {
   const text = createMemo(() => props.text);
   return (
     <Loading fallback={<p class="typing">▍</p>}>
       <div class="md">
         {segmentsOf(closePartial(text())).map(segment =>
           segment.code ? (
-            // Behavior from the client on a server element (Stage 6):
-            // `props.copy` is the client-passed handler; this position
-            // compiles to a `_bnd` claim marker that rides every hole
-            // re-emission, so the button works mid-stream and keeps
-            // working after each morph. The handler reads its code from
-            // the DOM at dispatch — delegation, not per-block wiring.
+            // Behavior from the client on a server element: `block.onCopy`
+            // is an attribute-slot read at an event position, so this button
+            // carries a marker that rides every hole re-emission — the
+            // client binds it mid-stream and rebinds after each morph.
+            // The handler reads its code from the DOM at dispatch.
             <div class="code-block">
-              <button class="copy-code" type="button" onClick={props.copy}>
+              <button class="copy-code" type="button" onClick={props.block.onCopy}>
                 Copy
               </button>
               <pre>

@@ -14,7 +14,7 @@
 // frames/dist/server.* each carry their own copy of this file) and a
 // subscriber must be reached by an invocation observed in any of them; the
 // channel is the core's, process-wide.
-import { sharedConfig } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import {
   frameCensus,
   isDeferredBody,
@@ -25,8 +25,10 @@ import {
   type InvocationEvent,
   type InvocationLive,
   type RenderEvent,
-  type RenderLive
+  type RenderLive,
+  type RenderRoute
 } from "./observe.js";
+import type { NavigationRef } from "solid-js";
 import { traceForEvent, type TraceRecord } from "./trace.js";
 import type { RequestEvent } from "./server.js";
 
@@ -61,6 +63,13 @@ export interface RenderObservation {
   shell(): void;
   /** A `<Loading>` boundary the shell waited on settled: counts it (`boundaries`). */
   boundary(): void;
+  /**
+   * The router declared the render's route (`_declareRoute` on the render
+   * context): keeps the ref, read at `settle` into `RenderEvent.route`. A
+   * later declaration replaces an earlier one (a router remounted by a
+   * boundary's second pass describes the same route again).
+   */
+  route(ref: NavigationRef): void;
   /** The render ended; delivers the record. Once. */
   settle(outcome: RenderEvent["outcome"]): void;
 }
@@ -88,6 +97,7 @@ export function observeRender(
   };
   trace.render = record;
   let settled = false;
+  let route: NavigationRef | undefined;
   return {
     shell() {
       // Once, and never on a delivered record (a render wound down as its
@@ -97,11 +107,22 @@ export function observeRender(
     boundary() {
       if (!settled) record.boundaries++;
     },
+    route(ref) {
+      if (!settled) route = ref;
+    },
     settle(outcome) {
       if (settled) return;
       settled = true;
       record.durationMs = performance.now() - record.at;
       record.outcome = outcome;
+      if (route !== undefined) {
+        // The ref's getters answer as of now — the router's final match.
+        const r: RenderRoute = {};
+        if (route.name !== undefined) r.name = route.name;
+        if (route.to !== undefined) r.to = route.to;
+        if (route.params !== undefined) r.params = route.params;
+        record.route = r;
+      }
       const channel = records()!;
       if (!channel.observed("render")) return;
       const live: RenderLive = { trace: trace.context };
@@ -219,8 +240,8 @@ export function observeInvocation<T>(context: InvocationContext, execute: () => 
   // The boundary whose pass is running NOW — a direct call is synchronous
   // up to its first await, so this is the boundary that made it; read here,
   // at the start, since by settle another boundary may be rendering. (The
-  // published `sharedConfig` type is the client's; the server's context
-  // carries the id the boundary set for its pass.)
+  // id the boundary set for its pass is an `@internal` member of the
+  // server's context, absent from its published type.)
   const boundary = context.direct
     ? ((sharedConfig as ServerSharedConfig).context?._currentBoundaryId ?? undefined)
     : undefined;

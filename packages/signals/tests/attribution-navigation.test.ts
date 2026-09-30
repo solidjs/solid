@@ -26,7 +26,7 @@ import {
   OBSERVE
 } from "../src/index.js";
 import type { NavigationRef } from "../src/index.js";
-import type { RerunEvent } from "../src/core/attribution.js";
+import type { NavigationEvent, RerunEvent } from "../src/core/attribution.js";
 import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
 
 // The engine's records arrive on the channel, whose subscriptions are the
@@ -715,5 +715,163 @@ describe("at — a router whose request predates the write it wraps", () => {
     expect(nav.outcome).toBe("held");
     expect(nav.settledMs).toBeGreaterThanOrEqual(waited);
     expect(nav.hold!.origin).toBe(nav.origin);
+  });
+});
+
+describe("interaction — a router that awaited before writing hands the click back", () => {
+  it("joins the write to the interaction captured in the request, not what is on the stack", async () => {
+    const { runs } = arm();
+    const [location, setLocation] = createSignal("/todos", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    // The router's core resolves its loaders outside the graph; by the time
+    // it publishes, the click's frame is gone. It captured the origin in the
+    // handler and declares it on the ref. The handler returns the router's
+    // promise, so the interaction stays open until the write lands.
+    const navigate = () => {
+      const captured = OBSERVE!.attribution.currentOrigin();
+      return wait(5).then(() =>
+        OBSERVE!.attribution.withOrigin(
+          { kind: "navigation", name: "/todos/:id", to: "/todos/7", interaction: captured },
+          () => setLocation("/todos/7")
+        )
+      );
+    };
+    await OBSERVE!.attribution.withInteraction(CLICK, navigate);
+    flush();
+    await until(() => runs.some(r => r.nodeName === "reader"), "the reader's re-run");
+    const nav = attribution.history("navigation").at(-1)!;
+    expect(nav.interaction).toMatchObject({ kind: "interaction", name: "click" });
+    expect(runs.filter(r => r.nodeName === "reader").at(-1)!.causes[0].origin).toMatchObject({
+      kind: "navigation",
+      interaction: { name: "click" }
+    });
+    // And the click's own record lists the navigation it caused.
+    expect(attribution.history("interaction").at(-1)!.navigations).toContain(nav);
+  });
+
+  it("declared beats ambient: an unrelated interaction on the stack does not claim the write", () => {
+    arm();
+    const [location, setLocation] = createSignal("/a", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    let first: ReturnType<typeof OBSERVE.attribution.currentOrigin>;
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "a.first" }, () => {
+      first = OBSERVE!.attribution.currentOrigin();
+    });
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "a.second" }, () => {
+      OBSERVE!.attribution.withOrigin(
+        { kind: "navigation", name: "/b", to: "/b", interaction: first },
+        () => setLocation("/b")
+      );
+    });
+    flush();
+    const nav = attribution.history("navigation").at(-1)!;
+    expect(nav.interaction).toMatchObject({ target: "a.first" });
+  });
+
+  it("a request that ran under no interaction declares none, even when the write lands inside one", () => {
+    arm();
+    const [location, setLocation] = createSignal("/a", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    // Captured outside any interaction (a timer's navigate()): `undefined`,
+    // and the key's presence is the declaration.
+    const outside = OBSERVE!.attribution.currentOrigin();
+    expect(outside).toBeUndefined();
+    OBSERVE!.attribution.withInteraction(CLICK, () => {
+      OBSERVE!.attribution.withOrigin(
+        { kind: "navigation", name: "/b", to: "/b", interaction: outside },
+        () => setLocation("/b")
+      );
+    });
+    flush();
+    expect(attribution.history("navigation").at(-1)!.interaction).toBeUndefined();
+  });
+});
+
+describe("initial — the route the document arrived on", () => {
+  it("settles a no-write declaration as committed at frame close, from the time origin", () => {
+    arm();
+    const seen: NavigationEvent[] = [];
+    on("navigation", e => seen.push(e));
+    const before = performance.now();
+    // What a router does while building its context: match, no write.
+    const built = OBSERVE!.attribution.withOrigin(
+      {
+        kind: "navigation",
+        initial: true,
+        name: "/users/:id",
+        to: "/users/42",
+        params: { id: "42" }
+      },
+      () => "context"
+    );
+    expect(built).toBe("context");
+    expect(seen).toHaveLength(1);
+    const [nav] = seen;
+    expect(nav.initial).toBe(true);
+    expect(nav.at).toBe(0);
+    expect(nav.origin.at).toBe(0);
+    expect(nav.from).toBeUndefined();
+    expect(nav.interaction).toBeUndefined();
+    expect(nav.writes).toBe(0);
+    expect(nav.outcome).toBe("committed");
+    expect(nav.name).toBe("/users/:id");
+    expect(nav.to).toBe("/users/42");
+    expect(nav.params).toEqual({ id: "42" });
+    // Document start → declaration, on the engine's clock.
+    expect(nav.settledMs).toBeGreaterThanOrEqual(before);
+    expect(formatOrigin(nav.origin)).toBe("initial navigation to /users/:id (/users/42)");
+  });
+
+  it("takes the router's own start when it passes one, and ignores from", () => {
+    arm();
+    const at = performance.now();
+    OBSERVE!.attribution.withOrigin(
+      { kind: "navigation", initial: true, name: "/", to: "/", from: "/elsewhere", at },
+      () => {}
+    );
+    const [nav] = attribution.history("navigation");
+    expect(nav.at).toBe(at);
+    expect(nav.from).toBeUndefined();
+  });
+
+  it("re-reads the ref at settle, so a lazy match resolved while building lands on the record", () => {
+    arm();
+    const ref: NavigationRef = {
+      kind: "navigation",
+      initial: true,
+      name: "/admin/*",
+      to: "/admin/users"
+    };
+    OBSERVE!.attribution.withOrigin(ref, () => {
+      ref.name = "/admin/users";
+    });
+    expect(attribution.history("navigation")[0].name).toBe("/admin/users");
+  });
+
+  it("is a regular navigation for the records and history, but not for the feedback tables", () => {
+    arm();
+    OBSERVE!.attribution.withOrigin(
+      { kind: "navigation", initial: true, name: "/users/:id", to: "/users/42" },
+      () => {}
+    );
+    // A real navigation to the same route afterwards.
+    const [location, setLocation] = createSignal("/users/42", { name: "location" });
+    createRoot(() => createEffect(location, () => {}, { name: "reader" }));
+    flush();
+    OBSERVE!.attribution.withOrigin(NAV, () => setLocation("/users/43"));
+    flush();
+    expect(attribution.history("navigation")).toHaveLength(2);
+    const rows = feedback().navigations;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: "/users/:id", navigations: 1 });
+  });
+
+  it("is a plain call when no engine is installed", () => {
+    expect(
+      OBSERVE!.attribution.withOrigin({ kind: "navigation", initial: true, name: "/" }, () => 7)
+    ).toBe(7);
   });
 });

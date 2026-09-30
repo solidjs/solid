@@ -138,7 +138,13 @@ describe("frameTransformFlightResult reads consumer-keyed flight data", () => {
     });
     const chunks = await readFrameStream(response!);
     expect(chunks.filter(chunk => chunk.type === "html")).toEqual([
-      { type: "html", id: "view[]", version: 1, html: "fresh markup" }
+      {
+        type: "html",
+        id: "view[]",
+        version: 1,
+        html: "fresh markup",
+        digest: expect.stringMatching(/^[0-9a-f]{16}$/)
+      }
     ]);
     expect(await decodeOutcome(chunks)).toEqual({
       value: "ok",

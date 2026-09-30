@@ -423,7 +423,25 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // committed value on a hit, and `rederiveHeld`s (DIRTY + enqueue) in
     // place of the mask; updateIfNecessary's post-pull wipe carries the mask.
     // `setMemo` is core-retained through createSignal's derived overload.
-    expect(minifiedBytes).toBeLessThan(26_450);
+    // A lane frame is the run's (#3662, 2026-09-26): +209 B core-retained
+    // (26,440 -> 26,649) — an effect's lane pass parks the frame it replaces
+    // as a lane frame (CONFIG_LANE_FRAME: the parking site, the tail's
+    // release gate and `needsPendingCommit` exclusion, the drain entry pushed
+    // on the lane's render queue ahead of the new frame's effects,
+    // `commitPendingNode`'s clear), the #3444 exception
+    // skipped for its members (`laneZombie`, 89 B) and their #3463 liveness
+    // read from the lane's transaction (38 B).
+    // A woken transaction is not re-entered over a staged ambient bump
+    // (matrix F6, 2026-09-27): +29 B core-retained (26,649 -> 26,678) — the
+    // full pass's `scheduled` gains the `_batch._pendingNodes.length` term
+    // the fast drain and the park exit already carry, so a node the finalize
+    // staged with no subscriber is committed by the next round instead of
+    // being adopted by the wake in `finally`.
+    // Index-mode mapArray publishes the optimistic frame (F1, 2026-09-27):
+    // 0 B core-retained (26,678). The slot arm rides the installed
+    // `_landOnOverride` hook (no new static slot) and sheds with the engine;
+    // `mapArray`'s per-pass writer pick sheds with map.
+    expect(minifiedBytes).toBeLessThan(26_690);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

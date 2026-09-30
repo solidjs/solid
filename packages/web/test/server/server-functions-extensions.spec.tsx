@@ -134,7 +134,7 @@ describe("server-function extension surface (built bundles)", () => {
     const restore = connectTransport();
     try {
       await createServerReference("ext-invocation-0")();
-      expect(seen).toEqual({ id: "ext-invocation-0" });
+      expect(seen).toEqual({ id: "ext-invocation-0", live: false });
     } finally {
       restore();
     }

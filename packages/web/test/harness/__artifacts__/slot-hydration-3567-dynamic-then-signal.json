@@ -1,8 +1,8 @@
 {
   "name": "dynamic-then-signal",
-  "html": "<div _hk=0><!--$--><button _hk=20 id=\"hdr\">clicks <!--$-->0<!--/--></button><!--/--><span>3</span></div>",
+  "html": "<div _hk=0><!--$--><button _hk=30 id=\"hdr\">clicks <!--$-->0<!--/--></button><!--/--><span>3</span></div>",
   "keys": [
     "div:0",
-    "button:20"
+    "button:30"
   ]
 }

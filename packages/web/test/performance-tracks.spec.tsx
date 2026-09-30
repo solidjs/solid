@@ -25,7 +25,6 @@ import {
   OBSERVE,
   Show,
   createEffect,
-  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -33,6 +32,7 @@ import {
   flush
 } from "solid-js";
 import type { RecordListener, RecordLive, RecordType } from "solid-js";
+import { createLoadingBoundary } from "solid-js/internal";
 import { attribution, formatOrigin, formatRerun } from "solid-js/attribution";
 import type { InteractionEvent, RerunEvent, HoldEvent } from "solid-js/attribution";
 import type { CallEvent } from "@solidjs/web";

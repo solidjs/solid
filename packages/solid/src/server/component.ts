@@ -11,7 +11,7 @@ import {
   type Owner
 } from "./signals.js";
 import { IS_DEV, IS_OBSERVE, devCheck, errorText } from "./diagnostics.js";
-import { sharedConfig, type ResolvedAssets } from "./shared.js";
+import { sharedConfig, callerRenderContext, type ResolvedAssets } from "./shared.js";
 import type { Element as SolidElement } from "../types.js";
 
 export function enableHydration() {}
@@ -217,13 +217,16 @@ function resolveLazyAssets(
  * resolves and reads the module's bundler-injected `$$moduleUrl` export
  * instead.
  *
- * The returned component's `moduleUrl` property resolves through the active
- * request's asset manifest: inside SSR it returns the client-loadable entry
- * URL for the module (e.g. `/assets/About-abc123.js`), suitable for stamping
- * into markup (island containers and similar). Outside a request context it
- * returns the raw module specifier. Reading it during SSR also registers a
- * modulepreload hint for the module's chunks — accessing the resolved client
- * URL on the server is treated as a declaration that the client will fetch it.
+ * The returned component's `moduleUrl` property resolves through the asset
+ * manifest of the render it is read in (the caller's, through its owner):
+ * there it returns the client-loadable entry URL for the module (e.g.
+ * `/assets/About-abc123.js`), suitable for stamping into markup (island
+ * containers and similar). Read where no render can be attributed — outside
+ * one, or after an `await` without the owner — it returns the raw module
+ * specifier. Reading it in a render also registers a modulepreload hint for
+ * the module's chunks — accessing the resolved client URL on the server is
+ * treated as a declaration that the client will fetch it. `preload()` hints
+ * into the caller's render the same way, and into none without one.
  */
 export function lazy<M extends Record<string, any>, K extends keyof M & string>(
   fn: () => Promise<M>,
@@ -421,10 +424,13 @@ export function lazy<T extends Component<any>>(
   };
   // Hints the module's assets now instead of at its render, so a router
   // warming a matched route gets the links into the head earlier. The import
-  // is never gated on resolution; a resolver failure only warns.
+  // is never gated on resolution; a resolver failure only warns. The hints go
+  // to the caller's render; a call no render can be attributed to hints
+  // nowhere — the import still starts, and the component's own render
+  // registers its assets when it mounts.
   wrap.preload = () => {
     const cur = load();
-    const ctx = sharedConfig.context;
+    const ctx = callerRenderContext();
     if (!ctx?.resolveAssets || !ctx.registerAsset) return cur;
     // As in the render path, a no-hydrate subtree needs its CSS but never
     // fetches the module. Reading the context needs an owner.
@@ -486,7 +492,9 @@ export function lazy<T extends Component<any>>(
   };
   Object.defineProperty(wrap, "moduleUrl", {
     get() {
-      const ctx = sharedConfig.context;
+      // Resolved through the caller's render (see `preload`); outside one,
+      // the raw specifier.
+      const ctx = callerRenderContext();
       if (moduleUrl && ctx?.resolveAssets) {
         // A getter can't await, so prefer the sync resolution path (async
         // dev resolvers expose one carrying the js URLs); without one, fall

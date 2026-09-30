@@ -82,7 +82,7 @@ export type {
 } from "@solidjs/signals";
 
 // needs wrappers
-export { $DEVCOMP, children, createContext, useContext } from "./client/core.js";
+export { children, createContext, useContext } from "./client/core.js";
 
 export type {
   ChildrenReturn,
@@ -96,12 +96,8 @@ export * from "./client/component.js";
 export * from "./client/flow.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
-  sharedConfig,
   enableHydration,
   createRoot,
-  createErrorBoundary,
-  createLoadingBoundary,
-  createRevealOrder,
   createMemo,
   createSignal,
   createStore,
@@ -111,13 +107,26 @@ export {
   createRenderEffect,
   createEffect,
   NoHydration,
-  Hydration
+  Hydration,
+  isHydrating,
+  isHydratable
 } from "./client/hydration.js";
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
-export { materializeContainerTrace } from "./client/hydration.js";
+export { materializeContainerTrace, sharedConfig } from "./client/hydration.js";
+/** @internal */
+export { $DEVCOMP } from "./client/core.js";
+// The boundary primitives behind `Errored`, `Loading` and `Reveal`: exported
+// at runtime (typed for renderers through `solid-js/internal`), `@internal`
+// because application code should use the components.
+/** @internal */
+export {
+  createErrorBoundary,
+  createLoadingBoundary,
+  createRevealOrder
+} from "./client/hydration.js";
 // Stub exports — only meaningful on the server entry; the client entry
 // satisfies the export surface so isomorphic builds don't break.
 /** @internal */
@@ -127,7 +136,7 @@ export function ssrScope<T>(fn: () => T): () => T {
   return fn;
 }
 /** @internal */
-export function runInServerComponentScope<T>(fn: () => T): T {
+export function runInServerComponentScope<T>(fn: () => T, _options?: { live?: boolean }): T {
   return fn();
 }
 /** @internal */
@@ -136,6 +145,10 @@ export function creationStamp(): number {
 }
 /** @internal */
 export function inServerComponentScope(): boolean {
+  return false;
+}
+/** @internal */
+export function inLiveServerComponentScope(): boolean {
   return false;
 }
 /** @internal — server-only: the client has no wire to sanitize for. */
@@ -199,6 +212,7 @@ export type {
   RecordEvent,
   RecordLive,
   RecordListener,
+  RecordSubscribeOptions,
   AttributionSlot,
   InteractionRef,
   NavigationRef,

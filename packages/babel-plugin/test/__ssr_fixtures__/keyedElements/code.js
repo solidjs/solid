@@ -18,3 +18,14 @@ const dynamicKey = (
 );
 
 const componentKey = <Row $key={item.id} text={item.text} />;
+
+// On a spread element the same rule applies to the spread path: the key
+// joins the element's sources (renamed for SSR, dropped for DOM) rather than
+// the template.
+const spreadKey = (
+  <ul>
+    <li $key={item.id} class="todo" {...item.attrs}>
+      {item.text}
+    </li>
+  </ul>
+);

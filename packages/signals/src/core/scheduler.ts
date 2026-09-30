@@ -16,6 +16,7 @@ import {
   CONFIG_HAS_LANE,
   CONFIG_HAS_SNAPSHOT,
   CONFIG_INPUTS_PUBLISHED,
+  CONFIG_LANE_FRAME,
   CONFIG_SLOT_NODE,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_MANUAL_WRITE,
@@ -58,7 +59,7 @@ import {
   devCheckQuiescent,
   endAsyncReporterWrites
 } from "./invariants.js";
-import type { Computed, Signal } from "./types.js";
+import type { Computed, Owner, Signal } from "./types.js";
 
 export { activeLanes, assignOrMergeLane, findLane };
 export { getOrCreateLane, hasActiveOverride, mergeLanes, resolveLane } from "./lanes.js";
@@ -88,13 +89,24 @@ export const zombieQueue: Heap = {
  * lane's effect queue, so a held lane defers it exactly as it defers every
  * other reader's. */
 function cancelZombieRecompute(el: Computed<unknown>): void {
-  if (el._flags & REACTIVE_OPTIMISTIC_DIRTY) return GlobalQueue._update(el);
+  if (el._flags & REACTIVE_OPTIMISTIC_DIRTY && !laneZombie(el)) return GlobalQueue._update(el);
   if (el._flags & REACTIVE_IN_HEAP_HEIGHT)
-    el._flags &= ~(REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK);
+    el._flags &= ~(REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_OPTIMISTIC_DIRTY);
   else {
     deleteFromHeap(el, zombieQueue);
-    el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK);
+    el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_OPTIMISTIC_DIRTY);
   }
+}
+
+/** A member of a parked LANE frame (CONFIG_LANE_FRAME on the owner whose pass
+ * parked it, #3662). The #3444 exception is for transaction zombies; a lane
+ * frame's member is retired by the run that carries the lane's values, so its
+ * lane-channel recompute is cancelled with the rest — run, it republished the
+ * retired frame under those values. Mainline writes still reach it (#3463). */
+function laneZombie(el: Computed<unknown>): boolean {
+  let p: Owner | null = el;
+  while (p !== null && (p as Computed<unknown>)._flags & REACTIVE_ZOMBIE) p = p._parent;
+  return p !== null && ((p as Computed<unknown>)._config & CONFIG_LANE_FRAME) !== 0;
 }
 
 export let clock = 0;
@@ -520,7 +532,7 @@ export function haltReactivity(cause?: unknown): void {
   let message = "[REACTIVITY_HALTED]";
   if (__DEV__) {
     message +=
-      " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with createErrorBoundary/<Errored> or treat this as a crash.";
+      " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
     emitDiagnostic({
       code: "REACTIVITY_HALTED",
       kind: "error",
@@ -798,7 +810,11 @@ export class GlobalQueue extends Queue {
    * commit whatever its relation to the committed value — a landing equal to
    * committed still differs from the override — then _supersedeOverride
    * decides. Installed with the optimistic engine; only reachable on a node
-   * that has an override. */
+   * that has an override — or, from `mapArray` once a lane pass has run over
+   * the map, on a per-slot signal (never CONFIG_OPTIMISTIC): the slot arm
+   * publishes a lane pass's write as the slot's derived override, lands a
+   * plain pass's write over one, and is the plain `setSignal` otherwise (F1,
+   * see optimistic.ts landOnOverride). */
   static _landOnOverride: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
   static _trackOptimisticStore: ((store: any) => void) | null = null;
@@ -980,8 +996,16 @@ export class GlobalQueue extends Queue {
       // sweep or recompute wrote a node it owns): effects computed under it
       // since are its to apply, not this flush's — runEffect leaves them queued
       // and the next pass parks them with it (#3319). Everything computed
-      // mainline applies now.
-      scheduled = dirtyQueue._max >= dirtyQueue._min || activeTransition !== null;
+      // mainline applies now. A write the finalize staged in the ambient
+      // batch with no subscriber to dirty (an optimistic store settle's
+      // keyset bump under a reader that never tracks the key set) is work
+      // too — the fast drain and the park exit already count it — so the
+      // next round commits it and the woken re-entry below does not adopt
+      // it into a parked transaction it never belonged to (matrix F6).
+      scheduled =
+        dirtyQueue._max >= dirtyQueue._min ||
+        activeTransition !== null ||
+        this._batch._pendingNodes.length !== 0;
       // Run lane effects first (for ready lanes), then regular effects
       activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_RENDER);
       this.run(EFFECT_RENDER);
@@ -1013,9 +1037,14 @@ export class GlobalQueue extends Queue {
       // idle pass: entering adopts the ambient batch, and staged or dirty
       // ambient work would be held behind flights it never read. `scheduled`
       // is that test here — after the park exit as well as the normal one:
-      // it was recomputed from the heap this pass, every write since re-armed
-      // it, and optimistic ambient nodes reverted with the finalize — so a
-      // wake in a pass with work simply falls to the next. Entering re-arms
+      // it was recomputed from the heap and the ambient batch's staged nodes
+      // this pass, every write since re-armed it, and optimistic ambient
+      // nodes reverted with the finalize — so a wake in a pass with work
+      // simply falls to the next. (A staged node with no subscriber — the
+      // finalize's keyset bump under a length-only reader — used to be
+      // missed here: the wake adopted it, stamped it, and a later ambient
+      // write to the same node joined the parked transaction and never
+      // reverted; matrix F6.) Entering re-arms
       // it itself; a dead (completed) wake is a bare return in
       // initTransition, and the loop moves on to the next.
       while (!scheduled && !activeTransition && wokenTransitions.length)
@@ -1314,7 +1343,9 @@ function commitPendingNode(n: Signal<any>): void {
   // own landing (whose pass was clean), so a set `_error` means the last pass
   // threw, kept its full list, and `_depsTail` marks where it stopped.
   if (c._x?._error == null) trimStaleDeps(c as Computed<unknown>);
-  c._config! &= ~CONFIG_HELD_CHILDREN;
+  // A LANE frame still parked here (#3662) rode a hold that stashed the run
+  // that would have retired it: this commit applies that run, so it goes too.
+  c._config! &= ~(CONFIG_HELD_CHILDREN | CONFIG_LANE_FRAME);
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   // A flight this commit leaves in the air (unobserved, or observed only by
   // a boundary) now has PUBLISHED inputs: its committed value is stale
@@ -1698,6 +1729,11 @@ export function reporterBlocksSource(
     let p: Computed<any> | null = reporter;
     while (p && p._flags & REACTIVE_ZOMBIE) p = p._parent as Computed<any> | null;
     let t = p && (p._transition || (p._config & CONFIG_HELD_CHILDREN ? activeTransition : null));
+    // A LANE frame's member (#3662) is displayed until its owner's run
+    // applies, and the lane's transaction is what applies it (its completion
+    // runs the lane's queue): moot for that verdict, live for every other.
+    if (!t && p && p._config & CONFIG_LANE_FRAME && p._x?._optimisticLane)
+      t = findLane(p._x._optimisticLane)._transition;
     if (!t || (t = currentTransition(t))._done === true || t === verdict) return false;
   }
   // Fallback-caught async holds nothing. A collecting loading boundary

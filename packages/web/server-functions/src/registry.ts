@@ -216,6 +216,16 @@ export const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 // reason as the brand above: stamped by solid-js, read by this package.
 export const LIVE_RESUME_FROM = Symbol.for("solid.LiveResumeFrom");
 
+// The document's answer for a live call. When an integration already shows
+// the call at the moment `live()` is called (a frames boundary the page
+// carries, at t=0), the client's `live()` files that local answer on the
+// iterable it returns. A hydrating node adopts it as its value NOW — there
+// is no serialized value to hydrate, the markup is the value — and takes
+// over at its scope's release; any other consumer's iteration yields it
+// first and then connects. Registered for the same reason as the brand
+// above: filed by this package, read by solid-js's hydration wrapper.
+export const LIVE_LOCAL = Symbol.for("solid.LiveLocal");
+
 // ---- late-bound RPC seam ----
 //
 // The transport surface routers consume (`GET` re-declaration, response

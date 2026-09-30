@@ -1,5 +1,93 @@
 # @solidjs/html
 
+## 2.0.0-rc.13
+
+### Patch Changes
+
+- Updated dependencies [1f9d41a]
+  - @solidjs/web@2.0.0-rc.13
+
+## 2.0.0-rc.12
+
+### Patch Changes
+
+- Updated dependencies [5bef430]
+- Updated dependencies [829f981]
+- Updated dependencies [ad1ecc5]
+- Updated dependencies [cbf47d5]
+- Updated dependencies [7f9bd7a]
+- Updated dependencies [51a1a49]
+- Updated dependencies [1ad0be0]
+- Updated dependencies [ad1ecc5]
+- Updated dependencies [ad1ecc5]
+- Updated dependencies [fe1eb68]
+- Updated dependencies [fb4e637]
+- Updated dependencies [ad1ecc5]
+- Updated dependencies [0bf5758]
+- Updated dependencies [644eaf3]
+- Updated dependencies [e040dae]
+- Updated dependencies [ad1ecc5]
+  - @solidjs/web@2.0.0-rc.12
+
+## 2.0.0-rc.11
+
+### Patch Changes
+
+- @solidjs/web@2.0.0-rc.11
+
+## 2.0.0-rc.10
+
+### Patch Changes
+
+- Updated dependencies [ce17c29]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [5e46732]
+- Updated dependencies [56918c6]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [7599885]
+- Updated dependencies [6717d35]
+- Updated dependencies [663031d]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [a360ad0]
+- Updated dependencies [bfc320c]
+- Updated dependencies [3af4696]
+- Updated dependencies [cf22713]
+- Updated dependencies [78523bf]
+- Updated dependencies [495db9c]
+- Updated dependencies [f41c6a4]
+- Updated dependencies [fd8b3df]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [7742b28]
+- Updated dependencies [7742b28]
+- Updated dependencies [7742b28]
+- Updated dependencies [7742b28]
+- Updated dependencies [7742b28]
+- Updated dependencies [235173e]
+- Updated dependencies [b8ac688]
+- Updated dependencies [384a631]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [ed13427]
+- Updated dependencies [fd36d37]
+- Updated dependencies [fd36d37]
+- Updated dependencies [757d1eb]
+- Updated dependencies [dd53561]
+- Updated dependencies [777916a]
+- Updated dependencies [fb35efb]
+- Updated dependencies [1d3ec5d]
+- Updated dependencies [e10a4ba]
+- Updated dependencies [7742b28]
+- Updated dependencies [b7701b5]
+  - @solidjs/web@2.0.0-rc.10
+
 ## 2.0.0-rc.9
 
 ### Patch Changes

@@ -1617,6 +1617,32 @@ function InnerHTMLCallSiblings() {
 }
 
 // ---------------------------------------------------------------------------
+// solidjs/solid#3691: a textarea's dynamic `value` folds into its text content
+// on the server, but the client writes it as a plain `value` property effect
+// with no owner. Pre-fix the server's `_$scope` reservation on the fold
+// consumed a hydration id the client never allocated, so the component after
+// the textarea hydrated one id off — its button went unclaimed and the click
+// updated detached DOM.
+let textareaCounterButton!: HTMLButtonElement;
+function TextareaSiblingCounter() {
+  const [count, setCount] = createSignal(0);
+  return (
+    <button ref={textareaCounterButton} onClick={() => setCount(c => c + 1)}>
+      {count()}
+    </button>
+  );
+}
+function TextareaValueSiblings() {
+  const [text] = createSignal("test");
+  return (
+    <main>
+      <textarea value={text()} />
+      <TextareaSiblingCounter />
+    </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // solidjs/solid#3105: a reactive lone spread passes its accessor straight to
 // spread() on the client — no mergeProps, no memo, no hydration id — matching
 // the server's pass-through fast path. Before the fix the client-side merge
@@ -2757,6 +2783,14 @@ export const scenarios: Scenario[] = [
     update: () => setInnerHTMLToggle(true),
     expectedTextAfterUpdate: "r1r2on",
     stableSelector: "div, label"
+  },
+  {
+    name: "textarea-value-id-parity",
+    App: TextareaValueSiblings,
+    expectedText: "test0",
+    update: () => textareaCounterButton.click(),
+    expectedTextAfterUpdate: "test1",
+    stableSelector: "main, textarea, button"
   },
   {
     name: "reactive-lone-spread-id-parity",

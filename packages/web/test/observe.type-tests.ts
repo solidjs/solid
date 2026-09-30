@@ -3,7 +3,8 @@
 // declares `RecordTypes` (which solid-js augments, once, through
 // `@solidjs/signals`, with its `"boundary"` record) extending
 // `HostRecordTypes` (which this package augments, once, through `solid-js`,
-// with `"invocation"`, `"call"` and `"frame"`). Beside it, `OBSERVE.server`:
+// with `"invocation"`, `"call"`, `"request"` and `"frame"`). Beside it,
+// `OBSERVE.server`:
 // the core declares it empty, solid-js augments it with `trace:
 // ServerTrace`, and this package's trace.ts augments `ServerTrace` with
 // `provide`.
@@ -18,6 +19,7 @@ import {
   type BoundaryEvent,
   type BoundaryLive,
   type ChangeOrigin,
+  type RecordSubscribeOptions,
   type RecordType,
   type Records,
   type RecoveryEvent,
@@ -27,6 +29,8 @@ import {
 import type {
   CallEvent,
   CallLive,
+  CallRequestEvent,
+  CallRequestListener,
   FrameAppliedEvent,
   FrameEvent,
   FrameLive,
@@ -34,6 +38,7 @@ import type {
   InvocationEvent,
   InvocationLive,
   RenderEvent,
+  RenderRoute,
   RenderLive,
   RequestEvent,
   TraceContext,
@@ -66,6 +71,7 @@ type Declared =
   | "invocation"
   | "render"
   | "call"
+  | "request"
   | "frame";
 const declared: Declared = "boundary" as RecordType;
 declared;
@@ -97,6 +103,10 @@ observe.records.subscribe("render", (event, live) => {
   event.durationMs satisfies number;
   event.boundaries satisfies number;
   event.outcome satisfies "complete" | "abandoned" | "error";
+  event.route satisfies RenderRoute | undefined;
+  event.route?.name satisfies string | undefined;
+  event.route?.to satisfies string | undefined;
+  event.route?.params satisfies Readonly<Record<string, string | undefined>> | undefined;
   live.trace satisfies TraceContext;
   live.event satisfies RequestEvent | undefined;
 });
@@ -136,6 +146,9 @@ observe.records.subscribe("call", (event, live) => {
   event.outcome satisfies "ok" | "error";
   event.status satisfies number | undefined;
   event.deferred satisfies true | undefined;
+  event.name satisfies string | undefined;
+  live.request satisfies Request | undefined;
+  live.response satisfies Response | undefined;
   // Provenance: the engine's own origin type, so it joins the attribution
   // records (`InteractionEvent.origin`, `HoldEvent.origin`) without a cast.
   event.origin satisfies ChangeOrigin | undefined;
@@ -143,6 +156,75 @@ observe.records.subscribe("call", (event, live) => {
   live.args satisfies unknown[];
   live.response satisfies Response | undefined;
 });
+
+// The client's request record: the call's request left, at the send. Its
+// `live` is the call's own `CallLive` — the same object the `"call"`
+// listener gets at settle — and `side` is the client's today.
+observe.records.subscribe("request", (event, live) => {
+  event satisfies CallRequestEvent;
+  live satisfies CallLive;
+  event.side satisfies "client";
+  event.id satisfies string;
+  event.at satisfies number;
+  event.method satisfies "GET" | "POST";
+  event.name satisfies string | undefined;
+  event.origin satisfies ChangeOrigin | undefined;
+  live.args satisfies unknown[];
+  live.request satisfies Request | undefined;
+  // @ts-expect-error the settle's facts are the "call" record's
+  event.durationMs;
+  // @ts-expect-error the settle's facts are the "call" record's
+  event.outcome;
+  // @ts-expect-error the settle's facts are the "call" record's
+  event.status;
+});
+const onRequest: CallRequestListener = (event, live) => {
+  event satisfies CallRequestEvent;
+  live satisfies CallLive;
+};
+observe.records.subscribe("request", onRequest);
+// The bodies opt-in on a "request" subscription alone governs `live.request`.
+observe.records.subscribe(
+  "request",
+  (event, live) => {
+    event.side satisfies "client";
+    live.request satisfies Request | undefined;
+  },
+  { bodies: true }
+) satisfies () => void;
+observe.records.observed("request") satisfies boolean;
+observe.records.observed("request", "bodies") satisfies boolean;
+declare const requestLeft: CallRequestEvent;
+declare const callLive: CallLive;
+observe.records.emit("request", requestLeft, callLive);
+// @ts-expect-error a call (settle) record is not a request record
+observe.records.emit("request", {} as CallEvent, callLive);
+
+// The bodies opt-in: an options bag on `subscribe`, accepted for any type
+// (the channel is generic; meaningful for "call" and "request" today), and
+// the facet on `observed` an emitter asks with.
+observe.records.subscribe(
+  "call",
+  (event, live) => {
+    event satisfies CallEvent;
+    live.request satisfies Request | undefined;
+  },
+  { bodies: true }
+) satisfies () => void;
+observe.records.subscribe("call", () => {}, { bodies: false });
+observe.records.subscribe("call", () => {}, {});
+observe.records.subscribe("invocation", () => {}, { bodies: true });
+observe.records.subscribe("rerun", () => {}, { bodies: true });
+({ bodies: true }) satisfies RecordSubscribeOptions;
+// @ts-expect-error the one option is `bodies`
+observe.records.subscribe("call", () => {}, { bodys: true });
+// @ts-expect-error a boolean, not a mode
+observe.records.subscribe("call", () => {}, { bodies: "request" });
+observe.records.observed("call") satisfies boolean;
+observe.records.observed("call", "bodies") satisfies boolean;
+observe.records.observed("invocation", "bodies") satisfies boolean;
+// @ts-expect-error the one facet is "bodies"
+observe.records.observed("call", "headers");
 
 // The engine's one query, on the core's attribution slot: what the call
 // record is stamped with, typed as the same origin.

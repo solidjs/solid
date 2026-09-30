@@ -3,6 +3,7 @@ import { ssr as _$ssr } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
+import { ssrElement as _$ssrElement } from "r-server";
 var _tmpl$ = "<ul><li _key=\"a\">Apple</li></ul>";
 var _tmpl$2 = [
 	"<ul><li",
@@ -10,6 +11,7 @@ var _tmpl$2 = [
 	"\">",
 	"</li></ul>"
 ];
+var _tmpl$3 = ["<ul>", "</ul>"];
 // `$key` on an intrinsic element compiles to the `_key` attribute the
 // frame morph matches keyed elements by. Static keys inline into the
 // template; dynamic keys render as ordinary dynamic attributes. On a
@@ -30,3 +32,17 @@ const componentKey = Row({
 		return item.text;
 	}
 });
+var _v$4 = _$ssrElement("li", [{
+	get _key() {
+		return item.id;
+	},
+	class: "todo"
+}, () => {
+	return item.attrs;
+}], () => {
+	return _$escape(item.text);
+}, false);
+// On a spread element the same rule applies to the spread path: the key
+// joins the element's sources (renamed for SSR, dropped for DOM) rather than
+// the template.
+const spreadKey = _$ssr(_tmpl$3, _v$4);

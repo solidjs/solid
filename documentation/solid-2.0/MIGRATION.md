@@ -1048,6 +1048,7 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`resetErrorBoundaries`** → no longer needed (error boundaries heal automatically)
 - **`enableScheduling`** → removed
 - **`writeSignal`** → removed (internal API that should not have been exported)
+- **`sharedConfig` / `$DEVCOMP`** → no longer part of `solid-js`'s public types; renderers and tooling reach them through `solid-js/internal` (not public API — no semver guarantee, may change in any release)
 - **`use:` directives** → `ref` directive factories
 - **`attr:` / `bool:` namespaces** → standard attribute behavior
 - **`on:` / `oncapture:`** → `onClick` for Solid events; ref callbacks for native listener options

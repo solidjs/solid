@@ -2,10 +2,10 @@
 // the same composition, but the shell's markup lives in server/App.tsx and
 // this file only fills its client positions — the notes list (a server
 // component of its own, keyed by the search param) and the route outlet.
-// The search field isn't a client position anymore: its markup is server
-// chrome, and searchField() contributes only behavior props (Stage 6 —
-// event props resolve through the frame at dispatch, ref props hand the
-// client the elements at adoption). Nothing here fetches data; every read
+// The search field isn't a client position either: its markup is server
+// chrome, and searchField() is an ATTRIBUTE slot fill — the values and handlers
+// the server template binds at positions on its own elements (§9.2.3).
+// Nothing here fetches data; every read
 // goes through a `dynamic()` over a server-component query. Links (the
 // New/Edit buttons) aren't client positions at all: the router intercepts
 // plain anchors, so they render entirely on the server.
@@ -34,7 +34,7 @@ export default function App() {
         return (
           <Loading fallback={<div class="main">Loading...</div>}>
             <AppShell
-              {...searchField()}
+              search={searchField()}
               noteList={
                 <Loading fallback="Loading Notes..">
                   <NoteList item={p => <SidebarNoteContent {...p} />} />

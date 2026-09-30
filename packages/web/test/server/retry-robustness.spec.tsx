@@ -65,6 +65,37 @@ describe("lazy() asset resolution across suspended passes", () => {
     expect(passes).toBe(2);
     expect(resolved).toEqual(["./Mod.tsx"]);
   });
+
+  test("one cache per request across derived render contexts", async () => {
+    // Render contexts derive from the root by prototype (a Loading
+    // boundary's buffered context). When the FIRST lazy() on the page sat
+    // inside such a boundary, a cache created on demand landed as that
+    // derived context's own property, and a lazy() outside it afterwards
+    // started a second cache — and a second resolver call for the same
+    // module.
+    const resolved: string[] = [];
+    const manifest = (moduleUrl: string) => {
+      resolved.push(moduleUrl);
+      return Promise.resolve({ js: ["/assets/mod.js"], css: [] });
+    };
+    const Mod = () => <b>mod-content</b>;
+    const LazyMod = lazy(() => Promise.resolve({ default: Mod }), undefined, "./Mod.tsx");
+
+    const html = await renderComplete(
+      () => (
+        <div>
+          <Loading fallback={<span>waiting</span>}>
+            <LazyMod />
+          </Loading>
+          <LazyMod />
+        </div>
+      ),
+      { manifest }
+    );
+
+    expect(html.match(/mod-content/g)).toHaveLength(2);
+    expect(resolved).toEqual(["./Mod.tsx"]);
+  });
 });
 
 describe("retry wrapper flattening", () => {

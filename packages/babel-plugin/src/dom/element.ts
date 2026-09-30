@@ -497,6 +497,7 @@ function transformAttributes(
     hasChildren = path.node.children.length > 0,
     hasSpread = attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node)),
     config = getConfig(path);
+  const refs: babelTypes.Statement[] = [];
 
   // preprocess spreads
   if (hasSpread) {
@@ -976,7 +977,7 @@ function transformAttributes(
               (binding.kind === "const" || binding.kind === "module");
           if (!isConstant && t.isLVal(value.expression)) {
             const refIdentifier = path.scope.generateUidIdentifier("_ref$");
-            results.exprs.unshift(
+            refs.push(
               t.variableDeclaration("var", [t.variableDeclarator(refIdentifier, value.expression)]),
               t.expressionStatement(
                 t.conditionalExpression(
@@ -1005,7 +1006,7 @@ function transformAttributes(
             t.isFunction(value.expression) ||
             t.isArrayExpression(value.expression)
           ) {
-            results.exprs.unshift(
+            refs.push(
               t.expressionStatement(
                 t.callExpression(
                   registerImportMethod(path, "ref", getRendererConfig(path, "dom").moduleName),
@@ -1015,7 +1016,7 @@ function transformAttributes(
             );
           } else {
             const refIdentifier = path.scope.generateUidIdentifier("_ref$");
-            results.exprs.unshift(
+            refs.push(
               t.variableDeclaration("var", [t.variableDeclarator(refIdentifier, value.expression)]),
               t.expressionStatement(
                 t.logicalExpression(
@@ -1245,6 +1246,9 @@ function transformAttributes(
     path.node.children.push(children);
   }
   if (spreadExpr) results.exprs.push(...(Array.isArray(spreadExpr) ? spreadExpr : [spreadExpr]));
+  // Refs run after the element's attributes and spread are applied, so a ref's
+  // own writes survive client creation the way they survive hydration.
+  results.exprs.push(...refs);
 
   results.hasHydratableEvent = results.hasHydratableEvent || hasHydratableEvent;
 }

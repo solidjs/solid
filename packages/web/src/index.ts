@@ -21,14 +21,13 @@ import {
   runWithOwner,
   untrack,
   omit,
-  sharedConfig,
-  $DEVCOMP,
   Component,
   createEffect,
   createRenderEffect,
   type Owner,
   type Setter
 } from "solid-js";
+import { sharedConfig, $DEVCOMP } from "solid-js/internal";
 import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";
@@ -290,6 +289,10 @@ function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Elem
 // store. Same component across resolutions means "same instance, new
 // binding". See frames/src/frame-transport.ts (COMPONENT_BINDING).
 const COMPONENT_BINDING = Symbol.for("solid.component-binding");
+// The box a `dynamic()` factory memo holds a thenable source answer in, so the
+// factory stays sync-valued and the per-instance memo is the one that goes
+// async (and, under hydration, adopts the server's record). Module-local.
+const FLIGHT = Symbol("solid.dynamic-flight");
 function bindingOf(value: any): { component: Function; address: string } | undefined {
   return (
     (value !== null &&
@@ -315,8 +318,23 @@ export interface DynamicOptions {
   static?: boolean;
 }
 
+/**
+ * A component from a reactive source. The source may answer with the
+ * component itself, a promise of it, or an async iterable of it — a `live`
+ * server component reference's answer is the last: the memo underneath pumps
+ * the iterable as it pumps any async source, and its value is the component
+ * the server answered with (a reconnect re-yields the same binding and is
+ * equality-quiet; nothing here re-mounts).
+ *
+ * Under SSR an async answer is an ordinary async memo's: its landing is
+ * serialized per instance and adopted here at hydration, so the source may
+ * stay async only when what it resolves to can cross — a server component
+ * (as a reference) or a serializable value (a tag name). A promise of a
+ * client component function is a dev error on the server
+ * (`DYNAMIC_ASYNC_COMPONENT`): resolve the async upstream, or use `lazy()`.
+ */
 export function dynamic<T extends ValidComponent>(
-  source: () => T | Promise<T> | null | undefined | false,
+  source: () => T | Promise<T> | AsyncIterable<T> | null | undefined | false,
   options?: DynamicOptions
 ): Component<ComponentProps<T>> {
   if (options?.static) return staticDynamic(untrack(source));
@@ -328,16 +346,9 @@ export function dynamic<T extends ValidComponent>(
   // store re-materializes instantly; an in-flight stream morphs in; keyed
   // slot state survives). Everything else resolves to `next` and swaps.
   // Async resolutions run the delivery in the promise chain — an ownerless
-  // microtask, exactly where frame writes already happen — rather than in the
-  // equals gate, whose argument order differs between sync and async commits.
-  // The token pins the delivery to the LATEST computation: a superseded
-  // source's late resolution must not re-bind the mount to stale content (the
-  // async machinery discards its value; the side effect has to be discarded
-  // here), and a transition's forked re-compute of the same source delivers
-  // once, not per fork. The thenable is transparent — it transforms the value
-  // inside the SAME microtask as the source promise's own handlers (a `.then`
-  // chain would add a hop, observably deferring every async resolution).
-  let latest = 0;
+  // microtask, exactly where frame writes already happen — and not in the
+  // equals gate: a kept resolution hands the memo `prev`, so the gate never
+  // sees the new address at all.
   // Live delivery channels, one per mounted site: this component may be
   // mounted more than once (each mount is its own instance with its own
   // address accessor), and a kept resolution must reach every one.
@@ -362,25 +373,102 @@ export function dynamic<T extends ValidComponent>(
     }
     return next;
   };
-  const cached = createMemo<Function | string | undefined>(
+  // The same rule at the memo's gate, for values the compute never sees: an
+  // async iterable's yields land straight from the pump (a `live` server
+  // component's loop re-yields its binding per connection, and the first
+  // connection after hydration resolves the per-address binding where the
+  // document adopted the per-function placeholder — two objects, one
+  // component, one address). Same component is the same instance: equal,
+  // with the incoming address delivered when it is not the one showing.
+  // The comparator is `(prev, next)` on every commit path: `prev` is what
+  // the memo HOLDS — the first resolution, kept ever since, whose address
+  // the deliveries have long moved past — so only `next` says anything
+  // about where the instance should be. (Reading "the address that is not
+  // the delivered one" as incoming swung a reconnect's re-yield back to
+  // the document's call after the source had switched arguments.) With
+  // nothing delivered (no site mounted) a differing address is a plain
+  // change — nothing is kept, so nothing is lost by swapping.
+  const sameInstance = (prev: any, next: any) => {
+    if (prev === next) return true;
+    const held = bindingOf(prev);
+    const incoming = bindingOf(next);
+    if (!held || !incoming || held.component !== incoming.component) return false;
+    if (held.address === incoming.address) return true;
+    if (deliveredAddress === undefined) return false;
+    if (incoming.address !== deliveredAddress) {
+      deliveredAddress = incoming.address;
+      for (const deliver of sites) deliver(incoming.address);
+    }
+    return true;
+  };
+  // Three memos, the same owner shape as the server's `dynamic` so hydration
+  // ids agree (index.server.ts has the full account):
+  //
+  // 1. The FACTORY memo runs the source once for every mount and is sync-
+  //    valued by construction: a thenable the source returns is boxed
+  //    (`FLIGHT`), so the factory never goes pending on it. It stays the
+  //    consumer of an async ITERABLE answer (a `live` server component's
+  //    loop): the yields land at its gate, `sameInstance` keeps a reconnect's
+  //    re-yield quiet, and under hydration the frames intercept's local
+  //    answer (LIVE_LOCAL) and the takeover arming both belong to this node,
+  //    exactly as before — the record below never sits on it.
+  // 2. The per-instance VALUE memo unboxes, and for a thenable becomes the
+  //    ORDINARY async memo the boundary waits on. Under hydration it is the
+  //    node the server's record is keyed to (the server's value memo at the
+  //    same id serialized the landing): it ADOPTS the record — a server
+  //    component's flight reference resolves to its binding, a tag to its
+  //    string — and never waits on the client's own re-run of the source, so
+  //    a hydrating <Loading> sees no pending beat (#3666). The trace run
+  //    still reads the factory, which is how the instance follows a later
+  //    source change; the token pins a delivery to this instance's LATEST
+  //    computation (a superseded source's late resolution must not re-bind
+  //    the mount to stale content). The thenable is transparent — it
+  //    transforms the value inside the SAME microtask as the source
+  //    promise's own handlers.
+  // 3. The per-instance RENDER memo applies props.
+  const cached = createMemo<any>(
     (prev: any) => {
       const next = source() as any;
       if (!next || typeof next.then !== "function") return resolveBinding(next, prev);
-      const token = ++latest;
-      return {
-        then: (onFulfilled: any, onRejected: any) =>
-          next.then(
-            (resolved: any) =>
-              onFulfilled(token === latest ? resolveBinding(resolved, prev) : resolved),
-            onRejected
-          )
-      };
+      return { [FLIGHT]: next };
     },
-    { lazy: true }
+    { lazy: true, equals: sameInstance }
   );
   return props => {
+    // Hydration adopts the value memo's record, and its trace run — the one
+    // read that subscribes it to the factory — happens under the tracer's
+    // mocked globals (fetch, Promise), where the factory's FIRST compute must
+    // not run: the source's answer is consumed for real later (the factory is
+    // lazy, and a `Promise.resolve()` minted under the mock never settles).
+    // Warm the factory here, in the owner's own tick, so the trace finds it
+    // computed. A NotReady (an iterable still pending its first yield, a
+    // dependency) is the value memo's to see on its own read.
+    if (sharedConfig.hydrating) {
+      try {
+        untrack(cached);
+      } catch {}
+    }
+    let latest = 0;
+    const value = createMemo<Function | string | undefined>(
+      (prev: any) => {
+        const c = cached();
+        if (!c || !c[FLIGHT]) return resolveBinding(c, prev);
+        const next: PromiseLike<any> = c[FLIGHT];
+        const token = ++latest;
+        // `onFulfilled` may be absent: the hydration tracer observes a
+        // compute's thenable with `.then(undefined, noop)`.
+        return {
+          then: (onFulfilled: any, onRejected: any) =>
+            next.then((resolved: any) => {
+              const landed = token === latest ? resolveBinding(resolved, prev) : resolved;
+              return onFulfilled ? onFulfilled(landed) : landed;
+            }, onRejected)
+        };
+      },
+      { equals: sameInstance }
+    );
     return createMemo(() => {
-      const component = cached();
+      const component = value();
       switch (typeof component) {
         case "function": {
           if (isDev) Object.assign(component, { [$DEVCOMP]: true });
@@ -392,7 +480,17 @@ export function dynamic<T extends ValidComponent>(
             // at this seam. Initialize from the LATEST resolved address: the
             // kept binding's own `.address` is the first resolution's and
             // goes stale the moment a later call is kept-delivered.
-            const [address, setAddress] = createSignal(deliveredAddress ?? binding.address);
+            // `ownedWrite`: a delivery is a write from wherever the
+            // resolution lands — a promise microtask for an async source,
+            // but INSIDE the factory's compute when the source is a memo that
+            // already settled the call (the multi-flight `refresh(todos)`
+            // shape, and the hydrated document's first refetch), and inside
+            // the equals gate for a pump's yield. None of those read the
+            // address back, so the owned-scope write guard has nothing to
+            // protect here.
+            const [address, setAddress] = createSignal((deliveredAddress ??= binding.address), {
+              ownedWrite: true
+            });
             sites.add(setAddress);
             onCleanup(() => sites.delete(setAddress));
             return untrack(() => (binding.component as any)(props, address));

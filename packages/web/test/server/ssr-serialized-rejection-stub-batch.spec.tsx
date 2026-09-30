@@ -20,7 +20,8 @@
  */
 import { describe, expect, test } from "vitest";
 import { renderToStream, Loading, Errored } from "@solidjs/web";
-import { createMemo, sharedConfig } from "solid-js";
+import { createMemo } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 
 function delay(ms: number) {
   return new Promise(r => setTimeout(r, ms));

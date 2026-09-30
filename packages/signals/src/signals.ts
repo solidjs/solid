@@ -900,13 +900,27 @@ export function refresh<T>(
 /** Falsy values a truthy predicate result is narrowed against. */
 export type Truthy<T> = Exclude<T, false | 0 | 0n | "" | null | undefined>;
 
+/**
+ * The global `AbortSignal` when the consumer's libs declare one (DOM,
+ * WebWorker, `@types/node`), else the surface `until` uses — so these
+ * declarations check under neither lib without widening the global type.
+ */
+type GlobalAbortSignal = typeof globalThis extends { AbortSignal: { prototype: infer S } }
+  ? S
+  : {
+      readonly aborted: boolean;
+      readonly reason: any;
+      addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+      removeEventListener(type: "abort", listener: () => void): void;
+    };
+
 export interface UntilOptions {
   /** Reject with `TimeoutError` if the predicate has not turned truthy within
    * this many milliseconds. Strongly recommended when the confirming truth
    * arrives over a transport that can drop (sockets, subscriptions). */
   timeout?: number;
   /** Reject with `signal.reason` on abort. */
-  signal?: AbortSignal;
+  signal?: GlobalAbortSignal;
 }
 
 /**

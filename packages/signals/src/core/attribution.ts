@@ -596,17 +596,23 @@ interface AttributedNode {
   /** Consecutive effect-phase writes that copied the writing effect's compute output. */
   _devCopyRuns?: number;
   _devCopyFrom?: number;
-  /** Cached `OBSERVE.isExcluded` verdict — owners never move, so it holds for the node's life. */
+  /**
+   * Cached `OBSERVE.isExcluded` verdict, taken the first time the engine
+   * asks and kept for the node's life: owners never move, and a mark
+   * (`exclude`/`include`) belongs at the owner's creation — one set, or
+   * replaced, after a node was judged does not reach it.
+   */
   _devExcluded?: boolean;
 }
 
 /**
- * Under an owner the observer marked as its own (`OBSERVE.exclude`), or
- * framework plumbing itself (`CONFIG_PLUMBING` — the HMR memo between a
- * component's root and its body, which is nobody's node): the engine records
- * nothing about the node. Plumbing is a bit read and excludes the node alone,
- * not what it owns; the observer exclusion is cached per node once any
- * exists, before that a flag read.
+ * Under an owner the observer marked as its own (`OBSERVE.exclude`, and not
+ * re-admitted by a nearer `OBSERVE.include`), or framework plumbing itself
+ * (`CONFIG_PLUMBING` — the HMR memo between a component's root and its
+ * body, which is nobody's node): the engine records nothing about the node.
+ * Plumbing is a bit read and excludes the node alone, not what it owns; the
+ * observer exclusion is cached per node once any exists, before that a flag
+ * read.
  */
 function excludedNode(el: Computed<any> | Signal<any>): boolean {
   if ((el._config & CONFIG_PLUMBING) !== 0) return true;
@@ -1031,9 +1037,16 @@ function originStart(ref: NavigationRef): void {
       return;
     }
   }
-  const frame: ChangeOrigin = { kind: ref.kind, at: ref.at ?? now() };
-  if (ref.from !== undefined) frame.from = ref.from;
-  const under = enclosingInteraction();
+  // The initial navigation is the document's: its request is the time origin
+  // unless the router says otherwise, and it left nowhere.
+  const initial = ref.initial === true;
+  const frame: ChangeOrigin = { kind: ref.kind, at: ref.at ?? (initial ? 0 : now()) };
+  if (!initial && ref.from !== undefined) frame.from = ref.from;
+  // Declared beats ambient: a router that awaited before writing hands back
+  // the origin it captured in the request (`undefined` when the request ran
+  // under none — still a declaration); what is on the stack now is whatever
+  // happened to be running.
+  const under = "interaction" in ref ? interactionOf(ref.interaction) : enclosingInteraction();
   if (under !== undefined) frame.interaction = under;
   originFrames.push(frame);
   openNavigation(frame, ref);
@@ -1069,7 +1082,8 @@ export function formatOrigin(origin: ChangeOrigin): string {
         notes.push(
           `redirected from ${redirects.map(hop => hop.to ?? hop.name ?? "?").join(" → ")}`
         );
-      return `navigation to ${name}${notes.length > 0 ? ` (${notes.join(", ")})` : ""}`;
+      const initial = navStates.get(origin)?.event.initial === true;
+      return `${initial ? "initial " : ""}navigation to ${name}${notes.length > 0 ? ` (${notes.join(", ")})` : ""}`;
     }
     default:
       return "outside the reactive system";
@@ -3026,8 +3040,10 @@ function checkOptimisticRevert(
   // derived override promotes rather than reverts. Same predicate the hold
   // census uses to skip them.
   if (!options.optimisticReverts || isCompanion(el)) return;
+  // Method call, as every commit path does: store slot nodes share one
+  // comparator that reads `this._host` (#3687).
   const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;
-  if (equals && equals(shown, truth)) return;
+  if (equals && equals.call(el, shown, truth)) return;
   const source = nodeName(el);
   // The two values are user data: quoted only under `values: "full"`; the
   // other levels say what happened without saying what was shown.
@@ -3348,7 +3364,19 @@ function checkStackedHolds(t: Transition, hold: HoldEvent, subject: Signal<any>)
 // outside the graph (loaders resolved in its core before it publishes) wraps
 // the publish instead, passing `at` from the user's request — the record then
 // covers the write that actually showed, and the router-side wait is the
-// router's to report.
+// router's to report. Such a router captures `currentOrigin()` in the request
+// and hands it back as `ref.interaction`, so the write it publishes later
+// still joins the click (declared beats ambient).
+//
+// The one navigation that has no write is the first: the route the document
+// arrived on. A router declares it with `ref.initial` around the work that
+// establishes its initial match (building its context); the frame opens at
+// the time origin (or `ref.at`), takes no `from`, and settles `committed`
+// with no writes when the frame closes — the existing no-write rule, so the
+// record is delivered as the router finishes describing the route. It is a
+// declaration, not a timing: it is kept out of the feedback tables, whose
+// `settledMs` means "what the person waited", and consumers that name a page
+// load by its route read it from the `navigation` channel like any other.
 
 /** A destination a navigation abandoned when a redirect sent it elsewhere. */
 export interface NavigationHop {
@@ -3367,6 +3395,15 @@ export interface NavigationEvent {
   params?: Readonly<Record<string, string | undefined>>;
   /** When the navigation was requested (`performance.now()` clock). */
   at: number;
+  /**
+   * The route the document arrived on, declared by the router at its initial
+   * match (`NavigationRef.initial`): `at` is the document's navigation start
+   * (`0` unless the router passed its own), there is no `from`, `writes` is
+   * `0`, and it settles `committed` when the router's frame closes — the
+   * record names the route the page loaded as; its timing is Navigation
+   * Timing's, not the runtime's.
+   */
+  initial?: true;
   /** The user interaction it ran under, when known — a link click. */
   interaction?: ChangeOrigin;
   /** Root writes the frame performed, redirect hops included. */
@@ -3432,6 +3469,7 @@ function syncNavigation(state: NavState): void {
 
 function openNavigation(frame: ChangeOrigin, ref: NavigationRef): void {
   const event: NavigationEvent = { at: frame.at!, writes: 0, origin: frame };
+  if (ref.initial === true) event.initial = true;
   if (frame.from !== undefined) event.from = frame.from;
   if (frame.interaction !== undefined) event.interaction = frame.interaction;
   const state: NavState = {
@@ -3717,7 +3755,10 @@ function settleNavigation(
   event.settledMs = now() - event.at;
   event.outcome = outcome;
   if (hold !== undefined) event.hold = hold;
-  for (const f of folds) f.navigation?.(event);
+  // The initial declaration is not a navigation the person waited on: its
+  // `settledMs` is document start → router built, which would read as the
+  // route's responsiveness in the feedback tables. Consumers get the record.
+  if (event.initial !== true) for (const f of folds) f.navigation?.(event);
   records.emit("navigation", event, undefined);
   trackGraph(event);
   // The interaction that performed it may have been waiting only on this.

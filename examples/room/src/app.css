@@ -358,3 +358,31 @@ button:disabled {
 .error p {
   color: var(--bad);
 }
+
+/* ---- the server-component page (/) ---- */
+
+.rooms-inline a {
+  margin-right: 12px;
+}
+
+.rooms-inline a.current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.room-panel .presence-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.room-panel .presence-row .count {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.room-panel .members {
+  justify-content: flex-start;
+  margin: 0;
+}

@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync
 } from "fs";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { spawnSync } from "child_process";
 
 /**
@@ -75,11 +75,118 @@ const COMPILER_PLATFORMS = [
 const repoRoot = resolve(join(__dirname, "../../.."));
 const packageRoot = (dir: string) => join(repoRoot, "packages", dir);
 
+// Runs a command and fails the gate on a non-zero exit or a signal.
+// shelljs's `exec` takes no per-call `fatal` (only the global config's), so
+// a failed install or type-check through it returned silently and the gate
+// went on to test a broken fixture.
+function run(command: string, cwd: string, env: NodeJS.ProcessEnv = process.env) {
+  const result = spawnSync(command, { cwd, env, shell: true, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`\`${command}\` was killed by ${result.signal}`);
+  if (result.status !== 0) throw new Error(`\`${command}\` exited with ${result.status}`);
+}
+
 function pack(packageRoot: string) {
   const pkg = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
-  const result = exec("npm pack --json", { cwd: packageRoot, fatal: true, silent: true });
+  const result = exec("npm pack --json", { cwd: packageRoot, silent: true });
+  if (result.code !== 0) throw new Error(`npm pack failed in ${packageRoot}:\n${result.stderr}`);
   const packedPkg = JSON.parse(result.stdout)[0].filename;
   return { name: pkg.name as string, path: join(packageRoot, packedPkg) };
+}
+
+// TEMPORARY — delete this block and the patch file once TanStack's adapter
+// no longer imports `sharedConfig`. `sharedConfig` is `@internal` since rc.12
+// (stripped from the published declarations: TS2305 in the adapter's
+// type-check), and rc.13 adds the public hydration API that replaces it. Until the
+// adapter migrates upstream, the gate applies that migration to the fetched
+// fixture; when upstream no longer imports `sharedConfig` from solid-js,
+// detection finds nothing and the patch is skipped on its own.
+const SHARED_CONFIG_PATCH = join(
+  __dirname,
+  "patches",
+  "tanstack-solid-query-public-hydration.diff"
+);
+const ADAPTER_SOURCES = ["packages/solid-query/src", "packages/solid-query-devtools/src"];
+const SHARED_CONFIG_IMPORT = /import\s*\{[^}]*\bsharedConfig\b[^}]*\}\s*from\s*['"]solid-js['"]/;
+
+// TEMPORARY — delete this block and the patch file once the adapter's
+// hydration test stops pinning the old latch. A shell node outside every
+// pending streamed boundary now commits a client write as soon as the root
+// pass is done; the adapter's test still expects the write to wait for the
+// whole page to hydrate. While the fetched fixture carries that test, the
+// gate rewrites it to the new expectation; once upstream renames or rewrites
+// it, the old title is gone and the patch is skipped on its own.
+const HYDRATION_LATCH_PATCH = join(
+  __dirname,
+  "patches",
+  "tanstack-solid-query-hydration-latch.diff"
+);
+const HYDRATION_TEST = "packages/solid-query/src/__tests__/hydration.test.tsx";
+const HELD_WRITE_TEST = "cache writes during the open stream commit when hydration completes";
+
+function pinsHeldWrite(repoDir: string): boolean {
+  const file = join(repoDir, HYDRATION_TEST);
+  return existsSync(file) && readFileSync(file, "utf8").includes(HELD_WRITE_TEST);
+}
+
+function applyHydrationLatchExpectation(repoDir: string) {
+  if (!pinsHeldWrite(repoDir)) {
+    console.log(
+      "solid-query gate: upstream no longer pins the held-write test; latch patch skipped."
+    );
+    return;
+  }
+  console.log(`solid-query gate: rewriting "${HELD_WRITE_TEST}" to the live-shell expectation.`);
+  applyPatch(repoDir, HYDRATION_LATCH_PATCH);
+  if (pinsHeldWrite(repoDir)) {
+    throw new Error(
+      `solid-query gate: the latch patch no longer covers upstream — "${HELD_WRITE_TEST}" is still present. Refresh ${HYDRATION_LATCH_PATCH}.`
+    );
+  }
+}
+
+function applyPatch(repoDir: string, patch: string) {
+  // The fixture sits inside this repository's work tree: without the ceiling,
+  // `git apply` would resolve paths against this repository and skip the lot.
+  run(`git apply --verbose "${patch}"`, repoDir, {
+    ...process.env,
+    GIT_CEILING_DIRECTORIES: dirname(repoDir)
+  });
+}
+
+function sharedConfigImporters(repoDir: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name) && SHARED_CONFIG_IMPORT.test(readFileSync(full, "utf8")))
+        found.push(full.slice(repoDir.length + 1));
+    }
+  };
+  for (const dir of ADAPTER_SOURCES) walk(join(repoDir, dir));
+  return found;
+}
+
+function applySharedConfigMigration(repoDir: string) {
+  const importers = sharedConfigImporters(repoDir);
+  if (!importers.length) {
+    console.log(
+      "solid-query gate: upstream no longer imports sharedConfig; migration patch skipped."
+    );
+    return;
+  }
+  console.log(
+    `solid-query gate: applying the public hydration API migration (${importers.join(", ")}).`
+  );
+  applyPatch(repoDir, SHARED_CONFIG_PATCH);
+  const left = sharedConfigImporters(repoDir);
+  if (left.length) {
+    throw new Error(
+      `solid-query gate: the migration patch no longer covers upstream — still importing sharedConfig: ${left.join(", ")}. Refresh ${SHARED_CONFIG_PATCH}.`
+    );
+  }
 }
 
 // Newest mtime under a directory tree — the honest "when was this last
@@ -152,12 +259,16 @@ describe("TanStack Solid Query against workspace-built core", () => {
     compilerBinding = locateCompilerBinding();
     tarballs = [...CORE_PACKAGES, ...COMPILER_PACKAGES].map(dir => pack(packageRoot(dir)));
 
-    // Fresh download every run: the gate must see TanStack's current main,
-    // and a stale extraction with a mutated lockfile would poison reruns.
+    // Fresh download every run: the gate must see TanStack's current branch
+    // head, and a stale extraction with a mutated lockfile would poison
+    // reruns. `force`: gitly serves its cached tarball first for any ref but
+    // master/main, so without it the gate re-tested the first download.
     rm("-rf", queryRepoDir);
-    const source = await download(QUERY_REPO);
+    const source = await download(QUERY_REPO, { force: true });
     mkdir("-p", queryRepoDir);
     await extract(source, queryRepoDir);
+    applySharedConfigMigration(queryRepoDir);
+    applyHydrationLatchExpectation(queryRepoDir);
   }, 300_000);
 
   test("solid-query suite is green", () => {
@@ -193,7 +304,7 @@ describe("TanStack Solid Query against workspace-built core", () => {
 
     // The file: overrides above deliberately differ from the downloaded
     // repository's lockfile, so this fixture cannot use CI's frozen default.
-    exec("pnpm install --no-frozen-lockfile", { cwd: queryRepoDir, fatal: true });
+    run("pnpm install --no-frozen-lockfile", queryRepoDir);
 
     // Belt and braces: assert the override actually resolved this tree's
     // build — a silent fallback to the registry would make a green run
@@ -239,8 +350,9 @@ describe("TanStack Solid Query against workspace-built core", () => {
 
     // The suite's typecheck half resolves @tanstack/query-core through
     // project references — dist-ts must exist (`tsc --build` follows the
-    // reference graph).
-    exec("pnpm run compile", { cwd: solidQueryDir, fatal: true });
+    // reference graph). A type error here fails the gate: it is exactly how
+    // a declaration the adapter relies on going missing shows up (TS2305).
+    run("pnpm run compile", solidQueryDir);
 
     // spawnSync, not shelljs: a runner that dies on a signal (V8's heap OOM
     // aborts) has no exit code, and shelljs reported that as 0 — a crashed

@@ -7,6 +7,7 @@
  * the reactive core injects both halves. See frame-container-plugin.js.
  * @experimental
  */
+import { DESCEND, rewriteTree } from "./tree-rewrite.js";
 
 /** A container's border serialization: one subscribe() per consumer. */
 export interface ContainerTrace {
@@ -174,42 +175,27 @@ export function toBorderForm(value: unknown, envelopeContainers: boolean): unkno
  * exotic is a container (probed FIRST, by WeakMap — property-read safe), an
  * iterable (probed under a guard: an unknown proxy's reads may throw), or
  * an app value the serializer owns. No-op until the hooks are installed.
+ * A cyclic value is rewritten as a cycle (see rewriteTree).
  */
 export function toBorderForm(value, envelopeContainers) {
   if (value == null || typeof value !== "object") return value;
   const resolve = envelopeContainers ? state.resolveTrace : undefined;
   const share = state.shareIterable;
   if (!resolve && !share) return value;
-  if (resolve) {
-    const trace = resolve(value);
-    if (trace) return { [TRACE]: trace };
-  }
-  // Before the plain-object walk: an iterable spelled as a literal
-  // (`{ [Symbol.asyncIterator]() {} }`) is a source, not a record.
-  if (share && isShareableIterable(value)) return share(value);
-  if (Array.isArray(value)) {
-    let out = value;
-    for (let i = 0; i < value.length; i++) {
-      const next = toBorderForm(value[i], envelopeContainers);
-      if (next !== value[i]) {
-        if (out === value) out = value.slice();
-        out[i] = next;
+  return rewriteTree(
+    value,
+    v => {
+      if (resolve) {
+        const trace = resolve(v);
+        if (trace) return { [TRACE]: trace };
       }
-    }
-    return out;
-  }
-  if (Object.getPrototypeOf(value) === Object.prototype) {
-    let out = value;
-    for (const key of Object.keys(value)) {
-      const next = toBorderForm(value[key], envelopeContainers);
-      if (next !== value[key]) {
-        if (out === value) out = { ...value };
-        out[key] = next;
-      }
-    }
-    return out;
-  }
-  return value;
+      // Before the plain-object walk: an iterable spelled as a literal
+      // (`{ [Symbol.asyncIterator]() {} }`) is a source, not a record.
+      if (share && isShareableIterable(v)) return share(v);
+      return DESCEND;
+    },
+    false
+  );
 }
 
 // An async iterable the sharer may take over: not one of seroval's own

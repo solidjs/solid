@@ -73,10 +73,12 @@ describe("dynamic(source, { static }) on the server", () => {
     // Same markup …
     expect(noKeys(staticHtml)).toBe(noKeys(memoHtml));
     // … but the memo path's element sits one owner deeper, which its key
-    // spells out. That is the cost the static path removes, and the reason
-    // client and server must agree on `static` per instance.
+    // spells out (the instance's value memo takes the parent slot before the
+    // render memo the element sits under — #3666). That is the cost the
+    // static path removes, and the reason client and server must agree on
+    // `static` per instance.
     expect(staticHtml).toBe('<div _hk=0><a _hk=1 href="/x"></a></div>');
-    expect(memoHtml).toBe('<div _hk=0><a _hk=10 href="/x"></a></div>');
+    expect(memoHtml).toBe('<div _hk=0><a _hk=20 href="/x"></a></div>');
   });
 
   test("the source is called once, untracked", () => {

@@ -160,8 +160,31 @@ export const CONFIG_OVERRIDE_SUPERSEDED = 1 << 19;
  * transaction. A parked node (status propagation stamps `_transition`
  * without recomputing) recomputed when its source lands otherwise disposed
  * its committed children mid-hold, running their cleanups before the
- * transaction's atomic reveal. Cleared by `commitPendingNode`. */
+ * transaction's atomic reveal. Cleared by `commitPendingNode`. Transaction
+ * work only (A15 lane work and transaction work, #3698): zombies are parked
+ * by a pass under a held transaction; a pass over a lane parks a LANE frame
+ * instead (`CONFIG_LANE_FRAME`), whatever the node's kind. */
 export const CONFIG_HELD_CHILDREN = 1 << 20;
+
+/** The frame parked in `_pendingFirstChild` / `_pendingDisposal` is a LANE
+ * frame (#3662, #3698; A15 lane work and transaction work): a lane pass —
+ * on an effect or a memo alike — publishes into the lane's frame (an
+ * effect's run; a memo's derived override, A17), so the frame it replaces
+ * leaves the screen when the lane applies (A30) — not at the action's
+ * commit like #3404's transaction zombies, and not at the pass (a held lane
+ * defers the apply with the frame still displayed). Drained by the lane's
+ * render entry the parking site pushed ahead of the new frame's effects
+ * (cleanups before side effects), by `commitPendingNode` if a hold commits
+ * the node first, or with the owner's death. While set the parked frame is
+ * not a hold (the node is not queued or stamped for it — lane work never
+ * makes its node transaction work), a superseding pass disposes the
+ * never-shown live children on the spot, and a lane-channel dirty on a
+ * member is cancelled (`laneZombie`). Ruled 2026-09-28 (#3698): a pass is
+ * lane work or transaction work by its owner, never by node kind. #3662
+ * flagged effects only, and a memo's lane pass parked a transaction zombie
+ * that queued and stamped the memo as the action's pending node, so its
+ * next mainline recompute re-entered the hold. */
+export const CONFIG_LANE_FRAME = 1 << 26;
 
 /** In-flight async node whose inputs were PUBLISHED while it was pending: a
  * batch or transaction committed with the node still `STATUS_PENDING` (an

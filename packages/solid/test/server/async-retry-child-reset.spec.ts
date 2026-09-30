@@ -98,7 +98,6 @@ function createMockSSRContext() {
     async: true,
     assets: [],
     nonce: undefined,
-    noHydrate: false,
     escape,
     resolve: resolveSSRNode,
     ssr,

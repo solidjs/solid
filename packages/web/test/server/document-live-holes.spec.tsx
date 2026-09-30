@@ -17,6 +17,7 @@
 //     iterable completes — the latch-at-completion lifetime. The response
 //     ENDING at all is the hold/release proof.
 import { describe, expect, test } from "vitest";
+import vm from "node:vm";
 import { renderToStream, Loading } from "@solidjs/web";
 import { createMemo } from "solid-js";
 import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
@@ -65,6 +66,58 @@ describe("document face — live holes against the real core", () => {
     // The response completed: the pump's hold released at the iterable's
     // end and the latch closed the channel. (Reaching this line at all is
     // the lifetime proof — an unreleased hold never ends the stream.)
+  });
+
+  test("the channel crosses as a ReadableStream the client can `getReader` — its ops readable in order", async () => {
+    // The client pump reads `_$HY.r["sc:live"]` with `getReader()` and
+    // refuses anything else. The hydration serializer's channel guard used
+    // to treat the stream as an async iterable (Node's streams are
+    // iterable) and re-shape it into an async ITERATOR on the wire — the
+    // chat welcome then froze at its first paragraph, every later op
+    // unread. Execute the document's scripts as a browser would and read
+    // the record back.
+    const ServerComp = () => {
+      const text = createMemo(async function* () {
+        yield "w1";
+        await wait(5);
+        yield "w1 w2";
+        await wait(5);
+        yield "w1 w2 w3";
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <section>{text()}</section>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/wire" }) as any;
+    const html = await collect(() => Inline({}));
+
+    const sandbox: any = {
+      document: { getElementById: () => null },
+      _$HY: { r: {}, fe() {} },
+      ReadableStream,
+      Promise,
+      Symbol
+    };
+    sandbox.self = sandbox;
+    vm.createContext(sandbox);
+    for (const [, src] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+      vm.runInContext(src, sandbox);
+    }
+    const channel = sandbox._$HY.r["sc:live"];
+    expect(typeof channel.getReader).toBe("function");
+    const reader = channel.getReader();
+    const ops: any[] = [];
+    for (;;) {
+      const r = await reader.read();
+      if (r.done) break;
+      ops.push(r.value);
+    }
+    const holes = ops.filter(op => op.type === "hole").map(op => op.html);
+    expect(holes).toEqual(["w1 w2", "w1 w2 w3"]);
+    // Every op carries its digest (the ledger's currency on every face).
+    for (const op of ops) if (op.type === "hole") expect(typeof op.digest).toBe("string");
   });
 
   test("a live-branded iterable inside a server component keeps pumping (stream-face exception to auto-hybrid)", async () => {

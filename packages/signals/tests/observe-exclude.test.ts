@@ -166,3 +166,125 @@ describe("OBSERVE.exclude", () => {
     expect(click.runs).toBe(1);
   });
 });
+
+/** A root created under `parent`, marked as `body` asks before anything else, returning its owner. */
+function nestedRoot<T>(
+  parent: Owner,
+  mark: "exclude" | "include" | undefined,
+  body: () => T
+): { owner: Owner; result: T } {
+  return runWithOwner(parent, () =>
+    createRoot(() => {
+      const owner = getOwner()!;
+      if (mark) OBSERVE![mark](owner);
+      return { owner, result: body() };
+    })
+  )!;
+}
+
+// The observer that WRAPS the app: `<DevToolbar><App/></DevToolbar>`. The
+// toolbar excludes its own root; the app, created under it, is included
+// back — and the nearest marker on the chain decides, at any depth.
+describe("OBSERVE.include", () => {
+  it("re-admits a subtree under an excluded owner; an exclude beneath it excludes again", () => {
+    const { owner: toolbar } = excludedRoot(() => {});
+    const { owner: app } = nestedRoot(toolbar, "include", () => {});
+    const { owner: appChild } = nestedRoot(app, undefined, () => {});
+    const { owner: panel } = nestedRoot(app, "exclude", () => {});
+    const { owner: panelChild } = nestedRoot(panel, undefined, () => {});
+    expect(OBSERVE!.isExcluded(toolbar)).toBe(true);
+    expect(OBSERVE!.isExcluded(app)).toBe(false);
+    expect(OBSERVE!.isExcluded(appChild)).toBe(false);
+    expect(OBSERVE!.isExcluded(panel)).toBe(true);
+    expect(OBSERVE!.isExcluded(panelChild)).toBe(true);
+    // The toolbar's own children beside the app stay excluded.
+    const { owner: toolbarChild } = nestedRoot(toolbar, undefined, () => {});
+    expect(OBSERVE!.isExcluded(toolbarChild)).toBe(true);
+  });
+
+  it("nearest wins across three levels, and a signal answers by its registering owner", () => {
+    const { owner: a } = excludedRoot(() => {});
+    const { owner: b } = nestedRoot(a, "include", () => {});
+    const { owner: c } = nestedRoot(b, "exclude", () => {});
+    const { owner: d } = nestedRoot(c, "include", () => createSignal(0, { name: "inD" }));
+    const { owner: cChild } = nestedRoot(c, undefined, () => createSignal(0, { name: "inC" }));
+    expect([a, b, c, d].map(o => OBSERVE!.isExcluded(o))).toEqual([true, false, true, false]);
+    // Signals hop to `_owner`, as `ownerPath` does; the walk is the same one.
+    const [inD] = DEV!.getSignals(d);
+    const [inC] = DEV!.getSignals(cChild);
+    expect(inD._name).toBe("inD");
+    expect(inC._name).toBe("inC");
+    expect(OBSERVE!.isExcluded(inD)).toBe(false);
+    expect(OBSERVE!.isExcluded(inC)).toBe(true);
+  });
+
+  it("alone, with nothing excluded, changes no verdict — and leaves unaffected trees unchanged", () => {
+    let alone!: Owner;
+    createRoot(() => {
+      alone = getOwner()!;
+      OBSERVE!.include(alone);
+    });
+    expect(OBSERVE!.isExcluded(alone)).toBe(false);
+    const { owner: excluded } = excludedRoot(() => {});
+    nestedRoot(excluded, "include", () => {});
+    // Neither the included owner nor the plain trees beside the excluded one moved.
+    expect(OBSERVE!.isExcluded(alone)).toBe(false);
+    createRoot(() => expect(OBSERVE!.isExcluded(getOwner())).toBe(false));
+    expect(OBSERVE!.isExcluded(excluded)).toBe(true);
+    expect(OBSERVE!.isExcluded(null)).toBe(false);
+  });
+
+  it("delivers diagnostics about the included app under an excluded toolbar, and none about the toolbar", () => {
+    const seen = arm();
+    const { owner: toolbar } = excludedRoot(() => {});
+    const { owner: app } = nestedRoot(toolbar, "include", () => {});
+    const emit = (owner: Owner, message: string) =>
+      OBSERVE!.diagnostics.emit(
+        { code: "HUGE_FAN_OUT", kind: "graph", severity: "warn", message },
+        owner
+      );
+    const suppressed = emit(toolbar, "[HUGE_FAN_OUT] toolbar");
+    const delivered = emit(app, "[HUGE_FAN_OUT] app");
+    DEV!.report(suppressed);
+    DEV!.report(delivered);
+    expect(seen.map(e => e.message)).toEqual(["[HUGE_FAN_OUT] app"]);
+    expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the included app's runs and interaction writes under an excluded toolbar", () => {
+    arm();
+    const delivered: unknown[] = [];
+    offs.push(OBSERVE!.records.subscribe("interaction", e => delivered.push(e)));
+    const [tick, setTick] = createSignal(0, { name: "tick" });
+    const { owner: toolbar } = excludedRoot(() =>
+      createEffect(tick, () => {}, { name: "toolbar" })
+    );
+    const { result: setApp } = nestedRoot(toolbar, "include", () => {
+      createEffect(tick, () => {}, { name: "app" });
+      const [app, setApp] = createStore<{ items: number[] }>({ items: [] });
+      createEffect(
+        () => app.items.length,
+        () => {},
+        { name: "appList" }
+      );
+      return setApp;
+    });
+    flush();
+    OBSERVE!.attribution.withInteraction({ type: "click" }, () => setTick(1));
+    flush();
+    // The app's effect ran and was recorded; the toolbar's ran and was not.
+    expect(attribution.history("rerun").map(r => r.nodeName)).toEqual(["app"]);
+    expect(costs().scopes.map(s => s.name)).toEqual(["app"]);
+    expect(attribution.history("interaction")).toHaveLength(1);
+    expect(attribution.history("interaction")[0].runs).toBe(1);
+    // A click that writes only the app's store — an included subject under
+    // the excluded root — is the app's interaction, and is recorded.
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "button" }, () =>
+      setApp(s => void s.items.push(1))
+    );
+    flush();
+    expect(attribution.history("interaction")).toHaveLength(2);
+    expect(attribution.history("interaction")[1].writes).toBe(1);
+    expect(delivered).toHaveLength(2);
+  });
+});

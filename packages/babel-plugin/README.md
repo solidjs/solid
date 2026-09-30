@@ -253,7 +253,7 @@ Inline style attributes in templates when the value is a string or `Record<strin
 - Type: `boolean`
 - Default: `false`
 
-SSR-only: emit behavior-claim (`_bnd`) markers for `ref` / `on*` on intrinsic elements.
+SSR-only: keep attribute-slot positions on intrinsic elements bindable — `ref` / `on*` compile to a guarded `ssrClaim` hole instead of dropping, and a dynamic `class` / `style` compiles to a whole-attribute `ssrElementAttribute` hole instead of a value inside template quotes.
 
 ### hoistProps
 

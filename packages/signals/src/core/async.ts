@@ -567,7 +567,10 @@ export function handleAsync<T>(
       const prevValue = hasActiveOverride(el) ? unwrapOverride(el._x!._overrideValue) : el._value;
       const equals = el._equals;
       try {
-        if ((!isEffect && wasUninitialized) || !equals || !equals(value, prevValue)) {
+        // `(prev, next)`, as every other commit path calls the comparator — a
+        // user comparator keyed on which side is incoming (dynamic's binding
+        // gate) reads the lane landing the same way it reads a sync commit.
+        if ((!isEffect && wasUninitialized) || !equals || !equals(prevValue, value)) {
           // Lanes stage (#3479): a memo's landing under its lane is a derived
           // override, as its sync pass's result is (recompute) — `_value`
           // stays the committed truth for readers off the lane.

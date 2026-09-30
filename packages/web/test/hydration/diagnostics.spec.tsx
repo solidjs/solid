@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
-import { sharedConfig, createMemo, createSignal, flush, Errored, Loading } from "solid-js";
+import { createMemo, createSignal, flush, Errored, Loading } from "solid-js";
 import { hydrate, insert } from "@solidjs/web";
 import type * as WebServer from "../../types/server.js";
 

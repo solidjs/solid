@@ -29,7 +29,7 @@ is mount-kind-independent; enumerated once where it is richest) · **existing**
 | call-driven / error record before any html | `call-driven-lifecycle` › `call-driven/error-record` (before-html) | pass — surfaces via `frame.error`; boundary mounts empty (see the shell-gate GAP for what the user sees) |
 | call-driven / error record after html | `call-driven-lifecycle` › `call-driven/error-record` (after-html) | pass — content stays, error recorded, no teardown |
 | call-driven / error then recovery (newer version clears `:error`) | `call-driven-lifecycle` › `call-driven/error-record` (error-then-recovery) | pass |
-| call-driven / truncated stream (clean close, no complete) | `call-driven-lifecycle` › `call-driven/truncated-stream` | pass — content stays, no `:complete`, no error, boundary refetchable |
+| call-driven / truncated stream (clean close, no complete) | `call-driven-lifecycle` › `call-driven/truncated-stream` | pass — content stays, no `:complete`, the death is the frame's error (undeclared death, RFC 11 §9.5 D1), boundary refetchable and the refetch clears it |
 | call-driven / aborted stream (connection error mid-body) | `call-driven-lifecycle` › `call-driven/truncated-stream` (aborted) | pass — transport applies a synthetic error record |
 | t=0 adoption / single "response" (the page IS the record) | `document-adoption` › `t=0/adopt-basics` | pass — zero network, record args, element adopted in place |
 | t=0 adoption / later stream morphs adopted content | `document-adoption` › `t=0/post-adoption-stream` | pass |

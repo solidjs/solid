@@ -7512,3 +7512,286 @@ code the shared predicates (S4, S5, S7 fixed; S6 ruled and deferred in
 #3526 at +402 B) and it added the `memoUntracked`/`effectUntracked`
 reader kinds to the 851-cell posture matrix. Relevant here because
 disposal and companion cleanup are the paths it touched most recently.
+
+## Props Composition Lane (2026-09-12 → 2026-09-28): the yak tracker
+
+Tracker: solidjs/solid#3389, closed 2026-09-28. The trigger was
+DigitecGalaxus/next-yak#644, a rewrite of the `@yak/solid` `styled()`
+runtime that made it 12× faster on SSR and ~2× on hydrate/mount by
+re-implementing, by hand, the primitives it should have been calling:
+`ssrElement`, `merge`/`omit`, `dynamic()`, a theme merge, a server memo.
+The goal, set on day one and never changed: **a library calling the Solid
+primitive lands within noise of the hand-rolled version in yak's own
+harness.** Reached on rc.10; the remaining question — how far the same
+shapes sit from React — is answered below with an attribution, and the
+answer is the reactive core, not props plumbing.
+
+This section is the hand-off. Every number is from a committed results
+file in the harness, a PR, or a comment on the tracker.
+
+### Instruments
+
+- **yak-bench** — `ryansolid/yak-bench`, local `~/Development/yak-bench`.
+  The 14 `css-in-js-bench` workloads plus `polymorphic-chain` (a pure-Solid
+  Kobalte-shaped chain, no CSS-in-JS: three component layers of
+  `merge`/`omit`/spread over `dynamic()`), each lane an esbuild of a
+  `@yak/solid` revision or overlay (`scripts/config.mjs`: `VARIANTS`,
+  `ALL_LANES`; the `mprim` overlay is "every hand-rolled piece → Solid
+  primitives" behind `__PRIM_{SSR,MEMO,PROPS,THEME}__` defines) with
+  `next-yak`/React as the reference lane. `node scripts/build-lanes.mjs`
+  (`LANES=…`), `node scripts/verify.mjs` (SSR output byte-identity modulo
+  separators — the correctness gate), `node scripts/bench-ssr.mjs`,
+  `PLAYWRIGHT_BROWSERS_PATH=$HOME/Library/Caches/ms-playwright node
+scripts/bench-browser.mjs --measure=hydrate,mount --case=…` (Chromium,
+  `CPU_THROTTLE` 4 by default, fresh page per sample, `SAMPLES_HYDRATE` /
+  `SAMPLES_MOUNT`, lanes round-robin per sample). `TAG=<name>` keeps
+  builds and reports apart (`dist/<TAG>`, `result/*-latest-<TAG>.md`);
+  `SOLID_DIR=<checkout>` bundles that checkout's `packages/*/dist` and
+  compiles with its Babel plugin, so a Solid A/B is two `TAG`s built from
+  two trees. `TAG` leaks into later shell commands — unset it. Results:
+  `result/ssr-latest-rc10-{1,2}.md`, `result/ssr-latest-rc10-flags.md`,
+  `result/browser-latest-rc10-client*.md`, `result/browser-latest-sw*.md`
+  (the 2026-09-28 A/Bs below; uncommitted at hand-off).
+- **Browser CPU attribution.** Build a lane unminified (`TAG=prof
+MINIFY=0`), capture with Playwright CDP `Profiler` at 50 µs sampling,
+  map frames through the bundle's sourcemap (`@jridgewell/trace-mapping`),
+  and count only samples whose stack passes through the lane's
+  `browser-entry.tsx` hydrate/mount call (React's through
+  `performWorkUntilDeadline` / `commitRoot`); `(program)` and GC samples
+  count when both neighbouring JS samples are in-window. Scripts
+  `hydrate-prof.mjs`, `attr-browser.mjs` (ms/page by category),
+  `callers.mjs` (inclusive time of a function by caller chain),
+  `self.mjs` (node `--cpu-prof` self time) live in `/tmp/cprof/` — **not
+  under version control**; move them into `yak-bench/scripts/` before
+  they are lost.
+- **In-repo tier-1** (`packages/web/test/*.bench.tsx`, jsdom):
+  `polymorphic-chain.bench.tsx` (compiled floor vs chain, mount+clear 1k
+  and update 10th), `spread-enumerate.bench.tsx`,
+  `spread-array-form.bench.tsx` (added 2026-09-28 on branch
+  `perf/spread-walk`: create / runtime-only against a stub node / update,
+  for the array form, the object form and a plain copy, with floors).
+  Direction only — see the cold-tier ruling below.
+
+### Experiments, in order
+
+Each entry: what → where → measured → verdict. SSR ratios are
+instances/s, browser ratios ms; `>1` is Solid's favour unless stated.
+
+**1. `spread()` → one render effect per element** (#3419; compilers emit
+the array form for element spreads, #3423 / #3424). Three reactive nodes
+per element became one without children, two with; `ref` folded into the
+attribute effect; sources as an array so a function source is read
+inline (no memo, no hydration id). Browser hydrate on the styled-element
+shape 1.47× behind yak's hand path → 1.00×.
+
+**2. `dynamic(source, { static })` + `isStatic(o, key)`** (#3471; #3386
+parts in #3396 / #3436). No factory + instance memo for a tag that cannot
+change; the library decides per instance from the prop's descriptor,
+which is the compiler's own static/dynamic classification (`as="a"` is a
+data property, `as={expr}` a getter), seen through merge/omit layers.
+
+**3. Lazy `merge`/`omit` views** (#3454, protocol behind
+`solid-js/internal` #3470, table-on-enumeration-or-16-reads #3475, omit
+holds the merge _record_ #3497; #3487 closed unmerged — no fold form of
+the hidden-key list beat `slice()`+`push` on instruction count). A view is
+a record + one Proxy, O(1) per layer; consumers (`spread`, `ssrElement`, a
+nested merge) walk the records, never the traps. Kobalte-shaped depth-7
+chain build+consume +62%; yak-bench composition cases 0.8× → 0.95–0.99×
+of yak's hand-rolled runtime; SSR chain 8.2× → 5.8× the compiled floor.
+The `#3448` ruling — always a view, never a copy — is the one item 12
+below re-tests on the client.
+
+**4. `ssrElement(tag, sources[], children, needsId, skip?)`** (#3418,
+#3486 plain-children concat in place, #3562 trailing `attrs` markup + per-
+tag record cache). Single walk, later wins, winner read once; element
+path vs a hand writer 22 → 9 ns/element. Fully static shapes stay ~3×
+behind yak because yak string-concats them at definition time — not our
+gap.
+
+**5. Hydration claim trims** (#3513: `gatherHydratable` frame gate,
+one-pass claim copy in `insert()`, `clearSnapshots` assign-not-delete).
+Net ~3% of hydrate on `tabs`, under the 2.1 ms estimate; the rest of
+`gatherHydratable` is the registry itself.
+
+**6. The props literal** (#3511 → #3514 plain keys, #3550 `hoistProps`:
+one hoisted per-site constructor, shared getter descriptors, fast-mode
+instance; the contract that a getter is defined for a read through its
+own object, dev-enforced; `omit()`'s no-Proxy path re-homes). yak-bench
+SSR geomean 1.12×, composition 1.15–1.31×, Octane flat. Client half of
+the same spike: **time-neutral** (1.00× geomean hydrate and mount, six
+component-heavy cases) — the composition-case client gap was never the
+literal.
+
+**7. Theme merge** — `merge({ theme }, props)` measured at parity with
+yak's shared-handler view (`__PRIM_THEME__` 1.03× geomean); yak-side
+deletion is theirs.
+
+**8. rc.10 re-run, published packages, stock native compiler**
+(2026-09-26/27, `result/ssr-latest-rc10-{1,2}.md`). yak+#658 vs `mprim`
+geomean 1.06× / 1.01× over two rounds — parity; `tabs` 0.67–0.68× and
+`multifile-composition` 0.68–0.73× (ours by 1.4–1.5×); the four
+computed-class micro-cases yak's by 1.17–1.38×. One primitive at a time
+(`ssr-latest-rc10-flags.md`): the props view is the only swap that wins
+for yak (0.97× geomean, +49% on their composition cases); `ssrElement`
+(1.07×), the theme merge (1.06×) and the server memo (1.04×) are Solid's
+remaining 4–7% each. Filed downstream as DigitecGalaxus/next-yak#658
+(descriptor re-home) and #659 (props views + `spread()` array form on
+tag targets; `tabs` 1.48–1.51× over #658).
+
+**9. rc.10 client profile — the hydration item closed as not a hydration
+problem** (2026-09-28, tracker comment). Harness at 4×: hydrate `tabs`
+0.50× React, `multifile-composition` 0.48×, `polymorphic-chain` 0.58×;
+mount 0.70× / 0.65× / 0.69×; Solid's hydrate slower than its own mount
+(57 vs 42 ms on `tabs`), React's equal. Unthrottled ms/page on `tabs`
+(Solid hydrate 18.1 / mount 15.2, React 6.6 / 9.0):
+
+|                                               | Solid hydrate | Solid mount | React hydrate |
+| --------------------------------------------- | ------------: | ----------: | ------------: |
+| `merge`/`omit` views + `spread()` source walk |           3.5 |         3.2 |           0.5 |
+| graph construction + effects + scheduler      |           2.6 |         2.5 |   fiber ≈ 4.0 |
+| hydration claim machinery                     |           3.4 |         0.1 |         ≈ 0.3 |
+| GC                                            |           1.6 |         1.4 |           1.2 |
+| attributes + DOM writes                       |           1.1 |         2.6 |             — |
+| yak runtime + case code + component layer     |           3.4 |         3.2 |           0.9 |
+
+The claim machinery (registry 0.69, `getNextElement` 0.57, `isHydrating`
+0.42, `claimChildNodes` 0.34, per-node probes ≈ 1.0) is exactly the
+hydrate-over-mount excess; removing all of it leaves 14.7 ms against
+React's 6.6. Local trims ≤ 1 ms/page. No registry redesign filed.
+
+**10. `btn-variant` client parity** — yak's hand path 16–22% ahead of
+`mprim`; not the baked-class template but `omit()` + the array-form
+`spread()` per element (+1.4 µs: view construction/reads 0.66 ms/1000,
+walk 0.5, GC 0.25, vs a 4-descriptor copy at 0.35). #659 carried the same
++12–15% on its dynamic-prop tag cases; amended (85a43b6) to copy on the
+fixed-key client tag path. Back to 1.00×.
+
+**11. `spread()` array-form walk, classify once** (2026-09-28, branch
+`perf/spread-walk`, worktree `~/Development/solid-spread-walk`, staged,
+not merged). Non-function sources classified at spread creation; a list
+with no function source skips the per-run resolve pass; universal
+parity; +40 lines. Tier-1: array-form rerun −7%, create unchanged;
+runtime-only floors 0.36 µs/element empty, 0.54 with three static keys,
+0.67 object omit, 0.95 array `[omit, extras]`. **Browser lanes: within
+±1% on every cell** (`browser-latest-sw{base,fixA}*.md`, alternated ×2).
+A first-run one-pass walk (`sourceOwners`, no Map) for object-form views
+gave −2 to −4% hydrate on the view-heavy lane and was not kept: it made
+the first run enumerable-only and reruns all-own-keys (see open target
+4). Verdict: **the walk is not the lever.**
+
+**12. Client materialization of plain-only views** (2026-09-28, patch
+`/tmp/sw-materialize-prototype.patch`, not merged). `merge`/`omit` with
+every source a plain object → a flat object on the client: data
+properties by value (static by the `isStatic` contract), accessors
+re-homed with `bind`, merged key order, server untouched. Sound — the
+whole web client, hydrate, universal and solid suites pass with it on;
+a props object is a read-only derivation, so a view and a copy answer
+every legitimate question identically. Browser lanes vs the item-11
+build, alternated ×2:
+
+| case                | lane  | hydrate            | mount              |
+| ------------------- | ----- | ------------------ | ------------------ |
+| `polymorphic-chain` | mprim | 45.6 → 52.3 (+14%) | 37.7 → 42.1 (+12%) |
+| `polymorphic-chain` | #659  | 45.5 → 52.0 (+14%) | 37.6 → 42.3 (+12%) |
+| `tabs`              | mprim | 55.0 → 56.6 (+3%)  | 43.9 → 47.0 (+7%)  |
+| `tabs`              | #659  | 53.0 → 55.3 (+4%)  | 42.4 → 44.1 (+4%)  |
+| `btn-variant`       | mprim | 31.6 → 30.0 (−5%)  | 25.7 → 24.0 (−7%)  |
+| `btn-variant`       | #659  | 27.4 → 27.3        | 21.5 → 21.3        |
+
+Omit-only variant (`merge` stays a view): neutral to +2% everywhere, and
+the single-layer win vanishes — it exists only when the whole path to
+the spread is plain. A copy is O(keys) per layer (a descriptor read per
+key, a bound getter and a `defineProperty` per accessor) against a view's
+O(1); the chain is ~6 layers × ~13 keys per row. Verdict: **the
+representation is not the lever either; `#3448` holds on the client.**
+
+**13. Where the `polymorphic-chain` client mount goes** (mprim, rc.10,
+11.6 ms in-window of 26.6 profiled, 400 rows, unthrottled): views 2.14
+ms (18.5%; of which the bottom spread's resolved-table build is 0.83 —
+`collectTable` through three omit filters over ~24 leaf keys), graph
+construction 1.65 (`recompute` 0.45, `setupComputedNode` 0.39, `read`
+0.23, `createMemo` 0.18), GC 1.29, spread/attributes 1.24, web other
+1.19, case components 0.89, core other 0.69, DOM natives 0.69,
+effects/scheduler 0.57. No function above 4%. Per row: ~7 µs of graph
+work for ~7–8 computation nodes (spread effect, `dynamic()` memo, `Show`
+memo + render effect, children insert, text insert, icon insert). React
+pays no nodes; its per-row cost is fibers and object spreads.
+
+### Standing rulings and lessons
+
+- **Server: always views.** One walk into `ssrElement`, no copies, no
+  table on first read. **Client: a small fixed-key plain set consumed by
+  one `spread` is cheaper copied** (+1.4 µs/element the other way); views
+  pay off once props are proxied or chained, and materializing plain-only
+  views at construction loses 12–14% on a chain. The platform cannot pick
+  per layer because a layer cannot know its depth at construction.
+- **The props-plumbing walk and representation are not the client lever**
+  (items 11–13). The residue vs React is per-row node count and per-node
+  cost in the reactive core, spread thin: no function above 4%.
+- **Cold tier.** A page load runs the runtime in the interpreter and
+  baseline tiers; the same code measures ~4× cheaper per call in an
+  optimized tier-1 bench. Tier-1 gives direction; the browser lanes are
+  the acceptance, alternated (A B A B), with medians and the React lane
+  in the same run.
+- **Perf vs size.** Fast paths (a specialized walk, a cached shape, a
+  shortcut for a static case) are the class that balloons; each earned its
+  number here and together they are the growth. Fewer nodes per row via
+  the compiler (a proven-static child needs no effect) and removals are
+  size-neutral or negative. A perf change carries its gzip delta and is
+  in only if the lane gain clears the maintainer's bar.
+- **Read the fixture, again.** The `btn-variant` client gap was `omit()` +
+  array-form spread in yak's runtime, not the template; #659's "tag cases
+  noise" was SSR-only. The harness measures the fixture first.
+- **`merge()`'s function-source memo takes a hydration id.** A client path
+  for an element the server writes by hand must use `spread()`'s array
+  form (inline function source, no owner) — documented, and an easy trap
+  for anyone porting a hand-written SSR path.
+- **CodSpeed.** A regression counts when the flagged frames are ours and
+  scale with the input; harness-frame self time constant across sizes is
+  attribution (#3497, #3562).
+- Working with the yak repo: pnpm `minimumReleaseAge` blocks `pnpm run` —
+  call `node_modules/.bin/*` directly or set it to 0 temporarily and
+  restore before committing; push via a fork remote.
+
+### Open targets, in order
+
+1. **Client per-row node count on composition shapes.** The residue (item
+   13). Measure first: nodes per row by kind on `polymorphic-chain` and
+   `tabs`, and cold-tier cost per node kind (creation, first run, first
+   flush). Candidates, all size-neutral or negative: a child expression
+   the compiler can prove static emits a direct insert, no effect; a
+   spread and its children insert sharing one node; `Show` building two
+   memos where one suffices (Octane board open target 5 — same item);
+   what `createEffectNode` / `setupComputedNode` allocate and link on
+   creation. This is a core arc, not a yak-parity one.
+2. **Hydrate trims, bundled, ≤ 1 ms/page (~5%)**: `isHydrating`'s
+   `isConnected` per attribute → once per element in `assign`;
+   `getNextElement`'s key string + Map get/delete + WeakSet add; the
+   per-node probes (`hydratedCreateMemo` → `readSerializedOrCompute`,
+   `sharedConfig.has` against an empty `_$HY.r`). Only if item 1 leaves
+   hydrate still ≥ 5% over mount.
+3. **Server floors, kept deliberately** (SSR vs React on
+   `polymorphic-chain` ~0.47×; `tabs` / `multifile-composition` at
+   parity): the owner protocol per server memo (~22 ns/instance; it is
+   what gives the compute `getOwner()` / `onCleanup` and retry-stable
+   ids), the generic-proxy floor of a one-key `merge` (~12 ns),
+   `ssrElement` vs a definition-time writer on the tiny `dyn-*` cases
+   (1.46×). Reopen only as their own items.
+4. **Key-coverage inconsistency through a view.** `spread` over a
+   merge/omit view walks the resolved table, built with `Reflect.ownKeys`
+   (all own keys), while `assign` over a plain object, `spread` over a
+   plain source and the server's `sourceOwners` use enumerable string
+   keys — a non-enumerable own property on a leaf reaches the element
+   only through a view, and only on the client. Tiny, but it blocked the
+   item-11 one-pass and it is a server/client divergence. Fix: filter by
+   enumerability in the web/universal table walk, or build the table from
+   `leafKeys`.
+5. **Docs**: the server-views / client-copy guidance for libraries in the
+   `merge` / `omit` JSDoc and the hydration-id note on `merge()`'s
+   function source.
+6. **`perf/spread-walk` (item 11)**: ±0 in the browser, −7% on one tier-1
+   rerun micro, +40 lines. Drop under the size rule unless wanted; keep
+   the bench file either way.
+7. Yak side: watch DigitecGalaxus/next-yak#658 / #659; the component-
+   target `merge()` view on the client is ~5% behind a copy on their
+   composition cases for a 1.5× SSR win — their trade.

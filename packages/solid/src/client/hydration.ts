@@ -245,7 +245,6 @@ let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
 // which claims everything). Reached as `sharedConfig.isClaiming`.
 let _claimOwner: Owner | null = null;
-
 function isClaiming(): boolean {
   if (!_claimOwner) return true;
   let owner: Owner | null = getOwner();
@@ -272,6 +271,44 @@ function markTopLevelSnapshotScope() {
 // hydration state.
 function isHydrationInProgress(): boolean {
   return !_hydrationDone && (sharedConfig.hydrating || _pendingBoundaries > 0);
+}
+
+/**
+ * Whether the code running now is claiming server-rendered DOM: the root
+ * pass of `hydrate()`, or code under a streamed `<Loading>` boundary while
+ * that boundary resumes. `false` on the server, in client-only renders,
+ * after hydration, and in a render a resume window triggers outside the
+ * resuming boundary (that render builds fresh DOM).
+ *
+ * Not reactive: read it where a component or primitive is created. While it
+ * is `true`, render what the server rendered, and switch to the client-only
+ * value from `onSettled`.
+ *
+ * @example
+ * ```ts
+ * const [width, setWidth] = createSignal(isHydrating() ? 0 : el.offsetWidth);
+ * onSettled(() => setWidth(el.offsetWidth));
+ * ```
+ */
+export function isHydrating(): boolean {
+  return sharedConfig.hydrating && (!sharedConfig.isClaiming || sharedConfig.isClaiming());
+}
+
+/**
+ * Whether the calling owner sits where hydration applies — not under
+ * `<NoHydration>`, or back under a nested `<Hydration>` — so a value keyed
+ * to this position reaches a hydrating client. On the server it also
+ * requires the owner to belong to a render in progress. `false` with no
+ * owner (a promise continuation, an IO callback): read it where the owner
+ * is known. On the client, `<Hydration>` is a passthrough, so inside a
+ * `<NoHydration>` zone (which renders only outside hydration) this stays
+ * `false` even under a nested `<Hydration>`.
+ *
+ * Solid decides this itself for its own values. A library writing keyed
+ * values with `getHydrationWriter()` reads it to make the same decision.
+ */
+export function isHydratable(): boolean {
+  return !!getOwner() && !getContext(NoHydrateContext);
 }
 
 // Registers a callback to run once when all hydration completes (all
@@ -370,9 +407,14 @@ const MockPromise = /* @__PURE__ */ (() => {
       return new MockPromise();
     }
   }
-  for (const k of ["all", "allSettled", "any", "race", "reject", "resolve"] as const) {
+  for (const k of ["all", "allSettled", "any", "race", "reject", "resolve", "try"] as const) {
     (MockPromise as any)[k] = () => new MockPromise();
   }
+  (MockPromise as any).withResolvers = () => ({
+    promise: new MockPromise(),
+    resolve() {},
+    reject() {}
+  });
   return MockPromise;
 })();
 
@@ -481,14 +523,48 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
   // there would commit a fresh Promise and orphan the server-streamed fragment.
   // So short-circuit to the server value whenever one is still waiting; once
   // hydration is `done`, always compute.
-  if (sharedConfig.done || !sharedConfig.has!(o.id!)) return compute(prev);
+  if (sharedConfig.done) return compute(prev);
+  if (!sharedConfig.has!(o.id!)) {
+    const result = compute(prev);
+    // No serialized value, yet the compute answered a LIVE source that
+    // carries the DOCUMENT's answer (LIVE_LOCAL): the node is an
+    // unserialized reader of a live server component the page is showing
+    // (a `dynamic()` factory hoisted to module scope has no id to hydrate
+    // by; it consumes the source itself), and the call was answered locally by the
+    // adopted markup (a frames intercept), not by a wire. That answer is
+    // the value now — there is no serialized value to hydrate, the markup
+    // is the value — and the node takes over at its scope's release
+    // exactly as a serialized live node does: the takeover run re-invokes,
+    // and the new iteration yields this value first, then connects (RFC 11
+    // §9.5, Client face 3). The iterable itself is never started here.
+    if (
+      options?.ssrSource !== "hybrid" &&
+      result != null &&
+      typeof result === "object" &&
+      result[LIVE_SOURCE] &&
+      result[LIVE_LOCAL] !== undefined
+    ) {
+      armLiveTakeover(o);
+      return result[LIVE_LOCAL];
+    }
+    return result;
+  }
   // Divergence arming is a "server"/default-mode contract only: hybrid's
   // sync/promise flavor deliberately latches (re-running its compute at done
   // would clobber the adopted value — the refetch the hybrid wrappers' rule 6
   // rules out), and the hybrid wrappers re-enter this path for every later
   // run of such a node, not only on divergence.
   if (latchedOnce.has(o)) {
-    if (options?.ssrSource !== "hybrid") armLiveTakeover(o);
+    // A rerun outside the claim in progress by a node no pending boundary
+    // holds: its section's hydration is over, so the rerun answers a client
+    // write and computes, rather than re-adopting the server value until the
+    // page's last boundary resumes.
+    if (options?.ssrSource !== "hybrid") {
+      let p: Owner | null = o;
+      while (p && !(p as any)._hp) p = p._parent;
+      if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
+      armLiveTakeover(o);
+    }
   } else latchedOnce.add(o);
   return readHydratedValue(
     sharedConfig.load!(o.id!),
@@ -554,6 +630,15 @@ const LIVE_SOURCE = Symbol.for("solid.LiveSource");
  * page already holds.
  */
 const LIVE_RESUME_FROM = Symbol.for("solid.LiveResumeFrom");
+
+/**
+ * The document's answer for a live call (registered symbol; filed by the
+ * transport's `live()` when an integration already shows the call at t=0 —
+ * a frames boundary the page carries). A hydrating node without a
+ * serialized value adopts it as its value and arms its takeover; see
+ * readSerializedOrCompute.
+ */
+const LIVE_LOCAL = Symbol.for("solid.LiveLocal");
 
 // Takeover gates, one per hydration scope: nodes that trace-detected a live
 // compute (or diverged while latched) read their scope's gate (tracked);
@@ -2485,6 +2570,7 @@ function initBoundaryResume(
   id: string
 ): [trigger: () => void, resume: (shouldHydrate?: boolean) => void, release: () => boolean] {
   _pendingBoundaries++;
+  (o as any)._hp = 1;
   // Capture the current root's registry/gather pair for this boundary's
   // late resume (#2917). Runs while the registering root's globals are live:
   // during its hydrate() pass, or — for nested streamed boundaries — inside
@@ -2499,6 +2585,7 @@ function initBoundaryResume(
     if (released) return false;
     released = true;
     _pendingBoundaries--;
+    (o as any)._hp = 0;
     sharedConfig.boundaryScopes?.delete(id);
     // Retire the fragment claim (see claimFragment): after this boundary
     // resumes or is disposed, a late swap must be held rather than landing

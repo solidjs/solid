@@ -70,21 +70,21 @@ describe("concurrent promise-backed dynamics under Loading", () => {
   // (`($R[n]=(e,r)=>{…})($R[m],…)`) — pattern-matching detectors miss it
   // (which is how this test was born); executing the scripts is the truth.
   test("both fragment records patch, whichever resolves first", async () => {
-    const A = () => <b>alpha</b>;
-    const B = () => <i>beta</i>;
-    const Fast = dynamic(() => wait(10).then(() => A));
-    const Slow = dynamic(() => wait(60).then(() => B));
+    // Tag-name sources: an async dynamic() serializes its landing for the
+    // client to adopt (#3666), and a tag name is a value that crosses as-is.
+    const Fast = dynamic(() => wait(10).then(() => "b" as const));
+    const Slow = dynamic(() => wait(60).then(() => "i" as const));
 
     const html = await collect(() => (
       <div>
         <section id="fast">
           <Loading fallback={<span>f…</span>}>
-            <Fast />
+            <Fast>alpha</Fast>
           </Loading>
         </section>
         <section id="slow">
           <Loading fallback={<span>s…</span>}>
-            <Slow />
+            <Slow>beta</Slow>
           </Loading>
         </section>
       </div>

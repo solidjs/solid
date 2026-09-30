@@ -172,6 +172,42 @@ describe("parseCookieHeader", () => {
   });
 });
 
+describe("flash cookie detection", () => {
+  // The matcher is a regex literal (bundlers can drop an unused literal, not
+  // a `new RegExp`), so it spells the cookie name out. Pin it to the pattern
+  // the name produces.
+  const reference = new RegExp(`(?:^|;\\s*)${codec.FLASH_COOKIE}=([^;]+)`);
+  const headers = [
+    null,
+    "",
+    "flash=abc",
+    "flash=",
+    "flash=a=b",
+    "a=1; flash=abc; b=2",
+    "a=1;flash=abc",
+    "a=1;   flash=abc",
+    "a=1;\tflash=abc",
+    "a=1; flash=abc;",
+    "flash=first; flash=second",
+    "myflash=abc",
+    "flashy=abc",
+    "a=flash=abc",
+    " flash=abc",
+    "FLASH=abc",
+    "a=1; flash",
+    "a=1; flash=; b=2"
+  ];
+
+  it("matches exactly what the cookie name's pattern matches", () => {
+    expect(codec.FLASH_COOKIE).toBe("flash");
+    for (const header of headers) {
+      const match = header ? header.match(reference) : null;
+      expect(codec.hasFlashCookie(header), String(header)).toBe(!!match);
+      expect(codec.matchFlashCookie(header), String(header)).toBe(match ? match[1] : undefined);
+    }
+  });
+});
+
 // Raw source is the dev build (`"_SOLID_DEV_"` is a truthy string until a
 // bundler replaces it), so the never-silent policy surfaces as throws
 // here; the production build reports through console.error and no-ops.

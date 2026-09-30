@@ -35,16 +35,15 @@
  * warn once and do nothing.
  */
 import {
-  $DEVCOMP,
   createMemo,
   createSignal,
   getOwner,
   onCleanup,
   resetErrorHalt,
-  sharedConfig,
   untrack,
   DEV
 } from "solid-js";
+import { $DEVCOMP, sharedConfig } from "solid-js/internal";
 import { IS_DEV } from "../client/core.js";
 import type { Element as SolidElement } from "../types.js";
 

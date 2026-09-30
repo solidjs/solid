@@ -22,6 +22,7 @@ import {
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
 import { reportServerError } from "solid-js/internal";
+import { requestErrorHook } from "../../src/request-error-hook.js";
 import { observeInvocation } from "../../src/server-observe.js";
 import { emitFinding, errorText } from "../../src/diagnostics.js";
 import { encodeFlashCookie, setFlashSecret } from "./flash.js";
@@ -76,6 +77,7 @@ export {
   UNKNOWN_HEADER,
   clearFlashCookie,
   createChunk,
+  createEventChunk,
   decodeErrorHeaderValue,
   decodeRedirectHeaderValue,
   decodeResponse,
@@ -88,6 +90,7 @@ export {
   isServerFunction,
   serializeStream,
   subscribeFlightData,
+  textDigest,
   withMeta
 } from "./shared.js";
 export { decodeFlashCookie, encodeFlashCookie } from "./flash.js";
@@ -518,6 +521,14 @@ export type LiveSource<R> = R & {
 /** Identity of the currently executing server function call. */
 export interface ServerFunctionInvocation {
   id: string;
+  /**
+   * The call arrived at the live address: a `live` loop is reading, and the
+   * answer is framed as an event stream for as long as it stands (RFC 10,
+   * `live(fn)` → Framing). A result policy building the answer's Response
+   * itself (`frameTransformResult`) reads this to frame it the same way.
+   * `false` for the data and bare addresses, and for in-process calls.
+   */
+  live: boolean;
 }
 
 /**
@@ -1336,7 +1347,7 @@ export function createServerReference({ id, fn, name }) {
       const evt = { ...ogEvt, locals: { ...ogEvt.locals } };
       // Keyed on the derived event: the invocation is visible exactly within
       // this call's provideEvent scope and evaporates with the derived event.
-      INVOCATIONS.set(evt, { id });
+      INVOCATIONS.set(evt, { id, live: false });
       evt.serverOnly = true;
       const scope = run => provideEvent(evt, run);
       // Per-invocation wrap (see configureServerFunctionsServer): direct
@@ -1345,6 +1356,10 @@ export function createServerReference({ id, fn, name }) {
       // the function during a render. Resolved — and validated (#3238) —
       // per invocation, before the body can run.
       const wrap = resolveWrapInvocation(config.wrapInvocation);
+      // The call reports through the hook of the render serving the request
+      // it was made under, resolved now: when it fails, no render may be on
+      // the stack and the global SSR context may be another request's.
+      const hook = requestErrorHook(ogEvt);
       // Exactly-once is enforced on this leg too (#3246, see
       // provideEventOnce): a broken hook used to double-commit or skip the
       // body silently during a render, where there is no status line to
@@ -1358,7 +1373,8 @@ export function createServerReference({ id, fn, name }) {
         return observeInvocation({ id, direct: true, event: evt, args }, () =>
           reportDirectFailure(
             () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
-            id
+            id,
+            hook
           )
         );
       });
@@ -2871,16 +2887,13 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
         return createEventChunk(payload, id);
       }
     : createChunk;
-  // Heartbeat, live only: a comment every 20s while the response is open,
-  // so a proxy's idle timeout never mistakes a waiting source for a dead
-  // one. Not demand-gated — the two bytes ride ahead of any parked pull.
-  // Unref'd where the runtime allows: the connection holds the process
-  // open, not the timer.
-  let heartbeat = null;
+  // The live body's keepalive and its dev chaos (see armLiveBody), armed at
+  // start; disarmed on every road the stream ends by.
+  let stopLive = null;
   const stopHeartbeat = () => {
-    if (heartbeat !== null) {
-      clearInterval(heartbeat);
-      heartbeat = null;
+    if (stopLive !== null) {
+      stopLive();
+      stopLive = null;
     }
   };
   // Demand gate. seroval's pump pulls each source as fast as it resolves and
@@ -2951,32 +2964,7 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
     // promise — reads wait for it, so the stream's contract is unchanged
     async start(controller) {
       streamController = controller;
-      if (live) {
-        heartbeat = setInterval(() => {
-          if (closed) return;
-          try {
-            controller.enqueue(EVENT_STREAM_HEARTBEAT);
-          } catch {}
-        }, LIVE_HEARTBEAT_INTERVAL);
-        if (typeof heartbeat === "object" && heartbeat && typeof heartbeat.unref === "function")
-          heartbeat.unref();
-        // The chaos knob (dev only): end this response as a dying connection
-        // would — the body errors with the stream still open, so the client
-        // reads a death, not a completion. Cleared with the heartbeat; a
-        // response that completed on its own is never touched.
-        if (DEV && config.chaosReconnectEvery > 0) {
-          const chaos = setTimeout(() => {
-            if (closed) return;
-            teardown();
-            try {
-              controller.error(new Error("Live response ended by the chaos knob."));
-            } catch {}
-          }, config.chaosReconnectEvery);
-          if (typeof chaos === "object" && chaos && typeof chaos.unref === "function")
-            chaos.unref();
-          sourceClosers.add(() => clearTimeout(chaos));
-        }
-      }
+      if (live) stopLive = armLiveBody(controller, teardown);
       if (signal) {
         if (signal.aborted) {
           teardown();
@@ -3072,6 +3060,59 @@ function serializedResponse(value, headers, codec, signal, scope) {
 // timeouts (30s nginx `proxy_read_timeout` is the lowest default in wide
 // use; most hosts sit at 60s+).
 const LIVE_HEARTBEAT_INTERVAL = 20000;
+
+/**
+ * Arms what every live body carries beyond its payloads, whichever writer
+ * frames them — the codec stream (`serializeResponseStream`) and a frame
+ * stream (`serverComponentResponse` at the live address) alike:
+ *
+ * - the heartbeat: an event-stream comment every 20s while the response is
+ *   open, so a proxy's idle timeout never mistakes a waiting source for a
+ *   dead one. Not demand-gated — the two bytes ride ahead of any parked
+ *   pull. Unref'd where the runtime allows: the connection holds the
+ *   process open, not the timer;
+ * - the chaos knob (dev only, `chaosReconnectEvery`): end this response as
+ *   a dying connection would — `teardown` first (the producer's own), then
+ *   the body errors with the stream still open, so the client reads a
+ *   death, not a completion.
+ *
+ * Returns the disarm; the caller runs it on every road the body ends by, so
+ * a response that completed on its own is never touched.
+ * @internal
+ */
+export function armLiveBody(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  teardown: () => void
+): () => void;
+
+export function armLiveBody(controller, teardown) {
+  let stopped = false;
+  const heartbeat = setInterval(() => {
+    if (stopped) return;
+    try {
+      controller.enqueue(EVENT_STREAM_HEARTBEAT);
+    } catch {}
+  }, LIVE_HEARTBEAT_INTERVAL);
+  if (typeof heartbeat === "object" && heartbeat && typeof heartbeat.unref === "function")
+    heartbeat.unref();
+  let chaos = null;
+  if (DEV && config.chaosReconnectEvery > 0) {
+    chaos = setTimeout(() => {
+      if (stopped) return;
+      teardown();
+      try {
+        controller.error(new Error("Live response ended by the chaos knob."));
+      } catch {}
+    }, config.chaosReconnectEvery);
+    if (typeof chaos === "object" && chaos && typeof chaos.unref === "function") chaos.unref();
+  }
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(heartbeat);
+    if (chaos !== null) clearTimeout(chaos);
+  };
+}
 
 /**
  * The live adapter: positions and the first-emission skip (RFC 10, `live`
@@ -3344,7 +3385,10 @@ export function sanitizeServerError(value: unknown): unknown;
 // call that throws during SSR is reported here as the function's failure
 // and the <Errored> that contains it reuses the answer without reporting
 // again. Per-request hooks ride the event (the handler's option); the
-// channel sites read the event off the scope their operations run in.
+// channel sites read the event off the scope their operations run in. A
+// direct call reports through the hook of the render serving its request
+// (`requestErrorHook`). None is ever read off the global SSR context: that
+// is whichever render touched it last, and may be another request's.
 const REQUEST_ERROR_HOOKS = new WeakMap();
 
 function siteFor(handling, event, direct) {
@@ -3378,16 +3422,18 @@ function currentEvent() {
 }
 
 /**
- * Reports a direct call's failure as the function's (`direct: true`) and
- * rethrows the ORIGINAL: the render that made the call contains it, and the
- * wire policy there reuses the verdict decided here.
+ * Reports a direct call's failure as the function's (`direct: true`) through
+ * `hook` (its request's render's) and rethrows the ORIGINAL: the render that
+ * made the call contains it, and the wire policy there reuses the verdict
+ * decided here.
  */
-function reportDirectFailure(run, id) {
+function reportDirectFailure(run, id, hook) {
   const report = error => {
     reportServerError(
       error,
       { kind: "server-function", handling: "thrown", functionId: id, direct: true },
-      null
+      null,
+      hook
     );
     throw error;
   };
@@ -3431,7 +3477,8 @@ export function sanitizeServerError(value) {
  * be JSON-safe. Defined for declared reads only: a default-transport
  * reference POSTs, and a POST is not described by its url — this throws with
  * a pointer, as it does for a url long enough that the call would fall back
- * to POST. Present on both entries so a component rendering a preload link
+ * to POST. A live reference's url is its live address — a standing stream
+ * to fetch by hand, not to preload. Present on both entries so a component rendering a preload link
  * during SSR resolves the same import as on the client; see the client
  * entry's docstring for the full contract.
  */
@@ -3440,7 +3487,7 @@ export function serverFunctionUrl<A extends readonly unknown[]>(
   ...args: A
 ): string;
 
-/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]`. */
+/** The url a `GET()` reference's call requests: `<endpoint>/data/<id>[?args=...]` (`/live/` for a live one). */
 export function serverFunctionUrl(fn, ...args) {
   return serverFunctionUrlFor(config.endpoint, fn, args);
 } /**
@@ -4262,7 +4309,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
         // ahead of run() (auth, logging) included.
-        INVOCATIONS.set(event, { id: functionId });
+        INVOCATIONS.set(event, { id: functionId, live: !!live });
         const run = () => serverFunction(...parsed);
         // Same observation as the direct leg (see `observeInvocation`): the
         // wrapped execution as a whole, the error as thrown — before the

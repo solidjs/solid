@@ -230,6 +230,14 @@ export function renderToStream<T>(
      * the shell has a `</head>` (splicing is automatic then).
      */
     onHead?: (head: string) => void;
+    /**
+     * The request's lifecycle. Aborting tears the render down exactly as a
+     * client disconnect does (`SSR_STREAM_ABANDONED`, `data.reason:
+     * "signal"`); the one teardown handle for a host whose transport cannot
+     * report a dead consumer through the sink or the readable view — pass
+     * `request.signal`.
+     */
+    signal?: AbortSignal;
   }
 ): {
   /**
