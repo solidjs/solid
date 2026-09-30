@@ -107,7 +107,9 @@ export {
   createRenderEffect,
   createEffect,
   NoHydration,
-  Hydration
+  Hydration,
+  isHydrating,
+  isHydratable
 } from "./client/hydration.js";
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this

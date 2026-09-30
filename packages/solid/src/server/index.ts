@@ -129,7 +129,7 @@ export * from "./flow.js";
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
-export { NoHydration, Hydration } from "./hydration.js";
+export { NoHydration, Hydration, isHydrating, isHydratable } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
 
 // Seams for the runtimes in this repo, reached through `solid-js/internal`

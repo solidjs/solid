@@ -15,6 +15,7 @@ import { expect, test } from "vitest";
 // Real path: the compiler reports resolved files by it.
 const packageDir = realpathSync(resolve(import.meta.dirname, ".."));
 const signalsDir = realpathSync(resolve(packageDir, "node_modules/@solidjs/signals"));
+const webDir = realpathSync(resolve(packageDir, "../web"));
 const TYPE_DIRS = [resolve(packageDir, "types"), resolve(signalsDir, "dist/types")];
 const ENTRIES: Record<string, string> = {
   "solid-js": resolve(packageDir, "types/index.d.ts"),
@@ -24,18 +25,59 @@ const ENTRIES: Record<string, string> = {
   "@solidjs/signals": resolve(signalsDir, "dist/types/index.d.ts"),
   "@solidjs/signals/attribution": resolve(signalsDir, "dist/types/attribution.d.ts")
 };
+// `@solidjs/web` is not a dependency of this package: mapped onto its
+// generated declarations, for the hydration API downstream libraries use in
+// place of `sharedConfig`. Its declarations need the DOM lib.
+const WEB_ENTRY = { "@solidjs/web": resolve(webDir, "types/index.d.ts") };
+
+// The public hydration API, typed as the published declarations must type it.
+const HYDRATION_API = `
+import { isHydrating, isHydratable } from "solid-js";
+const hydrating: boolean = isHydrating();
+const hydratable: boolean = isHydratable();
+void hydrating, hydratable;
+`;
+const WEB_HYDRATION_API = `
+import { getHydrationWriter, takeHydrationValue } from "@solidjs/web";
+import type { HydrationWriter, HydrationValue } from "@solidjs/web";
+const writer: HydrationWriter | undefined = getHydrationWriter();
+if (writer) {
+  const async: boolean = writer.async;
+  const written: boolean = writer.write("lib:key", Promise.resolve(1), { deferStream: true });
+  void async, written;
+  // @ts-expect-error — \`async\` is read-only
+  writer.async = true;
+}
+const taken: HydrationValue<number> | undefined = takeHydrationValue<number>("lib:key");
+if (taken?.status === "resolved") {
+  const value: number = taken.value;
+  void value;
+} else if (taken?.status === "rejected") {
+  const error: unknown = taken.error;
+  void error;
+} else if (taken) {
+  const promise: Promise<number> = taken.promise;
+  void promise;
+}
+`;
 
 // The compiler runs in a child Node: V8 coverage instruments every script in
 // the worker's isolate (`coverage.include` only filters the report), which
 // multiplies the checker's cost several-fold under `vitest --coverage`.
-const check = (lib: string[], extra = "") => `
+const check = (
+  lib: string[],
+  extra = "",
+  entries: Record<string, string> = ENTRIES,
+  typeDirs: string[] = TYPE_DIRS
+) => `
 import { relative, resolve } from "node:path";
 import ts from "typescript";
 
 const packageDir = ${JSON.stringify(packageDir)};
 const packagesDir = resolve(packageDir, "..");
-const typeDirs = ${JSON.stringify(TYPE_DIRS)};
-const entries = ${JSON.stringify(ENTRIES)};
+const typeDirs = ${JSON.stringify(typeDirs)};
+const entries = ${JSON.stringify(entries)};
+const web = ${JSON.stringify(WEB_ENTRY["@solidjs/web"])};
 const probe = resolve(packageDir, "test/__declarations-probe__.ts");
 const source =
   Object.keys(entries)
@@ -49,7 +91,8 @@ const options = {
   moduleResolution: ts.ModuleResolutionKind.Bundler,
   target: ts.ScriptTarget.ES2022,
   lib: ${JSON.stringify(lib)},
-  types: []
+  types: [],
+  paths: "@solidjs/web" in entries ? { "@solidjs/web": [web] } : undefined
 };
 const host = ts.createCompilerHost(options);
 const { getSourceFile, fileExists, readFile } = host;
@@ -81,7 +124,7 @@ const report = ours
 process.stdout.write(JSON.stringify({ resolved, report }));
 `;
 
-function run(script: string) {
+function run(script: string, entries: Record<string, string> = ENTRIES) {
   const { resolved, report } = JSON.parse(
     execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: packageDir,
@@ -91,7 +134,7 @@ function run(script: string) {
 
   // Every entry must resolve to the generated declarations, or the check
   // would pass over files it never saw.
-  expect(resolved).toEqual(Object.values(ENTRIES));
+  expect(resolved).toEqual(Object.values(entries));
   expect(report).toEqual([]);
 }
 
@@ -105,7 +148,8 @@ test("the published declarations type-check under skipLibCheck: false", () => {
       ["lib.es2022.d.ts", "lib.dom.d.ts"],
       `import type { UntilOptions } from "solid-js";
 declare const options: UntilOptions;
-void fetch("/", { signal: options.signal });`
+void fetch("/", { signal: options.signal });
+${HYDRATION_API}`
     )
   );
 }, 30000);
@@ -113,5 +157,22 @@ void fetch("/", { signal: options.signal });`
 // Nothing here is DOM- or Node-specific, so a server or worker consumer with
 // neither the DOM lib nor `@types/node` must not trip over a platform global.
 test("the published declarations type-check without the DOM lib or @types/node", () => {
-  run(check(["lib.es2022.d.ts"]));
+  run(check(["lib.es2022.d.ts"], HYDRATION_API));
+}, 30000);
+
+// The hydration API a data library migrates to from `sharedConfig` must be
+// public — present in the published declarations, not stripped as
+// `@internal` — and typed. The web package's own declarations are not
+// reported: this test guards the probe's use of them.
+test("the public hydration API is published and typed", () => {
+  const entries = { ...ENTRIES, ...WEB_ENTRY };
+  run(
+    check(
+      ["lib.es2022.d.ts", "lib.dom.d.ts"],
+      HYDRATION_API + WEB_HYDRATION_API,
+      entries,
+      TYPE_DIRS
+    ),
+    entries
+  );
 }, 30000);

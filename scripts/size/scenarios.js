@@ -1896,7 +1896,14 @@ module.exports = [
     // 30,738 B against `next` @ 7f9bd7a6d's 30,608 (+130 B; +580 B minified).
     // Same adoption-hold change as the `+ createStore` note (+140 B there).
     // Accepted by the maintainer.
-    limit: "30.74 KB",
+    // Size-Exception (hydration latch fix, 2026-09-29): 30.74 -> 30.79 KB,
+    // measured at 30,783 B against `next` @ bf87f27de's 30,738 (+45 B; +105 B
+    // minified). Shell nodes outside every pending streamed boundary compute
+    // on a client write after the root pass instead of waiting for the whole
+    // page to hydrate: a pending mark on streamed boundary owners and the
+    // latch's rerun check. Every hydrating app carries it. Accepted by the
+    // maintainer.
+    limit: "30.79 KB",
     alias
   },
   {
@@ -2981,6 +2988,10 @@ module.exports = [
     // note, reaching this page through the frames client's container-trace
     // materializer. Accepted by the maintainer. The cap is frozen again at
     // 45.91 KB.
+    // Size-Exception (hydration latch fix, 2026-09-29): 45.91 -> 45.95 KB,
+    // measured at 45,943 B against `next` @ bf87f27de's 45,904 (+39 B; +105 B
+    // minified). Same latch change as the `+ every store` note. Accepted by
+    // the maintainer. The cap is frozen again at 45.95 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3043,6 +3054,10 @@ module.exports = [
     // cap; +581 B minified). Same adoption-hold change as the base page's
     // note (+143 B there). Accepted by the maintainer. The cap is frozen
     // again at 50.09 KB.
+    // Size-Exception (hydration latch fix, 2026-09-29): 50.09 -> 50.12 KB,
+    // measured at 50,115 B against `next` @ bf87f27de's 50,085 (+30 B; +105 B
+    // minified). Same latch change as the base page's note. Accepted by the
+    // maintainer. The cap is frozen again at 50.12 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   }

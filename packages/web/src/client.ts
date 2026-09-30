@@ -38,7 +38,7 @@ import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js
 
 import { JSX } from "../jsx/jsx.js";
 
-import type { RequestEventLocals } from "./server.js";
+import type { RequestEventLocals, HydrationWriter, HydrationValue } from "./server.js";
 import type { TraceContext } from "./trace.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
@@ -109,6 +109,7 @@ export interface ResponseStub {
  * `locals`, whichever entry typed the event.
  */
 export type { RequestEventLocals } from "./server.js";
+export type { HydrationWriter, HydrationValue } from "./server.js";
 
 export interface RequestEvent {
   request: Request;
@@ -255,6 +256,40 @@ export { effect, memo, untrack, getOwner, createComponent };
  */
 export { mergeProps };
 export const getRequestEvent: () => RequestEvent | undefined = voidFn;
+/** Client stub — values are written by the server render. See the server entry. */
+export const getHydrationWriter: () => HydrationWriter | undefined = voidFn;
+
+/**
+ * Removes and returns the value the server render wrote under `key` with
+ * `getHydrationWriter().write(key, value)`, or `undefined` when the page
+ * carries none (or it was already taken). A written promise arrives as
+ * `"pending"` until its settlement streams in, then as `"resolved"` or
+ * `"rejected"`. Readable before `hydrate()` runs and after hydration has
+ * ended. Server: `undefined`.
+ *
+ * The page's values live on `globalThis._$HY.r`; a test seeds them with
+ * `globalThis._$HY = { r: { "sq:key": value } }`.
+ */
+export function takeHydrationValue<T = unknown>(key: string): HydrationValue<T> | undefined;
+
+export function takeHydrationValue(key) {
+  const registry = globalThis._$HY && globalThis._$HY.r;
+  if (!registry || !(key in registry)) return;
+  const v = registry[key];
+  delete registry[key];
+  if (v !== null && typeof v === "object" && typeof v.then === "function") {
+    // Settled serialized promises are stamped `s`/`v` (see solid-js's
+    // readHydratedValue).
+    if (v.s === 1) return { status: "resolved", value: v.v };
+    if (v.s === 2) {
+      // The stamp is the consumption: observe the promise's own rejection.
+      v.then(undefined, voidFn);
+      return { status: "rejected", error: v.v };
+    }
+    return { status: "pending", promise: v };
+  }
+  return { status: "resolved", value: v };
+}
 /**
  * Client stub — the trace a request belongs to is a server-side reading
  * (the incoming `traceparent`, the render's origination); the browser SDK
