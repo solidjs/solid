@@ -4761,3 +4761,46 @@ describe("Promise-of-AsyncIterable Hydration — createMemo", () => {
     expect(result()).toBe(2);
   });
 });
+
+describe("adoption trace — Promise statics", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("a compute calling Promise.withResolvers adopts the server value", () => {
+    startHydration({ t0: { s: 1, v: "server" } });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => {
+          const { promise, resolve, reject } = (Promise as any).withResolvers();
+          resolve("client");
+          reject(new Error("client"));
+          return promise;
+        })();
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result).toBe("server");
+  });
+
+  test("a compute calling Promise.try adopts the server value without running the callback", () => {
+    startHydration({ t0: { s: 1, v: "server" } });
+
+    const callback = vi.fn(() => "client");
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => (Promise as any).try(callback))();
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result).toBe("server");
+    expect(callback).not.toHaveBeenCalled();
+  });
+});

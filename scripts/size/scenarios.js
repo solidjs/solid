@@ -3027,6 +3027,16 @@ module.exports = [
     // measured at 45,943 B against `next` @ bf87f27de's 45,904 (+39 B; +105 B
     // minified). Same latch change as the `+ every store` note. Accepted by
     // the maintainer. The cap is frozen again at 45.95 KB.
+    // Size-Exception (fake Promise statics, 2026-09-30): 45.95 -> 46.04 KB,
+    // measured at 46,036 B against `next` @ cce43eb44's 45,937 (+99 B; 86 B
+    // over the cap; +67 B minified). The hydration trace's fake `Promise`
+    // gains `withResolvers` and `try`, so a traced compute calling them
+    // adopts the server value instead of throwing out of hydration. About
+    // 60 B of the minified cost is the property names. None of ~90
+    // equivalent encodings fit the two hydrating and two page caps at once
+    // (brotli layout moved each by up to ±100 B); this is the smallest
+    // minified form. Accepted by the maintainer. The cap is frozen again at
+    // 46.04 KB.
     // Size-Exception (#3714, 2026-09-29): 45.95 ->
     // 46.21 KB, measured at 46,204 B against #3713 @ 73640f5cd's 45,934
     // (+270 B; 254 B over the cap; +760 B minified). The frames client's
@@ -3099,12 +3109,18 @@ module.exports = [
     // measured at 50,115 B against `next` @ bf87f27de's 50,085 (+30 B; +105 B
     // minified). Same latch change as the base page's note. Accepted by the
     // maintainer. The cap is frozen again at 50.12 KB.
-    // Size-Exception (#3713, 2026-09-29): 50.12 -> 50.15 KB,
-    // measured at 50,150 B against `next` @ cce43eb44's 50,070 (+80 B; 30 B
-    // over the cap; -5 B minified). The fill runs once through `assign`
-    // instead of a memo and an own listener; the code shrinks, and brotli
-    // layout amplifies it here (the frames scenario measures -2 B). Accepted
-    // by the maintainer. The cap is frozen again at 50.15 KB.
+    // Size-Exception (fake Promise statics, 2026-09-30): 50.12 -> 50.17 KB,
+    // measured at 50,166 B against `next` @ cce43eb44's 50,070 (+96 B; 46 B
+    // over the cap; +67 B minified). Same fake-`Promise` change as the base
+    // page's note. Accepted by the maintainer. The cap is frozen again at
+    // 50.17 KB.
+    // #3713 (binding-slot execution, 2026-09-30): no cap change. Measured
+    // at 50,150 B against `next` @ cce43eb44's 50,070 (+80 B; -5 B
+    // minified), a 50.15 KB raise the maintainer accepted; merged with
+    // `next` @ 3c1f809ff it measures 50,125 B against that base's 50,166
+    // (-41 B; -5 B minified), under the fake-`Promise` cap above. The fill
+    // runs once through `assign` instead of a memo and an own listener; the
+    // code shrinks, and brotli layout moves the page either way.
     // Size-Exception (#3714, 2026-09-29): 50.15 ->
     // 50.35 KB, measured at 50,346 B against #3713 @ 73640f5cd's 50,150
     // (+196 B; 196 B over the cap; +760 B minified). The same text-position

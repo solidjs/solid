@@ -38,8 +38,16 @@
  *    renderer's own retry failures to exactly that; a boundary-originated
  *    failure gets the same treatment here.
  */
+import { getEventListeners } from "node:events";
 import { describe, expect, test } from "vitest";
-import { renderToStream, Loading, Errored, type ServerErrorContext } from "@solidjs/web";
+import {
+  renderToStream,
+  createRequestEvent,
+  createSSRResponse,
+  Loading,
+  Errored,
+  type ServerErrorContext
+} from "@solidjs/web";
 import { NotReadyError, createMemo } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
@@ -335,46 +343,46 @@ describe("#3569 (a) a bare child's rejection routes like a template hole's", () 
   });
 });
 
-describe("#3569 (b) a render failure completes the consumer", () => {
-  // A failure that reaches `failRender` regardless of (a): a `<Loading>`
-  // whose child plants a fresh pending source on every pass trips the
-  // boundary's convergence budget (#3003). That error is the boundary
-  // machinery's own — no hole, no bare child — so it takes `finalizeError`'s
-  // uncontained path: pre-flush, no parent handler → the request fails.
-  const NeverConverges = () => {
-    throw new NotReadyError(Promise.resolve() as any);
+// A failure that reaches `failRender` regardless of (a): a `<Loading>`
+// whose child plants a fresh pending source on every pass trips the
+// boundary's convergence budget (#3003). That error is the boundary
+// machinery's own — no hole, no bare child — so it takes `finalizeError`'s
+// uncontained path: pre-flush, no parent handler → the request fails.
+const NeverConverges = () => {
+  throw new NotReadyError(Promise.resolve() as any);
+};
+
+/**
+ * The failing boundary, plus a root read that holds the shell until the
+ * failure has been reported — so for the piped forms the failure lands
+ * strictly pre-flush (post-flush a boundary's `done()` answers true and
+ * the fragment channel takes over; that shape already worked).
+ */
+function failingPreShell() {
+  let releaseShell!: () => void;
+  const gate = new Promise<string>(r => (releaseShell = () => r("shell")));
+  const { heard, onError } = recorder();
+  const App = () => {
+    const held = createMemo(() => gate);
+    return (
+      <div>
+        {held()}
+        <Loading fallback={<i>loading</i>}>
+          <NeverConverges />
+        </Loading>
+      </div>
+    );
   };
+  const options = {
+    onError(error: unknown, context: ServerErrorContext) {
+      onError(error, context);
+      setTimeout(releaseShell, 0);
+    }
+  };
+  return { App, options, heard };
+}
 
-  /**
-   * The failing boundary, plus a root read that holds the shell until the
-   * failure has been reported — so for the piped forms the failure lands
-   * strictly pre-flush (post-flush a boundary's `done()` answers true and
-   * the fragment channel takes over; that shape already worked).
-   */
-  function failingPreShell() {
-    let releaseShell!: () => void;
-    const gate = new Promise<string>(r => (releaseShell = () => r("shell")));
-    const { heard, onError } = recorder();
-    const App = () => {
-      const held = createMemo(() => gate);
-      return (
-        <div>
-          {held()}
-          <Loading fallback={<i>loading</i>}>
-            <NeverConverges />
-          </Loading>
-        </div>
-      );
-    };
-    const options = {
-      onError(error: unknown, context: ServerErrorContext) {
-        onError(error, context);
-        setTimeout(releaseShell, 0);
-      }
-    };
-    return { App, options, heard };
-  }
-
+describe("#3569 (b) a render failure completes the consumer", () => {
   test("await: resolves (with the HTML produced — none, pre-shell), one `failed` call, nothing leaks", async () => {
     const { App, options, heard } = failingPreShell();
     const { escaped, value } = await watchRejections(() =>
@@ -413,4 +421,174 @@ describe("#3569 (b) a render failure completes the consumer", () => {
     expect((value as { value: string }).value).toBe("");
     expect(heard.map(h => h.context.handling)).toEqual(["failed"]);
   }, 10_000);
+});
+
+// solidjs/solid#3719 — `createSSRResponse` over the same pre-shell failures:
+// its promise resolves at shell flush, and a render that fails (or is
+// aborted) before the shell has none. It settles anyway, the way every
+// other consumer above completes: it resolves, never rejects (`onError`
+// already heard the failure), with a bodyless 500 — no page was produced,
+// and an empty 200 would be cached as one.
+describe("#3719 createSSRResponse settles when the render ends before the shell", () => {
+  function respond(
+    code: () => any,
+    options: any,
+    event = createRequestEvent(new Request("http://localhost/"))
+  ) {
+    return settleOrHang(createSSRResponse(renderToStream(code, options), event), 2000);
+  }
+  async function settled(value: Settled<Response>) {
+    expect(value.settled).toBe(true);
+    const response = (value as { value: Response }).value;
+    return { response, body: await response.text() };
+  }
+
+  test("a failure the render reaches through a boundary (non-converging <Loading>) resolves a bodyless 500", async () => {
+    const { App, options, heard } = failingPreShell();
+    const event = createRequestEvent(new Request("http://localhost/"));
+    const { escaped, value } = await watchRejections(() => respond(() => <App />, options, event));
+    expect(messages(escaped)).toEqual([]);
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(500);
+    expect(body).toBe("");
+    expect(response.headers.has("content-type")).toBe(false);
+    // The page exit: the stub comes back committed, so the handler edge's
+    // `commitEventResponse` passes it through instead of folding it again.
+    expect(event.response.committed).toBe(true);
+    expect(heard.map(h => h.context.handling)).toEqual(["failed"]);
+  }, 10_000);
+
+  test("a sync throw on a root hole's retry pass resolves a bodyless 500", async () => {
+    const { heard, onError } = recorder();
+    let first = true;
+    const App = () => (
+      <main>
+        {
+          (() => {
+            if (first) {
+              first = false;
+              throw new NotReadyError(Promise.resolve() as any);
+            }
+            throw new Error("boom on retry");
+          }) as unknown as JSX.Element
+        }
+      </main>
+    );
+    const { escaped, value } = await watchRejections(() => respond(() => <App />, { onError }));
+    expect(messages(escaped)).toEqual([]);
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(500);
+    expect(body).toBe("");
+    expect(heard.map(h => [h.context.handling, (h.error as Error).message])).toEqual([
+      ["failed", "boom on retry"]
+    ]);
+  });
+
+  test("an async read that rejects with no boundary above it resolves a bodyless 500", async () => {
+    const { heard, onError } = recorder();
+    const App = () => {
+      const data = useLateReject();
+      return (
+        <main>
+          <p>{data()}</p>
+        </main>
+      );
+    };
+    const { escaped, value } = await watchRejections(() => respond(() => <App />, { onError }));
+    expect(messages(escaped)).toEqual([]);
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(500);
+    expect(body).toBe("");
+    expect(heard.map(h => [h.context.handling, (h.error as Error).message])).toEqual([
+      ["failed", "fetch failed"]
+    ]);
+  });
+
+  test("a Location already on the stub (set outside the render) still redirects", async () => {
+    // The pre-flush rule: a Location present before the head freezes
+    // preempts the page, and a failed page is no exception.
+    const { heard, onError } = recorder();
+    const event = createRequestEvent(new Request("http://localhost/"));
+    event.response.headers.set("Location", "/login");
+    event.response.headers.append("Set-Cookie", "a=1");
+    const App = () => {
+      const data = useLateReject();
+      return <p>{data()}</p>;
+    };
+    const { value } = await watchRejections(() => respond(() => <App />, { onError }, event));
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/login");
+    expect(response.headers.getSetCookie()).toEqual(["a=1"]);
+    expect(body).toBe("");
+    expect(heard.map(h => h.context.handling)).toEqual(["failed"]);
+  });
+
+  test("an abort before the shell resolves a bodyless 500 without reporting a failure", async () => {
+    const { heard, onError } = recorder();
+    const controller = new AbortController();
+    const App = () => {
+      const held = createMemo(() => new Promise<string>(() => {}));
+      return <main>{held()}</main>;
+    };
+    const { escaped, value } = await watchRejections(() => {
+      const pending = respond(() => <App />, { onError, signal: controller.signal });
+      setTimeout(() => controller.abort(), 10);
+      return pending;
+    });
+    expect(messages(escaped)).toEqual([]);
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(500);
+    expect(body).toBe("");
+    // A disconnect, not a render failure: the hook hears nothing.
+    expect(heard).toEqual([]);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  test("a signal already aborted when the render starts resolves too", async () => {
+    const { heard, onError } = recorder();
+    const controller = new AbortController();
+    controller.abort();
+    const App = () => {
+      const held = createMemo(() => new Promise<string>(() => {}));
+      return <main>{held()}</main>;
+    };
+    const { value } = await watchRejections(() =>
+      respond(() => <App />, { onError, signal: controller.signal })
+    );
+    const { response } = await settled(value);
+    expect(response.status).toBe(500);
+    expect(heard).toEqual([]);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  test("a render that succeeds with nothing to write resolves an empty 200", async () => {
+    // The shell of an empty page reaches the sink as no write at all: `end()`
+    // alone is a success, not a failure — it answers like
+    // `createSSRResponse("")`.
+    const { heard, onError } = recorder();
+    const { value } = await watchRejections(() => respond(() => null, { onError }));
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(body).toBe("");
+    expect(heard).toEqual([]);
+  });
+
+  test("a rejection after the shell is unchanged: 200, the fallback streams, then the rejected fragment", async () => {
+    const { heard, onError } = recorder();
+    const App = () => {
+      const data = useLateReject();
+      return <Loading fallback={<i>loading</i>}>{data()}</Loading>;
+    };
+    const { escaped, value } = await watchRejections(() => respond(() => <App />, { onError }));
+    expect(messages(escaped)).toEqual([]);
+    const { response, body } = await settled(value);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(bare(body)).toContain("<i>loading</i>");
+    expect(body).toContain("fetch failed");
+    expect(hydrationRecordKeys(body).filter(k => k.endsWith("_fr"))).toHaveLength(1);
+    expect(heard.map(h => h.context.handling)).toEqual(["client"]);
+  });
 });

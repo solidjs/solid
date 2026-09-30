@@ -5,6 +5,7 @@ import {
   isDynamic,
   registerImportMethod,
   filterChildren,
+  getCoverageIgnoreComments,
   trimWhitespace,
   transformCondition,
   convertJSXIdentifier
@@ -22,7 +23,7 @@ type ComponentTransformResult = TransformResult & {
   exprs: Array<t.Expression | t.Statement>;
 };
 
-type ComponentChildrenResult = [t.Expression, boolean] | undefined;
+type ComponentChildrenResult = [t.Expression, boolean, t.Comment[]?] | undefined;
 
 function isSimpleOptionalMemberExpression(
   expression: t.Expression | t.JSXEmptyExpression
@@ -341,14 +342,14 @@ export default function transformComponent(
           : t.isFunction(childResult[0])
             ? childResult[0].body
             : childResult[0];
-      runningObject.push(
-        t.objectMethod(
-          "get",
-          t.identifier("children"),
-          [],
-          t.isExpression(body) ? t.blockStatement([t.returnStatement(body)]) : body
-        )
+      const getter = t.objectMethod(
+        "get",
+        t.identifier("children"),
+        [],
+        t.isExpression(body) ? t.blockStatement([t.returnStatement(body)]) : body
       );
+      if (childResult[2]?.length) getter.leadingComments = childResult[2];
+      runningObject.push(getter);
     } else runningObject.push(t.objectProperty(t.identifier("children"), childResult[0]));
   }
   if (runningObject.length || !props.length) props.push(propsLiteral(runningObject));
@@ -409,9 +410,11 @@ function transformComponentChildren(
   if (!filteredChildren.length) return;
   let dynamic = false;
   let pathNodes: t.Node[] = [];
+  let coverageIgnoreComments: t.Comment[] | undefined;
 
   let transformedChildren: t.Expression | t.Expression[] = filteredChildren.reduce(
     (memo: t.Expression[], path: BabelPath<JSXNode>) => {
+      coverageIgnoreComments ||= getCoverageIgnoreComments(path);
       if (t.isJSXText(path.node)) {
         const v = decode(trimWhitespace((path.node.extra?.raw as string | undefined) ?? ""));
         if (v.length) {
@@ -468,5 +471,5 @@ function transformComponentChildren(
     transformedChildren = t.arrowFunctionExpression([], t.arrayExpression(transformedChildren));
     dynamic = true;
   }
-  return [transformedChildren as t.Expression, dynamic];
+  return [transformedChildren as t.Expression, dynamic, coverageIgnoreComments];
 }
