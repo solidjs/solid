@@ -2,17 +2,18 @@
 // ../hackernews-spa/src/app.tsx: same router, same routes, same boundary. What
 // is missing here is the app itself — there are no story, comment, or list
 // templates on this side, because that markup is returned by server components
-// and arrives as HTML. All that ships is the router, the boundaries, and the
-// thread's collapse fill (routes/story.tsx); there are no client components.
+// and arrives as HTML. All that ships is the router and the loading boundary;
+// there are no client components, and the thread's collapse is a native
+// `<details>`.
 //
 // Note there is no server-component API in this file. A `"use server"` call
 // mounts as a route (`serverRouteComponent`) or through `dynamic()`; the
 // transport install lives in the generated entry.
-import { createRouter, defineRoute } from "@solidjs/router";
+import { createRouter, defineRoute, useIsRouting } from "@solidjs/router";
 import { Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import Stories, { searchSchema } from "~/routes/stories";
-import Story, { preload as preloadStory } from "~/routes/story";
+import Story from "~/routes/story";
 import User from "~/routes/user";
 import "./app.css";
 
@@ -49,11 +50,9 @@ async function getNav() {
   );
 }
 
-// The same route table as the SPA twin. The feeds and the user page are
-// server routes: the router makes their calls from the match — params, and
-// the feeds' `page` through `searchSchema` — on navigation and on link
-// hover alike. The story route has a client half (the collapse fill), so it
-// is an ordinary route component with its own `preload`.
+// The same route table as the SPA twin. Every screen is a server route: the
+// router makes its call from the match — params, and the feeds' `page`
+// through `searchSchema` — on navigation and on link hover alike.
 const Router = createRouter({
   routes: [
     defineRoute({
@@ -62,7 +61,7 @@ const Router = createRouter({
       search: searchSchema,
       component: Stories
     }),
-    defineRoute({ path: "/stories/:id", component: Story, preload: preloadStory }),
+    defineRoute({ path: "/stories/:id", component: Story }),
     defineRoute({ path: "/users/:id", component: User })
   ]
 });
@@ -71,12 +70,21 @@ export default function App() {
   const Nav = dynamic(() => getNav());
   return (
     <Router>
-      {props => (
-        <>
-          <Nav />
-          <Loading fallback={<div class="news-list-nav">Loading...</div>}>{props.children}</Loading>
-        </>
-      )}
+      {props => {
+        // A navigation keeps the current page up, dimmed, until the next one
+        // is ready, instead of blanking it.
+        const isRouting = useIsRouting();
+        return (
+          <>
+            <Nav />
+            <div class={["page", { routing: isRouting() }]}>
+              <Loading fallback={<div class="news-list-nav">Loading...</div>}>
+                {props.children}
+              </Loading>
+            </div>
+          </>
+        );
+      }}
     </Router>
   );
 }

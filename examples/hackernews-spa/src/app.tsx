@@ -4,7 +4,7 @@
 // (../hackernews) renders the same routes with the same markup — only the
 // static parts come back as server components there, so they arrive as HTML
 // once and never as data.
-import { createRouter, defineRoute } from "@solidjs/router";
+import { createRouter, defineRoute, useIsRouting } from "@solidjs/router";
 import { Loading } from "solid-js";
 import Nav from "~/components/nav";
 import Stories, { preload as preloadStories } from "~/routes/stories";
@@ -34,12 +34,21 @@ const Router = createRouter({
 export default function App() {
   return (
     <Router>
-      {props => (
-        <>
-          <Nav />
-          <Loading fallback={<div class="news-list-nav">Loading...</div>}>{props.children}</Loading>
-        </>
-      )}
+      {props => {
+        // A navigation keeps the current page up, dimmed, until the next one
+        // is ready, instead of blanking it.
+        const isRouting = useIsRouting();
+        return (
+          <>
+            <Nav />
+            <div class={["page", { routing: isRouting() }]}>
+              <Loading fallback={<div class="news-list-nav">Loading...</div>}>
+                {props.children}
+              </Loading>
+            </div>
+          </>
+        );
+      }}
     </Router>
   );
 }
