@@ -1834,6 +1834,10 @@ impl<'a> crate::shared::component_children::ComponentChildLower<'a>
 }
 
 impl<'a> crate::shared::mode_lower::ModeLower<'a> for AstUniversalTransform<'a, '_> {
+    fn source(&self) -> &str {
+        self.source
+    }
+
     fn wrap_conditionals_enabled(&self) -> bool {
         self.wrap_conditionals
     }

@@ -8,11 +8,12 @@
  * whose waste is cheap are not reported. `checks: false` folds it off.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attribution } from "../src/attribution.js";
+import { attribution, costs } from "../src/attribution.js";
 import type { AttributionOptions } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
+  createProjection,
   createRoot,
   createSignal,
   flush,
@@ -157,5 +158,73 @@ describe("WASTED_RECOMPUTE", () => {
       flush();
     }
     expect(disabled.events).toHaveLength(0);
+  });
+
+  describe("computeds whose value is undefined", () => {
+    function run(make: (x: () => number) => () => unknown) {
+      const [x, setX] = createSignal(0, { name: "x" });
+      let read!: () => unknown;
+      createRoot(() => {
+        read = make(x);
+      });
+      flush();
+      const { events } = capture();
+      for (let i = 1; i <= 10; i++) {
+        setX(i);
+        flush();
+        read();
+      }
+      return events;
+    }
+
+    it("a projection that mutates its draft is not waste", () => {
+      const events = run(x => {
+        const s = createProjection<{ v: number }>(
+          d => {
+            d.v = x();
+          },
+          { v: 0 },
+          { name: "draft projection" }
+        );
+        return () => s.v;
+      });
+      expect(events).toHaveLength(0);
+      // Every consumer reads the same fact: the records and costs() agree.
+      const reruns = attribution.history("rerun").filter(e => e.nodeName === "draft projection");
+      expect(reruns).toHaveLength(10);
+      expect(reruns.every(e => e.changed)).toBe(true);
+      const scope = costs().scopes.find(s => s.name === "draft projection");
+      expect(scope?.runs).toBe(10);
+      expect(scope?.wastedMs).toBe(0);
+    });
+
+    it("a projection that returns a value to reconcile is not waste", () => {
+      const events = run(x => {
+        const s = createProjection(() => ({ v: x() }), { v: 0 }, { name: "returning projection" });
+        return () => s.v;
+      });
+      expect(events).toHaveLength(0);
+    });
+
+    it("a memo that returns undefined and does its work by writing is not waste", () => {
+      const [y, setY] = createSignal(0, { name: "y", ownedWrite: true });
+      const events = run(x => {
+        createMemo(
+          () => {
+            setY(x() * 2);
+          },
+          { name: "sweep memo" }
+        );
+        return y;
+      });
+      expect(y()).toBe(20);
+      expect(events).toHaveLength(0);
+    });
+
+    it("a memo that keeps returning the same defined value is still waste", () => {
+      const events = run(x => createMemo(() => (x(), 7), { name: "constant memo" }));
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ nodeName: "constant memo" });
+    });
   });
 });

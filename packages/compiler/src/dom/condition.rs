@@ -41,6 +41,10 @@ impl<'a> crate::shared::component_children::ComponentChildLower<'a> for AstDomTr
 }
 
 impl<'a> ModeLower<'a> for AstDomTransform<'a, '_> {
+    fn source(&self) -> &str {
+        self.source
+    }
+
     fn wrap_conditionals_enabled(&self) -> bool {
         self.wrap_conditionals
     }
