@@ -407,9 +407,14 @@ const MockPromise = /* @__PURE__ */ (() => {
       return new MockPromise();
     }
   }
-  for (const k of ["all", "allSettled", "any", "race", "reject", "resolve"] as const) {
+  for (const k of ["all", "allSettled", "any", "race", "reject", "resolve", "try"] as const) {
     (MockPromise as any)[k] = () => new MockPromise();
   }
+  (MockPromise as any).withResolvers = () => ({
+    promise: new MockPromise(),
+    resolve() {},
+    reject() {}
+  });
   return MockPromise;
 })();
 
