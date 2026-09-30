@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@solidjs/router": "2.0.0-next.29",
+    "@solidjs/router": "2.0.0-next.31",
     "@solidjs/web": "workspace:*",
     "solid-js": "workspace:*"
   },

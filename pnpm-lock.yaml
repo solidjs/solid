@@ -159,8 +159,8 @@ importers:
   examples/hackernews:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.29
-        version: 2.0.0-next.29(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.31
+        version: 2.0.0-next.31(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -178,8 +178,8 @@ importers:
   examples/hackernews-spa:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.29
-        version: 2.0.0-next.29(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.31
+        version: 2.0.0-next.31(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -218,8 +218,8 @@ importers:
   examples/notes:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.29
-        version: 2.0.0-next.29(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.31
+        version: 2.0.0-next.31(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -270,8 +270,8 @@ importers:
   examples/room:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.29
-        version: 2.0.0-next.29(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.31
+        version: 2.0.0-next.31(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -2361,8 +2361,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@solidjs/router@2.0.0-next.29':
-    resolution: {integrity: sha512-MyYoVYL3wCvU57poYki2dMfJGrGOfKSYg/pWgh76m9mproX/Dt+X/Ufw4ie3/9D3/IRrEbus0IqNaBaLgbriOA==}
+  '@solidjs/router@2.0.0-next.31':
+    resolution: {integrity: sha512-ADeyi2Yvfx0xQNqOtvbyJ1dIg9SB2vmr4d539fpLzFiDeBKoAYaE0c/lM5aWDRIv0PV9adzpISykutZqhZfz2w==}
     peerDependencies:
       '@solidjs/web': workspace:*
       filesystem-routing: '>=0.4.0'
@@ -6009,7 +6009,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
-  '@solidjs/router@2.0.0-next.29(@solidjs/web@packages+web)(solid-js@packages+solid)':
+  '@solidjs/router@2.0.0-next.31(@solidjs/web@packages+web)(solid-js@packages+solid)':
     dependencies:
       '@solidjs/web': link:packages/web
       solid-js: link:packages/solid
