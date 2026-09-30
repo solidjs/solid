@@ -1332,7 +1332,7 @@ export function createEventChunk(data, id) {
  * closing a connection that is merely waiting.
  * @internal
  */
-export const EVENT_STREAM_HEARTBEAT = new TextEncoder().encode(":\n\n");
+export const EVENT_STREAM_HEARTBEAT = /* @__PURE__ */ new TextEncoder().encode(":\n\n");
 
 /**
  * Whether a Request/Response body is framed as an event stream (by content

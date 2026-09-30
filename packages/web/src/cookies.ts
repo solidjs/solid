@@ -167,7 +167,9 @@ function assertServableCookie(name: string, options: CookieOptions): void {
 // server-functions server entry (server-functions/flash.js).
 export const FLASH_COOKIE = "flash";
 
-const FLASH_MATCHER = new RegExp(`(?:^|;\\s*)${FLASH_COOKIE}=([^;]+)`);
+// `FLASH_COOKIE` spelled out: a literal is side-effect free to every
+// bundler, a `new RegExp(...)` is not (tests pin the two to the same name).
+const FLASH_MATCHER = /(?:^|;\s*)flash=([^;]+)/;
 
 /** Whether a Cookie header carries a flash cookie (readable or not). */
 export function hasFlashCookie(cookieHeader: string | null): boolean {

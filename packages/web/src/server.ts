@@ -6563,20 +6563,25 @@ function copyInitHeaders(init) {
 // signal, a stale error/format/single-flight tag would misdescribe the
 // body to the client transport, and `X-Revalidate` keys belong to the
 // outcome that declared them. Header names via the shared wire constants;
-// lowercased once because `Headers` iteration keys are lowercase.
-const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
-  [
-    ERROR_HEADER,
-    BODY_FORMAT_HEADER,
-    SINGLE_FLIGHT_HEADER,
-    REVALIDATE_HEADER,
-    REDIRECT_HEADER,
-    "Location",
-    // written before the body exists, so they can only describe a different
-    // one (#3197)
-    ...COMPOSED_BODY_FRAMING
-  ].map(header => header.toLowerCase())
-);
+// lowercased once because `Headers` iteration keys are lowercase. Built on
+// first use: the `.map()` argument is a call Rolldown and esbuild cannot
+// prove pure, so a module-level set is retained by every server bundle.
+let stubGapFillExcluded;
+function isStubGapFillExcluded(key) {
+  return (stubGapFillExcluded ||= new Set(
+    [
+      ERROR_HEADER,
+      BODY_FORMAT_HEADER,
+      SINGLE_FLIGHT_HEADER,
+      REVALIDATE_HEADER,
+      REDIRECT_HEADER,
+      "Location",
+      // written before the body exists, so they can only describe a different
+      // one (#3197)
+      ...COMPOSED_BODY_FRAMING
+    ].map(header => header.toLowerCase())
+  )).has(key);
+}
 
 // Whether a stub header may gap-fill onto the outgoing response: not a
 // cookie (those append), not protocol-owned, not body metadata on a
@@ -6584,7 +6589,7 @@ const STUB_GAP_FILL_EXCLUDED = /*#__PURE__*/ new Set(
 // Length from the redirects it builds — don't re-advertise a body that
 // isn't there), and not already answered by the response itself.
 function fillsStubGap(key, headers, response) {
-  if (key === "set-cookie" || STUB_GAP_FILL_EXCLUDED.has(key)) return false;
+  if (key === "set-cookie" || isStubGapFillExcluded(key)) return false;
   if (response.body === null && (key === "content-type" || key === "content-length")) return false;
   return !headers.has(key);
 } /**
