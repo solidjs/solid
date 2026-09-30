@@ -236,7 +236,7 @@ for Tier 1:
   primitives vs its hand-rolled versions vs React, SSR and Chromium
   hydrate/mount, with `SOLID_DIR` A/Bs of a local checkout. Instruments
   and rulings in the
-  [Props Composition Lane](./performance-experiments.md#props-composition-lane-2026-09-12--2026-09-28-the-yak-tracker).
+  [Props Composition Lane](./performance-experiments.md#props-composition-lane-2026-09-12--2026-09-30-the-yak-tracker).
 
 ### Roadmap (Tier 2 first, Tier 1 on demand)
 

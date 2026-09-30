@@ -7513,7 +7513,7 @@ code the shared predicates (S4, S5, S7 fixed; S6 ruled and deferred in
 reader kinds to the 851-cell posture matrix. Relevant here because
 disposal and companion cleanup are the paths it touched most recently.
 
-## Props Composition Lane (2026-09-12 → 2026-09-28): the yak tracker
+## Props Composition Lane (2026-09-12 → 2026-09-30): the yak tracker
 
 Tracker: solidjs/solid#3389, closed 2026-09-28. The trigger was
 DigitecGalaxus/next-yak#644, a rewrite of the `@yak/solid` `styled()`
@@ -7764,12 +7764,17 @@ pays no nodes; its per-row cost is fibers and object spreads.
    memos where one suffices (Octane board open target 5 — same item);
    what `createEffectNode` / `setupComputedNode` allocate and link on
    creation. This is a core arc, not a yak-parity one.
-2. **Hydrate trims, bundled, ≤ 1 ms/page (~5%)**: `isHydrating`'s
-   `isConnected` per attribute → once per element in `assign`;
-   `getNextElement`'s key string + Map get/delete + WeakSet add; the
-   per-node probes (`hydratedCreateMemo` → `readSerializedOrCompute`,
-   `sharedConfig.has` against an empty `_$HY.r`). Only if item 1 leaves
-   hydrate still ≥ 5% over mount.
+2. **Hydrate floor: one key per runtime element** (superseding "hydrate
+   trims ≤ 1 ms" — see the addendum). The claim machinery is O(keyed
+   nodes) on the wire and on the CPU, and the public board's
+   framework-floor lanes put it at 1.5–1.6× React's hydrate on every
+   element-dense case with mount at parity. The lever is fewer keyed
+   nodes — a hydration cursor `insert` establishes during hydration
+   (parent + position are known there) so an unkeyed runtime element
+   claims positionally, keys kept for what needs out-of-order addressing
+   (boundaries, frames, portals). A claim redesign, not a trim; the
+   trims (`isConnected` once per element in `assign`, `getNextElement`'s
+   key string + Map get/delete) fold into it.
 3. **Server floors, kept deliberately** (SSR vs React on
    `polymorphic-chain` ~0.47×; `tabs` / `multifile-composition` at
    parity): the owner protocol per server memo (~22 ns/instance; it is
@@ -7792,6 +7797,142 @@ pays no nodes; its per-row cost is fibers and object spreads.
 6. **`perf/spread-walk` (item 11)**: ±0 in the browser, −7% on one tier-1
    rerun micro, +40 lines. Drop under the size rule unless wanted; keep
    the bench file either way.
-7. Yak side: watch DigitecGalaxus/next-yak#658 / #659; the component-
-   target `merge()` view on the client is ~5% behind a copy on their
-   composition cases for a 1.5× SSR win — their trade.
+7. Yak side: #658 / #659 merged 2026-09-28 and shipped as `@yak/solid`
+   0.3.0 (on the public board, below); the component-target `merge()`
+   view on the client is ~5% behind a copy on their composition cases
+   for a 1.5× SSR win — their trade.
+8. **Hydration key payload** (research project, deferred; addendum
+   below). Keys are 73% of the compressed HTML on `multifile-shop`.
+   Re-encoding recovers ≤ 11%; a delta-coded sidecar or boundary-only
+   keys recover ~90%. Gated on a measurement neither board has: an
+   end-to-end load lane (brotli on, slow-4G profile, request →
+   hydration-complete) that says what the bytes cost on the critical
+   path. Do not build the sidecar before the lane exists.
+
+### Addendum (2026-09-29 → 30): the public board, and the HTML
+
+jantimon/css-in-js-bench re-ran 2026-09-28 22:00Z on `solid-js` rc.11
+and `@yak/solid` 0.3.0 (#658 + #659 in), AMD EPYC 9845, 4× CPU
+throttle on the browser passes — the first public board with the
+primitives in. Raw results pulled to `result/measurement-*.json`;
+medians in ms.
+
+**`multifile-shop`** (400 tiles × 11 elements, class names split across
+modules so nothing folds; the case yak-bench had but this arc never ran):
+
+|                  | next-yak (React) | @yak/solid |             |
+| ---------------- | ---------------: | ---------: | ----------- |
+| SSR under load   |        134 req/s |  189 req/s | 1.41× ours  |
+| SSR CPU / render |             8.61 |       5.09 | 1.69× ours  |
+| hydrate          |              123 |        306 | 2.5× theirs |
+| cold mount       |              157 |        237 | 1.5× theirs |
+| HTML gz          |           6.2 kB |    22.5 kB | 3.6×        |
+
+The board carries `vanilla` / `vanilla-solid` lanes: the same DOM with no
+library — the framework floor, which yak-bench never had. Floor hydrate
+React → Solid: multifile-shop 87 → 136, product-grid 88 → 132, tabs
+65 → 97, realistic-button 79 → 126, button-variants-nested 64 → 101 —
+**1.5–1.6× on every element-dense case, with mount at parity or ours**
+(115/115, 118/104, 81/75, 100/97, 67/64). Our hydrate is 1.2–1.3× our
+own mount; React's hydrate is 25% _cheaper_ than its mount. With zero
+component layer in those lanes, the whole floor gap on hydrate is the
+claim design, and it is the only floor gap we have on the client.
+Corrections to the closing verdict, both now in the targets above: "not a
+hydration problem" was true of the composition cases and false at the
+floor; and the per-instance client cost of a runtime component is now
+sized against React on a public board — Solid +170 ms hydrate / +122
+mount over its floor on multifile-shop against React's +36 / +42, ~4–5×
+per styled element.
+
+**The HTML.** Rendered locally from the `swfixA` lanes (`/tmp/hk*.mjs`,
+throwaway):
+
+| multifile-shop, 400 tiles           |    raw |        gzip |
+| ----------------------------------- | -----: | ----------: |
+| React (next-yak)                    | 253 kB |     6.34 kB |
+| @yak/solid, as shipped              | 300 kB |    23.07 kB |
+| same with `_hk=` stripped           | 252 kB | **6.24 kB** |
+| `<!--!$-->` separators stripped too | 247 kB |     6.23 kB |
+
+Without keys our markup gzips _smaller_ than React's. The 3.6× is 4,900
+`_hk` values, every one unique (`0B2gw`, `0B2gx`, …): 48 kB raw → 16.8
+kB gz, 73% of the payload; the separators are 15 gz bytes. Uniqueness is
+incompressible by construction (~12 bits per token for any coder; LZ
+cannot match a string that never repeats), so 50 kB of raw keys cost 17
+kB compressed while React's 50 kB of _repeating_ markup costs ~0. Every
+element pays because the styled wrapper puts each one through the
+runtime element path, which keys unconditionally; the compiled template
+path keys its root and walks its static children — `vanilla-solid` at
+8.2 kB HTML gz vs React's 6.3 is that 2 kB of root keys.
+
+Key schemes, same page:
+
+| scheme                                         |       gzip |     brotli |
+| ---------------------------------------------- | ---------: | ---------: |
+| no keys                                        |     6.2 kB |     3.5 kB |
+| current (absolute base-36 owner path)          |    23.1 kB |    12.7 kB |
+| absolute decimal counter                       |    26.7 kB |          — |
+| tile-scoped `<tile>-<local>`, one per element  |    20.6 kB |     9.9 kB |
+| key on the tile root only, children positional |     8.6 kB |     5.0 kB |
+| valueless `_hk` marker + delta-coded sidecar   | **7.9 kB** | **4.7 kB** |
+
+Re-encoding buys ≤ 11%; the count is the lever (row 5, the item-2
+redesign), or lifting the values out of the markup (row 6). The sidecar
+works because the _values_ are unique but the _sequence_ is periodic —
+each tile allocates the same id shape — so a delta stream in document
+order (`""` = same scope +1, `n` = +n, `>prefix:n` = scope change)
+repeats per tile and LZ eats it: 4,900 keys → 1.7 kB gz; `tabs` 1,800
+keys → 63 bytes. The marker is free (a repeated token). The client
+already regenerates the identical key sequence (`getNextContextId` runs
+the same owner-tree counters); the attribute carries nothing the client
+lacks, only key → node, so `gatherHydratable`'s existing
+`querySelectorAll("[_hk]")` list zipped with the decoded sidecar rebuilds
+the same registry and everything downstream is untouched.
+
+Sidecar design constraints, for when it is picked up:
+
+- **Document order ≠ allocation order.** `ssrElement` allocates before
+  its children, but a component that resolves `children()` and then
+  wraps them allocates the children's keys first and places them after.
+  The sidecar must be built from the _placed_ output: a pass over the
+  chunk at flush (`renderToString`'s result, `shell()`, each
+  `fragment()` — a fragment is already a discrete `<template id=key>`
+  with its own identity and carries its own sidecar; transport via the
+  `_$HY` bootstrap for the shell and a `$df(key, …)` argument for
+  fragments).
+- **Scoping.** Three gather sites: top-level `gatherHydratable`, the
+  prefix-scoped boundary resume, the frames runtime's `gatherClaims`.
+  Rule: an element with an empty `_hk` consumes the next sidecar entry;
+  one with a value is self-describing and consumes nothing. A fragment
+  activated by `$df` before hydration writes its values back onto its
+  nodes as it inlines them, so the shell gather cannot misalign on
+  interleaved fragment nodes and the prefix filter keeps working.
+- No public API: the format is internal to a server/client pair of one
+  version. Flag anyway: anything outside the repo reading `_hk` _values_
+  (check SolidStart, devtools) breaks; frames is in-repo. Every server
+  snapshot test with `_hk=…` changes — most of the diff.
+
+Cost sheet, measured (this machine; jantimon's cores are ~2.8× slower):
+
+- **Hydration: neutral.** Gather of 4,900 keys, Chrome: current 0.40 /
+  1.70 ms (1× / 4×), lifted 0.50 / 2.30 ms — +0.6 ms at 4× on a 306 ms
+  hydrate, 0.2%, and it is the naive decoder building 4,900 strings the
+  DOM used to hand us. Nothing after the gather changes.
+- **SSR: costs CPU, does not save it.** The lift pass (hand-rolled
+  `indexOf` loop, ~1 GB/s, proportional to HTML bytes not keys) is +0.31
+  ms on a 1.79 ms render; gzip of the lifted output −0.08 ms. Net ≈ +13%
+  server CPU on this page. Making it free means templates returning
+  `(string, keys[])` so concatenation carries the list in document order
+  — a compiler output-contract change, not worth it for 0.3 ms.
+- **What the board would show.** Their autocannon server does
+  `response.end(html)` uncompressed over loopback; HTML size enters only
+  as utf-8 encode + socket write, measured at ~0.05–0.08 ms/request
+  (transport-only loop: 300 kB 0.24 ms `Buffer.from`, ~2,400 req/s; 271
+  kB 0.20 ms, ~2,740). Against 5.09 ms render CPU that is ~1–1.5% of
+  the req/s; the lift pass is ~0.9 ms there. Net on the board: payload
+  column 22.5 → ~8 kB gz; autocannon −10–15% (189 → ~165, still above
+  134); hydrate / mount / INP unchanged (their timer starts at
+  `window.__hydrate()` after `load`, so transfer and parse are outside
+  it). The thing the sidecar buys — 15 kB gz / 8 kB br off the critical
+  path before hydration can start, ~45–85 ms at slow-4G — is exactly
+  what neither board measures. Hence the gate on target 8.
