@@ -1,30 +1,16 @@
-// The client side of the app. Compare with the React demo's App.server.js:
-// the same composition, but the shell's markup lives in server/App.tsx and
-// this file only fills its client positions — the notes list (a server
-// component of its own, keyed by the search param) and the route outlet.
-// The search field isn't a client position either: its markup is server
-// chrome, and searchField() is a BINDING slot fill — the values and handlers
-// the server template binds at positions on its own elements (§9.2.3).
-// Nothing here fetches data; every read
-// goes through a `dynamic()` over a server-component query. Links (the
-// New/Edit buttons) aren't client positions at all: the router intercepts
-// plain anchors, so they render entirely on the server.
-import { createRouter } from "@solidjs/router";
+// The app, and the React demo's App.js: static chrome around two boundaries.
+// The list and the note are server components — their markup arrives as HTML
+// — and they refresh fine-grained while the shell stands still: unlike the
+// original demo, navigation re-renders only the boundary that changed.
 import { Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
-import { appView } from "~/server/App";
-import { getNoteList } from "~/lib/api";
-import searchField from "~/components/searchField";
+import EditButton from "~/components/EditButton";
+import SearchField from "~/components/SearchField";
 import SidebarNoteContent from "~/components/SidebarNoteContent";
-import { preload, routes } from "~/routes";
+import { getNoteList, Router } from "~/router";
 import "./app.css";
 
-const Router = createRouter({ routes, preload });
-
 export default function App() {
-  // Static chrome: rendered inline at t=0, adopted by the client, never
-  // refetched (no reactive input).
-  const AppShell = dynamic(() => appView());
   return (
     <Router>
       {props => {
@@ -32,18 +18,35 @@ export default function App() {
         // place when a mutation's single-flight response includes it.
         const NoteList = dynamic(() => getNoteList(String(props.location.query.searchText || "")));
         return (
-          <Loading fallback={<div class="main">Loading...</div>}>
-            <AppShell
-              search={searchField()}
-              noteList={
+          <div class="main">
+            <section class="col sidebar">
+              <section class="sidebar-header">
+                <a href="/">
+                  <img
+                    class="logo"
+                    src="/logo.svg"
+                    width="22px"
+                    height="20px"
+                    alt=""
+                    role="presentation"
+                  />
+                </a>
+                <strong>Solid Notes</strong>
+              </section>
+              <section class="sidebar-menu" role="menubar">
+                <SearchField />
+                <EditButton>New</EditButton>
+              </section>
+              <nav>
                 <Loading fallback="Loading Notes..">
                   <NoteList item={p => <SidebarNoteContent {...p} />} />
                 </Loading>
-              }
-            >
+              </nav>
+            </section>
+            <section class="col note-viewer">
               <Loading fallback="Loading Content">{props.children}</Loading>
-            </AppShell>
-          </Loading>
+            </section>
+          </div>
         );
       }}
     </Router>
