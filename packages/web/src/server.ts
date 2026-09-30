@@ -4751,6 +4751,10 @@ export function slotValue(occurrence, key, value, face) {
     value: hint => slotValueString(sv, hint === "string" ? "stringified" : "coerced")
   });
   Object.defineProperty(sv, "toString", { value: () => slotValueString(sv, "stringified") });
+  // The text-position writer rides on the stand-in (`w`) rather than being
+  // called by the resolvers, so a server render with no binding slots does
+  // not retain it.
+  Object.defineProperty(sv, "w", { value: () => slotText(sv) });
   return sv;
 }
 
@@ -4765,11 +4769,11 @@ function slotValueString(sv, reason) {
         ? `[${BINDING_SLOT_POSITION}] \`${prop}\`'s \`${sv.k}\` is a binding-slot value used in an expression ` +
             `(a comparison, arithmetic, or a branch on its result). The server does not have the value — ` +
             `the client owns it — so nothing can be computed from it here. It must be the WHOLE value of ` +
-            `an attribute, class name, style property, handler or ref; a decision that depends on it ` +
+            `an attribute, class name, style property, handler, ref or text child; a decision that depends on it ` +
             `belongs in the client fill (return the decided value) or in a markup slot.`
         : `[${BINDING_SLOT_POSITION}] \`${prop}\`'s \`${sv.k}\` is a binding-slot value ` +
             `and was stringified outside a bindable position — it must be the WHOLE value of an attribute, ` +
-            `class name, style property, handler or ref (\`class={row.${sv.k}}\`, not \`class={\`x \${row.${sv.k}}\`}\`). ` +
+            `class name, style property, handler, ref or text child (\`class={row.${sv.k}}\`, not \`class={\`x \${row.${sv.k}}\`}\`). ` +
             `If it is, the element was compiled without the \`serverComponents\` compiler option. ` +
             `Nothing renders here on either face.`
     );
@@ -4777,18 +4781,21 @@ function slotValueString(sv, reason) {
   return "";
 }
 
-function slotTextPosition(sv) {
-  if ("_SOLID_DEV_") {
-    slotFinding(
-      sv,
-      "text",
-      undefined,
-      `[${BINDING_SLOT_POSITION}] \`${sv.k}\` of slot \`${propOfOccurrence(sv[SLOT_VALUE])}\` is placed as TEXT. ` +
-        `Text is not a bindable position yet: nothing renders here on either face. ` +
-        `Bind it to an attribute, or render the text in a markup slot.`
-    );
-  }
-  return "";
+/**
+ * A binding-slot value at a TEXT position (`<b>{row.count}</b>`): a marker
+ * pair `<!--_s:t=<occurrence>:<key>-->…<!--/_s:t-->` the client writes
+ * between. The document face writes the escaped t=0 value inside; the
+ * stream face (and a read off markup) leaves it empty. A pair rather than
+ * one marker: an empty value has no text node to find, and a written one
+ * would merge with static text beside it — the end marker bounds the
+ * range on both faces. Only a string or number renders, as a client insert
+ * renders it; the client reports any other shape.
+ */
+function slotText(sv) {
+  slotMarkupRead(sv, "text");
+  const v = sv.f === SLOT_FACE_DATA ? sv.v : undefined;
+  const text = typeof v === "string" || typeof v === "number" ? escape("" + v) : "";
+  return `<!--${SLOT_MARKER}t=${slotEntry(sv)}-->${text}<!--/${SLOT_MARKER}t-->`;
 }
 
 function slotMarkupRead(sv, position) {
@@ -5935,6 +5942,10 @@ function tryResolveString(node, nested?: boolean) {
       return s;
     }
     if (node.h && node.h.length > 0) return { merge: node };
+    if (node[SLOT_VALUE] !== undefined) {
+      ssrTextTail = false;
+      return node.w();
+    }
     if (node.t === undefined) {
       // Not a template object — mirror the client's dev warn-and-skip
       // instead of crashing downstream on a malformed template shape.
@@ -6011,13 +6022,8 @@ export function resolveSSRNode(
       result.t[result.t.length - 1] += node.t;
       ssrTextTail = false;
     } else if (node[SLOT_VALUE] !== undefined) {
-      // A binding-slot value at a TEXT position (`<b>{row.count}</b>`): not a
-      // bindable position yet (principles §9.2.3, open). Nothing renders on
-      // either face — the document face never shows a t=0 value the stream
-      // face cannot reproduce — and dev says so (slotTextPosition).
-      const text = escape(slotTextPosition(node));
-      result.t[result.t.length - 1] += ssrTextTail ? "<!--!$-->" + text : text;
-      ssrTextTail = true;
+      result.t[result.t.length - 1] += node.w();
+      ssrTextTail = false;
     } else if ("_SOLID_DEV_") unrecognizedInsert(node);
   } else if (t === "function") {
     // Function nodes reaching the tree resolver are content by construction

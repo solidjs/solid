@@ -20,7 +20,7 @@
 // server vitest config), which is what routes `ref`/`on*` and a dynamic
 // `class`/`style` through runtime holes where the stand-in is seen.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Loading, renderToStream } from "@solidjs/web";
+import { Loading, renderToStream, renderToString } from "@solidjs/web";
 import { createMemo, merge, OBSERVE, type DiagnosticEvent } from "solid-js";
 import { sharedConfig } from "solid-js/internal";
 import {
@@ -706,6 +706,34 @@ describe("binding slots — stream face", () => {
     expect(tuples[0].message).toContain("[handler, data]");
     expect(findings()).toHaveLength(2);
   });
+
+  it("a stand-in placed as a child is a TEXT position: an empty marker pair the client fills, apart from the static text beside it", async () => {
+    // A pair, not one marker: on this face the value is empty, so there is
+    // no text node to find; on the document face the value would merge with
+    // the static text beside it. The end marker bounds the range on both.
+    const ServerComp = (props: any) => {
+      const list = props.list();
+      const row = props.row({ id: 1 });
+      return (
+        <footer>
+          <strong>{list.remaining}</strong> items left
+          <a href="#">{row.label}</a>
+          <span>
+            {row.count} of {list.total}
+          </span>
+        </footer>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds6t" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain("<strong><!--_s:t=list:remaining--><!--/_s:t--></strong> items left");
+    expect(html).toContain('<a href="#"><!--_s:t=row#0:label--><!--/_s:t--></a>');
+    expect(html).toContain(
+      "<span><!--$--><!--_s:t=row#0:count--><!--/_s:t--><!--/--> of " +
+        "<!--$--><!--_s:t=list:total--><!--/_s:t--><!--/--></span>"
+    );
+    expect(findings()).toEqual([]);
+  });
 });
 
 describe("binding slots — document face (t=0)", () => {
@@ -983,14 +1011,85 @@ describe("binding slots — document face (t=0)", () => {
     expect(findings("reserved-key").map(e => (e.data as any).key)).toEqual(["t", "$key"]);
   });
 
-  it("a stand-in placed as text, stringified, or coerced renders NOTHING at t=0 too — the faces agree — with a dev finding each", async () => {
+  it("a TEXT position writes the escaped t=0 value inside its marker pair; nullish and booleans render empty, as a client insert renders them", async () => {
+    const ServerComp = (props: any) => {
+      const row = props.row({ id: 1 });
+      return (
+        <ul>
+          <li>{row.title}</li>
+          <li>{row.count} items left</li>
+          <li>
+            {row.none}|{row.no}|{row.yes}|{row.zero}
+          </li>
+        </ul>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd6t" }) as any;
+    const html = plain(
+      await document(() =>
+        Inline({
+          row: () => ({ title: "Hello <b>", count: 3, none: null, no: false, yes: true, zero: 0 })
+        })
+      )
+    );
+    expect(html).toContain("<li><!--_s:t=row#0:title-->Hello &lt;b><!--/_s:t--></li>");
+    // The value and the static text beside it stay two text nodes. (A child
+    // among siblings sits in the compiler's own `<!--$-->…<!--/-->` insert
+    // range, as any dynamic child does.)
+    expect(html).toContain(
+      "<li><!--$--><!--_s:t=row#0:count-->3<!--/_s:t--><!--/--> items left</li>"
+    );
+    expect(html).toContain(
+      "<li><!--$--><!--_s:t=row#0:none--><!--/_s:t--><!--/-->|" +
+        "<!--$--><!--_s:t=row#0:no--><!--/_s:t--><!--/-->|" +
+        "<!--$--><!--_s:t=row#0:yes--><!--/_s:t--><!--/-->|" +
+        "<!--$--><!--_s:t=row#0:zero-->0<!--/_s:t--><!--/--></li>"
+    );
+    expect(findings()).toEqual([]);
+  });
+
+  it("a TEXT position is the marker pair however the child arrives — in an array, from a function child, through a component's children — with or without live holes", async () => {
+    const Echo = (props: any) => props.children;
+    const ServerComp = (props: any) => {
+      const row = props.row({ id: 1 });
+      return (
+        <div>
+          <p>{[row.a, " ", row.b]}</p>
+          <p>{(() => row.c) as any}</p>
+          <p>
+            <Echo>{row.d}</Echo>
+          </p>
+        </div>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd8t" }) as any;
+    const fill = () => ({ a: "A", b: "B", c: "C", d: "D" });
+    const expected =
+      "<div><p><!--_s:t=row#0:a-->A<!--/_s:t--> <!--_s:t=row#0:b-->B<!--/_s:t--></p>" +
+      "<p><!--_s:t=row#0:c-->C<!--/_s:t--></p><p><!--_s:t=row#0:d-->D<!--/_s:t--></p></div>";
+    expect(plain(renderToString(() => Inline({ row: fill })))).toContain(expected);
+    expect(plain(await document(() => Inline({ row: fill })))).toContain(expected);
+    expect(findings()).toEqual([]);
+  });
+
+  it("a TEXT position read off a fill that returned markup is the `markup` finding and an empty pair", async () => {
+    const ServerComp = (props: any) => {
+      const row = props.row({ id: 1 });
+      return <p>{row.title}</p>;
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd7t" }) as any;
+    const html = plain(await document(() => Inline({ row: () => <b>content</b> })));
+    expect(html).toContain("<p><!--_s:t=row#0:title--><!--/_s:t--></p>");
+    expect(findings("markup").map(e => (e.data as any).position)).toEqual(["text"]);
+  });
+
+  it("a stand-in stringified or coerced renders NOTHING at t=0 too — the faces agree — with a dev finding each", async () => {
     // The document face has the t=0 value and the stream face never does;
     // rendering it at t=0 would make the first refetch change the page.
     const ServerComp = (props: any) => {
       const row = props.row({ id: 1 });
       return (
         <ul>
-          <li>{row.title}</li>
           <li class={`todo ${row.title}`} title={`n=${row.count}`} />
           <li data-more={row.count > 3 ? "yes" : "no"} data-sum={row.count + 1} />
         </ul>
@@ -1000,11 +1099,9 @@ describe("binding slots — document face (t=0)", () => {
     const html = plain(
       await document(() => Inline({ row: () => ({ title: "Hello <b>", count: 5 }) }))
     );
-    expect(html).toContain("<li></li>");
     expect(html).toContain('<li class="todo " title="n="></li>');
     // A comparison on a stand-in is `undefined`-shaped: `"" > 3` is false.
     expect(html).toContain('<li data-more="no" data-sum="1"></li>');
-    expect(findings("text").length).toBe(1);
     expect(findings("stringified").length).toBe(2);
     expect(findings("coerced").map(e => (e.data as any).key)).toEqual(["count"]);
   });

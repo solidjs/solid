@@ -86,7 +86,8 @@ export type SlotOutput<J> = J extends readonly unknown[]
  * onInput={row.toggle} /></li>`. One call is one data context: any element
  * in the template may read from it, and the client owns exactly the values
  * the template read. Keys are the client's names; the position decides what
- * a property IS (attribute, class name, style property, handler, ref). On
+ * a property IS (attribute, class name, style property, handler, ref, or
+ * text — `<strong>{list.remaining}</strong>`, a string or number). On
  * the server a property is a stand-in, never the value: bind it, never
  * branch on it or compute with it.
  *

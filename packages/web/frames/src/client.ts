@@ -408,19 +408,9 @@ function bindDataOccurrence(
   const node = typeof Node === "function" && raw instanceof Node;
   const pending = isAsyncValue(raw);
   if (IS_DEV && (raw == null || typeof raw !== "object" || Array.isArray(raw) || node || pending)) {
-    const shape =
-      raw === null
-        ? "null"
-        : node
-          ? "a DOM node"
-          : Array.isArray(raw)
-            ? "an array"
-            : pending
-              ? "an async value"
-              : typeof raw;
+    const shape = shapeOf(raw);
     slotShapeFinding(
-      ctx.key,
-      shape,
+      { reason: "fill-shape", occurrence: ctx.key, shape },
       `[BINDING_SLOT_POSITION] The fill for \`${ctx.key}\` returned ${shape}; server markup reads ` +
         `its properties at bound positions, so it must return an object (\`{ done, onToggle, … }\`). ` +
         `Nothing binds.`
@@ -434,17 +424,13 @@ function bindDataOccurrence(
   // released so its handlers unbind.
   let bound = new Set<Element>();
   createRenderEffect(
-    () =>
-      consumers().map(({ element, positions }) => ({
-        element,
-        positions,
-        values: valuesFor(positions)
-      })),
+    () => consumers().map(valuesFor),
     writes => {
       const next = new Set<Element>();
-      for (const { element, positions, values } of writes) {
+      for (const { element, positions, values, texts } of writes) {
         next.add(element);
         write(element, positions, values);
+        for (const [start, v, key] of texts) writeText(start, v, key);
       }
       for (const element of bound) if (!next.has(element)) release(element);
       bound = next;
@@ -458,14 +444,17 @@ function bindDataOccurrence(
     for (const element of bound) release(element);
   });
   // Value positions are READ in the compute phase: a getter read here
-  // tracks, so the occurrence re-writes when its sources move.
-  function valuesFor(positions: any[]) {
+  // tracks, so the occurrence re-writes when its sources move. Text
+  // positions are values too, collected apart: they are nodes, not props.
+  function valuesFor({ element, positions }: { element: Element; positions: any[] }) {
     const props: Record<string, any> = {};
+    const texts: [Comment, unknown, string][] = [];
     let classNames: Record<string, boolean> | null = null;
     let styleProps: Record<string, any> | null = null;
-    for (const { pos, key, name } of positions) {
+    for (const { pos, key, name, start } of positions) {
       if (pos === "ref" || pos.startsWith("on:")) continue;
-      if (pos === "class" || pos === "style") {
+      if (pos === "text") texts.push([start, out[key], key]);
+      else if (pos === "class" || pos === "style") {
         if (name === undefined) props[pos] = out[key];
         else if (pos === "class") (classNames || (classNames = {}))[name] = !!out[key];
         else (styleProps || (styleProps = {}))[name] = out[key];
@@ -473,7 +462,7 @@ function bindDataOccurrence(
     }
     if (classNames !== null && !("class" in props)) props.class = classNames;
     if (styleProps !== null && !("style" in props)) props.style = styleProps;
-    return props;
+    return { element, positions, values: props, texts };
   }
   function write(element: Element, positions: any[], props: Record<string, any>) {
     let st = state.get(element);
@@ -539,24 +528,52 @@ function bindDataOccurrence(
     write(element, [], {});
     state.delete(element);
   }
+  // A text position renders as a client insert renders a primitive: a
+  // string or number as text, nullish and booleans as nothing. Anything
+  // else is content, which belongs in a template slot.
+  function writeText(start: Comment, v: unknown, key: string) {
+    let s = "";
+    if (typeof v === "string" || typeof v === "number") s = "" + v;
+    else if (IS_DEV && v != null && typeof v !== "boolean") {
+      const shape = shapeOf(v);
+      slotShapeFinding(
+        { reason: "text-shape", occurrence: ctx.key, key, shape },
+        `[BINDING_SLOT_POSITION] \`${key}\` of \`${ctx.key}\` is placed as text, but the fill ` +
+          `returned ${shape} for it. A text position renders a string or number; markup belongs ` +
+          `in a template slot. The text is cleared.`
+      );
+    }
+    const n = start.nextSibling;
+    if (n && n.nodeType === 3) {
+      if ((n as Text).data !== s) (n as Text).data = s;
+    } else if (s) start.after(s);
+  }
+}
+
+/** A value's shape, as the binding-slot shape findings name it. */
+function shapeOf(v: unknown): string {
+  return v === null
+    ? "null"
+    : typeof Node === "function" && v instanceof Node
+      ? "a DOM node"
+      : Array.isArray(v)
+        ? "an array"
+        : isAsyncValue(v)
+          ? "an async value"
+          : typeof v;
 }
 
 /**
- * Dev finding (`BINDING_SLOT_POSITION`, reason `fill-shape`): the client
- * side of a binding slot has the wrong shape — the fill's return is not
- * an object, or the prop is not a function. Through the diagnostics
- * channel, so an observer captures it beside the server's findings.
+ * Dev finding (`BINDING_SLOT_POSITION`): the client side of a binding slot
+ * has the wrong shape — the fill's return is not an object or the prop is
+ * not a function (`fill-shape`), or a text position's value is not a
+ * primitive (`text-shape`). Through the diagnostics channel, so an
+ * observer captures it beside the server's findings.
  */
-function slotShapeFinding(occurrence: string, shape: string, message: string) {
+function slotShapeFinding(data: Record<string, string>, message: string) {
   DEV!.report(
     OBSERVE!.diagnostics.emit(
-      {
-        code: "BINDING_SLOT_POSITION",
-        kind: "render",
-        severity: "warn",
-        message,
-        data: { reason: "fill-shape", occurrence, shape }
-      },
+      { code: "BINDING_SLOT_POSITION", kind: "render", severity: "warn", message, data },
       null
     )
   );
@@ -616,8 +633,7 @@ function slotsFor(props: Record<string, any>) {
             if (typeof fill !== "function") {
               if (IS_DEV) {
                 slotShapeFinding(
-                  key,
-                  typeof fill,
+                  { reason: "fill-shape", occurrence: key, shape: typeof fill },
                   `[BINDING_SLOT_POSITION] Server markup reads slot \`${prop}\` as data (\`${key}\`), ` +
                     `but the client prop is ${typeof fill === "object" ? "an object" : `a ${typeof fill}`}, ` +
                     `not a function. The fill is a function of the occurrence's args returning the object ` +

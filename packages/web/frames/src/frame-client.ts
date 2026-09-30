@@ -429,15 +429,69 @@ const slotEnd = id => `slot:${id}:end`;
 // occurrences. The elements stay server-owned: the morph keeps them (keyed
 // or positional), and reads the markers off INCOMING markup to know which
 // positions are the client's (see `morphAttributes`) — no ownership table.
+//
+// A TEXT position is a comment pair around the value,
+// `<!--_s:t=<occurrence>:<key>-->…<!--/_s:t-->`, registered on its parent
+// element beside that element's attribute positions (`{ pos: "text", key,
+// start }`); the fill writes the one text node between the markers, and the
+// morph keeps a pair it meets again (see `reconcileChildren`).
 const SLOT_MARKER = "_s:";
+const SLOT_TEXT = SLOT_MARKER + "t=";
+const SLOT_TEXT_END = "/" + SLOT_MARKER + "t";
+
+const isTextStart = n => n.nodeType === COMMENT_NODE && n.data.startsWith(SLOT_TEXT);
+
+/**
+ * One marker entry, `<occurrence>:<key>[=<name>]`, as `[occurrence,
+ * { pos, key, name }]`, or null. Keys and names are percent-encoded on the
+ * wire (they are client-controlled strings landing in a `,`/`:`/`=`-delimited
+ * grammar) and decoded here.
+ */
+function slotEntry(entry, pos) {
+  const colon = entry.indexOf(":");
+  if (colon < 1) return null;
+  const eq = entry.indexOf("=", colon);
+  return [
+    entry.slice(0, colon),
+    {
+      pos,
+      key: decodeURIComponent(eq === -1 ? entry.slice(colon + 1) : entry.slice(colon + 1, eq)),
+      name: eq === -1 ? undefined : decodeURIComponent(entry.slice(eq + 1))
+    }
+  ];
+}
+
+/**
+ * Register a text start marker's position on its parent element's consumer
+ * entry for the occurrence — the one its attribute markers opened, if any,
+ * so an element is one consumer however its positions are spelled.
+ */
+function textPosition(start, elements) {
+  const parsed = slotEntry(start.data.slice(SLOT_TEXT.length), "text");
+  const consumers = parsed && consumersOf(elements, parsed[0]);
+  if (!consumers) return;
+  const element = start.parentNode;
+  let consumer;
+  for (let i = consumers.length; i-- && !consumer; )
+    if (consumers[i].element === element) consumer = consumers[i];
+  consumer || consumers.push((consumer = { element, positions: [] }));
+  parsed[1].start = start;
+  consumer.positions.push(parsed[1]);
+}
+
+/** An occurrence's consumer list, created on first use; null when a slot
+ *  range claimed the id (the dev range check reports it). */
+function consumersOf(elements, occurrence) {
+  let consumers = elements.get(occurrence);
+  if (consumers === undefined) elements.set(occurrence, (consumers = []));
+  return Array.isArray(consumers) ? consumers : null;
+}
 
 /**
  * Parse one element's `_s:*` markers into positions grouped by occurrence:
  * `{ [occurrence]: [{ pos, key, name }] }`, or null. `pos` is the marker's
  * position as written (`class`, `hidden`, `on:click`, `ref`), `name` the
- * class name / style property for a member position. Keys and names are
- * percent-encoded on the wire (they are client-controlled strings landing
- * in a `,`/`:`/`=`-delimited grammar) and decoded here.
+ * class name / style property for a member position.
  */
 function slotPositions(el) {
   const attrs = el.attributes;
@@ -447,16 +501,10 @@ function slotPositions(el) {
     if (!attr.name.startsWith(SLOT_MARKER)) continue;
     const pos = attr.name.slice(SLOT_MARKER.length);
     for (const entry of attr.value.split(",")) {
-      const colon = entry.indexOf(":");
-      if (colon < 1) continue;
-      const occurrence = entry.slice(0, colon);
-      const eq = entry.indexOf("=", colon);
-      const key = decodeURIComponent(
-        eq === -1 ? entry.slice(colon + 1) : entry.slice(colon + 1, eq)
-      );
-      const name = eq === -1 ? undefined : decodeURIComponent(entry.slice(eq + 1));
+      const parsed = slotEntry(entry, pos);
+      if (!parsed) continue;
       out || (out = Object.create(null));
-      (out[occurrence] || (out[occurrence] = [])).push({ pos, key, name });
+      (out[parsed[0]] || (out[parsed[0]] = [])).push(parsed[1]);
     }
   }
   return out;
@@ -472,7 +520,8 @@ function consumersEqual(a, b) {
     for (let j = 0; j < x.positions.length; j++) {
       const p = x.positions[j];
       const q = y.positions[j];
-      if (p.pos !== q.pos || p.key !== q.key || p.name !== q.name) return false;
+      if (p.pos !== q.pos || p.key !== q.key || p.name !== q.name || p.start !== q.start)
+        return false;
     }
   }
   return true;
@@ -2355,6 +2404,11 @@ function collectSlots(n, end, out, elements) {
       n = afterRange(n, id);
       continue;
     }
+    if (elements !== undefined && isTextStart(n)) {
+      textPosition(n, elements);
+      n = afterText(n);
+      continue;
+    }
     if (n.nodeType === ELEMENT_NODE && !isFrameElement(n)) {
       // Data occurrences (`_s:*` markers), when the caller wants them — the
       // slot sync does; the morph's range index does not (an element is
@@ -2366,10 +2420,8 @@ function collectSlots(n, end, out, elements) {
         const byOccurrence = slotPositions(n);
         if (byOccurrence !== null) {
           for (const occurrence in byOccurrence) {
-            let consumers = elements.get(occurrence);
-            if (consumers === undefined) elements.set(occurrence, (consumers = []));
-            else if (!Array.isArray(consumers)) continue; // a range claimed the id (dev range check)
-            consumers.push({ element: n, positions: byOccurrence[occurrence] });
+            const consumers = consumersOf(elements, occurrence);
+            if (consumers) consumers.push({ element: n, positions: byOccurrence[occurrence] });
           }
         }
       }
@@ -2688,8 +2740,13 @@ function morphNode(oldNode, newNode, claim, ranges, grafts) {
 }
 
 /** The sibling immediately after the `slot:<id>:end` marker for `start`. */
-function afterRange(start, id) {
-  const end = slotEnd(id);
+const afterRange = (start, id) => afterMarker(start, slotEnd(id));
+/** The sibling after a text position's end marker. */
+const afterText = start => afterMarker(start, SLOT_TEXT_END);
+
+/** The sibling immediately after the first `end` comment following `start`
+ *  (null if the range is truncated). */
+function afterMarker(start, end) {
   let n = start.nextSibling;
   while (n) {
     if (n.nodeType === COMMENT_NODE && n.data === end) return n.nextSibling;
@@ -2878,6 +2935,20 @@ function reconcileChildren(
     // Treat reaching the upper bound as "no more old nodes".
     const old = oldChild === boundEnd ? null : oldChild;
 
+    if (
+      old &&
+      isTextStart(newChild) &&
+      old.nodeType === COMMENT_NODE &&
+      old.data === newChild.data
+    ) {
+      // The same text position: its interior is the client's (the incoming
+      // one is empty on the stream face) — keep it and skip both ranges.
+      // Any other case reconciles as ordinary nodes; the consumer change
+      // that follows rebinds the owner, which writes the new range.
+      oldChild = afterText(old);
+      newChild = afterText(newChild);
+      continue;
+    }
     if (pid !== null) {
       if (old && slotStartId(old) === pid) {
         // Same slot already here: preserve its live interior untouched

@@ -45,23 +45,37 @@ describe("binding-slot adoption at t=0", () => {
 
   test("the fill mounts on the server-written positions and owns them from there on", async () => {
     // The document as the server left it: the fill's t=0 values are already
-    // the attributes (todo 2 completed → `completed` class, `checked`), each
-    // beside its marker.
+    // the attributes (todo 2 completed → `completed` class, `checked`) and
+    // the text (each title inside its marker pair, on the li that carries
+    // the same occurrence's attribute markers; the zero-arg `list` count
+    // beside the server's own text), each beside its marker.
     const container = document.createElement("div");
     container.innerHTML =
       `<solid-frame data-fid="${FID}" style="display:contents"><ul>` +
       `<li _key="1" class="todo" _s:class="row#1:done=completed" _s:hidden="row#1:removed">` +
-      `<input type="checkbox" _s:checked="row#1:done" _s:on:input="row#1:toggle" _s:ref="row#1:box"><label>a</label></li>` +
+      `<input type="checkbox" _s:checked="row#1:done" _s:on:input="row#1:toggle" _s:ref="row#1:box">` +
+      `<!--_s:t=row#1:title-->a &lt;1&gt;<!--/_s:t--></li>` +
       `<li _key="2" class="todo completed" _s:class="row#2:done=completed" _s:hidden="row#2:removed">` +
-      `<input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _s:ref="row#2:box"><label>b</label></li>` +
-      `</ul></solid-frame>`;
+      `<input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _s:ref="row#2:box">` +
+      `<!--_s:t=row#2:title-->b<!--/_s:t--></li>` +
+      `</ul><strong><!--_s:t=list:left-->1<!--/_s:t--></strong> item left</solid-frame>`;
     document.body.appendChild(container);
+    const textNodes = () =>
+      Array.from(container.querySelectorAll("li, strong")).map(el => {
+        const start = Array.from(el.childNodes).find(n => n.nodeType === 8)!;
+        return start.nextSibling as Text;
+      });
+    const adoptedText = textNodes();
+    const textWrites: string[] = [];
+    new MutationObserver(records => {
+      for (const r of records) textWrites.push(`${r.type}:${r.target.textContent}`);
+    }).observe(container, { characterData: true, childList: true, subtree: true });
     (globalThis as any)._$HY = {
       events: [],
       completed: new WeakSet(),
       r: {
-        [`sc:slot:${FID}:row#1`]: { id: "1", completed: false },
-        [`sc:slot:${FID}:row#2`]: { id: "2", completed: true }
+        [`sc:slot:${FID}:row#1`]: { id: "1", completed: false, title: "a <1>" },
+        [`sc:slot:${FID}:row#2`]: { id: "2", completed: true, title: "b" }
       },
       fe() {}
     };
@@ -88,8 +102,19 @@ describe("binding-slot adoption at t=0", () => {
               get removed() {
                 return removed() === p.id;
               },
+              get title() {
+                return toggled() === p.id ? p.title + " (toggled)" : p.title;
+              },
               toggle: () => events.push(`toggle:${p.id}`),
               box: (el: Element) => refs.push(el)
+            };
+          }}
+          list={() => {
+            runs.push("list");
+            return {
+              get left() {
+                return toggled() ? 0 : 1;
+              }
             };
           }}
         />
@@ -105,11 +130,15 @@ describe("binding-slot adoption at t=0", () => {
     const li2 = container.querySelector('li[_key="2"]') as HTMLLIElement;
     const input1 = li1.querySelector("input") as HTMLInputElement;
     const input2 = li2.querySelector("input") as HTMLInputElement;
-    expect(runs).toEqual(["row:1", "row:2"]);
+    expect([...runs].sort()).toEqual(["list", "row:1", "row:2"]);
     expect(li2.className).toBe("todo completed");
     expect(input2.checked).toBe(true);
     expect(input1.checked).toBe(false);
     expect(refs).toEqual([input1, input2]);
+    // The text nodes are the server's, and the equal t=0 write left them alone.
+    expect(textNodes()).toEqual(adoptedText);
+    expect(adoptedText.map(t => t.data)).toEqual(["a <1>", "b", "1"]);
+    expect(textWrites).toEqual([]);
 
     // From here the positions are the client's.
     input1.dispatchEvent(new Event("input", { bubbles: true }));
@@ -118,11 +147,16 @@ describe("binding-slot adoption at t=0", () => {
     flush();
     expect(li1.className).toBe("todo completed");
     expect(input1.checked).toBe(true);
+    // Text beside the same occurrence's attributes, and the zero-arg count,
+    // move in place.
+    expect(textNodes()).toEqual(adoptedText);
+    expect(adoptedText.map(t => t.data)).toEqual(["a <1> (toggled)", "b", "0"]);
+    expect(container.textContent).toContain("0 item left");
     setRemoved("2");
     flush();
     expect(li2.hidden).toBe(true);
     // The getters moved the positions; the fill itself never re-ran.
-    expect(runs).toEqual(["row:1", "row:2"]);
+    expect([...runs].sort()).toEqual(["list", "row:1", "row:2"]);
     expect(refs).toEqual([input1, input2]);
 
     dispose();
