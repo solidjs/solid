@@ -7,16 +7,16 @@ import {
   createSignal,
   createStore,
   flush,
-  latest
+  latest,
+  refresh
 } from "../src/index.js";
 
-// CS-R31 / A34(3), amended 2026-10-01 (#3733, GabbeV). A manual write to a
-// writable derived node (`createSignal(fn)`, `createStore(fn)`) wins over its
-// own frame's re-run, in either call order — propagation is deferred to the
-// flush (#2692). A source change in a later frame re-runs the derivation with
-// the write as `prev` (or in the draft). Holds and actions don't extend the
-// frame: the mask used to lift only at `commitPendingNode`, so inside an
-// action it lasted the whole hold and later source changes were dropped.
+// CS-R31 / A34(3), amended 2026-10-01 (#3733 rule B). A manual write to a
+// writable derived node (`createSignal(fn)`, `createStore(fn)`) lands at once.
+// When a source changes — in the same flush, in either call order, or later,
+// inside or outside an action, across a hold — the derivation re-runs with the
+// write as `prev` (or in the draft) and decides what to keep. A write on its
+// own never re-runs the derivation. Reverses #2692's same-tick "write wins".
 
 async function settle() {
   for (let r = 0; r < 5; r++) {
@@ -25,32 +25,81 @@ async function settle() {
   }
 }
 
-describe("the write's own frame: the write wins in either order (#2692)", () => {
-  describe("createSignal(fn)", () => {
-    function setup() {
-      return createRoot(() => {
-        const [a, setA] = createSignal(0);
-        const [b, setB] = createSignal(() => a());
-        return { a, setA, b, setB };
+describe("a write on its own never re-runs the derivation", () => {
+  it("createSignal(() => props.x): the write is kept, across flushes", () => {
+    let runs = 0;
+    const h = createRoot(() => {
+      const props = createStore({ x: 1 })[0];
+      const [b, setB] = createSignal(() => {
+        runs++;
+        return props.x;
       });
+      return { b, setB };
+    });
+    flush();
+    expect([h.b(), runs]).toEqual([1, 1]);
+    h.setB(5);
+    flush();
+    expect([h.b(), runs]).toEqual([5, 1]);
+    flush();
+    expect([h.b(), runs]).toEqual([5, 1]);
+  });
+
+  it("createStore(fn): the written draft is kept, the fold does not re-run", () => {
+    let runs = 0;
+    const h = createRoot(() => {
+      const [a] = createSignal(1);
+      const [s, setS] = createStore<{ v: number }>(
+        d => {
+          runs++;
+          d.v = a();
+        },
+        { v: 0 }
+      );
+      return { s, setS };
+    });
+    flush();
+    expect([h.s.v, runs]).toEqual([1, 1]);
+    h.setS(d => {
+      d.v = 5;
+    });
+    flush();
+    expect([h.s.v, runs]).toEqual([5, 1]);
+  });
+});
+
+describe("a source change in the write's own flush re-runs the derivation, in either order", () => {
+  describe("createSignal(fn): the write is `prev`", () => {
+    function setup() {
+      const prevs: (number | undefined)[] = [];
+      const h = createRoot(() => {
+        const [a, setA] = createSignal(0);
+        const [b, setB] = createSignal<number>(prev => {
+          prevs.push(prev);
+          return Math.max(prev ?? 0, a());
+        });
+        return { setA, b, setB };
+      });
+      flush();
+      return { ...h, prevs };
     }
 
     it("source change, then write", () => {
       const h = setup();
-      flush();
       h.setA(1);
-      h.setB(2);
+      h.setB(5);
       flush();
-      expect(h.b()).toBe(2);
+      expect(h.prevs.at(-1)).toBe(5);
+      expect(h.b()).toBe(5);
     });
 
     it("write, then source change", () => {
       const h = setup();
+      h.setB(5);
+      h.setA(7);
       flush();
-      h.setB(2);
-      h.setA(1);
-      flush();
-      expect(h.b()).toBe(2);
+      expect(h.prevs.at(-1)).toBe(5);
+      expect(h.b()).toBe(7);
     });
 
     it("write, then source change through an intermediate memo", () => {
@@ -66,71 +115,158 @@ describe("the write's own frame: the write wins in either order (#2692)", () => 
       h.setC(99);
       h.setA(1);
       flush();
-      expect(observed).toBe(99);
+      expect(observed).toBe(10);
     });
 
-    it("a same-value write holds for its frame", () => {
-      const h = setup();
+    it("a prev-ignoring derivation discards a same-flush write, in either order", () => {
+      const h = createRoot(() => {
+        const [a, setA] = createSignal(0);
+        const [b, setB] = createSignal(() => a());
+        return { setA, b, setB };
+      });
+      flush();
+      h.setA(1);
+      h.setB(2);
+      flush();
+      expect(h.b()).toBe(1);
+      h.setB(3);
+      h.setA(4);
+      flush();
+      expect(h.b()).toBe(4);
+    });
+
+    it("a same-value write does not hold against the re-run", () => {
+      const h = createRoot(() => {
+        const [a, setA] = createSignal(0);
+        const [b, setB] = createSignal(() => a());
+        return { setA, b, setB };
+      });
       flush();
       h.setA(1);
       h.setB(0);
       flush();
-      expect(h.b()).toBe(0);
-      h.setA(2);
-      flush();
-      expect(h.b()).toBe(2);
+      expect(h.b()).toBe(1);
     });
   });
 
-  describe("createStore(fn)", () => {
+  describe("createStore(fn): the write is in the draft", () => {
     function setup() {
-      return createRoot(() => {
+      const drafts: number[] = [];
+      const h = createRoot(() => {
         const [a, setA] = createSignal(0);
-        const [s, setS] = createStore<{ v: number }>(
+        const [s, setS] = createStore<{ v: number; hi: number }>(
           d => {
+            drafts.push(d.hi);
             d.v = a();
+            d.hi = Math.max(d.hi, a());
           },
-          { v: 0 }
+          { v: 0, hi: 0 }
         );
         return { setA, s, setS };
       });
+      flush();
+      return { ...h, drafts };
     }
 
     it("source change, then write", () => {
       const h = setup();
-      flush();
       h.setA(1);
       h.setS(d => {
         d.v = 99;
+        d.hi = 50;
       });
       flush();
-      expect(h.s.v).toBe(99);
+      expect(h.drafts.at(-1)).toBe(50);
+      expect([h.s.v, h.s.hi]).toEqual([1, 50]);
     });
 
     it("write, then source change", () => {
       const h = setup();
-      flush();
       h.setS(d => {
         d.v = 99;
+        d.hi = 50;
       });
-      h.setA(1);
+      h.setA(70);
       flush();
-      expect(h.s.v).toBe(99);
+      expect(h.drafts.at(-1)).toBe(50);
+      expect([h.s.v, h.s.hi]).toEqual([70, 70]);
     });
 
-    it("a same-value write holds for its frame", () => {
-      const h = setup();
+    it("a partial write and a source change in one flush: the whole fold re-runs", () => {
+      const h = createRoot(() => {
+        const [a, setA] = createSignal(1);
+        const [s, setS] = createStore<{ v: number; a: number }>(
+          d => {
+            d.a = a();
+            d.v = a() * 100;
+          },
+          { v: 0, a: 0 }
+        );
+        return { setA, s, setS };
+      });
       flush();
+      h.setS(d => {
+        d.v = 999;
+      });
+      h.setA(2);
+      flush();
+      expect([h.s.a, h.s.v]).toEqual([2, 200]);
+    });
+
+    it("a same-value write does not hold against the re-run", () => {
+      const h = setup();
       h.setA(1);
       h.setS(d => {
         d.v = 0;
       });
       flush();
-      expect(h.s.v).toBe(0);
-      h.setA(2);
-      flush();
-      expect(h.s.v).toBe(2);
+      expect(h.s.v).toBe(1);
     });
+  });
+});
+
+describe("refresh() after a write re-runs with the write as prior state", () => {
+  it("createSignal(fn), same flush and a later one", () => {
+    const prevs: (number | undefined)[] = [];
+    const h = createRoot(() => {
+      const [a] = createSignal(1);
+      const [b, setB] = createSignal<number>(prev => {
+        prevs.push(prev);
+        return Math.max(prev ?? 0, a());
+      });
+      return { b, setB };
+    });
+    flush();
+    h.setB(5);
+    refresh(h.b);
+    flush();
+    expect([prevs.at(-1), h.b()]).toEqual([5, 5]);
+    h.setB(6);
+    flush();
+    refresh(h.b);
+    flush();
+    expect([prevs.at(-1), h.b()]).toEqual([6, 6]);
+  });
+
+  it("createStore(fn): the fold sees the written draft", () => {
+    const drafts: number[] = [];
+    const h = createRoot(() => {
+      const [s, setS] = createStore<{ hi: number }>(
+        d => {
+          drafts.push(d.hi);
+          d.hi = Math.max(d.hi, 1);
+        },
+        { hi: 0 }
+      );
+      return { s, setS };
+    });
+    flush();
+    h.setS(d => {
+      d.hi = 9;
+    });
+    refresh(h.s);
+    flush();
+    expect([drafts.at(-1), h.s.hi]).toEqual([9, 9]);
   });
 });
 
@@ -331,7 +467,7 @@ describe("#3733: a write inside a held action, then a source change during the h
   });
 });
 
-describe("holds and actions don't extend the frame", () => {
+describe("holds and actions don't change the rule", () => {
   function setupAB(f: (a: number) => number) {
     const views: string[] = [];
     const h = createRoot(() => {
@@ -403,7 +539,7 @@ describe("holds and actions don't extend the frame", () => {
     expect(h.views).toEqual(["a=1 b=100", "a=2 b=999"]);
   });
 
-  it("inside one action segment, write then source change is one frame → the write wins (a=2 b=999)", async () => {
+  it("inside one action segment, write then source change → the derivation re-runs (a=2 b=200)", async () => {
     const h = setupAB(a => a * 100);
     let release!: () => void;
     const done = action(function* () {
@@ -415,7 +551,7 @@ describe("holds and actions don't extend the frame", () => {
     release();
     await done;
     await settle();
-    expect(h.views).toEqual(["a=1 b=100", "a=2 b=999"]);
+    expect(h.views).toEqual(["a=1 b=100", "a=2 b=200"]);
   });
 
   it("store fold: a write to one key inside T, then a source change mid-hold → the whole fold follows", async () => {
@@ -520,4 +656,163 @@ describe("holds and actions don't extend the frame", () => {
       expect(h.views.at(-1)).toBe("m=20 b.m=20 b.local=7");
     });
   });
+});
+
+// The guide's examples (documentation/solid-2.0/02-signals-derived-ownership.md),
+// verbatim: an override that must survive a source change is carried in the
+// data, as a flag the derivation honors.
+describe("guide: keep a local value across source changes with a flag", () => {
+  type GuideCard = { id: string; column: number; moveFailed?: boolean };
+
+  function setupGuideStore() {
+    return createRoot(() => {
+      const [serverCards, setServerCards] = createSignal<GuideCard[]>([
+        { id: "A", column: 0 },
+        { id: "B", column: 0 }
+      ]);
+      const [cards, setCards] = createStore<GuideCard[]>(draft => {
+        const previous = new Map(draft.map(card => [card.id, card]));
+        return serverCards().map(remote => {
+          const old = previous.get(remote.id);
+          return old?.moveFailed ? { ...remote, column: old.column, moveFailed: true } : remote;
+        });
+      }, []);
+      return { setServerCards, cards, setCards };
+    });
+  }
+  const cols = (cards: GuideCard[]) =>
+    cards.map(c => `${c.id}${c.column}${c.moveFailed ? "!" : ""}`);
+
+  it("store: `moveFailed` keeps the local column through later server updates", () => {
+    const h = setupGuideStore();
+    flush();
+    h.setCards(d => {
+      d[0].column = 3;
+      d[0].moveFailed = true;
+    });
+    flush();
+    expect(cols(h.cards)).toEqual(["A3!", "B0"]);
+    h.setServerCards([
+      { id: "A", column: 1 },
+      { id: "B", column: 1 }
+    ]);
+    flush();
+    expect(cols(h.cards)).toEqual(["A3!", "B1"]);
+    h.setServerCards([
+      { id: "A", column: 2 },
+      { id: "B", column: 2 }
+    ]);
+    flush();
+    expect(cols(h.cards)).toEqual(["A3!", "B2"]);
+  });
+
+  for (const order of ["clear, then server", "server, then clear"] as const) {
+    it(`store: clearing the flag and a server change in the same update → follows the server (${order})`, () => {
+      const h = setupGuideStore();
+      flush();
+      h.setCards(d => {
+        d[0].column = 3;
+        d[0].moveFailed = true;
+      });
+      flush();
+      const clear = () =>
+        h.setCards(d => {
+          d[0].moveFailed = false;
+        });
+      const server = () =>
+        h.setServerCards([
+          { id: "A", column: 5 },
+          { id: "B", column: 5 }
+        ]);
+      if (order === "clear, then server") (clear(), server());
+      else (server(), clear());
+      flush();
+      expect(cols(h.cards)).toEqual(["A5", "B5"]);
+    });
+  }
+
+  it("store: clearing the flag on its own keeps the local column until the next server change", () => {
+    const h = setupGuideStore();
+    flush();
+    h.setCards(d => {
+      d[0].column = 3;
+      d[0].moveFailed = true;
+    });
+    flush();
+    h.setCards(d => {
+      d[0].moveFailed = false;
+    });
+    flush();
+    expect(cols(h.cards)).toEqual(["A3", "B0"]);
+    h.setServerCards([
+      { id: "A", column: 4 },
+      { id: "B", column: 4 }
+    ]);
+    flush();
+    expect(cols(h.cards)).toEqual(["A4", "B4"]);
+  });
+
+  it("store: inside an action, across a hold — clearing the flag, then a server change, reveals the server value with the action", async () => {
+    const h = setupGuideStore();
+    flush();
+    h.setCards(d => {
+      d[0].column = 3;
+      d[0].moveFailed = true;
+    });
+    flush();
+    let release!: () => void;
+    const done = action(function* () {
+      h.setCards(d => {
+        d[0].moveFailed = false;
+      });
+      yield new Promise<void>(r => (release = r));
+    })();
+    flush();
+    h.setServerCards([
+      { id: "A", column: 6 },
+      { id: "B", column: 6 }
+    ]);
+    flush();
+    expect(cols(h.cards)).toEqual(["A3!", "B0"]);
+    release();
+    await done;
+    await settle();
+    expect(cols(h.cards)).toEqual(["A6", "B6"]);
+  });
+
+  type PinCard = { id: string; column: number; pinned?: boolean };
+  function setupGuideSignal() {
+    return createRoot(() => {
+      const [source, setSource] = createSignal<PinCard>({ id: "A", column: 0 });
+      const [card, setCard] = createSignal<PinCard>(prev => (prev?.pinned ? prev : source()));
+      return { setSource, card, setCard };
+    });
+  }
+
+  it("signal: `pinned` keeps the local value through later source changes", () => {
+    const h = setupGuideSignal();
+    flush();
+    h.setCard({ id: "A", column: 3, pinned: true });
+    flush();
+    h.setSource({ id: "A", column: 1 });
+    flush();
+    h.setSource({ id: "A", column: 2 });
+    flush();
+    expect(h.card()).toEqual({ id: "A", column: 3, pinned: true });
+  });
+
+  for (const order of ["unpin, then source", "source, then unpin"] as const) {
+    it(`signal: unpinning and a source change in the same update → follows the source (${order})`, () => {
+      const h = setupGuideSignal();
+      flush();
+      h.setCard({ id: "A", column: 3, pinned: true });
+      flush();
+      const unpin = () => h.setCard(p => ({ ...p, pinned: false }));
+      const src = () => h.setSource({ id: "A", column: 5 });
+      if (order === "unpin, then source") (unpin(), src());
+      else (src(), unpin());
+      flush();
+      expect(h.card()).toEqual({ id: "A", column: 5 });
+    });
+  }
 });

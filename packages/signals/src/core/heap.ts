@@ -5,11 +5,10 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_IN_HEAP,
   REACTIVE_IN_HEAP_HEIGHT,
-  REACTIVE_MANUAL_WRITE,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE
 } from "./constants.js";
-import { clock, dirtyQueue, zombieQueue } from "./scheduler.js";
+import { dirtyQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, FirewallSignal, Root } from "./types.js";
 
 /** The queue a node belongs to, picked from its own zombie flag. */
@@ -60,21 +59,12 @@ function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
   }
   if (height > heap._max) heap._max = height;
 }
-/** A manual write masks its node's recompute for the frame that carries it
- * (core R31): its own flush's re-run is dropped. A wake in a later frame is a
- * source change after the write, so the node re-derives with the write as
- * `prev` — holds and actions don't extend the frame (#3733). The flag itself
- * stays until the recompute or commit, marking the staging as a proposal
- * (A34). */
-export function masked(n: Computed<any>): number | boolean {
-  return n._flags & REACTIVE_MANUAL_WRITE && n._manualWriteTime === clock;
-}
 export function insertIntoHeap(n: Computed<any>, heap: Heap) {
   let flags = n._flags;
   // RECOMPUTING refusals are not always losses: a genuinely missed wake (a
   // write to a link this pass already validated) is latched link-side in
   // insertSubs as REACTIVE_MISSED_WAKE for recompute's tail (#3037).
-  if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS) || masked(n)) return;
+  if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS)) return;
   if (flags & REACTIVE_CHECK) {
     n._flags = (flags & ~(REACTIVE_CHECK | REACTIVE_DIRTY)) | REACTIVE_DIRTY | REACTIVE_IN_HEAP;
   } else {
@@ -96,8 +86,7 @@ export function insertIntoHeap(n: Computed<any>, heap: Heap) {
 
 export function insertIntoHeapHeight(n: Computed<unknown>, heap: Heap) {
   let flags = n._flags;
-  if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS | REACTIVE_IN_HEAP_HEIGHT) || masked(n))
-    return;
+  if (flags & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS | REACTIVE_IN_HEAP_HEIGHT)) return;
   n._flags = flags | REACTIVE_IN_HEAP_HEIGHT;
   actualInsertIntoHeap(n, heap);
 }

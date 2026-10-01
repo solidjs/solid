@@ -215,11 +215,11 @@ export function createProjectionNext<T extends object = {}>(
 }
 
 /** Derived writable store (legacy parity): a projection whose public setter
- * masks the recompute for the tick (core R31 — the manual write wins over a
- * same-flush dependency change). Across a hold the write is not a proposal:
- * a leaf another transaction holds as the fold's result re-runs the fold
- * under it, the write being the draft's prior state (A34 amendment, #3612;
- * core derivedWrite). */
+ * lands at once and re-runs nothing; a dependency change, in the same flush or
+ * later, re-runs the fold over the written draft (core R31). Across a hold
+ * the write is not a proposal: a leaf another transaction holds as the fold's
+ * result re-runs the fold under it, the write being the draft's prior state
+ * (A34 amendment, #3612; core derivedWrite). */
 export function createStoreDerivedNext<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: Partial<T> | Store<NoFn<T>>,

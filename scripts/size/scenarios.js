@@ -455,6 +455,12 @@ module.exports = [
     // folds into it. Clearing the flag instead would need a per-flush list
     // and would break A34's proposal discriminator.
     // Accepted by the maintainer. The cap is frozen again at 9.53 KB.
+    // Rule B (#3733, 2026-10-01): 9.53 -> 9.51 KB, measured at 9,492 B
+    // against `next` @ 3ed381009's 9,527 (-35 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
+    // frozen again at 9.51 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
@@ -1080,7 +1086,12 @@ module.exports = [
     // 12,171 B against `next` @ 309b08730's 12,160 (+11 B; +52 B minified).
     // Same frame-scoped mask as the core floor note. Accepted by the
     // maintainer.
-    limit: "12.18 KB",
+    // Rule B (#3733, 2026-10-01): 12.18 -> 12.16 KB, measured at 12,148 B
+    // against `next` @ 3ed381009's 12,171 (-23 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise.
+    limit: "12.16 KB",
     alias
   },
   {
@@ -1550,6 +1561,12 @@ module.exports = [
     // Same frame-scoped mask as the core floor note; brotli layout over
     // the larger bundle. Accepted by the maintainer. The cap is frozen again
     // at 19.73 KB.
+    // Rule B (#3733, 2026-10-01): 19.73 -> 19.69 KB, measured at 19,667 B
+    // against `next` @ 3ed381009's 19,727 (-60 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
+    // frozen again at 19.69 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1945,6 +1962,10 @@ module.exports = [
     // 30,817 B against `next` @ 309b08730's 30,789 (+28 B; +52 B minified).
     // Same frame-scoped mask as the core floor note. Accepted by the
     // maintainer.
+    // Rule B (#3733, 2026-10-01): cap unchanged at 30.82 KB, measured at
+    // 30,818 B against `next` @ 3ed381009's 30,817 (+1 B; -82 B minified). The
+    // same mask removal as the core floor note; brotli layout over the larger
+    // bundle keeps it 28 B over the pre-#3740 30.79 KB, so that raise stays.
     limit: "30.82 KB",
     alias
   },
@@ -3071,6 +3092,12 @@ module.exports = [
     // 46,227 B against `next` @ 309b08730's 46,193 (+34 B; +52 B minified).
     // Same frame-scoped mask as the core floor note. Accepted by the
     // maintainer. The cap is frozen again at 46.23 KB.
+    // Rule B (#3733, 2026-10-01): 46.23 -> 46.20 KB, measured at 46,165 B
+    // against `next` @ 3ed381009's 46,227 (-62 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
+    // frozen again at 46.20 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },

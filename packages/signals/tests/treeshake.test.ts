@@ -447,7 +447,13 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // heap inserts, and `markRefresh`'s same-tick arm folds into it. The flag
     // itself stays until the recompute or commit (A34's proposal mark).
     // Size-Exception, accepted by the maintainer.
-    expect(minifiedBytes).toBeLessThan(26_730);
+    // Derived writes apply first, then derivations re-run (#3733 rule B,
+    // 2026-10-01): -85 B core-retained (26,722 -> 26,637) — the frame-scoped
+    // mask is removed: no heap refusal, no `_manualWriteTime` stamp, no
+    // `deleteFromHeap` or DIRTY/CHECK clear in the setter (`markManualWrite`
+    // only stages and flags), no mask arm in `markRefresh`. Reverts the #3740
+    // raise.
+    expect(minifiedBytes).toBeLessThan(26_690);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
