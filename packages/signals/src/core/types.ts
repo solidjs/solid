@@ -213,9 +213,10 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _fn: (prev?: T) => T;
   /**
    * Clock tick at which REACTIVE_MANUAL_WRITE was last applied
-   * (`suppressComputedRecompute`). Lets `refresh()` distinguish a same-tick
-   * manual write (which wins over the refresh, #2692) from a mask carried
-   * across ticks by a transaction (which an explicit refresh lifts, #3026).
+   * (`suppressComputedRecompute`). The mask refuses the heap — source
+   * changes and `refresh()` alike — only while this is the current tick: the
+   * write wins over its own frame's re-run (#2692), and a later frame
+   * re-derives with the write as `prev`, holds included (#3026, #3733).
    * Only meaningful while REACTIVE_MANUAL_WRITE is set.
    */
   _manualWriteTime?: number;
