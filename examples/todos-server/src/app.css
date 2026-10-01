@@ -115,26 +115,20 @@ body {
   border-top: 1px solid #e6e6e6;
 }
 
+/* The toggles are submit buttons in forms (they work without JavaScript),
+   so the checkbox styling keys off `aria-pressed` and the row's class
+   instead of `:checked`. */
 .toggle-all {
-  width: 1px;
-  height: 1px;
-  border: none;
-  opacity: 0;
-  position: absolute;
-  right: 100%;
-  bottom: 100%;
-}
-
-.toggle-all + label {
   width: 45px;
   height: 65px;
   font-size: 0;
   position: absolute;
   top: -65px;
-  left: -0;
+  left: 0;
+  cursor: pointer;
 }
 
-.toggle-all + label:before {
+.toggle-all:before {
   content: "❯";
   display: inline-block;
   font-size: 22px;
@@ -144,7 +138,7 @@ body {
   transform: rotate(90deg);
 }
 
-.toggle-all:checked + label:before {
+.toggle-all[aria-pressed="true"]:before {
   color: #484848;
 }
 
@@ -181,30 +175,21 @@ body {
 }
 
 .todo-list li .toggle {
-  text-align: center;
   width: 40px;
-  /* auto, since non-WebKit browsers doesn't support input styling */
-  height: auto;
+  height: 100%;
   position: absolute;
   top: 0;
-  bottom: 0;
-  margin: auto 0;
-  border: none; /* Mobile Safari */
-  -webkit-appearance: none;
-  appearance: none;
+  left: 0;
+  cursor: pointer;
 }
 
-.todo-list li .toggle {
-  opacity: 0;
-}
-
-.todo-list li .toggle + label {
+.todo-list li label {
   background-image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%23949494%22%20stroke-width%3D%223%22%2F%3E%3C%2Fsvg%3E");
   background-repeat: no-repeat;
   background-position: center left;
 }
 
-.todo-list li .toggle:checked + label {
+.todo-list li.completed label {
   background-image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%2359A193%22%20stroke-width%3D%223%22%2F%3E%3Cpath%20fill%3D%22%233EA390%22%20d%3D%22M72%2025L42%2071%2027%2056l-4%204%2020%2020%2034-52z%22%2F%3E%3C%2Fsvg%3E");
 }
 
@@ -411,6 +396,25 @@ html .clear-completed:active {
 .todo-list li.errored .destroy,
 .todo-list li.errored:hover .destroy {
   display: none;
+}
+
+.header form[aria-busy] .new-todo {
+  color: #949494;
+}
+
+.add-error,
+.list-error {
+  margin: 0;
+  padding: 10px 15px;
+  font-size: 15px;
+  color: #c91524;
+  border-top: 1px solid #e6e6e6;
+}
+
+.add-error button,
+.list-error button {
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .app-error {
