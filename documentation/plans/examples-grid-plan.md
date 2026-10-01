@@ -274,6 +274,21 @@ README may describe it as the increment). Bulk actions stay plain forms.
 Pending feedback, if the router marks a submitting claimed form
 (`aria-busy` / `data-pending`), is CSS only — see V4.
 
+**Revised 2026-09-30, built (pending review of the feel).** Dropping the
+bulk optimism left nothing a form could not do, and binding slots exist to
+add back exactly that optimism, so the example has to keep it to prove the
+point. Built shape: every control a form (`.with()` for rows), single-flight
+responses; two binding slots — `row` (class, hidden, the toggle's value and
+`aria-pressed`, retry title and handler) and `list` (empty, toggle-all
+state and value, clear's visibility, the count as a text position, the bulk
+error) — fed by one intent store each action's `onSubmit` writes.
+Cross-element optimism (toggle-all, clear-completed, the count) is the
+layering moment. Failures are returned `{ error }` values read through
+`useSubmissions`, each action's `onSettled` superseding earlier answers to
+the same question; the no-JS path reads the same list from the router's
+flash cookie. Add is not optimistic (a busy form, the error with a retry).
+The pending-row template slot is gone.
+
 ### `chat` — bottom-right FLAGSHIP. REBUILD (own plan)
 
 Plan: `documentation/plans/chat-flagship.md` (to write first). Realistic
@@ -329,7 +344,19 @@ neither, it stays as is.
 
 Off-grid on purpose. `rendering` is the one kitchen sink.
 
-## Verification items (gate the reshapes; none built)
+## Verification items (gate the reshapes)
+
+_2026-10-01, from the `todos-server` build: V1–V4 hold on
+`@solidjs/router` 2.0.0-next.34. V3 needed a router fix — a server-rendered
+`.with()` url missed the client's action registry, so the hooks never ran
+(solid-router#646, which also makes a chained `.with()` carry every bound
+argument). The build also surfaced a hang: rendering the document with a
+flash cookie present never finished the stream render, because a server
+`Errored` retry re-created the router and every router restarted the flash
+decode (solid-router#647 decodes once per request). Framework follow-ups —
+`Errored` re-creating ancestors on retry, and no guard for a retry that
+never converges — are open. Examples moved to `@solidjs/vite-plugin` 3.0.0-next.47,
+the first to inject the flash-cookie secret, so the no-JS path is live._
 
 - **V1 — Flight collector carries a result plus regions.** `notes` exercises
   redirects only. `todos-server`'s server-rendered failures and §9.6 (B)
@@ -447,7 +474,8 @@ examples that are already right carry the most value per hour._
    of `hackernews-spa`).
 5. `todos-server` reshape (V1–V4 first). Target decided 2026-09-29: the
    Q5 shape above — single-flight, server-rendered rejections, one
-   binding slot with one position — not the Q4 wrap.
+   binding slot with one position — not the Q4 wrap. Revised and built
+   2026-09-30 (see the section above).
 6. `chat-flagship.md`, then `chat`.
 7. `board-flagship.md`, then `board`.
 8. Retire `room`.

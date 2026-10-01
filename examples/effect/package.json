@@ -16,11 +16,11 @@
     "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.35",
+    "@solidjs/vite-plugin": "3.0.0-next.47",
     "@solidjs/web": "workspace:*",
     "@types/node": "^25.6.0",
     "solid-js": "workspace:*",
     "typescript": "^6.0.2",
-    "vite": "^7.0.0"
+    "vite": "^8.0.0"
   }
 }
