@@ -2639,11 +2639,11 @@ export type SetStoreNextFunction<T> = (fn: (draft: T) => T | void) => void;
 let derivedSetter: Computed<unknown> | null = null;
 let heldDerivationHit = false;
 
-/** The derived store's setter (CS-R31): within a synchronous frame the manual
- * write wins — the projection's recompute is masked for the tick. Across a
- * hold the write is not a proposal: a leaf the fold staged under another
- * transaction re-runs the fold under it, the write being the draft's prior
- * state (#3612). Decided from the leaf notifications, so the mask lands
+/** The derived store's setter (CS-R31): the manual write wins over its own
+ * frame's recompute — the projection is masked for the tick; a source change
+ * in a later frame re-runs the fold over the written draft (#3733). A leaf the
+ * fold staged under another transaction is not a proposal: the fold re-runs
+ * under it, the write being the draft's prior state (#3612). Decided from the leaf notifications, so the mask lands
  * after them (in the `finally`: a throwing setter's writes before the throw
  * were notified, and are masked as before). */
 export function derivedStoreWrite<T>(

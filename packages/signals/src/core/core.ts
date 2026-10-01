@@ -71,6 +71,7 @@ import {
   insertIntoHeapHeight,
   markHeap,
   markNode,
+  masked,
   queueFor
 } from "./heap.js";
 import { type OptimisticLane } from "./lanes.js";
@@ -985,11 +986,12 @@ function updateIfNecessary(el: Computed<unknown>): void {
 
   // The guard above refused an already-disposed node; the recompute it just
   // ran may have disposed it (#3621) — carry the flag, or it comes back alive.
-  // The manual-write mask is state, not scheduling (#3612): it says the
-  // node's staging is a PROPOSAL, and only the commit (or a later-tick
-  // refresh, #3026) lifts it — a pull that recomputed nothing must not, or
-  // an isPending()/latest() probe decided whether a later write to a held
-  // node was a second proposal or the derivation's `prev`.
+  // The manual-write flag is state, not scheduling (#3612): it says the
+  // node's staging is a PROPOSAL until the node recomputes or commits — a
+  // pull that recomputed nothing must not clear it, or an isPending()/latest()
+  // probe decided whether a later write to a held node was a second proposal
+  // or the derivation's `prev`. (Its heap refusal is the write's frame only,
+  // heap.ts `masked`, #3733.)
   el._flags =
     el._flags &
     (REACTIVE_SNAPSHOT_STALE |
@@ -2649,11 +2651,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 }
 
 /**
- * Suppresses automatic recomputation of `el` until the scheduler drains. Used
- * when a manual write should win over dependency changes queued in the same
- * tick. The MANUAL_WRITE flag is cleared by the pending-node drain; projection
- * computeds don't commit values, but they still need the same end-of-tick
- * cleanup point.
+ * A manual write to a derived node wins over its own frame's re-run (core R31,
+ * #2692): the recompute queued for this flush is dropped and the node masked
+ * for the tick (heap.ts `masked`), whatever the call order inside the frame —
+ * propagation is deferred to the flush. A source change in a later frame
+ * re-derives with the write as `prev`; holds and actions don't extend the
+ * frame (#3733). REACTIVE_MANUAL_WRITE also marks the staging as a proposal
+ * (A34) until the node recomputes or commits.
  */
 export function suppressComputedRecompute(el: Computed<unknown>): void {
   deleteFromHeap(el, queueFor(el));
@@ -2798,24 +2802,17 @@ export function markRefresh(node: Computed<any>): void {
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE);
   }
   if (typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
-    if (node._flags & REACTIVE_MANUAL_WRITE) {
-      // A manual write in the CURRENT tick wins over the refresh (#2692).
-      // A mask stamped in an earlier tick only survives because a
-      // transaction (action) is holding the pending drain open; there the
-      // refresh is a later, explicit re-ask and lifts the mask — otherwise
-      // any setStore early in an action silently swallows every refresh()
-      // for the rest of the transaction (#3026).
-      if (node._manualWriteTime === clock) return;
-      node._flags &= ~REACTIVE_MANUAL_WRITE;
-      // The lift falls through to the re-ask classification below. The held
-      // write's value change already rides the transaction; the refetch it
-      // asks for is the same question with unchanged inputs. Skipping the
-      // mark here classified that refetch as a NEW question, which pends
-      // every leaf (3.1) — an action doing setStore + yield + refresh(store)
-      // lit up every sibling row, and affects() could not narrow it (a mark
-      // only turns pending on). Same-question motion stays silent (3.4);
-      // the written slot and any declared mark carry the pending instead.
-    }
+    // A manual write wins over a refresh in its own frame (#2692). A mask
+    // from an earlier frame no longer refuses the heap, so an action's
+    // setStore does not swallow its later refresh() (#3026), and the re-run
+    // takes the re-ask classification below: the held write's value change
+    // already rides the transaction; the refetch it asks for is the same
+    // question with unchanged inputs. Classified as a NEW question it pended
+    // every leaf (3.1) — an action doing setStore + yield + refresh(store)
+    // lit up every sibling row, and affects() could not narrow it (a mark
+    // only turns pending on). Same-question motion stays silent (3.4); the
+    // written slot and any declared mark carry the pending instead.
+    if (masked(node)) return;
     // A refresh with no value-change dirt already queued is a re-ask of the
     // same question: mark it so the recompute classifies any resulting
     // pending window as quiet (not pending). If the node is already dirty

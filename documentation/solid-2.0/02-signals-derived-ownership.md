@@ -110,7 +110,9 @@ const [cached, setCached] = createSignal((prev = props.something) => prev);
 // setValue(...) writes like a normal signal; the compute receives prev on recompute.
 ```
 
-Within a synchronous frame the write wins over a recompute queued in the same tick (either order). Across a hold it is not a proposal: while a transaction holds a value the compute derived (an async dependent of the source is still in flight), a write from outside that transaction joins it and becomes the `prev` of the transaction's re-derivation instead of replacing it — the frame that reveals is `fn(inputs)`, never a value the writer computed against the old frame. Writes made inside the transaction keep last-write-wins. The same holds for the derived `createStore` below.
+A write to a writable derived value (`createSignal(fn)`, `createStore(fn)`) wins over its sources' changes in the same batch. A source change in a later update re-runs the function, which receives your write as `prev` (or as the draft for `createStore(fn)`). To keep a local value across source changes, read it from `prev`. Inside an action and across async holds this works the same way: a hold changes when the result is shown, not what it is.
+
+A held derivation is not a write: while a transaction holds a value the compute derived (an async dependent of the source is still in flight), a write from outside that transaction joins it and becomes the `prev` of the transaction's re-derivation instead of replacing it — the frame that reveals is `fn(inputs)`, never a value the writer computed against the old frame. A second write to the same value still replaces the first. The same holds for the derived `createStore` below.
 
 #### Function-form `createStore` (derived/projection store)
 
