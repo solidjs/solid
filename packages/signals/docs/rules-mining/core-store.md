@@ -135,10 +135,14 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 
 - CS "ignores prototype pollution keys in draft setters"; SP "storePath prototype pollution guard".
 
-**R31. Derived-store manual writes win over the recompute within a synchronous frame: manual setStore beats a queued recompute in the same flush; a SAME-VALUE manual write still holds against the recompute for that tick; next source change reclaims. Across a hold the write is `prev` for the re-derivation: a setter reaching a leaf the fold staged under another transaction (a held pass result, not a proposal — `REACTIVE_MANUAL_WRITE` clear on the projection node) joins that transaction and re-runs the fold under it with the written draft as the prior state, instead of masking it (A34 (3), #3612).**
+**R31. Derived-store manual writes apply before the derivation.** A manual `setStore` lands at once, staged with any live transaction. When a source of the fold changes, in the same update or later, the fold re-runs with the written draft as the prior state, and the fold decides what to keep. A write on its own never re-runs the fold. Holds and actions don't change this: under a transaction the re-run happens under it and reveals with it. A setter reaching a leaf the fold staged under another transaction (a held pass result, not a proposal) is likewise prior state for that transaction's re-run (A34 (3), #3612).
 
-- CS "derived store manual writes" (#2692 ×2); `tests/held-derivation-not-a-proposal-3612.test.ts` (store twin).
-- **CONFLICT (framing + mechanics):** "keeps the override for the tick" — override layers deleted. Manual-write-precedence-until-next-recompute incl. same-value writes must be reproduced by node/lane precedence; equality-checked signal write would no-op yet the mask must hold.
+_Amended 2026-10-01 (#3733)._ The mask was meant to last a frame but only lifted at `commitPendingNode`. Inside a transaction that is the whole hold, so later source changes were dropped. That was a regression from `b0db6c90f` (#2692). #3026 had lifted it for `refresh()` only.
+
+_Amended 2026-10-01 (#3733, rule B)._ This reverses #2692's "write trumps derivation on the same tick" (beta.11). Maintainer: "if we revert here it is changing a decision from beta.11.. I'm ok with it. I like simpler rules." / "we can't tell order anyway.. so if you set the derived, then set the source the derived still wins right now. So it feels like an order matters kinda thing but isn't." Within a flush, call order isn't observable, so "the write wins" only looked like an ordering rule. For stores, a partial write also dropped the whole fold, losing the source change and leaving unwritten keys stale. An override that must survive a source change is carried in the data, as a flag the fold honors. This supersedes the frame-scoped mask from earlier the same day (#3740).
+
+- CS "derived store manual writes" (#2692, flipped to rule B); `tests/held-derivation-not-a-proposal-3612.test.ts` (store twin); `tests/derived-write-then-derivation-3733.test.ts` (a write alone; the same flush, either order; later flushes; inside an action and across a hold; the guide's flag examples).
+- **CONFLICT (framing + mechanics):** "keeps the override for the tick" — override layers deleted. Resolved by rule B: a manual write is a staged value and the fold's prior state, with no precedence over a re-run, same-value writes included.
 
 **R32. A setter-staged replacement followed by reconcile lands the reconciled value — staged writes fold into the diff.** Aligned: O7's resolution (a test already exists).
 
@@ -263,7 +267,7 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 2. **`markRaw` internal import** (SH, "internal for now") — decide if markRaw is API before porting as semantic rules.
 3. **Sticky cross-store raw-marking (R41 second assertion)** — global mutable dispatch state, same class that caused #2932. Contract or accident?
 4. **Dev-throw on deep-tracked ingest (R44)** — trigger is lazy-wrap timing; violates R1. Re-specify or drop.
-5. **Override-vocabulary tests, portable behavior:** CS "same-value setStore… keeps the override for the tick" (R31); SIS "active override on the wrapper view holds…" (R36); SPC + SH comments naming override layers/STORE_SHALLOW/applyStateChild. Port assertions, rewrite framing.
+5. **Override-vocabulary tests, portable behavior:** CS "a same-value setStore does not hold against a same-flush source change" (R31; was "…keeps the override for the tick" until rule B); SIS "active override on the wrapper view holds…" (R36); SPC + SH comments naming override layers/STORE_SHALLOW/applyStateChild. Port assertions, rewrite framing.
 6. **Core-internal fields in comments** (MA #2687: `_value`/`_pendingValue`/`_parentComputed`) — restate R58 as a read-visibility contract.
 7. **Target-indirection pinning** (CS non-configurable test) — forbids ever proxying raw directly. Compatible with kept architecture.
 8. **Host-object detection via global `Node` mock** (CS) vs NC's structural tag checks — reconcile into one detection rule.
@@ -273,4 +277,4 @@ Files: **CS** = `tests/store/createStore.test.ts`, **SP** = `tests/store/storePa
 
 1. **R24/R25 vs "urgent write commits now"** — decides where pending values live and whether observer-less writes materialize nodes; decides the laziness invariant's exact wording.
 2. **R36 (lane masking suppresses chained structural notifications) vs R21 (wrapper views chain structural tracking)** — interaction unspecified in the doc.
-3. **R31 same-value manual-write precedence on derived stores** — equality-checked core write would no-op; the tick-long mask must hold anyway.
+3. **R31 same-value manual-write precedence on derived stores** — equality-checked core write would no-op; the tick-long mask must hold anyway. Resolved 2026-10-01 (#3733, rule B): there is no precedence to hold; a source change re-runs the fold over the write.

@@ -362,10 +362,11 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
  * // Writable memo: derives from `fn()` and can be written like a signal.
  * const [user, setUser] = createSignal(() => fetchUser(userId()));
  *
- * // Within the frame the write wins over a same-tick recompute; the next
- * // change to `userId` re-derives (the compute receives the written value
- * // as `prev`). While a transaction holds a re-derived value, a write from
- * // outside it does not replace that derivation — it becomes its `prev`.
+ * // A write lands at once and never re-runs `fn` on its own; when `userId`
+ * // changes, in the same update or later, `fn` re-runs and receives the
+ * // written value as `prev`. While a transaction holds a re-derived value, a
+ * // write from outside it does not replace that derivation — it becomes its
+ * // `prev`.
  * setUser({ ...user(), name: "Alice" });
  * ```
  *
