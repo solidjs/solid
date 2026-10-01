@@ -3,7 +3,7 @@ import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
-import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
+import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 var _v$11, _v$12;
@@ -41,7 +41,7 @@ var _v$2 = _$ssrHydrationKey(), _g$ = _$ssrGroup(() => {
 		_$ssrAttribute("stroke-width", _$escape(state.width, true)),
 		_$ssrAttribute("x", _$escape(state.x, true)),
 		_$ssrAttribute("y", _$escape(state.y, true)),
-		_$ssrStyleProperty("fill:", "red") + _$ssrStyleProperty(";stroke:", "black") + _$ssrStyleProperty(";stroke-width:", _$escape(props.stroke, true)) + _$ssrStyleProperty(";opacity:", .5)
+		_$ssrStyleProperties("fill:", "red", "stroke:", "black", "stroke-width:", _$escape(props.stroke, true), "opacity:", .5)
 	];
 }, 5);
 const template2 = _$ssr(_tmpl$2, _v$2, _g$, _g$, _g$, _g$, _g$);
