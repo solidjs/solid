@@ -1277,7 +1277,7 @@ describe("arrays", () => {
 });
 
 describe("derived store manual writes", () => {
-  it("manual setStore on a derived store wins over a queued recompute (#2692)", () => {
+  it("a source change in the setStore's flush re-runs the fold; a draft-ignoring fold discards the write (core R31, #3733 rule B)", () => {
     const [setSource, store, setStore] = createRoot(() => {
       const [source, sSource] = createSignal({ count: 0 });
       const [s, sStore] = createStore<{ count: number }>(() => ({ count: source().count }), {
@@ -1292,13 +1292,18 @@ describe("derived store manual writes", () => {
       s.count = 99;
     });
     flush();
+    expect(store.count).toBe(1);
+    setStore(s => {
+      s.count = 99;
+    });
+    flush();
     expect(store.count).toBe(99);
     setSource({ count: 2 });
     flush();
     expect(store.count).toBe(2);
   });
 
-  it("same-value setStore on a derived store keeps the override for the tick (#2692)", () => {
+  it("a same-value setStore does not hold against a same-flush source change (core R31, #3733 rule B)", () => {
     const [setSource, store, setStore] = createRoot(() => {
       const [source, sSource] = createSignal({ count: 0 });
       const [s, sStore] = createStore<{ count: number }>(() => ({ count: source().count }), {
@@ -1317,19 +1322,21 @@ describe("derived store manual writes", () => {
       s.count = 99;
     });
     flush();
-    expect(store.count).toBe(99);
+    expect(store.count).toBe(1);
     setSource({ count: 2 });
     flush();
     expect(store.count).toBe(2);
   });
 
-  it("same-tick manual write wins over refresh() in both orders (#2692)", () => {
+  it("refresh() in the setStore's flush re-runs the fold over the written draft, in either order (core R31, #3733 rule B)", () => {
     let evals = 0;
+    const drafts: number[] = [];
     const [store, setStore] = createRoot(() => {
       const [source] = createSignal({ count: 0 });
       const [s, sStore] = createStore<{ count: number }>(
-        () => {
+        draft => {
           evals++;
+          drafts.push(draft.count);
           return { count: source().count };
         },
         { count: 0 }
@@ -1344,16 +1351,18 @@ describe("derived store manual writes", () => {
     });
     refresh(store);
     flush();
-    expect(evals).toBe(1);
-    expect(store.count).toBe(99);
+    expect(evals).toBe(2);
+    expect(drafts.at(-1)).toBe(99);
+    expect(store.count).toBe(0);
 
     refresh(store);
     setStore(s => {
       s.count = 100;
     });
     flush();
-    expect(evals).toBe(1);
-    expect(store.count).toBe(100);
+    expect(evals).toBe(3);
+    expect(drafts.at(-1)).toBe(100);
+    expect(store.count).toBe(0);
   });
 
   it("refresh() on a later tick re-runs the derived store source (#3026)", () => {

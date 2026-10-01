@@ -25,6 +25,10 @@ import {
 //   last-write-wins. Applies to `createSignal(fn)` and `createStore(fn)`
 //   (CS-R31); projections have no setter.
 //
+// Amended 2026-10-01 (#3733, rule B): within a synchronous frame too, a
+// source change re-runs the derivation with the write as `prev` — the
+// "#2692 superseded" cases below.
+//
 // Shape (the report): `a`, `b = createSignal(() => a() * 100)`, an async memo
 // `c` over `a` that parks on an external gate for `a !== 1`, and a render
 // effect reading all three (the DOM-binding shape — it is what holds `a`'s
@@ -233,28 +237,28 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
     h.dispose();
   });
 
-  describe("#2692 preserved: within a synchronous frame the manual write wins, regardless of order", () => {
-    it("setA(2); setB(101); flush() — no hold → a=2 b=101", async () => {
+  describe("#2692 superseded (#3733 rule B): within a synchronous frame the source change re-runs the derivation, regardless of order", () => {
+    it("setA(2); setB(101); flush() — no hold → a=2 b=200", async () => {
       const h = setup({ holds: () => false });
       await settle();
       h.setA(2);
       h.setB(101);
       await settle();
-      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=101 c=2"]);
+      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=200 c=2"]);
       h.dispose();
     });
 
-    it("setB(101); setA(2); flush() — no hold → a=2 b=101", async () => {
+    it("setB(101); setA(2); flush() — no hold → a=2 b=200", async () => {
       const h = setup({ holds: () => false });
       await settle();
       h.setB(101);
       h.setA(2);
       await settle();
-      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=101 c=2"]);
+      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=200 c=2"]);
       h.dispose();
     });
 
-    it("setA(2); setB(101); flush() — the same frame opens the hold → reveals a=2 b=101", async () => {
+    it("setA(2); setB(101); flush() — the same frame opens the hold → reveals a=2 b=200", async () => {
       const h = setup();
       await settle();
       h.setA(2);
@@ -262,7 +266,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       await settle();
       expect(h.views).toEqual(["a=1 b=100 c=1"]);
       await h.release();
-      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=101 c=2"]);
+      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=200 c=2"]);
       h.dispose();
     });
 
@@ -287,7 +291,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       const act = action(function* () {
         h.setA(2); // T is this action's transaction; b re-derives to 200 under it
         yield g1.promise;
-        h.setB(999); // under T: T's staging is now a manual proposal (masked)
+        h.setB(999); // under T: T's staging is now a manual proposal
         yield g2.promise;
       });
       act();
@@ -504,7 +508,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       h.dispose();
     });
 
-    it("same frame: setA(2); setS(v=101) — the manual write still wins (#2692 / CS-R31)", async () => {
+    it("same frame: setA(2); setS(v=101) — the fold re-runs over the written draft (CS-R31, #3733 rule B) → a=2 s.v=200", async () => {
       const h = setupStore({ holds: () => false });
       await settle();
       h.setA(2);
@@ -512,11 +516,11 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
         d.v = 101;
       });
       await settle();
-      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=101 c=2"]);
+      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=200 c=2"]);
       h.dispose();
     });
 
-    it("same frame opening the hold: setA(2); setS(v=101) → reveals a=2 s.v=101", async () => {
+    it("same frame opening the hold: setA(2); setS(v=101) → reveals a=2 s.v=200", async () => {
       const h = setupStore();
       await settle();
       h.setA(2);
@@ -526,7 +530,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       await settle();
       expect(h.views).toEqual(["a=1 s.v=100 c=1"]);
       await h.release();
-      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=101 c=2"]);
+      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=200 c=2"]);
       h.dispose();
     });
 

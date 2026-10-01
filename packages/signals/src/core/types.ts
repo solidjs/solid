@@ -212,15 +212,6 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _prevHeap: Computed<any>;
   _fn: (prev?: T) => T;
   /**
-   * Clock tick at which REACTIVE_MANUAL_WRITE was last applied
-   * (`suppressComputedRecompute`). The mask refuses the heap — source
-   * changes and `refresh()` alike — only while this is the current tick: the
-   * write wins over its own frame's re-run (#2692), and a later frame
-   * re-derives with the write as `prev`, holds included (#3026, #3733).
-   * Only meaningful while REACTIVE_MANUAL_WRITE is set.
-   */
-  _manualWriteTime?: number;
-  /**
    * True while a `loadingValue` node's first real answer hasn't landed: the
    * node was born committed (commit #0 = the loading value) and `handleAsync`
    * serves that committed value instead of throwing NotReadyError, so first

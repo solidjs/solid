@@ -71,7 +71,6 @@ import {
   insertIntoHeapHeight,
   markHeap,
   markNode,
-  masked,
   queueFor
 } from "./heap.js";
 import { type OptimisticLane } from "./lanes.js";
@@ -990,8 +989,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
   // node's staging is a PROPOSAL until the node recomputes or commits — a
   // pull that recomputed nothing must not clear it, or an isPending()/latest()
   // probe decided whether a later write to a held node was a second proposal
-  // or the derivation's `prev`. (Its heap refusal is the write's frame only,
-  // heap.ts `masked`, #3733.)
+  // or the derivation's `prev`.
   el._flags =
     el._flags &
     (REACTIVE_SNAPSHOT_STALE |
@@ -2651,32 +2649,28 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 }
 
 /**
- * A manual write to a derived node wins over its own frame's re-run (core R31,
- * #2692): the recompute queued for this flush is dropped and the node masked
- * for the tick (heap.ts `masked`), whatever the call order inside the frame —
- * propagation is deferred to the flush. A source change in a later frame
- * re-derives with the write as `prev`; holds and actions don't extend the
- * frame (#3733). REACTIVE_MANUAL_WRITE also marks the staging as a proposal
- * (A34) until the node recomputes or commits.
+ * A manual write to a derived node lands at once and re-runs nothing
+ * (core R31): a write alone never re-derives. A re-run a source change owes —
+ * in this flush, in either call order, or later — still runs, with the write
+ * as `prev`; the derivation decides what to keep. REACTIVE_MANUAL_WRITE marks
+ * the staging as a proposal (A34) until the node recomputes or commits.
  */
-export function suppressComputedRecompute(el: Computed<unknown>): void {
-  deleteFromHeap(el, queueFor(el));
+export function markManualWrite(el: Computed<unknown>): void {
   if (!(el._flags & REACTIVE_MANUAL_WRITE) && el._pendingValue === NOT_PENDING) {
     queuePendingNode(el);
     schedule();
   }
-  el._flags = (el._flags & ~(REACTIVE_DIRTY | REACTIVE_CHECK)) | REACTIVE_MANUAL_WRITE;
-  el._manualWriteTime = clock;
+  el._flags |= REACTIVE_MANUAL_WRITE;
 }
 
 /** A34 amendment (#3612) — is `el`'s staging a DERIVATION another transaction
  * holds: stamped by a transaction that is not the writer's, and not a manual
- * proposal (the mask, on the node or — a store leaf — its firewall)? #2692's
- * "manual write wins" is a rule for one synchronous frame; across a hold the
- * held pass result is nobody's proposal, and a user setter reaching it
- * composes on the committed frame it was written against and becomes `prev`
- * for the transaction's re-derivation (rederiveHeld) instead of replacing it.
- * Writes made under the holding transaction masked the node and keep
+ * proposal (the manual-write flag, on the node or — a store leaf — its
+ * firewall)? The held pass result is nobody's proposal: a user setter
+ * reaching it composes on the committed frame it was written against and
+ * becomes `prev` for the transaction's re-derivation (rederiveHeld) instead
+ * of replacing it.
+ * Writes made under the holding transaction carry the flag and keep
  * A34(1)'s last-write-wins. Only the user setters ask; an async landing or a
  * companion writing a stamped node is the transaction's own work. */
 export function heldDerivation(el: Signal<any> | Computed<any>): boolean {
@@ -2691,9 +2685,9 @@ export function heldDerivation(el: Signal<any> | Computed<any>): boolean {
 }
 
 /** The held-derivation write's second half: the node re-derives under its
- * hold with the written staging as the pass's `prev`. Nothing is masked. The
- * write took the A34 join (setSignal), which scheduled the flush that drains
- * this; recompute re-enters the stamp. */
+ * hold with the written staging as the pass's `prev`. The write took the A34
+ * join (setSignal), which scheduled the flush that drains this; recompute
+ * re-enters the stamp. */
 export function rederiveHeld(el: Computed<unknown>): void {
   el._flags |= REACTIVE_DIRTY; // over CHECK: the heap visit recomputes, not re-checks
   enqueueSub(el);
@@ -2701,18 +2695,17 @@ export function rederiveHeld(el: Computed<unknown>): void {
 
 /**
  * User-facing setter for the memo form of `createSignal(fn)`. Behaves like
- * `setSignal`, but also cancels any pending recompute of the memo so the
- * manual value wins over a value that would otherwise be produced by an
- * upstream change in the same tick. Across a hold the write is not a
- * proposal: a memo another transaction holds as a pass result composes on the
- * committed value and re-derives under the hold with the write as `prev`
- * (A34 amendment, #3612; heldDerivation).
+ * `setSignal` and marks the staging as a manual write (markManualWrite): a
+ * source change re-runs the memo with the write as `prev`. Across a hold the
+ * write is not a proposal: a memo another transaction holds as a pass result
+ * composes on the committed value and re-derives under the hold with the
+ * write as `prev` (A34 amendment, #3612; heldDerivation).
  */
 export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
   const held = heldDerivation(el);
   if (held && typeof v === "function") v = (v as (prev: T) => T)(el._value);
   const result = setSignal(el, v);
-  held ? rederiveHeld(el as Computed<unknown>) : suppressComputedRecompute(el as Computed<unknown>);
+  held ? rederiveHeld(el as Computed<unknown>) : markManualWrite(el as Computed<unknown>);
   return result;
 }
 
@@ -2780,7 +2773,7 @@ export function staleValues<T>(fn: () => T, set = true): T {
  * it validates the target, marks through here, then builds the quiescence
  * promise on the resolve()/until() effect machinery). Flags the node's next
  * recompute as a quiet re-ask and schedules it; no-ops for non-derived or
- * disposed targets and for same-tick manual writes.
+ * disposed targets.
  */
 export function markRefresh(node: Computed<any>): void {
   if (
@@ -2802,17 +2795,14 @@ export function markRefresh(node: Computed<any>): void {
     throw new Error(REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE);
   }
   if (typeof node._fn === "function" && !(node._flags & REACTIVE_DISPOSED)) {
-    // A manual write wins over a refresh in its own frame (#2692). A mask
-    // from an earlier frame no longer refuses the heap, so an action's
-    // setStore does not swallow its later refresh() (#3026), and the re-run
-    // takes the re-ask classification below: the held write's value change
-    // already rides the transaction; the refetch it asks for is the same
-    // question with unchanged inputs. Classified as a NEW question it pended
-    // every leaf (3.1) — an action doing setStore + yield + refresh(store)
-    // lit up every sibling row, and affects() could not narrow it (a mark
-    // only turns pending on). Same-question motion stays silent (3.4); the
-    // written slot and any declared mark carry the pending instead.
-    if (masked(node)) return;
+    // A refresh after a manual write re-runs with the write as `prev`
+    // (core R31). Under an action (setStore + yield + refresh(store)) the run takes
+    // the re-ask classification below: the held write's value change already
+    // rides the transaction; the refetch it asks for is the same question
+    // with unchanged inputs. Classified as a NEW question it pended every leaf
+    // (3.1, #3026) and affects() could not narrow it (a mark only turns
+    // pending on). Same-question motion stays silent (3.4); the written slot
+    // and any declared mark carry the pending instead.
     // A refresh with no value-change dirt already queued is a re-ask of the
     // same question: mark it so the recompute classifies any resulting
     // pending window as quiet (not pending). If the node is already dirty

@@ -110,7 +110,28 @@ const [cached, setCached] = createSignal((prev = props.something) => prev);
 // setValue(...) writes like a normal signal; the compute receives prev on recompute.
 ```
 
-A write to a writable derived value (`createSignal(fn)`, `createStore(fn)`) wins over its sources' changes in the same batch. A source change in a later update re-runs the function, which receives your write as `prev` (or as the draft for `createStore(fn)`). To keep a local value across source changes, read it from `prev`. Inside an action and across async holds this works the same way: a hold changes when the result is shown, not what it is.
+A write to a writable derived value (`createSignal(fn)`, `createStore(fn)`) lands immediately. When one of its sources changes, in the same update or later, the function runs again and receives your write as `prev` (or as the draft for `createStore(fn)`), and it decides what to keep. A write on its own never re-runs the function.
+
+To keep a local value across source changes, keep it in the data, as a flag the function honors:
+
+```ts
+const [cards, setCards] = createStore<Card[]>(
+  draft => {
+    const previous = new Map(draft.map(card => [card.id, card]));
+    return serverCards().map(remote => {
+      const old = previous.get(remote.id);
+      return old?.moveFailed ? { ...remote, column: old.column, moveFailed: true } : remote;
+    });
+  },
+  []
+);
+
+const [card, setCard] = createSignal<Card>(prev => (prev?.pinned ? prev : source()));
+```
+
+Setting `moveFailed` (or `pinned`) keeps the local value through later updates. Clearing it lets the next source change take over, even when both happen in the same update.
+
+This is the same inside an action and across async holds: a hold changes when the result is shown, not what it is.
 
 A held derivation is not a write: while a transaction holds a value the compute derived (an async dependent of the source is still in flight), a write from outside that transaction joins it and becomes the `prev` of the transaction's re-derivation instead of replacing it — the frame that reveals is `fn(inputs)`, never a value the writer computed against the old frame. A second write to the same value still replaces the first. The same holds for the derived `createStore` below.
 

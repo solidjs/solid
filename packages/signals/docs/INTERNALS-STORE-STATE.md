@@ -673,10 +673,9 @@ implementation, deduplicated across reports.
 - **RUL-10 — The equality trio.** One precise rule needed spanning: no-op
   writes must not entangle lanes (opt R38); equal-value action writes must
   still register ownership and dirty downstream (lanes R17); same-value
-  manual writes on derived stores must mask the recompute for the tick (core
-  R31; for the write's own frame — a later frame's source change, and a
-  hold's re-derivation, take the write as `prev`, A34 (3), #3612, #3733)
-  despite equality-checked core signals.
+  manual writes on derived stores stage like any write and are the fold's
+  prior state, with no precedence over a re-run (core R31, rule B, #3733; a
+  hold's re-derivation takes the write as `prev`, A34 (3), #3612).
 - **RUL-11 — SPEC'D (2026-08-17): §6d.** Sticky descendants flag ported from
   `STORE_DESC`; reference-skip precedes reachability; monotone by design.
 - **RUL-12 — Smaller rulings, each with a proposed default** (proceeding on

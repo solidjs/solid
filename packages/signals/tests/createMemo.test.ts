@@ -855,7 +855,7 @@ describe("async compute", () => {
     expect(wrappedRuns).toBe(0);
   });
 
-  it("should let a manual setSignal write to a memo win over a queued recompute (#2692)", () => {
+  it("a source change in the write's flush re-runs the memo; a prev-ignoring memo discards the write (core R31, #3733 rule B)", () => {
     const [original, setOriginal, derived, setDerived] = createRoot(() => {
       const [o, setO] = createSignal(0);
       const [d, setD] = createSignal(o);
@@ -866,14 +866,14 @@ describe("async compute", () => {
     setDerived(2);
     flush();
     expect(original()).toBe(1);
-    expect(derived()).toBe(2);
+    expect(derived()).toBe(1);
     // Subsequent change to upstream still recomputes the memo
     setOriginal(3);
     flush();
     expect(derived()).toBe(3);
   });
 
-  it("should let a manual setSignal write win even when an intermediate memo re-marks it (#2692)", () => {
+  it("a source change through an intermediate memo re-runs the written memo in the same flush (core R31, #3733 rule B)", () => {
     let observed: number | undefined;
     const [setA, setC] = createRoot(() => {
       const [a, sA] = createSignal(0);
@@ -889,31 +889,39 @@ describe("async compute", () => {
     setA(1);
     setC(99);
     flush();
+    expect(observed).toBe(10);
+    setC(99);
+    flush();
     expect(observed).toBe(99);
     setA(2);
     flush();
     expect(observed).toBe(20);
   });
 
-  it("write trumps recompute regardless of order within a tick (#2692)", () => {
+  it("write then source change in one flush: the memo re-runs with the write as prev (core R31, #3733 rule B)", () => {
+    const prevs: (number | undefined)[] = [];
     const [setOriginal, setDerived, derived] = createRoot(() => {
       const [original, setO] = createSignal(0);
-      const [d, setD] = createSignal(original);
+      const [d, setD] = createSignal<number>(prev => {
+        prevs.push(prev);
+        return original();
+      });
       return [setO, setD, d] as const;
     });
+    expect(derived()).toBe(0);
     setDerived(2);
     setOriginal(1);
     flush();
-    expect(derived()).toBe(2);
+    expect(derived()).toBe(1);
+    expect(prevs.at(-1)).toBe(2);
   });
 
-  it("latest manual write wins on a memo within a tick (#2692)", () => {
+  it("latest manual write wins on a memo within a tick (#2692, A34 (1))", () => {
     const [setOriginal, setDerived, derived] = createRoot(() => {
       const [original, setO] = createSignal(0);
       const [d, setD] = createSignal(original);
       return [setO, setD, d] as const;
     });
-    setOriginal(1);
     setDerived(2);
     setDerived(3);
     flush();
@@ -947,7 +955,7 @@ describe("async compute", () => {
     expect(observed).toBe(1);
   });
 
-  it("same-value manual write still trumps recompute within a tick (#2692)", () => {
+  it("a same-value manual write does not hold against a same-flush source change (core R31, #3733 rule B)", () => {
     const [setOriginal, setDerived, derived] = createRoot(() => {
       const [original, setO] = createSignal(0);
       const [d, setD] = createSignal(original);
@@ -956,28 +964,38 @@ describe("async compute", () => {
     setOriginal(1);
     setDerived(0);
     flush();
-    expect(derived()).toBe(0);
+    expect(derived()).toBe(1);
   });
 
-  it("manual memo writes win over refresh within the same tick (#2692)", () => {
-    const [setOriginal, setDerived, derived] = createRoot(() => {
-      const [original, setO] = createSignal(0);
-      const [d, setD] = createSignal(original);
-      return [setO, setD, d] as const;
+  it("refresh() in the write's flush re-runs the memo with the write as prev, in either order (core R31, #3733 rule B)", () => {
+    const prevs: (number | undefined)[] = [];
+    const [setDerived, derived] = createRoot(() => {
+      const [original] = createSignal(1);
+      const [d, setD] = createSignal<number>(prev => {
+        prevs.push(prev);
+        return original();
+      });
+      return [setD, d] as const;
     });
-    setOriginal(1);
+    expect(derived()).toBe(1);
     setDerived(2);
     refresh(derived);
     flush();
-    expect(derived()).toBe(2);
+    expect(derived()).toBe(1);
+    expect(prevs.at(-1)).toBe(2);
 
     refresh(derived);
     setDerived(3);
     flush();
-    expect(derived()).toBe(3);
+    expect(derived()).toBe(1);
+    expect(prevs.at(-1)).toBe(3);
+
+    setDerived(4);
+    flush();
+    expect(derived()).toBe(4);
   });
 
-  it("should propagate manual setSignal write to subscribers when upstream also changed (#2692)", () => {
+  it("subscribers see the re-derived value when upstream changed in the write's flush (core R31, #3733 rule B)", () => {
     let observed: number | undefined;
     const [setOriginal, setDerived] = createRoot(() => {
       const [original, setO] = createSignal(0);
@@ -990,6 +1008,9 @@ describe("async compute", () => {
     flush();
     expect(observed).toBe(0);
     setOriginal(1);
+    setDerived(2);
+    flush();
+    expect(observed).toBe(1);
     setDerived(2);
     flush();
     expect(observed).toBe(2);
