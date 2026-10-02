@@ -1305,16 +1305,6 @@ export function installHydrationRuntime() {
       } else return claimChildNodes(parent);
       return stripTextSeparators(nodes);
     },
-    // insertExpression(): a region tracked as empty can receive nodes that
-    // already sit in it, in order — server nodes a boundary claims on a late
-    // resume, after the enclosing insert's claim pass saw no value (#3749).
-    // They stay put: re-inserting a connected node moves it, and a move blurs
-    // a focused input.
-    inPlace(parent, nodes) {
-      for (let i = nodes.length, next; i--; next = nodes[i])
-        if (nodes[i].parentNode !== parent || (next && nodes[i].nextSibling !== next)) return false;
-      return true;
-    },
     // eventHandler(): replayed server events are deduped against the live
     // event queue during hydration.
     dedupEvent(e) {
@@ -2764,6 +2754,20 @@ function insertExpression(parent, value, current, marker) {
     return value;
   }
   if (value === current) return value;
+  // A region tracked as empty can receive nodes that already sit in it:
+  // server nodes a boundary claims on a late resume, after this insert's
+  // claim pass saw no value (#3749). Re-inserting them would move connected
+  // nodes and blur a focused input, so they stay put. The first node rejects
+  // a fresh render without allocating; every item must be a node in `parent`
+  // (a raw primitive is a failed text claim and still needs inserting).
+  if (
+    hydrationRt !== null &&
+    current == null &&
+    value &&
+    (value[0] || value).parentNode === parent &&
+    [].concat(value).every(n => n?.parentNode === parent)
+  )
+    return value;
   const t = typeof value,
     multi = marker !== undefined;
 
@@ -2798,8 +2802,7 @@ function insertExpression(parent, value, current, marker) {
       // Truthiness would skip this replace and leave that text node beside
       // the new element (#3571).
       parent.replaceChild(value, parent.firstChild);
-    } else if (hydrationRt === null || value.parentNode !== parent) {
-      // Already in place: a late claim (see hydrationRt.inPlace).
+    } else {
       parent.appendChild(value);
     }
     if (marker) value[$$SLOT] = marker;
@@ -2828,7 +2831,7 @@ function insertExpression(parent, value, current, marker) {
       if (current.length === 0) {
         appendNodes(parent, value, marker);
       } else reconcileArrays(parent, current, value, marker);
-    } else if (current != null || hydrationRt === null || !hydrationRt.inPlace(parent, value)) {
+    } else {
       // Same sole-primitive case: `0` / `NaN` still own a text node (#3571).
       if (current != null) cleanChildren(parent, current);
       appendNodes(parent, value);
