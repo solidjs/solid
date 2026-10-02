@@ -14,7 +14,7 @@
 // completes the iteration. Supersession by another response is a death;
 // an undeclared frame's death is an error; `onstatus` reports the wire.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, Loading } from "solid-js";
+import { createMemo, createRoot, createSignal, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
 import { createServerReference, live } from "../server-functions/src/client.js";
@@ -211,12 +211,16 @@ describe("frames consume live: supersession and undeclared death", () => {
     expect(m.div.querySelector("h1")!.textContent).toBe("live");
     const h1 = m.div.querySelector("h1")!;
 
-    // Another caller reads the same (function, args): its response writes
-    // the address at a newer version.
-    await getRoomOnce();
+    // Another caller reads the same (function, args) and mounts it: its
+    // response writes the address at a newer version — staged, since the
+    // address is showing, and committed when the second site mounts it.
+    const other = createRoot(() => createMemo(() => getRoomOnce() as any));
+    const Other = dynamic(() => other());
+    const second = mountUnderLoading(Other, {});
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("refetched");
     expect(m.div.querySelector("h1")).toBe(h1);
+    expect(second.div.querySelector("h1")!.textContent).toBe("refetched");
     // The live connection was cancelled by the host (the server sees the
     // disconnect), and the loop read a death.
     expect(liveHeld[0].state.cancelled).toBeTruthy();
@@ -229,6 +233,7 @@ describe("frames consume live: supersession and undeclared death", () => {
     expect(m.div.querySelector("h1")).toBe(h1);
     expect(status).toEqual(["connected", "reconnecting", "connected"]);
 
+    second.cleanup();
     m.cleanup();
   });
 
