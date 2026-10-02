@@ -17,11 +17,18 @@ h("div", { title: "My button" }, h("span", "1"), h("span", "2"), h("span", "3"))
 
 This is the least efficient way to use Solid as it requires a slightly larger runtime that isn't treeshakeable, and cannot leverage anything in the way of analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
 
-> `h(...)` returns a tagged zero-arity thunk rather than a DOM node directly.
-> Pass a function reference (or `() => h(App)`) to `render(...)` so the thunk
-> is invoked inside the root. Nested `h(...)` thunks auto-invoke when consumed,
-> so composition with control-flow components like `<For>` and `<Show>` works
-> without extra wrapping.
+> `h(...)` returns a tagged zero-arity thunk rather than a DOM node directly;
+> calling it creates the element or component. Pass the thunk itself to
+> `render`: `render(h(App), el)` (with the JSX runtime, `render(<App />, el)`).
+> `render` calls it once inside the root. Do not wrap it as
+> `render(() => h(App), el)` or pass a component that returns an `h(...)`
+> thunk (`render(App, el)`): the uncalled thunk then reaches the renderer as a
+> reactive expression and is created again whenever its output changes — a
+> root `<Show>` is rebuilt on every toggle, and a root `<Loading>` over async
+> children never settles. Nested `h(...)` thunks, including those returned
+> from accessors like `() => (show() ? h(A) : h(B))`, are created once where
+> they are consumed, so composition with control-flow components like `<For>`
+> and `<Show>` works without extra wrapping.
 
 ## Example
 
@@ -41,7 +48,7 @@ function Counter() {
   return h(Button, { type: "button", onClick: increment }, count);
 }
 
-render(Counter, document.getElementById("app"));
+render(h(Counter), document.getElementById("app"));
 ```
 
 ## TypeScript JSX
