@@ -446,6 +446,21 @@ module.exports = [
     // three signals fixes that landed since the switch was measured (#3678 F3/F5,
     // #3684 F6, #3682 F1; the esbuild notes above record them), now Rolldown-measured;
     // cap 9.51 KB, measured rounded up to the next 0.01 kB.
+    // Size-Exception (#3733, 2026-10-01): 9.51 -> 9.53 KB, measured at
+    // 9,527 B against `next` @ 309b08730's 9,508 (+19 B; +52 B minified).
+    // `masked()` in heap.ts compares the node's `_manualWriteTime` to
+    // `clock` beside REACTIVE_MANUAL_WRITE at both heap inserts, so a manual
+    // write to `createSignal(fn)`/`createStore(fn)` refuses only its own
+    // frame's re-run instead of the whole hold; `markRefresh`'s same-tick arm
+    // folds into it. Clearing the flag instead would need a per-flush list
+    // and would break A34's proposal discriminator.
+    // Accepted by the maintainer. The cap is frozen again at 9.53 KB.
+    // Rule B (#3733, 2026-10-01): 9.53 -> 9.51 KB, measured at 9,492 B
+    // against `next` @ 3ed381009's 9,527 (-35 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
+    // frozen again at 9.51 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
@@ -1067,6 +1082,15 @@ module.exports = [
     // holds an unrelated sync write for the action's lifetime. The change
     // removes tokens; the brotli move is layout over the shifted stream. Core
     // floor 0 B (9,508 B unchanged, -3 B minified). Exactly at the cap.
+    // Size-Exception (#3733, 2026-10-01): 12.16 -> 12.18 KB, measured at
+    // 12,171 B against `next` @ 309b08730's 12,160 (+11 B; +52 B minified).
+    // Same frame-scoped mask as the core floor note. Accepted by the
+    // maintainer.
+    // Rule B (#3733, 2026-10-01): 12.18 -> 12.16 KB, measured at 12,148 B
+    // against `next` @ 3ed381009's 12,171 (-23 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise.
     limit: "12.16 KB",
     alias
   },
@@ -1532,6 +1556,17 @@ module.exports = [
     // layout over the shifted stream (the base server-components page
     // measures -54 B on the same -3 B). Accepted by the maintainer. The cap
     // is frozen again at 19.69 KB.
+    // Size-Exception (#3733, 2026-10-01): 19.69 -> 19.73 KB, measured at
+    // 19,727 B against `next` @ 309b08730's 19,663 (+64 B; +52 B minified).
+    // Same frame-scoped mask as the core floor note; brotli layout over
+    // the larger bundle. Accepted by the maintainer. The cap is frozen again
+    // at 19.73 KB.
+    // Rule B (#3733, 2026-10-01): 19.73 -> 19.69 KB, measured at 19,667 B
+    // against `next` @ 3ed381009's 19,727 (-60 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
+    // frozen again at 19.69 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1923,7 +1958,15 @@ module.exports = [
     // page to hydrate: a pending mark on streamed boundary owners and the
     // latch's rerun check. Every hydrating app carries it. Accepted by the
     // maintainer.
-    limit: "30.79 KB",
+    // Size-Exception (#3733, 2026-10-01): 30.79 -> 30.82 KB, measured at
+    // 30,817 B against `next` @ 309b08730's 30,789 (+28 B; +52 B minified).
+    // Same frame-scoped mask as the core floor note. Accepted by the
+    // maintainer.
+    // Rule B (#3733, 2026-10-01): cap unchanged at 30.82 KB, measured at
+    // 30,818 B against `next` @ 3ed381009's 30,817 (+1 B; -82 B minified). The
+    // same mask removal as the core floor note; brotli layout over the larger
+    // bundle keeps it 28 B over the pre-#3740 30.79 KB, so that raise stays.
+    limit: "30.82 KB",
     alias
   },
   {
@@ -3045,6 +3088,24 @@ module.exports = [
     // 45.95 -> 46.21 KB raise); the base moved under the PR (the fake-
     // `Promise` cap above). Size vetted by the maintainer. The cap is frozen
     // again at 46.20 KB.
+    // Size-Exception (#3733, 2026-10-01): 46.20 -> 46.23 KB, measured at
+    // 46,227 B against `next` @ 309b08730's 46,193 (+34 B; +52 B minified).
+    // Same frame-scoped mask as the core floor note. Accepted by the
+    // maintainer. The cap is frozen again at 46.23 KB.
+    // Rule B (#3733, 2026-10-01): 46.23 -> 46.20 KB, measured at 46,165 B
+    // against `next` @ 3ed381009's 46,227 (-62 B; -80..-82 B minified). Derived
+    // writes apply first, then derivations re-run: the frame-scoped mask
+    // above is gone (no heap refusal, no `_manualWriteTime`, no
+    // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
+    // frozen again at 46.20 KB.
+    // Size-Exception (#3741, 2026-10-02): 46.20 -> 46.24 KB, measured at
+    // 46,240 B against `next` @ 98d35b9bc's 46,181 (+59 B; +1 B minified).
+    // `spread` runs its attribute effect before its children insert (the
+    // two blocks swap places; no code is added), so a prop getter's
+    // hydration id lands where the server's attribute walk takes it. Brotli
+    // layout only: three equivalent encodings measured +59..+129 B here and
+    // -21..+13 B on the live page; this is the smallest. Pending maintainer
+    // review.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
