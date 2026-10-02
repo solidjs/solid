@@ -114,6 +114,32 @@ export function unscopedHoleAllocatedIds(
   );
 }
 
+const lowercaseEventAttributesReported = /*#__PURE__*/ new Set<string>();
+
+/**
+ * Dev CHECK: a function reached an attribute whose name starts with `on` but
+ * is not an event handler — a lowercase `onclick`, or a 1.x `on:click`. Only
+ * `on` + an uppercase letter (`onClick`) binds an event in 2.0; anything else
+ * is a plain attribute, so the function is stringified into the attribute's
+ * text. Reported once per attribute name so a row template reports once.
+ */
+export function lowercaseEventAttribute(name: string, node: Element): void {
+  if (lowercaseEventAttributesReported.has(name)) return;
+  lowercaseEventAttributesReported.add(name);
+  const event = name.slice(name.charAt(2) === ":" ? 3 : 2);
+  const handler = "on" + event.charAt(0).toUpperCase() + event.slice(1);
+  devCheck({
+    code: "LOWERCASE_EVENT_ATTRIBUTE",
+    kind: "render",
+    severity: "warn",
+    message:
+      `[LOWERCASE_EVENT_ATTRIBUTE] \`${name}\` received a function, but \`${name}\` is an attribute ` +
+      `in Solid 2.0, not an event handler: the function was set as the attribute's text. ` +
+      `Use \`${handler}\` for event handlers.`,
+    data: { name, handler, tag: node.localName }
+  });
+}
+
 /** `Name: message` for an Error, `String(value)` otherwise. */
 export function errorText(error: unknown): string {
   if (error instanceof Error) return error.message ? `${error.name}: ${error.message}` : error.name;

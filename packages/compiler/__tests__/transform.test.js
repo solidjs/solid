@@ -909,16 +909,40 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).not.toContain("_$delegateEvents");
   });
 
-  it("treats namespaced event attributes like Babel after the event update", () => {
-    // The `on:`/`oncapture:` namespaces were removed on this branch; Babel's
-    // `key.startsWith("on")` branch now sees the raw namespaced key.
+  it("treats removed `on:` namespaced names as plain attributes", () => {
+    // Only `on` + an uppercase letter is an event handler; `on:click` is an
+    // unknown namespace like any other.
     const result = transform("<button on:click={() => increment()} />", {
       filename: "input.jsx",
       moduleName: "r-dom"
     });
 
-    expect(result.code).toContain('_el$.addEventListener(":click",');
+    expect(result.code).toContain('_$setAttribute(_el$, "on:click", () => increment());');
+    expect(result.code).not.toContain("addEventListener");
     expect(result.code).not.toContain("_$delegateEvents");
+  });
+
+  it("lowers lowercase on* expressions as attributes, not events", () => {
+    const result = transform(
+      "<button onclick={handler} onmouseover={state.code} onClick={click} />",
+      { filename: "input.jsx", moduleName: "r-dom" }
+    );
+
+    expect(result.code).toContain('_$setAttribute(_el$, "onclick", handler);');
+    expect(result.code).toContain('_$setAttribute(_el$, "onmouseover", _v$);');
+    expect(result.code).toContain('_$addEvent(_el$, "click", click, true);');
+    expect(result.code).toContain('_$delegateEvents(["click"]);');
+  });
+
+  it("renders lowercase on* expressions as SSR attributes", () => {
+    const result = transform("<button onclick={code} onClick={clickHandler} />", {
+      filename: "input.jsx",
+      moduleName: "r-server",
+      generate: "ssr"
+    });
+
+    expect(result.code).toContain('_$ssrAttribute("onclick", _$escape(code, true))');
+    expect(result.code).not.toContain("clickHandler");
   });
 
   it("lowers known namespaced DOM attributes through setAttributeNS", () => {

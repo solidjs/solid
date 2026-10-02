@@ -228,6 +228,24 @@ describe("useHead client registry", () => {
     await tick();
   });
 
+  it("applies lowercase on* as attributes and skips camelCase handler names", async () => {
+    let dispose;
+    createRoot(d => {
+      dispose = d;
+      r.useHead([
+        {
+          tag: "meta",
+          props: { name: "lowercase-on", content: "x", onload: "go()", onLoad: "skipped()" }
+        }
+      ]);
+    });
+    await tick();
+    const meta = document.head.querySelector('meta[name="lowercase-on"]');
+    expect(meta.getAttribute("onload")).toBe("go()");
+    dispose();
+    await tick();
+  });
+
   it("re-reads reactive group membership (function form)", async () => {
     let dispose, setTags;
     createRoot(d => {

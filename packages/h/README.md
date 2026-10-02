@@ -118,3 +118,12 @@ h("div#some-id.my-class");
 ```js
 [h("span", "1"), h("span", "2")];
 ```
+
+7. Only `onXxx` names are event handlers
+
+On elements, only `on` followed by an uppercase letter binds an event. A lowercase `onclick` is a plain attribute, and a function passed to it becomes a getter like any other attribute.
+
+```js
+h("button", { onClick: () => save() }); // event handler
+h("button", { onclick: () => code() }); // reactive `onclick` attribute
+```

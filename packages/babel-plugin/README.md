@@ -253,7 +253,7 @@ Inline style attributes in templates when the value is a string or `Record<strin
 - Type: `boolean`
 - Default: `false`
 
-SSR-only: keep attribute-slot positions on intrinsic elements bindable — `ref` / `on*` compile to a guarded `ssrClaim` hole instead of dropping, and a dynamic `class` / `style` compiles to a whole-attribute `ssrElementAttribute` hole instead of a value inside template quotes.
+SSR-only: keep attribute-slot positions on intrinsic elements bindable — `ref` / `onXxx` handlers compile to a guarded `ssrClaim` hole instead of dropping, and a dynamic `class` / `style` compiles to a whole-attribute `ssrElementAttribute` hole instead of a value inside template quotes.
 
 ### hoistProps
 
@@ -329,7 +329,7 @@ const Parent = () => {
 
 ### on(eventName)
 
-CamelCase attributes such as `onClick` are event handlers. The compiler delegates events that bubble or compose, otherwise it uses Level 1 `on_____` properties.
+CamelCase attributes such as `onClick` are event handlers. The compiler delegates events that bubble or compose, otherwise it uses Level 1 `on_____` properties. Only `on` followed by an uppercase letter is an event: lowercase names such as `onclick` are plain attributes, compiled (and server-rendered) like any other attribute.
 
 Pass an array to bind a value: the second item is the first argument to the handler, the event is second.
 

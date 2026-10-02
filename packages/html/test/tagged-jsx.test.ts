@@ -336,6 +336,28 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
+    it("treats lowercase on* on elements as attributes, reactive through a getter", () => {
+      const [code, setCode] = createSignal("first()");
+      let el!: HTMLElement;
+      const dispose = createRoot(dispose => {
+        el = html`<div>
+          <button onclick="run()">Static</button>
+          <button onmouseover=${() => code()}>Dynamic</button>
+          <button onclick=${"expr()"}>Expression</button>
+        </div>` as HTMLElement;
+        return dispose;
+      });
+      const [first, second, third] = el.querySelectorAll("button");
+      expect(first.getAttribute("onclick")).toBe("run()");
+      expect(second.getAttribute("onmouseover")).toBe("first()");
+      expect(third.getAttribute("onclick")).toBe("expr()");
+      expect((third as any)._$$click).toBeUndefined();
+      setCode("second()");
+      flush();
+      expect(second.getAttribute("onmouseover")).toBe("second()");
+      dispose();
+    });
+
     it("integrates ref listeners and delegated events", () => {
       const exec = { first: false, delegated: false, second: false };
       const container = document.createElement("div");
@@ -430,10 +452,10 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
-    it("wraps zero-arg functions in getters for non-handler `on*` props (#3728)", () => {
+    it("wraps every zero-arg function prop on a component in a getter (#3728)", () => {
       const [value, setValue] = createSignal(1);
-      const handler = () => "handled";
-      const ref = () => {};
+      const handler = (e: Event) => e;
+      const ref = (el: unknown) => el;
       let props!: any;
       const Probe = (p: any) => {
         props = p;
@@ -444,8 +466,10 @@ describe("Tagged JSX Integration Tests", () => {
           on=${() => value()}
           only=${() => value() * 2}
           once=${() => value() * 3}
-          onClick=${handler}
-          ref=${ref}
+          onClick=${() => value() * 4}
+          onInput=${handler}
+          ref=${() => value() * 5}
+          refWithArg=${ref}
         />`;
         return d;
       });
@@ -453,14 +477,18 @@ describe("Tagged JSX Integration Tests", () => {
       expect(props.on).toBe(1);
       expect(props.only).toBe(2);
       expect(props.once).toBe(3);
-      expect(props.onClick).toBe(handler);
-      expect(props.ref).toBe(ref);
+      expect(props.onClick).toBe(4);
+      expect(props.onInput).toBe(handler);
+      expect(props.ref).toBe(5);
+      expect(props.refWithArg).toBe(ref);
 
       setValue(2);
       flush();
       expect(props.on).toBe(2);
       expect(props.only).toBe(4);
       expect(props.once).toBe(6);
+      expect(props.onClick).toBe(8);
+      expect(props.ref).toBe(10);
       dispose();
     });
 

@@ -1,5 +1,10 @@
 // @ts-nocheck
-import { COMPOSED_BODY_FRAMING, ChildProperties, isHttpNavigationTarget } from "./constants.js";
+import {
+  COMPOSED_BODY_FRAMING,
+  ChildProperties,
+  isEventName,
+  isHttpNavigationTarget
+} from "./constants.js";
 import {
   createRoot as root,
   getOwner,
@@ -1371,7 +1376,7 @@ function flushHeadFragment(registry, boundary, nonce) {
       const t = winner.tags[i];
       const attrs = {};
       for (const name in t.props) {
-        if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
+        if (name === "children" || name === "ref" || isEventName(name)) continue;
         if (!HEAD_ATTR_NAME.test(name)) {
           if ("_SOLID_DEV_")
             headTagInvalid(
@@ -1486,7 +1491,7 @@ function nonceAttr(nonce, destination) {
 function renderHeadAttrHtml(props) {
   let attrs = "";
   for (const name in props) {
-    if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
+    if (name === "children" || name === "ref" || isEventName(name)) continue;
     if (!HEAD_ATTR_NAME.test(name)) {
       if ("_SOLID_DEV_")
         headTagInvalid(
@@ -1509,7 +1514,7 @@ function renderHeadAttrHtml(props) {
 function headAttrRecord(props, skipRelHref) {
   let attrs = null;
   for (const name in props) {
-    if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
+    if (name === "children" || name === "ref" || isEventName(name)) continue;
     if (skipRelHref && (name === "rel" || name === "href")) continue;
     if (!HEAD_ATTR_NAME.test(name)) continue;
     const v = props[name];
@@ -4510,7 +4515,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       // `sourceHas`), then attaches nothing for `undefined` — so a named
       // handler before this source binds nothing either.
       if (value == undefined) {
-        if (slots && claims !== undefined && (prop === "ref" || prop.startsWith("on")))
+        if (slots && claims !== undefined && (prop === "ref" || isEventName(prop)))
           behaviors = spreadBehaviorPosition(
             behaviors,
             prop,
@@ -4533,7 +4538,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       // that knows them (`spreadObjectAttribute`; the compiled positions
       // share it); strings and booleans — the walk's common case — never
       // do, and outside a server component the ladder is the pre-slot one.
-      if (prop === "ref" || prop.startsWith("on")) {
+      if (prop === "ref" || isEventName(prop)) {
         if (slots)
           behaviors = spreadBehaviorPosition(
             behaviors,
@@ -4579,7 +4584,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // source it replaces had its getters read: the expressions run at the same
   // point in the hydration-id sequence. Evaluating it in argument position
   // would move them ahead of the element's own key.
-  // `claims` is the compiled claim map of the element's named `ref`/`on*`
+  // `claims` is the compiled claim map of the element's named `ref`/`onXxx`
   // attributes (the spread element's counterpart of the template path's
   // guarded `ssrClaim` hole), keyed by the source index each attribute sits
   // before, a thunk read only inside a server component's render — the same
@@ -4621,7 +4626,7 @@ export function ssrElementAttribute(key, value) {
   // walk, in the same order: nullish is "not set" (`class`/`style` included,
   // #3382), `style`/`class` take their serializers, a boolean is present or
   // absent, `""` is a bare attribute, anything else is attribute-escaped.
-  // `key` is a compile-time attribute name (never `ref`, `on*` or `prop:*`,
+  // `key` is a compile-time attribute name (never `ref`, `onXxx` or `prop:*`,
   // which the compiler drops) and is trusted like `ssrAttribute`'s.
   //
   // Under the `serverComponents` compiler option a dynamic `class`/`style`
@@ -4649,12 +4654,17 @@ export function ssrAttribute(key, value) {
   // passes a binding-slot value through untouched, so the position it names
   // is bound here (principles §9.2.3). Both are trusted here so this hot
   // path stays a pure string concatenation.
+  if (typeof value === "string") return ` ${key}="${value}"`;
   if (value == null || value === false) return "";
   if (typeof value === "object") {
     return isSlotValue(value)
       ? slotAttribute(key, value)
       : ` ${key}="${escape(String(value), true)}"`;
   }
+  // A function value (`onclick={() => …}`) reaches here with the compiler's
+  // escape wrapped inside it, not applied. Its source is not attribute-safe:
+  // stringify and escape it, as the client's setAttribute stringifies it.
+  if (typeof value === "function") return ` ${key}="${escape(String(value), true)}"`;
   return value === true ? ` ${key}` : ` ${key}="${value}"`;
 }
 export function ssrHydrationKey(): string;
@@ -4701,14 +4711,14 @@ export function ssrHydrationKey() {
 // passes the stand-in through), `ssrElementAttribute` (a compiled
 // `class`/`style` under the `serverComponents` option, or a trailing
 // attribute of a spread element), `ssrElement`'s walk (a runtime spread),
-// `ssrClaim` (the compiled per-element hole for ref/on* positions). The
+// `ssrClaim` (the compiled per-element hole for ref/onXxx positions). The
 // grammar: the occurrence alphabet (frame-sink.ts) excludes `:`, `,` and
 // `=`; keys and names percent-encode onto an alphabet that excludes them
 // too, so every split is exact and the client decodes names back.
 
 // The compiled guard's arming values (`sharedConfig.context.claims`): the
 // frame renderers set one at server-component entry so renders with no
-// server components never evaluate the ref/on* hole's expressions. On the
+// server components never evaluate the ref/onXxx hole's expressions. On the
 // document face only owner chains inside the component barrier warn about
 // server-local handlers (client fill content re-enters the zone owner
 // captured OUTSIDE the barrier — its handlers are hydration's).
@@ -4948,7 +4958,7 @@ function eventPosition(prop) {
 }
 
 /**
- * A `ref`/`on*` key met by `ssrElement`'s walk under `slots` — in a
+ * A `ref`/`onXxx` key met by `ssrElement`'s walk under `slots` — in a
  * source, whatever its shape: a stand-in, a list of them (refs), a handler
  * tuple, a server-local function, nothing — collected by position into
  * `behaviors` exactly as `ssrClaim` reads the compiled claim map, so the
@@ -4982,7 +4992,7 @@ function spreadBehaviorPosition(behaviors, prop, value, mode, index, settle) {
 
 /**
  * The behavior markers of a spread element: the sources' (`behaviors`)
- * settled against its compiled claim map (`claims` — the named `ref`/`on*`
+ * settled against its compiled claim map (`claims` — the named `ref`/`onXxx`
  * attributes, keyed by the index of the source each sits before; a thunk
  * `ssrElement` calls only under `slots`, so plain SSR never evaluates
  * them). The marker promises what the client binds, and the client's
@@ -5126,7 +5136,7 @@ function slotSpreadSource(tag, source) {
 }
 
 /**
- * The compiled per-element hole for ref/on* positions on a server
+ * The compiled per-element hole for ref/onXxx positions on a server
  * intrinsic (behind the `serverComponents` compiler option):
  * `ctx.claims ? ssrClaim({ click: expr, ref: expr2 }) : ""`. The compiler
  * drops handler and ref expressions from plain SSR output, so this is

@@ -6,7 +6,7 @@ use crate::dom::element::AstDomTransform;
 use crate::shared::constants::delegated_events;
 
 impl<'a> AstDomTransform<'a, '_> {
-    /// Port of Babel's `key.startsWith("on")` attribute branch: returns the
+    /// Port of Babel's `isEventName(key)` attribute branch: returns the
     /// flat statement group that gets unshifted ahead of the element's other
     /// expressions.
     pub(crate) fn event_statements(

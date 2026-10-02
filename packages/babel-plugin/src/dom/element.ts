@@ -18,6 +18,7 @@ import {
   isComponent,
   registerImportMethod,
   filterChildren,
+  isEventName,
   toEventName,
   checkLength,
   getStaticExpression,
@@ -1043,7 +1044,7 @@ function transformAttributes(
           }
         } else if (key === "children") {
           children = value;
-        } else if (key.startsWith("on")) {
+        } else if (isEventName(key)) {
           const ev = toEventName(key);
           if (
             config.delegateEvents &&

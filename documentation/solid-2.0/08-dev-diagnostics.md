@@ -699,6 +699,12 @@ Check (`warn`, dev only; kind `render`; server render and client hydrate; once p
 
 Unscoped allocation alone is not the finding: a function hole with nothing scoped after it in its template lands on the same ids on both sides and stays silent. (An `<Errored>` zero-arity `fallback={() => <Fallback />}` thunk used to be the common instance — handed back unresolved and built by the consuming hole; `<Errored>` now calls a function-valued fallback inside its own scope whatever its arity, so that shape never reaches a hole.) Each side reports the permutation it can see. The server records the counter's next id when the hole was registered (`data.registered`, argument evaluation — where the client builds it) and around its evaluation in the walk (`data.before` → `data.after`), and reports when the hole allocated at a shifted position; `data.hole` is the hole's position in its template. The client always builds in place, so it reports when the content built inside an unscoped function hole moved the counter **and** missed a server-rendered key (`Hydration key miss …` is the symptom; this is the cause). `data.name` is the function (when it has one). Scoped holes, memo and component accessors, `children()`, `<For>` rows and the runtime's own children inserts (`spread`, `Portal`) never raise it. Fix: call the function at the hole (`{renderHead()}` — a call hole is scoped on both sides) or pass the built value.
 
+#### `LOWERCASE_EVENT_ATTRIBUTE`
+
+**Message:** "[LOWERCASE_EVENT_ATTRIBUTE] `onclick` received a function, but `onclick` is an attribute in Solid 2.0, not an event handler: the function was set as the attribute's text. Use `onClick` for event handlers."
+
+Check (`warn`, dev only; kind `render`; client, once per attribute name). A function reached an attribute whose name starts with `on` but is not an event handler. Only `on` followed by an uppercase letter (`onClick`) binds an event in 2.0; a lowercase `onclick` — or a leftover 1.x `on:click` — is a plain attribute, so the function is stringified into it and never runs as a handler. Raised from the runtime's attribute write, so it covers compiled attributes, `spread`/`assign`, and hydration alike. `data.name` is the attribute, `data.handler` the camelCase name to use, `data.tag` the element. The JSX types do not declare lowercase `on*` names, so this is reached from JavaScript, through a cast, or from untyped props. Fix: rename to the camelCase handler (`onclick={save}` → `onClick={save}`); keep the lowercase name only for a string inline-handler attribute.
+
 #### `BINDING_SLOT_POSITION`
 
 **Messages:**
@@ -980,6 +986,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `HEAD_TAG_INVALID`                 | warn       | head           | `useHead` registration the render could not honor; `data.reason` names the rule (dev)                                                                             |
 | `UNRECOGNIZED_INSERT_VALUE`        | warn       | render         | Value at an insert position the renderer cannot render; skipped (dev; server and client)                                                                          |
 | `UNSCOPED_HOLE_ALLOCATED_IDS`      | warn       | render         | Unscoped hole was handed a function whose content took ids at a position the other side does not share; keys permute (dev)                                        |
+| `LOWERCASE_EVENT_ATTRIBUTE`        | warn       | render         | A function was set on a lowercase `on*` (or `on:`) attribute, which is not an event handler in 2.0; use `onXxx` (dev; client)                                     |
 | `BINDING_SLOT_POSITION`            | warn/err   | ssr/render     | Binding-slot value where it cannot bind; `data.reason` names the position (spread is an error and throws), client reasons `orphan`/`fill-shape`                   |
 
 ## Run attribution — "why did this run"
