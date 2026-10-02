@@ -3,6 +3,7 @@ import {
   CONFIG_FW_CHILDREN,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
+  REACTIVE_DISPOSED,
   REACTIVE_IN_HEAP,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_RECOMPUTING_DEPS,
@@ -27,6 +28,12 @@ export function enqueueSub(node: Computed<any>): void {
   const queue = queueFor(node);
   if (queue._min > node._height) queue._min = node._height;
   insertIntoHeap(node, queue);
+}
+
+/** Deferred replays may outlive their reader. Ordinary propagation stays on
+ * enqueueSub's hot path; publication queues use this liveness check. */
+export function replaySub(node: Computed<any>): void {
+  if (!(node._flags & REACTIVE_DISPOSED)) enqueueSub(node);
 }
 
 export interface Heap {

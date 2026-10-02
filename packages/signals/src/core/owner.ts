@@ -36,7 +36,7 @@ import {
   GlobalQueue,
   globalQueue,
   schedule,
-  wokenTransitions,
+  queueTransitionWake,
   zombieQueue
 } from "./scheduler.js";
 import type { Computed, Disposable, Link, Owner, Root } from "./types.js";
@@ -113,8 +113,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // it (#3372): its death is a completion event the transaction must be
     // re-judged for, and nothing else re-enters a parked transaction.
     const t = n._transition;
-    if (t && n._statusFlags & STATUS_PENDING && !wokenTransitions.includes(t))
-      (wokenTransitions.push(t), schedule());
+    if (t && n._statusFlags & STATUS_PENDING && queueTransitionWake(t)) schedule();
   }
   if (self && __DEV__) clearSignals(node);
   if (self && (node as any)._fn && (node as Computed<unknown>)._x !== null)

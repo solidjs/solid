@@ -178,8 +178,8 @@ export const STATES: State[] = [
         "A29: a tracked pass served the staged value derives from the transaction's world"
       ),
       published: rule(
-        HELD,
-        "A29 (born held): a memo created mainline during the hold derives from the transaction’s world and is staged into it; the render effect over it is replayed by the commit, publishing nothing before"
+        0,
+        "mount seam: first publish committed, then prepare the foreign continuation"
       ),
       preexisting: rule(HELD, "A19 (i): the held write is not on screen"),
       staleForeign: rule(
@@ -286,10 +286,7 @@ export const STATES: State[] = [
         "A18 (c): untracked reads keep the override until the transaction commits"
       ),
       derivesFrom: rule(2, "A18 (b): tracked derivations recompute from the arrived value"),
-      published: rule(
-        HELD,
-        "A18 (c) / A29 (born held): a fresh mainline memo over the superseded node derives from the staged truth and is held with the transaction; the frame keeps the override"
-      ),
+      published: rule(3, "mount seam: the first frame keeps the displayed override"),
       preexisting: rule(HELD, "A18 (c): the applied frame keeps the override until commit"),
       staleForeign: rule(
         3,
@@ -313,7 +310,7 @@ export const STATES: State[] = [
     expect: {
       untracked: rule(3, "A18 (c)"),
       derivesFrom: rule(2, "A18 (b)"),
-      published: rule(HELD, "A18 (c) / A29 (born held)"),
+      published: rule(3, "mount seam: an active overlay supplies the first frame"),
       preexisting: observed(
         HELD,
         "this reader (created after the node initialized) holds. A render effect on the node created BEFORE its first landing published the truth (2) at the supersession in a side probe — while untracked reads still served 3 — so the hold here is shape-dependent; follow-up"
@@ -360,7 +357,7 @@ export const STATES: State[] = [
         NOT_READY,
         "A15: a fresh derivation suspends on the observed flight. (With no reader holding on the flight the pass reads the committed value instead and the reveal holds — the frame is identical; observation-driven transactions make the difference inherent, ruled 2026-09-14.)"
       ),
-      published: rule(HELD, "A15"),
+      published: rule(0, "mount seam: the pending source has a committed answer"),
       preexisting: rule(HELD, "A15: the reader that observed the flight holds"),
       staleForeign: observed(
         0,
@@ -484,8 +481,8 @@ export const STATES: State[] = [
         "A18 body-end corollary: the override is superseded by the truth at hand (committed 0); the graph re-derives from it"
       ),
       published: rule(
-        HELD,
-        "A18 (c) / A29: a superseded read is a staged read whether the truth is staged or committed — the fresh derivation is the owning transaction's and is held"
+        1,
+        "mount seam: the first frame uses the displayed override before body-end continuation"
       ),
       preexisting: rule(HELD, "A18 (c): display unchanged until commit"),
       staleForeign: rule(
@@ -578,8 +575,8 @@ export const STATES: State[] = [
         "held truth (#3164, lane-only mask): to a deriving reader the stolen confirming truth is a staged value like any other — the memo derives from it and enters the transaction (A29); only a lane pass is masked"
       ),
       published: rule(
-        HELD,
-        "A29: the memo that derived from the held truth is held with the transaction — its render effect publishes at the reveal, not before"
+        0,
+        "mount seam: confirming truth stays held while the first frame publishes committed"
       ),
       preexisting: observed(
         0,

@@ -99,6 +99,7 @@ import {
   clock,
   currentTransition,
   dirtyQueue,
+  deferMountPropagation,
   findLane,
   globalQueue,
   GlobalQueue,
@@ -171,6 +172,8 @@ export let stale = false;
 export let pendingCheckActive = false;
 export let latestReadActive = false;
 export let context: Owner | null = null;
+/** Only a fresh computation's first pass may establish a new mount seam. */
+let mounting: Computed<any> | null = null;
 export let currentOptimisticLane: OptimisticLane | null = null;
 
 /** Notify `node`'s subscribers on `lane`'s channel: they recompute as the
@@ -391,12 +394,28 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // a pending frame to live observers of the verdict (#2990).
   const wasLoading = el._loading;
 
-  // Creation-time A29 (see enterStagedRead): a pass outside a flush that is
-  // served a live transaction's staged value records the transaction here
-  // and is staged INTO it below — "born held" — instead of committing.
+  // A29 still stages computations that have no committed input to mount
+  // from. Eligible mainline creation instead publishes a first frame, then
+  // lets the foreign hold continue through that frame after publication.
   const prevStagedEntry = stagedEntry;
   stagedEntry = null;
   const oldcontext = context;
+  const prevMounting = mounting;
+  mounting =
+    create &&
+    activeTransition === null &&
+    !el._loading &&
+    !GlobalQueue._verdictPull &&
+    !(
+      el._config &
+      (CONFIG_OPTIMISTIC |
+        CONFIG_DERIVED_OVERRIDE |
+        CONFIG_AUTHORITATIVE_READ |
+        CONFIG_DIRECT_COMMIT)
+    ) &&
+    !el._x?._parentSource
+      ? el
+      : null;
   context = el;
   el._depsTail = null;
   el._depGen++;
@@ -554,6 +573,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       (el._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) |
       (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
+    mounting = prevMounting;
   }
   // The cast re-widens: TS narrowed `stagedEntry` to `null` at the reset
   // above and does not invalidate that across the compute call that
@@ -837,7 +857,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // dropped a dep" — deps past `_depsTail` (trimmed below, or kept by A30
   // for a staged pass), or a pass that read nothing — not "recovered from
   // pending": a reporter registered by the stale-reader carve-out
-  // (heldFromStale, an INITIALIZED source refetching) displays the committed
+  // (heldFromOutside, an INITIALIZED source refetching) displays the committed
   // value and is never pending (fuzzer case 79). Every parked transaction,
   // not the reporter's stamp: the transaction waiting on it registered it
   // without stamping it. One idle pass per parked transaction; done ones
@@ -1775,7 +1795,7 @@ export function installAuthoritativeRead(): void {
  * served the committed value because `txn` holds what it read re-runs at
  * txn's commit, when the value it was denied becomes the frame — unless its
  * own last value already came from that transaction. One registration for
- * the node path (heldFromStale) and the store's backing paths, which have
+ * the node path (heldFromOutside) and the store's backing paths, which have
  * no node to carry the hold (heldFromReader, the adoption hold view). */
 export function recordStaleReplay(txn: Transition, c: Computed<any>): void {
   const vt: Transition | null | undefined = (c as any)._valueTransition;
@@ -1790,7 +1810,7 @@ export function recordStaleReplay(txn: Transition, c: Computed<any>): void {
  * lane and a separate transaction (a lane sees what lands from its parent as
  * its own; a separate transaction would wait for the parent to settle) —
  * see `ownsLane` in lanes.ts, built on this. One relation for the
- * stale-of-foreign clause (heldFromStale), the lane arm (readsHeldCommitted)
+ * stale-of-foreign clause (heldFromOutside), the lane arm (readsHeldCommitted)
  * and the store's backing holds (foreignHold); `serve` has no lane arm of
  * its own, the lane's extra visibility lives here.
  */
@@ -1800,7 +1820,9 @@ export function ownsHold(hold: Transition): boolean {
   );
 }
 
-function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
+function heldFromOutside(el: Signal<any> | Computed<any>, c: Computed<any>): boolean {
+  if (mountSeesCommitted(el._transition, c)) return true;
+  if (!stale) return false;
   const t = el._transition;
   if (t === null || ownsHold(t)) return false;
   const txn = currentTransition(t);
@@ -1809,6 +1831,15 @@ function heldFromStale(el: Signal<any> | Computed<any>, c: Computed<any>): boole
   if (reporters) reporters.add(c);
   else if ((el as Computed<any>)._statusFlags & STATUS_PENDING)
     runInTransition(txn, () => c._queue.notify(c, STATUS_PENDING, STATUS_PENDING, el._x!._error));
+  return true;
+}
+
+/** The new subtree publishes a coherent first frame before the older
+ * transaction propagates through it. Its own transaction's staged inputs
+ * remain visible; only foreign held inputs use the committed frame. */
+export function mountSeesCommitted(t: Transition | null | undefined, c: Computed<any>): boolean {
+  if (mounting !== c || !t || ownsHold(t) || currentOptimisticLane !== null) return false;
+  deferMountPropagation(t, c);
   return true;
 }
 
@@ -1911,7 +1942,7 @@ export function enterStagedRead(
  * - a children-forbidden reader (createTrackedEffect / onSettled: the frame,
  *   never the graph — A32);
  * - a stale reader (render effect) of a FOREIGN transaction's staged write —
- *   committed, no entanglement (heldFromStale registers the replay; a node
+ *   committed, no entanglement (heldFromOutside registers the replay; a node
  *   born held has no committed frame to fall back to, `noCommitted`);
  * - HELD truth (#3164, CONFIG_HELD_TRUTH) read by a LANE pass: staged
  *   confirming truth — fold-staged onto an armed family, or entangle-stolen
@@ -1941,7 +1972,7 @@ export function readerSeesCommitted(
     (currentOptimisticLane !== null && GlobalQueue._laneReadsCommitted!(el, owner, c)) ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && !noCommitted && heldFromStale(el, c)) ||
+    (!noCommitted && heldFromOutside(el, c)) ||
     (el._config & CONFIG_HELD_TRUTH &&
       currentOptimisticLane !== null &&
       !latestReadActive &&
@@ -2088,7 +2119,7 @@ export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
     !c ||
     el._pendingValue === NOT_PENDING ||
     c._config & CONFIG_CHILDREN_FORBIDDEN ||
-    (stale && heldFromStale(el, c as Computed<any>))
+    heldFromOutside(el, c as Computed<any>)
       ? el._value
       : (enterStagedRead(el), el._pendingValue)
   ) as T;
@@ -2144,7 +2175,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !c ||
       el._pendingValue === NOT_PENDING ||
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
-      (stale && heldFromStale(el, c as Computed<any>))
+      heldFromOutside(el, c as Computed<any>)
         ? el._value
         : (enterStagedRead(el), el._pendingValue)
     ) as T;
@@ -2192,7 +2223,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // one carve-out: a stale (render) reader of a node pending in some OTHER
     // transaction keeps showing the node's committed value, no entanglement
     // (parallel transactions; the reader is recorded for that transaction's
-    // commit replay, `heldFromStale`). The carve-out is sound only while the
+    // commit replay, `heldFromOutside`). The carve-out is sound only while the
     // committed value is coherent with the visible frame, i.e. while the
     // flight's inputs are themselves unpublished: the stamp alone does not
     // say so (it is pending-node bookkeeping), so it is refused when the
@@ -2206,11 +2237,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (
       c &&
       !(
-        stale &&
+        (stale || mounting === c) &&
         !(owner._statusFlags & STATUS_UNINITIALIZED) &&
         !(owner._config & CONFIG_INPUTS_PUBLISHED) &&
         !(owner._config & CONFIG_HAS_LANE && GlobalQueue._laneLive!(owner as Computed<any>)) &&
-        heldFromStale(owner, c as Computed<any>)
+        heldFromOutside(owner, c as Computed<any>)
       )
     ) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {

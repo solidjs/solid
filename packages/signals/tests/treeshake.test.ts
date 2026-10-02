@@ -453,7 +453,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // `deleteFromHeap` or DIRTY/CHECK clear in the setter (`markManualWrite`
     // only stages and flags), no mask arm in `markRefresh`. Reverts the #3740
     // raise.
-    expect(minifiedBytes).toBeLessThan(26_690);
+    // Experimental mount seams add approximately 600 bytes to the core floor:
+    // committed first-pass reads and directional waits; publication and replay
+    // use the existing effect queues and transaction wakes. Optional modules still shed.
+    expect(minifiedBytes).toBeLessThan(27_300);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {

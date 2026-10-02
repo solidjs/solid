@@ -1,6 +1,8 @@
 /**
  * Held truth (#3164) is masked from LANE passes only; every other deriving
- * reader follows A29 (ruled 2026-09-22; supersedes #3589's owner exemption).
+ * reader follows A29 (ruled 2026-09-22; supersedes #3589's owner exemption),
+ * except fresh mainline mounts, which first publish the displayed frame and
+ * then continue the foreign transaction through it.
  *
  * Confirming truth staged into a transaction that retains optimism
  * (`CONFIG_HELD_TRUTH`: an until()-stolen carrier, or a landing folded onto
@@ -212,7 +214,7 @@ describe("held truth is masked from lane passes only (until()-stolen carrier)", 
     h.dispose();
   });
 
-  it("a fresh mainline memo created mid-hold derives the staged truth and is held (A29): latest() shows 1, nothing publishes before the reveal", async () => {
+  it("a fresh mainline memo publishes committed truth before its held continuation", async () => {
     const h = await buildSteal();
     await h.landV1();
     const computed: number[] = [];
@@ -230,13 +232,13 @@ describe("held truth is masked from lane passes only (until()-stolen carrier)", 
       return d;
     });
     flush();
-    expect(computed).toEqual([1]);
-    expect(published).toEqual([]);
+    expect(computed).toEqual([0, 1]);
+    expect(published).toEqual([0]);
     expect(latest(m)).toBe(1);
     expect(isPending(() => h.stream().version)).toBe(true);
     expect(h.stream().version).toBe(0);
     await h.T.release();
-    expect(published).toEqual([1]);
+    expect(published).toEqual([0, 1]);
     d();
     h.dispose();
   });
@@ -366,7 +368,7 @@ describe("held truth is masked from lane passes only (store fold, #3568 shape he
     h.dispose();
   });
 
-  it("a fresh mainline memo created mid-hold composes one staged world (1,2,3,4 len=4, not 1,2,3,HOLE) and is held", async () => {
+  it("a fresh mainline memo publishes a coherent optimistic frame, then prepares the whole staged world", async () => {
     const h = await buildFold();
     const computed: string[] = [];
     const published: string[] = [];
@@ -383,14 +385,13 @@ describe("held truth is masked from lane passes only (store fold, #3568 shape he
       return d;
     });
     flush();
-    // #3589 left this torn: the fresh memo is not the fold's owning pass, so
-    // it was served the landed `length` (through the superseded override)
-    // with row 3 still masked to committed.
-    expect(computed).toEqual(["1,2,3,4 len=4"]);
+    // Both the mounting frame and the staged continuation must be coherent:
+    // length and entries must come from the same backing on each pass.
+    expect(computed).toEqual(["1,2,3 len=3", "1,2,3,4 len=4"]);
     expect(latest(m)).toBe("1,2,3,4 len=4");
-    expect(published).toEqual([]);
+    expect(published).toEqual(["1,2,3 len=3"]);
     await h.T.release();
-    expect(published).toEqual(["1,2,3,4 len=4"]);
+    expect(published).toEqual(["1,2,3 len=3", "1,2,3,4 len=4"]);
     d();
     h.dispose();
   });

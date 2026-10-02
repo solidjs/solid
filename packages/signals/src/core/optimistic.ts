@@ -35,6 +35,7 @@ import {
   currentOptimisticLane,
   enterStagedRead,
   latestReadActive,
+  mountSeesCommitted,
   setSignal,
   stale,
   ext
@@ -63,9 +64,9 @@ import {
   insertSubs,
   origin,
   queuePendingNode,
+  runQueue,
   schedule,
   sourceObserved,
-  type QueueCallback,
   type Transition
 } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
@@ -481,6 +482,7 @@ function overrideRead(el: OptimisticNode, c: Computed<any>): unknown {
   // a body-ended node read the committed truth beside a display still
   // showing the override.
   const owner = resolveTransition(el);
+  if (mountSeesCommitted(owner, c)) return unwrapOverride(el._x?._overrideValue);
   // A lane pass composes the frame the lane applies AHEAD of the commit, so
   // it reads what is on screen — for a superseded node, the override (A18
   // (c): the applied screen keeps it until the transaction commits). The
@@ -579,10 +581,6 @@ function landOnOverride<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T))
   return v;
 }
 
-function runQueue(queue: QueueCallback[], type: number): void {
-  for (let i = 0; i < queue.length; i++) queue[i](type | LANE_RUN);
-}
-
 /**
  * Run effects from all lanes that are ready (no OBSERVED pending async — see
  * laneHeld).
@@ -594,7 +592,7 @@ function runLaneEffects(type: number): void {
     const effects = lane._effectQueues[type - 1];
     if (effects.length) {
       lane._effectQueues[type - 1] = [];
-      runQueue(effects, type);
+      runQueue(effects, type | LANE_RUN);
     }
   }
   // Optimistic patch applications ride the same visibility slot as lane
@@ -609,8 +607,8 @@ function cleanupCompletedLanes(completingTransition: Transition | null): void {
       : !lane._transition;
     if (!owned) continue;
     if (!lane._mergedInto) {
-      if (lane._effectQueues[0].length) runQueue(lane._effectQueues[0], EFFECT_RENDER);
-      if (lane._effectQueues[1].length) runQueue(lane._effectQueues[1], EFFECT_USER);
+      if (lane._effectQueues[0].length) runQueue(lane._effectQueues[0], EFFECT_RENDER | LANE_RUN);
+      if (lane._effectQueues[1].length) runQueue(lane._effectQueues[1], EFFECT_USER | LANE_RUN);
     }
     if (lane._source._x?._optimisticLane === lane)
       if (lane._source._x !== null) lane._source._x._optimisticLane = undefined;

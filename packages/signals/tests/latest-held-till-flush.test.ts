@@ -433,13 +433,9 @@ describe("#3336: lazily created companions and store nodes carry the hold", () =
       expect([isPending(() => a.count), isPending(() => b.count)]).toEqual([true, true]);
     });
 
-    it("a memo created mainline during the hold is born held for both keys alike (A29)", async () => {
-      // Re-pinned for born-held (A29, creation-time form): a memo created from
-      // mainline while the transaction holds the keys it reads derives from
-      // the held world and is staged INTO the transaction — it has no
-      // committed value until the commit, so an untracked read throws
-      // NotReady rather than answer. Both keys, observed or not before the
-      // hold, get the same treatment: that is what #3336 asks of them.
+    it("a mainline mount publishes committed values for observed and lazily created keys", async () => {
+      // Both previously observed and lazily created keys use the committed
+      // backing for the mount, and the staged backing for its continuation.
       const { a, b } = await heldStore();
       let m!: () => number[];
       const derived: number[][] = [];
@@ -451,8 +447,11 @@ describe("#3336: lazily created companions and store nodes carry the hold", () =
         });
       });
       flush();
-      expect(derived).toEqual([[1, 1]]); // derives from the held world for both keys
-      expect(() => m()).toThrow(NotReadyError); // no committed value yet
+      expect(derived).toEqual([
+        [0, 0],
+        [1, 1]
+      ]); // first frame, then continuation
+      expect(m()).toEqual([0, 0]); // the first frame remains visible
     });
 
     it("a render effect recomputing inside the holding transaction sees the write on every channel", async () => {

@@ -193,16 +193,12 @@ describe("createMemo with loadingValue", () => {
 
     setId(2);
     flush();
-    // Refetch: the loading value must NOT reappear; tracked reads suspend
-    // (normal pending), the effect keeps showing the stale committed value.
+    // Existing readers still hold on the refetch; a new mount can publish
+    // the last committed answer. The loading value must not reappear.
     expect(reads).toEqual(["placeholder", "first"]);
     expect(latest(user)).toBe("first");
     expect(isPending(user)).toBe(true);
-    expect(() =>
-      createRoot(() => {
-        createMemo(() => user())();
-      })
-    ).toThrow(NotReadyError);
+    expect(createRoot(() => createMemo(() => user())())).toBe("first");
 
     d2.resolve("second");
     await tick();
@@ -647,13 +643,9 @@ describe("projections with seedLoadingValue", () => {
 
     setId(2);
     flush();
-    // Normal refetch: tracked reads suspend; the seed never reappears.
+    // Existing readers hold; a fresh mount serves v1, never the seed.
     expect(reads).toEqual(["seed", "v1"]);
-    expect(() =>
-      createRoot(() => {
-        createMemo(() => proj.value)();
-      })
-    ).toThrow(NotReadyError);
+    expect(createRoot(() => createMemo(() => proj.value)())).toBe("v1");
     expect(isPending(() => proj.value)).toBe(true);
 
     d2.resolve();
