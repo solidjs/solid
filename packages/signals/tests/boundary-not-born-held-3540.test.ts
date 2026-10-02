@@ -1,14 +1,10 @@
 /**
  * #3540 — born held (A29) exempts boundaries, and `on` is a dependency list.
  *
- * A29's creation-time form ("born held") is right for a plain memo or effect
- * created while a transaction holds what it reads: published, its value would
- * tear the frame. A loading boundary that has not revealed yet is the
- * exception by definition — its job is to catch what is not ready under it
- * rather than let it hold. A `Loading` mounted while a transaction holds what
- * it reads shows its fallback NOW and reveals at the commit; the hold stays
- * with readers that have content to keep (a boundary already showing content
- * forwards the pending and holds like any reader).
+ * A newly mounted subtree first reads the committed frame of a foreign hold,
+ * and can publish immediately if those inputs already have answers. Inputs
+ * without a committed answer still suspend into the fresh boundary, while
+ * existing readers keep their content until the pending work commits.
  *
  * `on` is the same rule seen from outside: a tracked function whose READS
  * re-arm the boundary (its value is never compared). A write to a source it
@@ -53,7 +49,7 @@ function show(accessor: () => unknown, cell: { value: unknown }) {
 }
 
 describe("a Loading mounted mainline while a transaction holds what it reads (A29 boundary exemption, #3540)", () => {
-  test("held by a live action: fallback now, content at the commit — a plain effect beside it stays born held", async () => {
+  test("held by a live action: committed content now, continued content at the commit", async () => {
     const [x, setX] = createSignal(0);
     const pre = { value: undefined as unknown };
     createRoot(() => show(x, pre));
@@ -74,14 +70,13 @@ describe("a Loading mounted mainline while a transaction holds what it reads (A2
         Loading(() => `content ${x()}`, "fallback"),
         boundary
       );
-      // A29 proper: a plain memo + effect over the same held value is born
-      // held — its first run is the commit's.
+      // A mainline memo over the held value also publishes its first frame.
       const m = createMemo(() => `plain ${x()}`);
       show(m, plain);
     });
     flush();
-    expect(boundary.value).toBe("fallback");
-    expect(plain.value).toBe("unset");
+    expect(boundary.value).toBe("content 0");
+    expect(plain.value).toBe("plain 0");
     expect(pre.value).toBe(0);
 
     release();
@@ -93,7 +88,7 @@ describe("a Loading mounted mainline while a transaction holds what it reads (A2
     expect(pre.value).toBe(1);
   });
 
-  test("held by an async refetch: fallback now for a held write, a pending memo, or both; reveal at the landing", async () => {
+  test("held by an async refetch: mounted content uses committed inputs until the landing", async () => {
     const [count, setCount] = createSignal(1);
     const cells = {
       count: { value: undefined as unknown },
@@ -144,9 +139,9 @@ describe("a Loading mounted mainline while a transaction holds what it reads (A2
     flush();
     await microtask();
     flush();
-    expect(cells.Acount.value).toBe("Loading Acount");
-    expect(cells.Adata.value).toBe("Loading Adata");
-    expect(cells.Aboth.value).toBe("Loading Aboth");
+    expect(cells.Acount.value).toBe("count 1");
+    expect(cells.Adata.value).toBe("data 1");
+    expect(cells.Aboth.value).toBe("count 1 data 1");
     // The hold stays with the readers that have content to keep.
     expect([cells.count.value, cells.B.value]).toEqual([1, 1]);
 

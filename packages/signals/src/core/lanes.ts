@@ -1,12 +1,7 @@
-import {
-  CONFIG_DERIVED_OVERRIDE,
-  CONFIG_HAS_LANE,
-  NOT_PENDING,
-  REACTIVE_DISPOSED
-} from "./constants.js";
+import { CONFIG_DERIVED_OVERRIDE, CONFIG_HAS_LANE, NOT_PENDING } from "./constants.js";
 import { currentOptimisticLane, ext, hasActiveOverride, ownsHold } from "./core.js";
 export { hasActiveOverride };
-import { enqueueSub } from "./heap.js";
+import { replaySub } from "./heap.js";
 import {
   activeTransition,
   currentTransition,
@@ -145,7 +140,7 @@ export function readsHeldCommitted(owner: Computed<any>, c: Computed<any>): bool
   const lane = resolveLane(owner);
   if (!lane || !laneHeld(lane)) return false;
   if (ownsLane(lane, owner)) return false;
-  lane._effectQueues[0].push(() => c._flags & REACTIVE_DISPOSED || enqueueSub(c));
+  lane._effectQueues[0].push(() => replaySub(c));
   return true;
 }
 

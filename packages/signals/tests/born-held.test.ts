@@ -1,23 +1,8 @@
-/**
- * A29, creation-time form — "born held".
- *
- * A memo or effect created from MAINLINE code while a transaction holds a
- * value it reads (a component mounting on a click while an action is in
- * flight) is served the staged value and derives from the transaction's
- * world. Its result is the transaction's: staged into it, committed with it,
- * and — for an effect — first run by its commit. Nothing about the mainline
- * block that created it changes: `activeTransition` and the ambient batch are
- * untouched, so a write made after the mount is a mainline write.
- *
- * Before: recompute's creation pass always direct-committed, so the fresh
- * memo published the held value into the mainline frame beside pre-existing
- * readers showing the committed one; and enterStagedRead entered the
- * transaction ambiently, so an unrelated write made after the mount was
- * swallowed into the action.
- */
+/** Mainline mounts publish a committed first frame, then let the foreign
+ * transaction prepare and hold its continuation. Existing memo reruns and
+ * computations created inside actions retain A29's entanglement policy. */
 import { describe, expect, it } from "vitest";
 import {
-  NotReadyError,
   action,
   createMemo,
   createRenderEffect,
@@ -51,8 +36,8 @@ function heldSignal() {
   return { x, pre, release };
 }
 
-describe("A29 born held: nodes created mainline during a hold", () => {
-  it("a fresh memo + render effect derive from the held world and are held with it; a fresh direct effect shows the committed frame", async () => {
+describe("mainline mount seams during a hold", () => {
+  it("a fresh memo and a direct render effect both publish committed values before the reveal", async () => {
     const { x, pre, release } = heldSignal();
     expect(pre).toEqual([0]);
 
@@ -73,10 +58,9 @@ describe("A29 born held: nodes created mainline during a hold", () => {
       });
     });
     flush();
-    // The memo's pass derived from the staged 1 (A29) ...
-    expect(derived).toEqual([1]);
-    // ... and its effect published nothing: the value is the transaction's.
-    expect(viaMemo).toEqual([]);
+    // Publish the first frame, then prepare the foreign continuation.
+    expect(derived).toEqual([0, 1]);
+    expect(viaMemo).toEqual([0]);
     // The direct effect is a stale reader of a parallel transaction: committed.
     expect(direct).toEqual([0]);
     expect(pre).toEqual([0]);
@@ -84,7 +68,7 @@ describe("A29 born held: nodes created mainline during a hold", () => {
     release();
     await settle();
     // The commit reveals everything at once.
-    expect(viaMemo).toEqual([1]);
+    expect(viaMemo).toEqual([0, 1]);
     expect(direct).toEqual([0, 1]);
     expect(pre).toEqual([0, 1]);
   });
@@ -114,13 +98,13 @@ describe("A29 born held: nodes created mainline during a hold", () => {
     await settle();
   });
 
-  it("an untracked read of a born-held memo has no committed value to serve and throws NotReady until the commit", async () => {
+  it("an untracked read of a fresh memo serves its committed first frame during the hold", async () => {
     const { x, release } = heldSignal();
     let m!: () => number;
     createRoot(() => {
       m = createMemo(() => x());
     });
-    expect(() => m()).toThrow(NotReadyError);
+    expect(m()).toBe(0);
     release();
     await settle();
     expect(m()).toBe(1);

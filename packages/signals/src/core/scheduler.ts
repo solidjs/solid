@@ -41,7 +41,7 @@ import {
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
-import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
+import { deleteFromHeap, enqueueSub, replaySub, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
   assignOrMergeLane,
@@ -157,6 +157,7 @@ function canUseSimpleSyncFlush(queue: GlobalQueue): boolean {
     batch._optimisticNodes.length === 0 &&
     batch._affectsNodes.length === 0 &&
     batch._optimisticStores.size === 0 &&
+    mounts.size === 0 &&
     transientStoreNodes.size === 0 &&
     pendingRearms.size === 0 // a re-arm queued outside a pass drains in run()
   );
@@ -308,6 +309,24 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
   if (outgoing._contested) (target._contested ??= []).push(...outgoing._contested);
+}
+
+// One publication callback per mounting reader, using the same effect queues
+// as lanes. Its batch records the directional wait: joining a source must not
+// block the mount's own publication.
+const mounts = new Map<Computed<any>, { _batch: Transition | null; _sources: Set<Transition> }>();
+
+export function deferMountPropagation(source: Transition, reader: Computed<any>): void {
+  source = currentTransition(source);
+  let mount = mounts.get(reader);
+  if (!mount) {
+    mounts.set(reader, (mount = { _batch: currentBatch, _sources: new Set() }));
+    reader._queue.enqueue(EFFECT_RENDER, () => {
+      mount!._batch = null;
+      for (const source of mount!._sources) queueTransitionWake(source);
+    });
+  }
+  mount._sources.add(source);
 }
 
 /**
@@ -468,11 +487,18 @@ export function scheduleWithheld(): void {
  * reporters changed); the flush re-enters it on an otherwise idle pass, so
  * the re-evaluation adopts no unrelated ambient work.
  */
-export const wokenTransitions: Transition[] = [];
+const wokenTransitions: Transition[] = [];
+/** Queue one idle recheck. Publication already drains these; outside a flush,
+ * the caller schedules when it adds a wake. */
+export function queueTransitionWake(transition: Transition): boolean {
+  if (wokenTransitions.includes(transition)) return false;
+  wokenTransitions.push(transition);
+  return true;
+}
 /** Wake every parked transaction — for a site that knows a reporter stopped
  * counting but not whose (a boundary reset). */
 export function wakeParked(): void {
-  for (const t of transitions) wokenTransitions.includes(t) || wokenTransitions.push(t);
+  for (const t of transitions) queueTransitionWake(t);
   schedule();
 }
 
@@ -1097,6 +1123,19 @@ export class GlobalQueue extends Queue {
   initTransition(transition?: Transition | null): void {
     if (transition) {
       transition = currentTransition(transition);
+      // Ready mount readers resume through the existing transaction wake path.
+      for (const [reader, mount] of mounts) {
+        if (mount._batch !== null && !(reader._flags & REACTIVE_DISPOSED)) continue;
+        for (const source of mount._sources) {
+          if (currentTransition(source) !== transition) continue;
+          // Resume once. Normal dependency tracking now owns further reads:
+          // memos join their sources, render readers register commit replays.
+          mounts.delete(reader);
+          replaySub(reader);
+          schedule();
+          break;
+        }
+      }
       // A finished transaction cannot be re-entered: its state is committed
       // or reverted, so "rejoining" it (A26) is meaningless and re-activating
       // it spins the drain loop (#3140). The refusal must be a bare return —
@@ -1124,6 +1163,8 @@ export class GlobalQueue extends Queue {
     activeTransition._time = clock;
     const batch = this._batch;
     if (batch !== activeTransition) {
+      // Adoption preserves batch identity through the normal merge chain.
+      if (batch._done === false) batch._done = activeTransition;
       // Adopt the ambient batch into the transaction, then make the
       // transaction the batch so later registrations land there directly.
       // Pending and optimistic nodes are re-stamped as the transaction's;
@@ -1449,8 +1490,7 @@ export function finalizePureQueue(
   const contested = completingTransition?._contested;
   const revertsOptimism =
     resolvePending && (completingTransition ?? finalizingBatch)._optimisticNodes.length !== 0;
-  if (contested && !revertsOptimism)
-    for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+  if (contested && !revertsOptimism) for (const el of contested) replaySub(el);
   const ranHeap = dirtyQueue._max >= dirtyQueue._min;
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
@@ -1471,7 +1511,7 @@ export function finalizePureQueue(
     // which installed the engine's hooks.
     if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
     if (contested && revertsOptimism) {
-      for (const el of contested) if (!(el._flags & REACTIVE_DISPOSED)) enqueueSub(el);
+      for (const el of contested) replaySub(el);
       schedule();
     }
     // Replay entanglement: subs recorded by the read-time gate get rescheduled
@@ -1479,10 +1519,7 @@ export function finalizePureQueue(
     // replays too — laneReadsCommitted records readers whose committed-view
     // read hid a same-tick plain write that just committed above (#2963).
     if (batch._gatedSubs.size) {
-      for (const sub of batch._gatedSubs) {
-        if (sub._flags & REACTIVE_DISPOSED) continue;
-        enqueueSub(sub);
-      }
+      for (const sub of batch._gatedSubs) replaySub(sub);
       batch._gatedSubs.clear();
       // A completing transition keeps the outer flush loop alive by itself;
       // the ambient batch needs the re-arm or the replay sits in the heap
@@ -1700,7 +1737,7 @@ export function flush<T>(fn?: () => T): T | void {
   if (__OBSERVE__ && drained && attrHooks !== null) attrHooks.flushEnd();
 }
 
-function runQueue(queue: QueueCallback[], type: number): void {
+export function runQueue(queue: QueueCallback[], type: number): void {
   for (let i = 0; i < queue.length; i++) queue[i](type);
 }
 
@@ -1818,6 +1855,14 @@ export function sourceObserved(
 
 function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
+  for (const [reader, mount] of mounts)
+    if (
+      mount._batch &&
+      !(reader._flags & REACTIVE_DISPOSED) &&
+      currentTransition(mount._batch) !== transition
+    )
+      for (const source of mount._sources)
+        if (currentTransition(source) === transition) return false;
   if (transition._actions.length) {
     // A live action parks the transaction regardless of async state.
     if (__OBSERVE__ && attrHooks !== null) attrHooks.holdStart(transition);

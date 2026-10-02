@@ -104,7 +104,7 @@ export const STATES: State[] = [
         1,
         "A29: a tracked pass served the staged leaf derives from the transaction's world"
       ),
-      published: rule(HELD, "A29 (born held)"),
+      published: rule(0, "mount seam: first publish committed, then continue the held write"),
       preexisting: rule(HELD, "A19 (i)"),
       staleForeign: rule(0, "A15 / A26: a stale reader of a parallel transaction shows committed"),
       childrenForbidden: rule(0, "A32"),
@@ -218,10 +218,7 @@ export const STATES: State[] = [
         2,
         "A18 (b) through a store node: the tracked pass derives from the landed truth. (#3434's store carve-out is about the body-end SETTLE order, not landing supersession.)"
       ),
-      published: rule(
-        HELD,
-        "A18 (c) / A29 (born held): the fresh derivation is held with the transaction; the frame keeps the overlay"
-      ),
+      published: rule(3, "mount seam: the first frame keeps the displayed store overlay"),
       preexisting: rule(HELD, "A18 (c): the frame keeps the overlay until settle"),
       staleForeign: rule(3, "A18 (c): a stale reader displays the overlay"),
       childrenForbidden: rule(3, "A32"),
@@ -268,7 +265,7 @@ export const STATES: State[] = [
         NOT_READY,
         "A15 / A9: a tracked reader of a firewall-backed leaf whose firewall is refetching suspends"
       ),
-      published: rule(HELD, "A15"),
+      published: rule(0, "mount seam: the pending projection has a committed answer"),
       preexisting: rule(HELD, "A15: the reader observing the flight holds"),
       staleForeign: observed(
         0,
@@ -356,7 +353,7 @@ export const STATES: State[] = [
           true,
           "A29: a tracked pass served the staged structure derives from the transaction's world"
         ),
-        published: rule(HELD, "A29 (born held)"),
+        published: rule(false, "mount seam: committed structure until the hold reveals"),
         preexisting: rule(HELD, "A19 (i)"),
         staleForeign: rule(
           false,

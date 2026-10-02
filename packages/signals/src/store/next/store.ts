@@ -43,6 +43,7 @@ import {
   hasActiveOverride,
   visibleOverride,
   recordStaleReplay,
+  mountSeesCommitted,
   enterStagedRead,
   heldDerivation,
   ownsHold,
@@ -431,6 +432,7 @@ function heldFoldTransition(target: StoreNextTarget): Transition | null {
  */
 function holdVisible(txn: Transition | null, c: Computed<any>): boolean {
   if (txn === null || ownsHold(txn)) return true;
+  if (mountSeesCommitted(txn, c)) return false;
   if (stale) {
     recordStaleReplay(txn, c);
     return false;

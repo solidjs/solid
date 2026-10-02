@@ -296,15 +296,10 @@ describe("S4 — a stale reader's untracked read of a foreign hold replays at th
   }
 });
 
-/** A deriving reader (memo, user effect) created MAINLINE whose UNTRACKED
- * read is of a value held by a live action: the pass is served the staged
- * value and enters the transaction — born held (A29) — so nothing is
- * published until the action commits. The signal did this (core read()
- * enters on the same arm that serves the staged value; `context` persists
- * under untrack). The store's untracked paths (nodeValue, the backing's
- * pendingBackingVisible, the adoption-hold view) served the pending value
- * WITHOUT entering: a mainline memo published the action's unrevealed write
- * to the screen while the same read of a signal was held. */
+/** Mainline mounts use the committed frame for tracked and untracked reads
+ * alike. Their continuation must then derive from the held world, with the
+ * same selection on signals and every store read path. Existing memo reruns
+ * retain A29's normal entanglement rule. */
 type HeldShape = "signal" | "store+node" | "store" | "store reconcile" | "store reconcile+node";
 function heldShape(shape: HeldShape) {
   if (shape === "signal") {
@@ -331,7 +326,7 @@ function heldShape(shape: HeldShape) {
           })
   };
 }
-describe("S5 — a mainline derivation's UNTRACKED read of a held value is born held (A29) — signal vs store", () => {
+describe("S5 — a mainline mount's UNTRACKED read starts from committed — signal vs store", () => {
   for (const shape of [
     "signal",
     "store+node",
@@ -339,7 +334,7 @@ describe("S5 — a mainline derivation's UNTRACKED read of a held value is born 
     "store reconcile",
     "store reconcile+node"
   ] as HeldShape[]) {
-    it(`${shape}: memo → render effect publishes nothing until the action commits`, async () => {
+    it(`${shape}: memo → render effect publishes committed, then reveals the held continuation`, async () => {
       const { read, write } = heldShape(shape);
       let release!: () => void;
       action(function* () {
@@ -361,12 +356,12 @@ describe("S5 — a mainline derivation's UNTRACKED read of a held value is born 
       flush();
       setU(1); // a re-run off the hold is held too
       flush();
-      expect(log).toEqual([]);
+      expect(log).toEqual([0]);
       release();
       await settle();
-      expect(log).toEqual([1]);
+      expect(log).toEqual([0, 1]);
     });
-    it(`${shape}: user effect runs once, after the commit`, async () => {
+    it(`${shape}: user effect publishes committed, then runs its held continuation`, async () => {
       const { read, write } = heldShape(shape);
       let release!: () => void;
       action(function* () {
@@ -384,10 +379,10 @@ describe("S5 — a mainline derivation's UNTRACKED read of a held value is born 
         );
       });
       flush();
-      expect(log).toEqual([]);
+      expect(log).toEqual([0]);
       release();
       await settle();
-      expect(log).toEqual([1]);
+      expect(log).toEqual([0, 1]);
     });
   }
 });
@@ -538,16 +533,11 @@ describe("S7 (structural) — optimistic add/delete survives the only structural
   }
 });
 
-/** S8 (fixed, 3b step 6c): A18 supersession for a store node read UNTRACKED
- * inside a derivation. A derived optimistic store's own truth landed (2)
- * while an action's edit (3) is displayed: the signal serves a deriving
- * reader the staged truth and holds it (A18: truth in the graph now, on
- * screen at commit); the store's untracked node path served the memo the
- * OVERRIDE and let it publish 3 — nodeValue had its own override arm without
- * the supersession routing core read() has (overrideRead). nodeValue now
- * delegates to `serve`, the one slow selection, and inherits the arm. */
-describe("S8 — a derivation's UNTRACKED read of a superseded store node derives from the truth (A18) — signal vs store", () => {
-  it("store: memo → render effect holds, then publishes the landed truth at settle", async () => {
+/** S8: a newly mounted derivation first publishes the displayed override.
+ * Its continuation follows staged truth, then reveals at the source's commit.
+ * Untracking the store read does not change value-selection posture. */
+describe("S8 — a mount's UNTRACKED read of a superseded store node starts from the displayed frame", () => {
+  it("store: memo → render effect publishes the overlay, then reveals landed truth", async () => {
     const [value, setValue] = createSignal(0);
     const fetches: Array<() => void> = [];
     let s!: { n: number };
@@ -592,10 +582,10 @@ describe("S8 — a derivation's UNTRACKED read of a superseded store node derive
       });
     });
     flush();
-    expect(log).toEqual([]); // held with the action: derives from the truth, not the override
+    expect(log).toEqual([3]); // the mounting frame uses the displayed override
     flights.splice(0).forEach(f => f());
     await settle();
     await settle();
-    expect(log).toEqual([2]);
+    expect(log).toEqual([3, 2]);
   });
 });

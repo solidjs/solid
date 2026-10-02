@@ -5,7 +5,7 @@
  * each override is superseded by the truth at hand — here the COMMITTED value,
  * since no landing staged anything. The window that follows must look like a
  * landing supersession to every reader: the display keeps the override until
- * the commit (A18 c), a fresh derivation is held (A29), and the verdict says
+ * the commit (A18 c), a fresh derivation starts from the displayed frame, and the verdict says
  * the truth differs (A18 d). Found by the visibility oracle: with nothing
  * staged the node carried no `_transition` stamp (an override written inside
  * an action never passes the adoption loop), so `supersededRead` served the
@@ -34,7 +34,7 @@ const settle = async () => {
 };
 
 describe("A18 body-end supersession: the correction window", () => {
-  it("display keeps the override, a stale re-run keeps it, a fresh derivation is held, the verdict says it differs", async () => {
+  it("display keeps the override, a stale re-run keeps it, a fresh mount displays the override, the verdict says it differs", async () => {
     const flights: Array<() => void> = [];
     const [u, setU] = createSignal(0);
     const staleLog: number[] = [];
@@ -90,7 +90,7 @@ describe("A18 body-end supersession: the correction window", () => {
     flush();
     expect(staleLog).toEqual([1]);
 
-    // A fresh mainline derivation derives from the truth and is held.
+    // A fresh mount displays the override, then prepares the held truth.
     const fresh: number[] = [];
     createRoot(() => {
       const m = createMemo(() => x());
@@ -99,7 +99,7 @@ describe("A18 body-end supersession: the correction window", () => {
       });
     });
     flush();
-    expect(fresh).toEqual([]);
+    expect(fresh).toEqual([1]);
 
     // The 0-flight lands: the transaction commits, everything reveals at once.
     for (const f of flights.splice(0)) f();
@@ -107,7 +107,7 @@ describe("A18 body-end supersession: the correction window", () => {
     await settle();
     expect(x()).toBe(0);
     expect(isPending(x)).toBe(false);
-    expect(fresh).toEqual([0]);
+    expect(fresh).toEqual([1, 0]);
     expect(staleLog.at(-1)).toBe(0);
   });
 });

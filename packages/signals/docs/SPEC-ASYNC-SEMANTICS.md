@@ -74,6 +74,27 @@ Sync derivations of transition-held sources are visible through `latest()`/`isPe
 
 ### A29. A tracked read served a live transaction's staged value enters that transaction
 
+**Experimental branch amendment (mount propagation seams):** the historical
+creation-time rule below is replaced for a fresh, ordinary mainline computation
+whose inputs have committed answers. Its first pass reads foreign held inputs
+from the committed/displayed frame, while keeping its own batch's staged inputs.
+It publishes with the mounting batch; only afterwards does the foreign
+transaction continue through the new computation using its staged inputs.
+This continuation belongs to the older transaction, including any downstream
+async it discovers. If the mount itself is async, the older transaction waits
+for that initial frame to publish before continuing; this is a directional wait,
+not a merger of the mounting and source transactions.
+
+The change does not apply to existing computations, creation inside an active
+transaction, loading-value windows, optimistic computations, verdict companions,
+or authoritative `resolve`/`until` readers. Inputs without a committed answer
+still suspend and follow the born-held/boundary machinery described below.
+Separate new subtrees over separate transactions remain independent. A shared
+continuation that reads multiple held transactions still follows normal memo
+entanglement. This is not a general propagation boundary or a parallel-futures
+implementation. Pinned by `tests/mount-propagation-seam.test.ts`, updated
+creation-time visibility tests, and the compiled nested-Show preview test.
+
 **Status:** **ruled, amended in place** 2026-09-13 (#3408) — maintainer ruling, Cluster 4 triage: a value derived from the held world is that transaction's work, whichever path first read it; amended 2026-09-14 (creation-time form — "born held"; the entry is the pass's, never the mainline block's); amended 2026-09-18 (#3540, maintainer ruling — boundaries are exempt: a pass under a loading boundary that has not revealed is born held into the transaction and the boundary shows its fallback now)
 **Pinned by:** `tests/held-conditional-memo.test.ts` (#3408: a memo whose branch flips mainline and starts reading a held signal reveals with it, not before); `tests/born-held.test.ts` (creation-time form: fresh memo + effect held, fresh direct effect shows committed, unrelated write after the mount stays mainline, untracked read throws until commit); `tests/visibility-oracle.test.ts` (published column, held and superseded states); `tests/boundary-not-born-held-3540.test.ts` (boundary exemption: a `Loading` mounted mainline over a held value shows its fallback and reveals at the commit; content created behind a fallback is collected, not published; the `on` key lands where its change lands)
 **Mechanism (index, 2026-09-14; boundary exemption 2026-09-18):** `enterStagedRead` on each of `read()`'s value selections that return `_pendingValue` (both fast paths and the slow path) → `globalQueue.initTransition(el._transition)`; no-op for the ambient batch (`_transition` null), the active transaction, and a probe read (`pendingCheckActive`). Creation-time form: outside a flush `enterStagedRead` records the transaction (`stagedEntry`) instead of entering; `recompute` stages the pass's node into it (`_transition` stamped, pushed to its `_pendingNodes`, `STATUS_UNINITIALIZED` kept), adds an effect to its `_gatedSubs` and skips the synchronous first run (`effect()`); `commitPendingNode` initializes it; `read()` holds readers of a node with a staged value and no committed one. Optimistic-posture nodes keep the entering path; verdict pulls (`GlobalQueue._verdictPull` — `latest()`/`isPending()` companions and their pulls) are observations and never enter from mainline (a `latest()` call that entered captured the caller's block, 2026-09-15). Boundary exemption (#3540): `enterStagedRead` takes the staging path inside a flush too when the pass is under a fresh loading boundary (`underFreshLoadingBoundary` — the nearest pending-collecting queue up its chain is uninitialized); `recompute` tells that boundary (`queue.notify` with a `NotReadyError` sourced at the node), which collects the node and shows its fallback; `CollectionQueue._checkSources` keeps a source collected while it is born held (staged, `STATUS_UNINITIALIZED`) and releases it at the commit that initializes it. The boundary's priming read of its tree is a `spectate` read: it records nothing on the mounting pass — no link, no entry — and a born-held tree is simply not ready to it.
