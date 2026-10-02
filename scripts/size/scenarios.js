@@ -3098,6 +3098,14 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 46.20 KB.
+    // Size-Exception (#3741, 2026-10-02): 46.20 -> 46.24 KB, measured at
+    // 46,240 B against `next` @ 98d35b9bc's 46,181 (+59 B; +1 B minified).
+    // `spread` runs its attribute effect before its children insert (the
+    // two blocks swap places; no code is added), so a prop getter's
+    // hydration id lands where the server's attribute walk takes it. Brotli
+    // layout only: three equivalent encodings measured +59..+129 B here and
+    // -21..+13 B on the live page; this is the smallest. Pending maintainer
+    // review.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },

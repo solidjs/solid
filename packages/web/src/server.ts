@@ -4422,6 +4422,10 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // (see spreadBehaviorMarkers). Never touched outside a server component's
   // render.
   let behaviors = null;
+  // The source owning a `children` prop, read after every attribute: the
+  // client's `spread` inserts children after its attribute effect, and both
+  // may mint hydration ids on the enclosing counter (#3741).
+  let childOwner = null;
   // One walk over one prop body: the outer loop runs once for a single props
   // object and once per source otherwise. With several sources every
   // source's key list is taken once up front, and "a later source owns this
@@ -4481,8 +4485,10 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
         continue;
       }
       if (ChildProperties.has(prop)) {
-        if (children === undefined && !skipChildren)
-          children = info.raw || prop === "innerHTML" ? props[prop] : escape(props[prop]);
+        if (children === undefined && childOwner === null && !skipChildren) {
+          if (prop === "children") childOwner = props;
+          else children = info.raw || prop === "innerHTML" ? props[prop] : escape(props[prop]);
+        }
         continue;
       }
       const value = props[prop];
@@ -4576,6 +4582,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
   if (skipChildren) return { t: result + " />" };
+  if (childOwner !== null) children = info.raw ? childOwner.children : escape(childOwner.children);
   if (typeof children === "function") children = children();
   // The content most elements end up with — one string (a text child, escaped
   // above or by the compiler), a number, nothing, or one finished node — joins
