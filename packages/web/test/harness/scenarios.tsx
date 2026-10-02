@@ -2187,6 +2187,32 @@ function LoadingOnBoundary() {
   );
 }
 
+// solidjs/solid#3741: a dynamic() element whose prop getter mints a condition
+// memo (a ternary over a signal) and whose children include an element. Both
+// the memo and the `<i>` take ids from the component's counter, so the two
+// sides must read `children` and the attribute getters in the same order.
+let setDynamicLabelCount!: (v: number) => void;
+function DynamicPropMemoBeforeChild() {
+  const [n, set] = createSignal(0);
+  setDynamicLabelCount = set;
+  const Comp = dynamic(() => "button");
+  return (
+    <Comp aria-label={n() ? `a ${n()}` : `b ${n()}`}>
+      <i>icon</i>
+      {n()}
+    </Comp>
+  );
+}
+// Same, with `children` ahead of the attribute in key order: the server must
+// still read it after every attribute.
+let setDynamicLabelCountFirst!: (v: number) => void;
+function DynamicChildrenKeyBeforePropMemo() {
+  const [n, set] = createSignal(0);
+  setDynamicLabelCountFirst = set;
+  const Comp = dynamic(() => "button");
+  return <Comp children={<i>icon</i>} aria-label={n() ? `a ${n()}` : `b ${n()}`} />;
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -3025,5 +3051,22 @@ export const scenarios: Scenario[] = [
     expectedText: "shelllate#lobby",
     serverText: "shell wait late #lobby",
     stableSelector: "span, b"
+  },
+  {
+    name: "dynamic-prop-memo-before-child",
+    App: DynamicPropMemoBeforeChild,
+    expectedText: "icon0",
+    update: () => setDynamicLabelCount(1),
+    expectedTextAfterUpdate: "icon1",
+    stableSelector: "button, i",
+    adoptAll: true
+  },
+  {
+    name: "dynamic-children-key-before-prop-memo",
+    App: DynamicChildrenKeyBeforePropMemo,
+    expectedText: "icon",
+    update: () => setDynamicLabelCountFirst(1),
+    stableSelector: "button, i",
+    adoptAll: true
   }
 ];

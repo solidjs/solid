@@ -1013,10 +1013,9 @@ export function spread(node, props, skipChildren, skip, name) {
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
     assign(node, newProps, true, prevProps, true);
   };
-  // The children inserts below are transparent by design (see
-  // `unscopedByDesign`); the mark spans their synchronous first compute.
-  if ("_SOLID_DEV_") unscopedByDesign = node;
   if (Array.isArray(props)) {
+    effect(() => collectSources({}, props, undefined, skip), apply);
+    if ("_SOLID_DEV_") unscopedByDesign = node;
     if (!skipChildren && !(skip !== undefined && skip("children")))
       insert(node, () => {
         for (let i = props.length - 1; i >= 0; i--) {
@@ -1025,31 +1024,8 @@ export function spread(node, props, skipChildren, skip, name) {
         }
       });
     if ("_SOLID_DEV_") unscopedByDesign = null;
-    effect(() => collectSources({}, props, undefined, skip), apply);
     return prevProps;
   }
-  if (!skipChildren && !(skip !== undefined && skip("children"))) {
-    if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
-      // A plain object's key set can't change reactively — nor can a
-      // merge/omit view's over plain objects, and its descriptor trap tells
-      // the truth about the owning leaf: no `children` key means nothing to
-      // insert, a data property inserts its value with no effect, only a
-      // getter needs the tracking scope. So `<Tag {...omit(props, "as")}>`
-      // with static children costs no children effect either.
-      const desc = Object.getOwnPropertyDescriptor(props, "children");
-      if (desc !== undefined) {
-        if (desc.get === undefined) insert(node, desc.value);
-        else insert(node, () => props.children);
-      }
-    } else
-      insert(node, () => {
-        const source = resolveSource(props);
-        return source != null && entryHas(source, "children")
-          ? entryGet(source, "children")
-          : undefined;
-      });
-  }
-  if ("_SOLID_DEV_") unscopedByDesign = null;
   effect(() => {
     const source = resolveSource(props);
     const newProps = {};
@@ -1078,6 +1054,29 @@ export function spread(node, props, skipChildren, skip, name) {
     }
     return newProps;
   }, apply);
+  if ("_SOLID_DEV_") unscopedByDesign = node;
+  if (!skipChildren && !(skip !== undefined && skip("children"))) {
+    if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
+      // A plain object's key set can't change reactively — nor can a
+      // merge/omit view's over plain objects, and its descriptor trap tells
+      // the truth about the owning leaf: no `children` key means nothing to
+      // insert, a data property inserts its value with no effect, only a
+      // getter needs the tracking scope. So `<Tag {...omit(props, "as")}>`
+      // with static children costs no children effect either.
+      const desc = Object.getOwnPropertyDescriptor(props, "children");
+      if (desc !== undefined) {
+        if (desc.get === undefined) insert(node, desc.value);
+        else insert(node, () => props.children);
+      }
+    } else
+      insert(node, () => {
+        const source = resolveSource(props);
+        return source != null && entryHas(source, "children")
+          ? entryGet(source, "children")
+          : undefined;
+      });
+  }
+  if ("_SOLID_DEV_") unscopedByDesign = null;
   return prevProps;
 }
 
