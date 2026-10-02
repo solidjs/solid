@@ -3104,8 +3104,8 @@ module.exports = [
     // two blocks swap places; no code is added), so a prop getter's
     // hydration id lands where the server's attribute walk takes it. Brotli
     // layout only: three equivalent encodings measured +59..+129 B here and
-    // -21..+13 B on the live page; this is the smallest. Pending maintainer
-    // review.
+    // -21..+13 B on the live page; this is the smallest. Accepted by the
+    // maintainer. The cap is frozen again at 46.24 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },

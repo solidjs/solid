@@ -10,7 +10,7 @@
  * focused input the user is typing in.
  */
 import { afterEach, describe, expect, test } from "vitest";
-import { createSignal, flush, lazy, Loading, type Component } from "solid-js";
+import { createSignal, flush, isHydrating, lazy, Loading, type Component } from "solid-js";
 import { hydrate } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -133,5 +133,28 @@ describe("#3749: Loading around lazy() keeps server nodes in place on a late mod
     setCount(1);
     flush();
     expect(container!.textContent).toBe("Count: 1");
+  });
+
+  test("after hydration an untracked region re-inserts nodes already in its parent", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    container.innerHTML = "<div _hk=0></div>";
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+    const a = document.createElement("b");
+    const b = document.createElement("i");
+    const [show, setShow] = createSignal(false);
+    dispose = hydrate(() => <div>{show() ? [a, b] : undefined}</div>, container);
+    flush();
+    await sleep(10);
+    expect(isHydrating()).toBe(false);
+
+    // User code put the nodes in the region, ahead of a node it doesn't track.
+    const host = container.firstChild as HTMLElement;
+    const x = document.createElement("span");
+    host.append(a, b, x);
+    setShow(true);
+    flush();
+    // As on `next`: the run is re-inserted at the end.
+    expect([...host.childNodes]).toEqual([x, a, b]);
   });
 });
