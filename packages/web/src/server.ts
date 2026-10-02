@@ -1637,8 +1637,11 @@ function attrName(prop: string): string {
 //   sits inside a flushed-but-unactivated ancestor template held by a reveal
 //   group) queues the id in `_$HY.dq` for retry instead of dropping the
 //   swap. A missing content template means the swap already ran — that stays
-//   a plain no-op and is never queued. The runtime's policy calls back into
-//   $dfr for swaps it approves, so the DOM mechanics exist exactly once.
+//   a plain no-op and is never queued, so every trigger runs after its
+//   template is parsed: $df tasks are written after it, and a stylesheet
+//   gate writes the template ahead of its links. The runtime's policy calls
+//   back into $dfr for swaps it approves, so the DOM mechanics exist exactly
+//   once.
 // - $dfl(id): materialize fallback from `pl-*` template content without resolving.
 //   Marker misses queue in `_$HY.dlq`, same reasoning as $dfr.
 // - $dflj(ids): materialize fallback content for every id in the list.
@@ -1650,9 +1653,16 @@ function attrName(prop: string): string {
 //   route through $df, so queued swaps stay subject to runtime policy.
 // - $dfs(id, count, defer): register pending stylesheet count for fragment `id`.
 // - $dfc(id): style completion callback; reveals when the fragment/group is unblocked.
+// - $dfe(event): the stylesheet gate's listener. Gated links carry
+//   `data-dfc="<id>"` instead of inline `onload`/`onerror` handlers, which
+//   can't carry a nonce, so a strict `script-src` CSP would block them. Both
+//   events are listened for on `document` in the capture phase (neither
+//   bubbles), installed by this script, which runs before any gated link is
+//   parsed. A link is counted once, even if more than one render's copy of
+//   this script installed a listener in the same document.
 // - $dfg(id): group-style gate check; reveals a waiting group once all style counts hit zero.
 // - $dfj(ids): reveal a group in registration order, waiting if any member still has pending styles.
-const REPLACE_SCRIPT = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function $dfr(e,n,o,t){if(!(n=document.getElementById(e)))return 0;if(!(o=document.getElementById("pl-"+e)))return(_$HY.dq=_$HY.dq||{})[e]=1,0;for(;o&&(8!==o.nodeType||o.nodeValue!=="pl-"+e);)t=o.nextSibling,o.remove(),o=t;t=o.parentNode,o.replaceWith(n.content),n.remove(),(_$HY.v=_$HY.v||{})[e]=1,_$HY.fe(e,t),_$HY.hp&&_$HY.hp[e]&&($dh(_$HY.hp[e]),delete _$HY.hp[e]),$dfd();return 1}function $dfl(e,o,n){if(!(o=document.getElementById("pl-"+e)))return(_$HY.dlq=_$HY.dlq||{})[e]=1,0;if(o._$fl)return 1;for(n=o.nextSibling;n;){if(8===n.nodeType&&n.nodeValue==="pl-"+e){o.parentNode&&o.parentNode.insertBefore(o.content.cloneNode(!0),n),o._$fl=1,$dfd();return 1}n=n.nextSibling}return 0}function $dflj(e,i){for(i=0;i<e.length;i++)$dfl(e[i])}function $dfd(e,i){if(e=_$HY.dq){_$HY.dq=0;for(i in e)$df(i)}if(e=_$HY.dlq){_$HY.dlq=0;for(i in e)$dfl(i)}}function $dfs(e,c,d){(_$HY.sc=_$HY.sc||{})[e]=c,d&&((_$HY.sd=_$HY.sd||{})[e]=1)}function $dfg(e,g,i,k){if(!(g=_$HY.sg&&_$HY.sg[e]))return;for(i=0;i<g.length;i++)if(_$HY.sc&&_$HY.sc[g[i]]>0)return;for(i=0;i<g.length;i++)k=g[i],delete _$HY.sg[k],$df(k)}function $dfc(e){if(--_$HY.sc[e]<=0){delete _$HY.sc[e],_$HY.sg&&_$HY.sg[e]?$dfg(e):!(_$HY.sd&&_$HY.sd[e])&&$df(e);_$HY.sd&&delete _$HY.sd[e]}}function $dfj(e,i,n){for(i=0;i<e.length;i++)if(_$HY.sc&&_$HY.sc[e[i]]>0){for(n=0;n<e.length;n++)(_$HY.sg=_$HY.sg||{})[e[n]]=e;return}for(i=0;i<e.length;i++)$df(e[i])}`;
+const REPLACE_SCRIPT = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function $dfr(e,n,o,t){if(!(n=document.getElementById(e)))return 0;if(!(o=document.getElementById("pl-"+e)))return(_$HY.dq=_$HY.dq||{})[e]=1,0;for(;o&&(8!==o.nodeType||o.nodeValue!=="pl-"+e);)t=o.nextSibling,o.remove(),o=t;t=o.parentNode,o.replaceWith(n.content),n.remove(),(_$HY.v=_$HY.v||{})[e]=1,_$HY.fe(e,t),_$HY.hp&&_$HY.hp[e]&&($dh(_$HY.hp[e]),delete _$HY.hp[e]),$dfd();return 1}function $dfl(e,o,n){if(!(o=document.getElementById("pl-"+e)))return(_$HY.dlq=_$HY.dlq||{})[e]=1,0;if(o._$fl)return 1;for(n=o.nextSibling;n;){if(8===n.nodeType&&n.nodeValue==="pl-"+e){o.parentNode&&o.parentNode.insertBefore(o.content.cloneNode(!0),n),o._$fl=1,$dfd();return 1}n=n.nextSibling}return 0}function $dflj(e,i){for(i=0;i<e.length;i++)$dfl(e[i])}function $dfd(e,i){if(e=_$HY.dq){_$HY.dq=0;for(i in e)$df(i)}if(e=_$HY.dlq){_$HY.dlq=0;for(i in e)$dfl(i)}}function $dfs(e,c,d){(_$HY.sc=_$HY.sc||{})[e]=c,d&&((_$HY.sd=_$HY.sd||{})[e]=1)}function $dfg(e,g,i,k){if(!(g=_$HY.sg&&_$HY.sg[e]))return;for(i=0;i<g.length;i++)if(_$HY.sc&&_$HY.sc[g[i]]>0)return;for(i=0;i<g.length;i++)k=g[i],delete _$HY.sg[k],$df(k)}function $dfc(e){if(--_$HY.sc[e]<=0){delete _$HY.sc[e],_$HY.sg&&_$HY.sg[e]?$dfg(e):!(_$HY.sd&&_$HY.sd[e])&&$df(e);_$HY.sd&&delete _$HY.sd[e]}}function $dfj(e,i,n){for(i=0;i<e.length;i++)if(_$HY.sc&&_$HY.sc[e[i]]>0){for(n=0;n<e.length;n++)(_$HY.sg=_$HY.sg||{})[e[n]]=e;return}for(i=0;i<e.length;i++)$df(e[i])}function $dfe(e,t,k){(t=e.target)&&t.getAttribute&&!t._$dc&&(k=t.getAttribute("data-dfc"))&&(t._$dc=1,$dfc(k))}document.addEventListener("load",$dfe,!0);document.addEventListener("error",$dfe,!0)`;
 
 // Head patch runtime, emitted once alongside the first head-patch task:
 // - $dha(ops): apply patch ops to document.head — "t" sets the title (and
@@ -2272,10 +2282,10 @@ export function renderToStream(code, options = {}) {
     },
     // An async fragment resolved post-shell with its normalized HTML payload.
     // Document behavior: <template id=key> plus, when the fragment carries
-    // streamed style links, a $dfs gate and onload-$dfc stylesheet links
-    // (inline styles apply as the parser sees them — no gating); eager
-    // (ungrouped, link-free) fragments self-activate with $df. Grouped
-    // fragments defer to reveal().
+    // streamed style links, a $dfs gate and `data-dfc` stylesheet links that
+    // $dfe counts down (inline styles apply as the parser sees them — no
+    // gating); eager (ungrouped, link-free) fragments self-activate with $df.
+    // Grouped fragments defer to reveal().
     fragment(key, value, meta) {
       const deferActivation = !!meta.revealGroup;
       const styles = meta.styles;
@@ -2285,17 +2295,22 @@ export function renderToStream(code, options = {}) {
       if (styles.links.length) {
         const styleAttr = nonceAttr(nonce, "style");
         emitTask(`$dfs("${key}",${styles.links.length},${deferActivation ? 1 : 0})`);
-        // Flush the $dfs gate before the links so their onload can't fire
-        // ahead of the pending-style registration.
+        // Flush the $dfs gate (and, with the first task, the $dfe listener)
+        // before the links so their load can't fire ahead of the pending-style
+        // registration.
         writeTasks();
+        // The template goes ahead of its links. A cached sheet can fire load
+        // before the parser reaches anything written after the link, and $dfr
+        // reads a missing template as a swap that already ran: the reveal
+        // would be dropped and the boundary would stay on its fallback.
+        buffer.write(`<template id="${key}">${value}</template>`);
         for (const entry of styles.links) {
           buffer.write(
             typeof entry === "string"
-              ? `<link rel="stylesheet" href="${entry}"${styleAttr} onload="$dfc('${key}')" onerror="$dfc('${key}')">`
-              : `<link${entry.attrHtml}${styleAttr} onload="$dfc('${key}')" onerror="$dfc('${key}')">`
+              ? `<link rel="stylesheet" href="${entry}"${styleAttr} data-dfc="${key}">`
+              : `<link${entry.attrHtml}${styleAttr} data-dfc="${key}">`
           );
         }
-        buffer.write(`<template id="${key}">${value}</template>`);
       } else {
         buffer.write(`<template id="${key}">${value}</template>`);
         if (!deferActivation) {
