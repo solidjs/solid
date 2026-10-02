@@ -681,13 +681,14 @@ export function Suspense(props: { fallback?: string; children: string }) {
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
       resources: new Map<string, { _loading: boolean; error: any }>(),
-      completed: () => {
-        const res = runSuspense();
-        if (suspenseComplete(value)) {
-          done!(resolveSSRNode(escape(res)));
-        }
-      }
+      completed: () => {}
     });
+  value.completed = () => {
+    const res = runSuspense();
+    if (suspenseComplete(value)) {
+      done!(resolveSSRNode(escape(res)));
+    }
+  };
 
   function suspenseError(err: Error) {
     if (!done || !done(undefined, err)) {
