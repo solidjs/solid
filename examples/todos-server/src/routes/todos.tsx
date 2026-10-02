@@ -34,8 +34,16 @@ function Failures() {
   const markAll = useSubmissions(toggleAll) as Answer[];
   const clears = useSubmissions(clearCompleted) as Answer[];
   toggleTodo.onSettled(supersede(toggles, true));
-  removeTodo.onSettled(supersede(removals, true));
-  toggleAll.onSettled(supersede(markAll));
+  // A todo deleted has no open questions left, and marking all answers
+  // every row's toggle.
+  removeTodo.onSettled(settled => {
+    supersede(removals, true)(settled);
+    if (!settled.result) supersede(toggles, true)(settled);
+  });
+  toggleAll.onSettled(settled => {
+    supersede(markAll)(settled);
+    if (!settled.result) supersede(toggles)(settled);
+  });
   clearCompleted.onSettled(supersede(clears));
 
   const failed = () =>
