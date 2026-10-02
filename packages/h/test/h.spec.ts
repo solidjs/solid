@@ -172,4 +172,37 @@ describe("@solidjs/h", () => {
     ]);
     expect(disposed).toEqual([]);
   });
+
+  test("zero-arg camelCase handlers and refs on components stay functions", () => {
+    const [value, setValue] = createSignal(1);
+    const onClick = () => "clicked";
+    const ref = () => {};
+    let props!: any;
+    const Probe = (p: any) => {
+      props = p;
+      return null;
+    };
+    render(
+      () =>
+        h(Probe, {
+          onClick,
+          ref,
+          on: () => value(),
+          only: () => value() * 2,
+          onclick: () => value() * 3
+        }),
+      root
+    );
+    expect(props.onClick).toBe(onClick);
+    expect(props.ref).toBe(ref);
+    expect(props.on).toBe(1);
+    expect(props.only).toBe(2);
+    expect(props.onclick).toBe(3);
+
+    setValue(2);
+    flush();
+    expect(props.on).toBe(2);
+    expect(props.only).toBe(4);
+    expect(props.onclick).toBe(6);
+  });
 });

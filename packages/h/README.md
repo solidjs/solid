@@ -85,16 +85,16 @@ import { merge } from "solid-js";
 h("div", merge({ class: selectedClass }, props));
 ```
 
-3. Events on components require explicit event in the arguments
+3. Zero-argument functions passed to component props become getters
 
-Solid's HyperScript automatically wraps functions passed to props of components with no arguments in getters so you need to provide one to prevent this. The same applies to render props like in the `<For>` component.
+Solid's HyperScript automatically wraps functions with no arguments passed to props of components in getters, so a render prop like the `<For>` child needs a declared argument to stay a function. Event handlers named `onXxx` (an uppercase letter after `on`) and `ref` are exempt; any other prop, including `on` on `<Loading>`, `only`, or a lowercase `onclick`, is wrapped.
 
 ```js
-// good
-h(Button, { onClick: e => console.log("Hi") });
-
-// bad
+// handler: passed as-is
 h(Button, { onClick: () => console.log("Hi") });
+
+// getter: `props.on` reads `key()`
+h(Loading, { on: () => key() }, ...);
 ```
 
 4. All refs are callback form

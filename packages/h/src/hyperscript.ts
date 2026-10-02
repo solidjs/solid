@@ -129,7 +129,9 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
             ? args.shift() || {}
             : {};
         if (args.length) props.children = args.length > 1 ? args : args[0];
-        // Zero-arity props become getters (JSX-getter parity).
+        // Zero-arity props become getters (JSX-getter parity), except
+        // `ref` and camelCase `onXxx` handlers, which pass through;
+        // lowercase `on*` is an ordinary prop.
         // Higher-arity callbacks get wrapped so any tagged thunks
         // they return are materialized at the call site — otherwise
         // a render-prop consumer (`mapArray`-style `For`/`Index`,
@@ -143,8 +145,9 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
         for (const k in props) {
           const v = props[k];
           if (typeof v === "function") {
-            if (!v.length) dynamicProperty(props, k);
-            else if (!(v as any)[$ELEMENT] && !(v as any)[$WRAPPED]) {
+            if (!v.length) {
+              if (k !== "ref" && !/^on[A-Z]/.test(k)) dynamicProperty(props, k);
+            } else if (!(v as any)[$ELEMENT] && !(v as any)[$WRAPPED]) {
               props[k] = wrapCallback(v);
             }
           }
