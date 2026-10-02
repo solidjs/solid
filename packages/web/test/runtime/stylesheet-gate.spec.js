@@ -68,14 +68,25 @@ function apply(container, html) {
 
 describe("streamed fragment stylesheet gate", () => {
   let container;
+  let listeners;
 
   beforeEach(() => {
     globalThis._$HY = { r: {}, fe() {} };
     container = document.createElement("div");
     document.body.appendChild(container);
+    // The helpers install their gate listener on the shared jsdom document;
+    // record each one so a test only sees the listeners its own scripts added.
+    listeners = [];
+    const add = document.addEventListener.bind(document);
+    vi.spyOn(document, "addEventListener").mockImplementation((...args) => {
+      listeners.push(args);
+      add(...args);
+    });
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    for (const args of listeners) document.removeEventListener(...args);
     container.remove();
     delete globalThis._$HY;
   });
