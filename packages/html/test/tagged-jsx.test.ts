@@ -1,6 +1,6 @@
-import { createRoot, createSignal, flush, createMemo } from "solid-js";
+import { createRoot, createSignal, flush, createMemo, Loading } from "solid-js";
 import htmlTag from "../src/tagged-jsx.js";
-import { expect, it, describe, beforeEach } from "vitest";
+import { expect, it, describe, beforeEach, vi } from "vitest";
 import { insert, render, registerElementClaim } from "@solidjs/web";
 
 const For = (props: any) => {
@@ -429,6 +429,90 @@ describe("Tagged JSX Integration Tests", () => {
         expect(container.querySelector("li")?.textContent).toBe("Item 1");
         dispose();
       }));
+
+    it("wraps zero-arg functions in getters for non-handler `on*` props (#3728)", () => {
+      const [value, setValue] = createSignal(1);
+      const handler = () => "handled";
+      const ref = () => {};
+      let props!: any;
+      const Probe = (p: any) => {
+        props = p;
+        return null;
+      };
+      const dispose = createRoot(d => {
+        html`<${Probe}
+          on=${() => value()}
+          only=${() => value() * 2}
+          once=${() => value() * 3}
+          onClick=${handler}
+          ref=${ref}
+        />`;
+        return d;
+      });
+
+      expect(props.on).toBe(1);
+      expect(props.only).toBe(2);
+      expect(props.once).toBe(3);
+      expect(props.onClick).toBe(handler);
+      expect(props.ref).toBe(ref);
+
+      setValue(2);
+      flush();
+      expect(props.on).toBe(2);
+      expect(props.only).toBe(4);
+      expect(props.once).toBe(6);
+      dispose();
+    });
+
+    it("keeps zero-arg `onXxx` handlers on native elements as events", () => {
+      let clicks = 0;
+      const container = document.createElement("div");
+      document.body.append(container);
+      const dispose = render(
+        () =>
+          html`<div>
+            <button onClick=${() => clicks++}>a</button>
+            <button onclick="void 0">b</button>
+          </div>`,
+        container
+      );
+      const [a, b] = container.querySelectorAll("button");
+      expect(clicks).toBe(0);
+      a.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      expect(clicks).toBe(1);
+      expect(b.getAttribute("onclick")).toBe("void 0");
+      dispose();
+    });
+
+    it("re-keys <Loading> from a reactive `on` getter (#3728)", async () => {
+      vi.useFakeTimers();
+      try {
+        const delay = <T>(ms: number, value: T) => new Promise<T>(r => setTimeout(r, ms, value));
+        const [key, setKey] = createSignal(0);
+        const container = document.createElement("div");
+        const dispose = render(() => {
+          const data = createMemo(() => delay(100, key()));
+          return html.define({ Loading })`<${Loading} on=${() => key()} fallback="loading">
+            <span>${() => data()}</span>
+          <//>`;
+        }, container);
+        flush();
+        expect(container.textContent!.trim()).toBe("loading");
+        await vi.advanceTimersByTimeAsync(100);
+        flush();
+        expect(container.textContent!.trim()).toBe("0");
+
+        setKey(1);
+        flush();
+        expect(container.textContent!.trim()).toBe("loading");
+        await vi.advanceTimersByTimeAsync(100);
+        flush();
+        expect(container.textContent!.trim()).toBe("1");
+        dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("Special Elements and Namespaces", () => {
