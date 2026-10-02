@@ -114,7 +114,7 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
           Object.defineProperty(l, "class", { ...d[k], value });
           classes = [];
         }
-        if (k !== "ref" && !/^on[A-Z]/.test(k) && typeof d[k].value === "function") {
+        if (typeof d[k].value === "function" && k !== "ref" && !/^on[A-Z]/.test(k)) {
           dynamicProperty(l, k);
           dynamic = true;
         } else if (d[k].get) dynamic = true;

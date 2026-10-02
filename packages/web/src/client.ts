@@ -2580,10 +2580,13 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     return value;
   }
 
+  let c;
   const hasNamespace = prop.indexOf(":") > -1;
 
-  // Only `on` + an uppercase letter is an event; a lowercase `onclick` is an attribute.
-  if (!hasNamespace && /^on[A-Z]/.test(prop)) {
+  // Only `on` + an uppercase letter is an event; a lowercase `onclick` is an
+  // attribute. No regex on this per-prop path: a key not starting with `on`
+  // pays one `startsWith`.
+  if (!hasNamespace && prop.startsWith("on") && (c = prop.charCodeAt(2)) > 64 && c < 91) {
     const name = prop.slice(2).toLowerCase();
     const delegate = DelegatedEvents.has(name);
     if (!delegate && prev) {

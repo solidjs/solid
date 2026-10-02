@@ -233,9 +233,11 @@ function isHttpNavigationTarget(target: string): boolean {
 }
 
 // Only `on` + an uppercase letter (`onClick`) is an event handler. Lowercase
-// `on*` names (`onclick`) are plain attributes.
+// `on*` names (`onclick`) are plain attributes. No regex: this runs on every
+// key of a spread, and a key not starting with `on` pays one `startsWith`.
 function isEventName(name: string): boolean {
-  return /^on[A-Z]/.test(name);
+  let c;
+  return name.startsWith("on") && (c = name.charCodeAt(2)) > 64 && c < 91;
 }
 
 export {

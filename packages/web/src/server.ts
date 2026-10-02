@@ -4618,6 +4618,7 @@ export function ssrAttribute(key, value) {
   // passes a binding-slot value through untouched, so the position it names
   // is bound here (principles §9.2.3). Both are trusted here so this hot
   // path stays a pure string concatenation.
+  if (typeof value === "string") return ` ${key}="${value}"`;
   if (value == null || value === false) return "";
   if (typeof value === "object") {
     return isSlotValue(value)
