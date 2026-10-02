@@ -90,16 +90,16 @@ There are a few differences from Solid's JSX that are important to note.
 html`<div id=${() => props.id}>${() => firstName() + lastName()}</div>`
 ```
 
-2. Events on components require explicit event in the arguments
+2. Zero-argument functions passed to component props become getters
 
-Solid's Tagged Template Literals automatically wraps functions passed to props of components with no arguments in getters so you need to provide one to prevent this. The same applies to render props like in the `<For>` component.
+Solid's Tagged Template Literals automatically wrap functions with no arguments passed to props of components in getters, so a render prop like the `<For>` child needs a declared argument to stay a function. Event handlers named `onXxx` (an uppercase letter after `on`) are exempt; any other prop, including `on` on `<Loading>`, `only`, or a lowercase `onclick`, is wrapped.
 
 ```js
-// good
-html`<${Button} onClick=${(e) => console.log("Hi")} />`;
-
-// bad
+// handler: passed as-is
 html`<${Button} onClick=${() => console.log("Hi")} />`;
+
+// getter: `props.on` reads `key()`
+html`<${Loading} on=${() => key()}>...<//>`;
 ```
 
 4. All refs are callback form
