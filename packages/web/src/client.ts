@@ -1306,6 +1306,16 @@ export function installHydrationRuntime() {
       } else return claimChildNodes(parent);
       return stripTextSeparators(nodes);
     },
+    // insertExpression(): a region tracked as empty can receive nodes that
+    // already sit in it, in order — server nodes a boundary claims on a late
+    // resume, after the enclosing insert's claim pass saw no value (#3749).
+    // They stay put: re-inserting a connected node moves it, and a move blurs
+    // a focused input.
+    inPlace(parent, nodes) {
+      for (let i = nodes.length, next; i--; next = nodes[i])
+        if (nodes[i].parentNode !== parent || (next && nodes[i].nextSibling !== next)) return false;
+      return true;
+    },
     // eventHandler(): replayed server events are deduped against the live
     // event queue during hydration.
     dedupEvent(e) {
@@ -2789,7 +2799,8 @@ function insertExpression(parent, value, current, marker) {
       // Truthiness would skip this replace and leave that text node beside
       // the new element (#3571).
       parent.replaceChild(value, parent.firstChild);
-    } else {
+    } else if (hydrationRt === null || value.parentNode !== parent) {
+      // Already in place: a late claim (see hydrationRt.inPlace).
       parent.appendChild(value);
     }
     if (marker) value[$$SLOT] = marker;
@@ -2818,7 +2829,7 @@ function insertExpression(parent, value, current, marker) {
       if (current.length === 0) {
         appendNodes(parent, value, marker);
       } else reconcileArrays(parent, current, value, marker);
-    } else {
+    } else if (current != null || hydrationRt === null || !hydrationRt.inPlace(parent, value)) {
       // Same sole-primitive case: `0` / `NaN` still own a text node (#3571).
       if (current != null) cleanChildren(parent, current);
       appendNodes(parent, value);

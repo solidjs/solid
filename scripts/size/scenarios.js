@@ -1567,6 +1567,15 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 19.69 KB.
+    // Size-Exception (#3749, 2026-10-02): 19.69 -> 19.74 KB, measured at
+    // 19,732 B against `next` @ 98d35b9bc's 19,667 (+65 B; +180 B minified).
+    // A hydrating insert that tracked an empty region and later receives
+    // nodes already sitting in it in order (a <Loading> claiming its server
+    // nodes on a late lazy() module) leaves them in place instead of
+    // re-inserting them, which blurred a focused input. Lives on the
+    // hydration runtime slot, so client-only bundles carry none of it.
+    // Pending maintainer review. The cap is
+    // frozen again at 19.74 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1966,7 +1975,15 @@ module.exports = [
     // 30,818 B against `next` @ 3ed381009's 30,817 (+1 B; -82 B minified). The
     // same mask removal as the core floor note; brotli layout over the larger
     // bundle keeps it 28 B over the pre-#3740 30.79 KB, so that raise stays.
-    limit: "30.82 KB",
+    // Size-Exception (#3749, 2026-10-02): 30.82 -> 30.88 KB, measured at
+    // 30,874 B against `next` @ 98d35b9bc's 30,818 (+56 B; +182 B minified).
+    // A hydrating insert that tracked an empty region and later receives
+    // nodes already sitting in it in order (a <Loading> claiming its server
+    // nodes on a late lazy() module) leaves them in place instead of
+    // re-inserting them, which blurred a focused input. Lives on the
+    // hydration runtime slot, so client-only bundles carry none of it.
+    // Pending maintainer review.
+    limit: "30.88 KB",
     alias
   },
   {
@@ -3098,6 +3115,15 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 46.20 KB.
+    // Size-Exception (#3749, 2026-10-02): 46.20 -> 46.27 KB, measured at
+    // 46,269 B against `next` @ 98d35b9bc's 46,181 (+88 B; +181 B minified).
+    // A hydrating insert that tracked an empty region and later receives
+    // nodes already sitting in it in order (a <Loading> claiming its server
+    // nodes on a late lazy() module) leaves them in place instead of
+    // re-inserting them, which blurred a focused input. Lives on the
+    // hydration runtime slot, so client-only bundles carry none of it.
+    // Pending maintainer review. The cap is
+    // frozen again at 46.27 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3183,6 +3209,15 @@ module.exports = [
     // at 50,346 B against #3713 @ 73640f5cd's 50,150 (a 50.15 -> 50.35 KB
     // raise); the base moved under the PR (the fake-`Promise` cap above).
     // Size vetted by the maintainer. The cap is frozen again at 50.45 KB.
+    // Size-Exception (#3749, 2026-10-02): 50.45 -> 50.46 KB, measured at
+    // 50,460 B against `next` @ 98d35b9bc's 50,385 (+75 B; +183 B minified).
+    // A hydrating insert that tracked an empty region and later receives
+    // nodes already sitting in it in order (a <Loading> claiming its server
+    // nodes on a late lazy() module) leaves them in place instead of
+    // re-inserting them, which blurred a focused input. Lives on the
+    // hydration runtime slot, so client-only bundles carry none of it.
+    // Pending maintainer review. The cap is
+    // frozen again at 50.46 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
