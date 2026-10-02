@@ -344,7 +344,12 @@ html .clear-completed:active {
   text-decoration: underline;
 }
 
-/* Optimistic / saving / errored affordances */
+/* Instant intent. The router marks a form `aria-busy` while its submission
+   is in flight; these rules show what was asked for from that alone, and
+   never what the answer will be. A toggle presses down rather than checking
+   itself; a row being deleted or cleared dims rather than disappearing.
+   `:has()` carries the bulk forms to every row they touch. If the answer
+   takes longer than a couple of seconds, the mark starts to pulse. */
 
 .loading {
   padding: 20px;
@@ -353,57 +358,42 @@ html .clear-completed:active {
   color: #949494;
 }
 
-.todo.pending label {
-  opacity: 0.5;
-  font-style: italic;
+.todo-list li:has(.toggle-form[aria-busy]) label,
+.todoapp:has(.toggle-all-form[aria-busy]) .todo-list li label {
+  outline: 2px dashed #b83f45;
+  outline-offset: -6px;
+  opacity: 0.6;
+  animation: waiting 0.8s ease-in-out 2s infinite;
 }
 
-.todo.errored label {
-  color: #c91524;
+.todoapp:has(.toggle-all-form[aria-busy]) .toggle-all:before {
+  color: #b83f45;
 }
 
-.todo-list li .retry {
-  display: none;
-  position: absolute;
-  top: 0;
-  right: 10px;
-  bottom: 0;
-  width: 40px;
-  height: 40px;
-  margin: auto 0;
-  font-size: 24px;
-  color: #c91524;
-  cursor: pointer;
-  transition: color 0.2s ease-out;
-}
-
-.todo-list li .retry:after {
-  content: "\21bb";
-  display: block;
-  height: 100%;
-  line-height: 1.4;
-}
-
-.todo-list li .retry:hover,
-.todo-list li .retry:focus {
-  color: #8e0e1a;
-}
-
-.todo-list li.errored .retry {
-  display: block;
-}
-
-.todo-list li.errored .destroy,
-.todo-list li.errored:hover .destroy {
-  display: none;
+.todo-list li:has(.destroy-form[aria-busy]),
+.todoapp:has(.clear-completed-form[aria-busy]) .todo-list li.completed {
+  opacity: 0.35;
+  animation: waiting 0.8s ease-in-out 2s infinite;
 }
 
 .header form[aria-busy] .new-todo {
   color: #949494;
+  animation: waiting 0.8s ease-in-out 2s infinite;
 }
 
+@keyframes waiting {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* Answers: the server's words for a failed save, each with a retry.
+   Positioned so the footer's stacked-paper shadow (`.footer:before`,
+   anchored to the bottom of `.todoapp`) stays under it, not over it. */
+
 .add-error,
-.list-error {
+.failures {
+  position: relative;
   margin: 0;
   padding: 10px 15px;
   font-size: 15px;
@@ -411,8 +401,16 @@ html .clear-completed:active {
   border-top: 1px solid #e6e6e6;
 }
 
+.failures {
+  list-style: none;
+}
+
+.failures li + li {
+  margin-top: 6px;
+}
+
 .add-error button,
-.list-error button {
+.failures button {
   text-decoration: underline;
   cursor: pointer;
 }
