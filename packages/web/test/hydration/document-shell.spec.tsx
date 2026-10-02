@@ -199,9 +199,8 @@ describe("document-shell pattern — client hydrate (#3000)", () => {
     expect(root.querySelector("#late")).toBeNull();
 
     const link = container.querySelector(`link[href="${STYLED_LATE_CSS}"]`)!;
-    // jsdom runs inline handlers outside the scope the stream scripts were evaluated in.
-    (0, eval)(link.getAttribute("onload")!);
-    link.removeAttribute("onload");
+    // The stream's helpers count the sheet down from a capture-phase listener
+    // on the document, so the event alone releases the gate.
     link.dispatchEvent(new Event("load"));
     await sleep(20);
     flush();

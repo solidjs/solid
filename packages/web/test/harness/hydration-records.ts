@@ -10,11 +10,12 @@ import vm from "node:vm";
  * post-shell writes.
  *
  * `document.getElementById` returns null so `$df` reveal calls take their
- * graceful "template not present" early-return instead of touching a DOM.
+ * graceful "template not present" early-return instead of touching a DOM;
+ * `addEventListener` takes the stylesheet gate's listener and drops it.
  */
 export function hydrationRecordKeys(html: string): string[] {
   const sandbox: any = {
-    document: { getElementById: () => null },
+    document: { getElementById: () => null, addEventListener() {} },
     _$HY: { r: {}, fe() {} }
   };
   sandbox.self = sandbox;

@@ -2282,7 +2282,7 @@ function ensurePreload(entry) {
 /**
  * Ensure a stylesheet link exists and report whether it has settled. A link
  * this loader created tracks waiters until load/error (error unblocks too —
- * same policy as the document runtime's $dfc onerror); a link that was
+ * same policy as the document runtime's $dfc gate); a link that was
  * already in the document counts as settled. `entry` is a url string or an
  * attributed record `{ href, attrs }` (fetch-metadata attributes carried by
  * useHead stylesheets).
