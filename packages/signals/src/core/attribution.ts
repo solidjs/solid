@@ -2,9 +2,10 @@ import {
   setAttributionHooks,
   type AttributionHooks,
   type InteractionRef,
-  type NavigationRef
+  type NavigationRef,
+  type Transition
 } from "./attribution-hooks.js";
-import { CONFIG_DERIVED_OVERRIDE, CONFIG_PLUMBING, NOT_PENDING } from "./constants.js";
+import { CONFIG_PLUMBING, NOT_PENDING } from "./constants.js";
 import {
   anyExcluded,
   emitDiagnostic,
@@ -17,7 +18,6 @@ import {
   ownerPath,
   reportDiagnostic
 } from "./dev.js";
-import type { Transition } from "./scheduler.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 /**
@@ -2646,11 +2646,10 @@ let holdLog: HoldEvent[] = [];
 /** Companions are optimistic nodes too; `_parentSource` marks them. So is a
  * memo carrying a DERIVED override (lanes stage, #3479) — a lane pass's
  * result, not a write anyone made: neither is an acknowledgement. */
-function isCompanion(node: Signal<any> | Computed<any>): boolean {
-  return (
-    (!!node._x && node._x._parentSource !== undefined) ||
-    (node._config & CONFIG_DERIVED_OVERRIDE) !== 0
-  );
+function isCompanion(_node: Signal<any> | Computed<any>): boolean {
+  // CARVE 2: companions (`_parentSource`) and derived overrides went with the
+  // optimistic/verdict layer; nothing left is one.
+  return false;
 }
 
 const HOLD_CENSUS_CAP = 10_000;
@@ -2675,14 +2674,7 @@ function acknowledge(
 }
 
 function censusRegistrations(t: Transition, state: HoldState): void {
-  const budget = { left: HOLD_CENSUS_CAP };
-  for (const node of t._optimisticNodes)
-    if (!isCompanion(node))
-      acknowledge(state, "optimistic", nodeName(node), reachesEffect(node, budget));
-  for (const store of t._optimisticStores)
-    acknowledge(state, "optimistic", (store as { _name?: string })?._name ?? "store", null);
-  for (const node of t._affectsNodes)
-    acknowledge(state, "affects", nodeName(node), reachesEffect(node, budget));
+  // CARVE 2: the optimistic / affects registrations went with their engines.
 }
 
 /**
@@ -2721,23 +2713,6 @@ function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, state: H
     const node = stack.pop()!;
     if (visited.has(node)) continue;
     visited.add(node);
-    const x = node._x;
-    if (x) {
-      let reader: Computed<any> | null;
-      if (x._pendingSignal !== undefined && (reader = reachesEffect(x._pendingSignal, budget)))
-        acknowledge(state, "isPending", nodeName(node), reader);
-      if (
-        x._latestValueComputed !== undefined &&
-        (reader = reachesEffect(x._latestValueComputed, budget))
-      )
-        acknowledge(state, "latest", nodeName(node), reader);
-      for (
-        let child: Signal<any> | null = (x as { _child?: Signal<any> | null })._child ?? null;
-        child !== null;
-        child = (child as { _nextChild?: Signal<any> | null })._nextChild ?? null
-      )
-        stack.push(child);
-    }
     for (let s = node._subs; s !== null; s = s._nextSub) stack.push(s._sub);
   }
 }

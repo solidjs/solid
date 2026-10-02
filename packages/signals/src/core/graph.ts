@@ -1,15 +1,13 @@
 import {
   CONFIG_AUTO_DISPOSE,
-  CONFIG_SLOT_NODE,
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
   STATUS_PENDING
 } from "./constants.js";
-import { slotUnobservedHook } from "./core.js";
-import { deleteFromHeap, queueFor } from "./heap.js";
+import { deleteFromHeap } from "./heap.js";
 import { disposeChildren } from "./owner.js";
-import { bumpNotifyEpoch, dirtyQueue, zombieQueue } from "./scheduler.js";
+import { bumpNotifyEpoch, dirtyQueue } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
@@ -25,16 +23,13 @@ export function unlinkSubs(link: Link): Link | null {
   else {
     dep._subs = nextSub;
     if (nextSub === null) {
-      // Slot nodes (store leaves) dispatch to the ONE shared hook — no
-      // per-node unobserved closure, no NodeExtension to hold it.
-      if (dep._config & CONFIG_SLOT_NODE) slotUnobservedHook(dep as Signal<any>);
-      else dep._x?._unobserved?.();
+      dep._x?._unobserved?.();
       // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
-      // A pending node is exempt: its in-flight async work (or the
-      // transition holding it) is an observer — tearing down would orphan
-      // the work and re-execute it on the next read. The settle path runs
-      // this same last-one-out check when that observer releases (the
-      // untracked-read dormancy sweep guards on pending identically).
+      // A pending node is exempt: its in-flight async work is an observer —
+      // tearing down would orphan the work and re-execute it on the next
+      // read. The settle path runs this same last-one-out check when that
+      // observer releases (the untracked-read dormancy sweep guards on
+      // pending identically).
       const c = dep as Computed<any>;
       (c as any)._fn &&
         c._config & CONFIG_AUTO_DISPOSE &&
@@ -73,7 +68,7 @@ export function clearDeps(el: Computed<unknown>): void {
 }
 
 export function unobserved(el: Computed<unknown>) {
-  deleteFromHeap(el, queueFor(el));
+  deleteFromHeap(el, dirtyQueue);
   clearDeps(el);
   disposeChildren(el, true);
 }
@@ -121,21 +116,9 @@ export function sweepDormant(): void {
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
-export function link(
-  dep: Signal<any> | Computed<any>,
-  sub: Computed<any>,
-  pendingObserver: boolean = false
-) {
-  // Repeat touches within one pass AND-combine `_pendingObserver`: a probe
-  // read (`isPending(() => x())`) beside a value read of the same dep must
-  // not relabel the value dependency as probe-only — the value read is what
-  // real-error propagation and affects() coverage key off, regardless of
-  // read order within the computation.
+export function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
   const prevDep = sub._depsTail;
-  if (prevDep !== null && prevDep._dep === dep) {
-    prevDep._pendingObserver &&= pendingObserver;
-    return;
-  }
+  if (prevDep !== null && prevDep._dep === dep) return;
 
   let nextDep: Link | null = null;
   const isRecomputing = sub._flags & REACTIVE_RECOMPUTING_DEPS;
@@ -144,8 +127,6 @@ export function link(
     if (nextDep !== null && nextDep._dep === dep) {
       nextDep._gen = sub._depGen;
       sub._depsTail = nextDep;
-      // First touch of this pass: the previous pass's label is stale.
-      nextDep._pendingObserver = pendingObserver;
       return;
     }
   }
@@ -156,17 +137,8 @@ export function link(
   // (the old alien-signals `isValidLink` walk, O(n²) when a computation
   // re-reads earlier deps non-consecutively, e.g. store leaf reads).
   const prevSub = dep._subsTail;
-  if (
-    prevSub !== null &&
-    prevSub._sub === sub &&
-    (!isRecomputing || prevSub._gen === sub._depGen)
-  ) {
-    // Gen-matched during a recompute = repeat touch this pass (AND); outside
-    // a recompute there is no pass boundary, so the latest read labels it.
-    if (isRecomputing) prevSub._pendingObserver &&= pendingObserver;
-    else prevSub._pendingObserver = pendingObserver;
+  if (prevSub !== null && prevSub._sub === sub && (!isRecomputing || prevSub._gen === sub._depGen))
     return;
-  }
 
   const newLink =
     (sub._depsTail =
@@ -177,8 +149,7 @@ export function link(
         _nextDep: nextDep,
         _prevSub: prevSub,
         _nextSub: null,
-        _gen: sub._depGen,
-        _pendingObserver: pendingObserver
+        _gen: sub._depGen
       });
   if (prevDep !== null) prevDep._nextDep = newLink;
   else sub._deps = newLink;

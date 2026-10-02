@@ -154,6 +154,62 @@ test("dev guard: throws when called inside a reactive scope", () => {
 });
 
 /**
+ * SELF-SATISFACTION PIN, later slice: the predicate is created one yield
+ * after the guess, over an already-DISPLAYED override. Its first pass runs
+ * inside `until()` (the computed's constructor), so it must be authoritative
+ * from that pass — `watch` puts the bit on at creation (2026-10-02; before,
+ * the bit went on after the first pass, and the own guess satisfied the
+ * predicate: the action settled early and the view flickered
+ * `saved → initial → saved`).
+ */
+test("action + createOptimistic: own override cannot satisfy an until created in a later slice", async () => {
+  const [src, setSrc] = createSignal("initial");
+  let name!: () => string;
+  let setN!: (v: string) => void;
+  const views: string[] = [];
+  let dispose!: () => void;
+  createRoot(d => {
+    dispose = d;
+    const [n, s] = createOptimistic(() => src());
+    name = n;
+    setN = s;
+    createEffect(n, v => void views.push(v));
+  });
+  flush();
+  const order: string[] = [];
+  let gate!: () => void;
+  const save = action(function* () {
+    setN("saved");
+    yield new Promise<void>(r => (gate = r)); // the guess displays at this seam
+    order.push("slice2");
+    yield until(() => name() === "saved" && name());
+    order.push("acked");
+  });
+  const done = save().then(() => order.push("settled"));
+  flush();
+  await tick();
+  expect(views).toEqual(["initial", "saved"]);
+  gate();
+  await tick();
+  flush();
+  await tick();
+  // The predicate read the authoritative view (the base, "initial"): not
+  // satisfied by the guess it was created over.
+  expect(order).toEqual(["slice2"]);
+  expect(views).toEqual(["initial", "saved"]);
+
+  setSrc("saved");
+  flush();
+  await tick();
+  flush();
+  await tick();
+  await done;
+  expect(order).toEqual(["slice2", "acked", "settled"]);
+  expect(views).toEqual(["initial", "saved"]);
+  dispose();
+});
+
+/**
  * SELF-SATISFACTION PIN (signal form): an action's own optimistic write must
  * not satisfy its `until` predicate; the committed landing must. The overlay
  * holds until then — the view never reverts in between (no flicker).

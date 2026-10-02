@@ -4,20 +4,28 @@ export const REACTIVE_DIRTY = 1 << 1;
 export const REACTIVE_RECOMPUTING_DEPS = 1 << 2;
 export const REACTIVE_IN_HEAP = 1 << 3;
 export const REACTIVE_IN_HEAP_HEIGHT = 1 << 4;
+/** L2 — the node sits on its owner's parked frame (`_x._pendingFirstChild`):
+ * it is the displayed frame until the owner's commit disposes it. Set by
+ * `markDisposal` over the parked subtree; carried through every per-pass
+ * flag wipe (#3543). Scheduling reads it once, at the heap pop: a zombie's
+ * recompute is deferred past the seam (`deferZombie`). */
 export const REACTIVE_ZOMBIE = 1 << 5;
 export const REACTIVE_DISPOSED = 1 << 6;
-export const REACTIVE_OPTIMISTIC_DIRTY = 1 << 7;
+/** L2 — this pass read the future (a tracked read of a CONFIG_HELD node).
+ * Lives for the pass only: set by `read`, consumed by `recompute`'s publish
+ * (a first pass that read the future is born held, A29), wiped with the
+ * pass's other per-pass bits. */
+export const REACTIVE_JOINED = 1 << 7;
 export const REACTIVE_SNAPSHOT_STALE = 1 << 8;
 export const REACTIVE_LAZY = 1 << 9;
 export const REACTIVE_MANUAL_WRITE = 1 << 10;
-/**
- * The pending recompute is a re-ask of the same question: `refresh()` dirtied
- * the node while no tracked input changed value. Cleared whenever a real
- * value-change notification arrives (`insertSubs`), and consumed by
- * `recompute` into the node's `_reask` classification — a quiet (re-ask)
- * pending window does not read as pending (question-scoped pending model).
- */
-export const REACTIVE_REASK = 1 << 11;
+/** L2, rule 3 — the node's LAST pass was a render effect's read of the
+ * future as committed (`frameRead`): the frame shows the committed world
+ * beside a future it also derives from, and re-derives at the landing.
+ * Survives its own pass's wipe; the next pass's wipe clears it (a pass that
+ * re-derived the frame — in the future, or without the held read — owes the
+ * landing nothing). The landing consumes it (the transaction's `_reruns`). */
+export const REACTIVE_FRAME_READ = 1 << 11;
 /**
  * A dependency write landed while this subscriber was mid-recompute — a
  * nested pull committed beneath one of its reads (#3037). The heap refuses
@@ -27,6 +35,28 @@ export const REACTIVE_REASK = 1 << 11;
  * either re-read later in the pass (fresh) or trimmed with it (not a dep).
  */
 export const REACTIVE_MISSED_WAKE = 1 << 12;
+/** A `refresh()` asked this node to re-ask its question (A19 exc. 2, A24):
+ * consumed by the next pass, which — going pending — classifies its flight
+ * quiet (`_x._reask`). */
+export const REACTIVE_REASK = 1 << 13;
+/** The pass was served a node's ambient staging — written this flush, not
+ * held. If the flush parks, the pass is the frame's with it (the same sync
+ * frame as the async): a verdict read cannot break it out. Per pass. */
+export const REACTIVE_STAGED_READ = 1 << 14;
+/** The pass entered a verdict window (`isPending`/`latest`). Per pass: a
+ * pass that did not keeps CONFIG_VERDICT no longer — the frame-reader
+ * posture lasts exactly as long as the probing does. */
+export const REACTIVE_PROBED = 1 << 15;
+/** Lanes — the node (a lane's member) was dirtied by the lane's own
+ * re-staging (a re-guess, lane work re-derived): its next pass is the
+ * lane's from the start (`recompute`), not a stale reader's re-run by an
+ * unrelated write (#3460). Consumed by the pass. */
+export const REACTIVE_LANE_DIRTY = 1 << 16;
+/** Verdicts — a probe (`isPending`) of a flight re-derives at the holder's
+ * landing (`_reruns`, as a stale reader) without being a blocker of the
+ * hold the way REACTIVE_FRAME_READ makes a frame reader one: a probe alone
+ * does not hold. Consumed by the landing or the next pass. */
+export const REACTIVE_VERDICT_RERUN = 1 << 17;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;
@@ -36,6 +66,74 @@ export const CONFIG_IN_SNAPSHOT_SCOPE = 1 << 3;
 export const CONFIG_CHILDREN_FORBIDDEN = 1 << 4;
 export const CONFIG_AUTO_DISPOSE = 1 << 5;
 export const CONFIG_SYNC = 1 << 6;
+// CARVE 3: REACTIVE_ZOMBIE, CONFIG_AUTHORITATIVE_READ, CONFIG_DIRECT_COMMIT,
+// CONFIG_HELD_CHILDREN, CONFIG_INPUTS_PUBLISHED and CONFIG_ADOPTED_UNFLUSHED
+// (transaction holds, zombies, until()'s authoritative view) went with the
+// transactions.
+// L2 (step 2): three bits, all maintained by the node's commit.
+/** The node has a pass awaiting commit: its live children (and `_disposal`)
+ * are that pass's and were never shown — a re-pass tears them down on the
+ * spot, while the frame parked on `_x._pendingFirstChild` keeps waiting for
+ * the commit. Set by `recompute` when it queues the node. */
+export const CONFIG_STAGED = 1 << 7;
+/** The node's staged state is in the future: the flush that staged it
+ * parked. A write to it, a tracked read of it by a derivation, or a pass
+ * over a derivation holding it joins the future (the flush parks). Render
+ * effects are the frame, not derivations (rule 3): reading it outside a
+ * parking flush they see the committed value and hold nothing, and are
+ * re-derived at the landing. Set at the park seam on every staged node. */
+export const CONFIG_HELD = 1 << 8;
+/** A15's reveal corollary (#3305): a commit published this flight's inputs
+ * beneath it — the node was pending, nothing staged, when it committed — so
+ * its committed value is torn against the visible frame. A render effect
+ * revealing it cannot be a stale reader: it observes the flight (pends,
+ * holds) instead of showing the pre-flight value. Outlives the flight that
+ * earned it for as long as the node stays pending, and no longer: the
+ * commit that lands a value clears it. */
+export const CONFIG_INPUTS_PUBLISHED = 1 << 10;
+/** Lanes — `_value` is displayed optimism: a guess (`optimisticWrite`) or a
+ * lane pass's derivation of one, revealed. Its lane is `_x._transaction`. A
+ * tracked read of it makes the reading pass lane work (`passLane`). The
+ * truth arriving (the node's own source recomputing it, A18) stages under
+ * the lane's parent and clears the bit; the lane's end commits the staged
+ * truth or reverts `_value` to the base the lane recorded. */
+export const CONFIG_OVERRIDE = 1 << 11;
+/** Lanes — held by a lane that is blocked (its own derivation in flight):
+ * CONFIG_HELD with lane semantics. Direct reads serve the staged value (the
+ * guess is the sub-transition's pending value); a tracked derivation becomes
+ * lane work rather than joining the flush; a render effect outside the
+ * lane's flush is a stale reader (#3460). */
+export const CONFIG_LANE_HELD = 1 << 12;
+/** Lanes — the node carries a written guess (`optimisticWrite`): its own
+ * source recomputing it, or a plain write landing on it, is the truth
+ * (`supersede`). A lane's derived staging is not. */
+export const CONFIG_GUESS = 1 << 13;
+/** The node's pass read a verdict (`isPending`/`latest`): a dependency going
+ * pending is a question for its next pass — the verdict changed — so the
+ * propagation re-derives it instead of marking it pending (as a kept-tail
+ * link does, A30). Set at the window, never cleared: a reader that stopped
+ * asking re-derives once and goes pending through its own read. */
+export const CONFIG_VERDICT = 1 << 14;
+/** A dependency's status is a question for this node's pass, not a fact
+ * about its current one: the propagation re-derives it instead of marking
+ * it, for errors as for pending (as CONFIG_VERDICT). A boundary's output
+ * (show the content, or the fallback) and its `on` node (boundaries.ts); a
+ * promise over an expression (`resolve`/`until`, signals.ts: the pass reads
+ * the error and rejects, or re-asks a pending source). */
+export const CONFIG_REDERIVE = 1 << 15;
+/** The reader wants the truth, not the lane's guess (`until`, signals.ts):
+ * a read of displayed optimism serves the base the guess covers, makes the
+ * pass no lane's, and the truth landing wakes it even when it confirms the
+ * guess (the one case ordinary subscribers are not told — A17's silence). */
+export const CONFIG_AUTHORITATIVE = 1 << 17;
+/** Lanes — the base a displayed guess covers (`_pendingValue`) is a truth
+ * held for the commit, not the committed value: a write or landing staged
+ * before the guess in the same frame, or an older question's answer held
+ * silently under a newer guess (A18 provenance, #3331). The guess is still
+ * the value; `isPending` says the held truth differs (A24). The lane's end
+ * commits it — or, a never-shown lane reverting, re-homes it with the
+ * parent instead of dropping it. */
+export const CONFIG_HELD_TRUTH = 1 << 18;
 // Presence bits (stage-3 hot-path monomorphism, DESIGN-PATCH-CHANNEL §11b):
 // optional per-node slots (_overrideValue, _pendingSignal/_latestValueComputed,
 // _snapshotValue, _optimisticLane) are NOT part of every node's hidden class —
@@ -44,51 +142,7 @@ export const CONFIG_SYNC = 1 << 6;
 // pay one monomorphic masked read and only touch the optional field when its
 // installer flagged it. Bits are STICKY ("may be set") — the guarded field
 // read remains authoritative.
-export const CONFIG_OPTIMISTIC = 1 << 7;
-export const CONFIG_HAS_COMPANIONS = 1 << 8;
 export const CONFIG_HAS_SNAPSHOT = 1 << 9;
-export const CONFIG_HAS_LANE = 1 << 10;
-/** Set on a FIREWALL computed when any of its child signals creates an
- * isPending()/latest() companion. Gates the post-recompute child-companion
- * walk (#3038): a store computed's `_child` chain holds one node per
- * materialized leaf, so walking it unconditionally makes every update cost
- * O(all leaves ever read). Sticky — set at companion creation, never
- * cleared; sync-only apps never set it and never pay the walk. */
-export const CONFIG_CHILD_COMPANIONS = 1 << 11;
-/** Set on a computed when its first firewall child signal is installed
- * (projection machinery). Gates markNode's firewall-children walk with one
- * masked read of the always-present _config — the walk's old `_child` read
- * moved into the cold extension (§12), and an unconditional `_x` deref per
- * marked node measurably taxed the propagation hot path (diamond -22%). */
-export const CONFIG_FW_CHILDREN = 1 << 12;
-/** Authoritative-view reader (`until()`): while this node computes, reads
- * dodge active optimistic OVERRIDES only — the predicate must observe
- * arriving truth, never the caller's own tentative writes (which would
- * trivially satisfy it). Everything else reads normally, INCLUDING
- * transition-staged `_pendingValue`: staged data is authoritative (optimism
- * lives only in override slots), and a hold that refused staged reads would
- * deadlock on data the open transaction itself is holding (a refresh the
- * action issued lands staged and cannot commit until the hold releases).
- * read() checks the bit on the reading computation (`context`) directly — no
- * ambient flag — so a shared computed the predicate pulls recomputes as
- * itself (no bit) under the normal view, and its cache never forks. */
-export const CONFIG_AUTHORITATIVE_READ = 1 << 13;
-/** Sticky mark: an authoritative-view reader read this node PAST an active
- * override. The ack shape — an authoritative arrival EQUAL to the override —
- * rides paths that are deliberately silent under A17 (every ordinary reader
- * sees the override, so an equal landing changes nothing for them). A marked
- * node notifies those readers on such paths anyway, so the landed truth is
- * seen without re-firing ordinary subscribers. Never cleared — only nodes an
- * until() predicate observed mid-override pay. */
-export const CONFIG_AUTHORITATIVE_OBSERVED = 1 << 14;
-/** Promise-delivery effect (resolve()/until()): commits its computed value
- * directly even when recomputing under its own held transition. These
- * effects deliver applies on a microtask (#2930) instead of the stashed
- * effect queues, so the value must ride the same immediate schedule — a
- * staged value with an immediate apply delivers stale state (resolve) or
- * deadlocks the hold (until). Safe because the node is a private leaf: no
- * subscriber reads an effect's value, only its own apply does. */
-export const CONFIG_DIRECT_COMMIT = 1 << 15;
 /** Fresh-pull reader (awaitable `refresh()`'s waiter effect): a read of a
  * dirty source recomputes it inline even when the height gate defers to the
  * flush. Closes the same-flush ordering race where a waiter created
@@ -99,125 +153,11 @@ export const CONFIG_DIRECT_COMMIT = 1 << 15;
  * deliberately keeps that race — its contract is "first settled value"
  * (#2930), not "next quiescent state". */
 export const CONFIG_FRESH_READ = 1 << 16;
-/** HELD truth (#3164): this node's staged `_pendingValue` is confirming
- * truth riding a transaction that retains optimism, revealed only at that
- * transaction's settle. Two arming sites, one meaning: the store fold
- * (a landing staged into the retaining transaction) and until()'s
- * flip-entanglement (a foreign carrier's staged write, stolen when it
- * flipped the awaited predicate truthy). Override-covered nodes never
- * arm: the override is their display and its revert their notification
- * (A17).
- *
- * To a DERIVING reader the truth is a staged value like any other: a memo
- * or user effect served it enters the transaction and is held with it
- * (A29), so a pass that composes it with a superseded override's truth
- * composes ONE staged world — never staged truth beside committed
- * neighbours (#3568: the mask served the retaining transaction's own pass
- * the landed `length` through the override while the rows past it stayed
- * committed, and `<For>` walked into a hole). Stale readers of a foreign
- * transaction keep committed through the stale-of-foreign clause,
- * untracked reads keep committed (Rule 1), and latest() and until()'s
- * predicate tunnel through — the exemption that keeps holds deadlock-free.
- *
- * The one reader the mark gates is a LANE pass, owning transaction or not
- * (ruled 2026-09-22, superseding #3589's owner exemption): a lane applies
- * its frame display-ahead at the park, so a lane pass served the truth
- * would paint the confirmation beside the optimism it confirms —
- * `saving=true` beside the saved row, a frame no timeline contains
- * (GabbeV's union tear). It keeps committed and is re-run by the reveal's
- * post-revert wake. A lane under the retaining transaction owns its
- * overrides and its lane cargo (`ownsLane`), not the transaction's
- * confirming truth. Cleared at commit (the commit IS the reveal);
- * subscribers masked during the hold are woken by finalizePureQueue's
- * post-revert pass. */
-export const CONFIG_HELD_TRUTH = 1 << 17;
-/** SLOT node (store leaf): created through `slotSignal` with `_host`/`_key`
- * backrefs baked into the literal. The unobserved sweep dispatches these to
- * the ONE shared hook (`setSlotUnobserved`) instead of a per-node closure
- * held in a per-node extension — store mounts materialize one signal per
- * touched leaf, so per-node allocations (options object, equals closure,
- * unobserved closure, NodeExtension) were the measured create-floor bytes
- * (warm dbmon profile: store node machinery ~36% + GC ~29%). */
-export const CONFIG_SLOT_NODE = 1 << 18;
-
-/** Optimistic node whose own source arrived with a value DIFFERENT from its
- * active override (A18 supersession, #3331). The override survives only as
- * the displayed value — untracked reads and the applied frame keep it until
- * the owning transaction commits — while the graph has already moved to the
- * staged truth in `_pendingValue`: tracked readers see it and the corrected
- * cascade is that transaction's held work. Set by the two own-source write
- * paths (asyncWrite, transition-held recompute); cleared by a fresh optimistic
- * write (a new override re-masks) and by the revert. */
-export const CONFIG_OVERRIDE_SUPERSEDED = 1 << 19;
-
-/** HELD children (#3404): this node's `_firstChild` chain (and `_disposal`
- * list) was built by a recompute whose result has not committed — a staged
- * value, a pending window, or a run under a held transaction. A later
- * recompute may tear those children down immediately: nothing observable
- * was ever built on them. Unset, the children belong to the committed frame
- * and a recompute defers them as zombies (`_pendingFirstChild`) until this
- * node commits — regardless of whether the recompute runs under a
- * transaction. A parked node (status propagation stamps `_transition`
- * without recomputing) recomputed when its source lands otherwise disposed
- * its committed children mid-hold, running their cleanups before the
- * transaction's atomic reveal. Cleared by `commitPendingNode`. Transaction
- * work only (A15 lane work and transaction work, #3698): zombies are parked
- * by a pass under a held transaction; a pass over a lane parks a LANE frame
- * instead (`CONFIG_LANE_FRAME`), whatever the node's kind. */
-export const CONFIG_HELD_CHILDREN = 1 << 20;
-
-/** The frame parked in `_pendingFirstChild` / `_pendingDisposal` is a LANE
- * frame (#3662, #3698; A15 lane work and transaction work): a lane pass —
- * on an effect or a memo alike — publishes into the lane's frame (an
- * effect's run; a memo's derived override, A17), so the frame it replaces
- * leaves the screen when the lane applies (A30) — not at the action's
- * commit like #3404's transaction zombies, and not at the pass (a held lane
- * defers the apply with the frame still displayed). Drained by the lane's
- * render entry the parking site pushed ahead of the new frame's effects
- * (cleanups before side effects), by `commitPendingNode` if a hold commits
- * the node first, or with the owner's death. While set the parked frame is
- * not a hold (the node is not queued or stamped for it — lane work never
- * makes its node transaction work), a superseding pass disposes the
- * never-shown live children on the spot, and a lane-channel dirty on a
- * member is cancelled (`laneZombie`). Ruled 2026-09-28 (#3698): a pass is
- * lane work or transaction work by its owner, never by node kind. #3662
- * flagged effects only, and a memo's lane pass parked a transaction zombie
- * that queued and stamped the memo as the action's pending node, so its
- * next mainline recompute re-entered the hold. */
-export const CONFIG_LANE_FRAME = 1 << 26;
-
-/** In-flight async node whose inputs were PUBLISHED while it was pending: a
- * batch or transaction committed with the node still `STATUS_PENDING` (an
- * unobserved flight, #3305), so the inputs are on screen and the node's
- * committed `_value` is stale against them. Governs read()'s reveal
- * carve-out: a stale (render) reader in some OTHER transaction may show a
- * foreign-held pending node's committed value — parallel transactions, no
- * entanglement — only while that value is coherent with the visible frame,
- * i.e. while the flight's inputs are themselves held (unpublished) and not
- * lane-revealed. Set by `commitPendingNodes`; cleared when the node next
- * enters pending fresh (a new flight from a settled state). */
-export const CONFIG_INPUTS_PUBLISHED = 1 << 21;
 /** A28 (4): the node was written inside a recompute that ran OUTSIDE a flush
  * (a creation-time compute — boundary machinery, a mapArray's first run). Such
  * a write is promoted at that recompute's end: readers in the same block see
  * it. Cleared when the next flush begins; set only on that rare path. */
 export const CONFIG_PROMOTED = 1 << 22;
-/** A28 for same-tick adoption: the node was staged outside a flush and then
- * adopted by a transaction (initTransition) before any flush carried the
- * staging — the stamp says "held", but nothing flushed is staged for it, so
- * on no channel is the write visible yet: `latest()` answers the committed
- * value, the verdict sees nothing pending (as the store's leaves already did
- * through their own selection). Cleared when the carrying flush re-stamps the
- * transaction's pending nodes (reassignPendingTransition). */
-export const CONFIG_ADOPTED_UNFLUSHED = 1 << 24;
-/** The node's active override is a DERIVED one: a lane pass published its
- * speculative result into the override slot instead of `_value` (lanes
- * stage — an optimistic derivation is an override, #3479). Its truth is not
- * `_value` but a recompute from its inputs' truth, so the body-end
- * supersession (`endOptimism`) and the authoritative-flight blockage
- * (`transitionBlocked`) skip it; the revert drops the override and re-derives
- * it (`resolveOptimisticNodes`). Cleared with the override. */
-export const CONFIG_DERIVED_OVERRIDE = 1 << 23;
 /** Observe tiers only: the node is framework plumbing (the `solid-js/refresh`
  * HMR memo between a component's root and its body) — it has no name, is no
  * segment of any owner path, and the attribution engine records nothing about
@@ -234,28 +174,9 @@ export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;
 export const EFFECT_USER = 2;
 export const EFFECT_TRACKED = 3;
-/** OR-ed into the `type` a lane passes to its effect runners: lane runs
- * apply ahead of their transaction and are exempt from ownership parking. */
-export const LANE_RUN = 4;
 
 export const NOT_PENDING = {};
 export const NO_SNAPSHOT = {};
-/**
- * Stand-in stored in `_overrideValue` for an optimistic write of literal
- * `undefined` (#2898). The slot doubles as the optimistic-node brand
- * (`undefined` = not optimistic, `NOT_PENDING` = at rest), so the raw value
- * would erase the node's optimistic identity: the write turns invisible and
- * follow-up writes route off the optimistic path and commit permanently.
- * Same shape as NO_SNAPSHOT. Sites that surface the override VALUE unwrap
- * via `visibleOverrideValue`; slot identity tests stay raw.
- */
-export const OVERRIDE_UNDEFINED = {};
-
-/** Unwrap an active override's stored value for surfacing to readers (#2898). */
-export function unwrapOverride<T = any>(v: unknown): T {
-  return (v === OVERRIDE_UNDEFINED ? undefined : v) as T;
-}
-export const STORE_SNAPSHOT_PROPS = "sp";
 
 export const SUPPORTS_PROXY = typeof Proxy === "function";
 

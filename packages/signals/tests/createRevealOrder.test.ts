@@ -1084,7 +1084,14 @@ describe("createRevealOrder", () => {
     });
 
     flush();
-    expect(result).toEqual(["la", ["lb", [undefined, undefined]]]);
+    // The outer is sequential and collapsed: `la` is its frontier, and the
+    // whole tail renders nothing — the middle composite's direct slot and the
+    // leaves of the composite nested in it alike. (Re-pinned 2026-10-02: the
+    // previous `["la", ["lb", [undefined, undefined]]]` showed `lb`'s
+    // fallback inside the collapsed tail while collapsing its sibling's
+    // leaves — an artifact of the signal-based evaluation order, not a
+    // rule.)
+    expect(result).toEqual(["la", [undefined, [undefined, undefined]]]);
 
     aReady.resolve(1);
     await settle();

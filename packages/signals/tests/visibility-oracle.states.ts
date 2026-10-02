@@ -281,9 +281,16 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
+      // Lanes (2026-10-01/02): the guess was written in the frame that
+      // re-asked its source and re-fetched its derivation, so its lane was
+      // blocked and the guess never displayed; "a correction while blocked
+      // voids the never-shown guess" (§16). A18 (c)'s "the display keeps the
+      // override until the commit" is about a displayed override — there is
+      // none here: direct reads see the committed value, the truth is staged
+      // under the action, a fresh reader of it is born held.
       untracked: rule(
-        3,
-        "A18 (c): untracked reads keep the override until the transaction commits"
+        0,
+        "lanes: the never-shown guess is void at the correction; the truth is staged"
       ),
       derivesFrom: rule(2, "A18 (b): tracked derivations recompute from the arrived value"),
       published: rule(
@@ -291,11 +298,8 @@ export const STATES: State[] = [
         "A18 (c) / A29 (born held): a fresh mainline memo over the superseded node derives from the staged truth and is held with the transaction; the frame keeps the override"
       ),
       preexisting: rule(HELD, "A18 (c): the applied frame keeps the override until commit"),
-      staleForeign: rule(
-        3,
-        "A18 (c) / A17 amended: a stale reader of another transaction displays the override"
-      ),
-      childrenForbidden: rule(3, "A32: the displayed override shows through, superseded or not"),
+      staleForeign: rule(0, "lanes: a stale reader of a void guess sees the committed value"),
+      childrenForbidden: rule(0, "A32 / lanes: the frame — the never-shown guess is void"),
       latest: rule(2, "A18 (d): latest returns the arrived value"),
       isPending: rule(true, "A18 (d): pending iff the arrival differs from the override"),
       authoritative: rule(2, "A17 carve-out: the authoritative reader sees the staged truth")
@@ -311,19 +315,34 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
-      untracked: rule(3, "A18 (c)"),
+      // Lanes (2026-10-01/02): the guess was written in the frame that
+      // re-asked its source and re-fetched its derivation, so its lane was
+      // blocked and the guess never displayed; "a correction while blocked
+      // voids the never-shown guess" (§16). A18 (c)'s "the display keeps the
+      // override until the commit" is about a displayed override — there is
+      // none here: direct reads see the committed value, the truth is staged
+      // under the action, a fresh reader of it is born held.
+      // Never committed: no value to serve a direct read (A19 exc. 1 —
+      // loading, not pending), `latest` tunnels to the staged truth.
+      untracked: rule(
+        "throws:NotReady",
+        "A19 exc. 1 / lanes: never committed and the guess void — nothing to serve"
+      ),
       derivesFrom: rule(2, "A18 (b)"),
       published: rule(HELD, "A18 (c) / A29 (born held)"),
       preexisting: observed(
         HELD,
         "this reader (created after the node initialized) holds. A render effect on the node created BEFORE its first landing published the truth (2) at the supersession in a side probe — while untracked reads still served 3 — so the hold here is shape-dependent; follow-up"
       ),
-      staleForeign: observed(3, "displays the override, as in the initialized case"),
-      childrenForbidden: rule(3, "A32"),
+      staleForeign: rule(
+        HELD,
+        "lanes / A29: a fresh stale reader of a never-committed node enters"
+      ),
+      childrenForbidden: rule(0, "A32 / lanes: the frame — nothing committed, the guess void"),
       latest: rule(2, "A18 (d)"),
       isPending: rule(
-        true,
-        "A18 (d): pending iff the arrival differs from the displayed override — even before the node's first commit (the override is the observable value; A19 exception 1 does not apply)"
+        false,
+        "A19 exc. 1: a never-committed node is loading, not pending (the guess that was 'the observable value' under `next` is void)"
       ),
       authoritative: rule(2, "A17 carve-out")
     }
@@ -478,7 +497,16 @@ export const STATES: State[] = [
       return { x, dispose };
     },
     expect: {
-      untracked: rule(1, "A18 (c): the display keeps the override until the commit"),
+      // Lanes (2026-10-01): the guess never showed — its lane was blocked on
+      // the downstream flight — and "a correction while blocked voids the
+      // never-shown guess": from the body-end supersession on there is no
+      // guess for a direct read to serve, only the truth it reverted to.
+      // (Was 1 under `next`'s override slot, which outlived the supersession
+      // until the commit.)
+      untracked: rule(
+        0,
+        "A18 body-end corollary / lanes: the never-shown guess is void at the correction; a direct read serves the truth"
+      ),
       derivesFrom: rule(
         0,
         "A18 body-end corollary: the override is superseded by the truth at hand (committed 0); the graph re-derives from it"
@@ -489,17 +517,17 @@ export const STATES: State[] = [
       ),
       preexisting: rule(HELD, "A18 (c): display unchanged until commit"),
       staleForeign: rule(
-        1,
-        "A18 (c): a stale reader of the owning transaction displays the override (owner via _overrideOwner, #2912 — the node carries no stamp)"
+        0,
+        "lanes: a stale reader of a void guess sees the truth it reverted to (the guess never showed)"
       ),
       childrenForbidden: rule(
-        1,
-        "A32: the displayed override shows through — as for landing supersession"
+        0,
+        "A32 / lanes: the frame — the never-shown guess is void, the truth shows through"
       ),
       latest: rule(0, "A18 (d): latest returns the truth"),
       isPending: rule(
-        true,
-        "A18 (d): the truth (committed 0) differs from the displayed override (1)"
+        false,
+        "A24 / lanes: the never-shown guess is void and the display is the truth — no value change in flight (was true under `next`'s override slot, which still displayed 1)"
       ),
       authoritative: rule(0, "A17 carve-out: the truth beneath the override")
     }
@@ -518,21 +546,20 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
-      untracked: rule(3, "A17: the override is the displayed value"),
-      derivesFrom: rule(
-        3,
-        "A18: a later landing equal to the override un-supersedes it — the override is again the graph's value"
-      ),
-      published: observed(
-        3,
-        "the override is display AND graph; a fresh reader publishes it — no rule names the fresh-reader cell of an un-superseded node"
-      ),
+      // Lanes: the correction voided the never-shown guess, so there is no
+      // override to un-supersede. The later mainline write re-asks a node the
+      // action holds (A34: the tick entangles) and its landing (3) is a plain
+      // truth staged under the action: committed 0 everywhere a direct read
+      // looks, `latest` 3, pending (0 → 3 in flight), a fresh reader held.
+      untracked: rule(0, "lanes / A34: a plain landing staged under the action; committed 0"),
+      derivesFrom: rule(3, "A18 (b): tracked derivations recompute from the arrived value"),
+      published: rule(HELD, "A29: a fresh reader of the staged truth is born held"),
       preexisting: rule(HELD, "A18 (c): the display never changed"),
-      staleForeign: rule(3, "A17"),
-      childrenForbidden: rule(3, "A32"),
-      latest: rule(3, "A18 (d): the arrived value equals the override"),
-      isPending: rule(false, "A18 (d): the arrival does not differ"),
-      authoritative: rule(3, "A17 carve-out: the staged truth (3) equals the override")
+      staleForeign: rule(0, "A15: a stale reader sees the committed value"),
+      childrenForbidden: rule(0, "A32: the frame"),
+      latest: rule(3, "A18 (d): the arrived value"),
+      isPending: rule(true, "A24: a value change (0 → 3) is in flight"),
+      authoritative: rule(3, "A17 carve-out: the staged truth")
     }
   },
   {
@@ -581,9 +608,9 @@ export const STATES: State[] = [
         HELD,
         "A29: the memo that derived from the held truth is held with the transaction — its render effect publishes at the reveal, not before"
       ),
-      preexisting: observed(
-        0,
-        "the pre-existing effect re-runs when the stolen landing arrives and re-publishes the committed 0 — the frame does not change, but the run is observable"
+      preexisting: rule(
+        HELD,
+        "the flush carrying the stolen landing joins the action (flip-entanglement): the pre-existing effect's pass is held with it, nothing re-publishes (was an observed re-run of the committed 0 under `next`)"
       ),
       staleForeign: rule(0, "A17 held truth"),
       childrenForbidden: rule(0, "A32"),

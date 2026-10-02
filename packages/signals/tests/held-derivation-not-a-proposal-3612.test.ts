@@ -14,7 +14,11 @@ import {
 
 // A34 amendment (#3612, sshockwave). Ruled 2026-09-23:
 //
-//   #2692's "manual write wins" precedence applies within a synchronous frame.
+//   [#2692's "manual write wins" precedence applies within a synchronous frame.]
+//   — reversed 2026-10-01 (A34 rule B, #3733): writes apply first, then
+//   derivations re-run; within a frame the derivation re-runs with the write
+//   as `prev`, whatever the order. The "#2692 preserved" block below now pins
+//   rule B. The rest of the amendment stands:
 //   Across a hold, a held derivation is not a proposal: a mainline write to a
 //   node whose held staging is a pass result (stamped `_transition = T` by
 //   another transaction, `REACTIVE_MANUAL_WRITE` NOT set on the node / its
@@ -233,28 +237,28 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
     h.dispose();
   });
 
-  describe("#2692 preserved: within a synchronous frame the manual write wins, regardless of order", () => {
-    it("setA(2); setB(101); flush() — no hold → a=2 b=101", async () => {
+  describe("A34 rule B (2026-10-01): within a frame the derivation re-runs with the write as prev, regardless of order (reverses #2692)", () => {
+    it("setA(2); setB(101); flush() — no hold → a=2 b=200", async () => {
       const h = setup({ holds: () => false });
       await settle();
       h.setA(2);
       h.setB(101);
       await settle();
-      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=101 c=2"]);
+      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=200 c=2"]);
       h.dispose();
     });
 
-    it("setB(101); setA(2); flush() — no hold → a=2 b=101", async () => {
+    it("setB(101); setA(2); flush() — no hold → a=2 b=200", async () => {
       const h = setup({ holds: () => false });
       await settle();
       h.setB(101);
       h.setA(2);
       await settle();
-      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=101 c=2"]);
+      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=200 c=2"]);
       h.dispose();
     });
 
-    it("setA(2); setB(101); flush() — the same frame opens the hold → reveals a=2 b=101", async () => {
+    it("setA(2); setB(101); flush() — the same frame opens the hold → re-derives under it, reveals a=2 b=200", async () => {
       const h = setup();
       await settle();
       h.setA(2);
@@ -262,11 +266,11 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       await settle();
       expect(h.views).toEqual(["a=1 b=100 c=1"]);
       await h.release();
-      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=101 c=2"]);
+      expect(h.views).toEqual(["a=1 b=100 c=1", "a=2 b=200 c=2"]);
       h.dispose();
     });
 
-    it("separate ticks, no hold: setA(2) | setB(101) → a=2 b=200 → a=2 b=101", async () => {
+    it("separate ticks, no hold: setA(2) | setB(101) → a=2 b=200 → a=2 b=101 (a write on its own never re-runs the derivation)", async () => {
       const h = setup({ holds: () => false });
       await settle();
       h.setA(2);
@@ -504,7 +508,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       h.dispose();
     });
 
-    it("same frame: setA(2); setS(v=101) — the manual write still wins (#2692 / CS-R31)", async () => {
+    it("same frame: setA(2); setS(v=101) — the fold re-runs with the written draft as prior state (CS-R31 as amended 2026-10-01, rule B)", async () => {
       const h = setupStore({ holds: () => false });
       await settle();
       h.setA(2);
@@ -512,11 +516,11 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
         d.v = 101;
       });
       await settle();
-      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=101 c=2"]);
+      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=200 c=2"]);
       h.dispose();
     });
 
-    it("same frame opening the hold: setA(2); setS(v=101) → reveals a=2 s.v=101", async () => {
+    it("same frame opening the hold: setA(2); setS(v=101) → the fold re-runs under it, reveals a=2 s.v=200", async () => {
       const h = setupStore();
       await settle();
       h.setA(2);
@@ -526,7 +530,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
       await settle();
       expect(h.views).toEqual(["a=1 s.v=100 c=1"]);
       await h.release();
-      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=101 c=2"]);
+      expect(h.views).toEqual(["a=1 s.v=100 c=1", "a=2 s.v=200 c=2"]);
       h.dispose();
     });
 

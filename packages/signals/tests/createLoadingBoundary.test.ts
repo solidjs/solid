@@ -1,4 +1,5 @@
 import {
+  createEffect,
   createErrorBoundary,
   createLoadingBoundary,
   createMemo,
@@ -1138,5 +1139,103 @@ describe("createLoadingBoundary", () => {
     flush();
 
     expect(result).toBe("sync");
+  });
+
+  it("instantiates the fallback once per show: a second reader going pending does not rebuild it", async () => {
+    let fallbackRuns = 0;
+    let result: unknown;
+    let resolveA!: (v: string) => void, resolveB!: (v: string) => void;
+    const [showB, setShowB] = createSignal(false);
+    createRoot(() => {
+      const dataA = createMemo(() => new Promise<string>(r => (resolveA = r)));
+      const dataB = createMemo(() => new Promise<string>(r => (resolveB = r)));
+      const boundary = createLoadingBoundary(
+        () => {
+          const cells = { a: "", b: "" };
+          createRenderEffect(dataA, v => void (cells.a = v));
+          createRenderEffect(
+            () => (showB() ? dataB() : "-"),
+            v => void (cells.b = v)
+          );
+          return cells;
+        },
+        () => (fallbackRuns++, "loading")
+      );
+      createRenderEffect(boundary, v => void (result = v));
+    });
+    flush();
+    expect(result).toBe("loading");
+    expect(fallbackRuns).toBe(1);
+
+    // A second reader suspends in a later flush while the fallback shows.
+    setShowB(true);
+    flush();
+    expect(fallbackRuns).toBe(1);
+
+    resolveA("A");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    // Still waiting on B: no rebuild either.
+    expect(result).toBe("loading");
+    expect(fallbackRuns).toBe(1);
+
+    resolveB("B");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(result).toEqual({ a: "A", b: "B" });
+    expect(fallbackRuns).toBe(1);
+  });
+
+  it("holds every queued run behind the fallback until the reveal; the synchronous first render goes through", async () => {
+    const log: string[] = [];
+    const [count, setCount] = createSignal(0);
+    let resolve!: (v: string) => void;
+    let result: unknown;
+    createRoot(() => {
+      const data = createMemo(() => new Promise<string>(r => (resolve = r)));
+      const boundary = createLoadingBoundary(
+        () => {
+          // The async read lives in a render effect (a JSX expression), so
+          // the body runs once; these two read nothing async and their runs
+          // are due while the fallback shows.
+          const cell = { data: "" };
+          createRenderEffect(data, v => void (cell.data = v));
+          createRenderEffect(count, v => void log.push(`render ${v}`));
+          createEffect(count, v => void log.push(`user ${v}`));
+          return cell;
+        },
+        () => "loading"
+      );
+      createRenderEffect(boundary, v => void (result = v));
+    });
+    flush();
+    expect(result).toBe("loading");
+    // The render effect's first run is synchronous at creation (the subtree
+    // is built, attached or not); the user effect's first run is queued and
+    // waits — the DOM it would read is not attached.
+    expect(log).toEqual(["render 0"]);
+
+    // A queued render update waits too (maintainer, 2026-10-02: the queue is
+    // held, the sync renders go through): a Portal's or head-tag's render
+    // effect writes outside the hidden subtree, and it must not reach the
+    // live document while the fallback shows.
+    setCount(1);
+    flush();
+    expect(log).toEqual(["render 0"]);
+
+    resolve("ready");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(result).toEqual({ data: "ready" });
+    // Revealed: one run each, with the latest value — not a replay; the
+    // render update with the frame, the user effect after it.
+    expect(log).toEqual(["render 0", "render 1", "user 1"]);
+
+    setCount(2);
+    flush();
+    expect(log).toEqual(["render 0", "render 1", "user 1", "render 2", "user 2"]);
   });
 });

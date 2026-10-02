@@ -72,25 +72,31 @@ function app(leak: false | "root" | "ownerless") {
     // The app reads `shared` too: that is how the walk reaches it, and through
     // its subscriber list the effects nobody owns.
     createEffect(shared, () => {}, { name: "sharedReader" });
+    // The leaks happen in the pass that mounts the route (a component body
+    // detaching work from its owner), where creating computations is legal;
+    // in the effect callback the same code trips PRIMITIVE_IN_EFFECT_CALLBACK
+    // before GRAPH_GROWTH ever sees a graph.
     createEffect(
-      page,
-      route => {
-        if (route !== "/orders" || leak === false) return;
-        if (leak === "root") {
-          // The mistake: a detached root per visit, never disposed.
-          createRoot(d => {
-            leaked.push(d);
-            const [n] = createSignal(0);
-            createEffect(n, () => {});
-            createMemo(() => n() + 1);
-          });
-        } else {
-          // The other mistake: an effect with no owner, kept alive by `shared`.
-          runWithOwner(null, () => {
+      () => {
+        const route = page();
+        if (route !== "/orders" || leak === false) return route;
+        runWithOwner(null, () => {
+          if (leak === "root") {
+            // The mistake: a detached root per visit, never disposed.
+            createRoot(d => {
+              leaked.push(d);
+              const [n] = createSignal(0);
+              createEffect(n, () => {});
+              createMemo(() => n() + 1);
+            });
+          } else {
+            // The other mistake: an effect with no owner, kept alive by `shared`.
             createEffect(shared, () => {});
-          });
-        }
+          }
+        });
+        return route;
       },
+      () => {},
       { name: "mount" }
     );
     return dispose;

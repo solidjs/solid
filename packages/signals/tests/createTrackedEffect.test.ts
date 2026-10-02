@@ -7,8 +7,10 @@ import {
   createSignal,
   createTrackedEffect,
   flush,
+  getOwner,
   onCleanup,
-  resetErrorHalt
+  resetErrorHalt,
+  runWithOwner
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -390,17 +392,22 @@ describe("wakes ride the heap (#3291)", () => {
 
   it("a tracked effect created inside a render-effect callback runs after that pass's writes commit", () => {
     // The Portal shape: the callback mounts children (creating the tracked
-    // effect) and writes a signal (a ref) in the same callback.
+    // effect) and writes a signal (a ref) in the same callback. As in Portal
+    // the owner is captured in the compute and the mount is parented with
+    // runWithOwner — an ownerless creation in the callback is refused
+    // (PRIMITIVE_IN_EFFECT_CALLBACK).
     const [s, setS] = createSignal(0, { ownedWrite: true });
     const seen: number[] = [];
     createRoot(() => {
       createRenderEffect(
-        () => 1,
-        () => {
+        () => getOwner(),
+        owner => {
           setS(1);
-          createTrackedEffect(() => {
-            seen.push(s());
-          });
+          runWithOwner(owner, () =>
+            createTrackedEffect(() => {
+              seen.push(s());
+            })
+          );
         },
         { schedule: true } as any
       );

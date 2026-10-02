@@ -1,810 +1,433 @@
-/**
- * The isPending()/latest() verdict layer, moved out of core.ts. Importing this
- * module installs the companion-maintenance hooks on GlobalQueue; apps that
- * never import isPending/latest never pay for any of it.
- */
 import {
-  CONFIG_ADOPTED_UNFLUSHED,
-  CONFIG_CHILD_COMPANIONS,
+  CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_GUESS,
+  CONFIG_HELD,
+  CONFIG_HELD_TRUTH,
+  CONFIG_LANE_HELD,
+  CONFIG_OVERRIDE,
+  CONFIG_VERDICT,
+  EFFECT_RENDER,
   NOT_PENDING,
-  unwrapOverride,
-  REACTIVE_CHECK,
-  REACTIVE_DIRTY,
+  REACTIVE_FRAME_READ,
+  REACTIVE_JOINED,
+  REACTIVE_PROBED,
   REACTIVE_DISPOSED,
-  REACTIVE_MANUAL_WRITE,
-  REACTIVE_OPTIMISTIC_DIRTY,
-  REACTIVE_RECOMPUTING_DEPS,
-  REACTIVE_ZOMBIE,
+  REACTIVE_STAGED_READ,
+  REACTIVE_VERDICT_RERUN,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED,
-  CONFIG_HAS_COMPANIONS,
-  CONFIG_OVERRIDE_SUPERSEDED
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
   context,
-  currentOptimisticLane,
-  latestReadActive,
-  optimisticComputed,
-  optimisticSignal,
-  pendingCheckActive,
-  prepareComputed,
-  read,
-  setContextInternal,
-  setLatestReadActive,
   markLateLinker,
-  setPendingCheckActive,
-  setSignal,
-  unflushed,
-  unflushedCompanions,
-  visibleOverride,
-  unflushedValue,
-  setStrictRead,
-  stale,
+  pullComputed,
+  setVerdict,
   strictRead,
   tracking,
-  ext
+  unflushedValue
 } from "./core.js";
+import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { dispose } from "./owner.js";
-import { enqueueSub, insertIntoHeap, markHeap, queueFor } from "./heap.js";
-import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
+import { laneRead, verdictLane } from "./lanes.js";
+import { enqueueSub } from "./heap.js";
 import {
-  assignOrMergeLane,
-  findLane,
-  hasActiveOverride,
-  laneHeld,
-  readsHeldCommitted
-} from "./lanes.js";
-import { installOptimisticEngine } from "./optimistic.js";
-import {
-  activeAffectsMarks,
-  activeTransition,
-  clock,
-  currentTransition,
-  dirtyQueue,
+  blocked,
+  flushTransaction,
+  globalQueue,
   GlobalQueue,
-  insertSubs,
-  schedule,
-  zombieQueue,
-  runAsTransitionBatch,
-  type Transition
+  joinFuture,
+  passLane,
+  setPassLane,
+  txOf,
+  type Transaction
 } from "./scheduler.js";
-import type { Computed, FirewallSignal, Signal } from "./types.js";
+import type { Computed, Root, Signal } from "./types.js";
 
-// Companions (pending signals / latest shadows) are optimistic nodes: their
-// writes go through the optimistic write path and their reversion rides the
-// same lanes, so the verdict layer brings the engine with it.
-installOptimisticEngine();
-
-interface PendingProbe {
-  found: boolean;
-  sources: Set<Signal<any> | Computed<any>>;
-  freshReads: Set<Signal<any> | Computed<any>>;
-  suppressed: Array<Signal<any> | Computed<any>>;
-}
-let pendingProbe: PendingProbe | null = null;
-
-/**
- * Probes whose verdict was suppressed by the fresh-read pairing rule while
- * the held write's fate was still undecided (see recordFreshRead /
- * wakeSuppressedProbes): held node → the wrapper computeds that probed it.
- * Entries die with the hold — the commit/revert snap clears them.
- */
-const suppressedProbes: Map<Signal<any> | Computed<any>, Set<Computed<any>>> = new Map();
-
-/**
- * Get or create the pending signal for a node (lazy).
- * Used by isPending() to track pending state reactively.
- */
-/** #3038: register a companion-carrying firewall child on its firewall's
- * companion set and arm the post-recompute snap (CONFIG_CHILD_COMPANIONS is
- * the one-load gate at the call sites). The snap then iterates exactly the
- * children someone asked verdicts of — O(companions) — never the full
- * `_child` chain, which carries one node per materialized leaf (the
- * O(all-leaves-ever-read)-per-update pathology). Entries live as long as the
- * store addresses the leaf — the unobserved sweep's `unlinkFirewallChild`
- * drops them (#3503); a store with no leaf-level isPending()/latest() reads
- * never allocates the set or pays the walk. */
-function markFirewallChildCompanions(el: Signal<any> | Computed<any>): void {
-  const fw = (el as FirewallSignal<any>)._firewall;
-  if (!fw) return;
-  fw._config |= CONFIG_CHILD_COMPANIONS;
-  (ext(fw)._companionChildren ??= new Set()).add(el as FirewallSignal<any>);
+/** Verdict readers whose answer this flush could not give yet: the node they
+ * asked about is staged (or in flight) and not held — whether it will be is
+ * the seam's verdict. If the flush parks, they run again next round, as the
+ * guesses' subscribers do; if it commits, the answer stood. */
+const verdictWatchers: Computed<any>[] = [];
+function watchVerdict(c: Computed<any>): void {
+  verdictWatchers.push(c);
 }
 
-function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
-  let ps = el._x?._pendingSignal;
-  if (!ps) {
-    // Start false, write true if pending - ensures reversion returns to false
-    ps = optimisticSignal(false, { ownedWrite: true });
-    ext(el)._pendingSignal = ps;
-    el._config |= CONFIG_HAS_COMPANIONS;
-    markFirewallChildCompanions(el);
-    ext(ps)._parentSource = el;
-    if (computePendingState(el)) backfillCompanion(el, ps, true);
-    joinUnflushedResync(el);
-    if (__DEV__) devTrackCompanionOwner(el);
+/** The seam's drain (installed below): the frame parked — the readers that
+ * asked before the verdict run again, what they staged was provisional
+ * (void, so the re-derivation propagates; a dependent that read it
+ * re-derives too — an equal answer would not notify it). One a later read of
+ * the same pass already routed into a lane (`observeFlight`) answered for
+ * itself. The frame committed — the answers stood. */
+function verdictSeam(parked: boolean): void {
+  while (verdictWatchers.length !== 0) {
+    const w = verdictWatchers.pop()!;
+    if (!parked || w._x?._transaction?._lane || w._flags & REACTIVE_DISPOSED) continue;
+    w._pendingValue = NOT_PENDING;
+    enqueueSub(w);
   }
-  return ps;
 }
 
-/**
- * A lazily created companion's first write mirrors state the owner already
- * carries — a held write, a pending verdict. The companion is created wherever
- * the first latest()/isPending() read happens to run, but the write belongs
- * to whatever HOLDS that state: written in the ambient window, the override
- * would register in the ambient batch and revert when that flush's round ends
- * — the shadow re-derived from the committed view, the verdict flipped false —
- * while the owner's hold was still on (#3336: A and B differing only in
- * whether a companion existed before the hold). A companion created lazily
- * answers as if it had always existed: its backfill is registered with the
- * owner's transaction and lives and reverts with it. A hold with no
- * transaction (a pending async, a same-flush staged write) is ambient and the
- * write stays ambient. (A28 (3), lifted from #3337.)
- */
-function backfillCompanion(
-  el: Signal<any> | Computed<any>,
-  companion: Signal<any> | Computed<any>,
-  value: unknown
-): void {
-  const transition = el._transition;
-  if (transition) runAsTransitionBatch(transition, () => setSignal(companion, value));
-  else setSignal(companion, value);
-}
-
-/** A28: a companion created while its source carries an UNFLUSHED write joins
- * the flush-start re-sync like a companion that existed at the write —
- * syncCompanions only reaches companions that exist at write time. Without
- * this the flush brings it current by a plain recompute instead of the
- * optimistic write: its readers are then staged under whatever transaction
- * the round entered (a memo over latest() of a held source was held with the
- * source, and its untracked reads answered the previous value until the hold
- * committed) rather than direct-committed as the optimistic view they are. */
-function joinUnflushedResync(el: Signal<any> | Computed<any>): void {
-  if (unflushed(el)) unflushedCompanions.push(el);
-}
-
-/** The staged value the verdict channels answer for (A28): while a node
- * carries an unflushed write its `_pendingValue` is not yet part of any
- * flushed world, so the channels answer for the value the last flush left
- * staged (a held node's stash) or for nothing (NOT_PENDING). */
-function flushedStaged(el: Signal<any> | Computed<any>): unknown {
-  if (!unflushed(el)) return el._pendingValue;
-  // Ambient, or adopted before any flush (CONFIG_ADOPTED_UNFLUSHED): nothing
-  // a flush carried is staged for it. A held rewrite: the stash.
-  return el._transition === null || el._config & CONFIG_ADOPTED_UNFLUSHED
-    ? NOT_PENDING
-    : el._x!._flushedStaged;
-}
-
-function collectPendingSources(el: Signal<any> | Computed<any>): void {
-  if (!pendingProbe) return;
-  pendingProbe.sources.add(el);
-  const owner = (el as FirewallSignal<any>)._firewall || el;
-  if (owner !== el) pendingProbe.sources.add(owner);
-}
-
-/**
- * Adds a node to the active isPending() probe without reading it. The store's
- * untracked-probe fallback (`witnessAffectsMark`) reaches this through
- * `GlobalQueue._witnessAffects` — its callers guard on `pendingCheckActive`,
- * which only flips inside `isPending()`, so the hook is always installed by
- * the time it can fire.
- */
-function witnessAffects(node: Signal<any> | Computed<any>): void {
-  pendingProbe?.sources.add(node);
-}
-
-/**
- * The affects() coverage walk — the read half of the dedicated mark channel.
- * A node is covered by a live mark iff it carries one (`_affectsCount`) or
- * derives, through its CURRENT deps (hopping store firewalls), from a node
- * that does. Pull-based coverage means graph rewires, mid-window recomputes,
- * and probe-triggered recomputes can never strand or strip a mark — there is
- * nothing stored downstream to corrupt. Probe-created links
- * (`_pendingObserver`) are skipped so an `isPending` wrapper memo never
- * inherits the coverage it reports on.
- */
-function markWalk(
-  el: Signal<any> | Computed<any>,
-  seen: Set<Signal<any> | Computed<any>>
-): boolean {
-  if (el._x?._affectsCount) return true;
-  // A real error outranks an inherited mark (A16/A24c): an errored node
-  // answers probes with its error, not a coverage verdict, and coverage does
-  // not flow through it — matching the rails' behavior, where propagation
-  // stopped at errored nodes. A DIRECT mark on an errored node still reads
-  // pending (the count check above), also matching.
-  if ((el as Computed<any>)._statusFlags & STATUS_ERROR) return false;
-  if (seen.has(el)) return false;
-  seen.add(el);
-  const firewall = (el as FirewallSignal<any>)._firewall;
-  if (firewall && markWalk(firewall, seen)) return true;
-  // Mid-recompute (the clearStatus companion poke runs before
-  // trimStaleDeps), only the validated prefix [_deps.._depsTail] is this
-  // pass's dependency set — walking past it would read dropped deps and
-  // latch a stale verdict on the companion.
-  const comp = el as Computed<any>;
-  const tail = comp._flags & REACTIVE_RECOMPUTING_DEPS ? comp._depsTail : undefined;
-  if (tail !== null) {
-    for (let d = comp._deps ?? null; d !== null; d = d._nextDep) {
-      if (!d._pendingObserver && markWalk(d._dep, seen)) return true;
-      if (d === tail) break;
-    }
+/** A verdict reader served a flight's committed value (the A31 frame-reader
+ * case) still observed the flight — A15's stale reader "derives from the
+ * flight all the same": the frame holds (the flush's transaction opens if
+ * none has, as the throw would have had it), the reader is that
+ * transaction's verdict lane's (shown now, with the flight's verdict), and
+ * re-derives at the landing (REACTIVE_FRAME_READ — which is also what makes
+ * it a blocker of the hold, `blockedBy`; a probe alone is neither). */
+function observeFlight(c: Computed<any>): void {
+  if (!globalQueue._running) return;
+  joinFuture(null);
+  const t = flushTransaction!;
+  if (passLane === null && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
+    setPassLane(verdictLane(t));
+  if (!(c._flags & REACTIVE_FRAME_READ)) {
+    c._flags |= REACTIVE_FRAME_READ;
+    t._reruns.push(c);
   }
-  return false;
 }
 
+/** Verdict windows (maintainer, 2026-10-01: verdicts are optimistic state
+ * the system supplies). Inside `latest(fn)` a read of a held node serves the
+ * proposal (above the async, the held write; below it, the committed value
+ * — nothing newer exists) instead of joining or throwing; inside
+ * `isPending(fn)` a read records whether what it saw is final. Either way
+ * the reader breaks out: work of the holder's verdict lane, shown now and
+ * re-derived at the landing. A reader that also reads the held node plainly
+ * is the transaction's (what the pass read wins) — the verdict does not
+ * rescue it, and its result shows only at the landing anyway. */
+let latestActive = false;
+let probing = false;
+let probeFound = false;
+/** `read` dispatches here while a window is open. */
+function setWindows(): void {
+  setVerdict(latestActive || probing ? verdictValue : null);
+}
+
+/** A verdict read of a node a transaction (or lane) holds: the reading pass
+ * is the holder's verdict lane's — unless already lane work — and re-derives
+ * at the holder's landing (`_reruns`, as a stale reader). */
+function verdictRead(c: Computed<any>, t: Transaction, route = true, blocker = true): void {
+  // A pass that already derives from the future — a held node's, or the
+  // staging of a write this flush may hold — is the transaction's: the
+  // verdict does not rescue it (its result shows at the landing, re-derived).
+  if (route && passLane === null && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
+    setPassLane(verdictLane(t));
+  // `isPending` flips at the landing with no value notifying anyone (a held
+  // write's commit; a held landing's): its reader re-derives there. `latest`
+  // shows the proposal that lands — a rewrite or a landing reaches its
+  // reader through the link it holds — so a re-run would only repeat the
+  // frame. (`blocker` false — REACTIVE_VERDICT_RERUN — is a rerun that does
+  // not hold; the probe of a held node holds like `next`'s did.)
+  if (probing && !(c._flags & (REACTIVE_FRAME_READ | REACTIVE_VERDICT_RERUN))) {
+    c._flags |= blocker ? REACTIVE_FRAME_READ : REACTIVE_VERDICT_RERUN;
+    t._reruns.push(c);
+  }
+}
+
+/** A verdict read of a node staged or in flight but not held yet: whether it
+ * will be is the seam's.
+ *
+ * `isPending` asks exactly that — final unless the flush parks — so its
+ * reader cannot be answered before the seam: a flush that has joined a
+ * transaction parks, and the node with it — the reader is that
+ * transaction's verdict lane's now (a node in flight always finds one: its
+ * own `notify` opened it before the walk reached the reader); before
+ * anything joined, the reader watches the seam and runs again if the flush
+ * parks (a plain sync write never glitches it true).
+ *
+ * `latest` has its answer either way — the proposal — and only the reader's
+ * membership was open, so it is settled now: the frame gets its transaction
+ * (`joinFuture(null)`; nothing holds it at the seam and it lands there, the
+ * lane dissolving into it — a plain commit) and the reader is its verdict
+ * lane's. One pass: a provisional pass re-derived at the seam ran everything
+ * downstream of it twice — a keyed `<Show>` over `latest()` mounted its
+ * child twice mid-flight (#3540 web). A pass that also read the frame's own
+ * stagings plainly (REACTIVE_STAGED_READ) stays the frame's (`verdictRead`
+ * does not route it); a verdict reader's plain read AFTER the window sees
+ * the screen (`read`: `stagedScreen`). */
+function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
+  if (!probing) {
+    joinFuture(null);
+    verdictRead(c, flushTransaction!);
+    return;
+  }
+  if (flushTransaction !== null) {
+    if (notFinal) probeFound = true;
+    verdictRead(c, flushTransaction);
+  }
+  if (flushTransaction === null || c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
+}
+
+/** A19 exc. 2 / A24: a flight that re-asks the question already answered
+ * (a `refresh()`, a poll) is quiet; a node pending through others is quiet
+ * when every flight it waits on is. */
 function quietPending(el: Computed<any>): boolean {
-  if (el._x?._pendingSources) {
-    for (const source of el._x._pendingSources) if (!source._x?._reask) return false;
+  const x = el._x;
+  if (x === null) return false;
+  if (x._pendingSources !== undefined) {
+    for (const source of x._pendingSources) if (!source._x?._reask) return false;
     return true;
   }
-  return el._x?._reask ?? false;
+  return x._reask;
 }
 
-// NOTE: a loadingValue node's open loading window (_loading) is verdict-quiet
-// on purpose: commit #0 answers the question by declaration, so the window
-// reads NOT pending — first-load affordances live in the value channel
-// (null / skeleton provenance the author encoded), and isPending stays what
-// it always was: refetch truth for an answered question. This keeps the
-// verdict fully correlated with transition-class machinery and keeps server
-// (always false) and client hydration trivially consistent.
-function newQuestionInFlight(comp: Computed<any>): boolean {
+/** `isPending`'s answer for a held node (A19), relative to what the reader
+ * sees — a verdict reader is a frame reader and sees the committed value: a
+ * flight still up (cause ii) is not final unless quiet; a held write or
+ * landing (staged — cause i/iii) is not final unless it answers the question
+ * already shown (a quiet re-ask, through its reveal), is the node's first
+ * landing (commit #0: loading, not pending), or the probe sits inside a
+ * `latest` window, whose view of the node IS the proposal (A10: a reader
+ * that observed the fresh value is not told it is pending; inside `latest`,
+ * `isPending` asks whether the latest view is final). A member of a held
+ * frame with neither is final. */
+function heldNotFinal(owner: Computed<any>): boolean {
+  if ((owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner)) return true;
+  // A24: pending iff a value change is in flight. A staging equal to what
+  // is displayed — a guess its own landing confirmed, held for the
+  // transaction's commit — changes nothing when it lands: final now, not at
+  // the (possibly merged) landing (maintainer, 2026-10-02).
   return (
-    !!(comp._statusFlags & STATUS_PENDING) &&
-    !(comp._statusFlags & STATUS_UNINITIALIZED) &&
-    !quietPending(comp)
+    owner._pendingValue !== NOT_PENDING &&
+    !latestActive &&
+    !owner._x!._reask &&
+    !(owner._statusFlags & STATUS_UNINITIALIZED) &&
+    (!owner._equals || !owner._equals(owner._value as any, owner._pendingValue as any))
   );
 }
 
-function computePendingState(el: Signal<any> | Computed<any>): boolean {
-  const comp = el as Computed<any>;
-  if (comp._flags & REACTIVE_DISPOSED) return false;
-  // Mark coverage is transitive by dep-graph reachability: a latest() shadow
-  // reaches its owner (and a store leaf its firewall) through its own deps,
-  // so the one walk covers direct marks, derivation, and companion chains.
-  // Gated: apps with no live mark pay one integer compare.
-  if (activeAffectsMarks !== 0 && markWalk(el, new Set())) return true;
-  const firewall = (el as FirewallSignal<any>)._firewall;
-  if (el._x?._parentSource) {
-    const parentNode = el._x?._parentSource as FirewallSignal<any>;
-    const parent = (parentNode._firewall || parentNode) as Computed<any>;
-    return newQuestionInFlight(parent);
-  }
-  const staged = flushedStaged(el);
-  if (firewall && staged !== NOT_PENDING && !hasActiveOverride(el)) {
-    return (
-      !!(firewall._flags & REACTIVE_MANUAL_WRITE) ||
-      (!firewall._x?._inFlight && !(firewall._statusFlags & STATUS_PENDING)) ||
-      (!!(firewall._statusFlags & STATUS_PENDING) && quietPending(firewall))
-    );
-  }
-  // `!comp._loading`: a hold created while the loading window is still open is
-  // the window's own landing in flight to its commit — verdict-quiet like the
-  // rest of the window (the UNINITIALIZED check suppresses exactly this frame
-  // for windowless first loads; born-committed nodes need their own gate, #2990).
-  // A18 (d) for a body-end supersession (#3427): the truth at hand is the
-  // COMMITTED value — nothing staged — yet the display still shows the
-  // override; pending iff they differ, as for a staged arrival below.
-  if (
-    el._config & CONFIG_OVERRIDE_SUPERSEDED &&
-    el._pendingValue === NOT_PENDING &&
-    visibleOverride(el)
-  )
-    return !el._equals || !el._equals(el._value as any, unwrapOverride(el._x?._overrideValue));
-  // A28 (2): an unflushed write is not yet observable — the verdict answers
-  // for the flushed staged value.
-  if (staged !== NOT_PENDING && !comp._loading) {
-    // A18 (d): under a displayed override the observable value is the
-    // override, so the verdict is "the arrived truth differs from it" —
-    // even before the node's first commit. The UNINITIALIZED suppression
-    // below is A19 exception (1), "no observable value exists to be
-    // non-final"; an override is one (a node whose first landing was held
-    // by a reveal it never got to commit, then superseded under its
-    // override, read false here).
-    if (visibleOverride(el))
-      return !el._equals || !el._equals(staged as any, unwrapOverride(el._x?._overrideValue));
-    // A quiet re-ask's held landing still answers the same question: the
-    // classification survives the landing (asyncWrite) and dies with the
-    // commit (commitPendingNode) — verdict-quiet through the reveal, like
-    // the loading window above (#3178).
-    // A staged value equal to the committed one is no proposal (A34, #3494): the
-    // observable value IS final (A19). The coalesced `setShow(false);
-    // setShow(true)` read pending through the flush that carried it — and,
-    // stamped into a hold that flush opened, until the hold settled.
-    if (
-      !(comp._statusFlags & STATUS_UNINITIALIZED) &&
-      !comp._x?._reask &&
-      (!el._equals || !el._equals(el._value as any, staged as any))
-    )
-      return true;
-  }
-  return newQuestionInFlight(comp);
-}
-
-function syncCompanions<T>(el: Signal<T> | Computed<T>, value: T): void {
-  if (el._x?._pendingSignal) updatePendingSignal(el);
-  if (el._x?._latestValueComputed) setSignal(el._x?._latestValueComputed, value);
-}
-
-function updatePendingSignal(el: Signal<any> | Computed<any>): void {
-  if (el._x?._pendingSignal) {
-    setSignal(el._x?._pendingSignal, computePendingState(el));
-  }
-  if (el._x?._latestValueComputed) updatePendingSignal(el._x?._latestValueComputed);
-}
-
-function updateChildCompanions(el: Computed<any>): void {
-  const companions = el._x?._companionChildren;
-  if (companions === undefined) return;
-  for (const child of companions) updatePendingSignal(child);
-}
-
-/**
- * Re-derive every verdict companion downstream of `el` (subs + firewall
- * children, dedup'd). The affects() channel's poke walk: registration and
- * re-ask flips use the live write path (companion setSignal — its own lane
- * lets the wake escape an incomplete transition's effect stash, #2887);
- * mark release passes `snap` because it runs inside queue finalization,
- * where companion writes must land committed (a setSignal there would open
- * a fresh override window that nothing settles).
- */
-function repollDownstreamVerdicts(el: Computed<any>, snap: boolean = false): void {
-  const update = snap ? snapCompanionsToState : updatePendingSignal;
-  const visited = new Set<Signal<any> | Computed<any>>();
-  const visit = (node: Signal<any> | Computed<any>) => {
-    if (visited.has(node)) return;
-    visited.add(node);
-    if (node._x?._pendingSignal || node._x?._latestValueComputed) update(node);
-    for (let s = node._subs; s !== null; s = s._nextSub) visit(s._sub);
-    for (
-      let child: FirewallSignal<any> | null = (node as Computed<any>)._x?._child ?? null;
-      child !== null;
-      child = child._nextChild
-    ) {
-      visit(child);
-    }
-  };
-  visit(el);
-}
-
-/**
- * The correction half of the provisional fresh-read suppression (see
- * collectPending): fired from the sanctioned async-registration site
- * (GlobalQueue.notify) when a transaction gains an in-flight async blocker.
- * Every probe that returned "not pending" purely because it read a held
- * value belonging to that transaction re-runs — its re-probe now sees the
- * live blocker through heldAwaitingAsync and lands the true verdict. The
- * wake mirrors a companion write's own notification (optimistic-dirty on the
- * companion's lane) so the corrected verdict commits and flushes immediately
- * instead of being held with the transaction it reports on.
- */
-function wakeSuppressedProbes(transition: Transition): void {
-  if (suppressedProbes.size === 0) return;
-  let woke = false;
-  for (const [node, probes] of suppressedProbes) {
-    const nt = node._transition;
-    const t = nt ? currentTransition(nt) : null;
-    if (!t) {
-      suppressedProbes.delete(node);
-      continue;
-    }
-    if (t !== transition) continue;
-    suppressedProbes.delete(node);
-    const lane = node._x?._pendingSignal?._x?._optimisticLane;
-    for (const p of probes) {
-      if (p._flags & REACTIVE_DISPOSED) continue;
-      p._flags |= REACTIVE_OPTIMISTIC_DIRTY;
-      if (lane) assignOrMergeLane(p, lane);
-      else if (p._x !== null) p._x._optimisticLane = undefined;
-      enqueueSub(p);
-      woke = true;
-    }
-  }
-  if (woke) schedule();
-}
-
-function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
-  suppressedProbes.size !== 0 && suppressedProbes.delete(owner);
-  const sig = owner._x?._pendingSignal;
-  if (sig && (sig._x?._overrideValue === undefined || sig._x?._overrideValue === NOT_PENDING)) {
-    const pending = computePendingState(owner);
-    if (sig._value !== pending || sig._pendingValue !== NOT_PENDING) {
-      sig._value = pending;
-      sig._pendingValue = NOT_PENDING;
-      insertSubs(sig);
-      schedule();
-    }
-  }
-  const shadow = owner._x?._latestValueComputed;
-  if (shadow && !(shadow._flags & REACTIVE_DISPOSED)) {
-    // A leaf whose firewall is disposed (the projection's teardown snaps its
-    // companion-bearing leaves): the shadow's compute reads through a
-    // disposed, possibly still-pending projection and would sit
-    // NotReady/uninitialized forever — never derived, its backfilled override
-    // dropped at the settle — against a leaf whose committed value differs
-    // (INV-4 at the next quiescence; spec O5). It dies with its source;
-    // getLatestValueComputed treats a disposed shadow as absent, so a later
-    // read recreates it from the committed view.
-    if ((owner as FirewallSignal<any>)._firewall?._flags & REACTIVE_DISPOSED) {
-      dispose(shadow);
-      return;
-    }
-    if (
-      (shadow._x?._overrideValue === undefined || shadow._x?._overrideValue === NOT_PENDING) &&
-      shadow._pendingValue === NOT_PENDING &&
-      !Object.is(shadow._value, owner._value) &&
-      !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK))
-    ) {
-      shadow._flags |= REACTIVE_DIRTY;
-      insertIntoHeap(shadow, queueFor(shadow));
-      insertSubs(shadow);
-      schedule();
-    }
-    snapCompanionsToState(shadow);
+/** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
+function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
+  if (el._statusFlags & STATUS_UNINITIALIZED) return;
+  if (probing && !quietPending(el)) probeFound = true;
+  if (c !== null && tracking) {
+    if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
+    else if (globalQueue._running) provisionalVerdict(c, false); // decided above
   }
 }
 
-function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
-  let lvc = el._x?._latestValueComputed;
-  // A shadow disposed while unobserved (its gated reader unmounted at a
-  // landing) is a corpse: sync writes into it equality-swallow against its
-  // frozen _value, and a later read revives it via recompute — clearing
-  // DISPOSED and re-deriving from the committed view, so the banner showed
-  // the previous transition's target (#3041 follow-up). Treat it as absent;
-  // recreation backfills from the in-flight write below.
-  if (lvc && lvc._flags & REACTIVE_DISPOSED) lvc = undefined;
-  if (!lvc) {
-    const prevPending = latestReadActive;
-    setLatestReadActive(false);
-    const prevCheck = pendingCheckActive;
-    setPendingCheckActive(false);
-    const prevContext = context;
-    setContextInternal(null); // Detach from owner so it isn't disposed with effects
-    GlobalQueue._verdictPull = true;
-    try {
-      lvc = optimisticComputed(() => read(el), { ownedWrite: true });
-    } finally {
-      GlobalQueue._verdictPull = false;
-    }
-    // Dev: name the shadow after its source. A diagnostic raised on a read
-    // through it (UNTRACKED_READ_AFTER_AWAIT on `latest(a)` after an await)
-    // then names `latest(a)`, not the default "computed" every memo shares.
-    if (__DEV__) (lvc as any)._name = `latest(${(el as any)._name})`;
-    ext(el)._latestValueComputed = lvc;
-    el._config |= CONFIG_HAS_COMPANIONS;
-    markFirewallChildCompanions(el);
-    ext(lvc)._parentSource = el; // Parent-child lane relationship
-    // Backfill an in-flight write (mirrors getPendingSignal): the companion is
-    // created lazily, possibly after the write was processed — syncCompanions
-    // only pushes into companions that already exist, so the first latest()
-    // read inside a held transition showed the committed value (#3041).
-    const staged = flushedStaged(el);
-    if (staged !== NOT_PENDING && !hasActiveOverride(el)) backfillCompanion(el, lvc, staged);
-    joinUnflushedResync(el);
-    if (__DEV__) devTrackCompanionOwner(el);
-    setContextInternal(prevContext);
-    setPendingCheckActive(prevCheck);
-    setLatestReadActive(prevPending);
-  }
-  return lvc;
-}
-
-/** The latest()-mode read path, installed as GlobalQueue._latestRead. */
-/** A7: the source has no visible value yet — judged on the OWNER, as read()
- * does: a store leaf behind a projection's firewall is a plain signal whose
- * `_value` is the seed (A25: a draft, never a value), and read() routes a
- * latest() read here before its own firewall/status logic. An override
- * displays a value even before the first commit (A17). */
-function uninitializedSource(el: Signal<any> | Computed<any>): boolean {
-  const owner = ((el as FirewallSignal<any>)._firewall || el) as Computed<any>;
-  return !!(owner._statusFlags & STATUS_UNINITIALIZED) && !hasActiveOverride(el);
-}
-
-function latestRead<T>(el: Signal<T> | Computed<T>): T {
-  // A leaf of a DISPOSED projection has no flushed world left to mirror: a
-  // shadow created for it now would read through the dead firewall, sit
-  // NotReady/uninitialized forever, and no teardown would ever retire it (the
-  // firewall's already ran — spec O5). Serve the committed value; create
-  // nothing. (A read of a disposed node freezes at its last commit, #3024.)
-  if ((el as FirewallSignal<T>)._firewall?._flags & REACTIVE_DISPOSED) return el._value as T;
-  const pendingComputed = getLatestValueComputed(el);
-  const prevPending = latestReadActive;
-  setLatestReadActive(false);
-  const visibleValue = (
-    visibleOverride(el) ? unwrapOverride(el._x?._overrideValue) : el._value
-  ) as T;
-  // A28: an unflushed write is not the staged value latest() serves. The
-  // shadow was written at the source's write to mirror it (A8) — consult it
-  // only once a flush has carried the write.
-  const u = unflushedValue(el);
-  if (u !== NOT_PENDING) {
-    // The reader derived from the flushed world because of an unflushed
-    // write: it runs again in the flush that carries it (late linker) —
-    // a pull may have cleared the mark the write's walk set.
-    if (context !== null && (context as Computed<any>)._flags & REACTIVE_RECOMPUTING_DEPS)
-      markLateLinker(context as Computed<any>);
-    // Link the reader to the shadow so the flush that carries the write
-    // updates it (the shadow itself already mirrors the write, A8).
-    try {
-      read(pendingComputed);
-    } catch {
-      /* the flushed value answers */
-    } finally {
-      setLatestReadActive(prevPending);
-    }
-    // An ambient write: the visible value (override or committed). A rewrite
-    // of a held node: the staged value the last flush left.
-    return (el._transition === null ? visibleValue : u) as T;
-  }
-  let value: T;
-  try {
-    // No mid-tick pull: writes become visible at flush (A28), so before the
-    // flush the shadow is exactly as current as the flushed world — the read
-    // below serves it as is. (#2922's pull, which brought the shadow current
-    // against the unflushed write, is superseded: `flush()` first to read
-    // your own write.)
-    value = read(pendingComputed);
-  } catch (e) {
-    // A NotReady from the shadow of an INITIALIZED source means the shadow
-    // is mid-flight: serve the visible (committed / override) value. An
-    // uninitialized source has no visible value — latest() throws in every
-    // scope rather than fabricate `undefined` for a `T` that excludes it
-    // (A7; the unowned scope used to return undefined here).
-    if (e instanceof NotReadyError && !uninitializedSource(el)) return visibleValue;
-    throw e;
-  } finally {
-    setLatestReadActive(prevPending);
-  }
-  if (pendingComputed._statusFlags & STATUS_PENDING) {
-    if (uninitializedSource(el)) throw new NotReadyError(el);
-    return visibleValue;
-  }
-  // A render effect off the shadow's HELD lane sees the committed value and
-  // re-runs at the release (#3460; lanes mirror transitions — see
-  // readsHeldCommitted). Was: only a reader under ANOTHER lane; a mainline
-  // reader, mounted or re-run by a sync write mid-hold, showed the
-  // speculative value beside the lane's deferred readers.
-  if (stale && context !== null && readsHeldCommitted(pendingComputed, context as Computed<any>))
-    return el._value as T;
-  // A shadow recomputed by the pull above (not at creation) holds its fresh
-  // speculative value in _pendingValue; a contextless read() only surfaces
-  // _value. Overrides stay authoritative (A17), and stale readers keep the
-  // other transition's committed view, matching read()'s own selection.
-  if (
-    pendingComputed._pendingValue !== NOT_PENDING &&
-    !hasActiveOverride(pendingComputed) &&
-    !(stale && pendingComputed._transition && activeTransition !== pendingComputed._transition)
-  )
-    return pendingComputed._pendingValue as T;
-  return value as T;
-}
-
-/**
- * A latest() shadow that is uninitialized only because it was CREATED during
- * an active flight — its parent source already has a committed value, so
- * latest() serves that as the visible value and a tracked reader has
- * something to pair a verdict with (#3166). Same parent resolution as
- * computePendingState. The pending signal companion also carries
- * `_parentSource` but is a plain signal (no `_fn`) that never goes pending,
- * so the `_fn` check is belt-and-braces for this call site.
- */
-function latestShadowWithInitializedParent(owner: Signal<any> | Computed<any>): boolean {
-  if (typeof (owner as Partial<Computed<any>>)._fn !== "function") return false;
-  const parentNode = owner._x?._parentSource as FirewallSignal<any> | undefined;
-  if (parentNode === undefined) return false;
-  const parent = (parentNode._firewall || parentNode) as Computed<any>;
-  return !(parent._statusFlags & STATUS_UNINITIALIZED);
-}
-
-/** The isPending()-probe read path, installed as GlobalQueue._pendingCheck. */
-function pendingCheckRead(
-  el: Signal<any> | Computed<any>,
-  c: Computed<any> | null,
-  owner: Signal<any> | Computed<any>,
-  firewall: Computed<any> | null
-): void {
-  setPendingCheckActive(false);
-  if (typeof (el as Partial<Computed<unknown>>)._fn === "function") {
-    GlobalQueue._verdictPull = true;
-    try {
-      prepareComputed(el as Computed<unknown>, true);
-    } finally {
-      GlobalQueue._verdictPull = false;
-    }
-  }
-  const ownerStatus = (owner as Computed<any>)._statusFlags!;
-  if (
-    c &&
-    ownerStatus & STATUS_PENDING &&
-    ownerStatus & STATUS_UNINITIALIZED &&
-    // The suspend-throw is for a genuinely-first-load source: the tracked
-    // reader has nothing to pair a verdict with, so it parks on the source.
-    // A latest() SHADOW created lazily mid-flight is born uninitialized even
-    // though its parent has a committed value latest() will serve — throwing
-    // here (swallowed by latestRead's fallback) dropped the shadow from the
-    // probe, so a tracked latest(isPending()) probe created during a
-    // new-question flight cached `false` for that whole flight (#3166).
-    // Defer to the PARENT's initialization state and fall through to normal
-    // collection; the plain pending throw downstream still links the reader.
-    !latestShadowWithInitializedParent(owner)
-  ) {
-    if (tracking && el !== c) link(el, c);
-    setPendingCheckActive(true);
-    throw (owner as Computed<any>)._x?._error;
-  }
-  collectPendingSources(el);
-  if (firewall) collectPendingSources(firewall);
-  setPendingCheckActive(true);
-}
-
-/**
- * A held node whose transaction still has an async question in flight. The
- * probe's fresh-read pairing rule (#2831 — "a reader that sees the fresh
- * value must not also be told it is pending") only applies to LANDED answers
- * awaiting reveal; while the answer is still computing, the fresh value the
- * reader saw is an input, and pending remains the truth for every reader
- * (#3028).
- */
-function heldAwaitingAsync(el: Signal<any> | Computed<any>): boolean {
-  const et = el._transition;
-  const t = et ? currentTransition(et) : activeTransition;
-  if (!t || t._done) return false;
-  // A plain staged write (a signal/store leaf — no _fn) held while an action
-  // is still running is an INPUT to a computation still in flight (#3078):
-  // the pairing rule must not suppress the verdict, or a memo recomputing
-  // mid-action reads the staged value, gets told "not pending", and
-  // disagrees with a direct isPending() probe for the whole action window.
-  // A computed's staged value is the opposite case — a LANDED answer
-  // awaiting reveal — where the pairing rule stands even inside an open
-  // action (#2831: a reader that saw the new value must not also see
-  // pending); still-computing answers are covered by the reporter scan.
-  if (t._actions.length && !(el as Partial<Computed<any>>)._fn) return true;
-  // The reporter scan runs for an unstamped node too (#3457): a node staged
-  // AFTER the transaction opened is pushed straight into the transaction's
-  // batch (queuePendingNode, once initTransition adopted it) and only gets
-  // its `_transition` stamp when the flush stashes the hold, but its staged
-  // value is already the transaction's, and `t` resolved to that very
-  // transaction above. Gating on the stamp let a memo whose recompute read
-  // a sync memo's fresh staged value mid-flush pair "not pending" with it
-  // (A10) while the transaction's async source was still computing, so a
-  // memo-wrapped isPending() read false where a direct probe read true.
-  for (const [source, reporters] of t._asyncReporters) {
-    if (
-      reporters.size &&
-      source._statusFlags & STATUS_PENDING &&
-      (source._x?._error as NotReadyError | undefined)?.source === source
-    )
-      return true;
-  }
-  return false;
-}
-
-function recordFreshRead(el: Signal<any> | Computed<any>, value: any): void {
-  if (pendingProbe !== null && el._pendingValue !== NOT_PENDING && value === el._pendingValue) {
-    if (heldAwaitingAsync(el)) return;
-    pendingProbe.freshReads.add(el);
+/** The pass entering a verdict window is a verdict reader (CONFIG_VERDICT):
+ * a dependency going pending re-derives it, the verdict having changed. */
+function markVerdictReader(): void {
+  let c = context;
+  if ((c as Root)?._root) c = (c as Root)._parentComputed;
+  if (c !== null) {
+    c._config |= CONFIG_VERDICT;
+    (c as Computed<any>)._flags |= REACTIVE_PROBED;
   }
 }
 
-function applyReask(el: Computed<any>, hadReask: boolean): boolean {
-  const wasPending = !!(el._statusFlags & STATUS_PENDING);
-  const isReask = hadReask && !(wasPending && !el._x?._reask);
-  const changed = wasPending && (el._x?._reask ?? false) !== isReask;
-  // Allocation-free for the quiet case: false is the extension default.
-  if (isReask) ext(el)._reask = true;
-  else if (el._x !== null) el._x._reask = false;
-  return changed;
-}
-
+/** The windows. */
 export function latest<T>(fn: () => T): T {
-  const prevLatest = latestReadActive;
-  setLatestReadActive(true);
+  markVerdictReader();
+  const prev = latestActive;
+  latestActive = true;
+  setWindows();
   try {
     return fn();
   } finally {
-    setLatestReadActive(prevLatest);
+    latestActive = prev;
+    setWindows();
   }
 }
 
 export function isPending(fn: () => any): boolean {
-  const prevPendingCheck = pendingCheckActive;
-  const prevProbe = pendingProbe;
-  setPendingCheckActive(true);
-  const probe: PendingProbe = (pendingProbe = {
-    found: false,
-    sources: new Set(),
-    freshReads: new Set(),
-    suppressed: []
-  });
-  const collectPending = () => {
-    setPendingCheckActive(false);
-    // Companion reads are mode-neutral plumbing: under an outer latest()
-    // (isPending inside a latest window — #3104's memo shape) leaving latest
-    // mode active dispatched these reads through latestRead, which built a
-    // SHADOW OF THE PENDING SIGNAL itself. The next updatePendingSignal then
-    // wrote that companion-on-companion from inside a recompute
-    // (syncCompanions → setSignal on a shadow created without ownedWrite)
-    // and halted dev with the owned-scope write guard. The creation paths
-    // (getLatestValueComputed / getPendingSignal) already suspend both
-    // modes; this read site must too.
-    const prevLatest = latestReadActive;
-    setLatestReadActive(false);
-    const prevStrictRead = __DEV__ ? strictRead : false;
-    if (__DEV__) setStrictRead(false);
-    try {
-      probe.sources.forEach(source => {
-        if (read(getPendingSignal(source))) {
-          if (!probe.freshReads.has(source)) probe.found = true;
-          else probe.suppressed.push(source);
-        }
-      });
-    } finally {
-      if (__DEV__) setStrictRead(prevStrictRead);
-      setLatestReadActive(prevLatest);
-      setPendingCheckActive(true);
-    }
-    // A "not pending" verdict that exists only because this reader saw the
-    // fresh held value is provisional: if the write turns out NOT to commit
-    // this flush (a downstream async pends and holds it), the suppression was
-    // wrong and the wrapper must re-ask (#3028). Remember who to wake — the
-    // async registration (GlobalQueue.notify) triggers wakeSuppressedProbes.
-    // A TRACKED probe only (#3648): an `untrack(() => isPending(x))` inside a
-    // memo asked for a one-shot answer and declined the re-run its tracked
-    // form would get — enrolling its host anyway marked the memo OPT-dirty on
-    // the companion's lane and re-ran it (a router `query()` refetched, its
-    // first flight abandoned mid-air) for a verdict it never depended on.
-    if (
-      tracking &&
-      !probe.found &&
-      probe.suppressed.length &&
-      context &&
-      typeof (context as Partial<Computed<unknown>>)._fn === "function"
-    ) {
-      for (const source of probe.suppressed) {
-        let probes = suppressedProbes.get(source);
-        if (!probes) suppressedProbes.set(source, (probes = new Set()));
-        probes.add(context as Computed<any>);
-      }
-    }
-  };
+  markVerdictReader();
+  const prevProbing = probing;
+  const prevFound = probeFound;
+  probing = true;
+  probeFound = false;
+  setWindows();
   try {
     fn();
-    collectPending();
-    return probe.found;
+    return probeFound;
   } catch (e) {
-    collectPending();
-    if (e instanceof NotReadyError) {
-      const uninitialized = !!(e.source?._statusFlags & STATUS_UNINITIALIZED);
-      if (probe.found && !uninitialized) return true;
-      if (context && uninitialized) throw e;
-    }
-    return probe.found;
+    // A pending node is served inside the probe; what still throws is an
+    // uninitialized one — loading, not pending (A19 exc. 1) — whose NotReady
+    // propagates to boundaries from inside an owner (B5a; a component body
+    // suspends on it like any read, #2928) and is swallowed outside one. A
+    // verdict never throws anything else: a thunk that errors is simply not
+    // pending.
+    if (e instanceof NotReadyError && !probeFound && context !== null) throw e;
+    return probeFound;
   } finally {
-    setPendingCheckActive(prevPendingCheck);
-    pendingProbe = prevProbe;
+    probing = prevProbing;
+    probeFound = prevFound;
+    setWindows();
   }
 }
 
-// Hook installation (same late-binding pattern as GlobalQueue._update /
-// _propagateAffects): core call sites fire these behind the same guards the
-// direct calls used, so behavior is identical once this module loads.
-GlobalQueue._syncCompanions = syncCompanions;
-GlobalQueue._updatePendingSignal = updatePendingSignal;
-GlobalQueue._updateChildCompanions = updateChildCompanions;
-GlobalQueue._snapCompanions = snapCompanionsToState;
-GlobalQueue._latestRead = latestRead;
-GlobalQueue._pendingCheck = pendingCheckRead;
-GlobalQueue._recordFresh = recordFreshRead;
-GlobalQueue._applyReask = applyReask;
-GlobalQueue._repollVerdicts = repollDownstreamVerdicts;
-GlobalQueue._witnessAffects = witnessAffects;
-GlobalQueue._wakeSuppressedProbes = wakeSuppressedProbes;
-
-if (__DEV__) {
-  InvariantHooks.pendingProbeActive = () => pendingProbe !== null;
-  InvariantHooks.computePendingState = computePendingState;
+/** `latest()` of a held node: the flushed staging — the proposal — and, for
+ * a tracked reader of a rewrite not yet flushed, the late-linker re-run in
+ * the flush that carries it. */
+function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
+  const u = unflushedValue(el);
+  if (u !== NOT_PENDING) {
+    if (c !== null) markLateLinker(c);
+    return u;
+  }
+  return el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
 }
+/** The verdict windows' read — `latest(fn)` and `isPending(fn)` — in one
+ * cold path off `read`'s. It links and pulls like a plain read, then answers
+ * for what the reader sees (a verdict reader is a frame reader):
+ * - a guess: its verdict lands with the parent, the reader is the parent's
+ *   verdict lane's; blocked, the guess is a proposal (`latest` serves it,
+ *   not final where it differs from the base); revealed, the value on its
+ *   own slot (A17), not final only while its own new question flies (A24);
+ * - lane work's staging: the lane's value, as a plain read;
+ * - a held node: the reader breaks out as the holder's verdict lane's and
+ *   re-derives at the landing; `latest` serves the proposal (`heldLatest`),
+ *   `isPending` answers `heldNotFinal`;
+ * - a node staged this flush and not yet held: the seam's verdict
+ *   (`provisionalVerdict`) — or, with a newer question already in flight
+ *   (#3376, the stale first hop of a chain), its flight's;
+ * - a flight (cause ii): `isPending` records it (`pendingVerdict`), `latest`
+ *   serves the committed value — below the async nothing newer exists; an
+ *   uninitialized one throws NotReady: loading, not pending (A19 exc. 1);
+ * - an errored derivation throws for every reader (#2897). */
+function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
+  const owner = el as Computed<any>;
+  const tracked = c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  if (c !== null && tracking) {
+    link(el, c);
+    if (owner._fn !== undefined) pullComputed(owner, c);
+  }
+  if (el._config & CONFIG_GUESS) {
+    const l = txOf(el);
+    if (tracked) verdictRead(c!, l._parent ?? l);
+    if (el._config & CONFIG_LANE_HELD) {
+      if (
+        probing &&
+        !latestActive &&
+        (!el._equals || !el._equals(el._value as any, el._pendingValue as any))
+      )
+        probeFound = true;
+      return latestActive ? el._pendingValue : el._value;
+    }
+    // Not final while the guess's own new question flies (A24), or while a
+    // truth held under it differs from it (CONFIG_HELD_TRUTH: a same-frame
+    // staging the guess covered, or an older question's answer held
+    // silently — A18 provenance).
+    if (
+      probing &&
+      (owner._statusFlags & STATUS_PENDING
+        ? !quietPending(owner)
+        : el._config & CONFIG_HELD_TRUTH &&
+          (!el._equals || !el._equals(el._value as any, el._pendingValue as any)))
+    )
+      probeFound = true;
+    return el._value;
+  }
+  if (el._config & (CONFIG_OVERRIDE | CONFIG_LANE_HELD)) {
+    // Lane work (a derivation of a guess). A verdict reader of it is not the
+    // lane's work — a lane blocked on its own flight would hold the reader's
+    // run, the opposite of a verdict's display-ahead — but the verdict
+    // lane's of the lane's holder, shown now (as for a guess, above). Not
+    // final while the node's own flight is up; a landing the blocked lane
+    // holds has answered its question (A24: the lane's hold on the reveal
+    // is the frame's, not the node's) — `isPending` false, `latest` the
+    // staged answer ("latest above async is the pending value"), where a
+    // plain reader outside the lane keeps the committed value until the
+    // reveal: the checkout's shipping text updates independently of the tax
+    // still in flight.
+    if (probing && owner._statusFlags & STATUS_PENDING && !quietPending(owner)) probeFound = true;
+    if (tracked) {
+      const l = txOf(el);
+      verdictRead(c!, l._parent ?? l);
+    }
+    // The lane's staging — this round's, or the one a blocked lane holds —
+    // is what `latest` sees; in flight, the committed value (below the
+    // async nothing newer exists).
+    return latestActive &&
+      !(owner._statusFlags & STATUS_PENDING) &&
+      el._pendingValue !== NOT_PENDING
+      ? el._pendingValue
+      : el._value;
+  }
+  // Dev strict-read scopes (a component body, an effect callback) warn on a
+  // verdict read as on any untracked read; the pending throw they add for a
+  // plain read does not apply — a verdict read is a sanctioned read of a
+  // pending node (an uninitialized one still throws NotReady below).
+  if (__DEV__ && strictRead)
+    warnStrictReadUntracked(strictRead, {
+      ownerId: c?.id,
+      ownerName: (c as any)?._name,
+      nodeName: (owner as any)?._name
+    });
+  const uninitialized = (owner._statusFlags & STATUS_UNINITIALIZED) !== 0;
+  if (el._config & CONFIG_HELD) {
+    if (!uninitialized) {
+      const t = txOf(el);
+      // A render effect re-run (or mounted) outside the verdict lane's flush
+      // while the lane is blocked — its display held on its own derivation
+      // in flight — is a stale reader of the lane (#3460, as `laneRead`): the
+      // committed value now, re-derived at the reveal. Not inside a probe:
+      // `isPending` is answered below either way.
+      if (
+        tracked &&
+        !probing &&
+        (c as any)._type === EFFECT_RENDER &&
+        passLane === null &&
+        t._verdict !== null &&
+        flushTransaction !== t &&
+        blocked(t._verdict)
+      ) {
+        if (!(c!._flags & REACTIVE_FRAME_READ)) {
+          c!._flags |= REACTIVE_FRAME_READ;
+          t._verdict._reruns.push(c!);
+        }
+        return el._value;
+      }
+      if (tracked) verdictRead(c!, t);
+      if (probing && heldNotFinal(owner)) probeFound = true;
+      if (latestActive && el._pendingValue !== NOT_PENDING) {
+        // An action body reading another transaction's proposal derives
+        // from it: the two settle as one (A15; posture C, 2026-09-15). An
+        // untracked read elsewhere has no transaction to entangle.
+        if (!tracked && flushTransaction !== null && !globalQueue._running) joinFuture(txOf(el));
+        return heldLatest(el, tracked ? c : null);
+      }
+      return el._value;
+    }
+    // Born into the future: its staging is its only value.
+    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING))
+      return el._pendingValue;
+  } else if (el._pendingValue !== NOT_PENDING) {
+    if (owner._statusFlags & STATUS_PENDING && !uninitialized)
+      pendingVerdict(tracked ? c : null, owner);
+    else if (tracked && globalQueue._running)
+      provisionalVerdict(c!, !latestActive && !uninitialized);
+    // Outside a flush, the staging is an unflushed write (A28): the probe
+    // answers for the flushed world, and watches the seam of the flush that
+    // carries the write — a memo of `isPending(x)` created after the write
+    // flips if that flush parks (#3078). (The write's own fan-out ran before
+    // the reader existed; nothing else would re-derive it.)
+    else if (tracked && probing) watchVerdict(c!);
+    if (latestActive) {
+      // A28: an unflushed write is not what `latest` serves; a tracked
+      // reader derived from the flushed world runs again in the carrying
+      // flush.
+      if (globalQueue._running) return el._pendingValue;
+      if (c !== null) markLateLinker(c);
+    }
+    return el._value;
+  }
+  if (owner._statusFlags & STATUS_PENDING) {
+    if (!uninitialized) {
+      pendingVerdict(tracked ? c : null, owner);
+      return el._value;
+    }
+    throw owner._x?._error;
+  }
+  if (owner._fn !== undefined && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;
+  return el._value;
+}
+
+// Installed at module evaluation — present exactly when something imports
+// `latest` or `isPending`. (`read` dispatches to `verdictValue` through
+// `verdict`, set while a window is open.)
+GlobalQueue._verdictSeam = verdictSeam;
+GlobalQueue._observeFlight = observeFlight;

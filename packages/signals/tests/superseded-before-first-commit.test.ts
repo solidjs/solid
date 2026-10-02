@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import {
   action,
+  NotReadyError,
   createMemo,
   createOptimistic,
   createRenderEffect,
@@ -77,9 +78,15 @@ describe("A18 (d) before the first commit", () => {
     flush();
     g.fetches.shift()!(); // own source lands 2 ≠ 3
     await settle();
-    expect(g.x()).toBe(3); // the displayed override (A18 c)
+    // Lanes (2026-10-02): the guess was written in the frame that re-asked
+    // its source — its lane blocked and the guess never displayed; the
+    // correction voids it (§16). Never committed, the node has nothing to
+    // serve a direct read (A19 exc. 1: loading, not pending); `latest`
+    // tunnels to the staged truth. (Under `next` the override slot was "the
+    // observable value" and `isPending` compared the truth to it.)
+    expect(() => g.x()).toThrow(NotReadyError);
     expect(latest(g.x)).toBe(2); // the arrived truth (A18 d)
-    expect(isPending(g.x)).toBe(true); // it differs
+    expect(isPending(g.x)).toBe(false); // loading, not pending (A19 exc. 1)
     await g.release();
   });
 });

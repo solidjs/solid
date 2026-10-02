@@ -1,6 +1,5 @@
 import type { NOT_PENDING } from "./constants.js";
-import type { OptimisticLane } from "./lanes.js";
-import type { IQueue, Transition } from "./scheduler.js";
+import type { Transaction } from "./scheduler.js";
 
 export interface Disposable {
   (): void;
@@ -18,11 +17,6 @@ export interface Link {
    * scanning the dep list to answer membership (see `link()`).
    */
   _gen: number;
-  // True when the link was created by an `isPending` read. Such a link observes
-  // the dep's pending state only: `notifyStatus` re-runs the subscriber on a
-  // real (non-NotReadyError) error instead of propagating the error through it,
-  // matching the synchronous `isPending` read which swallows such errors.
-  _pendingObserver?: boolean;
 }
 
 export interface NodeOptions<T> {
@@ -34,9 +28,8 @@ export interface NodeOptions<T> {
   /** Exclude this signal from snapshot capture (internal — not part of public API) */
   _noSnapshot?: boolean;
   /** Extra CONFIG_* bits OR'd into the node's config at creation (internal —
-   * not part of public API). Used by resolve()/until() for
-   * CONFIG_DIRECT_COMMIT / CONFIG_AUTHORITATIVE_READ, keeping the per-flag
-   * option arms out of the core creation path. */
+   * not part of public API). Used by refresh() for CONFIG_FRESH_READ,
+   * keeping the per-flag option arms out of the core creation path. */
   _extraConfig?: number;
   /** Observe tiers: framework plumbing — no name, no owner-path segment, no
    * attribution records of its own; its children stay observed (internal —
@@ -69,69 +62,38 @@ export interface NodeOptions<T> {
  * hot-path gates — a bit says "consult _x", never the reverse.
  */
 export interface NodeExtension {
-  _overrideValue: unknown | typeof NOT_PENDING;
-  /**
-   * The transaction that owns the active override (stamped at optimistic
-   * write, cleared at settle). Ownership must live on the node: a lane's
-   * _transition is a scheduling affinity that a shared subscriber can merge
-   * across transactions (#2912) — following it would let one action's settle
-   * revert another action's live override. Node-level sibling of the store
-   * layer's STORE_OPTIMISTIC_OWNERS stamps (#2899). `null` = ambient write.
-   */
-  _overrideOwner: Transition | null | undefined;
-  /** `clock` at the active override's write. A sync recompute in the same
-   * tick derives from inputs that predate the override and does not
-   * supersede it (A18 supersession ordering, #3331). */
-  _overrideTime: number;
-  /** A28: the staged value the last flush left on a HELD node that has since
-   * been rewritten (latest() keeps answering with it); NOT_PENDING otherwise. */
-  _flushedStaged: unknown;
-  /** Provenance of the active override's write: the scheduler's `origin` (the
-   * asking action's invocation sequence; 0 = mainline). An arriving answer
-   * whose flight an older action issued asked a question the override has
-   * since changed: it holds to commit instead of superseding (A18
-   * supersession provenance, #3331). */
-  _overrideStamp: number;
-  _optimisticLane: OptimisticLane | undefined;
-  _pendingSignal: Signal<boolean> | undefined; // Lazy signal for isPending()
-  _latestValueComputed: Computed<any> | undefined; // Lazy computed for latest()
-  _parentSource: Signal<any> | Computed<any> | undefined; // Back-reference for parent-child lane relationship
-  /**
-   * Live `affects()` marks on this node (refcount). Non-zero is declared
-   * motion — see affects(); the count is the mark's only graph state.
-   */
-  _affectsCount: number;
   _inFlight: PromiseLike<any> | AsyncIterable<any> | null;
   /** Cancellation for the CURRENT iterator flight (#3122): closes the
    * iterator (`it.return()`), idempotent. Fired at the sites that release
-   * `_inFlight` so a superseded stream stops at supersede time — its owner
-   * cleanup registration may ride the zombie-disposal channel, which a held
-   * transition defers until the SUPERSEDING flight settles. Null for plain
-   * promise flights (no cancellation hook exists). */
+   * `_inFlight` so a superseded stream stops at supersede time. Null for
+   * plain promise flights (no cancellation hook exists). */
   _flightTeardown: (() => void) | null;
   _error: unknown;
   _blocked: boolean | undefined;
   _pendingSources: Set<Computed<any>> | undefined;
-  _notifyStatus: ((status?: number, error?: any) => void) | undefined;
-  /** Question-scoped re-ask classification of the current pending window
-   * (see the former Computed._x?._reask doc): set by recompute from
-   * REACTIVE_REASK, cleared on landing; meaningless while not pending. */
-  _reask: boolean;
-  _child: FirewallSignal<any> | null;
   _unobserved: (() => void) | undefined;
   _snapshotValue: any;
-  /** Zombie staging (staged disposal): a recompute of an owner that HAS
-   * children/disposal parks them here until the flush commits (or a
-   * transition reverts). Childless nodes — the common case — never write
-   * these. */
-  _pendingDisposal: Disposable | Disposable[] | null;
+  /** L2 — the previous pass's frame, parked for this node's commit: its child
+   * chain and `_disposal` list, still reacting until the commit disposes
+   * them (or the owner's death does). */
   _pendingFirstChild: Owner | null;
-  /** #3038: the firewall children that actually carry isPending()/latest()
-   * companions. The post-recompute companion snap iterates THIS set —
-   * O(companions asked for) — never the full `_child` chain (one entry per
-   * materialized leaf). Populated at companion creation; entries live as
-   * long as their companions (which are permanent once created). */
-  _companionChildren: Set<FirewallSignal<any>> | undefined;
+  _pendingDisposal: Disposable | Disposable[] | null;
+  /** L2 — the transaction holding this node while CONFIG_HELD is set
+   * (`holdNode`); resolved through merges by `txOf`. */
+  _transaction: Transaction | null;
+  /** The node's current flight re-asks the same question (a `refresh()`,
+   * A19 exc. 2 / A24): verdict-quiet — `isPending` reads false for it —
+   * through its landing until the commit. */
+  _reask: boolean;
+  /** A28: the staging the last flush left on a held node, kept across an
+   * unflushed rewrite — what `latest()` and a tracked reader see until the
+   * flush that carries the rewrite; valid while `_flushedAt` is the current
+   * clock (that flush advances it). */
+  _flushed: unknown;
+  _flushedAt: number;
+  /** Provenance (A18, #3331): the question this node's guess or latest
+   * flight answers (`scheduler.question`); 0 when unstamped. */
+  _q: number;
 }
 
 export interface RawSignal<T> {
@@ -153,10 +115,6 @@ export interface RawSignal<T> {
   _equals: false | ((a: T, b: T) => boolean);
   _config: number;
   _time: number;
-  /** IN CORE, not the extension (stage-3 §12c): consulted on EVERY write
-   * (setSignal's transition-init check) and on recompute scheduling — the
-   * per-write extension chase measurably taxed propagation chains. */
-  _transition: Transition | null;
   /** Notify-epoch stamp of the last subscriber walk (§12d). A re-write to an
    * already-staged node whose stamp still equals the global epoch skips the
    * whole walk — marking is idempotent, and the epoch bumps on every
@@ -167,15 +125,7 @@ export interface RawSignal<T> {
   _x: NodeExtension | null;
 }
 
-export interface FirewallSignal<T> extends RawSignal<T> {
-  _firewall: Computed<any>;
-  /** Doubly-linked child chain on the firewall's extension (`_x._child` is
-   * the head): released leaves unlink in O(1) (#3351). */
-  _nextChild: FirewallSignal<unknown> | null;
-  _prevChild: FirewallSignal<unknown> | null;
-}
-
-export type Signal<T> = RawSignal<T> | FirewallSignal<T>;
+export type Signal<T> = RawSignal<T>;
 export interface Owner {
   id?: string;
   _config: number;
@@ -186,11 +136,10 @@ export interface Owner {
   _parent: Owner | null;
   _context: Record<symbol | string, unknown>;
   _childCount: number;
-  _queue: IQueue;
   _firstChild: Owner | null;
   _nextSibling: Owner | null;
   _prevSibling: Owner | null;
-  /** Cold extension — see NodeExtension (owners use the zombie-pair slots). */
+  /** Cold extension — see NodeExtension. */
   _x: NodeExtension | null;
   /**
    * Observe-tier label: the `name` option, the node kind (`computed`,
@@ -212,21 +161,10 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _prevHeap: Computed<any>;
   _fn: (prev?: T) => T;
   /**
-   * Clock tick at which REACTIVE_MANUAL_WRITE was last applied
-   * (`suppressComputedRecompute`). Lets `refresh()` distinguish a same-tick
-   * manual write (which wins over the refresh, #2692) from a mask carried
-   * across ticks by a transaction (which an explicit refresh lifts, #3026).
-   * Only meaningful while REACTIVE_MANUAL_WRITE is set.
-   */
-  _manualWriteTime?: number;
-  /**
    * True while a `loadingValue` node's first real answer hasn't landed: the
    * node was born committed (commit #0 = the loading value) and `handleAsync`
    * serves that committed value instead of throwing NotReadyError, so first
-   * flights never suspend readers, trip boundaries, or hold transitions.
-   * The window is verdict-quiet: `isPending` stays false, because commit #0
-   * answers the question by declaration (first-load affordances belong to
-   * the value channel). Cleared by the first value landing on any path (sync
+   * flights never suspend readers or trip boundaries. Cleared by the first value landing on any path (sync
    * return, sync-resolved promise, first iterator yield, async settle); a
    * real error leaves it set — errors answer reads but don't enter the value
    * lineage, so a retry serves the loading value again. Once cleared, normal
