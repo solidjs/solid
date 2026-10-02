@@ -4,11 +4,10 @@ import "server-only";
 // `server-only` marker fails the build if this module is ever imported from
 // client code. It keeps the SPA twin's deliberate unreliability
 // (../../../todos/src/api.ts): every save waits 400 ms and ~33% of them fail,
-// so the optimistic UI, the per-row errors and the retry affordances get
-// exercised. A failure is an answer, not an exception — the mutations return
-// `{ error }`, which types the failure all the way to `useSubmissions` on the
-// client. Todos reset on server restart (memory driver); swap the driver for
-// a durable store in a deployment.
+// so the in-flight marks, the failures and the retries get exercised. A
+// failure is an answer, not an exception — the store returns `{ error }`, and
+// the actions word it for the client. Todos reset on server restart (memory
+// driver); swap the driver for a durable store in a deployment.
 import { createStorage } from "unstorage";
 import memoryDriver from "unstorage/drivers/memory";
 
