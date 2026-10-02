@@ -90,12 +90,15 @@ There are a few differences from Solid's JSX that are important to note.
 html`<div id=${() => props.id}>${() => firstName() + lastName()}</div>`
 ```
 
-2. Zero-argument functions passed to component props become getters
+2. Events on components require explicit event in the arguments
 
-Solid's Tagged Template Literals automatically wrap functions with no arguments passed to props of components in getters, so a render prop like the `<For>` child needs a declared argument to stay a function. Event handlers named `onXxx` (an uppercase letter after `on`) are exempt; any other prop, including `on` on `<Loading>`, `only`, or a lowercase `onclick`, is wrapped.
+Solid's Tagged Template Literals automatically wrap functions with no arguments passed to props of components in getters, so you need to declare an argument to prevent this. That covers every prop, `onXxx` handlers and `ref` included; the same applies to render props like in the `<For>` component.
 
 ```js
-// handler: passed as-is
+// good: passed as a function
+html`<${Button} onClick=${e => console.log("Hi")} />`;
+
+// bad: a getter, so `props.onClick` runs `console.log` and reads its result
 html`<${Button} onClick=${() => console.log("Hi")} />`;
 
 // getter: `props.on` reads `key()`
@@ -123,7 +126,7 @@ html`
 
 6. Only `onXxx` names are event handlers
 
-On elements, only `on` followed by an uppercase letter binds an event. A lowercase `onclick` is a plain attribute, and a zero-argument function passed to it becomes a getter like any other attribute.
+On elements, camelCase `onXxx` names (`on` followed by an uppercase letter) are event handlers and are passed through as functions, as is `ref`. A lowercase `onclick` is a plain attribute, and a zero-argument function passed to it becomes a getter like any other attribute.
 
 ```js
 html`<button onClick=${() => save()} />`; // event handler
