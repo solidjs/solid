@@ -2981,7 +2981,25 @@ module.exports = [
     // over an element's direct children was weighed and rejected (~100 B
     // for a new rule: no text position at a component's top level).
     // Accepted by the maintainer. The cap is frozen again at 12.98 KB.
-    limit: "12.98 KB",
+    // Size-Exception (refetch content lands at commit, 2026-10-02): 12.98 ->
+    // 13.73 KB, measured at 13,726 B against `next` @ 98d35b9bc's 12,977
+    // (+749 B; 746 B over the cap; +2,283 B minified, 40,973 -> 43,256:
+    // frames client +2,278, transport slice +5). A refetch or single-flight
+    // region for a call a mount is showing is staged instead of written, so
+    // it lands in the commit of the transition that read it: the handler's
+    // staged entries (chunks, deferred `onStream`, a content token per
+    // version, single-flight regions routed by root), the staged data tables
+    // (`stageTables`), and the two halves of the mount's follow effect —
+    // `FrameImpl.preview` pushing the staged slot args into live fills from
+    // the compute half (held with the transition, so optimistic intent never
+    // reads the old args), `stagedContent.commit` replaying the rest from
+    // the effect half. Trimmed before accepting (one staged-entry lookup,
+    // one adoption path in the preview); dropping either half was weighed
+    // and rejected: without the preview the one-flush optimistic gap
+    // returns, without staged tables the shown content reads the new
+    // response's refs before the commit. Accepted by the maintainer. The cap
+    // is frozen again at 13.73 KB.
+    limit: "13.73 KB",
     alias: framesAlias,
     external: framesExternal
   },
@@ -3098,6 +3116,13 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 46.20 KB.
+    // Size-Exception (refetch content lands at commit, 2026-10-02): 46.20 ->
+    // 47.01 KB, measured at 47,006 B against `next` @ 98d35b9bc's 46,181
+    // (+825 B; 806 B over the cap; +2,285 B minified, frames client +2,046).
+    // The frames client's staging and two-phase landing (the frames note);
+    // the frames client imports nothing new, so the remaining ~240 B minified
+    // across signals, solid, web and the sf client is attribution drift.
+    // Accepted by the maintainer. The cap is frozen again at 47.01 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3183,6 +3208,11 @@ module.exports = [
     // at 50,346 B against #3713 @ 73640f5cd's 50,150 (a 50.15 -> 50.35 KB
     // raise); the base moved under the PR (the fake-`Promise` cap above).
     // Size vetted by the maintainer. The cap is frozen again at 50.45 KB.
+    // Size-Exception (refetch content lands at commit, 2026-10-02): 50.45 ->
+    // 51.15 KB, measured at 51,150 B against `next` @ 98d35b9bc's 50,385
+    // (+765 B; 700 B over the cap; +2,287 B minified, frames client +2,025).
+    // The same staging bytes as the base page. Accepted by the maintainer.
+    // The cap is frozen again at 51.15 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },

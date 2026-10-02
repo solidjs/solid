@@ -36,7 +36,14 @@ import type { Element as SolidElement } from "solid-js";
 // server-functions/client import below is.
 import { insert, assign } from "@solidjs/web";
 import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
-import { COMPONENT_BINDING, createServerComponentHandler } from "./frame-transport.js";
+import {
+  COMPONENT_BINDING,
+  STAGED_DATA,
+  contentAddress,
+  createServerComponentHandler,
+  stagedContent,
+  type ServerComponentHandlerOptions
+} from "./frame-transport.js";
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
 // projections. The materializer is solid's (it owns the patch protocol);
@@ -134,19 +141,43 @@ function loadCodec() {
   }));
 }
 const tables = new Map<string, any>();
-function ensureTable(root: string) {
-  let table = tables.get(root);
-  if (!table && codec) tables.set(root, (table = codec.createJSONDataTable()));
+function ensureTable(root: string, map = tables) {
+  let table = map.get(root);
+  if (!table && codec) map.set(root, (table = codec.createJSONDataTable()));
   return table;
 }
-function tableFor(id: string) {
-  if (tables.has(id)) return ensureTable(id);
-  for (const root of tables.keys()) if (id.startsWith(root + ".")) return ensureTable(root);
+function tableFor(id: string, map = tables) {
+  if (map.has(id)) return ensureTable(id, map);
+  for (const root of map.keys()) if (id.startsWith(root + ".")) return ensureTable(root, map);
   return undefined;
 }
 /** Rotate in a fresh response-scoped data table for a boundary's stream. */
 function beginStream(frameId: string) {
   tables.set(frameId, undefined);
+}
+/**
+ * A staged response's tables (STAGED_DATA): routed like `tables`, decoded
+ * as the response arrives, installed over the shown response's at commit.
+ */
+function stageTables() {
+  const staged = new Map<string, any>();
+  return {
+    begin: (id: string) => staged.set(id, undefined),
+    apply: (c: any) => tableFor(c.id, staged)?.apply(c),
+    resolve: (ref: any, id: string) => tableFor(id, staged)?.resolve(ref),
+    commit: () => staged.forEach((table, id) => tables.set(id, table))
+  };
+}
+/**
+ * A mount's address accessor, previewing each content token it delivers
+ * (see `stagedContent`) — the compute half of the effect that follows it.
+ */
+function followContent(binding: () => string) {
+  return () => {
+    const token = binding();
+    stagedContent.preview(token);
+    return token;
+  };
 }
 /**
  * The app-wide shared frame host (created lazily): one chunk router with
@@ -272,7 +303,9 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
  * into the same instance" semantic compiled components already have.
  */
 function liveSlotProps(initial: Record<string, any>, ctx: any) {
-  const [args, setArgs] = createSignal(initial);
+  // `ownedWrite`: a staged response's args arrive from the mount's compute
+  // half (see followContent), under the transition that delivered them.
+  const [args, setArgs] = createSignal(initial, { ownedWrite: true });
   ctx.onUpdate((next: Record<string, any>) => setArgs(() => next));
   return slotArgsProxy(args);
 }
@@ -896,7 +929,7 @@ function boundaryComponent(host: any, fnId: string) {
     // the exhausted late-boundary waiter, a client-only boot — must render
     // its empty frame NOW, ready for the stream a future call fills it with:
     // nothing is coming to release a gate.
-    const id = binding ? binding() : fnId;
+    const id = binding ? contentAddress(binding()) : fnId;
     let applied = !tables.has(id);
     // The gate is RE-ARMABLE (a signal of the current wait, not a one-shot
     // promise): an address SWITCH re-pends this site (#2977, below), so the
@@ -939,8 +972,13 @@ function boundaryComponent(host: any, fnId: string) {
         setGate && setGate(undefined);
       }
     });
+    // `ownedWrite`: committing a staged response (see the follow effect
+    // below) applies to every mount of the address, and a fresh mount's
+    // first follow run commits inside its own render — so another mount's
+    // release can land in a render too.
     const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(
-      applied ? undefined : mountGate
+      applied ? undefined : mountGate,
+      { ownedWrite: true }
     );
     setGate = setGatePromise;
     if (binding) {
@@ -965,11 +1003,24 @@ function boundaryComponent(host: any, fnId: string) {
       // synchronously, and the seed's apply releases the gate before any
       // reader sees it. Only switches with a stream begun gate (same rule
       // as the mount gate) — nothing else is coming to release one.
-      createRenderEffect(binding, (address, prev) => {
-        if (prev !== undefined && address !== prev && tables.has(address)) {
+      //
+      // A refetch of the address this mount shows delivers a content TOKEN
+      // instead (see createServerComponentHandler), landed in two halves of
+      // the transition that read the refetch: the compute half previews its
+      // slot args into the live fills (held with the transition, so a fill
+      // deriving optimistic intent over an arg never reads the old arg once
+      // the intent ends), and the effect half commits the markup with
+      // everything else the transition holds. The same address under a new
+      // version is not a switch.
+      let bound = id;
+      createRenderEffect(followContent(binding), token => {
+        stagedContent.commit(token);
+        const address = contentAddress(token);
+        if (address !== bound && tables.has(address)) {
           applied = false;
           setGatePromise(arm());
         }
+        bound = address;
         frame.rebind(address);
       });
     }
@@ -1229,7 +1280,7 @@ function adoptBoundary(
   // binds the address's resident store, while `id` — the function id, the
   // document's wire name — stays the key records and region ids on the page
   // are written under.
-  const address = binding ? binding() : documentAddress(id);
+  const address = binding ? contentAddress(binding()) : documentAddress(id);
   // Occlusion records (case 3, document face): content a client wrapper
   // never rendered during SSR shipped ONCE as hydration data instead of
   // markup. Apply the records BEFORE binding the frame — the host buffers
@@ -1426,17 +1477,25 @@ function adoptBoundary(
   // switch stays open. Arm-then-rebind is self-correcting for warm stores
   // (rebind's registration seeds synchronously and the seed's apply
   // releases in the effect's write-legal half); only switches with a
-  // stream begun gate — nothing else is coming to release one.
+  // stream begun gate — nothing else is coming to release one. A content
+  // token (a refetch of the address shown) commits here, as in the
+  // call-driven mount, and is not a switch.
   if (binding) {
     const arm = () => new Promise<void>(r => (release = r));
-    const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(undefined);
+    // `ownedWrite`: as in the call-driven mount — a staged commit from
+    // another mount's render reaches this one's release.
+    const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(undefined, {
+      ownedWrite: true
+    });
     setGate = setGatePromise;
     const gate = createMemo(() => gatePromise());
-    createRenderEffect(binding, (address: string, prev?: string) => {
-      if (prev !== undefined && address !== prev && tables.has(address)) {
-        setGatePromise(arm());
-      }
-      frame.rebind(address);
+    let bound = address;
+    createRenderEffect(followContent(binding), (token: string) => {
+      stagedContent.commit(token);
+      const next = contentAddress(token);
+      if (next !== bound && tables.has(next)) setGatePromise(arm());
+      bound = next;
+      frame.rebind(next);
     });
     // The pending observer (no-op effect half: the pend IS the point).
     createRenderEffect(
@@ -1511,6 +1570,9 @@ export function installServerComponents(host: any = getFrameHost()) {
     // to the delivered call address.
     component: (fnId: string) => g._$SC.r(fnId),
     onStream: (address: string) => beginStream(address),
+    // Only the shared host routes data through the per-stream `tables`; a
+    // host of the app's own takes a staged response's data as it arrives.
+    [STAGED_DATA]: host === sharedHost ? stageTables : undefined,
     // The page IS the t=0 record: a call whose function has an unclaimed
     // SSR'd boundary in the document is answered locally — the source
     // re-runs during hydration per dynamic's contract, but no request
@@ -1533,7 +1595,8 @@ export function installServerComponents(host: any = getFrameHost()) {
     // bundle resolves the transport's wire-layer imports to that external
     // entry (externalizeSharedTransport in rollup.config.js), so no getter
     // overrides are needed.
-  });
+    // (Asserted: STAGED_DATA is internal, not part of the options type.)
+  } as ServerComponentHandlerOptions<any>);
   // Which calls the document is showing: hydration references carry their
   // call's address (`_$SC.r(id, address)`), and those records — never seen
   // by the transport, since hydration data seeds caches directly — are what
