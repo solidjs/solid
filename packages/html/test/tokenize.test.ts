@@ -853,6 +853,23 @@ describe("handling of raw text elements", () => {
       { type: TEXT_TOKEN, value: "Text" }
     ]);
   });
+
+  it("should exit raw text mode after a self-closing raw text element", () => {
+    const tokens = tokenizeTemplate`<div><textarea /></div>`;
+    expect(tokens).toEqual([
+      { type: OPEN_TAG_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "div" },
+      { type: CLOSE_TAG_TOKEN },
+      { type: OPEN_TAG_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "textarea" },
+      { type: SLASH_TOKEN },
+      { type: CLOSE_TAG_TOKEN },
+      { type: OPEN_TAG_TOKEN },
+      { type: SLASH_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "div" },
+      { type: CLOSE_TAG_TOKEN }
+    ]);
+  });
 });
 
 describe("dynamic component tags", () => {

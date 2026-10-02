@@ -157,6 +157,7 @@ export const tokenize = (
             // ">"
             if (
               rawTextElements.has(lastTagName) &&
+              tokens[tokens.length - 1]?.type !== SLASH_TOKEN &&
               tokens[tokens.length - 2]?.type !== SLASH_TOKEN
             ) {
               state = STATE_RAW_TEXT;
