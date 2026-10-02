@@ -1,4 +1,4 @@
-@@ -68,20 +68,19 @@
+@@ -69,20 +69,19 @@
  var _g54$ = ["<div", "><video></video></div>"];
  var _g55$ = ["<div", " style=\"", "\"", "></div>"];
  var _g56$ = ["<button", " type=\"button\"", " style=\"", "\" class=\"", "\">", "</button>"];
@@ -26,7 +26,7 @@
    return k === "data-dynamic" || k === "data-static";
  };
  _$ssrSelectValues__r_server();
-@@ -98,7 +97,7 @@
+@@ -99,7 +98,7 @@
      id: "my-h1"
    }, results], () => {
      return _g1$ = link, _$ssr__r_server(_g10$, "ccc ddd");
@@ -35,7 +35,7 @@
      return " foo disabled" + _$ssrElementAttribute__r_server("title", welcoming()) + _$ssrElementAttribute__r_server("style", {
        "background-color": color(),
        "margin-right": "40px"
-@@ -107,7 +106,7 @@
+@@ -108,7 +107,7 @@
        selected: selected
      }]);
    });
@@ -44,7 +44,7 @@
    return _$ssrElementAttribute__r_server("class", {
      selected: unknown
    }) + _$ssrElementAttribute__r_server("style", {
-@@ -119,110 +118,110 @@
+@@ -120,110 +119,110 @@
      return _$escape__r_server(row.label || " ");
    }, _$ssr__r_server(_g11$, _g3$)), _$ssr__r_server("<div><div/></div>")];
  }, true);
@@ -208,7 +208,7 @@
  const template26 = _$ssrElement__r_server("div", [{
    start: "Hi",
    middle: middle
-@@ -243,146 +242,146 @@
+@@ -244,146 +243,146 @@
      }, "<!--/-->"];
    }, false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)];
  }, true);
@@ -371,34 +371,34 @@
 +const template63 = _$ssr__r_server(_g26$, _g148$, _$ssrStyleProperty__r_server("background:", "red"));
  var _g149$ = _$ssrHydrationKey__r_server();
 -const template63 = _$ssr__r_server(_g26$, _g149$, _$ssrStyleProperty__r_server("background:", "red"));
-+const template64 = _$ssr__r_server(_g26$, _g149$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";margin:", 3) + _$ssrStyleProperty__r_server(";padding:", 0.4));
++const template64 = _$ssr__r_server(_g26$, _g149$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "margin:", 3, "padding:", 0.4));
  var _g150$ = _$ssrHydrationKey__r_server();
--const template64 = _$ssr__r_server(_g26$, _g150$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";margin:", 3) + _$ssrStyleProperty__r_server(";padding:", 0.4));
-+const template65 = _$ssr__r_server(_g26$, _g150$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(undefined, true)));
+-const template64 = _$ssr__r_server(_g26$, _g150$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "margin:", 3, "padding:", 0.4));
++const template65 = _$ssr__r_server(_g26$, _g150$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(undefined, true)));
  var _g151$ = _$ssrHydrationKey__r_server();
--const template65 = _$ssr__r_server(_g26$, _g151$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(undefined, true)));
+-const template65 = _$ssr__r_server(_g26$, _g151$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(undefined, true)));
 -var _g152$ = _$ssrHydrationKey__r_server();
 -var _g153$ = () => {
 +var _g152$ = () => {
-   return _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(signal(), true));
+   return _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(signal(), true));
  };
 -const template66 = _$ssr__r_server(_g26$, _g152$, _g153$);
 +const template66 = _$ssr__r_server(_g26$, _g151$, _g152$);
 +var _g153$ = _$ssrHydrationKey__r_server();
-+const template67 = _$ssr__r_server(_g26$, _g153$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(somevalue, true)));
++const template67 = _$ssr__r_server(_g26$, _g153$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(somevalue, true)));
  var _g154$ = _$ssrHydrationKey__r_server();
--const template67 = _$ssr__r_server(_g26$, _g154$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(somevalue, true)));
+-const template67 = _$ssr__r_server(_g26$, _g154$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(somevalue, true)));
 -var _g155$ = _$ssrHydrationKey__r_server();
 -var _g156$ = () => {
 +var _g155$ = () => {
-   return _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(some.access, true));
+   return _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(some.access, true));
  };
 -const template68 = _$ssr__r_server(_g26$, _g155$, _g156$);
 +const template68 = _$ssr__r_server(_g26$, _g154$, _g155$);
 +var _g156$ = _$ssrHydrationKey__r_server();
-+const template69 = _$ssr__r_server(_g26$, _g156$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(null, true)));
++const template69 = _$ssr__r_server(_g26$, _g156$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(null, true)));
  var _g157$ = _$ssrHydrationKey__r_server();
--const template69 = _$ssr__r_server(_g26$, _g157$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(null, true)));
+-const template69 = _$ssr__r_server(_g26$, _g157$, _$ssrStyleProperties__r_server("background:", "red", "color:", "green", "border:", _$escape__r_server(null, true)));
 +const template70 = _$ssr__r_server(_g49$, _g157$, _$ssrAttribute__r_server("playsinline", _$escape__r_server(value, true)));
  var _g158$ = _$ssrHydrationKey__r_server();
 -const template70 = _$ssr__r_server(_g49$, _g158$, _$ssrAttribute__r_server("playsinline", _$escape__r_server(value, true)));
@@ -420,28 +420,28 @@
 +const template76 = _$ssr__r_server(_g54$, _g163$);
  var _g164$ = _$ssrHydrationKey__r_server();
 -const template76 = _$ssr__r_server(_g54$, _g164$);
-+const template77 = _$ssr__r_server(_g26$, _g164$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)));
++const template77 = _$ssr__r_server(_g26$, _g164$, _$ssrStyleProperties__r_server("width:", _$escape__r_server(props.width, true), "height:", _$escape__r_server(props.height, true)));
  var _g165$ = _$ssrHydrationKey__r_server();
--const template77 = _$ssr__r_server(_g26$, _g165$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)));
+-const template77 = _$ssr__r_server(_g26$, _g165$, _$ssrStyleProperties__r_server("width:", _$escape__r_server(props.width, true), "height:", _$escape__r_server(props.height, true)));
 -var _g166$ = _$ssrHydrationKey__r_server();
 -var _g167$ = () => {
 +var _g166$ = () => {
    return _$ssrAttribute__r_server("something", _$escape__r_server(color(), true));
  };
--const template78 = _$ssr__r_server(_g55$, _g166$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)), _g167$);
+-const template78 = _$ssr__r_server(_g55$, _g166$, _$ssrStyleProperties__r_server("width:", _$escape__r_server(props.width, true), "height:", _$escape__r_server(props.height, true)), _g167$);
 -var _g168$ = _$ssrHydrationKey__r_server();
 -var _g169$ = () => {
-+const template78 = _$ssr__r_server(_g55$, _g165$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)), _g166$);
++const template78 = _$ssr__r_server(_g55$, _g165$, _$ssrStyleProperties__r_server("width:", _$escape__r_server(props.width, true), "height:", _$escape__r_server(props.height, true)), _g166$);
 +var _g167$ = _$ssrHydrationKey__r_server();
 +var _g168$ = () => {
-   return _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true));
+   return _$ssrStyleProperties__r_server("width:", _$escape__r_server(props.width, true), "height:", _$escape__r_server(props.height, true));
  };
 -const template79 = _$ssr__r_server(_g55$, _g168$, _g169$, _$ssrAttribute__r_server("something", _$escape__r_server(color(), true)));
 +const template79 = _$ssr__r_server(_g55$, _g167$, _g168$, _$ssrAttribute__r_server("something", _$escape__r_server(color(), true)));
  const propsSpread = {
    something: color(),
    style: {
-@@ -393,13 +392,13 @@
+@@ -394,13 +393,13 @@
  };
  const template80 = _$ssrElement__r_server("div", propsSpread, undefined, true);
  const template81 = _$ssrElement__r_server("div", propsSpread, undefined, true);
@@ -458,7 +458,7 @@
    return _$ssrElementAttribute__r_server("data-dynamic", color()) + _$ssrElementAttribute__r_server("data-static", color());
  });
  const styleProp = {
-@@ -408,39 +407,39 @@
+@@ -409,39 +408,39 @@
      height: props.height
    }
  };
@@ -514,7 +514,7 @@
  const o = {
    ref: null
  };
-@@ -449,76 +448,76 @@
+@@ -450,76 +449,76 @@
  };
  const valid = Div({
    ref(r$) {
