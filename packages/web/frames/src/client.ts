@@ -468,14 +468,16 @@ function bindDataOccurrence(
     let st = state.get(element);
     if (!st) state.set(element, (st = { prev: {}, handlers: {}, ref: undefined, refId: "" }));
     // Handler positions: the marker's event name (`onClick` compiled to
-    // `click`) as the prop `assign` binds. The server merges duplicate
-    // handlers last-wins, so a position names one key; given more, the last.
-    // Several keys at a ref position all fire, in marker order.
+    // `click`) as the prop `assign` binds. The prop must be `on` + an
+    // uppercase letter (`onClick`) — a lowercase `onclick` is an attribute
+    // to `assign`. The server merges duplicate handlers last-wins, so a
+    // position names one key; given more, the last. Several keys at a ref
+    // position all fire, in marker order.
     const handlers: Record<string, string> = {};
     const refKeys: string[] = [];
     for (const { pos, key } of positions) {
       if (pos === "ref") refKeys.push(key);
-      else if (pos.startsWith("on:")) handlers["on" + pos.slice(3)] = key;
+      else if (pos.startsWith("on:")) handlers["on" + pos[3].toUpperCase() + pos.slice(4)] = key;
     }
     let owners = handlerOwners.get(element);
     if (!owners) handlerOwners.set(element, (owners = {}));

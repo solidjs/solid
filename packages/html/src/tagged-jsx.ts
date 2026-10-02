@@ -233,7 +233,7 @@ function createHtml() {
           own[prop.name] = prop.value;
           break;
         case EXPRESSION_PROP:
-          applyGetter(own, prop.name, values[prop.value], node.type === COMPONENT_NODE);
+          applyGetter(own, prop.name, values[prop.value]);
           break;
         case SPREAD_PROP:
           const spreadValue = values[prop.value];
@@ -258,23 +258,15 @@ function createHtml() {
     return mergeProps(...sources) as Record<string, any>;
   };
 
-  // Elements: every `on*` prop is an event to `spread`. Components have no
-  // event namespace, so only the `onXxx` handler convention is exempt —
-  // `on`, `only`, `once` are ordinary props.
-  const isHandlerName = (name: string, component: boolean) =>
-    component ? /^on[A-Z]/.test(name) : name.startsWith("on");
-
-  const applyGetter = (
-    props: Record<string, any>,
-    name: string,
-    value: any,
-    component: boolean
-  ) => {
+  // Only the `onXxx` handler convention (and `ref`) is exempt, on elements
+  // and components alike: `onclick` is an attribute, and `on`, `only`,
+  // `once` are ordinary props.
+  const applyGetter = (props: Record<string, any>, name: string, value: any) => {
     if (
       typeof value === "function" &&
       value.length === 0 &&
       name !== "ref" &&
-      !isHandlerName(name, component)
+      !/^on[A-Z]/.test(name)
     ) {
       Object.defineProperty(props, name, {
         get() {

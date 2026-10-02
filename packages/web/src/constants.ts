@@ -232,6 +232,12 @@ function isHttpNavigationTarget(target: string): boolean {
   }
 }
 
+// Only `on` + an uppercase letter (`onClick`) is an event handler. Lowercase
+// `on*` names (`onclick`) are plain attributes.
+function isEventName(name: string): boolean {
+  return /^on[A-Z]/.test(name);
+}
+
 export {
   DOMWithState,
   ChildProperties,
@@ -245,5 +251,6 @@ export {
   $$SLOT,
   $$HOST,
   COMPOSED_BODY_FRAMING,
-  isHttpNavigationTarget
+  isHttpNavigationTarget,
+  isEventName
 };

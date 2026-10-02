@@ -64,14 +64,14 @@ describe("Test HyperScript", () => {
 
     const template = mount(() =>
       h("#main", [
-        h("button", { onclick: () => (exec.bound = true) }, "Click Bound"),
+        h("button", { onMouseEnter: () => (exec.bound = true) }, "Click Bound"),
         h("button", { onClick: () => (exec.delegated = true) }, "Click Delegated")
       ])
     );
     expect(template.outerHTML).toBe(FIXTURES[2]);
     document.body.appendChild(template);
     r.registerDelegatedRoot(document.body);
-    var event = new MouseEvent("click", { bubbles: true });
+    var event = new MouseEvent("mouseenter");
     template.firstChild.dispatchEvent(event);
     event = new MouseEvent("click", { bubbles: true });
     template.firstChild.nextSibling.dispatchEvent(event);
@@ -79,6 +79,20 @@ describe("Test HyperScript", () => {
     expect(exec.delegated).toBe(true);
     r.unregisterDelegatedRoot(document.body);
     document.body.textContent = "";
+  });
+
+  test("Lowercase on* Attributes", () => {
+    const [code, setCode] = createSignal("first()");
+    const template = mount(() =>
+      h("#main", [h("button", { onclick: "run()" }), h("button", { onmouseover: () => code() })])
+    );
+    const [first, second] = template.children;
+    expect(first.getAttribute("onclick")).toBe("run()");
+    expect(first._$$click).toBeUndefined();
+    expect(second.getAttribute("onmouseover")).toBe("first()");
+    setCode("second()");
+    flush();
+    expect(second.getAttribute("onmouseover")).toBe("second()");
   });
 
   test("Fragments", () => {

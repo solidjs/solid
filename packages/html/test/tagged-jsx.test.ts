@@ -336,6 +336,28 @@ describe("Tagged JSX Integration Tests", () => {
         dispose();
       }));
 
+    it("treats lowercase on* on elements as attributes, reactive through a getter", () => {
+      const [code, setCode] = createSignal("first()");
+      let el!: HTMLElement;
+      const dispose = createRoot(dispose => {
+        el = html`<div>
+          <button onclick="run()">Static</button>
+          <button onmouseover=${() => code()}>Dynamic</button>
+          <button onclick=${"expr()"}>Expression</button>
+        </div>` as HTMLElement;
+        return dispose;
+      });
+      const [first, second, third] = el.querySelectorAll("button");
+      expect(first.getAttribute("onclick")).toBe("run()");
+      expect(second.getAttribute("onmouseover")).toBe("first()");
+      expect(third.getAttribute("onclick")).toBe("expr()");
+      expect((third as any)._$$click).toBeUndefined();
+      setCode("second()");
+      flush();
+      expect(second.getAttribute("onmouseover")).toBe("second()");
+      dispose();
+    });
+
     it("integrates ref listeners and delegated events", () => {
       const exec = { first: false, delegated: false, second: false };
       const container = document.createElement("div");

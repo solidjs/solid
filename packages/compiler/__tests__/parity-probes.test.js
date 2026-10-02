@@ -306,11 +306,16 @@ const a = <Comp ref={r}>{x()}</Comp>;
   "bound event array": `
 const a = <button onClick={[handler, data()]}>go</button>;
 `,
-  "on namespace event": `
+  "removed on: namespaces are attributes": `
 const a = <div on:custom-thing={handler} oncapture:click={capture} />;
 `,
-  "lowercase and camel events": `
+  "lowercase on* attributes beside camel events": `
 const a = <div onclick={h1} onDblClick={h2} onMouseMove={move()} />;
+`,
+  "lowercase on* function, dynamic and spread attributes": `
+const a = <div onclick={() => go()} onmouseover={state.code} oninput="run()" />;
+const b = <div {...rest} onclick={code} onClick={click} />;
+const c = <div onclick={code} {...rest} />;
 `,
   "class and style namespaces": `
 const a = <div class:active={isActive()} style:color={color()} />;
