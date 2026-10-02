@@ -1671,9 +1671,10 @@ export function notifyFoldTail(
 ): void {
   const has = t.h;
   if (has !== null) {
+    const live = (old as any)[$TARGET] !== undefined;
     for (const key of Reflect.ownKeys(has)) {
       const nv = key in neu;
-      if (key in old !== nv) setSignal(has[key as any], nv);
+      if (live || key in old !== nv) setSignal(has[key as any], nv);
     }
   }
   if (t.k !== null) {
@@ -1711,9 +1712,10 @@ export function notifyFold(
   }
   const has = t.h;
   if (has !== null) {
+    const live = (old as any)[$TARGET] !== undefined;
     for (const key of Reflect.ownKeys(has)) {
       const nv = key in neu;
-      if (key in old !== nv) setSignal(has[key as any], nv);
+      if (live || key in old !== nv) setSignal(has[key as any], nv);
     }
   }
   if (t.k !== null) {

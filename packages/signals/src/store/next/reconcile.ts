@@ -119,6 +119,7 @@ export function reconcileNextState(
 }
 
 function applyAdopt(t: StoreNextTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {
+  if (t.ovl) materializePB(t);
   const prev = t.pb ?? t.v;
   // The sound identity skip (O7): same reference AND we never diverged it.
   if (incoming === prev && !isOwned(prev)) return;
