@@ -1905,10 +1905,10 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     const streamOutput = chunks.slice(1).join("");
     expect(streamOutput).toContain("<template id=");
     expect(streamOutput).toContain("Styled");
-    const inlineCssLinks = (
-      streamOutput.match(/stylesheet" href="\/assets\/styled\.css" onload/g) || []
+    const gatedCssLinks = (
+      streamOutput.match(/stylesheet" href="\/assets\/styled\.css"[^>]*data-dfc=/g) || []
     ).length;
-    expect(inlineCssLinks).toBe(0);
+    expect(gatedCssLinks).toBe(0);
 
     expect(streamOutput).toMatch(/\$df\("[^"]+"\)/);
     expect(streamOutput).not.toMatch(/\$dfs\("/);
@@ -1963,10 +1963,10 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     expect(headCssCount).toBe(1);
 
     const streamOutput = chunks.slice(1).join("");
-    const streamCssOnload = (
-      streamOutput.match(/stylesheet" href="\/assets\/shared\.css" onload/g) || []
+    const streamGatedCss = (
+      streamOutput.match(/stylesheet" href="\/assets\/shared\.css"[^>]*data-dfc=/g) || []
     ).length;
-    expect(streamCssOnload).toBe(0);
+    expect(streamGatedCss).toBe(0);
   });
 });
 

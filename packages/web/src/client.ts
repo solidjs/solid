@@ -1579,7 +1579,7 @@ function mountAssetElement(descriptor) {
 
 // Load tracking for the reveal gate (docs/client-css-reveal-gating.md).
 // `loadPromise` resolves on load OR error and never rejects — an errored
-// sheet releases the gate, parity with the server gate's `onerror="$dfc"`;
+// sheet releases the gate, parity with the server gate's `error` listener;
 // there is deliberately no timeout, same as the server. `adopted` elements
 // (server-emitted or hand-authored, found in the document rather than
 // created here) may have finished loading before we could listen: an applied
