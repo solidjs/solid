@@ -667,52 +667,48 @@ function transformAttributes(
             if (value.expression.properties.length === 0) {
               return;
             }
-            const props = value.expression.properties.flatMap((p, i) => {
-              if (t.isSpreadElement(p) || t.isObjectMethod(p)) return [];
+            const entries = value.expression.properties.filter(
+              (p): p is babelTypes.ObjectProperty => t.isObjectProperty(p)
+            );
+            // One entry is `ssrStyleProperty(name, value)`; several go to
+            // `ssrStyleProperties`, which writes the `;` only between the
+            // entries it writes, so a nullish one leaves no separator behind.
+            const helper = registerImportMethod(
+              path,
+              entries.length === 1 ? "ssrStyleProperty" : "ssrStyleProperties"
+            );
+            const args = entries.flatMap(p => {
+              let name: babelTypes.Expression;
               if (p.computed) {
                 // Computed keys are user-controlled at runtime; wrap with
-                // `_$escape(..., true)` so ssrStyleProperty can stay a pure
-                // string concat helper (literal-key path is already safe).
-                const escape = registerImportMethod(path, "escape");
-                return t.callExpression(registerImportMethod(path, "ssrStyleProperty"), [
-                  t.binaryExpression(
-                    "+",
-                    t.callExpression(escape, [
-                      p.key as babelTypes.Expression,
-                      t.booleanLiteral(true)
-                    ]),
-                    t.stringLiteral(":")
-                  ),
-                  escapeExpression(
-                    path,
-                    p.value as babelTypes.Expression,
-                    true,
-                    true
-                  ) as babelTypes.Expression
-                ]);
+                // `_$escape(..., true)` so the style helpers can stay pure
+                // string concat (the literal-key path is already safe).
+                name = t.binaryExpression(
+                  "+",
+                  t.callExpression(registerImportMethod(path, "escape"), [
+                    p.key as babelTypes.Expression,
+                    t.booleanLiteral(true)
+                  ]),
+                  t.stringLiteral(":")
+                );
+              } else {
+                name = t.stringLiteral(
+                  (t.isIdentifier(p.key)
+                    ? p.key.name
+                    : (p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value) + ":"
+                );
               }
-              return t.callExpression(registerImportMethod(path, "ssrStyleProperty"), [
-                t.stringLiteral(
-                  (i ? ";" : "") +
-                    (t.isIdentifier(p.key)
-                      ? p.key.name
-                      : (p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value) +
-                    ":"
-                ),
+              return [
+                name,
                 escapeExpression(
                   path,
                   p.value as babelTypes.Expression,
                   true,
                   true
                 ) as babelTypes.Expression
-              ]);
+              ];
             });
-
-            let res = props[0] as babelTypes.Expression;
-            for (let i = 1; i < props.length; i++) {
-              res = t.binaryExpression("+", res, props[i] as babelTypes.Expression);
-            }
-            value.expression = res;
+            value.expression = t.callExpression(helper, args);
           } else {
             value.expression = t.callExpression(registerImportMethod(path, "ssrStyle"), [
               value.expression

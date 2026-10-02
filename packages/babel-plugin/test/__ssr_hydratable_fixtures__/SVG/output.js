@@ -1,6 +1,6 @@
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
-import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
+import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
@@ -41,10 +41,16 @@ var _v$2 = _$ssrHydrationKey(),
       _$ssrAttribute("stroke-width", _$escape(state.width, true)),
       _$ssrAttribute("x", _$escape(state.x, true)),
       _$ssrAttribute("y", _$escape(state.y, true)),
-      _$ssrStyleProperty("fill:", "red") +
-        _$ssrStyleProperty(";stroke:", "black") +
-        _$ssrStyleProperty(";stroke-width:", _$escape(props.stroke, true)) +
-        _$ssrStyleProperty(";opacity:", 0.5)
+      _$ssrStyleProperties(
+        "fill:",
+        "red",
+        "stroke:",
+        "black",
+        "stroke-width:",
+        _$escape(props.stroke, true),
+        "opacity:",
+        0.5
+      )
     ],
     5
   );

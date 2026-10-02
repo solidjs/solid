@@ -2,7 +2,7 @@ import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
-import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
+import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 var _tmpl$ = "<svg width=\"400\" height=\"180\"><rect stroke-width=\"2\" x=\"50\" y=\"20\" rx=\"20\" ry=\"20\" width=\"150\" height=\"150\" style=\"fill:red;stroke:black;stroke-width:5;opacity:0.5\"></rect><linearGradient gradientTransform=\"rotate(25)\"><stop offset=\"0%\"></stop></linearGradient></svg>";
@@ -25,7 +25,7 @@ var _g$ = _$ssrGroup(() => {
 		_$ssrAttribute("stroke-width", _$escape(state.width, true)),
 		_$ssrAttribute("x", _$escape(state.x, true)),
 		_$ssrAttribute("y", _$escape(state.y, true)),
-		_$ssrStyleProperty("fill:", "red") + _$ssrStyleProperty(";stroke:", "black") + _$ssrStyleProperty(";stroke-width:", _$escape(props.stroke, true)) + _$ssrStyleProperty(";opacity:", .5)
+		_$ssrStyleProperties("fill:", "red", "stroke:", "black", "stroke-width:", _$escape(props.stroke, true), "opacity:", .5)
 	];
 }, 5);
 const template2 = _$ssr(_tmpl$2, _g$, _g$, _g$, _g$, _g$);

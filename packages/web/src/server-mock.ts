@@ -401,6 +401,12 @@ export function ssrStyle(value: string | { [k: string]: string }): string {}
  */
 export function ssrStyleProperty(name: string, value: any): string {}
 /**
+ * Compiler primitive — serializes a style object's `name, value` pairs for
+ * SSR output. Not meant for hand-written code.
+ * @internal
+ */
+export function ssrStyleProperties(...entries: any[]): string {}
+/**
  * Compiler primitive — serializes an attribute for SSR output. Not meant
  * for hand-written code.
  * @internal

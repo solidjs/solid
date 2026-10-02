@@ -69,6 +69,7 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     uses_ssr_element_attribute: bool,
     uses_ssr_style: bool,
     uses_ssr_style_property: bool,
+    uses_ssr_style_properties: bool,
     uses_ssr_class_name: bool,
     uses_ssr_group: bool,
     uses_apply_ref: bool,
@@ -240,6 +241,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             uses_ssr_element_attribute: false,
             uses_ssr_style: false,
             uses_ssr_style_property: false,
+            uses_ssr_style_properties: false,
             uses_ssr_class_name: false,
             uses_ssr_group: false,
             uses_apply_ref: false,
@@ -548,6 +550,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         if self.uses_ssr_style_property {
             statements.push(self.import_named("ssrStyleProperty", "_$ssrStyleProperty"));
+        }
+        if self.uses_ssr_style_properties {
+            statements.push(self.import_named("ssrStyleProperties", "_$ssrStyleProperties"));
         }
         if self.uses_ssr_group {
             statements.push(self.import_named("ssrGroup", "_$ssrGroup"));
@@ -2275,15 +2280,17 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     }
 
     /// Babel's SSR style-object serialization: a spread-free object compiles
-    /// to a `+`-chain of `_$ssrStyleProperty(...)` calls (computed keys wrap
-    /// in `_$escape(key, true)`), values escape as attribute literals.
+    /// to `_$ssrStyleProperty(name, value)` for one entry and to
+    /// `_$ssrStyleProperties(name, value, ...)` for several, which writes the
+    /// `;` only between the entries it writes (computed keys wrap in
+    /// `_$escape(key, true)`), values escape as attribute literals.
     fn ssr_style_property_chain(&mut self, span: Span, value: Expression<'a>) -> Expression<'a> {
         let Expression::ObjectExpression(object) = value else {
             unreachable!("style chain only sees spread-free objects");
         };
         let object = object.unbox();
-        let mut parts: std::vec::Vec<Expression<'a>> = std::vec::Vec::new();
-        for (index, property) in object.properties.into_iter().enumerate() {
+        let mut args: std::vec::Vec<Expression<'a>> = std::vec::Vec::new();
+        for property in object.properties {
             let ObjectPropertyKind::ObjectProperty(property) = property else {
                 continue;
             };
@@ -2291,12 +2298,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             if property.method || property.kind != oxc_ast::ast::PropertyKind::Init {
                 continue;
             }
-            self.uses_ssr_style_property = true;
             let value_escaped = self.escape_expression_recursive(property.value, true, true);
-            let part = if property.computed {
+            let name = if property.computed {
                 // Computed keys are user-controlled at runtime; wrap with
-                // `_$escape(..., true)` so ssrStyleProperty can stay a pure
-                // string concat helper (literal-key path is already safe).
+                // `_$escape(..., true)` so the style helpers can stay pure
+                // string concat (the literal-key path is already safe).
                 let key = property
                     .key
                     .as_expression()
@@ -2308,36 +2314,29 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     "_$escape",
                     vec![key, self.ast().expression_boolean_literal(span, true)],
                 );
-                let prefix = self.ast().expression_binary(
+                self.ast().expression_binary(
                     span,
                     escaped_key,
                     oxc_ast::ast::BinaryOperator::Addition,
                     self.ast()
                         .expression_string_literal(span, self.ast().str(":"), None),
-                );
-                self.helper_call(span, "_$ssrStyleProperty", vec![prefix, value_escaped])
+                )
             } else {
                 let key =
                     crate::shared::attr_plan::static_style_key(&property.key).unwrap_or_default();
-                let prefix = format!("{}{}:", if index > 0 { ";" } else { "" }, key);
-                let prefix =
-                    self.ast()
-                        .expression_string_literal(span, self.ast().str(&prefix), None);
-                self.helper_call(span, "_$ssrStyleProperty", vec![prefix, value_escaped])
+                let name = format!("{}:", key);
+                self.ast()
+                    .expression_string_literal(span, self.ast().str(&name), None)
             };
-            parts.push(part);
+            args.push(name);
+            args.push(value_escaped);
         }
-        let mut iter = parts.into_iter();
-        let mut result = iter.next().expect("non-empty style object");
-        for part in iter {
-            result = self.ast().expression_binary(
-                span,
-                result,
-                oxc_ast::ast::BinaryOperator::Addition,
-                part,
-            );
+        if args.len() == 2 {
+            self.uses_ssr_style_property = true;
+            return self.helper_call(span, "_$ssrStyleProperty", args);
         }
-        result
+        self.uses_ssr_style_properties = true;
+        self.helper_call(span, "_$ssrStyleProperties", args)
     }
 
     /// Babel's SSR class handling: spread-free objects fold through

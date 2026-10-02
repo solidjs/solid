@@ -4296,6 +4296,20 @@ export function ssrStyleProperty(name, value) {
   if (isSlotValue(value)) value = slotValueInline("style", value);
   return value != null ? name + value : "";
 }
+export function ssrStyleProperties(...entries: any[]): string;
+
+export function ssrStyleProperties(...entries) {
+  // Compiler contract: `name, value` pairs of a spread-free style object with
+  // more than one entry, each `name` in the `ssrStyleProperty` form. The `;`
+  // goes only between entries that are written, so a nullish value — first,
+  // last or between — leaves no stray separator.
+  let result = "";
+  for (let i = 0; i < entries.length; i += 2) {
+    const entry = ssrStyleProperty(entries[i], entries[i + 1]);
+    if (entry) result = result ? result + ";" + entry : entry;
+  }
+  return result;
+}
 export function ssrElement(
   name: string,
   props: any | any[] | (() => any | any[]),

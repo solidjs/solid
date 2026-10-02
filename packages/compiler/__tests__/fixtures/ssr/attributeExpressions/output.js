@@ -6,6 +6,7 @@ import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
 import { ssrStyle as _$ssrStyle } from "r-server";
 import { ssrStyleProperty as _$ssrStyleProperty } from "r-server";
+import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
@@ -321,18 +322,18 @@ const template60 = _$ssr(_tmpl$38, _$ssrAttribute("i", _$escape(undefined, true)
 const template61 = _$ssr(_tmpl$39);
 const template62 = _$ssr(_tmpl$40);
 const template63 = _$ssr(_tmpl$18, _$ssrStyleProperty("background:", "red"));
-const template64 = _$ssr(_tmpl$18, _$ssrStyleProperty("background:", "red") + _$ssrStyleProperty(";color:", "green") + _$ssrStyleProperty(";margin:", 3) + _$ssrStyleProperty(";padding:", .4));
-const template65 = _$ssr(_tmpl$18, _$ssrStyleProperty("background:", "red") + _$ssrStyleProperty(";color:", "green") + _$ssrStyleProperty(";border:", _$escape(undefined, true)));
+const template64 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "margin:", 3, "padding:", .4));
+const template65 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(undefined, true)));
 var _v$28 = () => {
-	return _$ssrStyleProperty("background:", "red") + _$ssrStyleProperty(";color:", "green") + _$ssrStyleProperty(";border:", _$escape(signal(), true));
+	return _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(signal(), true));
 };
 const template66 = _$ssr(_tmpl$18, _v$28);
-const template67 = _$ssr(_tmpl$18, _$ssrStyleProperty("background:", "red") + _$ssrStyleProperty(";color:", "green") + _$ssrStyleProperty(";border:", _$escape(somevalue, true)));
+const template67 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(somevalue, true)));
 var _v$29 = () => {
-	return _$ssrStyleProperty("background:", "red") + _$ssrStyleProperty(";color:", "green") + _$ssrStyleProperty(";border:", _$escape(some.access, true));
+	return _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(some.access, true));
 };
 const template68 = _$ssr(_tmpl$18, _v$29);
-const template69 = _$ssr(_tmpl$18, _$ssrStyleProperty("background:", "red") + _$ssrStyleProperty(";color:", "green") + _$ssrStyleProperty(";border:", _$escape(null, true)));
+const template69 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(null, true)));
 const template70 = _$ssr(_tmpl$41, _$ssrAttribute("playsinline", _$escape(value, true)));
 const template71 = _$ssr(_tmpl$42);
 const template72 = _$ssr(_tmpl$43);
@@ -341,14 +342,16 @@ const template74 = _$ssr(_tmpl$45);
 const template75 = _$ssr(_tmpl$43);
 const template76 = _$ssr(_tmpl$46);
 // STATIC TESTS
-const template77 = _$ssr(_tmpl$18, _$ssrStyleProperty("width:", _$escape(props.width, true)) + _$ssrStyleProperty(";height:", _$escape(props.height, true)));
+const template77 = _$ssr(_tmpl$18, _$ssrStyleProperties("width:", _$escape(props.width, true), "height:", _$escape(props.height, true)));
 var _v$30 = () => {
 	return _$ssrAttribute("something", _$escape(color(), true));
 };
-const template78 = _$ssr(_tmpl$47, _$ssrStyleProperty("width:", _$escape(props.width, true)) + _$ssrStyleProperty(";height:", _$escape(props.height, true)), _v$30);
+const template78 = _$ssr(_tmpl$47, _$ssrStyleProperties("width:", _$escape(props.width, true), "height:", _$escape(props.height, true)), _v$30);
 var _v$31 = () => {
-	return _$ssrStyleProperty("width:", _$escape(props.width, true)) + _$ssrStyleProperty(
-		";height:",
+	return _$ssrStyleProperties(
+		"width:",
+		_$escape(props.width, true),
+		"height:",
 		/* @static */
 		_$escape(props.height, true)
 	);
@@ -516,3 +519,7 @@ const template113 = _$ssrElement("div", [
 const template114 = _$ssrElement("input", spread, undefined, false, _sk$8, " type=\"text\" tabindex=\"0\" style=\" color:red;top:0 \"");
 const template115 = _$ssrElement("textarea", [spread, { innerHTML: "<b>x</b>" }], undefined, false);
 const template116 = _$ssrElement("li", spread, undefined, false, _sk$5, " class=\"row\" data-kind=\"item\"");
+var _v$53 = () => {
+	return _$ssrStyleProperties("color:", _$escape(color(), true), _$escape(key, true) + ":", _$escape(size(), true), "margin-right:", "40px");
+};
+const template117 = _$ssr(_tmpl$18, _v$53);
