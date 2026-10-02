@@ -1671,7 +1671,10 @@ export function notifyFoldTail(
 ): void {
   const has = t.h;
   if (has !== null) {
-    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in neu);
+    for (const key of Reflect.ownKeys(has)) {
+      const nv = key in neu;
+      if (key in old !== nv) setSignal(has[key as any], nv);
+    }
   }
   if (t.k !== null) {
     const changed =
@@ -1708,7 +1711,10 @@ export function notifyFold(
   }
   const has = t.h;
   if (has !== null) {
-    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in neu);
+    for (const key of Reflect.ownKeys(has)) {
+      const nv = key in neu;
+      if (key in old !== nv) setSignal(has[key as any], nv);
+    }
   }
   if (t.k !== null) {
     // Key-set/$TRACK: objects notify on membership; arrays on any index or
