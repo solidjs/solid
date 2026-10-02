@@ -3312,6 +3312,37 @@ The S0 byte gate failing; the A15 LANE trio not clearing with 28.5 (d) +
 edge after all — report, do not improvise); or S2's unification costing
 more than it removes (then the fallback, not a deeper rewrite).
 
+### 28.15 Execution log
+
+**Method (maintainer, 2:48 PM: "lets go").** Checkpoint the tree, carve the
+layer the way the original carve-outs were done, rebuild it piece by piece
+against the carved floor — "nothing survives by inertia", and every rebuilt
+piece has its own byte count.
+
+**Checkpoint** `143c530be` — the state at §27.2 (all of it had been
+uncommitted: 66 files, HEAD was `next`'s tip). Reference for anything the
+replay wants back (`staleAnswer`, `supersede`'s confirm/notify,
+`observeFlight`, `heldNotFinal`).
+
+**Carve.** The layer entered the graph at two imports — `signals.ts`
+(`optimisticWrite`) and `core/index.ts` (`isPending`, `latest`) — now
+`carved()` stubs (CARVE 5); `lanes.ts` and `verdict.ts` deleted; the core's
+lane touch points are dead, gated code until S0 rewrites them. Suite
+(`carved-tests.json`): **1612 passed**, 2872 carved, 274 failed. Of the 513
+pins that left "passed": 303 are `[CARVED]`; 210 are the *halt cascade* — a
+`[CARVED]` throw inside a render effect halts the scheduler, and every later
+test in that file fails (no global `resetErrorHalt` in the harness;
+`action.test.ts` from its `latest()` pin at line 588 onward is the clear
+case). Not a core regression; both return with the layer. Comparisons from
+here: against `carved-tests.json` for core regressions, against `vs7` for
+recovery.
+
+**The layer's cost as built** (reds → carved, br): `+ isPending/latest`
+9025 → **7250 (−1775)**; `page: live` 39519 → **37710 (−1809)**; `hydrating +
+every store` 19606 → 18410 (−1196; it pulls `isPending`); floor 7202 → 7193
+(−9); CSR 12677 → 12671 (−6). So lanes + verdicts + their core arms were
+~1.8 KB br / ~6.3 KB min. The rebuild is measured against 7250 / 37710.
+
 ---
 
 ## Appendix — ledger (verbatim)

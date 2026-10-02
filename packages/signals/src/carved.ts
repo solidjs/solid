@@ -47,10 +47,15 @@ export const storePath = carved("storePath");
 export const merge = carved("merge");
 export const omit = carved("omit");
 
-// CARVE 2: verdict family. `createOptimistic` is back (step 4, lanes):
-// signals.ts; `isPending`/`latest` are back (verdicts): core.ts. `affects`
-// (the declaration verb) is still out.
+// CARVE 2: verdict family. `affects` (the declaration verb) is still out.
 export const affects = carved("affects");
+
+// CARVE 5 (§28 replay): the lane layer — lanes.ts (`createOptimistic`'s
+// write) and verdict.ts (`isPending`/`latest`) — carved again to be rebuilt
+// from the §28 principles, each piece measured against this floor.
+export const optimisticWrite = carved("createOptimistic") as (n: unknown, v: unknown) => never;
+export const isPending = carved("isPending");
+export const latest = carved("latest");
 
 // CARVE 3: transactions — `action` is back (step 6): core/action.ts.
 
