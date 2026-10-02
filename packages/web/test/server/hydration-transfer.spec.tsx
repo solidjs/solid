@@ -40,7 +40,10 @@ const eventFor = (name: string) =>
 // Runs a payload's scripts the way a browser would; `upTo` runs only the
 // first N script blocks (a stream the client has only partly received).
 function registry(html: string, upTo = Infinity) {
-  const sandbox: any = { document: { getElementById: () => null }, _$HY: { r: {}, fe() {} } };
+  const sandbox: any = {
+    document: { getElementById: () => null, addEventListener() {} },
+    _$HY: { r: {}, fe() {} }
+  };
   sandbox.self = sandbox;
   vm.createContext(sandbox);
   const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
