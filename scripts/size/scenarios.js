@@ -2981,7 +2981,7 @@ module.exports = [
     // over an element's direct children was weighed and rejected (~100 B
     // for a new rule: no text position at a component's top level).
     // Accepted by the maintainer. The cap is frozen again at 12.98 KB.
-    // Size-Exception (refetch content lands at commit, 2026-10-02): 12.98 ->
+    // Size-Exception (#3759, 2026-10-02): 12.98 ->
     // 13.73 KB, measured at 13,726 B against `next` @ 98d35b9bc's 12,977
     // (+749 B; 746 B over the cap; +2,283 B minified, 40,973 -> 43,256:
     // frames client +2,278, transport slice +5). A refetch or single-flight
@@ -3116,7 +3116,7 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 46.20 KB.
-    // Size-Exception (refetch content lands at commit, 2026-10-02): 46.20 ->
+    // Size-Exception (#3759, 2026-10-02): 46.20 ->
     // 47.01 KB, measured at 47,006 B against `next` @ 98d35b9bc's 46,181
     // (+825 B; 806 B over the cap; +2,285 B minified, frames client +2,046).
     // The frames client's staging and two-phase landing (the frames note);
@@ -3208,7 +3208,7 @@ module.exports = [
     // at 50,346 B against #3713 @ 73640f5cd's 50,150 (a 50.15 -> 50.35 KB
     // raise); the base moved under the PR (the fake-`Promise` cap above).
     // Size vetted by the maintainer. The cap is frozen again at 50.45 KB.
-    // Size-Exception (refetch content lands at commit, 2026-10-02): 50.45 ->
+    // Size-Exception (#3759, 2026-10-02): 50.45 ->
     // 51.15 KB, measured at 51,150 B against `next` @ 98d35b9bc's 50,385
     // (+765 B; 700 B over the cap; +2,287 B minified, frames client +2,025).
     // The same staging bytes as the base page. Accepted by the maintainer.
