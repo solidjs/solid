@@ -2,10 +2,10 @@
 // list itself is a server component (./todo-list.tsx) and its client half
 // is the route (./routes/todos.tsx).
 //
-// Adding is not optimistic: a todo the server has not rendered has no markup
-// to bind to, so the header waits for the answer — the form is `aria-busy`
-// while it saves, the input clears when it lands, and a failure stays in
-// the input with its error beside it.
+// Adding shows intent like every other form: the router marks it
+// `aria-busy` while it saves (app.css dims the input), the input clears when
+// the answer lands, and a failure stays in the input with its error beside
+// it.
 import { useSubmissions } from "@solidjs/router";
 import { Errored, Loading, Show } from "solid-js";
 import { addTodo } from "~/actions";
