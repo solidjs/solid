@@ -96,6 +96,12 @@ SSR compile, so neither depends on the directive's level; a non-exported
 wrapper registers exactly as an exported one. The first example PR
 confirms with its build: passing with the `server-only` markers in place
 (pruning precedes resolution) and failing on a deliberate client import.
+_Confirmed by `hackernews`' build (2026-09-29): both hold, the references
+are named from their bindings (`getStory-<hash>`, the same in both twins),
+and a module with the marker needs
+`/// <reference types="@solidjs/vite-plugin/boundary-modules" />` in
+`vite-env.d.ts`, since TypeScript 6 rejects an undeclared side-effect
+import (TS2882)._
 
 ## The map
 
@@ -127,15 +133,32 @@ owning it (`chat`).
 
 ## Per-example disposition
 
-### `hackernews` — bottom-left, reads. KEEP; collapse → binding slot, layout, README. Blocked on G1, G2
+### `hackernews` — bottom-left, reads. KEEP; collapse → `<details>`, server routes, layout, README. Built 2026-09-29
 
 The front door: the simplest server component, navigation over server
-markup, a single stateful client concern. Its layering moment is comment
-collapse — client state on server-rendered elements deep in a tree, surviving
-navigation. Today that is a `Toggle` client component wrapping a template
-slot (`toggle={p => <Toggle>{p.children}</Toggle>}`); under §9.2.3's
-placement principle a thread exists because the server has comments, so it
-is server markup and the collapse is a binding slot.
+markup, and no client code. Revised in review (2026-09-29): the collapse only
+hides replies, which is native `<details>`, so a binding slot there was a
+heavier way to do what the browser already does. Both twins now render the
+same `<details>`, every route in this twin is a server route, and the client
+ships the router, the loading boundary, and a navigation dim
+(`useIsRouting()`) that both twins share. The binding-slot demos are
+`todos-server` and `chat`'s copy button (`notes`' search field was one until
+its shell moved to the client; see `notes` below).
+
+Closed (2026-09-30): the proof that no content is sent twice when a client
+component places server content conditionally (occlusion: an unplaced region
+ships as an `sc:region:` record, never as markup too) had no end-to-end test.
+The early demo showed it live (`b3f48999e`, deep replies collapsed by
+default) and `63cd06688` dropped it when the collapse became
+`display: none`; the only spec, `frames-occlusion-client.spec.tsx`, fed the
+client hand-written records. `test/server/frame-occlusion-document.spec.tsx`
+now covers the server side (each excerpt once: markup where placed, a record
+where not; late placement locked to records), and
+`test/hydration/frame-occlusion-document.spec.tsx` the client (adopt, then
+expand, collapse and re-expand with the network stubbed to throw; each text
+on screen once). `notes`' sidebar excerpt is the live demo.
+
+The superseded binding-slot shape, as reviewed and first built:
 
 Target shape (reviewed 2026-09-29): the recursive `Comment` is a server
 component and the client never sees the tree — per comment with replies, one
@@ -155,7 +178,27 @@ gains the `id` the data already carries; the README's "`$key` keeps it
 attached" claim becomes true (today no key is passed); the bundle check
 can grep `comment-children` too.
 
-### `hackernews-spa` — top-left. KEEP; layout only
+_As built:_ the shape above, with `StoryDefinition.id` also typed `number`
+(the capture and the live API both carry numbers). The thread's markup is
+byte-identical to the twin's with hydration and slot markers stripped
+(feed and user pages too); 652 of the 1,406 comments have replies, so 652
+fills. In the browser the collapsed state keeps its element and text node
+through a `revalidate("story")` refetch. The bundle check greps the client
+JavaScript, since `app.css` carries both class names.
+
+Follow-up in review: the feeds and the user page are server routes
+(`serverRouteComponent`, router 2.0.0-next.31), so they have no route
+component and no `preload`. The feeds are one `/:type?` route filtered to
+the five feed names, with `page` from a hand-written search schema; the SPA
+twin mirrors the pattern and filter and parses `?page` itself. (The story
+route kept its component for the fill until the move to `<details>`, when it
+became a server route too.) The nav is outside `Loading`,
+since it does no I/O. Router next.29 broke client navigation to the user
+page: it sent a schema-less route's args as `{ params, search: undefined }`,
+which the JSON argument check rejects, and nothing was logged. next.30
+(#615) fixed that, so every example that uses the router moved to next.31.
+
+### `hackernews-spa` — top-left. KEEP; layout only. Built 2026-09-29
 
 The twin; exists only as the comparison. README names the coordinate. Takes
 the authoring layout: each route file's `query` carries its server function
@@ -164,23 +207,48 @@ module-level `"use server"` file). Diffing the twins then shows the thesis
 at the route file: the same `getStory`, returning JSON in one and markup in
 the other, and client components in one only.
 
-### `notes` — middle-left, the RSC coordinate. KEEP; authoring layout + README
+### `notes` — middle-left, the RSC coordinate. KEEP; authoring layout + README. Built 2026-09-30
 
 React's own server-components demo ported: client islands whose state
-survives server updates around them, single-flight mutations by redirect,
-the search field as the idiomatic binding slot. Its layering moment is the
-editor keeping its draft while the sidebar list refreshes around it — the
-"shared client state preserved" line the HTML-partial tools cannot cross.
-Behavior unchanged; the code moves to the authoring layout (queries and
-actions inline in the files that use them, `server/` for `db.ts`) and the
-README is repositioned. The overlap with `chat` (both are
-sidebar + viewer + mutations) is intentional: opposite sides of the grid,
+survives server updates around them, and single-flight mutations by
+redirect. Its layering moment is the editor keeping its draft while the
+sidebar list refreshes around it — the "shared client state preserved" line
+the HTML-partial tools cannot cross. The code is in the authoring layout
+(queries and actions inline in the files that use them, `server/` for
+`db.ts`) and the README names the coordinate. The overlap with `chat` (both
+are sidebar + viewer + mutations) is intentional: opposite sides of the grid,
 different audience.
 
-### `todos` — top-left. KEEP as is
+Revised in review (2026-09-30), toward React's own shape:
+
+- The shell is a client component, as React's `App.js` is. Only the sidebar
+  list and the note preview are server components. The server shell had
+  existed only to host a binding slot: once the shell was on the client,
+  the search field was a client component, as it is in the demo. Finding:
+  a binding slot needs a position inside server markup, and in this app the
+  only such positions are the per-note ones `SidebarNoteContent` already
+  owns.
+- The editor's data is a plain query returning the note (`getNoteEdit`).
+  Before, it was a server component used as a data loader, filling the
+  editor slot with raw text.
+- The excerpt mounts only while expanded, as in the demo, so collapsed
+  excerpts ship once as records (the occlusion specs above).
+- `router.tsx` holds the route table, the root preload and `getNoteList`,
+  and `server-config.ts` passes that Router to the flight collector. This is
+  the fullstack template's layout. The collector takes a router instance
+  because not every app uses Solid Router; each router template does this
+  wiring itself.
+
+### `todos` — top-left. KEEP; README + small cleanups. Built 2026-09-30
 
 The SPA control: optimistic store over `refresh`, client-held API mock.
-Twin of `todos-server`; also the pedagogical control for `board`.
+Twin of `todos-server`; also the pedagogical control for `board`. No server
+side, so the authoring layout does not apply. The pass: the README names the
+coordinate and the twin; Vite 8, as in the other grid examples; the error
+map moves into `createTodos`; an unused `TodoActions` type goes; both
+checkboxes use `onChange`. The `todos.ts` header keeps its instruction (read
+it for the layering, not the syntax), which exists because agents reading
+the example missed the layering, but it is no longer phrased as a rebuke.
 
 ### `todos-server` — bottom-left, writes. RESHAPE
 
@@ -205,6 +273,21 @@ more than a store write inside its action, it is not slick and it is out
 README may describe it as the increment). Bulk actions stay plain forms.
 Pending feedback, if the router marks a submitting claimed form
 (`aria-busy` / `data-pending`), is CSS only — see V4.
+
+**Revised 2026-09-30, built (pending review of the feel).** Dropping the
+bulk optimism left nothing a form could not do, and binding slots exist to
+add back exactly that optimism, so the example has to keep it to prove the
+point. Built shape: every control a form (`.with()` for rows), single-flight
+responses; two binding slots — `row` (class, hidden, the toggle's value and
+`aria-pressed`, retry title and handler) and `list` (empty, toggle-all
+state and value, clear's visibility, the count as a text position, the bulk
+error) — fed by one intent store each action's `onSubmit` writes.
+Cross-element optimism (toggle-all, clear-completed, the count) is the
+layering moment. Failures are returned `{ error }` values read through
+`useSubmissions`, each action's `onSettled` superseding earlier answers to
+the same question; the no-JS path reads the same list from the router's
+flash cookie. Add is not optimistic (a busy form, the error with a retry).
+The pending-row template slot is gone.
 
 ### `chat` — bottom-right FLAGSHIP. REBUILD (own plan)
 
@@ -261,7 +344,19 @@ neither, it stays as is.
 
 Off-grid on purpose. `rendering` is the one kitchen sink.
 
-## Verification items (gate the reshapes; none built)
+## Verification items (gate the reshapes)
+
+_2026-10-01, from the `todos-server` build: V1–V4 hold on
+`@solidjs/router` 2.0.0-next.34. V3 needed a router fix — a server-rendered
+`.with()` url missed the client's action registry, so the hooks never ran
+(solid-router#646, which also makes a chained `.with()` carry every bound
+argument). The build also surfaced a hang: rendering the document with a
+flash cookie present never finished the stream render, because a server
+`Errored` retry re-created the router and every router restarted the flash
+decode (solid-router#647 decodes once per request). Framework follow-ups —
+`Errored` re-creating ancestors on retry, and no guard for a retry that
+never converges — are open. Examples moved to `@solidjs/vite-plugin` 3.0.0-next.47,
+the first to inject the flash-cookie secret, so the no-JS path is live._
 
 - **V1 — Flight collector carries a result plus regions.** `notes` exercises
   redirects only. `todos-server`'s server-rendered failures and §9.6 (B)
@@ -342,7 +437,8 @@ value to branch on, and a stand-in is always truthy.
   warning. The comments in `todos-server`'s `rowFor` and `notes`'
   `searchField.ts` saying each position updates alone are corrected in
   the README pass: getters re-read with their occurrence and only changed
-  positions are written. Blocks `hackernews`.
+  positions are written. (Blocked `hackernews` until its collapse moved to
+  `<details>`.)
 
 - **G1 — Text positions.** `{t.label}` as a child: a binding-slot value at
   a text position. Today it renders nothing on either face and raises the
@@ -355,8 +451,9 @@ value to branch on, and a stand-in is always truthy.
   would reset them); primitives only, anything else a finding; raw-text
   parents (`<textarea>`, `<title>`, `<style>`, `<script>`) a documented
   rule, since the SSR compile is shared. Runtime only, no compiler change.
-  **Changes documented behavior** (flagged). After G2. Blocks `hackernews`;
-  `todos-server`'s count wants it.
+  **Changes documented behavior** (flagged). After G2. `todos-server`'s
+  count wants it. (Blocked `hackernews` until its collapse moved to
+  `<details>`.)
 - **G3 — Server-only modules — resolved 2026-09-29.** The vite plugin's
   `server-only` boundary marker enforces `src/server/` (authoring layout,
   above). No framework change.
@@ -371,12 +468,14 @@ examples that are already right carry the most value per hour._
 
 1. G2 (binding-slot execution), design then code.
 2. G1 (text positions), design then code.
-3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout.
+3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout
+   (built 2026-09-29).
 4. README and authoring-layout pass: `notes`, `todos` (and anything left
    of `hackernews-spa`).
 5. `todos-server` reshape (V1–V4 first). Target decided 2026-09-29: the
    Q5 shape above — single-flight, server-rendered rejections, one
-   binding slot with one position — not the Q4 wrap.
+   binding slot with one position — not the Q4 wrap. Revised and built
+   2026-09-30 (see the section above).
 6. `chat-flagship.md`, then `chat`.
 7. `board-flagship.md`, then `board`.
 8. Retire `room`.

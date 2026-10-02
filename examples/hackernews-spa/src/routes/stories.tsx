@@ -1,21 +1,35 @@
-import { type RoutePreloadFuncArgs, type RouteSectionProps } from "@solidjs/router";
+import {
+  query,
+  type RouteParams,
+  type RoutePreloadFuncArgs,
+  type RouteProps,
+  type SearchParams
+} from "@solidjs/router";
 import { For, Show, createMemo } from "solid-js";
 import Story from "~/components/story";
-import { getStories } from "~/lib/api";
+import * as hn from "~/server/hn";
 import type { StoryTypes } from "~/types";
 
-/** `/` and the four named feeds all render this; the path names the feed. */
-export const storyType = (pathname: string): StoryTypes =>
-  (pathname.split("/")[1] || "top") as StoryTypes;
+// The route lives in app.tsx, so the component and preload here name the
+// pattern they belong to.
+type Path = "/:type?";
 
-// The feed routes take no params, so the open `RouteSectionProps` is honest here.
-export const preload = ({ location }: RoutePreloadFuncArgs) => {
-  void getStories(storyType(location.pathname), Number(location.query.page) || 1);
+const getStories = query(async (type: StoryTypes, page: number) => {
+  "use server";
+  return hn.getStories(type, page);
+}, "stories");
+
+/** `/` is the top feed; the route's filter admits only the five feed names. */
+const storyType = (params: RouteParams<Path>) => (params.type || "top") as StoryTypes;
+const pageOf = (query: SearchParams) => Number(query.page) || 1;
+
+export const preload = ({ params, location }: RoutePreloadFuncArgs<RouteParams<Path>>) => {
+  void getStories(storyType(params), pageOf(location.query));
 };
 
-export default function Stories(props: RouteSectionProps) {
-  const page = () => Number(props.location.query.page) || 1;
-  const type = () => storyType(props.location.pathname);
+export default function Stories(props: RouteProps<Path>) {
+  const page = () => pageOf(props.location.query);
+  const type = () => storyType(props.params);
   const stories = createMemo(() => getStories(type(), page()));
 
   return (

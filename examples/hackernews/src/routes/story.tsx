@@ -1,21 +1,70 @@
-import { type RouteParams, type RoutePreloadFuncArgs, type RouteProps } from "@solidjs/router";
-import { dynamic } from "@solidjs/web";
-import Toggle from "~/components/toggle";
-import { getStory } from "~/lib/api";
+import {
+  query,
+  serverRouteComponent,
+  type RouteParams,
+  type ServerRouteArgs
+} from "@solidjs/router";
+import * as hn from "~/server/hn";
+import type { CommentDefinition } from "~/types";
 
-// The pattern witness types `params.id` as `string` — this component is
-// declared away from its route, so it names the pattern it belongs to.
-type Path = "/stories/:id";
+const getStory = query(async ({ params }: ServerRouteArgs<RouteParams<"/stories/:id">>) => {
+  "use server";
+  const story = await hn.getStory(params.id);
+  return () => (
+    <div class="item-view">
+      <div class="item-view-header">
+        <a href={story.url} target="_blank">
+          <h1>{story.title}</h1>
+        </a>
+        {story.domain ? <span class="host">({story.domain})</span> : null}
+        <p class="meta">
+          {story.points} points | by <a href={`/users/${story.user}`}>{story.user}</a>{" "}
+          {story.time_ago} ago
+        </p>
+      </div>
+      <div class="item-view-comments">
+        <p class="item-view-comments-header">
+          {story.comments_count ? story.comments_count + " comments" : "No comments yet."}
+        </p>
+        <ul class="comment-children">
+          {story.comments.map(comment => (
+            <Comment comment={comment} />
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}, "story");
 
-export const preload = ({ params }: RoutePreloadFuncArgs<RouteParams<Path>>) => {
-  void getStory(params.id);
-};
-
-export default function Story(props: RouteProps<Path>) {
-  const View = dynamic(() => getStory(props.params.id));
-  // The one client-owned piece of a thread: the server fills this slot per
-  // comment that has replies, and the replies themselves arrive as server
-  // markup inside the Toggle's list. Collapse state is client state — it never
-  // appears in a request.
-  return <View toggle={p => <Toggle>{p.children}</Toggle>} />;
+/**
+ * Recursive, and entirely server markup. The collapse is a native
+ * `<details>`, so the client never sees the tree or anything about it.
+ */
+function Comment(props: { comment: CommentDefinition }) {
+  const c = props.comment;
+  return (
+    <li class="comment">
+      <div class="by">
+        <a href={`/users/${c.user}`}>{c.user}</a> {c.time_ago} ago
+      </div>
+      <div class="text" innerHTML={c.content} />
+      {c.comments.length ? (
+        <details class="toggle" open>
+          <summary>
+            <span class="open-label">[-]</span>
+            <span class="closed-label">[+] comments collapsed</span>
+          </summary>
+          <ul class="comment-children">
+            {c.comments.map(reply => (
+              <Comment comment={reply} />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </li>
+  );
 }
+
+// Nothing for the client to fill, so it is a server route like the feeds and
+// the user page.
+export default serverRouteComponent(getStory);

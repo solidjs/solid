@@ -3106,7 +3106,7 @@ the text above, the build is right and the text is amended here:
   names percent-encode onto `[A-Za-z0-9_.-]`, the occurrence
   alphabet, so `:`/`=`/`,` split exactly. A zero-arg call is the
   occurrence named by the prop alone (`codeBlock:onCopy`, no `#n`) —
-  one data context per prop, the notes search field's shape. The
+  one data context per prop, the chat copy button's shape. The
   document face writes the value where the position would have put
   it and the marker after. A class-name or style-property position
   whose names all resolve empty writes no `class=""` — the marker
@@ -4366,7 +4366,13 @@ slots (§9.2.3) with markup slots for the elements that exist only
 because of client state. The ratio is one to ten. Rejections: none
 (behavior only). *Standing: this is what attribute slots are for,
 and the advice writes itself — bind the position, don't lift the
-element.* Examples: `chat`'s `codeBlock`, `notes`' `search` field.
+element.* Examples: `chat`'s `codeBlock`; `notes`' expand toggle,
+the markup-slot half (the excerpt exists only while expanded, so it
+ships once as a record, A1). `notes`' search field was an
+attribute-slot example while its shell was a server component; with
+the shell on the client there is no server markup around it to
+annotate, and it is a client component, as in the React demo. The
+position has to sit in server markup for the slot to be the answer.
 
 **Q4 — Widgets.** Small data, this user's alone, changing faster
 than a round trip, with dense interaction on every element:
@@ -4403,7 +4409,7 @@ example          quadrant        role
 ───────          ────────        ────
 hackernews       Q1              front door for the core
 hackernews-spa   —               client control for hackernews
-notes            Q1 + Q3 + Q5    list + search slot + single-flight mutations
+notes            Q1 + Q3 + Q5    list + expand slot + single-flight mutations
 chat             Q2 + Q3         live generation + attribute slot
 room             Q2              live transport end to end
 todos            Q4              client control for todos-server

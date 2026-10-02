@@ -209,6 +209,15 @@ export interface Frame {
    * snapshot.
    */
   have?(): Record<string, string> | undefined;
+  /**
+   * Push a staged response's slot args into the live occurrences they
+   * address, ahead of the records' real apply (see `FrameHost.preview`).
+   * @internal
+   */
+  preview?(
+    records: Record<string, unknown>,
+    resolve?: (ref: { $ref: string }, frameId?: string) => unknown
+  ): void;
   /** Tear down: slot cleanups cascade, later chunks are ignored. Idempotent. */
   dispose(): void;
 }
@@ -228,6 +237,16 @@ export interface FrameHost {
   /** Remove one frame (or all frames of the id when `frame` is omitted). */
   unregister(id: string, frame?: Frame): void;
   apply(chunk: FrameChunk): void;
+  /**
+   * The reactive half of a staged response (see
+   * `createServerComponentHandler`): a `slot` chunk's args reach the
+   * occurrences mounted under its id — re-resolved props into their live
+   * bindings — while the store, the markup, and every structural change
+   * wait for the chunk's `apply`. `resolve` reads the staged response's
+   * data. Other chunk types are ignored.
+   * @internal
+   */
+  preview?(chunk: FrameChunk, resolve?: (ref: { $ref: string }, frameId?: string) => unknown): void;
   /** The first registered frame under the id, if any. */
   get(id: string): Frame | undefined;
   serialize(value: unknown): { $ref: string };
@@ -754,6 +773,13 @@ export function createFrameHost(options = {}) {
         for (const frame of set) frame.apply({ version: chunk.version, r: records });
       }
     },
+    preview(chunk, resolve) {
+      if (chunk.type !== "slot") return;
+      const set = frames.get(chunk.id);
+      if (!set) return;
+      const records = chunkToRecords(chunk);
+      for (const frame of set) frame.preview && frame.preview(records, resolve);
+    },
     get(id) {
       const set = frames.get(id);
       return set && set.values().next().value;
@@ -975,6 +1001,62 @@ class FrameImpl {
       this.#store[key] = incoming;
     }
     this.#flush();
+  }
+
+  /**
+   * The reactive half of a staged response (see FrameHost.preview): each
+   * slot record whose occurrence is mounted here with a live binding pushes
+   * its re-resolved args into it, and is recorded as the occurrence's
+   * applied record so the real apply's slot sync finds it adopted. Called
+   * from a mount's compute half under the transition that delivered the
+   * content, so the args are held with that transition and read ahead of
+   * the settle that ends its optimistic overrides. Nothing else moves: the
+   * store, the markup, mounts, re-calls and unmounts all wait for the apply.
+   * Args that add or rename a region are structural too — those
+   * occurrences wait. Records reach the regions
+   * below that inherit them (their own store does not shadow the key).
+   *
+   * An adopted record is also written to the store that owns it — this
+   * frame's, for regions below too — so a flush before the apply (the
+   * apply's own first chunks, which precede the slot records) finds the
+   * occurrence's record adopted instead of pushing the old args back; the
+   * apply's record dedupe then keeps it. A record nothing adopted stays out
+   * of the store: an early flush would apply it against the old markup.
+   */
+  preview(records, resolve?, inherited?) {
+    const adopted = new Set<string>();
+    if (this.#disposed) return adopted;
+    for (const key in records) {
+      const record = records[key];
+      if (!record || record.kind !== "slot" || !key.startsWith("slot:")) continue;
+      if (inherited && key in this.#store) continue;
+      const occurrence = key.slice(5);
+      const update = this.#mountedSlots.has(occurrence) && this.#slotUpdaters.get(occurrence);
+      if (!update || this.#refsUnresolved(record.args, resolve)) continue;
+      if (this.#regionsChange(occurrence, record.args)) continue;
+      const same = this.#refArgsUnchanged(occurrence, record, resolve);
+      const props = same || this.#resolveArgs(occurrence, record.args, resolve);
+      this.#slotArgs.set(occurrence, record);
+      adopted.add(key);
+      if (!same) update(props);
+    }
+    for (const regions of this.#slotRegions.values())
+      for (const entry of regions.values())
+        if (entry.frame)
+          for (const key of entry.frame.preview(records, resolve, true)) adopted.add(key);
+    if (!inherited) for (const key of adopted) this.#store[key] = records[key];
+    return adopted;
+  }
+
+  /** Whether `args` add a region to the occurrence or rename one of its
+   *  regions (its chunks ride the new name, so the rename lands with them). */
+  #regionsChange(occurrence, args) {
+    const regions = this.#slotRegions.get(occurrence);
+    for (const key in args) {
+      const entry = regions && regions.get(key);
+      if (isFrameRef(args[key]) && !(entry && entry.childId === args[key].$frame)) return true;
+    }
+    return false;
   }
 
   /**
@@ -1523,13 +1605,19 @@ class FrameImpl {
    * ref that resolves to `undefined` means "not delivered yet", never a real
    * value. See the call site in #syncSlots for why applying early is wrong.
    */
-  #refsUnresolved(args) {
-    const { host, id } = this.#options;
-    if (host)
-      for (const key in args) {
-        if (isDataRef(args[key]) && host.resolve(args[key], id) === undefined) return true;
-      }
+  #refsUnresolved(args, resolve?) {
+    if (!this.#options.host) return false;
+    for (const key in args) {
+      if (isDataRef(args[key]) && this.#resolveRef(args[key], resolve) === undefined) return true;
+    }
     return false;
+  }
+
+  /** A data ref through the host's tables, or a staged response's. */
+  #resolveRef(ref, resolve) {
+    const { host, id } = this.#options;
+    if (resolve) return resolve(ref, id);
+    return host ? host.resolve(ref, id) : undefined;
   }
 
   #regionsFor(slotKey) {
@@ -1538,7 +1626,7 @@ class FrameImpl {
     return regions;
   }
 
-  #resolveArgs(slotKey, args) {
+  #resolveArgs(slotKey, args, resolve?) {
     const host = this.#options.host;
     const regions = this.#regionsFor(slotKey);
     const props = {};
@@ -1550,7 +1638,7 @@ class FrameImpl {
         // cached per occurrence so a later stream's re-sent ref can be
         // VALUE-compared (tables rotate per response, so ref identity
         // alone can't prove equivalence).
-        const resolved = host ? host.resolve(value, this.#options.id) : undefined;
+        const resolved = this.#resolveRef(value, resolve);
         let cache = this.#slotResolvedRefs.get(slotKey);
         if (!cache) this.#slotResolvedRefs.set(slotKey, (cache = {}));
         cache[key] = resolved;
@@ -1611,7 +1699,7 @@ class FrameImpl {
    * non-JSON-comparable values fall back to "changed" (re-call) — the
    * conservative default.
    */
-  #refArgsUnchanged(occurrence, record) {
+  #refArgsUnchanged(occurrence, record, resolve?) {
     const old = this.#slotArgs.get(occurrence);
     if (!record || record.kind !== "slot") return false;
     if (old && old.kind !== "slot") return false;
@@ -1628,7 +1716,7 @@ class FrameImpl {
       if (isFrameRef(va) && isFrameRef(vb)) continue;
       if (isDataRef(va) && isDataRef(vb) && cache && key in cache) {
         const host = this.#options.host;
-        const next = host ? host.resolve(vb, this.#options.id) : undefined;
+        const next = this.#resolveRef(vb, resolve);
         // A live CONTAINER (DR-2's container tier) must be identity-compared
         // BEFORE any probe: a pending container's property reads throw
         // not-ready, so the async probe below (or the stringify) would

@@ -1,9 +1,8 @@
-// If you came here to enumerate React-vs-Solid syntax differences, you've
-// already misread this example. The thing that matters is what ~170 lines
-// accomplishes — fetch + per-item optimistic writes + per-item errors +
-// retry + bulk operations + loading + transitions, with the layering
-// enforced by primitive composition rather than by convention. That, not
-// the symbol diff, is what's distinctive.
+// Read this file for its layering, not its syntax. It is not a list of
+// React-to-Solid renames: the point is what this one file does — fetch,
+// per-item optimistic writes, per-item errors with retry, bulk operations,
+// loading and transitions — with the layering enforced by how the
+// primitives compose rather than by convention.
 //
 // State architecture: three lifetime layers, each a derivation of the layer
 // below, applied in a fixed order across the whole application.
@@ -44,12 +43,6 @@ export interface Todo extends ServerTodo {
   error?: TodoError;
 }
 
-// Side-channel of action failures, keyed by todo id. Plain (non-reactive)
-// JS map — read only inside the projection function, which re-runs on
-// `refresh(todos)`. Mutations followed by `refresh(todos)` are what make
-// errors visible; nothing else observes this object directly.
-const Errors: Record<string, TodoError> = {};
-
 function applyErrors(todos: Todo[], errors: Record<string, TodoError>) {
   for (const key in errors) {
     const error = errors[key];
@@ -73,16 +66,13 @@ function applyErrors(todos: Todo[], errors: Record<string, TodoError>) {
   }
 }
 
-export interface TodoActions {
-  addTodo: (todo: ServerTodo) => Promise<void>;
-  removeTodo: (id: string) => Promise<void>;
-  toggleTodo: (id: string, completed: boolean) => Promise<void>;
-  toggleAll: (completed: boolean) => Promise<void>;
-  clearCompleted: () => Promise<void>;
-  retryTodo: (todo: Todo) => Promise<void>;
-}
-
 export function createTodos() {
+  // Side-channel of action failures, keyed by todo id. Plain (non-reactive)
+  // JS map — read only inside the projection function, which re-runs on
+  // `refresh(todos)`. Mutations followed by `refresh(todos)` are what make
+  // errors visible; nothing else observes this object directly.
+  const Errors: Record<string, TodoError> = {};
+
   const [todos, setTodos] = createOptimisticStore<Todo[]>(async () => {
     const todos: Todo[] = await api.getTodos();
     applyErrors(todos, Errors);

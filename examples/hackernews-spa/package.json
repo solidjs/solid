@@ -13,12 +13,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@solidjs/router": "2.0.0-next.29",
+    "@solidjs/router": "2.0.0-next.35",
     "@solidjs/web": "workspace:*",
     "solid-js": "workspace:*"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.35",
+    "@solidjs/vite-plugin": "3.0.0-next.47",
     "vite": "^8.0.0"
   }
 }
