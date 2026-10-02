@@ -9,7 +9,7 @@ use crate::dom::set_attr::SetAttrOptions;
 use crate::shared::attr_plan::{AttrPlan, AttrPlanOutcome, AttrPlanner, ConfidentValue, PlanValue};
 use crate::shared::bindings::push_unique;
 use crate::shared::constants::{
-    ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS, child_properties, inline_elements,
+    ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS, child_properties, inline_elements, is_event_name,
 };
 use crate::shared::refs::{callable_test, ref_assignment_fallback};
 use crate::shared::utils::{
@@ -304,7 +304,7 @@ impl<'a> AstDomTransform<'a, '_> {
             return Ok(());
         }
 
-        if plan.key.starts_with("on") {
+        if is_event_name(&plan.key) {
             front_groups.push(self.dom_event_statements(span, element_id, &plan.key, raw));
             return Ok(());
         }

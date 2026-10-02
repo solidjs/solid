@@ -19,7 +19,9 @@ import {
   convertJSXIdentifier,
   inlineCallExpression,
   canChildSlotAllocateIds,
-  isFunctionShapedHole
+  isFunctionShapedHole,
+  isEventName,
+  toEventName
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
@@ -589,13 +591,11 @@ function transformAttributes(
         return;
       }
       if (key.startsWith("prop:")) return;
-      if (key.startsWith("on")) {
+      if (isEventName(key)) {
         // `onXxx` lowercases to the event name — the client runtime's own
         // derivation (`onClick` -> `click`); the position is bound under it.
-        if (info.serverComponents) {
-          const pos = key.slice(2).toLowerCase();
-          if (pos) claims.push([pos, value.expression as babelTypes.Expression]);
-        }
+        if (info.serverComponents)
+          claims.push([toEventName(key), value.expression as babelTypes.Expression]);
         return;
       }
       if (ChildProperties.has(key)) {
@@ -1082,12 +1082,11 @@ function createElement(
             : node.name.name;
 
         if (hasChildren && key === "children") return;
-        if (key === "ref" || key.startsWith("on")) {
+        if (key === "ref" || isEventName(key)) {
           if (serverComponents && t.isJSXExpressionContainer(value)) {
             const expression = value.expression;
-            const pos = key === "ref" ? "ref" : key.slice(2).toLowerCase();
+            const pos = key === "ref" ? "ref" : toEventName(key);
             if (
-              pos &&
               !(
                 t.isJSXEmptyExpression(expression) ||
                 t.isStringLiteral(expression) ||

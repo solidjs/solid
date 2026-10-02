@@ -256,6 +256,13 @@ pub(crate) fn namespaces(prefix: &str) -> Option<&'static str> {
     }
 }
 
+/// Babel's `isEventName`: only `on` + an uppercase letter is an event
+/// handler. Lowercase `on*` names (`onclick`) are plain attributes.
+pub(crate) fn is_event_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() > 2 && bytes[0] == b'o' && bytes[1] == b'n' && bytes[2].is_ascii_uppercase()
+}
+
 /// Babel's `reservedNameSpaces`: JSX namespace prefixes with compiler
 /// semantics rather than XML namespaces. The 0.50 line dropped the
 /// `class:`/`style:`/`on:`/`use:`/`attr:`/`bool:` special namespaces — those

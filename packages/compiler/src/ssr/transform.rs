@@ -29,7 +29,7 @@ use crate::shared::condition::{
     zero_arg_call_thunk,
 };
 use crate::shared::constants::{
-    DomPropertyState, child_properties, dom_with_state, reserved_namespace,
+    DomPropertyState, child_properties, dom_with_state, is_event_name, reserved_namespace,
 };
 use crate::shared::utils::{
     child_slot_allocates_ids, decode_html_entities, element_name, escape_html_attribute,
@@ -1660,10 +1660,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     }
 
     /// The handler position a named attribute of a spread element claims
-    /// (Babel's `claims` in `createElement`): a `ref`/`on*` whose value is
+    /// (Babel's `claims` in `createElement`): a `ref`/`onXxx` whose value is
     /// an expression that is not a literal; `onXxx` lowercases to the event
     /// name as the template path derives it. `None` for every other
-    /// attribute — including a `ref`/`on*` with a literal or no value,
+    /// attribute — including a `ref`/`onXxx` with a literal or no value,
     /// which `spread_prop_property` drops as before.
     fn spread_claim(
         &self,
@@ -1677,12 +1677,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         };
         let pos = if name == "ref" {
             "ref".to_string()
+        } else if is_event_name(&name) {
+            name[2..].to_lowercase()
         } else {
-            let pos = name.strip_prefix("on")?.to_lowercase();
-            if pos.is_empty() {
-                return None;
-            }
-            pos
+            return None;
         };
         let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value else {
             return None;
@@ -1718,9 +1716,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if has_children && name == "children" {
             return Ok(None);
         }
-        // `ref`/`on*` render nothing on the server; under `serverComponents`
+        // `ref`/`onXxx` render nothing on the server; under `serverComponents`
         // they are the element's claim map instead (`spread_claim`).
-        if name == "ref" || name.starts_with("prop:") || name.starts_with("on") {
+        if name == "ref" || name.starts_with("prop:") || is_event_name(&name) {
             return Ok(None);
         }
         // `$key` on an intrinsic element compiles to the `_key` attribute
@@ -2039,7 +2037,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     }
 
     /// One planned attribute, following Babel's SSR `transformAttributes`:
-    /// refs hoist `_ref$N` declarations, `prop:`/`on*` drop, child properties
+    /// refs hoist `_ref$N` declarations, `prop:`/`onXxx` drop, child properties
     /// redirect into children, class/style get their SSR serializers, and
     /// everything else routes through `setAttr` or an inline quoted hole.
     #[allow(clippy::too_many_arguments)]
@@ -2138,15 +2136,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if key.starts_with("prop:") {
             return Ok(());
         }
-        if let Some(rest) = key.strip_prefix("on") {
+        if is_event_name(&key) {
             // `onXxx` lowercases to the event name — the client runtime's
             // own derivation (`onClick` -> `click`); the position is bound
             // under it.
             if self.server_components {
-                let pos = rest.to_lowercase();
-                if !pos.is_empty() {
-                    claims.push((pos, expression));
-                }
+                claims.push((key[2..].to_lowercase(), expression));
             }
             return Ok(());
         }

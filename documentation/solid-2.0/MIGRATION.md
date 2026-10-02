@@ -587,7 +587,18 @@ Solid 2.0 aims to be more “what you write is what the platform sees”:
 <some-element enabled="true" />
 ```
 
-`on:` and `oncapture:` are removed. Keep using camelCase event handlers like `onClick` for Solid-managed events. For native listener options, use a ref callback:
+Event handlers are camelCase only: `on` followed by an uppercase letter (`onClick`, `onPointerDown`). **Lowercase `on*` names are attributes in 2.0.** In 1.x `<button onclick={handler}>` bound an event like `onClick`; in 2.0 it sets the `onclick` attribute (stringifying a function into it), in the browser, in SSR output, and through spreads. Rename lowercase handlers to camelCase:
+
+```jsx
+// 1.x
+<button onclick={increment} />
+// 2.0
+<button onClick={increment} />
+```
+
+A string value is now exactly the HTML inline-handler attribute (`<link rel="preload" onload="this.rel='stylesheet'">`). In development a function passed to a lowercase `on*` attribute warns with `LOWERCASE_EVENT_ATTRIBUTE`.
+
+`on:` and `oncapture:` are removed. Keep using camelCase event handlers like `onClick` for Solid-managed events. A leftover `on:click={fn}` is now a plain (namespaced) attribute and warns in development like a lowercase `on*` name. For native listener options, use a ref callback:
 
 ```jsx
 const on = (type, handler, options) => el => el.addEventListener(type, handler, options);

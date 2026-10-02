@@ -258,12 +258,9 @@ function createHtml() {
     return mergeProps(...sources) as Record<string, any>;
   };
 
-  // Elements: every `on*` prop is an event to `spread`. Components have no
-  // event namespace, so only the `onXxx` handler convention is exempt —
-  // `on`, `only`, `once` are ordinary props.
-  const isHandlerName = (name: string, component: boolean) =>
-    component ? /^on[A-Z]/.test(name) : name.startsWith("on");
-
+  // Components: every zero-argument function is a getter, so a handler must
+  // declare its event argument. Elements: `ref` and `onXxx` handlers are
+  // exempt; a lowercase `onclick` is an attribute like any other.
   const applyGetter = (
     props: Record<string, any>,
     name: string,
@@ -273,8 +270,7 @@ function createHtml() {
     if (
       typeof value === "function" &&
       value.length === 0 &&
-      name !== "ref" &&
-      !isHandlerName(name, component)
+      (component || (name !== "ref" && !/^on[A-Z]/.test(name)))
     ) {
       Object.defineProperty(props, name, {
         get() {

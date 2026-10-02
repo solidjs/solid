@@ -103,6 +103,7 @@ export type DiagnosticCode =
   | "HEAD_TAG_INVALID"
   | "UNRECOGNIZED_INSERT_VALUE"
   | "UNSCOPED_HOLE_ALLOCATED_IDS"
+  | "LOWERCASE_EVENT_ATTRIBUTE"
   | "BINDING_SLOT_POSITION"
   | "FRAME_MARKER_CORRUPTED"
   | "DYNAMIC_ASYNC_COMPONENT";
@@ -122,7 +123,7 @@ export type DiagnosticKind =
   | "ssr"
   /** The response head: `<head>` tags, preload descriptors, HTTP headers. */
   | "head"
-  /** The renderer's insert positions, on either platform: a value it has no rendering for. */
+  /** The renderer's insert and attribute positions: a value it has no rendering for, or one it renders other than intended. */
   | "render";
 
 /** First warning when a change reaches (or a pass tracks) this many edges. */

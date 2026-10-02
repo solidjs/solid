@@ -186,7 +186,7 @@ import {
   qualifierValue,
   STYLESHEET_FETCH_META
 } from "./head.js";
-import { devCheck, unscopedHoleAllocatedIds } from "./diagnostics.js";
+import { devCheck, lowercaseEventAttribute, unscopedHoleAllocatedIds } from "./diagnostics.js";
 export {
   DOMWithState,
   ChildProperties,
@@ -713,7 +713,10 @@ export function claimElement(node) {
 export function setAttribute(node: Element, name: string, value: string): void;
 
 export function setAttribute(node, name, value) {
-  if ("_SOLID_DEV_") tagElement(node);
+  if ("_SOLID_DEV_") {
+    tagElement(node);
+    if (typeof value === "function" && name.startsWith("on")) lowercaseEventAttribute(name, node);
+  }
   if (isHydrating(node)) return;
   const selectMultiple = name === "multiple" && node.localName === "select";
   if (value == null || value === false) node.removeAttribute(name);
@@ -1901,13 +1904,13 @@ function flushHeadRegistry() {
   }
 }
 
-// Shared filtered create: skips children/ref/on* and invalid names, drops
-// null/false values, sets the text body. Used by the replaceable render and
-// the resource mount.
+// Shared filtered create: skips children/ref/onXxx handlers and invalid
+// names, drops null/false values, sets the text body. Used by the
+// replaceable render and the resource mount.
 function createHeadElement(tag, props) {
   const el = document.createElement(tag);
   for (const name in props) {
-    if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
+    if (name === "children" || name === "ref" || /^on[A-Z]/.test(name)) continue;
     if (!HEAD_ATTR_NAME.test(name)) {
       if ("_SOLID_DEV_") console.warn(`useHead: ignoring invalid attribute name "${name}"`);
       continue;
@@ -1933,7 +1936,7 @@ function renderHeadElement(t, identity, existing) {
 function headElementMatches(el, t) {
   if (el.tagName.toLowerCase() !== t.tag) return false;
   for (const name in t.props) {
-    if (name === "children" || name === "ref" || name.slice(0, 2) === "on") continue;
+    if (name === "children" || name === "ref" || /^on[A-Z]/.test(name)) continue;
     if (!HEAD_ATTR_NAME.test(name)) continue;
     const v = t.props[name];
     if (v == null || v === false) {
@@ -2577,9 +2580,13 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     return value;
   }
 
+  let c;
   const hasNamespace = prop.indexOf(":") > -1;
 
-  if (!hasNamespace && prop.slice(0, 2) === "on") {
+  // Only `on` + an uppercase letter is an event; a lowercase `onclick` is an
+  // attribute. No regex on this per-prop path: a key not starting with `on`
+  // pays one `startsWith`.
+  if (!hasNamespace && prop.startsWith("on") && (c = prop.charCodeAt(2)) > 64 && c < 91) {
     const name = prop.slice(2).toLowerCase();
     const delegate = DelegatedEvents.has(name);
     if (!delegate && prev) {

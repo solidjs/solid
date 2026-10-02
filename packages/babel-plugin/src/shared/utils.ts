@@ -302,6 +302,12 @@ export function trimWhitespace(text: string): string {
   return text.replace(/\s+/g, " ");
 }
 
+// Only `on` + an uppercase letter is an event handler. Lowercase `on*`
+// names (`onclick`) are plain attributes.
+export function isEventName(name: string): boolean {
+  return /^on[A-Z]/.test(name);
+}
+
 export function toEventName(name: string): string {
   return name.slice(2).toLowerCase();
 }
