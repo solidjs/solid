@@ -25,6 +25,8 @@
 import {
   REACTIVE_RECOMPUTING_DEPS,
   STATUS_ERROR,
+  STATUS_PENDING,
+  CONFIG_SLOT_NODE,
   CONFIG_VERDICT,
   $REFRESH
 } from "./core/constants.js";
@@ -34,6 +36,7 @@ import { enqueueSub } from "./core/heap.js";
 import { flushTransaction, GlobalQueue, resolveTx, schedule } from "./core/scheduler.js";
 import type { Computed, Signal } from "./core/types.js";
 import type { Accessor } from "./signals.js";
+import { $TARGET, type Store } from "./store/types.js";
 
 type Marked = Signal<any> | Computed<any>;
 
@@ -80,9 +83,31 @@ function release(nodes: Marked[]): void {
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
     active--;
-    if (--n._x!._marks === 0) repoll(n);
+    if (--n._x!._marks === 0) {
+      repoll(n);
+      // A store mark's carrier: its scope (and the marks the nodes born in
+      // its window inherited) goes with it.
+      GlobalQueue._releaseMarkScope?.(n);
+    }
   }
   nodes.length = 0;
+}
+
+/** One registration: a count on the node, listed with the scope — the
+ * flush's transaction, or the ambient list (released at the seam). */
+function register(node: Marked): void {
+  mark(node);
+  const t = flushTransaction;
+  if (t === null) ambient.push(node);
+  else {
+    const u = resolveTx(t);
+    (u._marks ??= []).push(node);
+  }
+  repoll(node);
+}
+function mark(node: Marked): void {
+  ext(node)._marks++;
+  active++;
 }
 
 /**
@@ -109,37 +134,77 @@ function release(nodes: Marked[]): void {
  * });
  * ```
  */
-export function affects(target: Accessor<unknown>): void {
-  const node: Marked | undefined = (target as any)?.[$REFRESH];
-  if (!node) {
-    if (__DEV__) {
-      const message =
-        "[INVALID_AFFECTS_TARGET] affects() expects a Solid source accessor. " +
-        "Pass the original accessor, not a wrapper function or an already-read value.";
-      emitDiagnostic({
-        code: "INVALID_AFFECTS_TARGET",
-        kind: "write",
-        severity: "error",
-        message
-      });
-      throw new Error(message);
-    }
+export function affects(target: Accessor<unknown> | Store<object>): void;
+export function affects<T extends object>(target: Store<T>, key: keyof T): void;
+export function affects(target: any, key?: PropertyKey): void {
+  if (__DEV__ && arguments.length > 2)
+    invalid(
+      "affects() takes a single optional key — extra keys are not a path. Mark each slot " +
+        'with its own affects(record, key) call, or pass the nested record itself: affects(state.user, "name").'
+    );
+  // A store (the store half, store/affects.ts): the slot's leaf, or the
+  // record's carrier and every live node under it.
+  const t = target?.[$TARGET];
+  if (t !== undefined) {
+    const nodes = GlobalQueue._storeMarks!(t, key);
+    for (let i = 0; i < nodes.length; i++) register(nodes[i]);
+    schedule();
     return;
   }
-  ext(node)._marks++;
-  active++;
-  const t = flushTransaction;
-  if (t === null) ambient.push(node);
-  else {
-    const u = resolveTx(t);
-    (u._marks ??= []).push(node);
+  const node: Marked | undefined = target?.[$REFRESH];
+  if (!node) {
+    if (__DEV__)
+      invalid(
+        "affects() expects a Solid source accessor or a store. Pass the store proxy (optionally " +
+          "with a property key) or the original accessor, not a wrapper function or an already-read value."
+      );
+    return;
   }
-  repoll(node);
+  if (__DEV__ && key !== undefined)
+    invalid(
+      "affects() keys are only valid on store targets. An accessor is a single slot — pass it " +
+        "alone, or target the store record that owns the property."
+    );
+  register(node);
   schedule();
 }
 
+function invalid(detail: string): never {
+  const message = "[INVALID_AFFECTS_TARGET] " + detail;
+  emitDiagnostic({ code: "INVALID_AFFECTS_TARGET", kind: "write", severity: "error", message });
+  throw new Error(message);
+}
+
 GlobalQueue._marked = el => active !== 0 && marked(el, new Set());
+GlobalQueue._mark = mark;
 GlobalQueue._releaseMarks = release;
-GlobalQueue._releaseAmbientMarks = () => {
-  if (ambient.length !== 0) release(ambient);
+GlobalQueue._releaseAmbientMarks = parked => {
+  if (ambient.length === 0) return;
+  // The flush parked: the declaration's window is the frame's — the marks
+  // are its transaction's ("nothing async below ⇒ no window").
+  if (parked !== null) {
+    const list = (parked._marks ??= []);
+    for (let i = 0; i < ambient.length; i++) list.push(ambient[i]);
+    ambient.length = 0;
+    return;
+  }
+  // Nothing parked, but a marked node's own flight is up (a declared
+  // reload's quiet re-ask — the node's, or a store leaf's family derive):
+  // the window is the flight's; the mark stays to the seam after the
+  // landing. The rest release: verdict-only, nothing to show.
+  let kept = 0;
+  const done: Marked[] = [];
+  for (let i = 0; i < ambient.length; i++) {
+    const n = ambient[i];
+    if (inFlight(n)) ambient[kept++] = n;
+    else done.push(n);
+  }
+  ambient.length = kept;
+  if (done.length !== 0) release(done);
 };
+function inFlight(n: Marked): boolean {
+  return (
+    ((n as Computed<any>)._statusFlags & STATUS_PENDING) !== 0 ||
+    ((n._config & CONFIG_SLOT_NODE) !== 0 && GlobalQueue._slotFlight?.(n) === true)
+  );
+}

@@ -125,6 +125,18 @@ export let optHooks: OptHooks | null = null;
 export function installOptHooks(hooks: OptHooks): void {
   optHooks = hooks;
 }
+
+/** The store half of `affects()` (store/affects.ts), installed with the
+ * stores: a node born on a covered record inherits the live mark; an
+ * untracked verdict probe through a record with no node is witnessed. */
+export interface AffectsHooks {
+  born(t: StoreTarget, node: Signal<any>, key: PropertyKey): void;
+  witness(t: StoreTarget, key: PropertyKey | undefined): void;
+}
+export let affectsHooks: AffectsHooks | null = null;
+export function installAffectsHooks(hooks: AffectsHooks): void {
+  affectsHooks = hooks;
+}
 import {
   $PROXY,
   $RECORD,
@@ -342,9 +354,10 @@ function releaseSlot(node: any): void {
 }
 
 /** A node was born on `target`: a family target enters the live index. */
-function noteNode(target: StoreTarget): void {
+function noteNode(target: StoreTarget, node: Signal<any>, key: PropertyKey): void {
   if (target.fam !== null) target.fam.live.add(target);
   markDescendants(target);
+  if (affectsHooks !== null) affectsHooks.born(target, node, key);
 }
 
 // Shared slot-node release handler: registered once; the core sweep
@@ -421,7 +434,7 @@ export function getNode(
     }
     nodes[key] = node;
     target.nc++;
-    noteNode(target);
+    noteNode(target, created, key);
   }
   return node;
 }
@@ -436,7 +449,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
       bornStaged(target, created, key in pb && !(target.del !== null && target.del.has(key)), key);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
-    noteNode(target);
+    noteNode(target, created, key);
   }
   return node;
 }
@@ -449,7 +462,7 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
   if (k === null) {
     k = target.k = slotSignal(target.v, containerEquals, target, $TRACK, false);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(k, target);
-    noteNode(target);
+    noteNode(target, k, $TRACK);
   }
   return k;
 }
@@ -459,7 +472,7 @@ function getDeepNode(target: StoreTarget): Signal<number> {
   if (dk === null) {
     dk = target.dk = slotSignal<number>(0, never, target, $DEEP, false);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(dk, target);
-    noteNode(target);
+    noteNode(target, dk, $DEEP);
   }
   return dk;
 }
@@ -814,6 +827,14 @@ function drainFolds(): void {
     }
   }
 }
+/** Core asks: is a slot node's truth in flight? Its family's derive is —
+ * lanes (A17, #2864: a guess mid-refetch stands in for the flight) and
+ * marks (an ambient `affects()` over a declared reload lives to the
+ * landing) read it. */
+GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
+  const fam = ((n as any)._host as StoreTarget | undefined)?.fam;
+  return fam != null && fam.node !== null && (fam.node._statusFlags & STATUS_PENDING) !== 0;
+};
 GlobalQueue._storeCommit = () => {
   drainFolds();
   optHooks?.sweep();
@@ -1642,6 +1663,10 @@ const traps: ProxyHandler<StoreTarget> = {
       }
       // user symbols fall through to the generic path
     }
+    // (The witness before the pull: a mark on an uninitialized derived
+    // store is witnessed, then the pull throws — loading, declared pending.)
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks.witness(target, key);
     if (target.fam !== null) pullFamily(target);
     const src = readSource(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
@@ -1775,6 +1800,10 @@ const traps: ProxyHandler<StoreTarget> = {
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
     if (key === $OWNER || key === $RECORD) return false;
+    // (The witness before the pull: a mark on an uninitialized derived
+    // store is witnessed, then the pull throws — loading, declared pending.)
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks.witness(target, key);
     if (target.fam !== null) pullFamily(target);
     const src = readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
@@ -1799,14 +1828,18 @@ const traps: ProxyHandler<StoreTarget> = {
   },
 
   ownKeys(target) {
+    if (verdict !== null && affectsHooks !== null && getObserver() === null)
+      affectsHooks.witness(target, undefined);
     if (target.fam !== null) pullFamily(target);
     return visibleKeys(target, enumerationSource(target));
   },
 
   getOwnPropertyDescriptor(target, key) {
     if (key === $OWNER || key === $RECORD) return undefined;
-    if (target.fam !== null) pullFamily(target);
     const obs = getObserver();
+    if (verdict !== null && affectsHooks !== null && obs === null)
+      affectsHooks.witness(target, key);
+    if (target.fam !== null) pullFamily(target);
     // An enumerator (spread, Object.entries) already holds the container
     // node and reads its frame; a descriptor read on its own tracks
     // presence (R13).

@@ -244,14 +244,6 @@ installOptHooks({
   sweep: sweepOverlaid
 });
 
-/** Lanes ask: is a slot node's truth in flight? Its family's derive is
- * (A17, #2864: a guess mid-refetch stands in for the flight — shown until
- * the landing confirms or corrects it, never dropped as a no-frame write). */
-GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
-  const fam = ((n as any)._host as StoreTarget | undefined)?.fam;
-  return fam != null && fam.node !== null && (fam.node._statusFlags & STATUS_PENDING) !== 0;
-};
-
 function shallowKeys(o: Record<PropertyKey, any>): Record<PropertyKey, any> {
   const out: Record<PropertyKey, any> = {};
   for (const k of Reflect.ownKeys(o)) if (k !== $OWNER) out[k as any] = unwrapValue(o[k as any]);

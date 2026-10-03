@@ -597,6 +597,14 @@ export class GlobalQueue implements IQueue {
   declare static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
   /** A slot node's truth is in flight (its family's derive — store/optimistic.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
+  /** `affects()` on a store (store/affects.ts ↔ affects.ts): the nodes a
+   * declaration marks; a carrier's scope released with its last mark; a
+   * bare registration (birth inheritance); a witnessed mark on an untracked
+   * probe (verdict.ts). */
+  declare static _storeMarks: ((t: any, key: PropertyKey | undefined) => Signal<any>[]) | undefined;
+  declare static _releaseMarkScope: ((carrier: Signal<any> | Computed<any>) => void) | undefined;
+  declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;
+  declare static _witnessMark: (() => void) | undefined;
   declare static _laneSeams: ((leaks: Computed<any>[] | null) => void) | undefined;
   declare static _laneCorrections: (() => boolean) | undefined;
   declare static _endLanes: ((u: Transaction) => void) | undefined;
@@ -613,7 +621,7 @@ export class GlobalQueue implements IQueue {
   // at a landing and at the seam (ambient marks).
   declare static _marked: ((el: Signal<any> | Computed<any>) => boolean) | undefined;
   declare static _releaseMarks: ((nodes: Signal<any>[]) => void) | undefined;
-  declare static _releaseAmbientMarks: (() => void) | undefined;
+  declare static _releaseAmbientMarks: ((parked: Transaction | null) => void) | undefined;
   // Boundaries (boundaries.ts): the display consumers between an observer
   // and the root. `_catch` — status from a frame reader, nearest boundary
   // first (true: caught, the root never hears of it; a clear — flags 0 —
@@ -803,9 +811,11 @@ export class GlobalQueue implements IQueue {
     // The store folds the pending backings whose container nodes committed
     // — this flush's, or a landing's (store/store.ts installs it).
     GlobalQueue._storeCommit?.();
-    // Marks declared outside a transaction release at the seam: verdict-only,
+    // Marks declared outside a transaction: the flush that carried them
+    // parked (something async below) — the window is the frame's, the marks
+    // are its transaction's; else they release at the seam, verdict-only,
     // nothing to show (affects.ts).
-    GlobalQueue._releaseAmbientMarks?.();
+    GlobalQueue._releaseAmbientMarks?.(t !== null && transactions.indexOf(t) !== -1 ? t : null);
     // The effect phase: lane work first (displayed ahead of the frame), then
     // this flush's runs, then the runs the landings held from earlier
     // flushes — as one pass would have queued them (#3540: a shell

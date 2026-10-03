@@ -25,6 +25,7 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
+import "./affects.js";
 import { createOptimisticStore } from "./optimistic.js";
 import { createProjection, createStoreDerived } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
@@ -44,6 +45,10 @@ import type {
 } from "./types.js";
 
 export { createOptimisticStore, createProjection };
+/** The store's internal record behind a proxy (`store[$TARGET]`). Kept
+ * under `next`'s public name; its shape is the L2 target's (plan §31–§32:
+ * the symbol-keyed legacy record is gone with the representation). */
+export type { StoreTarget as StoreNode } from "./target.js";
 export type { Merge, Omit } from "./utils.js";
 export {
   mergeSources,

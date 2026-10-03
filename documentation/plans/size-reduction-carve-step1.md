@@ -4678,6 +4678,76 @@ dist/declarations pass, S5).
 
 ---
 
+## 37. Stores on L2 — S5: the store half of `affects()`; declarations (2026-10-03, 9:00–9:45 AM)
+
+**`src/store/affects.ts`** (new, ~150 lines; installed by `store/index.ts` —
+a program with stores carries it, one without pays nothing; `affects.ts`
+asks `GlobalQueue._storeMarks`). A mark on a store is a mark on nodes
+(§29's count-on-the-node, probe-time dependency walk): `affects(record,
+key)` marks the slot's leaf; `affects(record)` marks a carrier (the
+record's `$AFFECTS` leaf — a key no read serves) and every live node in the
+record's subtree (leaves, presence, container, deep witness — the edges
+existing readers subscribed through). Coverage is by **raw identity**
+(#2882, #2904), as on `next`: the identities reachable at the declaration
+are the mark's scope (the draft's and the committed backing both while a
+setter is open; an optimistic family's **writer's view** — the tick's own
+unflushed guesses are in motion too), so a node born inside the window on a
+covered record **inherits** the mark (`noteNode` is the one birth seam;
+released with the carrier's last registration through
+`_releaseMarkScope`), and an **untracked probe** through a record with no
+node is witnessed into the verdict (`_witnessMark`, verdict.ts: `probeFound
+= true`; the witness runs before the family pull, so a mark on an
+uninitialized derived store reads pending while the pull throws — #2910).
+Chained backings are followed to the base raw. `affects()` itself gained
+`next`'s dev diagnostics (extra keys are not a path; keys only on stores).
+
+**One rule the store pins forced on the signal half (flagged).** §29 built
+ambient marks as "released at the next seam". The six `createOptimisticStore`
+contrasts (`affects(state); refresh(state); flush()` with no action) and
+the signal pin "affects with no transaction and no async releases at flush
+end" ("nothing async below ⇒ no window") together say: **something async
+below ⇒ the window is the flight's.** So `_releaseAmbientMarks(parked)`:
+if the carrying flush parked, the ambient marks join its transaction (as
+`next`'s `shiftAffectsMarks`); else a mark whose node's own flight is up
+(STATUS_PENDING — or, a slot node's, its family's derive: `_slotFlight`,
+now installed by store.ts for lanes and marks alike) stays ambient to the
+seam after the landing; the rest release. Core: `settle` passes the parked
+transaction (if still live) to the hook; `GlobalQueue._mark` (a bare
+registration, for inheritance), `_storeMarks`, `_releaseMarkScope`,
+`_witnessMark`.
+
+**Declarations.** The solid `internal-surface` ×3 / `published-declarations`
+×3 reds were stale generated `types/` (Sep 28) plus one real gap: **`StoreNode`**
+— a public type on `next` (re-exported by `solid-js`) — had no export. It is
+back as `export type { StoreTarget as StoreNode }` (public API, flagged:
+the name is kept; its shape is the L2 target's, the symbol-keyed legacy
+record being gone with S1's representation). `pnpm types` regenerated for
+signals/solid/web: solid **819 / 819**.
+
+**Results.** Signals **4808 passed** (+25: every store `affects` pin —
+`question-scoped-pending` ×15, the six optimistic deep/length contrasts,
+`affects-propagation` ×2, `affects-audit` flagship,
+`latest-isPending-consistency`'s store row), 0 regressions; web 1109
+(unchanged); solid 819 (+6). Size (br): floor 7250 → **7265** (+15: the
+seam's parked-transaction argument), `+ isPending/latest` +14,
+`+ createStore` 13939 → **13988** (+49: store/affects.js, the birth seam,
+the witness gates), every store family 27783 → **27745** (−38), page live
+46969 → 47012.
+
+**Open after S5** (signals 26, non-carved): the S3c/verdict class
+(`createProjection.async` ×4, `createStore` isPending-held-derived, QSP
+quiet-refetch ×2, `late-pending-equality`, `child-companion-walk`,
+`finalize-reentry` ×2, `refresh-await`, oracle store `staleForeign`,
+`draft-lifetime-3585`), the §35 Q-D rows (matrix ×2, `#2951 compose half`,
+`3672` one re-run), `3706` enumerability contrast, `direct-commit-readers`
+×2, `lane-frame-deferred-run-3662`, `lane-authority-twins` #3334, and
+`rules-index` ×3 — the check flags `§NN` plan-section citations in src
+comments (`§19 §28 §29 §31 §32 §35 §37`) as unresolved rule IDs; for PR
+time, per the standing rule that spec files are not edited here. Web 7
+(§36's list).
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

@@ -394,3 +394,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
 GlobalQueue._observeFlight = observeFlight;
+/** A store read inside an untracked `isPending` probe found a live mark on
+ * a record with no node to carry it (store/affects.ts): not final. */
+GlobalQueue._witnessMark = () => {
+  if (probing) probeFound = true;
+};
