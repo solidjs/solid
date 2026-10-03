@@ -3293,7 +3293,7 @@ const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
 
 /** Where a failure was met, as the hook hears it (the `event` is added at the call). */
 export interface ServerErrorSite {
-  kind: "render" | "server-function";
+  kind: "render" | "server-function" | "request";
   handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
   boundary?: string;
   /**

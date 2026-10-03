@@ -161,7 +161,7 @@ export function reportServerError(): { mapped: boolean; value?: unknown } {
 }
 /** Where a server failure was met, as the server error hook hears it (see `@solidjs/web`'s `ServerErrorContext`). */
 export interface ServerErrorSite {
-  kind: "render" | "server-function";
+  kind: "render" | "server-function" | "request";
   handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
   boundary?: string;
   /** Where the error was thrown — labels root-first up the owner chain it escaped. */

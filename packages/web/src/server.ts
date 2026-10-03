@@ -6125,7 +6125,9 @@ export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") 
  * without it (a render that passed `onError`). `kind: "server-function"` — `thrown`:
  * the body threw; `channel`: a rejection or throw escaping through the
  * result graph (a promise, an iterable, a stream) with the head already
- * committed. `boundary` is the hydration id the boundary records and
+ * committed. `kind: "request"` (always `failed`): the framework's request
+ * handler met the failure before any render or server function did (see
+ * `reportRequestFailure`). `boundary` is the hydration id the boundary records and
  * findings use; `ownerPath` is where the error was THROWN — the component
  * labels root-first up the owner chain it escaped, when the compiler emitted
  * them — and `boundaryPath` where it was MET, the same labels up the
@@ -6187,6 +6189,17 @@ const ServerErrors: unique symbol = Symbol.for("solid-js/server/errors") as any;
 export function configureServerErrors(config: ServerErrorsConfig): void;
 
 /**
+ * Reports a failure that fails a request before any render or server
+ * function met it, such as a throw a framework's request handler catches
+ * from its middleware. The ambient server error hook hears it as
+ * `{ kind: "request", handling: "failed", event }`, once per error object,
+ * and its return is ignored, as for every `handling: "failed"`. With no hook
+ * registered the failure goes to `console.error`, as a render that fails
+ * before its shell does. There is no per-request hook at this layer.
+ */
+export function reportRequestFailure(error: unknown, event: RequestEvent): void;
+
+/**
  * The serializer's `onError`, when a render passed one: seroval reports a
  * value that would not serialize here instead of throwing at the write
  * (that difference is why this is only wired when a hook was given — as
@@ -6212,6 +6225,11 @@ export function configureServerErrors(config) {
     throw new TypeError(`Invalid onError: expected a function, received ${typeof config.onError}.`);
   }
   (g[ServerErrors] ||= {}).hook = config ? config.onError : undefined;
+}
+
+export function reportRequestFailure(error, event) {
+  reportServerError(error, { kind: "request", handling: "failed", event }, null);
+  if (ambientServerErrorHook() === undefined) console.error(error);
 }
 
 /**
