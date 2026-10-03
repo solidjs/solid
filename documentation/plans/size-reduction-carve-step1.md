@@ -4830,6 +4830,118 @@ existing one.
 
 ---
 
+## 39. Q-D ruled and built — provenance-gated landings (2026-10-03, 10:20 AM–4:15 PM)
+
+**Ruling (maintainer, 10:23 AM): option 1 is out** — "temporary swap
+visually is unacceptable; undermines user confidence; they could be
+interacting with it." The discussion that followed (10:25–10:36) settled
+the frame: entanglement would not flicker (the guess sits until the merged
+transaction lands) but couples lifetimes — A's commit hostage to B, chains
+under continuous overlap, #2912 reversed; and it would not fix the snap by
+itself, since A's landing would still be judged against B's arrangement.
+The snap is a **provenance** bug: `reconcile` lands store nodes through a
+bare `setSignal`, so every landing is judged as the guess's own answer.
+Replay was weighed as the general-but-expensive alternative: the real axis
+is value optimism (L2's lanes everywhere: a guess is a value) vs functional
+optimism (a guess re-derived from the truth); replay's generality is real
+for relative scalar edits under a foreign base change, illusory for
+positional edits (a positional setter replayed over a shifted list writes
+the wrong row exactly as a positional guess does), and its cost is
+semantic (pure re-runnable setters, replay order, "replay throws"). Built:
+**2′** — value optimism, uniform, with the #3331 rule applied to store
+landings. 2′ is the substrate replay would sit on if relative-scalar
+edits under foreign landings ever matter.
+
+**Built.**
+
+1. **The question stamp** (`projection.ts`). A derive's writes ask a
+   question: inside a slice, the slice's (the sync pass — already right);
+   in a continuation (the flight still registered, `_inFlight !== null`),
+   the flight's `_x._q` (`handleAsync` stamped it with the action that
+   asked). `wrapDraft`'s `mutate` and the landing's `write()` run under
+   `setQuestion(asking())`.
+2. **The gate** (`lanes.ts` `laneWrite`, the written-guess arm): a write
+   asking an OLDER question than the guess's `_q` is held beneath the
+   guess (`_pendingValue`, CONFIG_HELD) — the truth for the commit, nothing
+   moves; the guess's own question (or a newer, or an unstamped/mainline
+   write) judges as before. Same rule as `laneOutcome`'s `staleAnswer` for
+   derivations. Applies to every lane node, not only slots (uniform;
+   flagged — no signal pin exercised it).
+3. **The re-base** (`optimistic.ts` `_laneRebase`, called from the gate):
+   an older truth held beneath an **arrangement guess** on a keyed array
+   re-composes it — order from the guess, rows from the truth by key (a
+   guessed row the truth has takes the truth's object; the row target
+   adopted it, its proxy survives), guessed rows the truth lacks kept
+   (their own landing judges), truth rows the guess lacks appended —
+   except the keys the setter **removed** from the view it saw
+   (`LaneView.removed`, computed at the guess: a deliberate delete is not a
+   row the truth has yet to show; "across two actions: insert head / its
+   inverse" and "replace-all disjoint ids" forced it). The composed
+   arrangement becomes the lane's value on every index whose row the
+   committed backing does not already show (a node born for it is the
+   lane's derivation — `laneSet`), on `length`, and as the `LaneView`'s
+   base for structural reads. Unkeyed families: the guess stands as
+   written (the documented residue).
+4. **The verdict** — built as proposed (an older held truth inert for
+   `isPending`, `CONFIG_STALE_TRUTH`), then **reverted**: it regressed
+   `spec-async-semantics` "#3331: own-source arrival supersedes" —
+   `isPending(double)` is pinned TRUE while a stale truth that differs is
+   held beneath (A24). The pinned rule stands; consequence under 2′: A's
+   landing beneath B's guess reads `isPending` true on B's slots until B
+   lands — sustained, ends with B, never a flicker. Noted for the
+   maintainer; not a flicker, so not re-opened.
+
+**Two more rules the pins forced (core, flagged):**
+
+- **A correction keeps a SHOWN lane's runs** (`dissolveLane`). The
+  body-end seam judges guesses _before_ the lane seam would release this
+  round's lane runs; a correction dropped them while committing the values
+  they would have displayed ("what it showed stays the screen"). The
+  derivation then re-derived to the same value (a mapArray whose rows the
+  lane pass already built) and notified nobody — web `For` over a chained
+  view with a differing landing kept 6 rows after settle (the F1 ×5). Now:
+  `into === null || l._shown` → `releaseQueues`; a never-shown lane's runs
+  stay void.
+- **A chained link's covered value is the inner's live commit**
+  (`GlobalQueue._slotCovered`, lanes.ts `covered`): a guess's revert
+  compares against the value it covered; a chained link's `_value` only
+  learned the inner's commits on read-through, and the guess served the
+  reads since (#3672). The store refreshes it at the compare.
+
+**Store-side rules:** an optimistic setter's first read of a target births
+its draft whether or not a staging awaits its fold (the draft composes on
+the writer's view, never on the staging — `#2951`: C's `+1` composed on 1
+instead of 2); the get trap's hot path runs **before** the backing read and
+serves a chained target's node when it carries a guess (A17: the base
+beneath, and any hold there, is not this reader's concern — the kanban
+fixture's `isPending` row).
+
+**Pins.** Matrix **904 / 904** (the two Q-D rows; F7 unpinned earlier);
+`#2951 compose half` (0, 1, 2, 3 monotonic, no replay); web
+`optimistic-for-index-frame-f1` ×5; `3672` "delete and re-add … without
+re-running its reader". **New: `tests/store/kanban-a17-fixture.test.ts`**
+(Gabriel's `GabbeV/solid-kanban` shape — plain truth written and shadowed
+optimistically in one action; a drag ghost mounted mid-move shows the
+guess now, an unrelated `dragging` write shows with it, `latest`/`isPending`
+read the guess; the landing moves nothing).
+
+**Results.** Signals **4815 passed** (+7), **0 passed→not-passed vs S5**;
+web **1114** (+5, 2 left: `frames-optimistic-hold` multi-flight,
+`call-driven-lifecycle` mid-flight); solid 819. Size (br): floor 7263
+(−2), `+ isPending/latest` 9360 (+24: the gate, `covered`),
+`+ createStore` **14075** (+87: the question stamps, `_slotCovered`, the
+hot-path reorder), every store family **28415** (+670 — the keyed re-base;
+over the 150–250 estimate: `removed`, `laneSet`, the compose loop), page
+live 47276 (+264).
+
+**Open:** the 22 signals reds are §37's list minus the Q-D rows (the
+S3c/verdict class, `direct-commit-readers` ×2, `3706` enumerability,
+`lane-frame-deferred-run-3662`, `#3334` store twin, `rules-index` ×3).
+Residue, documented not fixed: unkeyed/index lists with positional edits
+under concurrent restructuring from another action.
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

@@ -301,10 +301,13 @@ export function sameKey(a: any, b: any): boolean {
 export class LaneView {
   constructor(
     public rows: Record<PropertyKey, any>,
-    /** The committed backing the guess is shown over (the committed frame,
-     * while the lane's machinery has the node's `_value` show the guess —
-     * `committed`). */
-    public base: Record<PropertyKey, any>
+    /** The backing the guess is shown over: the committed one at the
+     * guess, the composed arrangement after a re-base (optimistic.ts). */
+    public base: Record<PropertyKey, any>,
+    /** Keys the setter REMOVED from the view it saw (a deliberate delete,
+     * not a row the truth has yet to show): a re-base does not restore
+     * them. `null` when none. */
+    public removed: Set<unknown> | null = null
   ) {}
 }
 
@@ -834,6 +837,21 @@ function drainFolds(): void {
 GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
   const fam = ((n as any)._host as StoreTarget | undefined)?.fam;
   return fam != null && fam.node !== null && (fam.node._statusFlags & STATUS_PENDING) !== 0;
+};
+/** Core asks (lanes.ts `covered`): the value a slot node's guess covered.
+ * A chained link's committed value is the inner store's at the last
+ * read-through — refreshed here, since a guess served the reads since
+ * (#3672: the revert compares against the base's live value). */
+GlobalQueue._slotCovered = (n: Signal<any>): unknown => {
+  const t = (n as any)._host as StoreTarget;
+  if (t.ch) {
+    const key = (n as any)._key as PropertyKey;
+    const inner = t.v as Record<PropertyKey, any>;
+    if (t.h !== null && t.h[key as any] === n) n._value = untrack(() => key in inner);
+    else if (t.n !== null && t.n[key as any] === n)
+      n._value = untrack(() => unwrapValue(inner[key as any]));
+  }
+  return n._value;
 };
 GlobalQueue._storeCommit = () => {
   drainFolds();
@@ -1365,18 +1383,23 @@ function stagingReader(): Computed<any> | null {
  * what serves its value (`nodeValue`); presence and enumeration compose
  * per key / per walk (`optimisticHas`, `enumerationSource`). */
 function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey, any> {
-  const pb = target.pb;
-  if (pb === null) {
-    // An optimistic setter's read before its first write sees what the
-    // writer sees — the tick's own guesses included (#3665): the draft is
-    // born on the read (and notified at the setter's exit like any).
-    if (userWrite && target.fam?.opt === true && inDraft(target)) {
-      const draft = ensurePB(target);
-      pendingNotify.add(target);
-      return draft;
-    }
-    return target.v;
+  // An optimistic setter's read before its first write sees what the writer
+  // sees — the lanes' values and the tick's own guesses over the truth
+  // (#3665), never a staging awaiting its fold: the draft is born on the
+  // read (and notified at the setter's exit like any).
+  if (
+    userWrite &&
+    target.fam !== null &&
+    target.fam.opt === true &&
+    !pendingNotify.has(target) &&
+    inDraft(target)
+  ) {
+    const draft = ensurePB(target);
+    pendingNotify.add(target);
+    return draft;
   }
+  const pb = target.pb;
+  if (pb === null) return target.v;
   if (inDraft(target) || writeOverride) return pb;
   const k = target.k!;
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
@@ -1668,23 +1691,24 @@ const traps: ProxyHandler<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks.witness(target, key);
     if (target.fam !== null) pullFamily(target);
-    const src = readSource(target, key);
-    // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
-    // deleted keys are tracked aside and read as absent in the pending view.
-    if (target.del !== null && src === target.pb && target.del.has(key)) {
-      if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key));
-      return undefined;
-    }
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
     // it (linking a tracked reader; the hold rules either way). Skips
     // serveDataKey's frame, the FORCE compare (only accessor keys ever hold
     // the sentinel), and isWrappable for primitives. ONE node-map lookup
-    // serves this block and the accessor probe below.
+    // serves this block and the accessor probe below. Before the backing is
+    // consulted: a deleted key's node serves `undefined` (notifyWrites), and
+    // a chained target's node carrying a GUESS is the value (A17 — the base
+    // beneath it, and any hold there, is not this reader's concern; a link
+    // without one reads through below).
     const node0 = target.n?.[key as any];
     if (writeScopes === null && !writeOverride) {
       const nodeH = node0;
-      if (nodeH !== undefined && (nodeH as any).acc !== true && !target.ch) {
+      if (
+        nodeH !== undefined &&
+        (nodeH as any).acc !== true &&
+        (!target.ch || nodeH._config & CONFIG_OVERRIDE)
+      ) {
         const nv = nodeValue(nodeH, undefined, target);
         if (nv === null || typeof nv !== "object") return nv;
         if (target.s) return serveShallow(target, key, nv);
@@ -1697,6 +1721,13 @@ const traps: ProxyHandler<StoreTarget> = {
         }
         return nv;
       }
+    }
+    const src = readSource(target, key);
+    // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
+    // deleted keys are tracked aside and read as absent in the pending view.
+    if (target.del !== null && src === target.pb && target.del.has(key)) {
+      if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key));
+      return undefined;
     }
     if (
       __DEV__ &&

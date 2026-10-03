@@ -28,7 +28,7 @@ import { NotReadyError } from "../core/error.js";
 import { forEachDependent, handleAsync, notifyStatus, settlePendingSource } from "../core/async.js";
 import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
-import { schedule } from "../core/scheduler.js";
+import { question, schedule, setQuestion } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
@@ -61,15 +61,22 @@ function wrapDraft(
   isActive: () => boolean,
   aroundWrite?: (op: () => void) => void,
   shallow?: boolean,
-  afterWrite?: () => void
+  afterWrite?: () => void,
+  asking?: () => number
 ): any {
   const mutate = (op: () => void): true => {
     if (!isActive()) return true;
     setWriteOverride(true);
+    // A continuation's write is the flight's answer: it asks the flight's
+    // question (A18 provenance — a landing beneath a newer guess is held,
+    // not a correction; lanes.ts `laneWrite`).
+    const prevQ = question;
+    if (asking !== undefined) setQuestion(asking());
     try {
       aroundWrite ? aroundWrite(op) : op();
     } finally {
       setWriteOverride(false);
+      setQuestion(prevQ);
     }
     if (afterWrite) afterWrite();
     return true;
@@ -86,7 +93,7 @@ function wrapDraft(
     get(_, prop) {
       const value = read(() => inner[prop]);
       return !shallow && typeof value === "object" && value !== null && prop !== $TARGET
-        ? wrapDraft(value, isActive, aroundWrite, false, afterWrite)
+        ? wrapDraft(value, isActive, aroundWrite, false, afterWrite, asking)
         : value;
     },
     has: (_, prop) => read(() => prop in inner),
@@ -178,6 +185,11 @@ export function runProjectionComputed<T extends object>(
   // seed so draft writes cannot tear through to readers (#2988). Every
   // commit point reconciles the shadow through the normal commit path.
   const shadow = owner._loading ? cloneState(target.v as T, target.s) : null;
+  // The question a write of this run answers: inside a slice, the slice's
+  // (the sync pass); in a continuation — the flight still registered — the
+  // flight's (`handleAsync` stamped it with the action that asked).
+  const asking = (): number =>
+    question || (owner._x !== null && owner._x._inFlight !== null ? owner._x._q : 0);
   const draft = wrapDraft(
     wrappedStore,
     () => fam.run === run && !isDisposed(owner),
@@ -187,7 +199,8 @@ export function runProjectionComputed<T extends object>(
     // drain itself when no landing will.
     () => {
       if (!(owner._statusFlags & STATUS_PENDING) && !owner._loading) schedule();
-    }
+    },
+    asking
   );
   // The creation run commits directly (a memo's first value is its
   // `_value`); every later run — a re-derive in a flush, an async landing
@@ -205,8 +218,15 @@ export function runProjectionComputed<T extends object>(
           if (shadow && (v === undefined || v === (shadow as any)))
             v = cloneState(shadow, target.s);
           if (v !== (s as any) && v !== undefined) {
-            const write = () =>
-              storeSetter(wrappedStore, st => reconcileState(v, st, key, true), false);
+            const write = () => {
+              const prevQ = question;
+              setQuestion(asking());
+              try {
+                storeSetter(wrappedStore, st => reconcileState(v, st, key, true), false);
+              } finally {
+                setQuestion(prevQ);
+              }
+            };
             wrapCommit ? wrapCommit(write, v as T) : write();
           }
           // A landing (not the sync pass's own commit): the readers held

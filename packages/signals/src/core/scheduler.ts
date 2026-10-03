@@ -595,8 +595,12 @@ export class GlobalQueue implements IQueue {
     | undefined;
   declare static _laneWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
   declare static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
-  /** A slot node's truth is in flight (its family's derive — store/optimistic.ts). */
+  /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
+  /** The value a slot node's guess covered: its committed value — a chained
+   * link's refreshed from the inner store, whose commits it never learned
+   * while the guess served the reads (store/store.ts, §7b). */
+  declare static _slotCovered: ((n: Signal<any>) => unknown) | undefined;
   /** `affects()` on a store (store/affects.ts ↔ affects.ts): the nodes a
    * declaration marks; a carrier's scope released with its last mark; a
    * bare registration (birth inheritance); a witnessed mark on an untracked
@@ -605,6 +609,10 @@ export class GlobalQueue implements IQueue {
   declare static _releaseMarkScope: ((carrier: Signal<any> | Computed<any>) => void) | undefined;
   declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;
   declare static _witnessMark: (() => void) | undefined;
+  /** An older question's truth was held beneath a guess (lanes.ts
+   * `laneWrite`): the store re-bases an arrangement guess over it
+   * (store/optimistic.ts). */
+  declare static _laneRebase: ((el: Signal<any>, truth: unknown) => void) | undefined;
   declare static _laneSeams: ((leaks: Computed<any>[] | null) => void) | undefined;
   declare static _laneCorrections: (() => boolean) | undefined;
   declare static _endLanes: ((u: Transaction) => void) | undefined;

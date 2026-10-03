@@ -29,10 +29,18 @@ import {
   NOT_PENDING,
   STATUS_PENDING
 } from "../core/constants.js";
-import { computed, isEqual, read as readNode, untrack } from "../core/core.js";
+import { computed, ext, isEqual, read as readNode, untrack } from "../core/core.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
 import { getOwner } from "../core/owner.js";
-import { GlobalQueue, insertSubs, notifyEpoch, schedule } from "../core/scheduler.js";
+import {
+  GlobalQueue,
+  insertSubs,
+  laneDirty,
+  list,
+  notifyEpoch,
+  schedule,
+  txOf
+} from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { runProjectionComputed } from "./projection.js";
@@ -54,6 +62,7 @@ import {
 import { $OWNER, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
+  $TRACK,
   isWrappable,
   markRawIngest,
   type NoFn,
@@ -132,7 +141,23 @@ export function notifyOptimisticWrites(
   }
   if (structural) {
     const rows = isArr ? (pb as any[]).map(unwrapValue) : shallowKeys(pb);
-    optimisticWrite(getContainerNode(t), new LaneView(rows, base) as any);
+    // The rows the setter removed from the view it saw, by key: a later
+    // re-base over another action's truth must not bring them back.
+    let removed: Set<unknown> | null = null;
+    const keyFn = t.fam!.key;
+    if (isArr && keyFn !== null && keyFn !== undefined) {
+      const kept = new Set<unknown>();
+      for (let i = 0; i < rows.length; i++) {
+        const k = isWrappable(rows[i]) ? keyFn(rows[i]) : undefined;
+        if (k !== undefined) kept.add(k);
+      }
+      for (let i = 0; i < (old as any[]).length; i++) {
+        const r = unwrapValue((old as any[])[i]);
+        const k = isWrappable(r) ? keyFn(r) : undefined;
+        if (k !== undefined && !kept.has(k)) (removed ??= new Set()).add(k);
+      }
+    }
+    optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
   markOverlaid(t);
@@ -230,6 +255,98 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
     } else if (curRaw !== nv) draft[k] = nv;
   }
   for (const k of Object.keys(draft)) if (!(k in incoming)) delete draft[k];
+}
+
+/** Q-D (plan §39): an OLDER question's truth landed beneath an arrangement
+ * guess (`laneWrite` held it — another action's landing is not this guess's
+ * answer). The guess is re-based over it: order from the guess, rows from
+ * the truth by key (a guessed row the truth has is the truth's object — the
+ * row target adopted it, its proxy survives), guessed rows the truth lacks
+ * kept (the guess's own landing judges them), truth rows the guess lacks
+ * appended. The composed arrangement becomes the lane's value on every
+ * index whose row the committed backing does not already show (a node is
+ * born for it as the lane's derivation), on `length`, and as the
+ * `LaneView`'s base for structural reads. Unkeyed families compose
+ * positionally — the guess stands as written (the documented residue). */
+GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
+  const t = (el as any)._host as StoreTarget | undefined;
+  if (t === undefined || (el as any)._key !== $TRACK) return;
+  const view = el._x!._lane;
+  if (!(view instanceof LaneView)) return;
+  if (!Array.isArray(truth) || !Array.isArray(view.rows)) {
+    view.base = truth as Record<PropertyKey, any>;
+    return;
+  }
+  const keyFn = t.fam?.key ?? null;
+  if (keyFn === null) return;
+  const byKey = new Map<unknown, any>();
+  for (let i = 0; i < truth.length; i++) {
+    const r = truth[i];
+    const k = isWrappable(r) ? keyFn(r) : undefined;
+    if (k !== undefined && !byKey.has(k)) byKey.set(k, r);
+  }
+  const used = new Set<unknown>();
+  const rows: any[] = [];
+  const guessed = view.rows as any[];
+  for (let i = 0; i < guessed.length; i++) {
+    const g = guessed[i];
+    const k = isWrappable(g) ? keyFn(g) : undefined;
+    const tr = k !== undefined ? byKey.get(k) : undefined;
+    if (tr !== undefined) {
+      rows.push(tr);
+      used.add(k);
+    } else rows.push(g);
+  }
+  const removed = view.removed;
+  for (let i = 0; i < truth.length; i++) {
+    const r = truth[i];
+    const k = isWrappable(r) ? keyFn(r) : undefined;
+    if (k !== undefined && !used.has(k) && (removed === null || !removed.has(k))) rows.push(r);
+  }
+  view.rows = rows;
+  view.base = rows;
+  const lane = txOf(el);
+  const base = committed(t) as any[];
+  const nodes = t.n;
+  for (let i = 0; i < rows.length; i++) {
+    const node = nodes?.[i];
+    if (node === undefined) {
+      if (rows[i] !== base[i]) laneSet(getNode(t, i), rows[i], lane);
+    } else if (!(node._config & CONFIG_OVERRIDE) || !sameRow(node._x!._lane, rows[i], keyFn))
+      laneSet(node, rows[i], lane);
+  }
+  if (nodes !== null) {
+    for (let i = rows.length; ; i++) {
+      const node = nodes[i];
+      if (node === undefined) break;
+      laneSet(node, undefined, lane);
+    }
+    const len = nodes.length;
+    if (len !== undefined && len._x?._lane !== rows.length) laneSet(len, rows.length, lane);
+  }
+};
+
+function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
+  if (a === b) return true;
+  if (!isWrappable(a) || !isWrappable(b)) return false;
+  const ka = keyFn(unwrapValue(a));
+  return ka !== undefined && sameKey(ka, keyFn(unwrapValue(b)));
+}
+
+/** A composed value becomes the lane's on `node`: a guess re-based, or a
+ * node that was not the lane's becomes its derivation (its committed value
+ * untouched beneath; the lane's end commits the latest). */
+function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf>): void {
+  const x = ext(node);
+  if (!(node._config & CONFIG_OVERRIDE)) {
+    node._config |= CONFIG_OVERRIDE;
+    list(node, lane);
+  } else if (x._lane === value) return;
+  x._lane = value;
+  if (node._subs !== null) {
+    insertSubs(node);
+    laneDirty(node, lane);
+  }
 }
 
 installOptHooks({

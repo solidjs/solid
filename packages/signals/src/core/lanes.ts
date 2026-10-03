@@ -438,7 +438,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // else the value it covered — is the parent's to land, and its readers
       // re-derive from it there. What the screen showed stays the screen
       // until then (A18 (c)).
-      if (n._pendingValue === NOT_PENDING) n._pendingValue = n._value;
+      if (n._pendingValue === NOT_PENDING) n._pendingValue = covered(n);
       if (l._shown) n._value = slot;
       holdNode(n, into);
       insertSubs(n);
@@ -469,10 +469,15 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     }
   }
   // The parent landed: the runs the lane held (blocked on its own judgment
-  // alone — a zombie it could not dispose) are the landing's. A
-  // correction's lane is void, runs included: the parent's re-derivation
-  // makes the runs that show.
-  if (into === null) releaseQueues(l);
+  // alone — a zombie it could not dispose) are the landing's. A correction
+  // of a SHOWN lane keeps its runs too: "what it showed stays the screen"
+  // means the runs this round's lane passes queued (the body-end seam judges
+  // before the lane seam would have released them) must reach the screen —
+  // their derivations' values are the committed ones now, and a
+  // re-derivation that lands on the same value notifies nobody (a mapArray
+  // whose rows the lane pass already built). A never-shown lane's runs are
+  // void: nothing of it reached the screen.
+  if (into === null || l._shown) releaseQueues(l);
   else l._queues[0].length = l._queues[1].length = 0;
 }
 
@@ -541,6 +546,14 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   return laneValueOf(el);
 }
 
+/** The value a guess covered: the node's committed value — a store slot's
+ * asked of the store (a chained link follows the inner store's commits). */
+function covered(n: Signal<any>): unknown {
+  return n._config & CONFIG_SLOT_NODE && GlobalQueue._slotCovered !== undefined
+    ? GlobalQueue._slotCovered(n)
+    : n._value;
+}
+
 /** A guess in `l` whose own truth is in flight (its refetch — authoritative:
  * the landing supersedes, not the body's end). */
 function guessFlights(l: Transaction): boolean {
@@ -579,7 +592,7 @@ function laneCorrections(): boolean {
     for (let i = 0; i < l._nodes.length && lanes.indexOf(l) !== -1; i++) {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
-        const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : n._value;
+        const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : covered(n);
         if (__OBSERVE__) reverting = n._pendingValue === NOT_PENDING;
         supersede(n, truth, !n._equals || !n._equals(n._x!._lane, truth));
         if (__OBSERVE__) reverting = false;
@@ -652,6 +665,18 @@ function nestedBlocked(t: Transaction): boolean {
  * reveal), its slot before; the lane's members re-derive as its work. */
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
   if (el._config & CONFIG_GUESS) {
+    // Provenance (A18, #3331; Q-D, plan §39): a write asking an OLDER
+    // question than the guess's — another action's landing beneath it —
+    // is not its answer: held beneath (the truth for the commit; the
+    // guess's own question judges), and nothing moves. Unstamped writes
+    // and mainline are current.
+    if (question !== 0 && question < el._x!._q) {
+      el._pendingValue = v;
+      el._config |= CONFIG_HELD;
+      GlobalQueue._laneRebase?.(el, v);
+      schedule();
+      return v;
+    }
     supersede(el, v, !el._equals || !el._equals(el._x!._lane as T, v));
   } else {
     const l = txOf(el);
