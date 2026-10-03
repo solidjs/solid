@@ -1,5 +1,32 @@
 # @solidjs/h
 
+## 2.0.0-rc.14
+
+### Patch Changes
+
+- ecb68a1: Binding slots: the fill runs once per occurrence, untracked, under the occurrence's owner — as a component body and a template-slot fill do. State created in the fill lives as long as the occurrence; a top-level read is a one-time read (dev: `STRICT_READ_UNTRACKED`, naming the fill); getters are the reactive form. Handlers and refs are read once when an element binds and go through `assign`, so events delegate, tuples bind and interactions wrap as in client JSX. On the server an array at a handler position is a dev finding (reason `tuple`) instead of being flattened; only `ref` merges arrays. Template-slot fills are untracked on every render path and carry the same labelled warning.
+
+  Breaking: `AttributeSlot` is renamed `BindingSlot`, with no alias, and its return is constrained (`SlotOutput<J>` / `SlotError<M>`, both exported) so an array, DOM node, function, async value or `$`-prefixed key is a type error on both sides. The diagnostic code `ATTRIBUTE_SLOT_POSITION` is renamed `BINDING_SLOT_POSITION`. The fill-shape finding also names async values.
+
+- 9e85a09: `h()` no longer writes to the caller's props object, so an element can be materialized again (a `Show` re-showing children whose own children are `h()` elements threw "Cannot set property children … which has only a getter"). An `h()` element returned from an accessor child is now created in the insert's tracking pass rather than re-created whenever its output changes (an accessor returning `h(Loading, …)` over async children never settled). A function `class` on a tag with static classes (`h("span.a", { class: () => … })`) keeps the static classes. `h(...)` with element/component arguments is typed as `HyperElement`, so `render(h(App), el)` — the documented root form, now corrected in the README — type-checks.
+- 4f67697: **Breaking:** only `on` followed by an uppercase letter (`onClick`, `onPointerDown`) is an event handler. Lowercase `on*` names (`onclick`, `onmouseover`) are plain attributes everywhere:
+  - Both compilers compile `onclick={expr}` like any other attribute (`setAttribute`, reactive when `expr` is dynamic) instead of binding a delegated or native event, and SSR renders it as an escaped attribute instead of dropping it. A leftover 1.x `on:click={fn}` is likewise a plain namespaced attribute (it previously compiled to `addEventListener(":click", fn)`).
+  - `@solidjs/web` `spread`/`assign` set lowercase `on*` keys as attributes, the server spread walk renders them, and `useHead` applies lowercase `on*` attributes (camelCase handler names stay skipped). `ssrAttribute` escapes a function value instead of interpolating its source raw.
+  - `@solidjs/html` and `@solidjs/h` elements wrap a function passed to a lowercase `on*` in a getter like any other attribute; only `onXxx` and `ref` are exempt.
+  - `@solidjs/html` components follow `@solidjs/h`'s rule: every zero-argument function prop, `onXxx` handlers and `ref` included, is a getter, so a component handler must declare its event argument (`onClick=${e => …}`).
+  - New dev-only check `LOWERCASE_EVENT_ATTRIBUTE` (added to the `DiagnosticCode` union): warns once per attribute name when a function is set on a lowercase `on*` (or `on:`) attribute, naming the camelCase handler to use.
+
+- Updated dependencies [ecb68a1]
+- Updated dependencies [d4b10b5]
+- Updated dependencies [365f37d]
+- Updated dependencies [98d35b9]
+- Updated dependencies [b57eb2e]
+- Updated dependencies [e44b2e4]
+- Updated dependencies [4f67697]
+- Updated dependencies [2656284]
+- Updated dependencies [8d66ae5]
+  - @solidjs/web@2.0.0-rc.14
+
 ## 2.0.0-rc.13
 
 ### Patch Changes
