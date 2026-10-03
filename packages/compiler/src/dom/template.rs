@@ -54,7 +54,7 @@ pub(crate) struct DomTemplate {
     /// Babel's `templateWithClosingTags`: the same markup without attributes
     /// and with every non-void tag closed — the `validate` input.
     pub(crate) closed_html: String,
-    /// `template()` second argument: 1 = importNode cloning, 2 = XML-wrapped.
+    /// `template()` bitmask: 1 = importNode, 2 = XML-wrapped, 4 = multi-root.
     pub(crate) flag: Option<u8>,
     /// Generated `_tmpl$N` local (collision-checked against source names).
     pub(crate) name: String,

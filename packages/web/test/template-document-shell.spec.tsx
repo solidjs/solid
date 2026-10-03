@@ -14,14 +14,15 @@ import { describe, expect, test } from "vitest";
 import { template } from "../src/client.js";
 
 describe("client-creating a document shell fails loudly in dev (#3259)", () => {
-  test.each(["<html><head></head><body><div></div></body></html>", "<head></head>", "<body></body>"])(
-    "%s throws at instantiation with a hydrate() pointer",
-    html => {
-      const create = template(html);
-      // compile (registration) is fine — only instantiation is the broken act
-      expect(create).toThrow(/cannot be client-created[\s\S]*hydrate\(\)/);
-    }
-  );
+  test.each([
+    "<html><head></head><body><div></div></body></html>",
+    "<head></head>",
+    "<body></body>"
+  ])("%s throws at instantiation with a hydrate() pointer", html => {
+    const create = template(html);
+    // compile (registration) is fine — only instantiation is the broken act
+    expect(create).toThrow(/cannot be client-created[\s\S]*hydrate\(\)/);
+  });
 
   test("an ordinary template still instantiates", () => {
     const create = template("<div><span></span></div>");
@@ -32,5 +33,17 @@ describe("client-creating a document shell fails loudly in dev (#3259)", () => {
     // the guard matches tags, not prefixes: h-t-m-l, not anything with "h"
     const create = template("<header></header>");
     expect((create() as Element).tagName).toBe("HEADER");
+  });
+
+  test.each([4, 5] as const)("a multi-root template clones all roots with flag %s", flag => {
+    const create = template("<div>first</div><span>last</span>", flag);
+    const first = create();
+    const second = create();
+
+    expect(first.map(node => node.nodeName)).toEqual(["DIV", "SPAN"]);
+    expect(first.map(node => node.textContent)).toEqual(["first", "last"]);
+    expect(second.map(node => node.nodeName)).toEqual(["DIV", "SPAN"]);
+    expect(second[0]).not.toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
   });
 });
