@@ -3106,6 +3106,14 @@ module.exports = [
     // layout only: three equivalent encodings measured +59..+129 B here and
     // -21..+13 B on the live page; this is the smallest. Accepted by the
     // maintainer. The cap is frozen again at 46.24 KB.
+    // Size-Exception (#3749, 2026-10-02): 46.24 -> 46.25 KB, measured at
+    // 46,249 B against `next` @ 9e85a092d's 46,240 (+9 B; +92 B minified).
+    // While hydrating, an untracked region whose incoming nodes are already
+    // children of its parent leaves them in place: a <Loading> claiming its
+    // server nodes on a late lazy() resume no longer moves them (focus loss).
+    // Twelve equivalent encodings measured; this is the only one over by
+    // page base alone. Accepted by the maintainer. The cap is frozen again
+    // at 46.25 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
