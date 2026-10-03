@@ -82,11 +82,12 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   if (self && (node as any)._fn) {
     if ((node as Computed<unknown>)._x !== null) (node as Computed<unknown>)._x!._inFlight = null;
     // A death that can unblock the future (L2, `futureBlocked`): a held
-    // flight's, or a stale reader's (REACTIVE_FRAME_READ — a frame that
-    // derived from one). Nothing else re-examines a dead node, so make sure
-    // a seam comes.
+    // flight's — a transaction's or a lane's (its `_x._transaction`) — or a
+    // stale reader's (REACTIVE_FRAME_READ — a frame that derived from one).
+    // Nothing else re-examines a dead node, so make sure a seam comes.
     if (
-      ((node as Computed<unknown>)._statusFlags & STATUS_PENDING && node._config & CONFIG_HELD) ||
+      ((node as Computed<unknown>)._statusFlags & STATUS_PENDING &&
+        (node as Computed<unknown>)._x?._transaction != null) ||
       flags & REACTIVE_FRAME_READ
     )
       schedule();

@@ -338,7 +338,10 @@ export const STATES: State[] = [
         HELD,
         "lanes / A29: a fresh stale reader of a never-committed node enters"
       ),
-      childrenForbidden: rule(0, "A32 / lanes: the frame — nothing committed, the guess void"),
+      childrenForbidden: rule(
+        NOT_READY,
+        "A32 / A19 exc. 1 / lanes: the frame — nothing committed, the guess void; loading, not pending, as for the untracked read (was 0 while the old representation committed the superseded first landing)"
+      ),
       latest: rule(2, "A18 (d)"),
       isPending: rule(
         false,

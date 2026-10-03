@@ -34,7 +34,7 @@ import {
   resolveTx
 } from "./core/scheduler.js";
 import { unwrapStatusError } from "./core/error.js";
-import { optimisticWrite } from "./carved.js";
+import { optimisticWrite } from "./core/lanes.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when

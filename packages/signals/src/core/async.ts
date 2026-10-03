@@ -2,8 +2,8 @@ import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_REDERIVE,
   CONFIG_GUESS,
+  CONFIG_OVERRIDE,
   CONFIG_HELD,
-  CONFIG_LANE_HELD,
   CONFIG_SYNC,
   CONFIG_VERDICT,
   EFFECT_TRACKED,
@@ -860,7 +860,7 @@ export function notifyStatus(
     if (status === STATUS_PENDING && pendingSource && sub._x?._pendingSources?.has(pendingSource)) {
       if (
         passLane === null &&
-        (sub._config & (CONFIG_HELD | CONFIG_LANE_HELD)) === CONFIG_HELD &&
+        (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
         globalQueue._running
       )
         joinFuture(txOf(sub));
@@ -875,7 +875,8 @@ export function notifyStatus(
       // — with the lane, when the pass propagating is the lane's work: the
       // dependent's pending is the lane's own flight.
       if (!downstreamBlockStatus) {
-        if (passLane !== null) GlobalQueue._laneStage!(sub, passLane);
+        // (No answer: a pending propagation leaves a written guess a guess.)
+        if (passLane !== null) GlobalQueue._laneStage!(sub, passLane, true, true);
         else {
           queuePendingNode(sub);
           // A15 (#3443): pending propagates onto a held memo without
@@ -885,7 +886,7 @@ export function notifyStatus(
           // effect's membership is its pass's (`notify`), never sticky.
           if (
             status === STATUS_PENDING &&
-            (sub._config & (CONFIG_HELD | CONFIG_LANE_HELD)) === CONFIG_HELD &&
+            (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
             !(sub as any)._type
           )
             joinFuture(txOf(sub));

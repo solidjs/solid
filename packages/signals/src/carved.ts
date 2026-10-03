@@ -51,15 +51,5 @@ export const omit = carved("omit");
 export const affects = carved("affects");
 
 // CARVE 5 (§28 replay): the lane layer — lanes.ts (`createOptimistic`'s
-// write) and verdict.ts (`isPending`/`latest`) — carved again to be rebuilt
-// from the §28 principles, each piece measured against this floor.
-export const optimisticWrite = carved("createOptimistic") as (n: unknown, v: unknown) => never;
-export const isPending = carved("isPending");
-export const latest = carved("latest");
-
-// CARVE 3: transactions — `action` is back (step 6): core/action.ts.
-
-// CARVE 4: boundaries — all back (step 5): ./boundaries.ts
-// (`createLoadingBoundary` / `createErrorBoundary`) and ./reveal.ts
-// (`createRevealOrder`). `flatten` moved to ./flatten.ts — it is the
-// renderers' children resolver, not a boundary.
+// write) and verdict.ts (`isPending`/`latest`) — carved and rebuilt from the
+// §28 principles (back: core/lanes.ts, core/verdict.ts).

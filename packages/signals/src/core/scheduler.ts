@@ -16,7 +16,6 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_LANE_DIRTY,
-  REACTIVE_VERDICT_RERUN,
   REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
   REACTIVE_RECOMPUTING_DEPS,
@@ -71,8 +70,7 @@ import type { Computed, Owner, Signal } from "./types.js";
 
 export interface Transaction {
   /** Held staged nodes: committed at the landing. For a lane: its guesses
-   * (CONFIG_GUESS — the base in `_pendingValue`, the guess in `_value`) and
-   * its staged work, revealed at the seam. */
+   * and its work (their lane values in `_x._lane`), revealed at the seam. */
   _nodes: Signal<any>[];
   /** Stashed effect queues (render, user): run ahead of the landing flush's. */
   _queues: [QueueCallback[], QueueCallback[]];
@@ -103,10 +101,14 @@ export interface Transaction {
    * read two lanes' work — #3335): one reveal unit, each blocked while any
    * is; shared array. Lifetimes stay their own (#2912). */
   _links: Transaction[] | null;
-  /** A frame parked into it (it held something past a seam). A probe's
-   * re-derivation at its landing (REACTIVE_VERDICT_RERUN) is owed only
-   * then: landing at its first seam, the answers given before it stood. */
-  _parked: boolean;
+  /** Lane: it has revealed — its values are the screen (`display`,
+   * lanes.ts) and its passes stage for the next reveal. Set at the first
+   * seam it is not blocked; a verdict lane is born shown. */
+  _shown: boolean;
+  /** Lane: the last seam found it blocked (its own flight up). A frame
+   * leaf reading a held lane that has not shown is a stale reader of it
+   * (#3460); one reading a lane the seam has not judged yet is its work. */
+  _held: boolean;
 }
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */
@@ -124,27 +126,30 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
     _open: 0,
     _acted: false,
     _links: null,
-    _parked: false
+    _shown: false,
+    _held: false
   };
   if (!lane) transactions.push(t);
   return t;
 }
 
-// Lanes (step 4; maintainer rulings 2026-10-01). A lane is "a new base of a
-// transition": the sub-frame an optimistic write opens in the transition of
-// the frame it is made in. It reads the parent's staged world through, breaks
-// out of the parent's hold — its effects run now — and holds itself if its
-// own derivations hit async. It ends when the parent lands: a guess reverts
-// to the base it covered, or lands as the truth that superseded it. A frame
+// Lanes (§28, 2026-10-02; lanes.ts). A lane is "a new base of a transition":
+// the sub-frame an optimistic write opens in the transition of the frame it
+// is made in. It sees the screen plus its own guesses (§19), breaks out of
+// the parent's hold — its effects run now — and holds itself if its own
+// derivations hit async. It ends when the parent lands: a guess reverts to
+// the truth it covered, or lands as the truth that superseded it. A frame
 // that does not park has nothing to be optimistic over: the write is void.
 //
-// Membership is the pass's, not the flush's: a tracked read of displayed
-// optimism (CONFIG_OVERRIDE) makes the reading pass lane work (`passLane`) —
-// its staging goes to the lane, its effects to the lane's queues — while the
-// rest of the frame is the flush's.
+// The seat of a pass is its node's: a node carrying a lane's value runs as
+// the lane's whoever dirtied it; a derivation's tracked read of a lane's
+// value moves its pass into the lane; a leaf's never does (it reads the
+// screen). Lane work's values go to the lane slot, its runs to the lane's
+// queues; the rest of the frame is the flush's.
 
-/** The lane the running pass is work of; set by `read`, saved and restored
- * around `recompute`. */
+/** The lane the running pass is work of; set at `recompute`'s head from the
+ * node, moved by a derivation's lane read, saved and restored around the
+ * pass. */
 export let passLane: Transaction | null = null;
 export function setPassLane(l: Transaction | null): void {
   passLane = l;
@@ -193,11 +198,14 @@ export function joinFuture(t: Transaction | null): void {
  * A lane never merges: it is a sub-frame, not a peer — its work is routed
  * per pass (`passLane`). */
 export function merge(t: Transaction, f: Transaction): void {
+  // Both ends resolved: a stale pointer to a transaction already merged
+  // into the other would close a cycle `resolveTx` never leaves.
+  t = resolveTx(t);
+  f = resolveTx(f);
   if (t === f || t._lane || f._lane) return;
   t._into = f;
   f._open += t._open;
   f._acted ||= t._acted;
-  f._parked ||= t._parked;
   append(f._nodes, t._nodes);
   append(f._queues[0], t._queues[0]);
   append(f._queues[1], t._queues[1]);
@@ -539,15 +547,18 @@ export class GlobalQueue implements IQueue {
   // imported; null otherwise, and every call site is behind a bit or a
   // `passLane` that nothing else sets).
   static _laneRead:
-    | ((c: Computed<any> | null, el: Signal<any> | Computed<any>, plain?: boolean) => unknown)
+    | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
     | undefined;
-  static _laneStage: ((el: Computed<any>, l: Transaction) => void) | undefined;
+  static _laneStage:
+    | ((el: Computed<any>, l: Transaction, create: boolean, errored: boolean) => boolean)
+    | undefined;
   static _laneOutcome:
     | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
     | undefined;
-  static _guessWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
+  static _laneWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
   static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
-  static _laneSeams: (() => void) | undefined;
+  static _laneSeams: ((leaks: Computed<any>[] | null) => void) | undefined;
+  static _laneCorrections: (() => boolean) | undefined;
   static _endLanes: ((u: Transaction) => void) | undefined;
   static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
   static _verdictLane: ((t: Transaction) => Transaction) | undefined;
@@ -596,7 +607,9 @@ export class GlobalQueue implements IQueue {
       if (__DEV__ && !scheduled) {
         // Fully drained: no staged value may survive this point unqueued or
         // unheld.
-        devCheckQuiescent(n => pendingNodes.includes(n) || (n._config & CONFIG_HELD) !== 0);
+        devCheckQuiescent(
+          n => pendingNodes.includes(n) || (n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) !== 0
+        );
       }
       if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
@@ -610,6 +623,10 @@ export class GlobalQueue implements IQueue {
    * phase, and here no flight the transaction holds has a frame deriving
    * from it (`blocked`). */
   settle(): void {
+    // Lanes: an ended action body judges its guesses now that their passes
+    // have run (lanes.ts); a correction's re-derivations run in one more
+    // pure round — the parent's flights before the parent is judged below.
+    if (GlobalQueue._laneCorrections?.()) runHeap(dirtyQueue, GlobalQueue._update);
     const joined = flushTransaction;
     flushTransaction = null;
     // The frame's verdict is in: the guesses written since the last seam
@@ -623,7 +640,6 @@ export class GlobalQueue implements IQueue {
     // (Resolved: a guess over another transaction's guess merged them.)
     const t = joined !== null && !joined._lane ? resolveTx(joined) : null;
     if (t !== null) {
-      t._parked = true;
       // `t._nodes` grows under the walk (holdFrame pushes); the bound is
       // this flush's list, which does not.
       const count = pendingNodes.length;
@@ -675,17 +691,7 @@ export class GlobalQueue implements IQueue {
         if (n._config & CONFIG_STAGED) holdFrame(n as unknown as Owner, t);
       }
       pendingNodes.length = 0;
-      // Lane passes that read this frame's stagings are the frame's for
-      // those values and stale readers of `t` for the lane's: the landing
-      // re-derives them (core.ts `stagedRead`).
-      for (let i = 0; i < laneStagedReads.length; i++) {
-        const r = laneStagedReads[i];
-        if (!(r._flags & REACTIVE_FRAME_READ)) {
-          r._flags |= REACTIVE_FRAME_READ;
-          t._reruns.push(r);
-        }
-      }
-      laneStagedReads.length = 0;
+
       // (This flush's runs are stashed with `t` below — after the landings,
       // so a `t` that lands at this very seam runs them first, ahead of
       // the runs it held from earlier flushes.)
@@ -706,7 +712,6 @@ export class GlobalQueue implements IQueue {
       // are held, and the committed frame still derives from them.
       heldTrims.length = 0;
     } else {
-      laneStagedReads.length = 0;
       commitPendingNodes();
       // The flush committed: an unchanged pass's stale tail goes now. Not
       // after a later pass this flush that threw (NotReady included — it
@@ -730,7 +735,11 @@ export class GlobalQueue implements IQueue {
     // are collected apart and ordered below.
     const own = this._queues;
     const lanes: [QueueCallback[], QueueCallback[]] = (this._queues = [[], []]);
-    GlobalQueue._laneSeams?.();
+    // Lane passes that read this frame's stagings (core.ts `stagedRead`)
+    // read held writes if it parked: the lane seam re-derives them on the
+    // committed world and holds their lanes' runs this round.
+    GlobalQueue._laneSeams?.(t !== null ? laneStagedReads : null);
+    laneStagedReads.length = 0;
     this._queues = [[], []];
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
@@ -833,15 +842,8 @@ export function reruns(u: Transaction): void {
   for (let i = 0; i < u._reruns.length; i++) {
     const r = u._reruns[i];
     if (r._flags & REACTIVE_DISPOSED) continue;
-    // A probe registered on a transaction that never parked: its answer
-    // stood (the flight's landing re-derives it through the status walk) —
-    // re-running it would open another transaction and spin.
-    if (!(r._flags & REACTIVE_FRAME_READ) && r._flags & REACTIVE_VERDICT_RERUN && !u._parked) {
-      r._flags &= ~REACTIVE_VERDICT_RERUN;
-      continue;
-    }
-    if (r._flags & (REACTIVE_FRAME_READ | REACTIVE_VERDICT_RERUN)) {
-      r._flags &= ~(REACTIVE_FRAME_READ | REACTIVE_VERDICT_RERUN);
+    if (r._flags & REACTIVE_FRAME_READ) {
+      r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its
       // children queued this flush (re-run by the same landing) is for the
@@ -888,7 +890,8 @@ function append<T>(a: T[], b: T[]): void {
 /** Nodes staged this flush (`_pendingValue` set), committed at its end. */
 const pendingNodes: Signal<any>[] = [];
 /** Lane passes that read a staging of this flush (core.ts `stagedRead`):
- * the seam makes them stale readers of the transaction if the frame parks. */
+ * if the frame parks they read a held write — re-derived next round, their
+ * lanes' runs waiting. */
 export const laneStagedReads: Computed<any>[] = [];
 
 export function queuePendingNode(node: Signal<any>): void {

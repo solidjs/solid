@@ -3343,6 +3343,101 @@ every store` 19606 → 18410 (−1196; it pulls `isPending`); floor 7202 → 719
 (−9); CSR 12677 → 12671 (−6). So lanes + verdicts + their core arms were
 ~1.8 KB br / ~6.3 KB min. The rebuild is measured against 7250 / 37710.
 
+**S0 — the skeleton (lanes.ts + verdict.ts rebuilt on the slot), 2026-10-02
+evening.** Built in one pass from 28.3–28.9, then driven against the pins.
+Result: signals **2128 passed** (pre-replay 2125; +3), carved 2536, failed
+94; **0 passed→not-passed against both baselines** (carved and `vs7`); web
+888, solid 678, unchanged. Two of the fifteen family reds fell on the way
+(#3409 — the correction round; #3698 held-lane — children of a lane pass).
+
+*What the code taught the design* — amendments to §28, each a rule, not a
+patch:
+
+1. **28.5 (d) corrected.** A leaf never moves by reading a lane that has
+   not shown — it is a stale reader of a held lane (#3460), or waits on a
+   never-shown flight (A15, #3334). A leaf reading a lane that **has shown**,
+   or one the seam has **not judged yet**, is the lane's work: its run is the
+   lane's (released if the lane shows, held if it blocks). Without this a
+   frame leaf dirtied by a guess inside a parked flush had its run parked
+   with the frame and display-ahead was gone (the first infinite loop was
+   this: a shown guess in flight re-registering as a stale reader every
+   seam).
+2. **A lane is judged from its first round of passes.** Born at a seam it is
+   neither shown nor held (`judged` snapshot taken before guesses apply);
+   `_held` records the seam's verdict so a frame leaf can tell a held lane
+   from a fresh one. Verdict lanes are judged like any lane (not born
+   shown): an outsider mounting over a blocked verdict lane sees the
+   committed frame (#3479).
+3. **A pending pass is listed in its lane** (`laneStage` before the error
+   gate), or the lane's own flight is nobody's.
+4. **A stale reader that computed what it last applied owes no run**
+   (`REACTIVE_SCREEN_READ`): effects have no comparator, and the old design
+   hid the duplicate by converting every leaf into lane work.
+5. **A guess whose own pass is the lane's work is judged by the lane**
+   (`laneStage(…, errored)`): confirmed or corrected by a derivation of
+   another guess (`config().courier` under a country guess), it is a
+   derivation of the lane from then on, no longer a written guess — its fate
+   the lane's. A pass with no answer (pending, errored, a pending
+   propagation) leaves the guess. Everything else makes the 3-node checkout
+   refetch from the wrong world.
+6. **The body-end correction runs at the seam, before the park decision,
+   with one more pure round** (`_laneCorrections` → `runHeap`): the guesses'
+   own passes have run (a pre-heap judgment caught a guess whose source had
+   just landed but not re-derived), and the correction's re-derivations are
+   the parent's flights before the parent is judged — #3409 clears together
+   (the hack of §27.2 was this done with the wrong tool). Every guess first
+   takes its truth beneath (the base), then corrections run, so a
+   correction's dissolution re-homes the others as held truths.
+7. **A dissolving lane's runs are dropped, not handed to the parent** (they
+   show the void guess); its **pending derivations are retired and re-asked
+   from the truth** — their landing is the void world's answer, and an
+   input's truth equal to its committed value notifies nobody (#3479
+   "never finished preparing" showed `0:1`).
+8. **Q4's form.** Lane work reads this flush's unparked staging *through*
+   (one pass when the frame commits — the common case; a `<Show>` reading
+   an unrelated plain signal is not re-created on every sync write); if the
+   frame **parks**, the seam repairs the leak: those passes re-derive on the
+   committed world next round and their lanes' runs wait that round
+   (`_laneSeams(laneStagedReads)`). Same semantics as 28.5 (c), without the
+   extra pass on the commit path. (The first form — committed + rerun — cost
+   #3698's pin a `cleanup 3`.)
+9. **`merge` resolves both ends** (a stale holder pointer closed a
+   `resolveTx` cycle — the hang in the rapid-action pin); **the death of a
+   pending node held by a lane schedules a seam** (`owner.ts`, as for a
+   transaction's — #3426); **`updateIfNecessary`'s pull-without-recompute
+   keep-list includes the pass-verdict flags** (`FRAME_READ`, `STAGED_READ`,
+   `LANE_READ`, `SCREEN_READ`) — a verdict reader pulled by a sibling before
+   the landing lost its re-derivation (the web banner pins, #3041). The
+   keep-list predates the replay; the loss was latent.
+10. **`laneValueOf`/`display` fall back to the committed value on an empty
+    slot** (a user `equals` was handed the sentinel — `async-lane-landing-
+    equals-order`).
+
+*Re-pins (2):* oracle "superseded before its first commit" childrenForbidden
+→ `NOT_READY` (A32 / A19 exc. 1: nothing committed; the `0` was the old
+representation committing the superseded first landing — `serve` now throws
+for a children-forbidden reader of an uninitialized node, the rule `read`
+already applied to pending ones); `held-truth-lane-only` precondition
+asserts `CONFIG_HELD` + `_pendingValue` instead of the removed bit, and its
+OWNING-lane pin is "pinned by membership, not count" (the file's own words).
+
+*Size (br), reds → S0:* floor 7202 → **7222 (+20)**; CSR 12677 → 12701
+(+24); `+ isPending/latest` 9025 → **9213 (+188)**; page live 39519 → 39758
+(+239). The S0 gate (floor ≤ 7202) is missed by 20: the slot itself is ~12
+B; the growth is seam machinery that landed in the core while driving the
+pins — the correction round in `settle`, the `SCREEN_READ` gate, the
+`updateIfNecessary` keep-list, `merge`'s resolves. The layer (+188) is
+`verdict.ts` still carrying the old five-arm `verdictValue` and the watcher
+seam, plus the rules above in `lanes.ts`. **S2's unification is the planned
+consolidation** (28.8); the floor's 20 go with the hooks review there.
+Recorded rather than forced: the gate's purpose was to catch the slot
+costing more than the arms it removed, and it did not.
+
+*Process notes.* One `git checkout` of a working file by mistake, restored
+from the session's backup and re-applied edits (no loss); orphaned vitest
+workers from a hung run (a `resolveTx` cycle) — the timeout wrapper now kills
+the worker tree. Fresh baselines: `s0-final3-tests.json`, `s0-final3.json`.
+
 ---
 
 ## Appendix — ledger (verbatim)

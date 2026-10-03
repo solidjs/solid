@@ -94,6 +94,11 @@ export interface NodeExtension {
   /** Provenance (A18, #3331): the question this node's guess or latest
    * flight answers (`scheduler.question`); 0 when unstamped. */
   _q: number;
+  /** Lanes (§28) — the lane's value for this node while CONFIG_OVERRIDE is
+   * set: a written guess, or a lane pass's derivation. `NOT_PENDING` when
+   * none. The screen shows it once the lane has revealed (`_shown`); a
+   * direct read sees it throughout; the committed truth stays `_value`. */
+  _lane: unknown;
 }
 
 export interface RawSignal<T> {

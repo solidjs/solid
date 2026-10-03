@@ -42,13 +42,14 @@
 import {
   CONFIG_REDERIVE,
   CONFIG_HELD,
-  CONFIG_LANE_HELD,
+  CONFIG_OVERRIDE,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DISPOSED,
+  REACTIVE_LANE_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -288,7 +289,7 @@ export function prune(b: Boundary, pass: boolean): number {
   for (const r of b._readers) {
     if (r._flags & REACTIVE_DISPOSED) b._readers.delete(r);
     else if (!(r._statusFlags & mask)) {
-      if (r !== b._tree && (r._config & (CONFIG_HELD | CONFIG_LANE_HELD)) === CONFIG_HELD) {
+      if (r !== b._tree && (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD) {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
         // seam, past its park decision, waits for the commit instead. (A
@@ -652,9 +653,12 @@ function createBoundary<T>(
 }
 
 function fallback<T>(b: Boundary): T {
-  // The swap a display-ahead re-arm asked for: this pass is the lane's.
+  // The swap a display-ahead re-arm asked for: this pass is the lane's — a
+  // lane read by construction (REACTIVE_LANE_READ: `recompute`'s tail keeps
+  // the pass in the lane).
   if (b._lane !== null) {
     setPassLane(b._lane);
+    b._output!._flags |= REACTIVE_LANE_READ;
     b._lane = null;
   }
   b._fallback = true;
