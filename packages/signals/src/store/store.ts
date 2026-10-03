@@ -99,8 +99,12 @@ import {
  * only through a family with `opt` set, which only `createOptimisticStore`
  * sets. */
 export interface OptHooks {
-  /** A user setter's draft as guesses. */
-  writes(t: StoreTarget, pb: Record<PropertyKey, any>): void;
+  /** A user setter's draft on an optimistic family: a clone of the
+   * writer's view (a staging already on the target is set aside). */
+  draft(t: StoreTarget): Record<PropertyKey, any>;
+  /** The setter's exit: the draft becomes guesses; returns the staging the
+   * draft set aside (`null`: none). */
+  writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
   /** `src` with the lanes' values over it (`writer`: the next write's base
    * — the unflushed guesses too). */
   view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
@@ -126,7 +130,7 @@ import {
   $RECORD,
   $TARGET,
   $TRACK,
-  getWriteOverride,
+  writeOverride,
   isRawValue,
   isWrappable,
   markRawIngest,
@@ -519,7 +523,10 @@ function isOwnAccessor(src: Record<PropertyKey, any>, key: PropertyKey): boolean
 
 /** Shallow clone into store ownership. Plain data (grade 2) spreads; anything
  * else copies descriptors (accessors kept, everything made configurable). */
-function cloneRaw(source: Record<PropertyKey, any>, t: StoreTarget): Record<PropertyKey, any> {
+export function cloneRaw(
+  source: Record<PropertyKey, any>,
+  t: StoreTarget
+): Record<PropertyKey, any> {
   t.sc || scanAccessorsOnce(t);
   if (t.sc === 2) {
     const clone = { ...source };
@@ -627,16 +634,11 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
  * for the fold at the flush's commit. */
 function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   let pb = target.pb;
-  if (userWrite && target.fam?.opt === true && !pendingNotify.has(target)) {
-    // An optimistic edit composes on the view the user saw (the tick's own
-    // guesses included, #3665) and becomes guesses at the setter's exit:
-    // nothing is staged on the container, nothing folds. A staging already
-    // on the target (a landing adopted this flush) is set aside for the
-    // setter's duration — the guesses go over it, it stays the truth beneath.
-    if (pb !== null) optStaged.set(target, pb);
-    pb = target.pb = cloneRaw(optHooks!.view(target, committed(target), true), target);
-    return pb;
-  }
+  // An optimistic edit composes on the view the user saw and becomes
+  // guesses at the setter's exit: nothing is staged, nothing folds
+  // (optimistic.ts).
+  if (userWrite && target.fam?.opt === true && !pendingNotify.has(target))
+    return (target.pb = optHooks!.draft(target));
   if (pb !== null && !isOwned(pb)) {
     // An adopted object awaiting its fold is the user's: the draft writes a
     // clone of it. The clone is the batch's staging — unless the adoption is
@@ -671,10 +673,6 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   }
   return pb;
 }
-
-/** An optimistic setter's targets whose staging was set aside (`ensurePB`),
- * restored when the setter's writes become guesses (`notifyWrites`). */
-const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 
 /** Privatize `target`'s committed backing (and its ancestor chain — a shared
  * parent cannot point at an owned child). Not a reactive event. */
@@ -1013,11 +1011,11 @@ function notifyWrites(t: StoreTarget): void {
   // guesses on the nodes (lanes); the draft is discarded, the committed
   // backing never touched.
   if (userWrite && t.fam?.opt === true) {
-    const staged = optStaged.get(t);
-    if (staged !== undefined) optStaged.delete(t);
-    t.pb = staged ?? null;
+    // The draft is discarded first: the diff reads the target (its nodes
+    // are born from the committed frame, not the draft).
+    t.pb = null;
     t.wk = null;
-    optHooks!.writes(t, pb);
+    t.pb = optHooks!.writes(t, pb);
     return;
   }
   const old = t.v;
@@ -1358,7 +1356,7 @@ function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey,
     }
     return target.v;
   }
-  if (inDraft(target) || getWriteOverride()) return pb;
+  if (inDraft(target) || writeOverride) return pb;
   const k = target.k!;
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
   // it — the container's frame is not consulted (a reader is not made a
@@ -1482,7 +1480,7 @@ function serveDataKey(
   let v = backingValue;
   // A write-override read (a derive's draft) serves the backing: the derive
   // composes on the truth, never on a lane's or a hold's frame.
-  if (!inDraft(target) && !getWriteOverride()) {
+  if (!inDraft(target) && !writeOverride) {
     if (node === undefined && getObserver() !== null) node = getNode(target, key, accKnown);
     if (node !== undefined) {
       const nv = nodeValue(node, backingValue, target);
@@ -1519,7 +1517,7 @@ function serveDataKey(
  * override): the derive is the author. */
 function pullFamily(target: StoreTarget): void {
   const fw = target.fam!.node;
-  if (fw === null || getWriteOverride() || inDraft(target)) return;
+  if (fw === null || writeOverride || inDraft(target)) return;
   // A settled derive: the pull alone, no link (the barrier). A derive with a
   // flight up (or errored): the reader observes the flight exactly as a
   // reader of a memo would — linked, so it re-runs at the landing (the
@@ -1597,16 +1595,21 @@ function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: object): an
  * the hold rules (`read()` on the node: the node's value IS the backing);
  * anyone else reads by `readSource`. */
 function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
-  if (!inDraft(target) && !getWriteOverride() && getObserver() !== null) {
+  if (!inDraft(target) && !writeOverride && getObserver() !== null) {
     // A container's arrangement guess is not a backing: the view composes
     // over the base it is shown over.
     const base = asBacking(readNode(getContainerNode(target)));
     return target.fam?.opt === true ? optHooks!.view(target, base) : base;
   }
   const src = readSource(target);
-  return target.fam?.opt === true && !inDraft(target) && !getWriteOverride()
-    ? optHooks!.view(target, src)
-    : src;
+  return optRead(target) ? optHooks!.view(target, src) : src;
+}
+
+/** A read on an optimistic family that composes the lanes' values: not the
+ * draft's (it composed already), not a derive's write-override read (the
+ * derive composes on the truth). */
+function optRead(target: StoreTarget): boolean {
+  return target.fam !== null && target.fam.opt === true && !inDraft(target) && !writeOverride;
 }
 
 /** Pollution keys are never served from the prototype (core R30). */
@@ -1654,7 +1657,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // the sentinel), and isWrappable for primitives. ONE node-map lookup
     // serves this block and the accessor probe below.
     const node0 = target.n?.[key as any];
-    if (writeScopes === null && !getWriteOverride()) {
+    if (writeScopes === null && !writeOverride) {
       const nodeH = node0;
       if (nodeH !== undefined && (nodeH as any).acc !== true && !target.ch) {
         const nv = nodeValue(nodeH, undefined, target);
@@ -1778,7 +1781,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // core decides which it sees); everyone else reads the backing. A
     // chained target's node is a subscription point (§7b): the inner store
     // answers through the backing — unless the outer node carries a guess.
-    if (!inDraft(target) && !getWriteOverride()) {
+    if (!inDraft(target) && !writeOverride) {
       if (getObserver() !== null) {
         const node = getHasNode(target, key);
         const nv = readNode(node);
@@ -1787,7 +1790,7 @@ const traps: ProxyHandler<StoreTarget> = {
         node._value = present; // the link follows the inner store (S4)
         if (node._config & CONFIG_OVERRIDE) return !!nv;
         return present;
-      } else if (target.fam?.opt === true) {
+      } else if (optRead(target)) {
         const guessed = optHooks!.has(target, key);
         if (guessed !== undefined) return guessed;
       }
@@ -1807,12 +1810,11 @@ const traps: ProxyHandler<StoreTarget> = {
     // An enumerator (spread, Object.entries) already holds the container
     // node and reads its frame; a descriptor read on its own tracks
     // presence (R13).
-    const wo = getWriteOverride();
-    const enumerating =
-      obs !== null && !inDraft(target) && !wo && observerHoldsContainer(target, obs);
+    const plain = obs !== null && !inDraft(target) && !writeOverride;
+    const enumerating = plain && observerHoldsContainer(target, obs);
     let src: Record<PropertyKey, any>;
     if (enumerating) src = enumerationSource(target);
-    else if (obs !== null && !inDraft(target) && !wo) {
+    else if (plain) {
       // The presence node's frame (core decides which) is the one described
       // (a chained target's inner store answers through the backing, §7b).
       const node = getHasNode(target, key);
@@ -1822,7 +1824,7 @@ const traps: ProxyHandler<StoreTarget> = {
         return undefined;
     } else src = readSource(target, key);
     let desc: PropertyDescriptor | undefined;
-    if (target.fam?.opt === true && !inDraft(target) && !wo && !enumerating) {
+    if (!enumerating && optRead(target)) {
       const guessed = optHooks!.descriptor(target, key);
       if (guessed === null) return undefined;
       desc = guessed;
@@ -1835,7 +1837,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   set(target, key, value) {
     const draft = inDraft(target);
-    const override = !draft && getWriteOverride();
+    const override = !draft && writeOverride;
     if (!draft && !override) return true;
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
@@ -1878,7 +1880,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   defineProperty(target, key, desc) {
     const draft = inDraft(target);
-    const override = !draft && getWriteOverride();
+    const override = !draft && writeOverride;
     if (!draft && !override) return true;
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
@@ -1895,7 +1897,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   deleteProperty(target, key) {
     const draft = inDraft(target);
-    const override = !draft && getWriteOverride();
+    const override = !draft && writeOverride;
     if (!draft && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
@@ -2014,7 +2016,7 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     // A returned replacement: on an optimistic family a user's is itself an
     // optimistic edit — diffed against the view as guesses (`next` parity);
     // otherwise it is adopted as the incoming truth.
-    if (guard && target.fam?.opt === true && !getWriteOverride())
+    if (guard && target.fam?.opt === true && !writeOverride)
       optHooks!.writes(target, unwrapValue(result));
     else adoptPB(target, unwrapValue(result));
   }
@@ -2204,11 +2206,11 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
     // R27: a snapshot sees the batch's pending backing — a held one (another
     // transaction's future) only from its own draft.
     let backing = t.v;
-    if (t.pb !== null && (inDraft(t) || getWriteOverride() || !(t.k!._config & CONFIG_HELD))) {
+    if (t.pb !== null && (inDraft(t) || writeOverride || !(t.k!._config & CONFIG_HELD))) {
       if (t.ovl) materializePB(t);
       backing = t.pb!;
     }
-    if (t.fam?.opt === true && !inDraft(t)) backing = optHooks!.view(t, backing);
+    if (optRead(t)) backing = optHooks!.view(t, backing);
     if (backing === src) break;
     src = backing;
   }

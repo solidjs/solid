@@ -37,6 +37,7 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { runProjectionComputed } from "./projection.js";
 import {
+  cloneRaw,
   committed,
   getContainerNode,
   getHasNode,
@@ -68,7 +69,24 @@ const hasOwn = Object.prototype.hasOwnProperty;
  * changed key's leaf, one per presence change, the container's arrangement
  * when membership or order changed. `pb` is the draft (a clone of the view
  * the user saw); `old` the view it composed on. */
-export function notifyOptimisticWrites(t: StoreTarget, pb: Record<PropertyKey, any>): void {
+/** An optimistic setter's targets whose staging was set aside (`draft`),
+ * restored when the setter's writes become guesses (`writes`). */
+const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
+
+/** The user's draft on an optimistic family: a clone of the view the user
+ * saw — the committed frame with the lanes' values and the tick's own
+ * unflushed guesses over it (#3665). A staging already on the target (a
+ * landing adopted this flush) is set aside for the setter's duration: the
+ * guesses go over it, it stays the truth beneath. */
+function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
+  if (t.pb !== null) optStaged.set(t, t.pb);
+  return cloneRaw(optimisticView(t, committed(t), laneValueOf, true), t);
+}
+
+export function notifyOptimisticWrites(
+  t: StoreTarget,
+  pb: Record<PropertyKey, any>
+): Record<PropertyKey, any> | null {
   // The view the user saw: the committed frame (a staging adopted eagerly
   // is not it) with the lanes' values and the tick's own guesses over it.
   const base = committed(t);
@@ -118,6 +136,10 @@ export function notifyOptimisticWrites(t: StoreTarget, pb: Record<PropertyKey, a
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
   markOverlaid(t);
+  const staged = optStaged.get(t);
+  if (staged === undefined) return null;
+  optStaged.delete(t);
+  return staged;
 }
 
 type KeyFn = (item: any) => any;
@@ -211,6 +233,7 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
 }
 
 installOptHooks({
+  draft: optimisticDraft,
   writes: notifyOptimisticWrites,
   arrangement,
   reconcile: reconcileDraft,

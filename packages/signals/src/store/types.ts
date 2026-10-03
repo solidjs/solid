@@ -164,10 +164,7 @@ export function ownEnumerableKeys(o: object): (string | symbol)[] {
 // continuation after an `await`/`yield`). Projections return in S3; the
 // traps already honour it.
 
-let writeOverride = false;
+export let writeOverride = false;
 export function setWriteOverride(value: boolean): void {
   writeOverride = value;
-}
-export function getWriteOverride(): boolean {
-  return writeOverride;
 }

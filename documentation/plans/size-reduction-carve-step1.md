@@ -4601,6 +4601,54 @@ run-3662` ×1, `question-scoped-pending` quiet-refetch ×2 (a quiet
   `affects-audit`), store attribution, the size pass, `rules-index` ×3.
 - Gabriel's A17 kanban fixture as the first new pin (not yet written).
 
+### 35.1 Store size pass (8:20–8:45 AM) — attribution, a seam trim, and a finding
+
+**Where the store layer's bytes are.** Store layer over the floor, br /
+min: `next` 7340 / 25484; now **6718 / 22947** (−8.5%); S3b 6045; S1
+(plain only) 3919. Per-function, `store/store.js` as retained in
+`+ createStore` (rolldown's rendered module, each piece minified alone;
+`/tmp/carve/fnattr.mjs`): proxy traps **4140** (`get` 1695, `set` 692,
+`getOwnPropertyDescriptor` 552, `has` 431, `defineProperty` 408,
+`deleteProperty` 258); `notifyWrites` 1643; `foldTarget` 926;
+`storeSetter` 815; `readSource` 566; `ensurePB` 557; `notifyKeyDiff` 545;
+`adoptPB` 536; `serveDataKey` 532; `scanAccessorsOnce` 495;
+`changedBetween` 461; `notifyFold` 416; `drainFolds` 406; `cloneRaw` 387;
+`TargetShape` 357; `createTarget` 331; `visibleKeys` 324;
+`notifyContainer` 308; `releaseSlot` 306; `overlayRebuilds` 306;
+`materializePB` 306; `getNode` 290; `pullFamily` 284; … Three clusters
+account for most of it: **the accessor/clone machinery** (`scanAccessorsOnce`,
+`cloneRaw`, `wideClone`, `copyOwn`, `isOwnAccessor`, `hasAccessorFlag`,
+the accessor arms in `get`/`notifyWrites`/`changedBetween`; ~1.6k min),
+**the overlay draft** (#3044: `ovl`/`del` in every trap and in
+`visibleKeys`/`visibleDescriptor`/`changedBetween`/`foldTarget`, plus
+`materializePB`/`overlayRebuilds`/`flattenOverlay`; ~1.3k min), and **the
+hold model per key** (`readSource`, `changedBetween`/`keyChanged`/
+`heldKeyChanged`, `bornStaged`, `releaseSlot` deferral, `pullFamily`,
+`holdWithDerive`, `heldDerivation`; ~1.6k min). `reconcile.js` 2679 and
+`projection.js` 1761 are in the `+ createStore` bundle by the API-symmetry
+ruling (#2883: the derived overload).
+
+**The seam trim** (this pass): `writeOverride` is a live export binding
+(the eight `getWriteOverride()` calls, one on the `get` hot path, are a
+variable read); the optimistic draft and its set-aside staging move into
+the hooks (`OptHooks.draft`, `writes` returns the staging; `optStaged`
+leaves store.ts); one `optRead(target)` predicate for the five "compose
+the lanes' view" sites. `+ createStore` 13968 → **13939** (−29 br / −169
+min), every store family 27800 → **27783**, page live 46227 → 46216.
+Signals 4707 / web 998, 0 regressions.
+
+**Finding.** The S4 seams were not where the bytes are: the dispatch
+points cost ~30 br once the draft moved out. The store layer's remaining
+~6.7 kB br is feature surface — overlay drafts, accessor keys, deletes,
+chained views, per-key holds, projections+reconcile by ruling — each of it
+pinned. The every-store gate (hydrating + 7 kB = 24520) is 3.3 kB away
+and is not reachable by trimming seams; reaching it means dropping a
+feature (the overlay draft is the obvious candidate — the maintainer's own
+ambivalence about it is on record in §31 — ~400 br) or revisiting the
+#2883 symmetry ruling (projection+reconcile out of the plain
+`createStore` bundle: ~1.3 kB br). Both are the maintainer's calls; no
+further size work in this step without one.
+
 ---
 
 ## Appendix — ledger (verbatim)
