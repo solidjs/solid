@@ -1277,7 +1277,14 @@ describe("arrays", () => {
 });
 
 describe("derived store manual writes", () => {
-  it("manual setStore on a derived store wins over a queued recompute (#2692)", () => {
+  // A34 as amended 2026-10-01 (#3733, rule B; core R31), store twins of the
+  // memo pins in a34-writes-then-derivations.test.ts: writes apply first,
+  // then derivations re-run. A manual setStore on a derived store stages like
+  // any write; a source change (or a refresh) in the same tick re-derives
+  // over the written draft — the derive decides what to keep (here it returns
+  // a replacement root, so the source's value stands). The write on its own
+  // never re-runs the derive. Reverses #2692's "manual write wins the tick".
+  it("a source change in the same tick re-derives over a manual setStore (rule B; was #2692)", () => {
     const [setSource, store, setStore] = createRoot(() => {
       const [source, sSource] = createSignal({ count: 0 });
       const [s, sStore] = createStore<{ count: number }>(() => ({ count: source().count }), {
@@ -1292,18 +1299,23 @@ describe("derived store manual writes", () => {
       s.count = 99;
     });
     flush();
-    expect(store.count).toBe(99);
+    expect(store.count).toBe(1);
     setSource({ count: 2 });
     flush();
     expect(store.count).toBe(2);
   });
 
-  it("same-value setStore on a derived store keeps the override for the tick (#2692)", () => {
+  it("a manual setStore on its own never re-runs the derive; a later source change re-derives (rule B; was #2692)", () => {
+    let evals = 0;
     const [setSource, store, setStore] = createRoot(() => {
       const [source, sSource] = createSignal({ count: 0 });
-      const [s, sStore] = createStore<{ count: number }>(() => ({ count: source().count }), {
-        count: 0
-      });
+      const [s, sStore] = createStore<{ count: number }>(
+        () => {
+          evals++;
+          return { count: source().count };
+        },
+        { count: 0 }
+      );
       return [sSource, s, sStore] as const;
     });
     flush();
@@ -1311,19 +1323,21 @@ describe("derived store manual writes", () => {
       s.count = 99;
     });
     flush();
+    expect(evals).toBe(1);
     expect(store.count).toBe(99);
     setSource({ count: 1 });
     setStore(s => {
       s.count = 99;
     });
     flush();
-    expect(store.count).toBe(99);
+    expect(evals).toBe(2);
+    expect(store.count).toBe(1);
     setSource({ count: 2 });
     flush();
     expect(store.count).toBe(2);
   });
 
-  it("same-tick manual write wins over refresh() in both orders (#2692)", () => {
+  it("refresh() in the write's tick re-asks over the manual write, in both orders (rule B; was #2692)", () => {
     let evals = 0;
     const [store, setStore] = createRoot(() => {
       const [source] = createSignal({ count: 0 });
@@ -1344,16 +1358,16 @@ describe("derived store manual writes", () => {
     });
     refresh(store);
     flush();
-    expect(evals).toBe(1);
-    expect(store.count).toBe(99);
+    expect(evals).toBe(2);
+    expect(store.count).toBe(0);
 
     refresh(store);
     setStore(s => {
       s.count = 100;
     });
     flush();
-    expect(evals).toBe(1);
-    expect(store.count).toBe(100);
+    expect(evals).toBe(3);
+    expect(store.count).toBe(0);
   });
 
   it("refresh() on a later tick re-runs the derived store source (#3026)", () => {

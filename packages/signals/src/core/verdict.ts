@@ -32,6 +32,7 @@ import {
   markLateLinker,
   pullComputed,
   setVerdict,
+  spectating,
   strictRead,
   tracking,
   unflushedValue
@@ -379,6 +380,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       pendingVerdict(tracked ? c : null, owner);
       return el._value;
     }
+    // As `read()`: an untracked read of a pending node still re-runs its
+    // reader when the node settles (a projection's pull reads its firewall
+    // untracked, store/store.ts).
+    if (c !== null && !tracking && !spectating && el !== c) link(el, c);
     throw owner._x?._error;
   }
   if (owner._fn !== undefined && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;

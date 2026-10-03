@@ -25,25 +25,54 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
+import { createProjection, createStoreDerived } from "./projection.js";
+import { reconcileState } from "./reconcile.js";
 import {
   createStore as createPlainStore,
   deep as deepStore,
   snapshot as snapshotStore
 } from "./store.js";
-import type { NoFn, Store, StoreOptions, StoreReturn, StoreSetter } from "./types.js";
+import type {
+  NoFn,
+  ProjectionOptions,
+  ProjectionStoreReturn,
+  Store,
+  StoreOptions,
+  StoreReturn,
+  StoreSetter
+} from "./types.js";
+
+export { createProjection };
 
 /**
  * Create a reactive store: a proxy over plain data with fine-grained
- * subscriptions per read path, written through its setter's draft.
+ * subscriptions per read path, written through its setter's draft — or, in
+ * the derived form, a projection with a setter.
  */
 export function createStore<T extends object = {}>(
   initialValue: NoFn<T>,
   options?: StoreOptions
 ): StoreReturn<T>;
+export function createStore<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: Partial<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): ProjectionStoreReturn<T>;
 export function createStore(first: any, second?: any, third?: any): any {
-  if (typeof first === "function")
-    throw new Error("[CARVED] createStore(fn, seed) was removed on the measurement branch");
+  if (typeof first === "function") return createStoreDerived(first, second, third);
   return createPlainStore(first, second) as [Store<any>, StoreSetter<any>];
+}
+
+/**
+ * A setter transform that reconciles `value` into the store by key
+ * (`"id"` by default; `null` positional), preserving store identity for
+ * surviving rows.
+ */
+export function reconcile<T extends U, U>(
+  value: T,
+  key: string | ((item: NonNullable<any>) => any) | null = "id"
+): (state: U) => T {
+  return (state: U): T => reconcileState(value, state, key) as any;
 }
 
 /** Non-tracking snapshot of a store's current value (source identity for

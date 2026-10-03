@@ -377,16 +377,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (el._x !== null) el._x._inFlight = null;
       el._loading = false;
     } else {
-      // CARVE 1: the `prevInFlight`/`inFlightChanged` probe existed for
-      // createProjection, whose body self-registers a flight through
-      // handleAsync; without it the outer handleAsync is the only registrar.
+      // A projection's body self-registers its flight through handleAsync
+      // (with the commit as setter): its undefined return is not a sync
+      // answer, and the outer handleAsync must not clobber the registration.
+      const prevInFlight = el._x?._inFlight;
       const fnResult = el._fn(value);
       const isAsyncResult = typeof fnResult === "object" && fnResult !== null;
-      value = !isAsyncResult ? fnResult : handleAsync(el, fnResult);
-      if (!isAsyncResult) {
+      const selfRegistered = el._x?._inFlight !== prevInFlight;
+      value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
+      if (!selfRegistered && !isAsyncResult) {
         if (el._x !== null) el._x._inFlight = null;
         // A sync (non-object) return is the first real answer; async-shaped
-        // results clear inside handleAsync at their own landing points.
+        // results clear inside handleAsync at their own landing points, and a
+        // self-registered flight clears when its own handleAsync lands.
         el._loading = false;
       }
     }
@@ -1840,7 +1843,7 @@ export function ownedScopeWriteMessage(owner: Owner): string {
 /** A28 (4) — written inside a recompute that runs OUTSIDE a flush (a
  * creation-time compute): promoted at that pass's end, visible to the rest of
  * the block. Cold: only contextual writes reach here. */
-function notePromotedWrite(el: Signal<any> | Computed<any>): void {
+export function notePromotedWrite(el: Signal<any> | Computed<any>): void {
   if (globalQueue._running || el._config & CONFIG_PROMOTED) return;
   el._config |= CONFIG_PROMOTED;
   promotedWrites.push(el);

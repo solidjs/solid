@@ -28,6 +28,10 @@ export interface StoreFamily {
   map: WeakMap<object, StoreTarget>;
   /** The projection computed — the firewall. Assigned after creation. */
   node: Computed<any> | null;
+  /** Targets of the family that carry nodes: the derive's pending wakes
+   * their readers (A9) — the family's enumerable index, in place of a
+   * per-leaf chain; a target leaves it with its last node. */
+  live: Set<StoreTarget>;
   shallow?: boolean;
   /** Derive run counter (proj R37): the run whose draft is live. */
   run?: number;

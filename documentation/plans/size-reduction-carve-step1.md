@@ -4300,6 +4300,124 @@ descriptor gate); every store family 23787 (+83); hello world 9697 (−15),
 CSR 12703 (−23), page live 39780 (−29) — brotli noise on the ±2 min
 elsewhere.
 
+## 34. Stores on L2 — S3a: projections, derived stores, reconcile (2026-10-03, 3:40–4:00 AM)
+
+`src/store/projection.ts` (family, draft, derive pass, `createProjection`,
+`createStore(fn, seed)`) and `src/store/reconcile.ts` (the adoption-channel
+diff, ported with the optimistic branches out) are new; `store.ts` grew the
+family hooks. Committed as **S3a** with 19 projection reds still open
+(below) — 0 regressions and the solid suite's store-dependent half came
+back, so the checkpoint is worth having.
+
+**The firewall, as built (Q-B (a)).** Every read through a family target
+first `pullFamily`s: core's `read()` of the derive. **Settled derive →
+untracked** (`untrack(() => read(fw))`): the pull, the height, no link —
+the barrier. **Derive with a flight up or errored → tracked**: the reader
+observes the flight exactly as a reader of a memo does (linked, so it
+re-runs at the landing — its next settled pass pulls without linking and
+the stale link trims; a verdict reader registers; a tracked pass
+suspends). The derive's own draft ops are exempt (write override). No
+`_firewall` on leaves, no `||` in core `read()`, no child chain.
+
+**Pending propagation (A9).** The leaves do not subscribe to the derive, so
+when its pass goes pending the family does what `notifyStatus` does for a
+memo's dependents — `wakeFamily`, over the family's live index: a verdict
+or re-derive reader re-runs, any other reader is pending **derivatively on
+the derive** (`notifyStatus(sub, PENDING, theDeriveNotReady)`); at the
+landing `settleFamily` runs core's settle walk from each leaf
+(`settlePendingSource(leaf, fw)`), since the derive's own walk does not
+reach them. Fired from the pass's `catch` with the thrown NotReady (the
+derive's own, source = the derive — the status is not set yet at that
+point), never for the creation run.
+
+**A render effect outside the flight's own flush is the frame:** it keeps
+what it shows and learns of the landing from the leaves the landing
+changes; it is not a stale reader of the derive (`pullFamily` skips the
+pull for `EFFECT_RENDER` when the derive is held by a transaction that is
+not the flush's). Inside the flush it suspends like any reader. (The
+`notifies only changed paths` pin: an unchanged leaf's render effect does
+not re-run at the landing.)
+
+**A projection's writes are its derive's.** A staging made while the
+derive is held — a continuation's write after an `await`, a callback's
+late write — joins the derive's transaction (`holdWithDerive`:
+`holdNode(node, txOf(fw))` for the leaf, presence and container stagings)
+and reveals with it, never drained early. **The creation run commits
+directly** (`runDirect`: a memo's first value is its `_value`, not a
+staging — the draft still writes a clone of the seed, nothing is staged on
+the nodes, the setter's exit folds the touched containers at once); every
+later run — a re-derive in a flush, an async landing — stages and commits
+with the flush like a memo's recompute. A batch written inside a pass
+outside a flush (a creation-time derive) is promoted (A28 (4):
+`notePromotedWrite` on the container, inherited by a late-materialized
+leaf). **A projection's unheld staging is ahead for a handler**
+(`familyAhead`): a context-free reader sees the derive's writes before the
+flush — the derive is the authority, nothing it writes is a proposal
+(`next`'s family rule; the `resolves async draft` pin reads a post-await
+draft write one tick before the landing commits).
+
+**Adoption is eager (INTERNALS §3, "eager by contract")** — corrects S2's
+"staged" reading, which the `Reconcile a simple object` pin (a handler read
+right after `setState(reconcile(…))`, no flush) refuted: the backing swaps
+now (`t.v = incoming`) while the **container node keeps the committed
+frame** (`k._value`, what readers a hold keeps on it see — `hv` without a
+field) and stages the adoption for the fold's path copy; `committed(t)`
+(the node's `_value` while staged, `t.v` otherwise) is what nodes are born
+from and what `keyChanged` compares against; an eager adoption nothing
+wrote after folds without a clone (shared ownership). `reconcile`'s
+per-node notifications replace the full diff (`adoptPB(t, incoming,
+false)`); its reachability-pruned descent is `next`'s.
+
+**Chained backings (§7b)** came with it: the hot inline path is for
+unchained targets; a chained read serves the inner store's value (the
+outer node is a subscription point); `resolveChainedRaw` for inner-owned
+raws; `$TRACK` reads through; `deep()` walks the chain's containers and
+witnesses.
+
+**Core (two seams, flagged):** (1) `recompute`'s *self-registered flight*
+probe is back (`prevInFlight` / `selfRegistered`): a projection's body
+registers its flight through `handleAsync` with the commit as setter, so
+its `undefined` return is not a sync answer and must not clear the loading
+window or clobber the registration — 1b had carved it as store-only; it
+is. (2) `verdictValue`'s uninitialized-pending throw links an untracked
+reader as `read()` does ("an untracked read of a pending node still
+re-runs its reader when the node settles") — the pull reads the firewall
+untracked inside a verdict window.
+
+**Re-pins (flagged):** `createStore.test.ts` #2692 trio → **A34 rule B
+store twins** ("manual setStore wins the tick" was reversed for memos on
+2026-10-01 — `a34-writes-then-derivations`; the derived store follows: a
+source change or `refresh()` in the write's tick re-derives over the
+written draft, the write on its own never re-runs the derive); the
+store's behaviour already matched. `projection-slot-release` helper counts
+the family's live index instead of the firewall child chain (assertions
+unchanged, all six pass — removed rows release their slots).
+
+**Tests.** Signals **3185 passed** (S2 2849; +336), **0 passed→not-passed**
+vs S2 and vs the carved core; carved 1616. Web 931 (+7); **solid 789
+(+98)** — the projection-dependent half of its suite. Open, S3b (19):
+`adoption-unchanged-key-read-3706` ×3 (prototype swap / enumerability /
+fresh-node rows), `finalize-reentry` ×2, `held-derivation-3612`,
+`late-pending-equality` 1, `latest-isPending-consistency`,
+`question-scoped-pending` 3.4-held-write, `refresh-await`,
+`visibility-oracle-store` staleForeign (projection row),
+`child-companion-walk`, `createProjection.async` ×4 (async-generator
+`isPending`, rejection → retry ×2 — the memo twin behaves the same on L2
+today, a core question, not the store's — and `notifies a leaf reader
+behind a memo`), `createStore` "isPending sees a derived store update
+held by async work", `lane-authority-twins` #3334, `draft-lifetime-3585`
+never-resolving workaround. Plus affects' store half ×8 (S5), rules-index.
+
+**Size (br / min).** Floor 7213 → **7257 (+44 / +98)** — the recompute
+probe and `read()`'s restructured held arm; to be re-measured per
+function. `+ createStore` 11269 → **13302 (+2033 / +6893)** = floor +6045
+with projections and reconcile statically coupled (API symmetry; `next`:
++7340 with optimism too). Every store family 25764 (`next` 30789 — the
+gate is hydrating +7 kB = 24520; over by 1.2 kB with optimism still out:
+a size pass follows S4). Page base/live **+5.7 kB** — the page fixtures
+use projections and reconcile, 0 B as stubs until now; 41926 / 45540 vs
+`next`'s 46193 / 50442.
+
 ---
 
 ## Appendix — ledger (verbatim)

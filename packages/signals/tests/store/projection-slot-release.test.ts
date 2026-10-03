@@ -31,9 +31,18 @@ type Row = { id: string; pos: { x: number; y: number } };
 const row = (i: number): Row => ({ id: "n" + i, pos: { x: i, y: 0 } });
 
 /** Nodes linked into a projection's firewall child chain. */
+/** Every live node of the projection's family (L2, §31 S3: the family's
+ * live index of targets replaces the per-leaf firewall child chain — a
+ * released node leaves its target's table, a target with no node leaves the
+ * index). */
 function chain(proj: any): any[] {
   const out: any[] = [];
-  for (let c = proj[$TARGET].fam.node._x?._child ?? null; c !== null; c = c._nextChild) out.push(c);
+  for (const t of proj[$TARGET].fam.live as Set<any>) {
+    if (t.n) for (const k of Reflect.ownKeys(t.n)) out.push(t.n[k]);
+    if (t.h) for (const k of Reflect.ownKeys(t.h)) out.push(t.h[k]);
+    if (t.k) out.push(t.k);
+    if (t.dk) out.push(t.dk);
+  }
   return out;
 }
 const chainLength = (proj: any) => chain(proj).length;
