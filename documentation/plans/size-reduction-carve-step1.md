@@ -4651,6 +4651,33 @@ further size work in this step without one.
 
 ---
 
+## 36. Stores on L2 — S-U: `utils.ts` back; the carve is closed (2026-10-03, 8:45–9:00 AM)
+
+`src/store/utils.ts` is `next`'s file verbatim (1185 lines: `merge`/`omit`,
+`MergeView`/`OmitView`, `mergeSources`/`viewOf`/`sourceKeys`/`sourceHas`/
+`sourceGet`/`hasStaticKeys`/`isStatic`/`resolvedTable`/`sourceOwners`, the
+`SOURCE_*` kinds) with three import edits: `$PROXY`/`$RECORD`/`$TARGET`/
+`ownEnumerableKeys` from `./types.js` (they moved there in S1),
+`SUPPORTS_PROXY` from `../core/constants.js`, and the dead
+`pendingCheckActive` import dropped (nothing in the file read it). Exported
+from `store/index.ts` as `next` did. **`carved.ts` has no stubs left** —
+every carved capability is back.
+
+**Results.** Signals **4783 passed** (+76: the last carved pins), 0
+regressions; web **1109** (+111; the `dynamic.spec` ×4 reds were
+utils-dependent and are green), 0 carved; solid **813**, 0 carved. Size
+(br): page base 42566 → **43402** (`next` 46193), page live 46216 →
+**46969** (`next` 50442) — utils enters the page bundles through `dynamic`
+and spread; every other scenario unchanged.
+
+**Open after S-U (whole-suite, non-carved):** signals 51 (§35's list),
+web 7 (`frames-optimistic-hold` multi-flight timeout,
+`optimistic-for-index-frame-f1` ×5, `call-driven-lifecycle` mid-flight
+switch), solid 6 (`internal-surface` ×3, `published-declarations` ×3 — the
+dist/declarations pass, S5).
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

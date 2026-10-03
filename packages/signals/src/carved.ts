@@ -10,28 +10,8 @@ const carved = (name: string) => (): never => {
   throw new Error(`[CARVED] ${name} was removed on the measurement branch`);
 };
 
-// ── store family (carve 1) — plain stores back (§31 S1); the rest return
-// with S-U (utils), S3 (projection/reconcile) and S4 (optimistic). ────────
-export const SOURCE_PLAIN = 0;
-export const SOURCE_OMIT = 1;
-export const SOURCE_PROXY = 2;
-export const SOURCE_MEMO = 3;
-export const SOURCE_MERGE = 4;
-export const mergeSources = carved("mergeSources");
-export const mergeView = carved("mergeView");
-export const viewOf = carved("viewOf");
-export const omitView = carved("omitView");
-export const sourceKeys = carved("sourceKeys");
-export const sourceHas = carved("sourceHas");
-export const sourceGet = carved("sourceGet");
-export const hasStaticKeys = carved("hasStaticKeys");
-export const isStatic = carved("isStatic");
-export const resolvedTable = carved("resolvedTable");
-export const OmitView = carved("OmitView");
-export const MergeView = carved("MergeView");
-export const sourceOwners = carved("sourceOwners");
-export const merge = carved("merge");
-export const omit = carved("omit");
+// ── store family (carve 1) — all back (§31–§35: S1 plain, S2 holds, S3
+// projections/reconcile, S4 optimistic, S-U utils). ──────────────────────
 
 // CARVE 2: verdict family — all back (`affects` the last, as ./affects.ts).
 

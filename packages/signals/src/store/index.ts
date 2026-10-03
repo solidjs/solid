@@ -44,6 +44,30 @@ import type {
 } from "./types.js";
 
 export { createOptimisticStore, createProjection };
+export type { Merge, Omit } from "./utils.js";
+export {
+  mergeSources,
+  mergeView,
+  viewOf,
+  omitView,
+  sourceKeys,
+  sourceHas,
+  sourceGet,
+  hasStaticKeys,
+  isStatic,
+  resolvedTable,
+  OmitView,
+  MergeView,
+  SOURCE_PLAIN,
+  SOURCE_OMIT,
+  SOURCE_PROXY,
+  SOURCE_MEMO,
+  SOURCE_MERGE,
+  sourceOwners,
+  merge,
+  omit
+} from "./utils.js";
+export type { SourceKind } from "./utils.js";
 
 /**
  * Create a reactive store: a proxy over plain data with fine-grained
