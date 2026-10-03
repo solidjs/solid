@@ -134,8 +134,10 @@ GlobalQueue._update = el => {
   // L2: a zombie's fate is the seam's — its owner's commit disposes it, or
   // the park cancels the pass (the write that dirtied it is held). It runs
   // only past a seam that left it alive (a live write to a frame whose
-  // owner is held in the future).
-  else if (el._flags & REACTIVE_ZOMBIE) deferZombie(el);
+  // owner is held in the future). Its lane's own re-staging is a live write
+  // (REACTIVE_LANE_DIRTY — a lane shows ahead of any park): it runs now, as
+  // the lane's work, for the reveal this seam (#3463).
+  else if (el._flags & REACTIVE_ZOMBIE && !(el._flags & REACTIVE_LANE_DIRTY)) deferZombie(el);
   else recompute(el);
 };
 GlobalQueue._dispose = disposeChildren;

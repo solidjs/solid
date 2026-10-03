@@ -179,10 +179,15 @@ function caught(b: Boundary, node: Computed<any>, error: unknown): void {
 }
 
 /** A re-armed boundary found something pending: fresh again, and the swap
- * the arming pass asked for is that pass's lane's (if any). */
+ * the arming pass asked for is that pass's lane's (if any): the output is
+ * the lane's work from its next pass's head — not a re-pass of the
+ * transaction holding its pending content, which would entangle that
+ * transaction with the arming frame's (#3540 `on: () => latest(dep)`). */
 function flip(b: Boundary): void {
   b._initialized = false;
   b._lane = b._armLane;
+  if (b._lane !== null && b._output !== null)
+    GlobalQueue._laneStage!(b._output, b._lane, true, false);
 }
 
 export function redraw(b: Boundary): void {
@@ -415,12 +420,13 @@ function arm(b: Boundary): void {
     // display-ahead after all (#3528). Re-home the swap: the output re-runs
     // as the lane's, shown now beside the held frame.
     if (b._fallback && b._lane === null && b._armLane === null && passLane !== null) {
-      b._armLane = b._lane = passLane;
+      b._armLane = passLane;
       if (__DEV__) b._ahead = true;
       // The swap the frame's pass staged (held with the frame) is void: the
-      // lane's pass stages it anew, as a watcher's provisional value is
+      // lane's pass stages it anew (`flip` lists the output in the lane,
+      // which voids its staging), as a watcher's provisional value is
       // voided at the seam (verdict.ts `verdictSeam`).
-      if (b._output !== null) b._output._pendingValue = NOT_PENDING;
+      flip(b);
       redraw(b);
     }
     return;

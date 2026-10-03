@@ -227,11 +227,20 @@ export function merge(t: Transaction, f: Transaction): void {
  * own truth is in flight blocks the lane's parent, not the lane — it stands
  * in for the flight (A17: "visible until its own fetch settles"). */
 export function blocked(t: Transaction): boolean {
-  // An action still running in it holds it open (action.ts).
-  if (t._open !== 0 || blockedBy(t._nodes, t)) return true;
-  // Its lanes (lanes.ts): a lane under `t` blocks it while blocked itself.
-  return !!GlobalQueue._lanesBlocked && GlobalQueue._lanesBlocked(t);
+  // The transaction being judged (a lane consulted on its behalf judges for
+  // it): a zombie whose removal it stages is moot for it alone (`onScreen`).
+  const prev = judge;
+  judge ??= t;
+  // An action still running in it holds it open (action.ts). Its lanes
+  // (lanes.ts): a lane under `t` blocks it while blocked itself.
+  const r =
+    t._open !== 0 ||
+    blockedBy(t._nodes, t) ||
+    (!!GlobalQueue._lanesBlocked && GlobalQueue._lanesBlocked(t));
+  judge = prev;
+  return r;
 }
+let judge: Transaction | null = null;
 /** `t`'s own flights only — not its lanes': a flight the frame asked for
  * (a refetch, a plain load) is authoritative; a lane's derivation flight is
  * not (lanes.ts, the body-end corollary). A pending reader counts only if
@@ -266,31 +275,34 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
     // The frame's own pending observer (off screen: this one holds nothing;
     // the next listed node may).
     if ((n as any)._type === EFFECT_RENDER) {
-      if (onScreen(n, owner)) return true;
+      if (onScreen(n, judge ?? owner)) return true;
       continue;
     }
     for (let s = n._subs; s !== null; s = s._nextSub) {
       const r = s._sub;
-      // A frame reader: a render effect, or a verdict reader (CONFIG_VERDICT)
-      // that read the flight's value (REACTIVE_FRAME_READ, `observeFlight`) —
-      // served committed instead of going pending, it observes the flight on
-      // its render effect's behalf all the same. A probe alone does not hold.
+      // A frame reader: a render effect, or a stale reader of the flight
+      // (REACTIVE_FRAME_READ — a verdict reader, `observeFlight`; lane work,
+      // `frameRead`): served committed instead of going pending, it derives
+      // from the flight all the same and is re-derived at the landing — the
+      // frame's observation survives its reader becoming a lane's (a guess
+      // over a held window, V5/A17). A probe alone does not hold.
       if (
-        ((r as any)._type === EFFECT_RENDER ||
-          (r._config & CONFIG_VERDICT && r._flags & REACTIVE_FRAME_READ)) &&
+        ((r as any)._type === EFFECT_RENDER || r._flags & REACTIVE_FRAME_READ) &&
         s._gen === r._depGen &&
         !(r._flags & REACTIVE_DISPOSED) &&
-        onScreen(r, owner)
+        onScreen(r, judge ?? owner)
       )
         return true;
     }
   }
   return false;
 }
-/** A frame reader whose say counts for `t`'s hold: not a zombie whose
- * removal `t` stages (A15 #3463: a re-ask in the unmount frame lands its
- * pending on the zombie it unmounts — the compiled <Show> of #3372), and not
- * behind a fallback (A33: a boundary showing its fallback is the display of
+/** A frame reader whose say counts for `t`'s hold — `t` the transaction
+ * being judged: not a zombie whose removal `t` stages (A15 #3463: a re-ask
+ * in the unmount frame lands its pending on the zombie it unmounts — the
+ * compiled <Show> of #3372; a zombie blocks every other judgment while it
+ * is visible, a lane's reveal included: only the commit that disposes it
+ * makes its say moot), and not behind a fallback (A33: a boundary showing its fallback is the display of
  * everything under it, so a reader there is not on screen and holds
  * nothing — boundaries.ts). */
 function onScreen(r: Computed<any>, t: Transaction): boolean {
@@ -308,12 +320,12 @@ function onScreen(r: Computed<any>, t: Transaction): boolean {
 function removalStagedBy(r: Computed<any>, t: Transaction): boolean {
   let o: Owner | null = r;
   while (o !== null && (o as any)._flags & REACTIVE_ZOMBIE) o = o._parent;
-  if (o === null || !(o._config & CONFIG_HELD) || (o as any)._x?._transaction == null) return false;
-  // Staged by `t`, or by a transaction `t` ends with (a lane's parent: the
-  // zombie is disposed at the parent's commit, lane and all).
-  const u = txOf(o as any);
-  for (let l: Transaction | null = t; l !== null; l = l._parent) if (l === u) return true;
-  return false;
+  return (
+    o !== null &&
+    (o._config & CONFIG_HELD) !== 0 &&
+    (o as any)._x?._transaction != null &&
+    txOf(o as any) === resolveTx(t)
+  );
 }
 /** Unchanged passes this flush whose stale dependency tail awaits the
  * flush's verdict (A30, #3469): trimmed when the flush commits, kept when

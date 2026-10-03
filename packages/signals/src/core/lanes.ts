@@ -34,11 +34,15 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_STAGED,
   EFFECT_RENDER,
   NOT_PENDING,
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
   REACTIVE_FRAME_READ,
+  REACTIVE_IN_HEAP,
   REACTIVE_LANE_READ,
   REACTIVE_SCREEN_READ,
   STATUS_PENDING,
@@ -51,6 +55,7 @@ import {
   blocked,
   clock,
   commitPendingNode,
+  flushTransaction,
   GlobalQueue,
   holdNode,
   insertSubs,
@@ -160,6 +165,12 @@ function applyGuesses(parent: Transaction | null): void {
         if (parent === null) continue;
         l = lane ??= newLane(parent);
       }
+      // (A guess equal to a truth staged beneath it is confirmed at birth —
+      // A24 — and still re-derives its readers as the lane's: the truth's
+      // derivations are the transaction's world, the lane's are the
+      // screen's plus the guess (§19) — a derivation reading a held write
+      // beside the guess must not show it. Two flights for one input, when
+      // the worlds coincide, is the price.)
       ext(n)._lane = v;
       n._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
       list(n, l);
@@ -370,8 +381,21 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       x._inFlight = null;
       enqueueSub(n as Computed<any>);
     }
-    if (into === null || l._shown) commitPendingNode(n);
-    else {
+    if (into === null || l._shown) {
+      commitPendingNode(n);
+      // A derivation the correction re-derives (every one of a dissolving
+      // lane's), or the revert does (dirtied by the guess's notification —
+      // listed before it): what it shows is the lane's answer beside inputs
+      // that are the truth now, so a fresh reader of its flight must observe
+      // it, not show the lane's value (#3648, #3651; #3305's commit beneath
+      // a flight).
+      if (
+        !effect &&
+        (into !== null ||
+          (n as Computed<any>)._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
+      )
+        n._config |= CONFIG_INPUTS_PUBLISHED;
+    } else {
       // Never shown: nothing of it reached the screen — a node born in the
       // lane stays uninitialized; the frame its passes built goes.
       if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
@@ -386,7 +410,12 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     )
       insertSubs(n);
   }
-  l._queues[0].length = l._queues[1].length = 0;
+  // The parent landed: the runs the lane held (blocked on its own judgment
+  // alone — a zombie it could not dispose) are the landing's. A
+  // correction's lane is void, runs included: the parent's re-derivation
+  // makes the runs that show.
+  if (into === null) releaseQueues(l);
+  else l._queues[0].length = l._queues[1].length = 0;
 }
 
 /** Lanes. A lane's node is read by its reader's kind: an authoritative
@@ -411,22 +440,32 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) return display(el);
   const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
-  if (
-    l._held &&
-    (c as any)._type === EFFECT_RENDER &&
-    (passLane === null || !sameLane(passLane, l))
-  ) {
-    if (!guess && !l._shown) {
-      if (status & STATUS_PENDING) return NOT_PENDING;
-      if (status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
+  if ((c as any)._type === EFFECT_RENDER && (passLane === null || !sameLane(passLane, l))) {
+    if (!guess) {
+      // A flight whose value has never shown: nothing to show — the leaf
+      // waits on it, and its own frame holds (A15, #3334), not the lane's
+      // parent. The landing lands the frame: its own pass (the flush
+      // joined its transaction) reads the answer it waited on — the lane's
+      // staging, revealed at this seam.
+      if (status & STATUS_PENDING && el._x!._lane === NOT_PENDING) return NOT_PENDING;
+      if (
+        el._pendingValue !== NOT_PENDING &&
+        c._config & CONFIG_HELD &&
+        flushTransaction !== null &&
+        resolveTx(flushTransaction) === txOf(c)
+      )
+        return el._pendingValue;
     }
-    // Re-derived at the reveal; once per pass (the pass may also be a stale
-    // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
-    if (!(c._flags & REACTIVE_SCREEN_READ)) {
-      c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
-      l._reruns.push(c);
+    if (l._held) {
+      if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
+      // Re-derived at the reveal; once per pass (the pass may also be a stale
+      // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
+      if (!(c._flags & REACTIVE_SCREEN_READ)) {
+        c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
+        l._reruns.push(c);
+      }
+      return display(el);
     }
-    return display(el);
   }
   enterLane(l, c);
   if (!guess && status & STATUS_PENDING) return NOT_PENDING;

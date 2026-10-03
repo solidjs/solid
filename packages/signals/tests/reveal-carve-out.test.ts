@@ -305,11 +305,13 @@ describe("reveal carve-out: a stale reader of a foreign-held flight (A15)", () =
       await settle();
 
       // A lane-routed flight: details derives under b's lane, lands, and the
-      // action completes — the lane retires.
+      // action completes — the lane retires. (§28: the same-tick truth
+      // `src=1` re-derives `details` as the transaction's world and the
+      // guess `b=1` as the lane's — the screen's plus the guess, §19 — two
+      // flights for one input; both land.)
       const done = write(1);
       await settle();
-      let g = gates.shift()!;
-      g.d.resolve(g.v);
+      for (const g of gates.splice(0)) g.d.resolve(g.v);
       await done;
       await settle();
       await settle();
@@ -324,7 +326,7 @@ describe("reveal carve-out: a stale reader of a foreign-held flight (A15)", () =
       setPick(1);
       flush();
       expect(out).toEqual([1]);
-      g = gates.shift()!;
+      const g = gates.shift()!;
       g.d.resolve(g.v);
       await settle();
       await settle();

@@ -3438,6 +3438,71 @@ from the session's backup and re-applied edits (no loss); orphaned vitest
 workers from a hung run (a `resolveTx` cycle) — the timeout wrapper now kills
 the worker tree. Fresh baselines: `s0-final3-tests.json`, `s0-final3.json`.
 
+**S1 — holds and seams, 2026-10-02 evening.** The lane-family reds, each
+by a rule. Signals **2138 passed** (S0 2128; the §28.12 target was 2138),
+**0 passed→not-passed** vs S0 and vs the carved core; web 888, solid 678.
+The family is down to the two store/`affects` pins.
+
+1. **A15 LANE trio (#3334) — no new edge, as 28.6 predicted.** `laneRead`
+   for a render effect in the frame's seat: a lane node **pending with no
+   shown value** (`_x._lane === NOT_PENDING`) is nothing to show — the leaf
+   waits on it (NotReady in its own frame; `blockedBy` finds the on-screen
+   pending leaf; the frame parks on the flight, never on the lane's parent).
+   At the landing the leaf's own pass (its frame's flush, joined by the
+   settle walk) reads the lane's **landed staging** — the answer it waited
+   on, revealed at this very seam — not the screen. Both reveals of one
+   flight land as one frame; the screen never pairs `show=true` with the
+   pre-flight value.
+2. **Zombie relevance (#3463) — the judged transaction.** `blocked(t)`
+   records `judge` (the top-level transaction being judged; a lane consulted
+   on its behalf judges for it): a zombie whose removal `judge` stages is
+   moot for it alone; it blocks every other judgment — a lane's reveal
+   included — while visible. `removalStagedBy` no longer walks a lane's
+   parent chain. With it: a landed lane's **held runs are released at the
+   parent's landing** (a lane blocked on its own judgment alone), and a
+   zombie dirtied by its lane's re-staging (`REACTIVE_LANE_DIRTY`) **runs
+   now**, not deferred to the seam — a lane shows ahead of any park.
+3. **#3648 shape B — published inputs.** A derivation whose lane value is
+   committed at a dissolve and which re-derives (every one of a correction's
+   lane; a revert's dirtied ones) gets `CONFIG_INPUTS_PUBLISHED`: what it
+   shows is the lane's answer beside inputs that are the truth now, so a
+   fresh render reader observes its flight (joins) rather than reading the
+   lane's value as the screen (#3651); an untracked read still serves it
+   (A18 (d)).
+4. **`on: () => latest(dep)` re-arm (#3540).** `flip` lists the boundary's
+   output in the arming lane at once (`_laneStage`), so its swap pass is the
+   lane's from the head — a re-pass of the transaction holding its pending
+   content joined that transaction to the arming frame's (the merge that
+   kept `data 1` behind the action). The `_initialized` re-home branch goes
+   through `flip` too.
+5. **V5/A17 — a stale reader of a flight holds it, lane work included.**
+   `blockedBy` counts any sub with `REACTIVE_FRAME_READ` (not only verdict
+   readers): a guess over a held window re-derived the frame's only observer
+   as lane work and the window's transaction landed with its flight still
+   up (#3494's "derives from the flight all the same", applied uniformly).
+   A pre-existing red since §20.
+6. **Tried and reverted:** "a guess confirmed at birth adopts the truth's
+   derivations" (no re-derivation, one fetch) — it is wrong under §19: the
+   truth's derivations are the transaction's world, the lane's are the
+   screen's plus the guess (#3330 `v=1 d=0` tore at once). Two flights for
+   one input when the worlds coincide is the price; `reveal-carve-out`
+   re-pinned to resolve both.
+
+*Re-pins (3):* `body-end-supersession-visibility` to the lane rulings the
+oracle's "body ended" row already carries (a never-shown guess is void at
+the correction: display, stale re-run and verdicts say the truth; a fresh
+derivation is held); `lane-outside-view` #3479 "boundary mounted mid-hold"
+→ `3500: Late: 0 0 | Node: 0` (the mount's content reads `latest(source)` —
+the explicit display-ahead read — and the lane's node: it is the verdict
+lane's work like the pre-existing reader and reveals with each landing;
+`next` had one landing reveal at two times); `reveal-carve-out` gates (6).
+
+*Size (br), S0 → S1:* floor 7222 → **7212 (−10)**; CSR 12701 → 12712;
+`+ isPending/latest` 9213 → **9269 (+56)**; page live 39758 → 39825. The
+layer's growth is the rules above (`laneRead`'s leaf arms, `judge`, the
+dissolve flag); the floor fell (the `blockedBy` condition simplified). S2
+consolidates.
+
 ---
 
 ## Appendix — ledger (verbatim)
