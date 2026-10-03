@@ -4748,6 +4748,88 @@ time, per the standing rule that spec files are not edited here. Web 7
 
 ---
 
+## 38. Q-D decision memo — two actions, one array, the first landing (2026-10-03, 9:45 AM)
+
+**For the maintainer to rule; nothing picked here.** §31.7 Q-D: "replay
+decided on matrix evidence". The evidence is in.
+
+**The shape** (matrix `[reader=mapArray-keyed][source=derived] update text
+in place (c) + swap a<->b, resolved A then B`; also the index reader, and
+`#2951 compose half`). Action A edits row c's text; action B swaps rows a
+and b; both are open; A's server confirms A's edit (the truth is
+`[a,b,c!,d,e,f]`); B is still pending. Frames on L2 (reproduced from the
+harness):
+
+```
+a:A,b:B,c:C,d:D,e:E,f:F      initial
+a:A,b:B,c:C!,d:D,e:E,f:F     A applied
+b:B,a:A,c:C!,d:D,e:E,f:F     A+B applied
+a:A,b:B,c:C!,d:D,e:E,f:F     ← A confirmed, B pending: B's swap is GONE for one frame
+b:B,a:A,c:C!,d:D,e:E,f:F     B confirmed
+```
+
+`next` showed `b:B,a:A,c:C!` throughout (B's positional override survived
+A's landing). The oracle pins `next`'s sequence.
+
+**Why L2 does this.** A's edit is a guess on one leaf (row c's `text`); B's
+swap is an **arrangement guess on the container node** (`LaneView`). The
+container is one node with one lane slot. A's landing is a new backing
+whose arrangement is `[a,b,c!,…]`; the container's comparator judges it
+against B's guessed arrangement `[b,a,c!,…]`: different → by A18 the
+landing is a **correction** of the guess, the lane dissolves, the truth
+shows (B's guess is void), and B's own landing re-establishes the swap.
+On the signal side this is exactly right — "a landing beneath a guess that
+differs supersedes it". On a list it is wrong in the user's eyes, because
+A's landing was not B's answer: it confirmed a _different question_ on the
+same container. `next` kept per-override provenance (each override knew
+its action) and replayed B over A's truth. `#2951 compose half` is the
+scalar twin: two `+1` votes on one counter, A's truth (1) lands under B's
+(2) → B's guess is voided to 1, then 2 when B lands; `next` replayed B's
+increment onto A's truth → 2 throughout, 3 after C.
+
+**Options.**
+
+1. **Accept the frame.** One frame of truth between A's landing and B's.
+   Simplest; already built; coherent (every frame is a world that existed).
+   Cost: a visible snap-back on overlapping list edits — the kanban drag
+   case (#3662/#3548 shapes pass, but those confirm in order or with the
+   same truth). Re-pins: matrix ×2, `#2951 compose half`, likely the web
+   F1 ×5.
+2. **Per-question arrangement entries on the container.** The container's
+   lane value becomes a list of `LaneView`s keyed by question (`_q`); a
+   landing confirms or corrects _its own_ question's entry (A's landing has
+   A's `_q` — B's entry is untouched) and the display composes the
+   surviving entries over the new truth. For a text edit beneath a swap
+   the composition is trivial (positions over keys); for two structural
+   guesses (insert + delete, two moves) composing B's _positional_ entry
+   over a truth with a different shape needs B's **delta**, not B's
+   result — which is replay in disguise. Medium cost; covers the common
+   case (one structural + N leaf edits) without replay; two structural
+   guesses still need 3.
+3. **Retain setters and replay** (RUL-2's continuation half, the
+   2026-08-31b design): the optimistic setter is kept for the action's
+   lifetime and re-run over each landing's truth. Full fidelity with
+   `next`; the cost is the ledger (`next`'s `retained` setters, replay
+   ordering, the "replay throws" class the matrix retired) and a second
+   setter execution per landing — the thing this rebuild removed.
+   `#2951 compose half`'s `+1` can only be right under 3 (or an
+   application-level `d.votes = truth.votes + 1` idiom, which is what the
+   "functional updater composes on the value the transaction holds" note
+   in the harness already recommends).
+
+**What the rest of the model says.** A34 (1) "two suggestions for one slot
+cannot finish apart" is what entangles A and B into one frame when they
+touch the same _leaf_; the container is the slot they share here. Option 1
+is A34 taken literally for the container. Options 2–3 say the container is
+not one slot but one per question — a new rule, not a consequence of an
+existing one.
+
+**Scope if ruled now:** 1 is re-pins only; 2 is ~a day in
+`optimistic.ts`/`containerEquals` plus the composition rule; 3 is the
+2026-08-31b plan.
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)
