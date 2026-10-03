@@ -2754,6 +2754,23 @@ function insertExpression(parent, value, current, marker) {
     return value;
   }
   if (value === current) return value;
+  // A region tracked as empty can receive nodes that already sit in it:
+  // server nodes a boundary claims on a late resume, after this insert's
+  // claim pass saw no value (#3749). Re-inserting them would move connected
+  // nodes and blur a focused input, so they stay put. Only while hydrating
+  // (the resume window sets the flag): then claimed server nodes are the only
+  // nodes of ours already in `parent`, and they arrive in server order. Every
+  // item must be a node in `parent` (a raw primitive is a failed text claim
+  // and still needs inserting); an empty array keeps its clear.
+  if (
+    hydrationRt !== null &&
+    sharedConfig.hydrating &&
+    current == null &&
+    value &&
+    [].concat(value).every(n => n?.parentNode === parent) &&
+    value.length !== 0
+  )
+    return value;
   const t = typeof value,
     multi = marker !== undefined;
 
