@@ -3736,6 +3736,236 @@ Floor 7189, hello world 9688, CSR 12684, hydrating 17510, page base 36194,
 page live 39737 (−18 br vs §29 — brotli noise on an identical-logic
 `lanes.js`).
 
+## 31. Stores on L2 — T0: inventory, design, questions (2026-10-03, night)
+
+Maintainer: "stores are a large tricky one. Any plan on how to approach
+it?" → plan laid out → "start". This section is the T0 deliverable: no code.
+Sources read: `next`'s `store/` (dumped to `/tmp/carve/store-next/`),
+`docs/INTERNALS-STORE-STATE.md` (the rewrite's own design + rulings),
+`SPEC` A9/A22/A25, `target.ts`'s load-bearing notes, the carved corpus.
+
+### 31.1 Inventory
+
+**Code on `next`** (lines): `store/next/store.ts` 3118, `optimistic.ts`
+827, `reconcile.ts` 439, `projection.ts` 310, `target.ts` 229;
+`store/utils.ts` 1185 (`merge`/`omit`/views/source dispatch),
+`storePath.ts` 232, `store.ts` 476 (types + legacy shallow dispatcher),
+`index.ts` 98. ~6,900 lines.
+
+**Size on `next`** (br): `+ createStore` 16848 vs floor 9508 = **+7340**;
+`hydrating + every store family` 30789 vs hydrating 19663 = **+11126**;
+page live's store share **≈ 8.4 kB** (the carve's Δ). Core carried ≈ 300
+br / 1036 min for the store (1b) — already gone and not coming back as
+slots unless a Q below says so.
+
+**Carved corpus** (2534 tests in `/tmp/carve/attr4-tests.json`, by API):
+`createStore` 1383, `createOptimisticStore` 986, `createProjection` 99,
+`merge` 46, `omit` 18, `isStatic` 2. By family: `tests/store/*` 1489
+(`optimistic-list-mutation-matrix` 899 alone), oracle/posture matrices 785
+(`visibility-oracle-posture` 629, `visibility-oracle-store` 153), store
+under holds / lane twins ≈ 200 (`adoption-unchanged-key-read-3706` 17,
+`createProjection.draft-lifetime-3585` 17, `strict-read-pending-store`,
+`held-truth-lane-only`, `late-pending-equality`, `latest-held-till-flush`,
+`owned-scope-write-guard`, `question-scoped-pending` 32, …), attribution
+11. Web: 177 carved (spread runtime → `viewOf`/`hasStaticKeys`/
+`resolvedTable`/`merge`/`omit` ≈ 120; store fixtures ≈ 57). Web/solid
+runtime imports, by count: `snapshot` 58, `merge` 41, `omit` 24,
+`createStore` 18, `createProjection` 17, `reconcile` 16,
+`createOptimisticStore` 12, `viewOf` 9, source dispatch (`sourceHas/
+Keys/Get`) 19, `isWrappable` 7, `deep` 6, `resolvedTable` 5, `isStatic` 5,
+`hasStaticKeys` 4, `storeIsShallow`/`storeHasFamily`/
+`storeHasOptimisticFamily`/`storePath` 1 each.
+
+### 31.2 What `next`'s store carries that L2 now owns
+
+The rewrite's design doc is explicit about the intent (§1: "a real core
+signal. Carries: subscriptions, and pending lane values (transition +
+optimistic) via the same core machinery signals already use. **No
+store-side override maps, no backup snapshots, no separate transactional
+subsystem**"; O6 left open whether the node's slot mirrors committed
+state). What shipped drifted from that, because the core it sat on could
+not express a hold at the container level — so the store grew its own
+copy of the hold model, in store vocabulary. Per target (`target.ts`):
+
+| store-side state on `next` | what it is | on L2 it is |
+| --- | --- | --- |
+| `pb` (pending backing, overlay or clone) | the container's staging | a container node's `_pendingValue` (Q-A) |
+| `hv` / `ht` (held committed view + holder) | screen vs staging under a hold | the container node's `_value` while its staging is parked — nothing extra |
+| `ab` (adoption diff base) | "the view the nodes were last told" | the container node's `_value` (the diff base is the committed frame) |
+| `foldOlds` / `foldBatches` / `drainFolds` polling node `_pendingValue` to learn when the hold settled | a second commit protocol | `land(t)` commits the container node like any node; `park` holds it |
+| `heldFoldTransition` / `heldAdoptionTransition` / `stageHeldKey` (born-holding keys) | a leaf created mid-hold learns both frames | `getNode` reads committed from `_value` of the container, staged from `_pendingValue` — born-held is A29, already core |
+| `heldKeys` / `adoptionChangedKeys` (#3706: the hold's unit is the key) | which keys the adoption changed | the diff that emits node writes only touches changed keys — by construction |
+| optimistic `overlaid` / `rt` (retaining transactions) / `ft` (flight-owned transaction) / `stagedTruthPB` / `heldMaskView` | "a landing under a guess stages beneath it", lane membership, who owns the flight | `supersede`'s unchanged branch / `laneOutcome` (A18), `txOf(node)`, `ownFlights` — all core |
+| `CONFIG_HELD_TRUTH`, `_overrideValue` arming (`fam.opt` → every node armed) | the write channel chosen per node | chosen per **write** by the setter (`optimisticWrite` vs `setSignal`) — as `createOptimistic` already does on L2; no arming bit |
+| `transitionHoldsOptimism` / `installNextBlockedHalf` (store half of `blocked`) | store-aware settle gate | `blocked(t)` over nodes — the container node is a node |
+| `_firewall` on leaves + `_firewall \|\| el` in `read()` | a leaf reads its projection's status/height/error | **Q-B** |
+
+What stays store-owned because it is the *membership dimension* signals do
+not have (R2): the proxy traps, the raw/owned backing graph and CoW path
+copying, lazy node tables (`n`, `h`, `k`, `dk`), the key-set/presence/deep
+witness nodes, `wk` (written-keys bound), the accessor scan (`a`/`sc`),
+the overlay-vs-clone choice (`ovl`, thresholds), chained backings (§7b),
+reconcile's keyed diff, and the **function-of-truth replay** of retained
+optimistic setters (RUL-2 as re-ruled 2026-08-31b — a maintainer ruling
+with a lot of weight; the replay stays a *semantic*, its representation
+becomes lane membership).
+
+### 31.3 Design (candidate — the Qs below decide it)
+
+**A store is a tree of L2 nodes; nothing else carries reactive state.**
+
+- *Leaf node per tracked-or-written key* (lazy, as today): `_value` =
+  committed, `_pendingValue` = this frame's staging, `_x._lane` = lane
+  value. One literal (`slotSignal` returns: `_host`/`_key` back-refs,
+  equals baked, no options object, no `_x` at birth — the create-floor
+  diet; `dist-artifacts` pins the literal).
+- *Container node per touched container* (new; lazy — created by the
+  first write that has no leaf to stage on, or the first structural
+  subscription): `_value` = the committed backing object, `_pendingValue`
+  = the pending backing (overlay or clone, the existing choice logic),
+  `_x._lane` = the optimistic overlay object. It **is** today's key-set
+  node `k` with a value: `ownKeys`/iteration/`$TRACK`/`length` subscribe
+  to it; its commit swaps/flattens the backing; its park holds the
+  backing. Unsubscribed keys written under a hold stage *here*. The
+  hold's unit stays the key for *leaf* readers (#3706: a leaf's own frames)
+  and the container for keyless readers — exactly §3's rule, with no
+  `heldKeys` bookkeeping.
+- *Presence nodes* `h` and the *deep witness* `dk`: unchanged in role;
+  structural optimism = guesses on presence nodes + the container node
+  (§6, FINDING-2 by construction).
+- *Writes*: the draft mutates the pending backing natively (today's
+  O(written) path); setter exit emits node writes for written keys with
+  leaves (`notifyWrites`, `wk`-bounded) and **one** write to the container
+  node (its staging = the pending backing). Channel per write: a plain
+  store's setter → `setSignal`; an optimistic store's setter →
+  `optimisticWrite`; a projection's landing → `setSignal` under the
+  derive's pass (lane work if the derive runs in a lane). Commit = the
+  scheduler's `land`/`commitPendingNode`; the store's only commit work is
+  the backing flatten / path copy, run from the container node's commit
+  (a `_host` hook, or `CONFIG_PLUMBING`-style dispatch — size to be
+  measured).
+- *Adoption* (`reconcile`, setter replacement, projection landing): a diff
+  of incoming vs the container node's **committed** `_value`, emitting leaf
+  writes for changed subscribed keys and staging the incoming object on the
+  container node. Under a hold the staging parks; a leaf first read during
+  the hold is born held from the two frames (A29). Lane view composition
+  (§6b) = `display(container)` + `display(leaf)`.
+- *Projections*: a computed whose pass writes the store through the draft
+  (today's `runProjectionComputedNext` shape, R37 one-draft-per-run,
+  A25 seed = draft). Its nodes' status: Q-B.
+- *Optimistic stores*: an optimistic projection; nodes are plain L2 nodes;
+  the setter chooses `optimisticWrite`; a landing is `laneWrite`/`supersede`
+  on the leaf, the container's landing a lane-aware adoption (R28/R29:
+  arrangement from the lane view, entity identity from committed). Retained
+  setters `[t, fn]` live on the family and replay as ruled; `rt`/`ft` are
+  replaced by `txOf`/`ownFlights` of the family's nodes.
+- *Utilities* (`merge`/`omit`/views/source dispatch, `storePath`,
+  `snapshot`/`deep`): independent of the above; `snapshot` reads
+  `display(container)`/pending explicitly (R27), zero-copy when settled.
+
+**Expected to disappear:** `pb`-lifetime polling, `hv`/`ht`, `ab`,
+`foldBatches`, `heldKeys`, `stageHeldKey`, `heldMaskView`,
+`stagedTruthPB`, `rt`/`ft`, the blocked store-half, `CONFIG_HELD_TRUTH`,
+per-node arming, `projectionWriteActive` as a global (the pass's lane says
+it). **Expected to stay:** everything in the R2 list above.
+
+### 31.4 Performance contracts (not re-derivable from tests)
+
+From `target.ts` and INTERNALS §5/§5b — treated as **contracts** unless
+ruled otherwise (Q-E):
+
+1. **Lazy nodes.** No permanent node from proxy creation, untracked reads,
+   or observer-less writes; teardown ∝ tracked surface. (The container
+   node is created by a write or a structural subscription, never by a
+   read — R1: node existence unobservable.)
+2. **One literal per leaf** (`slotSignal`): no options object, no `_x`,
+   no post-construction expandos; accessor-ness resolved once.
+3. **O(written) per setter**: the written-keys bound `wk` decides notify
+   and commit work; fallbacks (`WK_ALL` on length writes, accessors,
+   non-plain prototypes) stay.
+4. **Overlay drafts** (`Object.create(v)`) for plain-data containers;
+   clone otherwise; the `OVERLAY_MIN_KEYS` / rebuild thresholds are
+   tunables, the mechanism is a contract (#3044: O(written) per flush).
+5. **Array targets: no new named fields.** V8 dictionary-mode flip at
+   named-field counts ≡ 0 mod 3 from 18 (uibench −15%). A container node
+   is one pointer on the target (`k` already exists) — net zero fields.
+6. **Zero allocations for adopted-but-unread objects**; one target + one
+   proxy + one lookup entry per read-through object; `$OWNER` stamp
+   instead of two weak-collection registrations per draft (#3360).
+7. **Shallow stores** exist only for performance (O4: "if I could retire
+   it I would") — a retirement candidate, not a port target (Q-F).
+8. **Benchmarks** (`~/Development/octane-dbmon-local`,
+   `~/Development/solid-uibench`, CodSpeed) only when asked (standing
+   constraint); the perf gate is at the end state.
+
+### 31.5 Phases and gates
+
+Same discipline as §28: carve stays; each step measured on the full
+matrix vs the carved core and the previous step (0 passed→not-passed),
+web/solid, the size suite; re-pins flagged individually; a Q-list ruled
+before each step that needs one.
+
+| step | scope | gate |
+| --- | --- | --- |
+| **T0** | this section; rulings on Q-A…Q-G | rulings |
+| **S-U** | `utils.ts` back: `merge`/`omit`/views/source dispatch/`isWrappable`/`isStatic`/`resolvedTable`/`hasStaticKeys`, with the proxy branch targeting the store's trap contract (stubbed until S1); `storePath` | web ≈ 1,010 (+120); floor +0; own module line |
+| **S1** | plain store, sync: target + traps + lazy leaf/presence/container/deep nodes; `slotSignal`; draft/setter; CoW path copy; overlay/clone; `snapshot`/`deep`; `$TRACK` back in `mapArray`; `createStore` sync pins + `optimistic-list-mutation-matrix`'s plain rows | `+ createStore` **≤ floor + 4.0 kB br** (next: +7.3); `createStore.test` / `overlay` / `write-floor` / `native-collections` / `enumerator-presence-nodes` / `storePath` green |
+| **S2** | stores under holds: setter writes in actions; container staging; adoption as diff + container staging; born-held leaves; `latest`/`isPending` on leaves; **Gabriel's fixture** (plain truth + optimistic shadow on one leaf in an action; a new reader mid-action shows now, joins nothing — A17) as the first new pin; `adoption-unchanged-key-read-3706`, `store-unchanged-read-independent-write-3688`, `held-derivation-3612`, `latest-held-till-flush`, `owned-scope-write-guard`, `visibility-oracle-store` plain rows | 0 regressions; A17 fixture; no store-side hold state |
+| **S3** | projections / derived stores: `createProjection`, `createStore(fn, seed)`, `reconcile` (the adoption channel), draft lifetime (R37, #3585), A25 seed gate, chained backings (§7b), the `read()` firewall seam resolved per Q-B; `createProjection*`, `reconcile*`, `projection-*`, `fold-*`, `late-pending-equality`, `loading-value`, `strict-read-pending-store` | firewall either returns as one bit or does not return; `reconcile`/`projection` shed from plain bundles stays as ruled (API symmetry — they do not) |
+| **S4** | `createOptimisticStore`: lanes on nodes; structural optimism on presence/container; retained-setter replay (RUL-2 re-ruling); `optimistic-list-mutation-matrix` optimistic rows (336), `visibility-oracle-posture` (629), `question-scoped-pending`, lane twins; web F1/3706 fixtures | optimistic module sheds from plain-store bundles; `every store family` **≤ hydrating + 7 kB br** (next: +11.1) |
+| **S5** | store half of `affects`; store attribution (path names, `storeOwners`); `dist-artifacts` literal pin; `shallow` decision executed (Q-F); web/solid store fixtures; **PR #3761 assessed** against the built thing; final matrix vs `next` | page live target; perf gate request |
+
+**Risk, named.** S2 is the bet: if container-node staging cannot express
+adoption diffs and held views at `next`'s perf, the fallback is `next`'s
+per-target `pb` with its *lifetime* derived from the hold model (the
+container node still exists, but holds the backing by reference rather
+than being the staging). Two representations again — better than today,
+but seams. Find out in S2 with S1's ~1,400 pins green, not in S4.
+
+### 31.6 Questions for the maintainer (T0)
+
+- **Q-A — The container node.** (a) *Recommended:* the pending backing
+  **is** the container node's `_pendingValue` (one representation; the
+  hold model parks/commits/dissolves it; `hv`/`ht`/`ab`/fold polling go).
+  Cost: one node per *touched* container (reuses `k`'s pointer — no new
+  target field); the backing flatten runs from the node's commit.
+  (b) Keep `pb` as store staging with its lifetime bound to the
+  transaction via the container node holding it (fallback above).
+- **Q-B — Projection status on leaves.** `read()`'s last store seam
+  (`_firewall || el`): a leaf's pending/error/height came from its
+  projection computed. (a) *Recommended:* status lives on the **leaf**
+  (and the container node): a derive's pass that pends marks the nodes it
+  would write — the store's traps gate on the container node's status
+  (§6c's "one field on the root target" becomes that node's
+  `_statusFlags`); `isPending(leaf)` reports the derive's new-question
+  refetch (A9) because the leaf is `_pendingSources`-linked to the derive,
+  as any node downstream of an async memo is. No core slot. (b) Bring back
+  `_firewall` as a leaf field + the `||` in `read()` (≈ 60 br on the
+  floor, every read pays a load).
+- **Q-C — Draft visibility under a hold.** A setter running inside an
+  action reads its own transaction's staging (A25's write-visibility
+  corollary; RUL-1 "drafts read pending explicitly"). *Recommended:* keep
+  — the draft reads `display`-of-staging for its own transaction, the
+  screen for a foreign one (A17: a reader of an overridden leaf never joins
+  the hold on the base). Gabriel's fixture pins the foreign half.
+- **Q-D — Optimistic landing semantics.** (a) *Recommended:* keep the
+  RUL-2 re-ruling verbatim (equal landing holds; contradicting
+  continuation rebases via retained-setter replay; contradicting
+  replacement consumes and drops) — the representation changes (lane
+  membership instead of `rt`/`ft`), the ruling does not. (b) Simplify to
+  "a landing on a guess stages beneath it" only (A18) and drop structural
+  replay — fewer bytes, but overturns a ruling with 899 matrix pins.
+- **Q-E — Perf contracts.** Confirm the eight in §31.4 as contracts
+  (thresholds tunable), and that benchmarks run only when asked, at S1
+  end (create/commit floor) and S5 (end state).
+- **Q-F — Shallow stores.** (a) *Recommended per O4:* do not port the
+  legacy shallow implementation; `createStore(v, { shallow })` becomes a
+  flag on the same target (`s`, values served raw — as `next`'s rewrite
+  already does: `storeIsShallow` is one field), and the dbmon shallow
+  column is the retirement bar at S5. (b) Port legacy shallow as is.
+- **Q-G — Order.** `utils.ts` first (S-U) — independent, unblocks ~120 web
+  pins and the spread runtime. Confirm, or start at S1.
+
 ---
 
 ## Appendix — ledger (verbatim)
