@@ -27,6 +27,16 @@ describe("universal insert (static values)", () => {
     expect(parent.innerHTML).toBe("<a></a><b></b>");
   });
 
+  it("inserts a static Set of nodes", () => {
+    const parent = document.createElement("div");
+    const a = document.createElement("a");
+    const b = document.createElement("b");
+
+    r.insert(parent, new Set([a, b]));
+
+    expect(parent.innerHTML).toBe("<a></a><b></b>");
+  });
+
   it("inserts nothing for a static null", () => {
     const parent = document.createElement("div");
     r.insert(parent, null);
