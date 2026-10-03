@@ -4111,6 +4111,118 @@ create/append in the S1 A/B is the number to shrink.
 first (critical path; earliest benchmark evidence), S-U at the first
 natural pause.
 
+## 32. Stores on L2 — S1: plain stores (2026-10-03, 2:34–3:30 AM)
+
+Built per §31.3 as ruled in §31.7. `src/store/` is new (`types.ts` —
+symbols, options, `isWrappable`, raw marking, write override; `target.ts`
+— the target shape, `$OWNER`, lookup, descendants flag; `store.ts` — the
+module; `storePath.ts` verbatim; `index.ts`). Ported function by function
+from `next`'s `store/next/store.ts` with the hold, optimistic, projection,
+chained-backing and affects paths left out (they return on S2–S5 on the
+new representation), and the container node put in.
+
+**Core (the two seams §31.7 named, and nothing else).**
+
+- `slotSignal(v, equals, host, key, acc)` — the one-literal slot node
+  (`CONFIG_SLOT_NODE | CONFIG_OWNED_WRITE`; `_host`/`_key` back-refs, the
+  wrap cache `px`/`pxv`, `acc`; 14 fields prod, 16 observe — `_name` and
+  `_owner` are slots, so the attribution stamp is never a write after).
+  Used for leaves, presence nodes, the container node and the deep witness
+  — one shape, no closures, no `_x` at birth.
+- The last-one-out dispatch in `unlinkSubs` (`CONFIG_SLOT_NODE` →
+  `slotUnobservedHook`, a live binding in graph.ts the store installs) and
+  `GlobalQueue._storeCommit?.()` after `commitPendingNodes()`. `stagedRead`
+  and `ownedScopeWriteMessage` exported. `CONFIG_SLOT_NODE = 1 << 12`.
+- `mapArray` reads `$TRACK` again (a store array's container node).
+- Found by the dist-artifacts literal pin while here: the attribution
+  step's `_devWindows` was a post-construction write on every computed in
+  the observe tier — now a slot in the computed/effect observe literals
+  (pin re-pinned: `computed`/`effect` slots are `_name` + `_devWindows`;
+  `slotSignal`'s are `_name` + `_owner`).
+
+**The container node, as built.** `t.k` holds it (no new target field).
+Created by the first structural subscription (`$TRACK`, `ownKeys`,
+`deep`) with `_value = t.v`, or by `ensurePB` — the first draft write of a
+batch — which stages the pending backing on it (`queuePendingNode` +
+`_pendingValue = pb`, no notification) so the scheduler owns `pb`'s
+lifetime. `materializePB` re-points the staging when an overlay downgrades
+to a clone. Setter exit (`notifyWrites`) writes leaves/presence/deep as
+before and, when the container has subscribers and the store's structural
+compare (`arrayStructureChanged` / `membershipChanged` / the overlay
+own-keys scan) says membership changed, `setSignal(k, pb)` — the node's
+`_equals` is `false`; the compare is the store's, against the committed
+frame, never the node's (a mutable backing has no "previous value" to
+compare). `setSignal` re-stages and walks the subscribers, and on later
+steps routes a held/lane-owned container like any node. The fold
+(`drainFolds`, from `_storeCommit`): a target whose container is still
+staged waits (held — S2); otherwise flatten/clone-swap/path-copy as on
+`next`, then `k._value = t.v` — or, **if nothing subscribed, `t.k = null`**:
+the write-created container was a transient staging home (INTERNALS §5:
+an observer-less write holds a transient record until the fold, discarded
+with it), so laziness pins hold (`enumerator-presence-nodes` "births
+exactly one presence node and no key-set node"). Cost: one literal per
+written container per batch while unsubscribed; one persistent node once
+subscribed. Deferred releases (last subscriber left while staged) run at
+the same fold.
+
+**Three rules settled by pins during the port:**
+
+1. *Staging visibility is the pass's* (`stagingReader()`): `context`, not
+   the owner — a handler, an effect callback or `onSettled` has an owner
+   and no pass and sees the committed frame (`effect-phase-writes`
+   "onSettled store write-then-read returns the settled value"); frame
+   readers (children-forbidden) see committed; the pass that reads a
+   staging is `stagedRead`-marked (the seam's hook for S2). Applied to the
+   backing (`readSource`) and to an existing leaf's untracked read
+   (`nodeValue`) alike.
+2. *Adoption notifies at adoption time* (#3296): a setter's returned
+   replacement diffs against the view the nodes were last told — the
+   draft's pending backing when one preceded it in the batch, else
+   committed — and writes the nodes **then**, so a draft write followed by
+   a replacement back to the committed value cancels (the effect never
+   sees the draft's value). `next` deferred this diff to the fold (`ab`);
+   on L2 the fold's commit of the leaf would have published the draft's
+   value first. `ab` is gone with it; the fold keeps only the path copy.
+3. *The enumerator check is per pass*: a descriptor read tracks presence
+   unless **this pass** already holds the container (`_gen === _depGen`
+   while recomputing) — a link left from a previous pass is stale.
+
+**Tests.** Signals **2821 passed** (§30: 2219; +602 — `createStore`,
+`overlay`, `write-floor`, `native-collections`, `storePath`,
+`enumerator-presence-nodes`, `shallow`, `snapshot`, `overlay-rebuild-3689`,
+`fold-slot-identity`, the plain rows of `optimistic-list-mutation-matrix`
+and the oracle matrices, …), **0 passed→not-passed** vs §30 and vs the
+carved core; carved 1963 (was 2536). Remaining non-carved failures 47:
+**holds, S2** — `posture-store-parity` ×16, `visibility-oracle-store` ×8,
+`latest-held-till-flush` ×5, `store-unchanged-read-independent-write-3688`
+×3, `spec-async-semantics` "a plain store written in a transition pends
+exactly the touched leaves", `fold-scheduling`, `lane-authority-twins`;
+**affects' store half, S5** — `question-scoped-pending` ×6,
+`affects-audit-2893`, `affects-propagation`; `rules-index` ×3;
+`refresh-await` (projection). Web **924** (0 passed→not-passed; +33 — the
+spread/`For`/store fixtures that only needed `createStore`); solid 691
+(+13).
+
+**Size (br / min).** Floor 7189 → **7215 (+26 / +30)**: the sweep
+dispatch, the commit hook call and the `$TRACK` symbol — the two seams'
+whole cost. `+ createStore` 7243 → **11134** = floor **+3919 br** (gate
+was ≤ +4000; `next`: +7340), `store/store.js` 11505 min + `types.js` 664
++ `target.js` 225. Hello world 9712 (+24), CSR 12726 (+42; `mapArray`'s
+`$TRACK`), hydrating 17521 (+11), every store family 23704 (+3820;
+`next` 30789 — projections/reconcile/optimistic still out), page base
+36219 (+25), page live 39809 (+72). Observe +31/+32.
+
+**Process note.** A full-suite comparison mid-step showed 79 "regressions"
+in files that pass alone; the command had used `timeout`, which macOS
+lacks, so nothing ran and the JSONs compared were yesterday's (§28 S1's
+labels `s1c`/`s1d` collided). Labels are now `st<step><letter>`.
+
+**Next.** S2 (holds) — the bet: the container node already stages through
+`queuePendingNode`, so the park/`land`/`blocked` paths see it; the work is
+the held leaf (`CONFIG_HELD` on writes under a transaction), born-held
+first reads from the two frames, `latest`/`isPending` on leaves, and the
+A17 kanban fixture.
+
 ---
 
 ## Appendix — ledger (verbatim)

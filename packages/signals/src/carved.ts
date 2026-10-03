@@ -10,17 +10,13 @@ const carved = (name: string) => (): never => {
   throw new Error(`[CARVED] ${name} was removed on the measurement branch`);
 };
 
-// ── store family (carve 1) ──────────────────────────────────────────────────
-export const $TRACK: unique symbol = Symbol("store-track") as any;
-export const $PROXY: unique symbol = Symbol("store-proxy") as any;
-export const $TARGET: unique symbol = Symbol("store-target") as any;
-export const $RECORD: unique symbol = Symbol("store-record") as any;
+// ── store family (carve 1) — plain stores back (§31 S1); the rest return
+// with S-U (utils), S3 (projection/reconcile) and S4 (optimistic). ────────
 export const SOURCE_PLAIN = 0;
 export const SOURCE_OMIT = 1;
 export const SOURCE_PROXY = 2;
 export const SOURCE_MEMO = 3;
 export const SOURCE_MERGE = 4;
-export const isWrappable = carved("isWrappable");
 export const mergeSources = carved("mergeSources");
 export const mergeView = carved("mergeView");
 export const viewOf = carved("viewOf");
@@ -35,15 +31,8 @@ export const OmitView = carved("OmitView");
 export const MergeView = carved("MergeView");
 export const sourceOwners = carved("sourceOwners");
 export const createProjection = carved("createProjection");
-export const storeIsShallow = carved("storeIsShallow");
-export const storeHasFamily = carved("storeHasFamily");
-export const storeHasOptimisticFamily = carved("storeHasOptimisticFamily");
 export const createOptimisticStore = carved("createOptimisticStore");
-export const createStore = carved("createStore");
 export const reconcile = carved("reconcile");
-export const snapshot = carved("snapshot");
-export const deep = carved("deep");
-export const storePath = carved("storePath");
 export const merge = carved("merge");
 export const omit = carved("omit");
 

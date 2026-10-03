@@ -273,9 +273,11 @@ describe("@solidjs/signals node literals per tier", () => {
     const slots: Record<string, string[]> = {
       owner: ["_name"],
       signal: ["_name", "_owner"],
-      slotSignal: ["_name"],
-      computed: ["_name"],
-      effect: ["_name"]
+      // L2 (§31 S1): the slot literal carries `_owner` like `signal` — the
+      // attribution stamp fills a slot instead of adding a field after.
+      slotSignal: ["_name", "_owner"],
+      computed: ["_name", "_devWindows"],
+      effect: ["_name", "_devWindows"]
     };
     for (const kind of Object.keys(slots)) {
       expect(prod[kind], `${kind} prod literal carries a slot`).not.toContain("_name");

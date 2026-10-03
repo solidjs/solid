@@ -604,6 +604,9 @@ export class GlobalQueue implements IQueue {
   declare static _observeFlight: ((c: Computed<any>) => void) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
   declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
+  /** Store (store/store.ts): fold the pending backings whose container
+   * nodes this flush committed — the owned-raw model's one mutation point. */
+  declare static _storeCommit: (() => void) | undefined;
   // `affects()` marks (affects.ts): the probe's coverage test, the releases
   // at a landing and at the seam (ambient marks).
   declare static _marked: ((el: Signal<any> | Computed<any>) => boolean) | undefined;
@@ -763,6 +766,9 @@ export class GlobalQueue implements IQueue {
       heldTrims.length = 0;
     } else {
       commitPendingNodes();
+      // The store folds its committed pending backings at the same moment
+      // (store/store.ts installs it; absent otherwise).
+      GlobalQueue._storeCommit?.();
       // The flush committed: an unchanged pass's stale tail goes now. Not
       // after a later pass this flush that threw (NotReady included — it
       // keeps its full list, `_depsTail` marking where it stopped) or that

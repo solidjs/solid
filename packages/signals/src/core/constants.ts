@@ -103,6 +103,11 @@ export const CONFIG_INPUTS_PUBLISHED = 1 << 10;
  * committed truth and `_pendingValue` a transaction's staging throughout —
  * a value's world is where it lives, never a bit. */
 export const CONFIG_OVERRIDE = 1 << 11;
+/** A store slot node (`slotSignal`): a leaf, presence, container or deep
+ * witness of a store target. One literal, no `_x` at birth; the last-one-out
+ * sweep dispatches it to the store's shared release hook (graph.ts) instead
+ * of a per-node `_unobserved` closure. */
+export const CONFIG_SLOT_NODE = 1 << 12;
 /** Lanes — the node carries a written guess (`optimisticWrite`): its own
  * source recomputing it, or a plain write landing on it, is the truth
  * (`supersede`). A lane's derived staging is not. */

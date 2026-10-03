@@ -1,5 +1,6 @@
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_SLOT_NODE,
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
@@ -9,6 +10,15 @@ import { deleteFromHeap } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { bumpNotifyEpoch, dirtyQueue } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
+
+/** The store's shared slot-node release handler (store/store.ts installs it
+ * once) — a live binding read directly by the sweep site: no wrapper frame,
+ * no null check (a CONFIG_SLOT_NODE node existing implies the store module
+ * loaded and registered it). */
+export let slotUnobservedHook: (node: Signal<any>) => void;
+export function setSlotUnobserved(fn: (node: Signal<any>) => void): void {
+  slotUnobservedHook = fn;
+}
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
@@ -23,7 +33,10 @@ export function unlinkSubs(link: Link): Link | null {
   else {
     dep._subs = nextSub;
     if (nextSub === null) {
-      dep._x?._unobserved?.();
+      // Store slot nodes dispatch to the ONE shared hook — no per-node
+      // unobserved closure, no NodeExtension to hold it.
+      if (dep._config & CONFIG_SLOT_NODE) slotUnobservedHook(dep as Signal<any>);
+      else dep._x?._unobserved?.();
       // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
       // A pending node is exempt: its in-flight async work is an observer —
       // tearing down would orphan the work and re-execute it on the next

@@ -12,6 +12,7 @@ import {
 } from "./core/index.js";
 import { accessor, type Accessor } from "./signals.js";
 import { attrHooks } from "./core/attribution-hooks.js";
+import { $TRACK } from "./store/types.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
 
@@ -309,6 +310,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
   (this._owner as Root)._parentComputed = getOwner() as Root["_parentComputed"];
   const newItems = this._list() || [],
     newLen = newItems.length;
+  (newItems as any)[$TRACK]; // top level tracking (a store array's container node)
 
   runWithOwner(this._owner, () => {
     let i: number,

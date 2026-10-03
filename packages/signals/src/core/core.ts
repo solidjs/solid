@@ -21,6 +21,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
+  CONFIG_SLOT_NODE,
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
   CONFIG_STAGED,
@@ -847,7 +848,10 @@ export function computed<T>(
         _x: null,
         // The slot is always present (hidden class); plumbing leaves it
         // unset, which `ownerPath` skips.
-        _name: options?._plumbing ? undefined : (options?.name ?? "computed")
+        _name: options?._plumbing ? undefined : (options?.name ?? "computed"),
+        // Observe: the verdict windows this pass entered (verdict.ts) — a
+        // slot, so the stamp is never a write after construction.
+        _devWindows: 0
       } as Computed<T>)
     : ({
         id: inheritId(options, transparent, context),
@@ -1065,7 +1069,8 @@ export function createEffectNode<T>(
         _cleanup: undefined as (() => void) | undefined,
         _type: type,
         _x: null,
-        _name: options?.name ?? "effect"
+        _name: options?.name ?? "effect",
+        _devWindows: 0
       } as any)
     : ({
         id: inheritId(options, transparent, context),
@@ -1223,6 +1228,62 @@ export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
 
 export function isEqual<T>(a: T, b: T): boolean {
   return a === b;
+}
+
+/** A store slot node (CONFIG_SLOT_NODE): the whole node in ONE literal — the
+ * target and key as back-refs in place of closures (`equals` is a method
+ * call, `this` the node; the unobserved sweep dispatches to one shared hook,
+ * graph.ts), the store's wrap cache (`px`/`pxv`: the proxy last served for
+ * this key and the raw it wrapped — one pointer compare replaces a WeakMap
+ * lookup per read) and the accessor verdict (`acc`) pre-shaped. No options
+ * object, no NodeExtension, no post-construction expandos. `ownedWrite` is
+ * baked in: the setter carries the owned-scope guard; node-level writes are
+ * the store's notification machinery. The observe literal adds the label
+ * slot (the store relabels it `store.<key>` when the engine is installed). */
+export function slotSignal<T>(
+  v: T,
+  equals: (a: T, b: T) => boolean,
+  host: object,
+  key: PropertyKey,
+  acc: boolean
+): Signal<T> {
+  const s = __OBSERVE__
+    ? {
+        _equals: equals,
+        _config: CONFIG_OWNED_WRITE | CONFIG_SLOT_NODE,
+        _value: v,
+        _subs: null,
+        _subsTail: null,
+        _time: clock,
+        _pendingValue: NOT_PENDING,
+        _notifiedAt: -1,
+        _x: null,
+        _host: host,
+        _key: key,
+        acc,
+        px: undefined,
+        pxv: undefined,
+        _name: "signal",
+        _owner: null as Owner | null
+      }
+    : {
+        _equals: equals,
+        _config: CONFIG_OWNED_WRITE | CONFIG_SLOT_NODE,
+        _value: v,
+        _subs: null,
+        _subsTail: null,
+        _time: clock,
+        _pendingValue: NOT_PENDING,
+        _notifiedAt: -1,
+        _x: null,
+        _host: host,
+        _key: key,
+        acc,
+        px: undefined,
+        pxv: undefined
+      };
+  if (__DEV__) (s as any)._internal = false;
+  return s as unknown as Signal<T>;
 }
 
 /**
@@ -1745,7 +1806,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * the committed world and its lane's runs wait that round, so the held
  * write never shows through the lane. A verdict lane's work reads the
  * frame's proposal like a frame reader (verdict.ts). */
-function stagedRead(c: Computed<any>): void {
+export function stagedRead(c: Computed<any>): void {
   c._flags |= REACTIVE_STAGED_READ;
   if (passLane !== null && passLane._parent?._verdict !== passLane) stagedReaders.push(c);
 }
@@ -1764,7 +1825,7 @@ function stagedScreen(c: Computed<any>): boolean {
   return true;
 }
 
-function ownedScopeWriteMessage(owner: Owner) {
+export function ownedScopeWriteMessage(owner: Owner): string {
   const name = (owner as any)._name;
   return name
     ? `${REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE} (in ${name})`
