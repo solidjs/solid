@@ -4223,6 +4223,83 @@ the held leaf (`CONFIG_HELD` on writes under a transaction), born-held
 first reads from the two frames, `latest`/`isPending` on leaves, and the
 A17 kanban fixture.
 
+## 33. Stores on L2 — S2: plain stores under holds (2026-10-03, 3:00–3:40 AM)
+
+**The bet paid.** The park loop already held every staged node of a joined
+flush — the container node and the leaves included, since they stage
+through `queuePendingNode` — and `land` commits them; nothing in the hold
+model needed a store case. The store's work was to make every read answer
+through core:
+
+- **Every read of a key with a leaf is core's `read(leaf)`**, tracked or
+  not (`nodeValue` is `read` + the accessor sentinel; the hot inline path
+  no longer requires an observer). `read` applies the hold rules — a
+  render effect outside the parking flush sees committed and is re-derived
+  at the landing, a memo joins the future, a frame reader sees committed,
+  A28 for unflushed writes — and the store stops restating them
+  (`next`'s `nodeValue`/`pendingBackingVisible`/`heldMaskView` twins).
+- **A node is born from the two frames** (`bornStaged`): `_value` from the
+  committed backing, a staging from the pending one when they differ
+  (slot equality), **held by the container's transaction** when the
+  container is held — A29 born-held and #3706's "the unit of the hold is
+  the key" with no `heldKeys` ledger: an unchanged key stages nothing and
+  holds no one. Leaves and presence nodes alike.
+- **Structural reads take the container's frame**: `ownKeys`, an
+  enumerator's descriptors and `deep()` read `read(k)` — the node's value
+  IS the backing, chosen by the hold rules. A lone descriptor read is
+  gated by its presence node's answer and describes that frame.
+- **Untracked reads of un-noded keys by a pass ask the container** —
+  `read(k)` with no link: the frame rules and the staged-read mark, from
+  core. A verdict window with no reader (a top-level `isPending`/`latest`)
+  judges the container **only for a key the batch changed** (`keyChanged`;
+  A22: pending is per key) and reads committed for the rest.
+- **Adoption is staged, not eager**: a setter's returned replacement is
+  the container's `_pendingValue` and the pending backing until the fold
+  (a handler reads committed until the flush; a hold keeps it staged with
+  the rest); the draft clones an adopted unowned object before writing it.
+- **Snapshot**: R27's "sees pending" is the batch's own staging; a held
+  one (another transaction's future) only from its draft.
+- The fold hook moved **after the landings** (`settle`), so a landing's
+  commits fold in the same seam.
+
+**Core (one change, flagged):** `read()`'s held arm — `frameRead` /
+`joinPass` — now applies to **untracked** reads by a pass too, in the fast
+block and the slow path (`untrack` is about dependencies, not about which
+world a pass derives from). Pinned by `posture-store-parity` S4/S5's
+*signal* twins, which had never run on L2 (the file was carved at
+collection): a memo created mainline during a hold that `untrack`s a held
+signal is born held and publishes nothing until the commit; a render
+effect's untracked read of a foreign hold is served committed and replays
+at the landing. Cost: +2 min B, −2 br on the floor.
+
+**Re-pins (flagged):** `posture-store-parity` S6 — the pin recorded a
+*divergence* ("store publishes the pending 1 (CURRENT; rule says 0) …
+flip it to `[0]` then"); the store now follows the signal by construction,
+flipped as instructed. `visibility-oracle-store` structure rows — the
+`latest` cell was a pinned **violation** ("latest() sees the parked VALUE
+but not the parked STRUCTURE — the structural channels have no latest()
+tunnel", 2026-09-17); structure rides the presence and container nodes,
+which `latest` tunnels like any node, so the rule holds; re-pinned to the
+rule.
+
+**Tests.** Signals **2849 passed** (S1 2821; +28), **0 passed→not-passed**
+vs S1 and vs the carved core. Green: `latest-held-till-flush`,
+`store-unchanged-read-independent-write-3688`, `spec-async-semantics` A22
+(plain store in a transition pends exactly the touched leaves),
+`visibility-oracle-store`'s plain rows (value and structure channels),
+`posture-store-parity` S1–S7 for signal / store / store+node,
+`fold-scheduling`. Remaining non-carved 19: `posture-store-parity` ×6 and
+`lane-authority-twins` (`reconcile` — S3), `refresh-await` (projection —
+S3), `question-scoped-pending` ×6 + `affects-*` ×2 (affects' store half —
+S5), `rules-index` ×3. Web 924, solid 691 (unchanged). The A17 kanban
+fixture needs the optimistic store — S4.
+
+**Size (br / min).** Floor 7215 → 7213 (−2 / +2); `+ createStore` 11134 →
+**11269 (+135 / +237)** = floor +4056 (born-held, `keyChanged`, the
+descriptor gate); every store family 23787 (+83); hello world 9697 (−15),
+CSR 12703 (−23), page live 39780 (−29) — brotli noise on the ±2 min
+elsewhere.
+
 ---
 
 ## Appendix — ledger (verbatim)

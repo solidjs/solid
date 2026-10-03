@@ -766,9 +766,6 @@ export class GlobalQueue implements IQueue {
       heldTrims.length = 0;
     } else {
       commitPendingNodes();
-      // The store folds its committed pending backings at the same moment
-      // (store/store.ts installs it; absent otherwise).
-      GlobalQueue._storeCommit?.();
       // The flush committed: an unchanged pass's stale tail goes now. Not
       // after a later pass this flush that threw (NotReady included — it
       // keeps its full list, `_depsTail` marking where it stopped) or that
@@ -801,6 +798,9 @@ export class GlobalQueue implements IQueue {
       GlobalQueue._endLanes?.(u);
       land(u);
     }
+    // The store folds the pending backings whose container nodes committed
+    // — this flush's, or a landing's (store/store.ts installs it).
+    GlobalQueue._storeCommit?.();
     // Marks declared outside a transaction release at the seam: verdict-only,
     // nothing to show (affects.ts).
     GlobalQueue._releaseAmbientMarks?.();

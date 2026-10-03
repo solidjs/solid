@@ -1589,12 +1589,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(el._config & CONFIG_OVERRIDE) && // lanes: the slow path's one arm
     (!__DEV__ || !strictRead)
   ) {
-    if (c && tracking) {
-      link(el, c as Computed<any>);
+    if (c) {
+      if (tracking) link(el, c as Computed<any>);
       // L2: a pass that reads something already in the future joins it —
       // the one mechanism behind "a write that reaches the future joins
-      // it". Frame readers (children-forbidden, A32) see committed below and
-      // stay out; a render effect outside a parking flush sees committed and
+      // it". Tracked or not (`untrack` is about dependencies, not about
+      // which world a pass derives from — posture-store-parity S4/S5): a
+      // derivation of a held write published mainline would tear. Frame
+      // readers (children-forbidden, A32) see committed below and stay
+      // out; a render effect outside a parking flush sees committed and
       // stays out too (rule 3, `frameRead`). The pass remembers it read the
       // future (REACTIVE_JOINED): a first pass that did is born held (A29),
       // wherever it was created. Lane work sees the screen (`frameRead`).
@@ -1622,13 +1625,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // Rule 3: this read serves the committed value to a render effect outside a
   // parking flush (decided after the pull below — a pull can join).
   let committed = false;
-  if (c && tracking) {
-    link(el, c as Computed<any>);
-    if ((owner as Computed<unknown>)._fn) pullComputed(owner, c as Computed<any>);
-    // L2, as in the fast block above. A node born into the future
-    // (uninitialized) has no committed value: every reader derives from the
-    // future there, a render effect included (A29: a stale reader of it
-    // cannot fall back to the committed frame and enters instead).
+  if (c) {
+    if (tracking) {
+      link(el, c as Computed<any>);
+      if ((owner as Computed<unknown>)._fn) pullComputed(owner, c as Computed<any>);
+    }
+    // L2, as in the fast block above (tracked or not). A node born into the
+    // future (uninitialized) has no committed value: every reader derives
+    // from the future there, a render effect included (A29: a stale reader
+    // of it cannot fall back to the committed frame and enters instead).
     if (
       el._config & CONFIG_HELD &&
       !(el._config & CONFIG_OVERRIDE) &&

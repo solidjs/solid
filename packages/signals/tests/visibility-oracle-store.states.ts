@@ -363,10 +363,9 @@ export const STATES: State[] = [
           "A15 / A26: a stale reader of a parallel transaction shows committed structure"
         ),
         childrenForbidden: rule(false, "A32"),
-        latest: violation(
+        latest: rule(
           true,
-          false,
-          "A11 for structure: latest() sees the parked VALUE of `s.n` (#3075) but not the parked STRUCTURE — the has-node / key-set / descriptor channels have no latest() tunnel (structural oracle, 2026-09-17)"
+          "A11 for structure (fixed on L2, §31 S2): structure rides the presence nodes and the container node, which latest() tunnels like any node — the 2026-09-17 violation (no latest() tunnel for the structural channels) is gone by construction"
         ),
         isPending: rule(true, "A19 (i) / CS-R33: a held add pends the key"),
         authoritative: rule(true, "A17 carve-out: staged structure is authoritative")

@@ -31,6 +31,7 @@
 import { attrHooks } from "../core/attribution-hooks.js";
 import {
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_HELD,
   NOT_PENDING,
   REACTIVE_RECOMPUTING_DEPS
 } from "../core/constants.js";
@@ -44,7 +45,8 @@ import {
   slotSignal,
   stagedRead,
   strictRead,
-  untrackDepth
+  untrackDepth,
+  verdict
 } from "../core/core.js";
 import {
   asyncTailFlights,
@@ -56,7 +58,7 @@ import {
 } from "../core/dev.js";
 import { setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
-import { GlobalQueue, queuePendingNode, schedule } from "../core/scheduler.js";
+import { GlobalQueue, holdNode, queuePendingNode, schedule, txOf } from "../core/scheduler.js";
 import type { Computed, Owner, Signal } from "../core/types.js";
 import {
   $OWNER,
@@ -257,10 +259,22 @@ setSlotUnobserved((node: any): void => {
   else releaseSlot(node);
 });
 
+/** A node born while its container has a staging is born from the two
+ * frames (A29): committed from the committed backing, the staging from the
+ * pending one — and held by the container's transaction when the container
+ * is held (#3706: the unit of the hold is the key — a key the batch left
+ * unchanged stages nothing and holds no one). */
+function bornStaged(target: StoreTarget, node: Signal<any>, staged: any): void {
+  if (node._equals && node._equals(node._value, staged)) return;
+  queuePendingNode(node);
+  node._pendingValue = staged;
+  const k = target.k;
+  if (k !== null && k._config & CONFIG_HELD) holdNode(node, txOf(k));
+}
+
 export function getNode(
   target: StoreTarget,
   key: PropertyKey,
-  current: any,
   // First-read dedupe (create-floor slice 2): the get trap probes
   // accessor-ness right before creating the node — pass the verdict through
   // so creation skips the second descriptor scan. -1 = unknown (other
@@ -273,13 +287,20 @@ export function getNode(
     // Accessor-ness resolved ONCE per node (no per-object descriptor scan
     // on reads): accessor keys serve through Reflect.get with the proxy
     // receiver.
+    const pb = target.pb;
     const created: Signal<any> = (node = slotSignal(
-      current,
+      target.v[key as any],
       slotNodeEquals,
       target,
       key,
-      accKnown === -1 ? isOwnAccessor(target.pb ?? target.v, key) : accKnown === 1
+      accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
     ));
+    if (pb !== null && !(created as any).acc)
+      bornStaged(
+        target,
+        created,
+        target.del !== null && target.del.has(key) ? undefined : pb[key as any]
+      );
     // Attribution-only: name store property nodes by path segment so
     // attribution chains and wide-scope warnings read "store.todos" (or
     // "todos.title" when the store was declared with a name), not
@@ -297,15 +318,14 @@ export function getNode(
   return node;
 }
 
-export function getHasNode(
-  target: StoreTarget,
-  key: PropertyKey,
-  present: boolean
-): Signal<boolean> {
+export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolean> {
   const nodes = (target.h ??= Object.create(null));
   let node: Signal<boolean> | undefined = nodes[key];
   if (node === undefined) {
-    const created = (node = slotSignal(present, isEqual, target, key, false));
+    const created = (node = slotSignal(key in target.v, isEqual, target, key, false));
+    const pb = target.pb;
+    if (pb !== null)
+      bornStaged(target, created, key in pb && !(target.del !== null && target.del.has(key)));
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
     markDescendants(target);
@@ -494,7 +514,12 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
  * for the fold at the flush's commit. */
 function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   let pb = target.pb;
-  if (pb === null) {
+  if (pb !== null && !isOwned(pb)) {
+    // An adopted object awaiting its fold is the user's: the draft writes a
+    // clone of it (the clone becomes the staging).
+    pb = target.pb = cloneRaw(pb, target);
+    target.k!._pendingValue = pb;
+  } else if (pb === null) {
     const v = target.v;
     if (
       !target.ch &&
@@ -561,15 +586,17 @@ function flattenOverlay(t: StoreTarget, pb: Record<PropertyKey, any>): void {
 }
 
 /** Adoption (a setter's returned replacement; reconcile and projection
- * landings in S3): the incoming object becomes the backing by reference —
- * no clones, no user-object mutation, ownership resets to shared. Eager by
- * contract. The nodes are told now, diffed against the view they were LAST
- * told (#3296): the draft's pending backing when one preceded the adoption
- * this batch — its node writes were real, and the adoption's re-stage
- * cancels or confirms each — else the committed backing. The path copy
- * waits for the fold. */
+ * landings in S3): the incoming object becomes the backing by reference at
+ * the fold — no clones, no user-object mutation, ownership resets to
+ * shared. It is the container's staging until then (signal parity: a
+ * handler reads the committed frame until the flush; a hold keeps it
+ * staged with the rest). The nodes are told now, diffed against the view
+ * they were LAST told (#3296): the draft's pending backing when one
+ * preceded the adoption this batch — its node writes were real, and the
+ * adoption's re-stage cancels or confirms each — else the committed
+ * backing. */
 export function adoptPB(target: StoreTarget, incoming: Record<PropertyKey, any>): void {
-  queueFold(target); // records the pre-batch old before we swap
+  queueFold(target);
   let base: Record<PropertyKey, any>;
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
@@ -578,14 +605,12 @@ export function adoptPB(target: StoreTarget, incoming: Record<PropertyKey, any>)
   const k = getContainerNode(target);
   if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
   k._pendingValue = incoming;
-  target.pb = null;
+  target.pb = incoming;
   target.ovl = false;
   target.del = null;
   target.sc = 0;
   target.a = false;
   target.wk = null; // adoption supersedes staged trap writes
-  target.v = incoming;
-  target.ch = (incoming as any)[$TARGET] !== undefined;
   const owner: StoreTarget | undefined = (incoming as any)[$OWNER];
   if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
   else (target.fam?.map ?? storeLookup).set(incoming, target);
@@ -655,9 +680,10 @@ function drainFolds(): void {
           t.pb = null;
           t.wk = null;
         } else {
-          // The clone becomes the committed backing (path copy below).
+          // The clone (or adopted object) becomes the committed backing
+          // (path copy below).
           t.v = t.ovl ? materializePB(t) : pb;
-          t.ch = false;
+          t.ch = (t.v as any)[$TARGET] !== undefined;
           t.pb = null;
           t.wk = null;
         }
@@ -1007,25 +1033,43 @@ function stagingReader(): Computed<any> | null {
   return c === null || c._config & CONFIG_CHILDREN_FORBIDDEN ? null : c;
 }
 
-/** The backing a read serves (RUL-1): the draft and the write override read
- * the pending backing; the committed frame otherwise, except a pass — which
- * reads the staging and is marked as having read it, so the seam can hold
- * it with the write on later steps. */
-function readSource(target: StoreTarget): Record<PropertyKey, any> {
+/** The backing a read serves (RUL-1, signal parity): the draft and the write
+ * override read the pending backing; a tracked reader reads it too — only
+ * for presence and descriptors, its leaf (born from the two frames) decides
+ * the value through core; a context-free or frame reader the committed
+ * backing; a pass reading UNTRACKED asks the container node — `read()`
+ * without a link: the node's value is the backing, chosen by the hold rules
+ * (a render effect outside the parking flush sees committed and re-derives
+ * at the landing; a memo joins the future; a staging is marked read). */
+function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey, any> {
   const pb = target.pb;
   if (pb === null) return target.v;
-  if (inDraft(target) || getWriteOverride()) return pb;
-  const c = stagingReader();
-  if (c === null) return target.v;
-  stagedRead(c);
-  return pb;
+  if (inDraft(target) || getWriteOverride() || getObserver() !== null) return pb;
+  if (stagingReader() === null) {
+    // A verdict window (`isPending`/`latest`) with no reader (a top-level
+    // probe) judges the container like any node — for a key the batch
+    // changed; an unchanged key is committed and final (#3706, A22: pending
+    // is per key).
+    if (verdict === null || (key !== undefined && !keyChanged(target, key))) return target.v;
+  }
+  return readNode(target.k!);
 }
 
-/** Value of a key with a leaf for an UNTRACKED reader: the leaf's staging
- * for a pass, the backing otherwise. */
+/** Did this batch change `key` (value by slot equality, or presence)? */
+function keyChanged(target: StoreTarget, key: PropertyKey): boolean {
+  const pb = target.pb!;
+  const v = target.v;
+  if (target.del !== null && target.del.has(key)) return key in v;
+  if (key in pb !== key in v) return true;
+  const nv = pb[key as any];
+  const ov = v[key as any];
+  return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
+}
+
+/** Value of a key with a leaf: core's — `read()` links a tracked reader and,
+ * tracked or not, applies the hold and A28 rules a signal's read does. */
 function nodeValue(node: Signal<any>, backing: any): any {
-  const v =
-    node._pendingValue !== NOT_PENDING && stagingReader() !== null ? node._pendingValue : backing;
+  const v = readNode(node);
   return v === (FORCE as any) ? backing : v;
 }
 
@@ -1040,11 +1084,8 @@ function serveDataKey(
 ): any {
   let v = backingValue;
   if (!inDraft(target)) {
-    if (getObserver() !== null) {
-      if (node === undefined) node = getNode(target, key, backingValue, accKnown);
-      const nv = readNode(node);
-      v = nv === (FORCE as any) ? backingValue : nv;
-    } else if (node !== undefined) v = nodeValue(node, backingValue);
+    if (node === undefined && getObserver() !== null) node = getNode(target, key, accKnown);
+    if (node !== undefined) v = nodeValue(node, backingValue);
   }
   if (target.s) return serveShallow(target, key, v);
   if (node !== undefined) {
@@ -1057,6 +1098,15 @@ function serveDataKey(
   }
   if (!isWrappable(v)) return v;
   return draftServe(target, wrap(v, target, key as any));
+}
+
+/** The backing a structural read serves: a tracked reader subscribes to the
+ * container and reads the frame core serves it — committed or staging by
+ * the hold rules (`read()` on the node: the node's value IS the backing);
+ * anyone else reads by `readSource`. */
+function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
+  if (!inDraft(target) && getObserver() !== null) return readNode(getContainerNode(target));
+  return readSource(target);
 }
 
 /** Pollution keys are never served from the prototype (core R30). */
@@ -1079,22 +1129,23 @@ const traps: ProxyHandler<StoreTarget> = {
       }
       // user symbols fall through to the generic path
     }
-    const src = readSource(target);
+    const src = readSource(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
     if (target.del !== null && src === target.pb && target.del.has(key)) {
-      if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key, undefined));
+      if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key));
       return undefined;
     }
-    // Hot inline case: existing PLAIN node (non-accessor), tracked read of a
-    // present data key — the dbmon/uibench effect re-read shape. Skips
+    // Hot inline case: existing PLAIN node (non-accessor) read outside any
+    // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
+    // it (linking a tracked reader; the hold rules either way). Skips
     // serveDataKey's frame, the FORCE compare (only accessor keys ever hold
     // the sentinel), and isWrappable for primitives. ONE node-map lookup
     // serves this block and the accessor probe below.
     const node0 = target.n?.[key as any];
     if (writeScopes === null) {
       const nodeH = node0;
-      if (nodeH !== undefined && (nodeH as any).acc !== true && getObserver() !== null) {
+      if (nodeH !== undefined && (nodeH as any).acc !== true) {
         const nv = readNode(nodeH);
         if (nv === null || typeof nv !== "object") return nv;
         if (target.s) return serveShallow(target, key, nv);
@@ -1158,7 +1209,7 @@ const traps: ProxyHandler<StoreTarget> = {
       } else acc = false;
       if (acc) {
         if (!inDraft(target) && getObserver() !== null)
-          readNode(node0 ?? getNode(target, key, undefined, accProbe));
+          readNode(node0 ?? getNode(target, key, accProbe));
         const v = Reflect.get(src, key, receiver);
         if (target.s) return serveShallow(target, key, v);
         return isWrappable(v) ? draftServe(target, wrap(v, target, key)) : v;
@@ -1187,7 +1238,7 @@ const traps: ProxyHandler<StoreTarget> = {
       // Reading a currently-absent own key subscribes to it (R12) — for any
       // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
       if (v === undefined && !inDraft(target)) {
-        if (getObserver() !== null) readNode(getNode(target, key, undefined, accProbe));
+        if (getObserver() !== null) readNode(getNode(target, key, accProbe));
         const node = target.n?.[key];
         if (node) {
           const nv = nodeValue(node, undefined);
@@ -1210,31 +1261,33 @@ const traps: ProxyHandler<StoreTarget> = {
   has(target, key) {
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
     if (key === $OWNER || key === $RECORD) return false;
-    const src = readSource(target);
-    let present = key in src;
-    if (present && target.del !== null && src === target.pb && target.del.has(key)) present = false;
-    if (!inDraft(target) && getObserver() !== null) readNode(getHasNode(target, key, present));
-    return present;
+    // A tracked reader's presence node answers (born from the two frames;
+    // core decides which it sees); everyone else reads the backing.
+    if (!inDraft(target) && getObserver() !== null) return readNode(getHasNode(target, key));
+    const src = readSource(target, key);
+    return key in src && !(target.del !== null && src === target.pb && target.del.has(key));
   },
 
   ownKeys(target) {
-    if (!inDraft(target) && getObserver() !== null) readNode(getContainerNode(target));
-    return visibleKeys(target, readSource(target));
+    return visibleKeys(target, enumerationSource(target));
   },
 
   getOwnPropertyDescriptor(target, key) {
     if (key === $OWNER || key === $RECORD) return undefined;
     const obs = getObserver();
-    const src = readSource(target);
-    const desc = visibleDescriptor(target, src, key);
     // An enumerator (spread, Object.entries) already holds the container
-    // node; a descriptor read on its own tracks presence (R13).
-    if (!inDraft(target) && obs !== null && !observerHoldsContainer(target, obs)) {
-      let present = key in src;
-      if (present && target.del !== null && src === target.pb && target.del.has(key))
-        present = false;
-      readNode(getHasNode(target, key, present));
-    }
+    // node and reads its frame; a descriptor read on its own tracks
+    // presence (R13).
+    const enumerating = obs !== null && !inDraft(target) && observerHoldsContainer(target, obs);
+    let src: Record<PropertyKey, any>;
+    if (enumerating) src = enumerationSource(target);
+    else if (obs !== null && !inDraft(target)) {
+      // The presence node's frame (core decides which) is the one described.
+      const present = readNode(getHasNode(target, key));
+      if (!present) return undefined;
+      src = target.pb !== null && key in target.pb ? target.pb : target.v;
+    } else src = readSource(target, key);
+    const desc = visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
     if (!(key === "length" && Array.isArray(target))) desc.configurable = true;
     return desc;
@@ -1525,10 +1578,9 @@ export function deep<T>(value: T): T {
     return ct;
   };
   const walkT = (t: StoreTarget): void => {
-    const src = readSource(t);
+    const src = enumerationSource(t);
     if (visited.has(src)) return;
     visited.add(src);
-    readNode(getContainerNode(t));
     readNode(getDeepNode(t));
     for (const key of visibleKeys(t, src)) {
       const desc = visibleDescriptor(t, src, key);
@@ -1570,9 +1622,13 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
       if (outer !== undefined) t = outer;
     }
     if (t.fam !== null) fam = t.fam;
-    const pb = t.pb;
-    if (pb !== null && t.ovl) materializePB(t);
-    const backing = t.pb ?? t.v;
+    // R27: a snapshot sees the batch's pending backing — a held one (another
+    // transaction's future) only from its own draft.
+    let backing = t.v;
+    if (t.pb !== null && (inDraft(t) || getWriteOverride() || !(t.k!._config & CONFIG_HELD))) {
+      if (t.ovl) materializePB(t);
+      backing = t.pb!;
+    }
     if (backing === src) break;
     src = backing;
   }
