@@ -3966,6 +3966,151 @@ but seams. Find out in S2 with S1's ~1,400 pins green, not in S4.
 - **Q-G — Order.** `utils.ts` first (S-U) — independent, unblocks ~120 web
   pins and the spread runtime. Confirm, or start at S1.
 
+### 31.7 Rulings (maintainer, 2026-10-03, 1:13–2:20 AM) — amend §31.3–31.6
+
+Talked through one by one. Where a ruling corrects T0's text, the
+correction is stated here and §31.3/§31.5 are read as amended.
+
+**Why firewalls exist (maintainer).** "Projections exist so writes to
+signals in a pure computation are safe. … It is important that before
+reading any value within, the parent computation is up to date, without
+making it a hard dependency of the reader." And: "firewall being
+projection-only makes sense" — a generic pure-signals firewall API (Milo /
+R3) never became ergonomic and had no use case outside projections; the
+perf-critical shapes (`mapArray`) are made safe by construction instead.
+**Pinned as the invariant:** every read served *through* a projection
+first brings the derive up to date — **pull, don't link.**
+
+**Q-A — container node: (a), ruled**, with the benchmark as the gate
+("we go with it for A but we need to benchmark this carefully up front").
+Clarifications recorded during the discussion: it *is* the `$TRACK`
+(key-set) node given a value; arrays are where both its roles (structural
+notification, tear-free `length`) matter, objects mostly the staging role
+(un-noded keys under a hold, adoption, optimistic key add/delete); **at
+creation it adds nothing** (lazy, replaces `k`); at write time it replaces
+the per-batch side tables (`foldOlds`, `foldBatches`, `heldKeys`, `hv`
+clones, `ab`, `tentativePBs`, `stagedTruthPB`) with one slot; the one new
+allocation is a node for a written container no read asked for — created
+once per container, persistent, measured at S1 (escape hatch: materialize
+only when a hold is live or a subscriber exists). The draft overlay stays
+(RUL-1 parity: context-free reads see committed until flush); direct
+write-through into an owned backing for plain sync writes would remove it
+at the price of that parity — **a ruling, listed, not taken.**
+**jsfb's selection pattern** (a record keyed by id; each row reads
+`selection[id]` — n 1:1 subscriptions, no `selected` on the row model, no
+1→n fan-out; the live key set slides as ids grow) was walked through:
+absent-key reads make leaves (R1), writes are O(written) via `wk` with the
+overlay (never the clone) for large records, deleted keys behave as
+signals, and **release on unmount is non-negotiable** (below).
+*Benchmark plan:* two-arm A/B with the existing harnesses
+(`octane-dbmon-local/ab-dbmon.mjs` builds `iso-dbmon-deep` + `-shallow`
+per Solid root and alternates rounds; `iso-jfb-deep`/`-shallow`/`-signal`;
+`solid-uibench` headless two-arm) — arm A = `next` @ 309b08730, arm B =
+this branch after S1; **both shapes for every scenario** ("shallow might
+overshadow it anyway? We'd need to compare both versions for each");
+creation first. **No third arm** (maintainer, 2:26 AM: "don't need a
+`next` port if we still have octane / vue-vapor to test against —
+comparatively it only needs to be approximate; we are competing with them
+as much as ourselves"): the references are **vue-vapor and octane-tsrx**
+(the harness's same-machine references; "we recorded comparative numbers
+geomean previously"), `next` is the second column, and approximate
+attribution is enough. *Metric, as recorded before:* `run.mjs`'s per-op
+ratio vs vue-vapor, and `analyze-iso.mjs`'s per-scenario **geomean** vs a
+baseline under the no-default-regression rule (12 % noise band).
+*Reference points on record:* 2026-08-17 shipped rebaseline
+(`baselines/`), dbmon vs vue-vapor — octane-tsrx 1.07× mount / 1.22× tick;
+`solid-next` **3.61× mount / 5.15× tick** / 1.95× tick_partial / 2.52×
+remount / 1.64× sort / 3.68× unmount; `solid-shallow` 1.54× / 0.97× / 0.70×
+/ 1.20× / 0.90× / 2.70×; diff-skip ratio (tick_partial ÷ tick) next 0.162
+vs vue-vapor 0.430 — the fine-grained strength in numbers, the thing not to
+lose. 2026-09-15 `results-iso/a28ab-next-r3`: dbmon-deep mount 19.6 ms /
+tick 9.2 vs shallow 8.2 / 1.9 (2.44× / 4.33×). **The bar for S1/S4:**
+deep's mount and tick vs vue-vapor/octane close from there, diff-skip
+held. **Order of benchmarking (maintainer, 2:32 AM): signals first** —
+"that is at the core of everything; if signals are slow this will be too"
+— then stores; **not overnight**: "focus on building over benchmarks …
+we don't have the new version to compare against yet. Build it out now;
+we benchmark starting with signals later." Runs only when asked.
+
+**Q-B — firewall link: (a), ruled** — and T0's (a) was underspecified:
+status was never the hard part; **height ordering and the freshness pull**
+are. Corrected mechanism: the firewall is `fam.node`, reached target →
+family at the **trap**; before serving *any* read through that target
+(tracked, untracked, `in`, enumeration, `length`) the trap does
+`updateIfNecessary(fam.node)` (freshness), throws the derive's status
+(uninitialized/pending/errored), bumps the reader's height past the derive
+(scheduling), and links **only the leaf**. No `_firewall` on the leaf
+literal (14 fields, was 15), no `||` in core `read()`, no firewall child
+chain (`_child`/`_nextChild`/`_prevChild`, `CONFIG_FW_CHILDREN`) — the
+family enumerates live leaves through its targets' `n` tables for pending
+propagation (A9), and a released leaf is gone from the only index that
+knew it, so the #3351/#3503 retention class cannot recur. The owned-scope
+write exemption is `ownedWrite` on the literal + the user guard at the
+setter — `mapArray`'s pattern. Chained backings compose (inner trap does
+the inner pull). S3 audits for any path that reads a projection leaf
+without the trap (attribution naming, the `affects` resolver).
+**One core seam returns, flagged now:** the slot-node dispatch at the
+last-one-out site (`CONFIG_SLOT_NODE` bit test → store hook) — a leaf has
+`_x: null` by design and cannot carry `_unobserved`; without the dispatch
+jsfb leaks one node per row ever rendered. Tens of bytes on the floor; the
+only core slot stores get back. The container node follows the same
+release rule (deferred while it holds staging or a lane value; released at
+its commit if still unobserved — `next`'s `deferSlotRelease`).
+
+**Q-C — draft visibility: ruled as proposed.** A setter's draft reads its
+own transaction's staging (A25 corollary, RUL-1); a foreign transaction's
+staging is the screen (A17). Gabriel's kanban fixture pins the foreign
+half.
+
+**Q-D — optimistic landing: identity through the landing is the
+contract; replay decided on evidence.** Maintainer: "ultimately the value
+of optimistic stores is reference stability when backend data changes. An
+optimistic new item that matches the server returning a new object with
+the same id in the same position means we don't run `For` again. We
+reconcile the truth against the optimistic projected override on
+landing." On L2 that is one rule applied per node — *a landing on a guess
+stages beneath it and confirms it when equal (A18/A24)*: the array
+container's guess (the optimistic arrangement in `_x._lane`) is confirmed
+by the derive's rows when keys and positions match (RUL-2's key-set
+predicate) → silent, `For` stays; the key-matched row target adopts the
+server object as its backing behind the same proxy; row leaves write only
+where values differ. A contradicting landing is `supersede` on the
+container — truth replaces the arrangement, equality-gated. Diff baseline
+for key matching is the lane view (R28). **Retained-setter replay (the
+2026-08-31b continuation-rebase half) is built *after* the matrix says
+which rows need it:** S4 ships the table above without replay, runs
+`optimistic-list-mutation-matrix` (899), and the maintainer rules on the
+failing rows.
+
+**Q-E — perf contracts: defaults kept unless a measurement says
+otherwise** (the maintainer did not want to rule blind). Lazy nodes; the
+sweep bit; O(written) via `wk`; overlay drafts for large records;
+**reachability-pruned diffs (§6d — "our reconcile focuses on only diffing
+the listened path and not every cell")**; zero-allocation adoption for
+unread subtrees. Thresholds tunable. The S1/S4 benchmarks are the ruling;
+none changes on size grounds alone.
+
+**Q-F — deep is the design center; §31's premise inverted.** Maintainer:
+"keyed `For` by id is very not us. Even if shallow is winning benchmarks I
+want to endeavor to do better. Most benchmarks are these immutable data
+swaps which favor the shallow pattern, but fine-grained updates favor our
+typical non-shallow approach." Recorded: (1) deep primary; shallow stays
+as the flag on the same target (values served raw — `next`'s `s`), no
+legacy port, **no retirement bar either way**; default and docs unchanged.
+(2) Plain `reconcile` keeps its character — reference-skip on unowned
+equal pairs, key matching, reachability-pruned descent, leaf writes only
+for listened changed cells; the R28/R29 split is S4's. (3) "Do better" has
+a target: **deep's cost on the immutable-swap shape** — (a) wrap-on-read
+per rendered row (the creation hit: target literal, per-row lookup entry —
+`$OWNER` covers owned objects, user objects still pay the WeakMap, O8's
+cached-wrapper slot is the candidate — and proxy creation) and (b) the
+adoption walk, already O(listened). The deep-vs-shallow gap on jfb
+create/append in the S1 A/B is the number to shrink.
+
+**Q-G — flexible**; order settles as the work does. Default reading: S1
+first (critical path; earliest benchmark evidence), S-U at the first
+natural pause.
+
 ---
 
 ## Appendix — ledger (verbatim)
