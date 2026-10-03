@@ -3629,6 +3629,113 @@ live +15 (brotli; −113 min). Both the floor and hello world are now below
 the pre-replay tree (7202 / 9692) and the floor below the carved one
 (7193).
 
+## 30. Attribution on L2 (2026-10-02, late night)
+
+**Scope.** The attribution engine (`core/attribution.ts`, observe tier) was
+kept intact through the carve and the replay; what the carve removed was
+its *feed* — the hooks the lane and verdict layers fired and the census the
+engine took of a hold. This step re-feeds it from L2. Nothing about the
+engine's records, findings, or thresholds changed; the web
+`performance-tracks` consumer is unchanged and its three hold/fallback pins
+pass again.
+
+**The feed, hook by hook.**
+
+- *Holds.* `holdStart(t)` fires at the seam when the frame parks (the
+  transaction the frame's stagings went into); `holdEnd()` after the
+  effects of the next flush that parked nothing; `transitionSettled(t)` in
+  `land`, before the reruns; `transitionMerged(from, into)` in `merge`.
+  `Transition` is `Transaction` (type alias in `attribution-hooks.ts`).
+- *The hold census* (`censusHold`): the hold's nodes are `t._nodes`; its
+  action is `t._open > 0`; its **blockers** are `blockersOf(t)` (scheduler,
+  observe-only export): the pending non-effect nodes of the transaction
+  that `blockedBy` still finds blocking — the reporter effect itself is not
+  a blocker (it was listed as one in the first cut, as `view`/`page`).
+  **Acknowledgements:** `optimistic` from `_laneGuesses(t)` (lanes.ts,
+  observe-only hook: the written guesses of the lanes under `t`);
+  `affects` from `t._marks`; `isPending`/`latest` from the verdict readers
+  downstream of the hold's nodes — a pass that entered a window is
+  `CONFIG_VERDICT`, and the observe tier notes *which* window on the pass
+  (`_devWindows`, bit 1 `isPending`, bit 2 `latest`; set in
+  `markVerdictReader`, cleared at the top of each recompute). The reader
+  credited is the sub itself when it is an effect, else the first effect it
+  reaches. `isCompanion` (a node that is a lane pass's result, never a
+  write anyone made — not an acknowledgement) is `CONFIG_OVERRIDE` without
+  `CONFIG_GUESS`.
+- *Optimistic reverts.* `optimisticReverted(node, shown, truth, how)` fires
+  from `supersede` when a **shown** guess is replaced by a differing truth
+  (`l._shown` — a guess the screen never showed reverts silently, as
+  before), and from `dissolveLane`'s landing branch for a guess re-homed
+  with a truth that differs from the slot. `how` is `"superseded"` when a
+  landing displaces the guess and `"reverted"` when the correction round
+  found nothing beneath it (the value it covered comes back). The label is
+  observe-only state in lanes.ts (`reverting`, set around the correction
+  round's `supersede`) — passing it as a parameter leaked ~46 min B into
+  `lanes.js` for every lane consumer; moved off the signature.
+- *Fallbacks.* `boundaryFallback(b, tree, shown, transition)` fires from
+  `boundaries.ts`: on the swap to the fallback (with the transaction the
+  swap lands with — the frame's `flushTransaction`, the pass's `passTx`,
+  or `null` for lane work and no transaction) and on the swap back. A
+  mount's synchronous first show has no drain of its own, and the engine's
+  display instant for a show is the next `flushEnd` — one is scheduled
+  (`schedule()` when nothing is running) so the record exists to close. The
+  three fallback pins (`timeline` "one record per showing",
+  `feedback` "how long each fallback showed, and counts flashes",
+  `findings` FALLBACK_FLASH) were all this one missing drain.
+- *Run posture.* `recomputeEnd(el, create, changed, optimistic, transition,
+  held)`: `optimistic` is `lane !== null` (the pass ran as lane work —
+  overlay, never waste), `transition` is "the pass ran under a hold"
+  (`flushTransaction`/`passTx` set, or the node `CONFIG_HELD`), `held` is a
+  staged value as before.
+
+**Re-pins (tests whose shape, not expectation, L2 changed) — flagged:**
+
+- `attribution.test.ts` "tags optimistic runs with their phase": the guess
+  is written in an action's hold (lane contract 2: a guess in a frame that
+  does not park is as if it never happened — its effect runs are plain).
+- `settle-walk-invariant.test.ts` ×2: the fake node's derived-override
+  shape is `CONFIG_OVERRIDE` + `_x._lane` (was `CONFIG_DERIVED_OVERRIDE` +
+  `_overrideValue`). **Found by it:** the `SETTLE_WALK_UNINITIALIZED_SOURCE`
+  tripwire (dev) had no L2 exclusion for a lane derivation's first landing
+  (sits in the slot until the lane shows) — added, `__DEV__` only.
+- `untracked-read-after-await.test.ts` "names the source, not a bare
+  shadow, for a latest() read": expects `a` (was `latest(a)`). L2's
+  `latest` is a window over the read, not a shadow node — the diagnostic
+  names the source itself; the pin's concern (a bare `computed`) cannot
+  arise. A dev-only decoration to `latest(a)` would need a core↔verdict
+  glue export; not worth it.
+- `treeshake.test.ts` ×3 + two exclusion lists: `core/optimistic.ts` →
+  `core/lanes.ts` (the verdict → engine coupling is now `verdictLane` /
+  `display` / `laneValueOf` from lanes.ts — asserted positively as before).
+- `createMemo.test.ts` "resolveAsync" and `async-chain-supersession` #3374
+  ×3: `PRIMITIVE_IN_EFFECT_CALLBACK` shapes missed by the first sweep (they
+  were in the "pass alone" bucket then — the files halted earlier). `resolve`
+  is now called from the owning scope; the `<Show keyed>` remount is the
+  compiled shape (`remount(key, children)`: the flow effect's compute owns
+  the child). Expectations unchanged; all pass.
+- `scheduler-livelock.test.ts`: `zombieQueue` import dropped (one heap on
+  this tree, T10); the dirty-queue flag check and the remount livelock check
+  stand.
+
+**Tests.** Signals **2219 passed** (`affects` commit 2156; +63: attribution
+×44, the re-pins above, and the fallback/perf families), **0
+passed→not-passed** vs the `affects` commit and vs the carved core; web
+**891** (+3: the three `performance-tracks` hold/fallback pins); solid 678.
+Remaining non-carved signal failures: **6** — `rules-index` ×3 (src cites
+plan sections §19/§28; resolves when the rulings move to the spec at PR
+time), `dist-artifacts` observe-literals (`slotSignal`, a store-leaf
+constructor — returns with stores), `refresh-await` (store),
+`createStore` "Select Promise" (store). The non-store signal story is
+otherwise green.
+
+**Size (br / min).** Prod tiers unchanged except `+ isPending/latest`
+9206 → 9209 (+3 br / +1 min: `markVerdictReader(1|2)`'s argument). Observe
+tiers carry the feed: CSR observe 14235 → 14249 (+14 / +67), CSR observe +
+attribution 28084 → 28470 (+386 / +1226) — against `next`'s 16421 / 30654.
+Floor 7189, hello world 9688, CSR 12684, hydrating 17510, page base 36194,
+page live 39737 (−18 br vs §29 — brotli noise on an identical-logic
+`lanes.js`).
+
 ---
 
 ## Appendix — ledger (verbatim)

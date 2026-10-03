@@ -1084,16 +1084,14 @@ describe("async compute", () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     let value: number | undefined;
+    // `resolve` creates a root: called from the owning scope, not from an
+    // effect callback (PRIMITIVE_IN_EFFECT_CALLBACK — an ownerless root
+    // created while the effects drain).
     createRoot(() => {
       const a = createMemo(async1);
-      createEffect(
-        () => {},
-        () => {
-          (async () => {
-            value = await resolve(a);
-          })();
-        }
-      );
+      (async () => {
+        value = await resolve(a);
+      })();
     });
     expect(value).toBe(undefined);
     await new Promise(r => setTimeout(r, 0));

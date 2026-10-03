@@ -270,7 +270,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // still holds the previous run's links (the subscriptions that could have
   // triggered this run, and the baseline for the engine's subscription diff).
   let devChanged = false;
-  if (__OBSERVE__ && attrHooks !== null) attrHooks.recomputeStart(el, create);
+  if (__OBSERVE__) {
+    (el as any)._devWindows = 0;
+    if (attrHooks !== null) attrHooks.recomputeStart(el, create);
+  }
   // CARVE 2: lane posture resolution (OPTIMISTIC_DIRTY, derived-override
   // re-derivation, lane adoption through deps) went with the optimistic engine.
   if (!create) {
@@ -697,8 +700,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (create || isEffect === EFFECT_TRACKED) trimStaleDeps(el);
     else heldTrim(el);
   }
+  // Observe: the posture the run executed under — lane work (optimistic:
+  // overlay, never waste), a transaction's pass (held), or plain.
   if (__OBSERVE__ && attrHooks !== null)
-    attrHooks.recomputeEnd(el, create, devChanged, false, false, el._pendingValue !== NOT_PENDING);
+    attrHooks.recomputeEnd(
+      el,
+      create,
+      devChanged,
+      lane !== null,
+      flushTransaction !== null || passTx !== null || (el._config & CONFIG_HELD) !== 0,
+      el._pendingValue !== NOT_PENDING
+    );
   // A staged value, a parked frame (L2: the commit retires it), or status the
   // commit sweep must settle (a pending or uninitialized pass), queues the
   // node for this flush's commit. A first pass queues only when pending or

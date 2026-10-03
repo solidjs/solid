@@ -195,18 +195,21 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
 
 /** The pass entering a verdict window is a verdict reader (CONFIG_VERDICT):
  * a dependency going pending re-derives it, the verdict having changed. */
-function markVerdictReader(): void {
+function markVerdictReader(window: number): void {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
   if (c !== null) {
     c._config |= CONFIG_VERDICT;
     (c as Computed<any>)._flags |= REACTIVE_PROBED;
+    // Observe tier: which windows this pass entered (1 `isPending`, 2
+    // `latest`) — the hold census names the affordance (attribution.ts).
+    if (__OBSERVE__) (c as any)._devWindows = ((c as any)._devWindows ?? 0) | window;
   }
 }
 
 /** The windows. */
 export function latest<T>(fn: () => T): T {
-  markVerdictReader();
+  markVerdictReader(2);
   const prev = latestActive;
   latestActive = true;
   setWindows();
@@ -219,7 +222,7 @@ export function latest<T>(fn: () => T): T {
 }
 
 export function isPending(fn: () => any): boolean {
-  markVerdictReader();
+  markVerdictReader(1);
   const prevProbing = probing;
   const prevFound = probeFound;
   probing = true;

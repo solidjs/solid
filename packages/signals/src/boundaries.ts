@@ -69,11 +69,14 @@ import {
   haltReactivity,
   joinFuture,
   passLane,
+  passTx,
+  resolveTx,
   schedule,
   setPassLane,
   txOf,
   type Transaction
 } from "./core/scheduler.js";
+import { attrHooks } from "./core/attribution-hooks.js";
 import type { Computed, Owner, Signal } from "./core/types.js";
 import { flatten } from "./flatten.js";
 import { accessor, type Accessor } from "./signals.js";
@@ -637,6 +640,10 @@ function createBoundary<T>(
       // ran the content at a mount): the fallback.
       if (isCollecting(b) && b._readers.size !== 0) return fallback(b);
       b._initialized = true;
+      // Observe: the fallback stops showing (a hide before its commit means
+      // it never displayed — the engine knows the swap it was staged with).
+      if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
+        attrHooks.boundaryFallback(b, b._tree, false);
       b._fallback = false;
       release(b);
       // Shown: the slot leaves its reveal order (a later re-arm gates nobody
@@ -666,6 +673,19 @@ function fallback<T>(b: Boundary): T {
     setPassLane(b._lane);
     b._output!._flags |= REACTIVE_LANE_READ;
     b._lane = null;
+  }
+  // Observe: a loading boundary starts showing its fallback — the swap lands
+  // with the frame's transaction, or this drain commits it (lane work, or no
+  // transaction). A mount's synchronous first show has no drain of its own:
+  // one is scheduled so the engine's display instant (`flushEnd`) comes.
+  if (__OBSERVE__ && !b._fallback && b._type & STATUS_PENDING && attrHooks !== null) {
+    attrHooks.boundaryFallback(
+      b,
+      b._tree,
+      true,
+      passLane !== null ? null : flushTransaction !== null ? resolveTx(flushTransaction) : passTx
+    );
+    if (!globalQueue._running) schedule();
   }
   b._fallback = true;
   return b._show(b) as T;

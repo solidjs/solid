@@ -1,19 +1,11 @@
 import type { ChangeOrigin } from "./attribution.js";
+import type { Transaction } from "./scheduler.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
-/**
- * CARVE 3: the transaction runtime was removed on the measurement branch. The
- * observe tier still types its hold/settle hooks against the transaction
- * shape, so the shape survives here as a type only — nothing constructs one.
- */
-export interface Transition {
-  _time: number;
-  _asyncReporters: Map<Computed<any>, Set<Computed<any>>>;
-  _pendingNodes: Signal<any>[];
-  _actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
-  _acted?: boolean;
-  _done: boolean | Transition;
-}
+/** The hold the engine records against (L2: scheduler.ts `Transaction`).
+ * Outward-facing language says *holds*; the engine's hook names keep their
+ * historical `transition` wording. */
+export type Transition = Transaction;
 
 /**
  * Observe-tier hook points for the reactive core.

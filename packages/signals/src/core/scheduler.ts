@@ -116,6 +116,8 @@ export interface Transaction {
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */
 const transactions: Transaction[] = [];
+/** Observe tier: this flush parked its transaction (`holdStart` fired). */
+let holding = false;
 /** A transaction (listed here) or a lane (lanes.ts lists its own). */
 export function newTransaction(lane: boolean, parent: Transaction | null = null): Transaction {
   const t: Transaction = {
@@ -207,6 +209,7 @@ export function merge(t: Transaction, f: Transaction): void {
   t = resolveTx(t);
   f = resolveTx(f);
   if (t === f || t._lane || f._lane) return;
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionMerged(f, t);
   t._into = f;
   f._open += t._open;
   f._acted ||= t._acted;
@@ -246,6 +249,24 @@ export function blocked(t: Transaction): boolean {
   return r;
 }
 let judge: Transaction | null = null;
+/** Observe tier: the flights `t` waits on — its pending held sources a
+ * frame reader observes (`blockedBy`'s predicate, collected; the readers
+ * themselves are not sources). */
+export function blockersOf(t: Transaction): Computed<any>[] {
+  const out: Computed<any>[] = [];
+  for (let i = 0; i < t._nodes.length; i++) {
+    const n = t._nodes[i] as Computed<any>;
+    if (
+      !(n as any)._type &&
+      n._statusFlags & STATUS_PENDING &&
+      !(n._flags & REACTIVE_DISPOSED) &&
+      (n._x!._transaction === null || txOf(n) === t) &&
+      blockedBy([n], t)
+    )
+      out.push(n);
+  }
+  return out;
+}
 /** `t`'s own flights only — not its lanes': a flight the frame asked for
  * (a refetch, a plain load) is authoritative; a lane's derivation flight is
  * not (lanes.ts, the body-end corollary). A pending reader counts only if
@@ -581,6 +602,8 @@ export class GlobalQueue implements IQueue {
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
   declare static _observeFlight: ((c: Computed<any>) => void) | undefined;
+  // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
+  declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
   // `affects()` marks (affects.ts): the probe's coverage test, the releases
   // at a landing and at the seam (ambient marks).
   declare static _marked: ((el: Signal<any> | Computed<any>) => boolean) | undefined;
@@ -627,6 +650,10 @@ export class GlobalQueue implements IQueue {
       scheduled = dirtyQueue._max >= dirtyQueue._min || pendingNodes.length !== 0;
       this.run(EFFECT_RENDER);
       this.run(EFFECT_USER);
+      if (__OBSERVE__ && holding) {
+        holding = false;
+        attrHooks!.holdEnd();
+      }
       if (__DEV__ && !scheduled) {
         // Fully drained: no staged value may survive this point unqueued or
         // unheld.
@@ -780,6 +807,14 @@ export class GlobalQueue implements IQueue {
     // effect phase applies a committed frame.
     const u = t !== null ? resolveTx(t) : null;
     const parked = u !== null && transactions.indexOf(u) !== -1;
+    // Attribution hook: this flush found its transaction incomplete — its
+    // writes stay staged, its runs are stashed below. Before the effect
+    // phase (the lanes' display-ahead runs are the visible acknowledgers);
+    // `holdEnd` fires after it (`flush`).
+    if (__OBSERVE__ && parked && attrHooks !== null) {
+      attrHooks.holdStart(u!);
+      holding = true;
+    }
     for (let i = 0; i < 2; i++) {
       if (parked) u!._queues[i] = u!._queues[i].concat(own[i]);
       this._queues[i] = lanes[i].concat(parked ? [] : own[i], this._queues[i]);
@@ -881,6 +916,9 @@ export function reruns(u: Transaction): void {
 
 /** The landing: the held frame becomes the frame. */
 function land(u: Transaction): void {
+  // Attribution hook: judged complete — its held writes commit next
+  // (`_nodes` still lists them).
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionSettled(u);
   reruns(u);
   if (u._marks !== null) GlobalQueue._releaseMarks!(u._marks);
   // Old children die in the commits (cleanups first), then the stashed

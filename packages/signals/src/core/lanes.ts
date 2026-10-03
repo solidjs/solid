@@ -49,6 +49,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { attrHooks } from "./attribution-hooks.js";
 import { ext, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { enqueueSub } from "./heap.js";
@@ -302,10 +303,19 @@ export function laneStage(
  * then. A confirmation is silent (A17): the truth stays staged beneath the
  * guess for the parent's commit, the guess stays the value; only a reader
  * of the truth (CONFIG_AUTHORITATIVE) is told its view changed. */
+/** Observe: the correction round is replacing a guess with the value it
+ * covered (no landing beneath it) — `optimisticReverted`'s "reverted". */
+let reverting = false;
+
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
   const l = txOf(n);
   const parent = l._parent ?? l;
   if (changed) {
+    // Observe: a displayed guess is being replaced by a differing truth — a
+    // landing's (superseded), or the value it covered (reverted: the body
+    // ended with nothing coming true).
+    if (__OBSERVE__ && l._shown && attrHooks !== null)
+      attrHooks.optimisticReverted(n, n._x!._lane, value, reverting ? "reverted" : "superseded");
     dissolveLane(l, parent, n);
     // What the screen showed stays the screen until the parent lands (A18
     // (c): display and untracked reads keep the override until the commit).
@@ -362,11 +372,24 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest commits (its frame with
-      // it); what the screen showed and changes notifies. A derivation the
-      // revert re-derives (dirtied by the guess's notification — listed
-      // before it) shows the lane's answer beside inputs that are the truth
-      // now: a fresh reader of its flight observes it (#3648, #3651; #3305's
-      // commit beneath a flight).
+      // it); what the screen showed and changes notifies. Observe: a
+      // displayed guess that lifts to something else — the truth staged
+      // beneath it (superseded by a landing held there) or the value it
+      // covered (reverted: nothing came true).
+      if (__OBSERVE__ && guess && l._shown && attrHooks !== null) {
+        const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : n._value;
+        if (truth !== slot)
+          attrHooks.optimisticReverted(
+            n,
+            slot,
+            truth,
+            n._pendingValue !== NOT_PENDING ? "superseded" : "reverted"
+          );
+      }
+      // A derivation the revert re-derives (dirtied by the guess's
+      // notification — listed before it) shows the lane's answer beside
+      // inputs that are the truth now: a fresh reader of its flight observes
+      // it (#3648, #3651; #3305's commit beneath a flight).
       x._transaction = null;
       if (!effect && !guess) n._pendingValue = latest;
       commitPendingNode(n);
@@ -512,7 +535,9 @@ function laneCorrections(): boolean {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
         const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : n._value;
+        if (__OBSERVE__) reverting = n._pendingValue === NOT_PENDING;
         supersede(n, truth, !n._equals || !n._equals(n._x!._lane, truth));
+        if (__OBSERVE__) reverting = false;
       }
     }
   }
@@ -668,5 +693,17 @@ GlobalQueue._laneSeams = leaks => {
 };
 GlobalQueue._laneCorrections = () => lanes.length !== 0 && laneCorrections();
 GlobalQueue._endLanes = endLanes;
+if (__OBSERVE__)
+  GlobalQueue._laneGuesses = t => {
+    const out: Signal<any>[] = [];
+    for (let i = 0; i < lanes.length; i++) {
+      const l = lanes[i];
+      if (resolveTx(l._parent!) !== t) continue;
+      for (let j = 0; j < l._nodes.length; j++)
+        if (l._nodes[j]._config & CONFIG_GUESS && l._nodes[j]._x!._transaction === l)
+          out.push(l._nodes[j]);
+    }
+    return out;
+  };
 GlobalQueue._lanesBlocked = lanesBlocked;
 GlobalQueue._verdictLane = verdictLane;

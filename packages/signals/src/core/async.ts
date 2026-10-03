@@ -199,15 +199,21 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   // still set, and a comparator throw on that landing leaves the node
   // uninitialized but errored — both have real truth to reveal. Only an
   // uninitialized node with neither a staged value nor an error is a settle
-  // that never happened. Silent in production; loud in dev so a future call site that violates
-  // the contract fails in its author's test run instead of wedging a
-  // downstream app.
+  // that never happened. A lane derivation's first landing is truth too: it
+  // sits in the lane slot until the lane shows (#3648). Silent in
+  // production; loud in dev so a future call site that violates the
+  // contract fails in its author's test run instead of wedging a downstream
+  // app.
   if (__DEV__) {
     const sources = el._x?._pendingSources;
     if (
       el._statusFlags & STATUS_UNINITIALIZED &&
       el._pendingValue === NOT_PENDING &&
       !el._x?._error &&
+      !(
+        (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE &&
+        el._x!._lane !== NOT_PENDING
+      ) &&
       // A replacement source makes this a cleanup-only transfer: removing
       // self leaves the source and every propagated dependent parked. No
       // sources (or self alone) would release readers without truth.
