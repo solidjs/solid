@@ -575,7 +575,6 @@ export class GlobalQueue implements IQueue {
   static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
   static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
-  static _verdictSeam: ((parked: boolean) => void) | undefined;
   static _observeFlight: ((c: Computed<any>) => void) | undefined;
   // Boundaries (boundaries.ts): the display consumers between an observer
   // and the root. `_catch` — status from a frame reader, nearest boundary
@@ -736,9 +735,6 @@ export class GlobalQueue implements IQueue {
       }
       heldTrims.length = 0;
     }
-    // The verdict is in: the readers that asked before it run again if the
-    // frame parked (verdict.ts).
-    GlobalQueue._verdictSeam?.(t !== null);
     // Lanes: a blocked one parks its frame (its own flight is up); an
     // unblocked one reveals this round's work. Then land every transaction
     // no frame is waiting on — its lanes end with it. Backwards: a landing
@@ -747,11 +743,11 @@ export class GlobalQueue implements IQueue {
     // are collected apart and ordered below.
     const own = this._queues;
     const lanes: [QueueCallback[], QueueCallback[]] = (this._queues = [[], []]);
-    // Lane passes that read this frame's stagings (core.ts `stagedRead`)
-    // read held writes if it parked: the lane seam re-derives them on the
-    // committed world and holds their lanes' runs this round.
-    GlobalQueue._laneSeams?.(t !== null ? laneStagedReads : null);
-    laneStagedReads.length = 0;
+    // The passes that read this frame's stagings as the screen read held
+    // writes if it parked: the lane seam re-derives them on the committed
+    // world (a lane's runs wait this round).
+    GlobalQueue._laneSeams?.(t !== null ? stagedReaders : null);
+    stagedReaders.length = 0;
     this._queues = [[], []];
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
@@ -901,10 +897,21 @@ function append<T>(a: T[], b: T[]): void {
 
 /** Nodes staged this flush (`_pendingValue` set), committed at its end. */
 const pendingNodes: Signal<any>[] = [];
-/** Lane passes that read a staging of this flush (core.ts `stagedRead`):
- * if the frame parks they read a held write — re-derived next round, their
- * lanes' runs waiting. */
-export const laneStagedReads: Computed<any>[] = [];
+/** Passes that read a staging of this flush as the screen — lane work
+ * (core.ts `stagedRead`), a verdict reader before the frame's verdict
+ * (verdict.ts): if the frame parks they read a held write — re-derived next
+ * round (lanes.ts; a lane's runs wait that round). */
+export const stagedReaders: Computed<any>[] = [];
+
+/** A15's stale reader: `c` was served the committed value of a node `t`
+ * holds (a render effect, a verdict reader, lane work) and is re-derived
+ * after `t`'s landing (`_reruns`). Once per pass. */
+export function staleReader(c: Computed<any>, t: Transaction): void {
+  if (!(c._flags & REACTIVE_FRAME_READ)) {
+    c._flags |= REACTIVE_FRAME_READ;
+    t._reruns.push(c);
+  }
+}
 
 export function queuePendingNode(node: Signal<any>): void {
   if (__DEV__) lastStagedNodeName = (node as any)._name ?? null;

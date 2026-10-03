@@ -3503,6 +3503,67 @@ layer's growth is the rules above (`laneRead`'s leaf arms, `judge`, the
 dissolve flag); the floor fell (the `blockedBy` condition simplified). S2
 consolidates.
 
+**S2 — verdicts and consolidation (with S3/S4 folded in), 2026-10-02
+night.** Signals 2138, web 888, solid 678, 0 passed→not-passed throughout.
+
+*The unification, as far as it goes.* What is lane-like about a verdict
+reader was already the lane's: `verdictLane(t)` is a lane (judged at the
+seam like any — S0 amendment 2), its readers' runs go through the lane's
+queues, their reruns through `_reruns`. What S2 merged: the **watchers**
+(`verdictWatchers`/`verdictSeam`/`_verdictSeam`) into `stagedReaders` —
+the list lane work already used for "I read this flush's staging as the
+screen; if the frame parks, re-derive me" (S0 amendment 8) — a verdict
+reader before the frame's verdict is the same reader (one skip kept: a
+watcher a later read of the same pass routed into a verdict lane answered
+for itself — one run, #3322/#3540); the four copies of the stale-reader
+registration into one `staleReader(c, t)` (scheduler.ts) used by
+`frameRead`, `stagedScreen`, `laneRead` and the verdict routes;
+`observeFlight` as `verdictRead(c, t, rerun)`; the verdict HELD arm's
+stale-reader sub-arm on the lane's seam verdict (`_held`) instead of a live
+`blocked()` walk; the OVERRIDE arm's tail on `display()`. **What stays
+apart, and why:** `verdictValue`'s arms are value semantics (A24, quiet
+re-asks, A19 exc. 1, A28's unflushed staging, A10's `stagedScreen`), not
+membership — a "lane leaf whose value is computed" still needs each of
+them; collapsing the guess/derivation/held predicates into one needs a
+`(GUESS || !latestActive)`-shaped exemption that would be cleverness, not a
+rule. `verdict.js` 2477 → **2091 min** (−386).
+
+*lanes.ts consolidation.* `dissolveLane` restructured by outcome (landing /
+a guess of a dissolving lane / a corrected derivation) — with one rule
+generalized: **every guess of a dissolving lane is re-homed with its truth**
+(a landing held beneath it, else the value it covered), not only those with
+a landing — which removed `laneCorrections`' pre-staging loop (the body-end
+case was the general one). `judged` as a prefix count of `lanes` (nothing
+dissolves a lane between `applyGuesses` and the seam loop now that
+corrections run before it). `lanes.js` 3496 → **4212 min** (+716 over the
+pre-replay file; its rules: the leaf arms, `_held`/`_shown`, the
+correction round, the leak repair, the dissolve outcomes, `laneWrite` for
+landings on lane derivations, `laneStage`'s leave rule moved from
+`recompute`'s tail).
+
+*S4 checks.* `arm`'s `verdictDerived` branch is still load-bearing (#3528
+one-boundary: the `on` probe of a pending-not-held memo cannot be routed
+before the frame has a transaction) — kept; the `_initialized` re-home goes
+through `flip`. The `shown()` dedupe in the checkout arrays is still needed
+(`latest` verdict re-derivations re-apply equal values; effects have no
+comparator — by design) — kept.
+
+*Size (br), reds → S2:* floor 7202 → **7208 (+6)**; render+signal +18; CSR
+12677 → 12721 (+44); `+ isPending/latest` 9025 → **9212 (+187)**; page base
++19; page live 39519 → 39740 (+221). Against the S0 gate (7202 / 9025):
+the floor is 6 over, the layer 187 over. The 187 is the rules S0/S1
+added, each with its pin (above); the consolidation recovered 57 of S1's
+peak. Recorded as the cost of the rulings, not forced: §28.14's stop
+condition was the slot costing more than the arms it removed, and it did
+not — the slot is ~12 B; the arms it removed came back as rules the old
+representation could not express.
+
+*State.* The lane family is green except the two store/`affects` pins
+(`createOptimistic` declared reload; `refresh-await`). Remaining failures
+are the pre-existing families (attribution, rules-index, treeshake,
+dist-artifacts, store/`affects`). Next: stores (with Gabriel's kanban
+fixture), `affects()`, attribution on L2.
+
 ---
 
 ## Appendix — ledger (verbatim)

@@ -41,6 +41,7 @@ import {
   NOT_PENDING,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
+  REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_IN_HEAP,
   REACTIVE_LANE_READ,
@@ -97,7 +98,7 @@ export function laneValueOf(el: Signal<any> | Computed<any>): unknown {
 }
 /** What the screen shows for a lane's node: the lane's value once the lane
  * has revealed, the committed truth before. */
-function display(el: Signal<any> | Computed<any>): unknown {
+export function display(el: Signal<any> | Computed<any>): unknown {
   const v = el._x!._lane;
   return el._x!._transaction!._shown && v !== NOT_PENDING ? v : el._value;
 }
@@ -350,65 +351,64 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     const x = n._x!;
     if (n === except || x._transaction !== l) continue;
     const effect = (n as any)._type;
-    const shown = l._shown && !effect ? x._lane : n._value;
     const guess = n._config & CONFIG_GUESS;
-    if (into !== null && guess && n._pendingValue !== NOT_PENDING) {
-      // A truth held beneath the guess: the parent's to land; its readers
-      // re-derive from it. What the screen showed stays the screen until
-      // then (A18 (c)).
-      if (l._shown) n._value = x._lane;
-      x._lane = NOT_PENDING;
-      n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
-      list(n, into);
-      insertSubs(n);
-      continue;
-    }
-    if (!effect) {
-      // (A node with no lane value — its lane pass errored or pends — has
-      // nothing to commit or show.)
-      if (into === null) {
-        if (!guess) n._pendingValue = laneValueOf(n);
-      } else if (l._shown && shown !== NOT_PENDING) n._pendingValue = shown;
-    }
+    const slot = x._lane;
+    // What the screen shows of it (NOT_PENDING: nothing — a lane pass that
+    // errored or pends staged no value), and the lane's latest.
+    const shown = l._shown && !effect ? slot : n._value;
+    const latest = laneValueOf(n);
     x._lane = NOT_PENDING;
-    x._transaction = null;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
-    // A derivation in flight is asking the void world's question: its
-    // landing is nobody's answer, and it re-asks from the truth (whose
-    // notification may not reach it — an input's truth equal to its
-    // committed value is silent).
-    if (into !== null && !effect && (n as Computed<any>)._statusFlags & STATUS_PENDING) {
-      x._inFlight = null;
-      enqueueSub(n as Computed<any>);
-    }
-    if (into === null || l._shown) {
+    if (into === null) {
+      // The parent landed: a guess lands the truth beneath it or reverts to
+      // the one it covered; a derivation's latest commits (its frame with
+      // it); what the screen showed and changes notifies. A derivation the
+      // revert re-derives (dirtied by the guess's notification — listed
+      // before it) shows the lane's answer beside inputs that are the truth
+      // now: a fresh reader of its flight observes it (#3648, #3651; #3305's
+      // commit beneath a flight).
+      x._transaction = null;
+      if (!effect && !guess) n._pendingValue = latest;
       commitPendingNode(n);
-      // A derivation the correction re-derives (every one of a dissolving
-      // lane's), or the revert does (dirtied by the guess's notification —
-      // listed before it): what it shows is the lane's answer beside inputs
-      // that are the truth now, so a fresh reader of its flight must observe
-      // it, not show the lane's value (#3648, #3651; #3305's commit beneath
-      // a flight).
-      if (
-        !effect &&
-        (into !== null ||
-          (n as Computed<any>)._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
-      )
-        n._config |= CONFIG_INPUTS_PUBLISHED;
-    } else {
-      // Never shown: nothing of it reached the screen — a node born in the
-      // lane stays uninitialized; the frame its passes built goes.
-      if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
-        GlobalQueue._dispose(n as Computed<any>, false, true);
-      n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
-    }
-    if (
-      into === null &&
-      !effect &&
-      shown !== NOT_PENDING &&
-      (!n._equals || !n._equals(shown, n._value))
-    )
+      if (!effect) {
+        if ((n as Computed<any>)._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
+          n._config |= CONFIG_INPUTS_PUBLISHED;
+        if (shown !== NOT_PENDING && (!n._equals || !n._equals(shown, n._value))) insertSubs(n);
+      }
+    } else if (guess) {
+      // A guess of a dissolving lane: its truth — a landing held beneath it,
+      // else the value it covered — is the parent's to land, and its readers
+      // re-derive from it there. What the screen showed stays the screen
+      // until then (A18 (c)).
+      if (n._pendingValue === NOT_PENDING) n._pendingValue = n._value;
+      if (l._shown) n._value = slot;
+      holdNode(n, into);
       insertSubs(n);
+    } else {
+      // A correction: the lane's derivations are void. Shown, what the
+      // screen showed stays the screen (committed, inputs published — every
+      // one re-derives); never shown, nothing of it reached the screen (a
+      // node born in the lane stays uninitialized; its frame goes). One in
+      // flight is asking the void world's question: its landing is nobody's
+      // answer — it re-asks from the truth (whose notification may not reach
+      // it: an input's truth equal to its committed value is silent).
+      x._transaction = null;
+      if (!effect) {
+        if (shown !== NOT_PENDING && l._shown) n._pendingValue = shown;
+        if ((n as Computed<any>)._statusFlags & STATUS_PENDING) {
+          x._inFlight = null;
+          enqueueSub(n as Computed<any>);
+        }
+      }
+      if (l._shown) {
+        commitPendingNode(n);
+        if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
+      } else {
+        if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
+          GlobalQueue._dispose(n as Computed<any>, false, true);
+        n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
+      }
+    }
   }
   // The parent landed: the runs the lane held (blocked on its own judgment
   // alone — a zombie it could not dispose) are the landing's. A
@@ -505,20 +505,15 @@ function laneCorrections(): boolean {
     const p = resolveTx(l._parent!);
     if (!p._acted || p._open !== 0 || p._lane || ownFlights(p) || guessFlights(l)) continue;
     judged = true;
-    // Every guess's truth is the one beneath it (a landing held there) or
-    // the one it covered — staged first, so a correction's dissolution
-    // re-homes the others as held truths for the parent to land.
-    for (let i = 0; i < l._nodes.length; i++) {
-      const n = l._nodes[i];
-      if (n._config & CONFIG_GUESS && n._x!._transaction === l && n._pendingValue === NOT_PENDING) {
-        n._pendingValue = n._value;
-        n._config |= CONFIG_HELD;
-      }
-    }
+    // Each guess's truth: the one beneath it (a landing held there), else
+    // the one it covered. (A correction dissolves the lane — the others are
+    // re-homed with theirs, `dissolveLane`.)
     for (let i = 0; i < l._nodes.length && lanes.indexOf(l) !== -1; i++) {
       const n = l._nodes[i];
-      if (n._config & CONFIG_GUESS && n._x!._transaction === l)
-        supersede(n, n._pendingValue, !n._equals || !n._equals(n._x!._lane, n._pendingValue));
+      if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
+        const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : n._value;
+        supersede(n, truth, !n._equals || !n._equals(n._x!._lane, truth));
+      }
     }
   }
   return judged;
@@ -641,29 +636,35 @@ GlobalQueue._laneRead = laneRead;
 GlobalQueue._laneStage = laneStage;
 GlobalQueue._laneOutcome = laneOutcome;
 GlobalQueue._laneWrite = laneWrite;
-/** The lanes alive before this seam's guesses opened theirs: a lane born at
- * the seam has no work to judge yet (its passes run next round) — it is
- * neither shown nor blocked until it has. */
-let judged: Transaction[] = [];
+/** The lanes alive before this seam's guesses opened theirs (a prefix of
+ * `lanes`; nothing dissolves one between here and the seam loop): a lane
+ * born at the seam has no work to judge yet (its passes run next round) —
+ * it is neither shown nor blocked until it has. */
+let judged = 0;
 GlobalQueue._applyGuesses = parent => {
-  judged = lanes.slice();
+  judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
 GlobalQueue._laneSeams = leaks => {
-  // Lane passes that read a write the parked frame holds (core.ts
-  // `stagedRead`): they re-derive on the committed world next round (and
-  // register as stale readers of the transaction there); their lanes' runs
-  // wait that round — a lane sees the screen plus its own guesses.
+  // Passes that read a write the parked frame holds as the screen
+  // (`stagedReaders`: lane work, a verdict reader before the verdict): they
+  // re-derive on the committed world next round (and register as stale
+  // readers of the transaction there); a lane's runs wait that round — a
+  // lane sees the screen plus its own guesses.
   const leaked: Transaction[] = [];
   if (leaks !== null)
     for (let i = 0; i < leaks.length; i++) {
-      enqueueSub(leaks[i]);
-      const l = leaks[i]._x?._transaction;
+      const r = leaks[i];
+      const l = r._x?._transaction;
+      // A verdict reader a later read of the same pass routed into a verdict
+      // lane answered for itself: it re-derives at the holder's landing, not
+      // now (one run — #3322, #3540).
+      if (r._flags & REACTIVE_DISPOSED || (l != null && l._parent?._verdict === l)) continue;
+      enqueueSub(r);
       if (l != null && l._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }
-  // Over the snapshot: a correction's dissolution may remove lanes mid-scan.
-  for (let k = judged.length - 1; k >= 0; k--)
-    if (lanes.indexOf(judged[k]) !== -1) laneSeam(judged[k], leaked.indexOf(judged[k]) !== -1);
+  for (let k = Math.min(judged, lanes.length) - 1; k >= 0; k--)
+    laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
 };
 GlobalQueue._laneCorrections = () => lanes.length !== 0 && laneCorrections();
 GlobalQueue._endLanes = endLanes;

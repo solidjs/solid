@@ -103,7 +103,8 @@ import {
   inEffectCallback,
   passTx,
   joinPassTx,
-  laneStagedReads,
+  stagedReaders,
+  staleReader,
   laneDirty
 } from "./scheduler.js";
 import type {
@@ -966,10 +967,7 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
     (c._statusFlags & STATUS_UNINITIALIZED && c._config & CONFIG_HELD && txOf(c) === t)
   )
     return false;
-  if (!(c._flags & REACTIVE_FRAME_READ)) {
-    c._flags |= REACTIVE_FRAME_READ;
-    t._reruns.push(c);
-  }
+  staleReader(c, t);
   return true;
 }
 
@@ -1730,13 +1728,13 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * yet hold (REACTIVE_STAGED_READ — the seam decides). Lane work too (§28, a
  * lane sees the screen plus its own guesses): the staging is the screen if
  * the frame commits — one pass, the common case — and a held write if it
- * parks, which the seam repairs (`laneStagedReads`): the pass re-derives on
+ * parks, which the seam repairs (`stagedReaders`): the pass re-derives on
  * the committed world and its lane's runs wait that round, so the held
  * write never shows through the lane. A verdict lane's work reads the
  * frame's proposal like a frame reader (verdict.ts). */
 function stagedRead(c: Computed<any>): void {
   c._flags |= REACTIVE_STAGED_READ;
-  if (passLane !== null && passLane._parent?._verdict !== passLane) laneStagedReads.push(c);
+  if (passLane !== null && passLane._parent?._verdict !== passLane) stagedReaders.push(c);
 }
 
 /** A10 for a staged node: a verdict reader (the pass entered a window) that
@@ -1749,10 +1747,7 @@ function stagedRead(c: Computed<any>): void {
  * its only value (A29). */
 function stagedScreen(c: Computed<any>): boolean {
   if (flushTransaction === null) return false;
-  if (!(c._flags & REACTIVE_FRAME_READ)) {
-    c._flags |= REACTIVE_FRAME_READ;
-    flushTransaction._reruns.push(c);
-  }
+  staleReader(c, flushTransaction);
   return true;
 }
 

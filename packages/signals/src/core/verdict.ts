@@ -39,43 +39,30 @@ import {
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { laneValueOf, verdictLane } from "./lanes.js";
+import { display, laneValueOf, verdictLane } from "./lanes.js";
 import { enqueueSub } from "./heap.js";
 import {
-  blocked,
   flushTransaction,
   globalQueue,
   GlobalQueue,
   joinFuture,
   passLane,
   setPassLane,
+  stagedReaders,
+  staleReader,
   txOf,
   type Transaction
 } from "./scheduler.js";
 import type { Computed, Root, Signal } from "./types.js";
 
-/** Verdict readers whose answer this flush could not give yet: the node they
- * asked about is staged (or in flight) and not held — whether it will be is
- * the seam's verdict. If the flush parks, they run again next round, as the
- * guesses' subscribers do; if it commits, the answer stood. */
-const verdictWatchers: Computed<any>[] = [];
+/** A verdict reader whose answer this flush could not give yet: the node it
+ * asked about is staged and not held — whether it will be is the seam's
+ * verdict. It read the staging as the screen: if the flush parks it runs
+ * again next round, as lane work that did the same does (`stagedReaders`,
+ * lanes.ts — entering the verdict lane then voids what it staged); if it
+ * commits, the answer stood. */
 function watchVerdict(c: Computed<any>): void {
-  verdictWatchers.push(c);
-}
-
-/** The seam's drain (installed below): the frame parked — the readers that
- * asked before the verdict run again, what they staged was provisional
- * (void, so the re-derivation propagates; a dependent that read it
- * re-derives too — an equal answer would not notify it). One a later read of
- * the same pass already routed into a lane (`observeFlight`) answered for
- * itself. The frame committed — the answers stood. */
-function verdictSeam(parked: boolean): void {
-  while (verdictWatchers.length !== 0) {
-    const w = verdictWatchers.pop()!;
-    if (!parked || w._x?._transaction?._lane || w._flags & REACTIVE_DISPOSED) continue;
-    w._pendingValue = NOT_PENDING;
-    enqueueSub(w);
-  }
+  stagedReaders.push(c);
 }
 
 /** The reading pass is the holder's verdict lane's — unless already lane
@@ -99,15 +86,7 @@ function route(c: Computed<any>, t: Transaction): void {
 function observeFlight(c: Computed<any>): void {
   if (!globalQueue._running) return;
   joinFuture(null);
-  const t = flushTransaction!;
-  route(c, t);
-  rerunAt(c, t);
-}
-function rerunAt(c: Computed<any>, t: Transaction): void {
-  if (!(c._flags & REACTIVE_FRAME_READ)) {
-    c._flags |= REACTIVE_FRAME_READ;
-    t._reruns.push(c);
-  }
+  verdictRead(c, flushTransaction!, true);
 }
 
 /** Verdict windows. Inside `latest(fn)` a read of a held node serves the
@@ -131,9 +110,9 @@ function setWindows(): void {
  * reader re-derives there. `latest` shows the proposal that lands — a
  * rewrite or a landing reaches its reader through the link it holds — so a
  * re-run would only repeat the frame. */
-function verdictRead(c: Computed<any>, t: Transaction): void {
+function verdictRead(c: Computed<any>, t: Transaction, rerun = probing): void {
   route(c, t);
-  if (probing) rerunAt(c, t);
+  if (rerun) staleReader(c, t);
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it
@@ -270,11 +249,9 @@ export function isPending(fn: () => any): boolean {
  * the flush that carries it. */
 function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const u = unflushedValue(el);
-  if (u !== NOT_PENDING) {
-    if (c !== null) markLateLinker(c);
-    return u;
-  }
-  return el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+  if (u === NOT_PENDING) return el._pendingValue;
+  if (c !== null) markLateLinker(c);
+  return u;
 }
 /** The verdict windows' read — `latest(fn)` and `isPending(fn)` — in one
  * cold path off `read`'s. It links and pulls like a plain read, then answers
@@ -319,7 +296,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       return el._x!._lane;
     }
     if (probing && flying) probeFound = true;
-    return latestActive && !flying ? laneValueOf(el) : l._shown ? el._x!._lane : el._value;
+    return latestActive && !flying ? laneValueOf(el) : display(el);
   }
   // Dev strict-read scopes (a component body, an effect callback) warn on a
   // verdict read as on any untracked read; the pending throw they add for a
@@ -346,10 +323,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         (c as any)._type === EFFECT_RENDER &&
         passLane === null &&
         t._verdict !== null &&
-        flushTransaction !== t &&
-        blocked(t._verdict)
+        t._verdict._held &&
+        flushTransaction !== t
       ) {
-        rerunAt(c!, t._verdict);
+        staleReader(c!, t._verdict);
         return el._value;
       }
       if (tracked) verdictRead(c!, t);
@@ -400,5 +377,4 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 // Installed at module evaluation — present exactly when something imports
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
-GlobalQueue._verdictSeam = verdictSeam;
 GlobalQueue._observeFlight = observeFlight;
