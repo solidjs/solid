@@ -33,9 +33,12 @@ import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_HELD,
+  CONFIG_MANUAL_WRITE,
   CONFIG_PROMOTED,
   EFFECT_RENDER,
   NOT_PENDING,
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
   STATUS_ERROR,
   STATUS_PENDING
@@ -65,7 +68,9 @@ import {
 } from "../core/dev.js";
 import { setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
+import { insertIntoHeap } from "../core/heap.js";
 import {
+  dirtyQueue,
   flushTransaction,
   GlobalQueue,
   holdNode,
@@ -293,12 +298,14 @@ setSlotUnobserved((node: any): void => {
  * pending one — and held by the container's transaction when the container
  * is held (#3706: the unit of the hold is the key — a key the batch left
  * unchanged stages nothing and holds no one). */
-function bornStaged(target: StoreTarget, node: Signal<any>, staged: any): void {
+function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: PropertyKey): void {
   if (node._equals && node._equals(node._value, staged)) return;
   queuePendingNode(node);
   node._pendingValue = staged;
   const k = target.k!;
-  if (k._config & CONFIG_HELD) holdNode(node, txOf(k));
+  // Held by the container's transaction only for a key the HELD staging
+  // changed — a mainline layer's change above it stages mainline.
+  if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) holdNode(node, txOf(k));
   // A28 (4): a batch written inside a creation-time pass is promoted — its
   // late-materialized leaf with it.
   if (k._config & CONFIG_PROMOTED) notePromotedWrite(node);
@@ -331,7 +338,8 @@ export function getNode(
       bornStaged(
         target,
         created,
-        target.del !== null && target.del.has(key) ? undefined : pb[key as any]
+        target.del !== null && target.del.has(key) ? undefined : pb[key as any],
+        key
       );
     // Attribution-only: name store property nodes by path segment so
     // attribution chains and wide-scope warnings read "store.todos" (or
@@ -357,7 +365,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
     const created = (node = slotSignal(key in committed(target), isEqual, target, key, false));
     const pb = target.pb;
     if (pb !== null)
-      bornStaged(target, created, key in pb && !(target.del !== null && target.del.has(key)));
+      bornStaged(target, created, key in pb && !(target.del !== null && target.del.has(key)), key);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
     noteNode(target);
@@ -548,9 +556,13 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   let pb = target.pb;
   if (pb !== null && !isOwned(pb)) {
     // An adopted object awaiting its fold is the user's: the draft writes a
-    // clone of it (the clone becomes the staging).
+    // clone of it. The clone is the batch's staging — unless the adoption is
+    // HELD (another transaction's): then the held staging stays the
+    // adoption and the draft is a mainline layer above it (#3612/#3688: a
+    // mainline setter mid-hold publishes mainline; the held keys stay held).
     pb = target.pb = cloneRaw(pb, target);
-    target.k!._pendingValue = pb;
+    const k = target.k!;
+    if (!(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
     const v = target.v;
     if (
@@ -869,6 +881,28 @@ function reportReplacedContainers(
   }
 }
 
+/** A user setter wrote a key whose staging is a derivation another
+ * transaction holds (A34 (3), #3612): the hold re-derives over the write. */
+let heldDerivationHit = false;
+/** The open setter is a USER'S (`storeSetter(…, guard = true)`), not the
+ * derive's draft or landing. */
+let userWrite = false;
+function heldDerivation(t: StoreTarget, node: Signal<any> | undefined, key: PropertyKey): boolean {
+  if (t.fam === null || !userWrite) return false;
+  if (node !== undefined)
+    return (
+      (node._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
+      txOf(node) !== flushTransaction
+    );
+  const k = t.k;
+  return (
+    k !== null &&
+    (k._config & CONFIG_HELD) !== 0 &&
+    txOf(k) !== flushTransaction &&
+    heldKeyChanged(t, key)
+  );
+}
+
 /** Setter exit: one node write per changed observed key (the leaves stage
  * like signals — holds and lanes engage here on later steps), presence and
  * deep witnesses, and the container when membership changed. */
@@ -908,6 +942,12 @@ function notifyWrites(t: StoreTarget): void {
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
+  if (t.fam !== null && !heldDerivationHit && writtenKeys !== null)
+    for (const key of writtenKeys)
+      if (heldDerivation(t, nodes?.[key as any], key)) {
+        heldDerivationHit = true;
+        break;
+      }
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
     for (const key of keys) {
@@ -933,7 +973,14 @@ function notifyWrites(t: StoreTarget): void {
       }
       const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
       setSignal(node, () => nv);
-      if (t.fam !== null) holdWithDerive(t, node);
+      if (t.fam !== null) {
+        // The derive's write is a derivation; a user setter's is a proposal
+        // (A34 (3)'s discriminator).
+        if (!userWrite) {
+          node._config &= ~CONFIG_MANUAL_WRITE;
+          holdWithDerive(t, node);
+        } else node._config |= CONFIG_MANUAL_WRITE;
+      }
     }
   }
   const has = t.h;
@@ -1185,20 +1232,43 @@ function stagingReader(): Computed<any> | null {
 function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey, any> {
   const pb = target.pb;
   if (pb === null) return target.v;
-  if (inDraft(target) || getWriteOverride() || getObserver() !== null) return pb;
+  if (inDraft(target) || getWriteOverride()) return pb;
+  const k = target.k!;
+  const held = (k._config & CONFIG_HELD) !== 0;
+  // A held container: the hold's unit is the key (#3706). A key the HELD
+  // staging left unchanged reads the ambient view — a mainline layer's
+  // write above the hold publishes mainline (#3688, #3612); a key it
+  // changed reads the frame core serves this reader.
+  if (held && key !== undefined && !heldKeyChanged(target, key)) return pb;
   if (stagingReader() === null) {
+    if (getObserver() !== null) return pb; // a frame reader's leaf decides the value
     // A projection's writes are its truth as soon as made (the derive is
     // the authority, nothing it writes is a proposal): a context-free reader
     // sees them before the flush — unless a hold keeps them staged.
     if (familyAhead(target)) return pb;
     // A verdict window (`isPending`/`latest`) with no reader (a top-level
     // probe) judges the container like any node — for a key the batch
-    // changed; an unchanged key is committed and final (#3706, A22: pending
-    // is per key). A held container's committed frame is the node's.
-    if (verdict === null || (key !== undefined && !keyChanged(target, key)))
-      return target.k!._config & CONFIG_HELD ? target.k!._value : target.v;
+    // changed; an unchanged key is committed and final (A22: pending is per
+    // key). A held container's committed frame is the node's.
+    if (verdict === null || (!held && key !== undefined && !keyChanged(target, key)))
+      return held ? k._value : target.v;
+    return readNode(k);
   }
-  return readNode(target.k!);
+  // A pass reading a key the batch left unchanged: the same value in both
+  // frames — committed, holding no one. Otherwise the container's frame by
+  // core's rules — `read()` of the node WITHOUT a link (a value reader never
+  // subscribes to the container): a render effect outside a hold's flush
+  // sees committed and re-derives at the landing, a memo joins the future,
+  // a staging read is marked. The key's own leaf, when it has one, decides
+  // the value the same way.
+  if (!held && key !== undefined && !keyChanged(target, key)) return committed(target);
+  return untrack(() => readNode(k));
+}
+
+/** Did the HELD staging (the container node's, not a mainline layer above
+ * it) change `key`? */
+function heldKeyChanged(target: StoreTarget, key: PropertyKey): boolean {
+  return changedBetween(target, target.k!._value, target.k!._pendingValue, key);
 }
 
 /** A family target's unheld staging, read with no pass (a handler). */
@@ -1210,12 +1280,37 @@ function familyAhead(target: StoreTarget): boolean {
   );
 }
 
-/** Did this batch change `key` (value by slot equality, or presence)? */
+/** Did this batch change `key` — value (slot equality), presence,
+ * enumerability or accessor-ness? A swapped or non-plain prototype, or a
+ * chained backing, changes every key (#3706: those hold the whole
+ * container). */
 function keyChanged(target: StoreTarget, key: PropertyKey): boolean {
-  const pb = target.pb!;
-  const v = committed(target);
+  return changedBetween(target, committed(target), target.pb!, key);
+}
+
+function changedBetween(
+  target: StoreTarget,
+  v: Record<PropertyKey, any>,
+  pb: Record<PropertyKey, any>,
+  key: PropertyKey
+): boolean {
+  if (
+    target.ch ||
+    (pb as any)[$TARGET] !== undefined ||
+    Object.getPrototypeOf(pb) !== Object.getPrototypeOf(v) ||
+    !plainProto(v)
+  )
+    return true;
   if (target.del !== null && target.del.has(key)) return key in v;
-  if (key in pb !== key in v) return true;
+  const inNew = hasOwn.call(pb, key) || (target.ovl && hasOwn.call(target.v, key));
+  if (inNew !== hasOwn.call(v, key)) return true;
+  if (!inNew) return false;
+  if (
+    isOwnAccessor(v, key) ||
+    isOwnAccessor(pb, key) ||
+    propertyIsEnumerable.call(v, key) !== propertyIsEnumerable.call(pb, key)
+  )
+    return true;
   const nv = pb[key as any];
   const ov = v[key as any];
   return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
@@ -1314,6 +1409,7 @@ function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
   if (
     fw !== undefined &&
     fw !== null &&
+    !userWrite && // the derive's own write (its draft or landing), not a user setter's
     fw._config & CONFIG_HELD &&
     node._pendingValue !== NOT_PENDING &&
     !(node._config & CONFIG_HELD)
@@ -1689,6 +1785,8 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   const prevScopes = writeScopes;
   writeScopes = new Set();
   writeScopes.add(scopeKey(target));
+  const prevUser = userWrite;
+  userWrite = guard;
   writing++;
   let result: any;
   try {
@@ -1715,12 +1813,26 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
           }
         }
     }
+    userWrite = prevUser;
   }
   // After the sync writes have notified (they were real, like an effect's
   // side effects before its invalid-cleanup throw) and before adoption.
   if (__DEV__ && guard) devGuardStoreSetterResult(result);
   if (result !== undefined && result !== proxy && isWrappable(result))
     adoptPB(target, unwrapValue(result));
+  // A34 (3), #3612 — the derived store's twin of `setMemo`: a user write to
+  // a derivation another transaction holds is nobody's proposal; it becomes
+  // the draft's prior state and the hold re-derives over it (the writes
+  // joined the hold through `setSignal`; the derive re-runs under it).
+  if (guard && heldDerivationHit) {
+    heldDerivationHit = false;
+    const fw = target.fam!.node!;
+    if (!(fw._flags & REACTIVE_DIRTY)) {
+      fw._flags = (fw._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
+      insertIntoHeap(fw, dirtyQueue);
+      schedule();
+    }
+  }
 }
 
 export function createStore<T extends Record<PropertyKey, any>>(

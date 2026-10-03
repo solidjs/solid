@@ -4418,6 +4418,47 @@ a size pass follows S4). Page base/live **+5.7 kB** — the page fixtures
 use projections and reconcile, 0 B as stubs until now; 41926 / 45540 vs
 `next`'s 46193 / 50442.
 
+### 34.1 S3b — holds on derived stores (4:00–4:15 AM)
+
+Three rules, all pinned by `adoption-unchanged-key-read-3706`,
+`store-unchanged-read-independent-write-3688` and
+`held-derivation-not-a-proposal-3612`:
+
+- **A pass reading a key the batch left unchanged reads committed and
+  holds no one** (#3706; the unit of the hold is the key); a changed key
+  reads the container's frame by core's rules — `read(k)` untracked (a
+  memo joins, a stale render effect is served committed and re-derived at
+  the landing). `keyChanged` now covers presence, enumerability,
+  accessor-ness, and treats a swapped or non-plain prototype, or a chained
+  backing, as changing every key (the "whole container" cases).
+- **Two writers, one container.** A mainline setter on a derived store
+  whose adoption another transaction holds: the HELD staging stays the
+  adoption (the container node's `_pendingValue`), the draft is a mainline
+  layer above it (`t.pb`, a clone); a key the held staging left unchanged
+  reads the ambient view (the mainline write publishes mainline, #3688),
+  a key it changed reads the frame (`heldKeyChanged` vs `keyChanged`). A
+  derive's own continuation writes still join its hold (`holdWithDerive`,
+  now keyed on the setter's author, not the write override).
+- **A34 (3) for derived stores** (`setMemo`'s twin): a user setter's write
+  to a key whose staging is a derivation another transaction holds is
+  nobody's proposal — it becomes the draft's prior state and **the hold
+  re-derives over it** (the derive is marked dirty and re-run; its writes
+  land under the hold). A write made under the hold is a proposal and
+  keeps last-write-wins: `CONFIG_MANUAL_WRITE` (1 << 18, constants.ts — a
+  store-only bit, the leaf twin of `REACTIVE_MANUAL_WRITE`), set by a user
+  setter's leaf write, cleared by the derive's.
+
+Signals **3188 passed**, 0 passed→not-passed vs S3a and the carved core.
+Still open (S3c, 12): `3706` enumerability-descriptor row,
+`finalize-reentry` ×2, `late-pending-equality` 1,
+`latest-isPending-consistency`, `question-scoped-pending` 3.4-held-write,
+`refresh-await`, oracle staleForeign (projection row),
+`child-companion-walk`, `createProjection.async` ×4 (async-generator
+`isPending`; rejection → retry ×2 — the memo twin behaves the same on L2;
+sync-recompute-supersedes-flight behind a memo), `createStore` "isPending
+sees a derived store update held by async work", `lane-authority-twins`
+#3334, `draft-lifetime-3585` never-resolving workaround.
+
 ---
 
 ## Appendix — ledger (verbatim)

@@ -108,6 +108,11 @@ export const CONFIG_OVERRIDE = 1 << 11;
  * sweep dispatches it to the store's shared release hook (graph.ts) instead
  * of a per-node `_unobserved` closure. */
 export const CONFIG_SLOT_NODE = 1 << 12;
+/** A store slot node whose staging is a USER setter's proposal, not its
+ * derive's derivation (A34 (3)'s discriminator for derived stores — the
+ * leaf twin of REACTIVE_MANUAL_WRITE). Set by the user setter, cleared by
+ * the derive's own write to the key. */
+export const CONFIG_MANUAL_WRITE = 1 << 18;
 /** Lanes — the node carries a written guess (`optimisticWrite`): its own
  * source recomputing it, or a plain write landing on it, is the truth
  * (`supersede`). A lane's derived staging is not. */
