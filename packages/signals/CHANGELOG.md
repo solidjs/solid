@@ -1,5 +1,26 @@
 # @solidjs/signals
 
+## 2.0.0-rc.14
+
+### Patch Changes
+
+- ecb68a1: Binding slots: the fill runs once per occurrence, untracked, under the occurrence's owner — as a component body and a template-slot fill do. State created in the fill lives as long as the occurrence; a top-level read is a one-time read (dev: `STRICT_READ_UNTRACKED`, naming the fill); getters are the reactive form. Handlers and refs are read once when an element binds and go through `assign`, so events delegate, tuples bind and interactions wrap as in client JSX. On the server an array at a handler position is a dev finding (reason `tuple`) instead of being flattened; only `ref` merges arrays. Template-slot fills are untracked on every render path and carry the same labelled warning.
+
+  Breaking: `AttributeSlot` is renamed `BindingSlot`, with no alias, and its return is constrained (`SlotOutput<J>` / `SlotError<M>`, both exported) so an array, DOM node, function, async value or `$`-prefixed key is a type error on both sides. The diagnostic code `ATTRIBUTE_SLOT_POSITION` is renamed `BINDING_SLOT_POSITION`. The fill-shape finding also names async values.
+
+- 9a213bb: Derived writes apply first, then derivations re-run. A manual write to a writable derived value (`createSignal(fn)`, `createStore(fn)`) lands at once; when one of its sources changes — in the same update or later, inside or outside an action, across async holds — the function re-runs and receives the write as `prev` (or as the draft for `createStore(fn)`), and decides what to keep. A write on its own never re-runs the function.
+
+  This reverses beta.11's same-tick precedence (#2692), where a write beat a source change in the same flush: a function that ignores `prev` now discards a write made in the same update as a source change, and a same-value write no longer holds against it. To keep a local value across source changes, carry it in the data as a flag the function honors. It also fixes #3733 (a write inside an action blocked later source changes for the whole hold, a regression since #2692) and supersedes the frame-scoped mask from #3740, whose changeset this replaces.
+
+- 4f67697: **Breaking:** only `on` followed by an uppercase letter (`onClick`, `onPointerDown`) is an event handler. Lowercase `on*` names (`onclick`, `onmouseover`) are plain attributes everywhere:
+  - Both compilers compile `onclick={expr}` like any other attribute (`setAttribute`, reactive when `expr` is dynamic) instead of binding a delegated or native event, and SSR renders it as an escaped attribute instead of dropping it. A leftover 1.x `on:click={fn}` is likewise a plain namespaced attribute (it previously compiled to `addEventListener(":click", fn)`).
+  - `@solidjs/web` `spread`/`assign` set lowercase `on*` keys as attributes, the server spread walk renders them, and `useHead` applies lowercase `on*` attributes (camelCase handler names stay skipped). `ssrAttribute` escapes a function value instead of interpolating its source raw.
+  - `@solidjs/html` and `@solidjs/h` elements wrap a function passed to a lowercase `on*` in a getter like any other attribute; only `onXxx` and `ref` are exempt.
+  - `@solidjs/html` components follow `@solidjs/h`'s rule: every zero-argument function prop, `onXxx` handlers and `ref` included, is a getter, so a component handler must declare its event argument (`onClick=${e => …}`).
+  - New dev-only check `LOWERCASE_EVENT_ATTRIBUTE` (added to the `DiagnosticCode` union): warns once per attribute name when a function is set on a lowercase `on*` (or `on:`) attribute, naming the camelCase handler to use.
+
+- b0c8489: A re-run that commits `undefined` is no longer counted as waste. A projection that mutates its draft or reconciles a returned value, or a memo that does its work by writing a signal, has no output to compare, so its re-runs were reported as pure cost. `RerunEvent.changed` now reports `true` for these runs (as it already did for side-effect-only effects), so `WASTED_RECOMPUTE` no longer fires for them and `costs().wastedMs`, `expectNoWaste` and the performance tracks stop counting them as wasted.
+
 ## 2.0.0-rc.13
 
 ## 2.0.0-rc.12
