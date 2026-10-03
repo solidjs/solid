@@ -114,6 +114,7 @@ export type {
 } from "./signals.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./carved.js";
+export { affects } from "./affects.js";
 export { flatten } from "./flatten.js";
 export { createLoadingBoundary, createErrorBoundary } from "./boundaries.js";
 export { createRevealOrder, type RevealOrder } from "./reveal.js";

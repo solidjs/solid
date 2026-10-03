@@ -902,7 +902,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _flushed: NOT_PENDING,
     _flushedAt: -1,
     _q: 0,
-    _lane: NOT_PENDING
+    _lane: NOT_PENDING,
+    _marks: 0
   });
 }
 

@@ -3564,6 +3564,71 @@ are the pre-existing families (attribution, rules-index, treeshake,
 dist-artifacts, store/`affects`). Next: stores (with Gabriel's kanban
 fixture), `affects()`, attribution on L2.
 
+## 29. `affects()` on L2 (2026-10-02, night)
+
+**Ruling (maintainer, 9:28 PM: "let's build as is").** The record was laid
+out first: A24 (4) and the #2893 audit corollaries — a mark lights up
+pending on the marked node and everything derived from it, for the
+surrounding transaction's lifetime; **not a hold** ("a mark never blocks its
+own transaction's settlement"), **not an entanglement tool** (corollary (b):
+"transaction-inert — concurrent actions don't merge into the marker's
+transaction through the pend"), **not optimism** (A24 (3): optimistic
+writes are verdict-inert, marks verdict-only; complementary declarations on
+separate channels). The maintainer's own instinct ("it just lights up
+pending") matched; the "entanglement tool" variant was considered in the
+original convergence and rejected. Built as ruled.
+
+**Mechanism** (`src/affects.ts`, 60 lines of code; signals half only — the
+store half, `affects(store)` / `affects(record, key)`, returns with the
+stores by construction). A mark is a count on the node (`_x._marks`) listed
+with its scope: the transaction's `_marks` (released at `land`, merged with
+`merge`) or the ambient list (released at the seam, after the landings —
+"verdict-only, nothing to show"). Coverage of derivations is **pull-derived
+at probe time**, as on `next`: `isPending`'s read asks `GlobalQueue._marked`,
+which walks the probed node's current dependencies for a marked one (the
+validated prefix mid-recompute; a real error outranks an inherited mark —
+A24 (c)); nothing is stored downstream, so a mid-window recompute strands
+nothing. The push half is `repoll`: at registration and at the last
+release, the verdict readers downstream of the node (through derivations,
+stopping at effects) re-derive — the mark's one notification. Three hooks on
+`GlobalQueue` (`_marked`, `_releaseMarks`, `_releaseAmbientMarks`), one
+line in `verdictValue`, one in `land`, one in `settle`, one in `merge`.
+
+**One rule the pins forced:** a marked probe inside a transaction's flush
+(the declaring action's body) is **the flush's verdict lane's work**
+(`verdictRead(c, flushTransaction)`), not a staging the frame parks — the
+action's own flush parks every staging into its transaction, and a verdict
+is display-ahead ("a late mark wakes an already-materialized derived
+verdict": the `isPending` memo flipped to `true` in the body's flush and the
+frame held it to the landing). Same rule as a held node's probe.
+
+**Not rebuilt:** `next`'s "boundary visual channel" (`notifyMarkBoundaries`:
+a mark notifying Loading boundaries as pending for reveal ordering) — no
+retained pin needs it, and "a mark does not flip an initialized Loading
+boundary to its fallback" passes without it; INV-10's count-balance dev
+assertion (nothing else enforces it today; cheap to add later).
+
+**Tests.** Signals **2156 passed** (S2 2138; +18 — every signal-half
+`affects` pin: `affects-propagation` ×6, `affects-audit-2893` ×7,
+`question-scoped-pending` ×3, `action-done-window`, `resolve-in-action`,
+the `createOptimistic` declared reload), **0 passed→not-passed** vs S2 and
+vs the carved core; web 888, solid 678. The remaining `affects` failures
+are store targets (carved).
+
+**Size.** `affects.js` is a module behind the two-import pattern: it
+appears in no scenario (none calls `affects`); the core residue measured
++51 min / +41 br on the floor — three uninitialized `static` hook
+declarations among them, which led to the finding below. **Found while
+measuring: `GlobalQueue`'s 23 hook statics emitted as `static X;` under
+`target: esnext` (define semantics), ~10 B min each on every bundle.**
+Changed to `declare static` — type-only, no emit; the hooks are assigned
+by the modules that install them exactly as before. Net, S2 → here (br):
+floor 7208 → **7189 (−19; −173 min)**, hello world 9710 → **9688**, CSR
+12721 → **12684**, `+ isPending/latest` 9212 → 9206, page base −5, page
+live +15 (brotli; −113 min). Both the floor and hello world are now below
+the pre-replay tree (7202 / 9692) and the floor below the carved one
+(7193).
+
 ---
 
 ## Appendix — ledger (verbatim)

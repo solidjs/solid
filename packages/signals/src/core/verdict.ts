@@ -281,6 +281,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     link(el, c);
     if (owner._fn !== undefined) pullComputed(owner, c);
   }
+  // A live `affects()` mark on the node or a dependency (affects.ts): not
+  // final by declaration — the value itself is read as below. The verdict is
+  // display-ahead like any: in a transaction's flush (the declaring action's
+  // body) the reader is its verdict lane's, not a staging the frame parks.
+  if (probing && GlobalQueue._marked !== undefined && GlobalQueue._marked(owner)) {
+    probeFound = true;
+    if (tracked && flushTransaction !== null) verdictRead(c!, flushTransaction);
+  }
   if (el._config & CONFIG_OVERRIDE) {
     const l = txOf(el);
     if (tracked) verdictRead(c!, l._parent ?? l);

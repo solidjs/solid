@@ -99,6 +99,10 @@ export interface NodeExtension {
    * none. The screen shows it once the lane has revealed (`_shown`); a
    * direct read sees it throughout; the committed truth stays `_value`. */
   _lane: unknown;
+  /** `affects()` marks live on this node (affects.ts): declared in-flight
+   * changes — `isPending` reads true for it and its derivations while any
+   * is live. A count, never a hold. */
+  _marks: number;
 }
 
 export interface RawSignal<T> {

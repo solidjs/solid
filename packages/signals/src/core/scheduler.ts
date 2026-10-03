@@ -109,6 +109,9 @@ export interface Transaction {
    * leaf reading a held lane that has not shown is a stale reader of it
    * (#3460); one reading a lane the seam has not judged yet is its work. */
   _held: boolean;
+  /** `affects()` marks declared in it (affects.ts): released at the landing.
+   * Not nodes — a mark holds nothing (`blocked` never sees one). */
+  _marks: Signal<any>[] | null;
 }
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */
@@ -127,7 +130,8 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
     _acted: false,
     _links: null,
     _shown: false,
-    _held: false
+    _held: false,
+    _marks: null
   };
   if (!lane) transactions.push(t);
   return t;
@@ -210,6 +214,7 @@ export function merge(t: Transaction, f: Transaction): void {
   append(f._queues[0], t._queues[0]);
   append(f._queues[1], t._queues[1]);
   append(f._reruns, t._reruns);
+  if (t._marks !== null) append((f._marks ??= []), t._marks);
   transactions.splice(transactions.indexOf(t), 1);
 }
 /** A15: a hold is a property of the async node — observed pending by a
@@ -548,34 +553,39 @@ export interface IQueue {
 export class GlobalQueue implements IQueue {
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
   _running: boolean = false;
-  static _update: (el: Computed<unknown>) => void;
-  static _dispose: (el: Computed<unknown>, self: boolean, zombie?: boolean) => void;
-  static _runEffect: (el: Computed<unknown>) => void;
+  declare static _update: (el: Computed<unknown>) => void;
+  declare static _dispose: (el: Computed<unknown>, self: boolean, zombie?: boolean) => void;
+  declare static _runEffect: (el: Computed<unknown>) => void;
   // External-source bridge (wired by enableExternalSource(); null while no
   // config is active — including after _resetExternalSourceConfig()).
-  static _wireExternalSource: ((self: Computed<any>) => void) | undefined;
-  static _externalUntrack: (<T>(fn: () => T) => T) | undefined;
+  declare static _wireExternalSource: ((self: Computed<any>) => void) | undefined;
+  declare static _externalUntrack: (<T>(fn: () => T) => T) | undefined;
   // Lanes (lanes.ts; installed when `createOptimistic` — or verdict.ts — is
   // imported; null otherwise, and every call site is behind a bit or a
   // `passLane` that nothing else sets).
-  static _laneRead:
+  declare static _laneRead:
     | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
     | undefined;
-  static _laneStage:
+  declare static _laneStage:
     | ((el: Computed<any>, l: Transaction, create: boolean, errored: boolean) => boolean)
     | undefined;
-  static _laneOutcome:
+  declare static _laneOutcome:
     | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
     | undefined;
-  static _laneWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
-  static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
-  static _laneSeams: ((leaks: Computed<any>[] | null) => void) | undefined;
-  static _laneCorrections: (() => boolean) | undefined;
-  static _endLanes: ((u: Transaction) => void) | undefined;
-  static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
-  static _verdictLane: ((t: Transaction) => Transaction) | undefined;
+  declare static _laneWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
+  declare static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
+  declare static _laneSeams: ((leaks: Computed<any>[] | null) => void) | undefined;
+  declare static _laneCorrections: (() => boolean) | undefined;
+  declare static _endLanes: ((u: Transaction) => void) | undefined;
+  declare static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
+  declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
-  static _observeFlight: ((c: Computed<any>) => void) | undefined;
+  declare static _observeFlight: ((c: Computed<any>) => void) | undefined;
+  // `affects()` marks (affects.ts): the probe's coverage test, the releases
+  // at a landing and at the seam (ambient marks).
+  declare static _marked: ((el: Signal<any> | Computed<any>) => boolean) | undefined;
+  declare static _releaseMarks: ((nodes: Signal<any>[]) => void) | undefined;
+  declare static _releaseAmbientMarks: (() => void) | undefined;
   // Boundaries (boundaries.ts): the display consumers between an observer
   // and the root. `_catch` — status from a frame reader, nearest boundary
   // first (true: caught, the root never hears of it; a clear — flags 0 —
@@ -583,14 +593,16 @@ export class GlobalQueue implements IQueue {
   // is not on screen and holds nothing; `_boundarySeam` — the seam's sweep
   // (readers gone or settled without a pass reveal; an `on` re-arm
   // resolves).
-  static _catch: ((node: Computed<any>, flags: number, error: unknown) => boolean) | undefined;
-  static _hidden: ((r: Computed<any>) => boolean) | undefined;
-  static _boundarySeam: (() => void) | undefined;
+  declare static _catch:
+    | ((node: Computed<any>, flags: number, error: unknown) => boolean)
+    | undefined;
+  declare static _hidden: ((r: Computed<any>) => boolean) | undefined;
+  declare static _boundarySeam: (() => void) | undefined;
   // `_heldRun` — a queued run under a fallback-showing boundary waits for
   // the reveal (true: held; the boundary re-queues it by type). The
   // synchronous first render on creation builds the subtree, attached or
   // not; its updates and the user effects wait.
-  static _heldRun: ((node: Computed<any>) => boolean) | undefined;
+  declare static _heldRun: ((node: Computed<any>) => boolean) | undefined;
 
   flush() {
     if (this._running) return;
@@ -756,6 +768,9 @@ export class GlobalQueue implements IQueue {
       GlobalQueue._endLanes?.(u);
       land(u);
     }
+    // Marks declared outside a transaction release at the seam: verdict-only,
+    // nothing to show (affects.ts).
+    GlobalQueue._releaseAmbientMarks?.();
     // The effect phase: lane work first (displayed ahead of the frame), then
     // this flush's runs, then the runs the landings held from earlier
     // flushes — as one pass would have queued them (#3540: a shell
@@ -867,6 +882,7 @@ export function reruns(u: Transaction): void {
 /** The landing: the held frame becomes the frame. */
 function land(u: Transaction): void {
   reruns(u);
+  if (u._marks !== null) GlobalQueue._releaseMarks!(u._marks);
   // Old children die in the commits (cleanups first), then the stashed
   // effects run ahead of this flush's own. A node a lane took over since
   // (a guess written over the staged truth) is the lane's to land.

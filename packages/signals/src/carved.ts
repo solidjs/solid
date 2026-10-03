@@ -47,8 +47,7 @@ export const storePath = carved("storePath");
 export const merge = carved("merge");
 export const omit = carved("omit");
 
-// CARVE 2: verdict family. `affects` (the declaration verb) is still out.
-export const affects = carved("affects");
+// CARVE 2: verdict family — all back (`affects` the last, as ./affects.ts).
 
 // CARVE 5 (§28 replay): the lane layer — lanes.ts (`createOptimistic`'s
 // write) and verdict.ts (`isPending`/`latest`) — carved and rebuilt from the
