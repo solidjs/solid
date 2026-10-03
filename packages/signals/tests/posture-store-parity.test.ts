@@ -582,7 +582,13 @@ describe("S8 — a derivation's UNTRACKED read of a superseded store node derive
     flush();
     fetches.shift()!(); // own truth lands {n: 2} ≠ 3
     await settle();
-    expect(s.n).toBe(3); // A18 (c): the override stays displayed for an untracked mainline read
+    // Lanes (2026-10-01/02; the signal oracle's `supersede` state): the guess
+    // was written in the frame that re-asked its source, so its lane was
+    // blocked and the guess never displayed — "a correction while blocked
+    // voids the never-shown guess" (§16). A18 (c)'s "the display keeps the
+    // override" is about a displayed override: direct reads see the
+    // committed value, the truth is staged under the action. (Was 3.)
+    expect(s.n).toBe(0);
     const log: number[] = [];
     createRoot(() => {
       const m = createMemo(() => untrack(() => s.n));

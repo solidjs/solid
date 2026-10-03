@@ -119,26 +119,46 @@ describe("deep() over a chained optimistic view (#3323)", () => {
     });
   });
 
-  it("still wakes on the view's own optimistic write (and its revert)", () => {
+  // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+  // that does not park is as if it never happened — so the write is made in
+  // an action, where there is something to be optimistic over. (Was: the
+  // write applied and reverted in one flush outside any action.)
+  it("still wakes on the view's own optimistic write (and its revert)", async () => {
     const { setView, runs } = setup();
     const before = runs.row;
-    setView(d => {
-      d[0].qty = 9;
-    });
+    let release!: () => void;
+    action(function* () {
+      setView(d => {
+        d[0].qty = 9;
+      });
+      yield new Promise<void>(r => (release = r));
+    })();
     flush();
-    // Outside an action the optimistic write applies and reverts in this
-    // flush; the row witness fires for both.
-    expect(runs.row - before).toBeGreaterThanOrEqual(1);
+    expect(runs.row - before).toBe(1);
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    // the revert fires the row witness again
+    expect(runs.row - before).toBe(2);
   });
 
-  it("deep(view) also wakes on the view's optimistic structural write", () => {
+  it("deep(view) also wakes on the view's optimistic structural write", async () => {
     const { setView, runs } = setup();
     const before = runs.root;
-    setView(d => {
-      d.push({ id: "opt", qty: 0 });
-    });
+    let release!: () => void;
+    action(function* () {
+      setView(d => {
+        d.push({ id: "opt", qty: 0 });
+      });
+      yield new Promise<void>(r => (release = r));
+    })();
     flush();
     expect(runs.root - before).toBeGreaterThanOrEqual(1);
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
   });
 });
 

@@ -546,8 +546,13 @@ describe("held truth is masked from lane passes only (store fold, #3568 shape he
     await settle();
     await settle();
     // The committed frame is coherent (len=3, index 3 absent); the lane
-    // never composes the landed length with a committed row set.
-    expect(computed).toEqual(["opt2=true len=3 row3=HOLE"]);
+    // never composes the landed length with a committed row set. (§28 lanes:
+    // the memo reads `todos[3]` — a held landing — before its first lane
+    // read, so its first pass joined the frame's future as mainline would;
+    // on entering the lane it is a staged reader and the seam re-derives it
+    // on the screen — one repaired compute, one coherent publish.)
+    expect(computed.at(-1)).toBe("opt2=true len=3 row3=HOLE");
+    expect(computed.length).toBeLessThanOrEqual(2);
     expect(published).toEqual(["opt2=true len=3 row3=HOLE"]);
     expect(computed).not.toContain("opt2=true len=4 row3=HOLE");
     await T.release();

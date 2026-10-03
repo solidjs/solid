@@ -595,6 +595,8 @@ export class GlobalQueue implements IQueue {
     | undefined;
   declare static _laneWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
   declare static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
+  /** A slot node's truth is in flight (its family's derive — store/optimistic.ts). */
+  declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
   declare static _laneSeams: ((leaks: Computed<any>[] | null) => void) | undefined;
   declare static _laneCorrections: (() => boolean) | undefined;
   declare static _endLanes: ((u: Transaction) => void) | undefined;

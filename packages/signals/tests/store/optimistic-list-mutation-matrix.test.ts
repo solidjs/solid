@@ -191,8 +191,8 @@ const ctx5 = (muts: string[]) => (r: ReaderKind, s: SourceKind) =>
 // F4 — a harness artifact, fixed; no rows pinned
 // F5 — fixed, no rows pinned
 // F6 — fixed, no rows pinned
-// F7
-rowsOf("F7", ["mapArray-keyed"], ["chained"], ctx3(["B then A"], ["insert head + delete tail"]));
+// F7 — fixed on lanes (S4: the chained view's nodes take the inner truth
+// before a guess, #3672; two linked lanes reveal as one unit); no rows pinned
 
 const KNOWN = new Set(KNOWN_FAILURES.flatMap(k => k.names));
 const isKnownFailure = (name: string) => KNOWN.has(name);

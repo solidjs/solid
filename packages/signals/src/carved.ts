@@ -30,7 +30,6 @@ export const resolvedTable = carved("resolvedTable");
 export const OmitView = carved("OmitView");
 export const MergeView = carved("MergeView");
 export const sourceOwners = carved("sourceOwners");
-export const createOptimisticStore = carved("createOptimisticStore");
 export const merge = carved("merge");
 export const omit = carved("omit");
 

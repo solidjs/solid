@@ -23,6 +23,9 @@ import type { Computed, Owner, Signal } from "../core/types.js";
 export interface StoreFamily {
   /** Optimistic family (S4): the setter's writes are guesses. */
   opt?: boolean;
+  /** Targets carrying a lane value on one of their nodes (reads compose the
+   * view over the truth — optimistic.ts); dropped lazily once none is. */
+  overlaid?: Set<StoreTarget>;
   /** Normalized row-key fn (`options.key`, "id" default, null = unkeyed). */
   key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreTarget>;

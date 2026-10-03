@@ -197,11 +197,12 @@ describe("createStore shallow", () => {
     // A28: staged but unflushed — the flush carries it
     expect((state as any)[0]).toBe(rows[0]);
     expect(rows[0].count).toBe(0);
-    // The flush shows the replacement (raw, tentative); ambient (non-action)
-    // optimistic writes auto-revert at flush end, re-reading the untouched
-    // raw base row — the boundary contract holds.
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — nothing shows; the raw
+    // base row is untouched either way (the boundary contract holds). (Was:
+    // the flush showed the replacement for one frame, then reverted it.)
     flush();
-    expect(seen).toEqual([rows[0], optimisticRow, rows[0]]);
+    expect(seen).toEqual([rows[0]]);
     expect((state as any)[0]).toBe(rows[0]);
     expect(rows[0].count).toBe(0);
   });

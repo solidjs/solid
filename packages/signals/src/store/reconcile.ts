@@ -31,8 +31,11 @@ import {
   notifyFoldTail,
   notifyKeyDiff,
   notifyKeyValue,
+  optHooks,
+  sameKey,
   targetsEqual,
-  unwrapValue
+  unwrapValue,
+  userWriting
 } from "./store.js";
 import { $TARGET, isRawValue, isWrappable, markRawIngest, rawValuesUsed } from "./types.js";
 
@@ -51,6 +54,14 @@ export function reconcileState(
   if (t.ovl) materializePB(t);
   const keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
+  // A user's reconcile on an optimistic family (S4): not an adoption of
+  // truth but an optimistic edit — the keyed diff is written into the draft
+  // (a matched row keeps its proxy, its changed leaves become its guesses),
+  // and the setter's exit turns the draft into guesses like any.
+  if (userWriting() && t.fam?.opt === true) {
+    optHooks!.reconcile(state, unwrapValue(value), keyFn);
+    return;
+  }
   // Replace-mode root handed another store's proxy: chain to it (§7b).
   if (replace && value !== state && value?.[$TARGET] !== undefined) {
     const prev = t.pb ?? t.v;
@@ -84,17 +95,21 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   const prev = t.pb ?? t.v;
   if (incoming === prev && !isOwned(prev)) return;
   const fam = t.fam;
+  // Q-D: a landing on an optimistic family is reconciled against the VIEW
+  // — key matching from the arrangement the guesses made (R28), so a row
+  // the guess added keeps its proxy when the server returns it.
+  const prevView = fam?.opt === true ? optHooks!.view(t, prev) : prev;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   const old = prev;
   adoptPB(t, incoming, false);
   if (shallow) markRawIngest(incoming);
-  if (Array.isArray(old) !== nextArr) {
+  if (Array.isArray(prevView) !== nextArr) {
     notifyFold(t, old, incoming);
     return;
   }
   if (nextArr) {
-    const prevRows = old as any[];
+    const prevRows = prevView as any[];
     const nextRows = incoming as any[];
     const nodes = t.n;
     let nodesHit = 0;
@@ -238,7 +253,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       if (nodes !== null && nodes[k] !== undefined) nodesHit++;
       continue;
     }
-    if (isObj && !shallow) descend(unwrapValue(ov), nv, keyFn, fam, proj);
+    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
     if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
       bumpDeep(t);
       dkBumped = true;
@@ -276,10 +291,6 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
 }
 
 const hasOwnP = Object.prototype.hasOwnProperty;
-
-export function sameKey(a: any, b: any): boolean {
-  return a === b || (a !== a && b !== b);
-}
 
 /** Descend into a changed child pair — only where something is proxied
  * below (§6d), never into a raw-marked leaf, never across array/object or a

@@ -36,6 +36,7 @@ import {
   CONFIG_HELD,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_SLOT_NODE,
   CONFIG_STAGED,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -44,13 +45,14 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_IN_HEAP,
+  REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_SCREEN_READ,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, tracking } from "./core.js";
+import { ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -111,18 +113,27 @@ export function display(el: Signal<any> | Computed<any>): unknown {
  * applied). The lane's passes run in the next round of the same flush, so
  * the guess is visible at flush like any write (A28). */
 const pendingGuesses: any[] = [];
+/** What the writer sees of a node: an unflushed guess to it, else the
+ * lane's value or the committed one — what an optimistic updater composes
+ * on (a store setter's draft too, store/optimistic.ts). */
+export function guessedValueOf<T>(n: Signal<T> | Computed<T>): T {
+  const g = pendingGuessOf(n);
+  if (g !== NOT_PENDING) return g as T;
+  return n._config & CONFIG_OVERRIDE ? (laneValueOf(n) as T) : n._value;
+}
+/** The unflushed guess to `n`, else NOT_PENDING. */
+export function pendingGuessOf(n: Signal<any> | Computed<any>): unknown {
+  for (let i = pendingGuesses.length - 3; i >= 0; i -= 3)
+    if (pendingGuesses[i] === n) return pendingGuesses[i + 1];
+  return NOT_PENDING;
+}
 export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   // What the user sees: an unflushed guess to the same node, else the lane's
   // value or the committed one. The updater composes on it; guessing it
   // again is no guess (the node's comparator, as for any write) — unless
   // the node already carries one: the user re-asked, and the re-ask renews
   // the guess's question and entangles its frame (#3347) without notifying.
-  let prev: T = n._config & CONFIG_OVERRIDE ? (laneValueOf(n) as T) : n._value;
-  for (let i = pendingGuesses.length - 3; i >= 0; i -= 3)
-    if (pendingGuesses[i] === n) {
-      prev = pendingGuesses[i + 1];
-      break;
-    }
+  const prev = guessedValueOf(n);
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
@@ -138,6 +149,16 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
  * that flight's observer — A17, "visible until its own fetch settles"). No
  * parent: the guess is dropped. The truth is untouched; readers are
  * dirtied for the next round. */
+/** A guess's own truth is in flight: the node's own refetch — or, a store
+ * leaf's, its family's derive (the slot's flight; store/optimistic.ts
+ * installs the resolver). A17: the guess stands in for the flight. */
+function inFlight(n: Signal<any>): boolean {
+  return (
+    ((n as Computed<any>)._statusFlags & STATUS_PENDING) !== 0 ||
+    ((n._config & CONFIG_SLOT_NODE) !== 0 && GlobalQueue._slotFlight?.(n) === true)
+  );
+}
+
 function applyGuesses(parent: Transaction | null): void {
   let lane: Transaction | null = null;
   for (let i = 0; i < pendingGuesses.length; i += 3) {
@@ -162,8 +183,7 @@ function applyGuesses(parent: Transaction | null): void {
       let l: Transaction;
       if (n._config & CONFIG_HELD) l = newLane(txOf(n));
       else {
-        if (parent === null && (n as Computed<any>)._statusFlags & STATUS_PENDING)
-          parent = newTransaction(false);
+        if (parent === null && inFlight(n)) parent = newTransaction(false);
         if (parent === null) continue;
         l = lane ??= newLane(parent);
       }
@@ -200,7 +220,16 @@ function applyGuesses(parent: Transaction | null): void {
 export function enterLane(l: Transaction, c: Computed<any>): void {
   c._flags |= REACTIVE_LANE_READ;
   const p = passLane;
-  if (p === null || sameLane(p, l)) return setPassLane(l);
+  if (p === null) {
+    setPassLane(l);
+    // The pass read a held write before its first lane read (it joined the
+    // frame's future as mainline would): lane work sees the screen — the
+    // seam re-derives it on the committed world next round (`stagedReaders`,
+    // the park's repair), as it does a lane pass that read a staging.
+    if (c._flags & REACTIVE_JOINED) stagedRead(c);
+    return;
+  }
+  if (sameLane(p, l)) return setPassLane(l);
   if (under(p, l)) return;
   if (under(l, p)) return setPassLane(l);
   linkLanes(p, l);
@@ -225,13 +254,16 @@ function linkLanes(a: Transaction, b: Transaction): void {
       gb[i]._links = ga;
     }
 }
-/** A linked lane blocked on its own account blocks the group. */
+/** A linked lane blocked on its own account blocks the group — `blocked(k)`
+ * without the group recursion. (A guess in `k` whose own truth is in flight
+ * blocks `k`'s parent, not `k` — nor, through the link, `l`: the guess
+ * shows, A17.) */
 function linkBlocked(l: Transaction): boolean {
   const g = l._links;
   if (g !== null)
     for (let i = 0; i < g.length; i++) {
       const k = g[i];
-      if (k !== l && (ownFlights(k) || guessFlights(k) || nestedBlocked(k))) return true;
+      if (k !== l && (k._open !== 0 || ownFlights(k) || nestedBlocked(k))) return true;
     }
   return false;
 }
@@ -309,7 +341,10 @@ let reverting = false;
 
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
   const l = txOf(n);
-  const parent = l._parent ?? l;
+  // Resolved: the parent may have merged into another transaction since the
+  // lane opened (two actions guessing one slot entangle, A34 (1)) — the
+  // truth is held by the transaction that lands, not the merged-away one.
+  const parent = resolveTx(l._parent ?? l);
   if (changed) {
     // Observe: a displayed guess is being replaced by a differing truth — a
     // landing's (superseded), or the value it covered (reverted: the body
@@ -460,9 +495,20 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   if (c !== null && c._config & CONFIG_AUTHORITATIVE)
     return guess && el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
   if (c === null) return laneValueOf(el);
-  if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) return display(el);
   const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
+  if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
+    // An untracked read inside lane work derives from the lane like a
+    // tracked one, minus the subscription — `untrack` is about
+    // dependencies, not about which world a pass derives from (a mapper's
+    // row reads under its root, store/map): the pass enters the lane (two
+    // lanes read by one pass link, as for tracked reads). Outside lane
+    // work, the screen.
+    if (passLane === null || c._config & CONFIG_CHILDREN_FORBIDDEN) return display(el);
+    enterLane(l, c);
+    if (!guess && status & STATUS_PENDING) return NOT_PENDING;
+    return laneValueOf(el);
+  }
   if ((c as any)._type === EFFECT_RENDER && (passLane === null || !sameLane(passLane, l))) {
     if (!guess) {
       // A flight whose value has never shown: nothing to show — the leaf
@@ -500,8 +546,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
 function guessFlights(l: Transaction): boolean {
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
-    if (n._config & CONFIG_GUESS && n._x!._transaction === l && n._statusFlags & STATUS_PENDING)
-      return true;
+    if (n._config & CONFIG_GUESS && n._x!._transaction === l && inFlight(n)) return true;
   }
   return false;
 }

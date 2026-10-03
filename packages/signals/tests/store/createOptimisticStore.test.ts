@@ -35,6 +35,11 @@ describe("createOptimisticStore", () => {
     // action in flight) is installed when the flush starts and reverted when
     // it ends, so effects are the only channel that sees it; plain reads
     // answer the flushed value on both sides of the flush.
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should update store via setter and revert on flush", () => {
       const [state, setState] = createOptimisticStore({ name: "John" });
       const values: string[] = [];
@@ -53,10 +58,15 @@ describe("createOptimisticStore", () => {
       });
       expect(state.name).toBe("John"); // unflushed — not visible yet
       flush();
-      expect(values).toEqual(["John", "Jake", "John"]); // shown by the flush, then reverted
+      expect(values).toEqual(["John"]); // no frame to be optimistic over: nothing shown
       expect(state.name).toBe("John");
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should allow multiple optimistic updates before flush", () => {
       const [state, setState] = createOptimisticStore({ count: 1 });
       const values: number[] = [];
@@ -81,10 +91,52 @@ describe("createOptimisticStore", () => {
       });
       expect(state.count).toBe(1); // readers do not
       flush();
+      expect(values).toEqual([1]);
+      expect(state.count).toBe(1);
+    });
+
+    it("multiple optimistic updates in one action: the draft composes on the tick's own writes", async () => {
+      const [state, setState] = createOptimisticStore({ count: 1 });
+      const values: number[] = [];
+      createRoot(() =>
+        createRenderEffect(
+          () => state.count,
+          v => {
+            values.push(v);
+          }
+        )
+      );
+      flush();
+
+      let release!: () => void;
+      action(function* () {
+        setState(s => {
+          s.count = 2;
+        });
+        setState(s => {
+          s.count = 3;
+        });
+        setState(s => {
+          s.count = s.count + 10; // the draft sees its own tick's writes (3)
+        });
+        yield new Promise<void>(r => (release = r));
+      })();
+      expect(state.count).toBe(1); // readers do not, until the flush
+      flush();
+      expect(values).toEqual([1, 13]);
+      release();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
       expect(values).toEqual([1, 13, 1]);
       expect(state.count).toBe(1);
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle multiple properties independently", () => {
       const [state, setState] = createOptimisticStore({ a: 1, b: 10 });
       const values: Array<{ a: number; b: number }> = [];
@@ -111,17 +163,18 @@ describe("createOptimisticStore", () => {
       expect(state.b).toBe(10);
 
       flush();
-      expect(values).toEqual([
-        { a: 1, b: 10 },
-        { a: 2, b: 20 },
-        { a: 1, b: 10 }
-      ]);
+      expect(values).toEqual([{ a: 1, b: 10 }]);
       expect(state.a).toBe(1);
       expect(state.b).toBe(10);
     });
   });
 
   describe("nested objects", () => {
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should update nested properties and revert on flush", () => {
       const [state, setState] = createOptimisticStore({
         user: { name: "John", address: { city: "NYC" } }
@@ -149,11 +202,16 @@ describe("createOptimisticStore", () => {
       expect(state.user.address.city).toBe("NYC");
 
       flush();
-      expect(values).toEqual(["John/NYC", "Jake/LA", "John/NYC"]);
+      expect(values).toEqual(["John/NYC"]);
       expect(state.user.name).toBe("John");
       expect(state.user.address.city).toBe("NYC");
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle replacing nested objects and revert", () => {
       const [state, setState] = createOptimisticStore({
         user: { name: "John" }
@@ -175,12 +233,17 @@ describe("createOptimisticStore", () => {
       expect(state.user.name).toBe("John");
 
       flush();
-      expect(values).toEqual(["John", "Jake", "John"]);
+      expect(values).toEqual(["John"]);
       expect(state.user.name).toBe("John");
     });
   });
 
   describe("arrays", () => {
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should update array items and revert on flush", () => {
       const [state, setState] = createOptimisticStore({
         todos: [
@@ -208,14 +271,15 @@ describe("createOptimisticStore", () => {
       expect(state.todos[1].done).toBe(false);
 
       flush();
-      expect(values).toEqual([
-        [false, false],
-        [true, false],
-        [false, false]
-      ]);
+      expect(values).toEqual([[false, false]]);
       expect(state.todos[0].done).toBe(false);
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle array push and revert", () => {
       const [state, setState] = createOptimisticStore({
         items: [1, 2, 3]
@@ -238,15 +302,16 @@ describe("createOptimisticStore", () => {
       expect(state.items[3]).toBeUndefined();
 
       flush();
-      expect(values).toEqual([
-        [1, 2, 3],
-        [1, 2, 3, 4],
-        [1, 2, 3]
-      ]);
+      expect(values).toEqual([[1, 2, 3]]);
       expect(state.items.length).toBe(3);
       expect(state.items[3]).toBeUndefined();
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle array splice and revert", () => {
       const [state, setState] = createOptimisticStore({
         items: ["a", "b", "c"]
@@ -268,14 +333,15 @@ describe("createOptimisticStore", () => {
       expect(state.items).toEqual(["a", "b", "c"]);
 
       flush();
-      expect(values).toEqual([
-        ["a", "b", "c"],
-        ["a", "c"],
-        ["a", "b", "c"]
-      ]);
+      expect(values).toEqual([["a", "b", "c"]]);
       expect(state.items).toEqual(["a", "b", "c"]);
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle top-level array store", () => {
       const [state, setState] = createOptimisticStore([
         { id: 1, name: "First" },
@@ -302,11 +368,7 @@ describe("createOptimisticStore", () => {
       expect(state.length).toBe(2);
 
       flush();
-      expect(values).toEqual([
-        ["First", "Second"],
-        ["Updated First", "Second", "Third"],
-        ["First", "Second"]
-      ]);
+      expect(values).toEqual([["First", "Second"]]);
       expect(state[0].name).toBe("First");
       expect(state.length).toBe(2);
     });
@@ -486,6 +548,11 @@ describe("createOptimisticStore", () => {
   });
 
   describe("derived optimistic stores (projections)", () => {
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should derive from source signal and revert optimistic writes", () => {
       const [$x, setX] = createSignal(1);
       const [state, setState] = createOptimisticStore(
@@ -513,9 +580,9 @@ describe("createOptimisticStore", () => {
       });
       expect(state.value).toBe(2);
 
-      // The flush shows 100, then reverts the ambient write to the derived value
+      // No frame to be optimistic over: the write never shows
       flush();
-      expect(values).toEqual([2, 100, 2]);
+      expect(values).toEqual([2]);
       expect(state.value).toBe(2);
 
       // Source change propagates through
@@ -524,6 +591,11 @@ describe("createOptimisticStore", () => {
       expect(state.value).toBe(6);
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should allow return value reconciliation and revert optimistic", () => {
       const [$x, setX] = createSignal(1);
       const [state, setState] = createOptimisticStore(() => ({ value: $x() * 2 }), { value: 0 });
@@ -546,7 +618,7 @@ describe("createOptimisticStore", () => {
       expect(state.value).toBe(2);
 
       flush();
-      expect(values).toEqual([2, 50, 2]);
+      expect(values).toEqual([2]);
       expect(state.value).toBe(2);
 
       setX(10);
@@ -618,6 +690,11 @@ describe("createOptimisticStore", () => {
       expect(firstPost.title).toBe("t2");
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle async projection and revert optimistic writes", async () => {
       const [$x, setX] = createSignal(1);
       const [state, setState] = createOptimisticStore(
@@ -651,9 +728,9 @@ describe("createOptimisticStore", () => {
       });
       expect(state.value).toBe(2);
 
-      // Just flush without source update - this simpler case should still revert
+      // No refetch is up and no action is open: nothing to be optimistic over
       flush();
-      expect(values).toEqual([2, 8, 2]);
+      expect(values).toEqual([2]);
       // After the async projection completes and transition ends, optimistic should revert
       await Promise.resolve();
       await Promise.resolve();
@@ -703,6 +780,11 @@ describe("createOptimisticStore", () => {
   });
 
   describe("reactivity tracking", () => {
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should track property changes through effects", () => {
       const [state, setState] = createOptimisticStore({ name: "John" });
       const values: string[] = [];
@@ -723,7 +805,7 @@ describe("createOptimisticStore", () => {
         s.name = "Jake";
       });
       flush();
-      expect(values).toEqual(["John", "Jake", "John"]); // optimistic then revert
+      expect(values).toEqual(["John"]); // no frame to be optimistic over: nothing shown
     });
 
     it("should track Object.keys changes", async () => {
@@ -933,6 +1015,11 @@ describe("createOptimisticStore", () => {
       expect(values2).toEqual([false, true, false]);
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should accumulate rapid successive array pushes", () => {
       const [state, setState] = createOptimisticStore<{ items: number[] }>({ items: [1] });
       const lengths: number[] = [];
@@ -975,14 +1062,54 @@ describe("createOptimisticStore", () => {
       expect(state.items.length).toBe(1);
       expect(state.items[1]).toBeUndefined();
 
-      // The flush shows all three pushes at once, then reverts the ambient writes
+      // No frame to be optimistic over: the writes never show
       flush();
-      expect(lengths).toEqual([1, 4, 1]);
-      expect(items).toEqual([[1], [1, 2, 3, 4], [1]]);
+      expect(lengths).toEqual([1]);
+      expect(items).toEqual([[1]]);
       expect(state.items.length).toBe(1);
       expect(state.items[0]).toBe(1);
     });
 
+    it("rapid successive array pushes in one action accumulate: each draft composes on the last", async () => {
+      const [state, setState] = createOptimisticStore<{ items: number[] }>({ items: [1] });
+      const items: number[][] = [];
+      createRoot(() => {
+        createRenderEffect(
+          () => [...state.items],
+          v => {
+            items.push(v);
+          }
+        );
+      });
+      flush();
+      let release!: () => void;
+      action(function* () {
+        setState(s => {
+          s.items.push(2);
+        });
+        setState(s => {
+          s.items.push(3);
+        });
+        setState(s => {
+          s.items.push(4);
+        });
+        yield new Promise<void>(r => (release = r));
+      })();
+      expect(state.items.length).toBe(1); // unflushed
+      flush();
+      expect(items).toEqual([[1], [1, 2, 3, 4]]);
+      release();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(items).toEqual([[1], [1, 2, 3, 4], [1]]);
+    });
+
+    // Lane contract 2 (maintainer, 2026-10-01; the signal twin in
+    // createOptimistic.test.ts): an optimistic write in a frame that does not
+    // park is as if it never happened — there is nothing to be optimistic
+    // over, so no reader ever sees it. (Was: the flush showed the write for
+    // one frame, then reverted it.)
     it("should handle rapid successive array deletions via filter on top-level array", () => {
       // Using top-level array store like the Todo demo
       const [state, setState] = createOptimisticStore([
@@ -1026,16 +1153,49 @@ describe("createOptimisticStore", () => {
       expect(state.length).toBe(4);
       expect([...state].map(i => i.id)).toEqual([1, 2, 3, 4]);
 
-      // The flush shows both deletions at once, then reverts the ambient writes
+      // No frame to be optimistic over: the writes never show
       flush();
-      expect(lengths).toEqual([4, 2, 4]);
-      expect(ids).toEqual([
-        [1, 2, 3, 4],
-        [1, 3],
-        [1, 2, 3, 4]
-      ]);
+      expect(lengths).toEqual([4]);
+      expect(ids).toEqual([[1, 2, 3, 4]]);
       expect(state.length).toBe(4);
       expect([...state].map(i => i.id)).toEqual([1, 2, 3, 4]);
+    });
+
+    it("rapid successive filter replacements in one action: the second draft filters the first's result", async () => {
+      const [state, setState] = createOptimisticStore([
+        { id: 1 },
+        { id: 2 },
+        { id: 3 },
+        { id: 4 }
+      ] as { id: number }[]);
+      const ids: number[][] = [];
+      createRoot(() => {
+        createRenderEffect(
+          () => [...state].map(i => i.id),
+          v => {
+            ids.push(v);
+          }
+        );
+      });
+      flush();
+      let release!: () => void;
+      action(function* () {
+        setState(s => s.filter(item => item.id !== 2));
+        setState(s => s.filter(item => item.id !== 4));
+        yield new Promise<void>(r => (release = r));
+      })();
+      expect(state.length).toBe(4); // unflushed
+      flush();
+      expect(ids).toEqual([
+        [1, 2, 3, 4],
+        [1, 3]
+      ]);
+      release();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(ids.at(-1)).toEqual([1, 2, 3, 4]);
+      expect(state.length).toBe(4);
     });
 
     it("should handle rapid toggles of same property with actions and refresh", async () => {
@@ -2077,12 +2237,40 @@ describe("createOptimisticStore", () => {
         await finish(state);
       });
 
+      // The write must land while the refetch is still up: `await setup()`
+      // yields the microtasks the refetch's continuation and landing need
+      // (an async landing commits in its own flush on L2), so the refetch is
+      // started here, synchronously before the write.
       it("a real write mid-refetch displays but stays pending", async () => {
-        const { state, setState } = await setup();
+        const [$id, setId] = createSignal(1);
+        let state!: { data: number };
+        let setState!: (fn: (s: { data: number }) => any) => void;
+        createRoot(() => {
+          [state, setState] = createOptimisticStore(
+            async (s: { data: number }) => {
+              const id = $id();
+              await Promise.resolve();
+              s.data = id * 10;
+            },
+            { data: 0 }
+          );
+          createRenderEffect(
+            () => state.data,
+            () => {}
+          );
+        });
+        flush();
+        await new Promise(r => setTimeout(r, 0));
+        expect(state.data).toBe(10);
+
+        setId(2);
+        flush();
+        expect(isPending(() => state.data)).toBe(true);
         setState(s => {
           s.data = 999;
         });
         flush();
+        // A17: the guess stands in for the flight — shown, pending.
         expect(state.data).toBe(999);
         expect(isPending(() => state.data)).toBe(true);
         await finish(state);

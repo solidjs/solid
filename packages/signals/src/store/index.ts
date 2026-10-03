@@ -25,6 +25,7 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
+import { createOptimisticStore } from "./optimistic.js";
 import { createProjection, createStoreDerived } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
 import {
@@ -42,7 +43,7 @@ import type {
   StoreSetter
 } from "./types.js";
 
-export { createProjection };
+export { createOptimisticStore, createProjection };
 
 /**
  * Create a reactive store: a proxy over plain data with fine-grained

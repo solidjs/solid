@@ -1970,7 +1970,7 @@ passes a Loading).
 **Status protocol (B5).** `GlobalQueue.notify` asks `_catch(node, flags,
 error)` first. For a frame reader's pending/error the module walks the
 chain: a Loading on the way records a pending reader (its `on` may collect
-it later); the nearest boundary of that type that is *collecting* — an
+it later); the nearest boundary of that type that is _collecting_ — an
 Errored always; a Loading until it has shown content, or while re-armed —
 records it, writes the error signal (`reportClientError` once per error),
 re-derives its output, and returns `true`: the root never hears of it, no
@@ -2129,11 +2129,11 @@ and already out of sync with Transactions — 5 attribution tests).
   lane — one pass. Nothing holds the frame at the seam: the transaction
   lands there and the lane dissolves into it (a plain commit); something
   does: the reader was lane work all along. Before, the reader ran a
-  *provisional* pass (frame work), the park voided it (`verdictSeam`) and
+  _provisional_ pass (frame work), the park voided it (`verdictSeam`) and
   re-ran it as lane work — everything downstream ran twice: a keyed
   `<Show when={latest(count)}>` mounted its child twice mid-flight (web
   `loading-on-keyed-boundary-3540` `[1,3,3]` vs `[1,2,2]`). **`isPending`
-  keeps the watcher**: its answer *is* the verdict (final unless the flush
+  keeps the watcher**: its answer _is_ the verdict (final unless the flush
   parks) and cannot be given before the seam — eager routing made a plain
   sync write glitch the wrapper true and made the probing `on` node a
   FRAME_READ blocker of T (#3528 fn-isPending). Companion rule in `read`
@@ -2146,7 +2146,7 @@ and already out of sync with Transactions — 5 attribution tests).
   `Show` `when`).
 - **`removalStagedBy(r, t)` accepts a removal staged by a transaction `t`
   ends with** (a lane's parent chain): a verdict-lane memo in flight whose
-  only reader is a zombie the *parent* unmounts no longer blocks the lane —
+  only reader is a zombie the _parent_ unmounts no longer blocks the lane —
   and so the parent (`lane-outside-view` #3463 "a plain removal with nothing
   else holding still releases at once").
 
@@ -2180,12 +2180,12 @@ checks against a stale `types` build).
 - **web `loading.spec` #2700/#2701** (`Errored > Loading > async` that
   errored, then an input write refetches): `next` held the input write
   (`0Fetch error for 0`, `isPending(count)` true) because the error had made
-  the Loading *initialized* (its `_checkSources` cleared the swap on the
+  the Loading _initialized_ (its `_checkSources` cleared the swap on the
   error and the output read the stale tree), so the refetch's pending was
   forwarded. Under ruling 2/3 the Loading never showed content: it catches
   the refetch, nothing on screen derives from the flight, the write
   publishes beside the old error (`1Fetch error for 0`, then `1Fetch error
-  for 1`). Needs a ruling; the pins encode the accident.
+for 1`). Needs a ruling; the pins encode the accident.
 - **Render updates behind a fallback run; `next` held them.** Chosen for
   the reveal frame (no burst) and the hot path (no `hidden()` walk on
   render runs). The one case that costs: `Portal` mounts through a
@@ -2213,20 +2213,20 @@ checks against a stale `types` build).
 
 ### 23.6 Whole size suite, before (lanesmod) → after (br / min)
 
-| scenario | before br | after br | Δ br | Δ min |
-| --- | --- | --- | --- | --- |
-| signals: core floor | 6777 | **6956** | +179 | +711 |
-| signals: + createStore | 6821 | 7003 | +182 | +711 |
-| signals: + isPending/latest | 8077 | 8273 | +196 | +735 |
-| app: render + one signal | 9258 | **9444** | +186 | +711 |
-| app: hydrating (no stores) | 15960 | 17094 | +1134 | +3637 |
-| app: hydrating + every store family | 17636 | 18798 | +1162 | +3736 |
-| app: CSR with Show/For/Loading/Errored/lazy | 11154 | **12271** | +1117 | +3611 |
-| app: CSR, observe tier | 12734 | 13831 | +1097 | +3575 |
-| app: CSR, observe + attribution | 26572 | 27718 | +1146 | +3664 |
-| page: base SC | 34651 | 35770 | +1119 | +3727 |
-| page: live SC | 37207 | 38367 | +1160 | +3755 |
-| frames / server floor / renderToString | = | = | 0 | 0 |
+| scenario                                    | before br | after br  | Δ br  | Δ min |
+| ------------------------------------------- | --------- | --------- | ----- | ----- |
+| signals: core floor                         | 6777      | **6956**  | +179  | +711  |
+| signals: + createStore                      | 6821      | 7003      | +182  | +711  |
+| signals: + isPending/latest                 | 8077      | 8273      | +196  | +735  |
+| app: render + one signal                    | 9258      | **9444**  | +186  | +711  |
+| app: hydrating (no stores)                  | 15960     | 17094     | +1134 | +3637 |
+| app: hydrating + every store family         | 17636     | 18798     | +1162 | +3736 |
+| app: CSR with Show/For/Loading/Errored/lazy | 11154     | **12271** | +1117 | +3611 |
+| app: CSR, observe tier                      | 12734     | 13831     | +1097 | +3575 |
+| app: CSR, observe + attribution             | 26572     | 27718     | +1146 | +3664 |
+| page: base SC                               | 34651     | 35770     | +1119 | +3727 |
+| page: live SC                               | 37207     | 38367     | +1160 | +3755 |
+| frames / server floor / renderToString      | =         | =         | 0     | 0     |
 
 Floor residue +179 br, in two parts. The boundary seams (+132 at the first
 measure): scheduler.js — four hook statics, the `notify` hook, `onScreen`,
@@ -2253,7 +2253,7 @@ something imports `createRevealOrder`; a Loading boundary without one pays
 a null check. Not in the CSR bundle (no `<Reveal>` there).
 
 **Model.** A controller owns each direct Loading slot (and each nested
-controller) until it is *done* — a boundary when it has shown content, a
+controller) until it is _done_ — a boundary when it has shown content, a
 nested group when it is ready — and forces on the slots it owns the state
 the order dictates: `_gated` (the fallback, whatever the content's state)
 and, in a collapsed sequential tail, `_collapsed` (nothing). The boundary's
@@ -2273,15 +2273,15 @@ are slots. `order`/`collapsed` are tracked by a computed of the group's own.
 **Two rules the old implementation left to its evaluation order,** made
 explicit because this one re-evaluates whenever a gated pass runs:
 
-- *A nested group released at the frontier stays the parent's frontier
-  until it is ready.* The old code dropped `_parentController` on release;
+- _A nested group released at the frontier stays the parent's frontier
+  until it is ready._ The old code dropped `_parentController` on release;
   nothing re-evaluated the parent afterwards, so the slot behind the nested
   group stayed collapsed by accident. Re-evaluated, that slot became the
   first owned one and was ungated (`supports direct nested reveal as a
-  composite slot`). Now a nested controller graduates when `_ready`, as a
+composite slot`). Now a nested controller graduates when `_ready`, as a
   boundary does when shown.
-- *Readiness is judged over every slot, done ones as ready* ("shown is
-  shown"). The old `_isMinReady` looked at the first *owned* slot; after
+- _Readiness is judged over every slot, done ones as ready_ ("shown is
+  shown"). The old `_isMinReady` looked at the first _owned_ slot; after
   that slot graduated the next, unready one made a sequential group
   "not minimally ready" again and an enclosing `together` re-gated
   everything it had released (`three-level minimal readiness`). Gating
@@ -2311,8 +2311,7 @@ mangler drift across untouched modules); simple app 9444 → 9450; CSR
 12271 → **12369** (+98 / +355: `boundaries.js` 2640 → 2911 — the three
 fields, the gate, `ready()`, the `_changed` calls, the `REVEAL` key;
 `reveal.js` itself is not in the bundle); hydrating 17094 → 17192; pages
-+109..+172 (`reveal.js` present where `<Reveal>` is used); frames/server
-0. Against `next`: CSR 12,369 vs 14,901. Hot paths unchanged (`read`
++109..+172 (`reveal.js` present where `<Reveal>` is used); frames/server 0. Against `next`: CSR 12,369 vs 14,901. Hot paths unchanged (`read`
 1052/88, `setSignal` 320/40, `recompute` 2504/384).
 
 **The boundary family is complete.** Public surface restored:
@@ -2340,7 +2339,7 @@ except one latent bug fixed on the way, flagged below.
   assigns `undefined` on reset.
 - **One `_verdictSeam` call** after the park/commit branches, with the
   verdict (`t !== null`), instead of one per branch: the seam's `parked:
-  false` arm only drained the watcher list, so the order relative to
+false` arm only drained the watcher list, so the order relative to
   `commitPendingNodes` is immaterial.
 - **`append(a, b)`** for the six array-copy loops (`joinFuture` ×4,
   `releaseQueues` ×2) — `push(...b)` without the argument-count limit.
@@ -2352,7 +2351,7 @@ except one latent bug fixed on the way, flagged below.
   reader behind a fallback — ending the scan and releasing `t` even when a
   later node in `t._nodes` was a live blocker. It now skips that node and
   goes on. Pre-existing (from the zombie exemption's `return !(ZOMBIE &&
-  removalStagedBy)`); no pin caught it because the lists in the pins have
+removalStagedBy)`); no pin caught it because the lists in the pins have
   the blocker first.
 
 Not done, with reasons: the three-way effect-run ordering in `settle()`
@@ -2364,12 +2363,13 @@ concatenation moves the cost to `blocked`'s scan of merged members);
 
 **Whole size suite, reveal → sched (br / min):** floor 6961 → **6867**
 (−94 / −587; `scheduler.js` 4757 → 4288 min, core.js −47, effect.js −9);
-+ createStore 7012 → 6909; + isPending/latest 8282 → 8161; simple app 9450
-→ **9349** (651 under 10 KB); hydrating 17192 → 17097; hydrating + stores
-18925 → 18825; CSR 12369 → **12277**; CSR observe 13921 → 13799; CSR +
-attribution 27820 → 27689; pages 35942 → 35826, 38476 → 38389; frames /
-server 0. Hot paths unchanged (`read` 1052/88, `setSignal` 320/40,
-`recompute` 2504/384). Web 878 / 9 / 186 unchanged.
+
+- createStore 7012 → 6909; + isPending/latest 8282 → 8161; simple app 9450
+  → **9349** (651 under 10 KB); hydrating 17192 → 17097; hydrating + stores
+  18925 → 18825; CSR 12369 → **12277**; CSR observe 13921 → 13799; CSR +
+  attribution 27820 → 27689; pages 35942 → 35826, 38476 → 38389; frames /
+  server 0. Hot paths unchanged (`read` 1052/88, `setSignal` 320/40,
+  `recompute` 2504/384). Web 878 / 9 / 186 unchanged.
 
 Standing after steps 1–5 + this pass, against `next` 309b08730: floor
 **6,867 vs 9,508** (−27.8 %), simple app **9,349 vs 11,970**, CSR **12,277
@@ -2414,7 +2414,7 @@ list, no origin/provenance stamping (see 26.4).
   output, the `on` node, and now `watch`.
 - **Authoritative reads (`until`).** `CONFIG_AUTHORITATIVE` (new bit): a
   read of displayed optimism serves the base the guess covers and makes the
-  pass no lane's; `supersede` wakes such readers when the truth *confirms*
+  pass no lane's; `supersede` wakes such readers when the truth _confirms_
   the guess — the one case ordinary subscribers are deliberately not told
   (A17 silence). `next` had `CONFIG_AUTHORITATIVE_READ`; it went with
   transactions.
@@ -2469,12 +2469,13 @@ family below).
 Size, sched → actions (br / min): floor 6867 → **6917** (+50 / +168:
 scheduler.js +172 — `_open`, `merge`, `passTx`/`joinPassTx`, `actionDepth`
 and the `flush()` guard; core.js +9); simple app 9349 → **9411**;
-+ isPending/latest 8161 → 8307 (+146: `latest`'s body-entangle arm, the
-authoritative arm in `laneRead`, `supersede`'s wake); CSR 12277 → 12334;
-page live 38389 → **38682** (+293: `action.js` is used there); frames /
-server 0. `recompute` 2504 → 2545 (+41: the born-held
-`STATUS_UNINITIALIZED` store and the `passTx` term); `read`/`setSignal`
-unchanged.
+
+- isPending/latest 8161 → 8307 (+146: `latest`'s body-entangle arm, the
+  authoritative arm in `laneRead`, `supersede`'s wake); CSR 12277 → 12334;
+  page live 38389 → **38682** (+293: `action.js` is used there); frames /
+  server 0. `recompute` 2504 → 2545 (+41: the born-held
+  `STATUS_UNINITIALIZED` store and the `passTx` term); `read`/`setSignal`
+  unchanged.
 
 ### 26.4 Open — the optimistic-under-action family (107)
 
@@ -2488,8 +2489,8 @@ time. Sorted by rule, not by file:
   "isPending holds until merged lane completes", "should NOT
   double-flicker"), `spec-async-semantics` "provenance" ×2 and
   "same-batch source write and override". `next` stamped every flight with
-  the action's sequence (`setOrigin`) so an *older* action's late answer
-  could not supersede a *newer* action's guess ("a slow source does not
+  the action's sequence (`setOrigin`) so an _older_ action's late answer
+  could not supersede a _newer_ action's guess ("a slow source does not
   leak back in over a newer intent"). Lanes have no provenance: `supersede`
   treats any landing on a guessed node as the truth. Needs: a question
   stamp on guesses and flights, and `laneOutcome` holding an older answer
@@ -2500,7 +2501,7 @@ time. Sorted by rule, not by file:
   held"), `visibility-oracle` "held truth" / "stolen landing" rows,
   `refresh-await` "staged landing delivers, the override does not". A
   truth landing on a guessed node while the guessing action is still open
-  is *held* (staged under the action, the override kept on screen) and
+  is _held_ (staged under the action, the override kept on screen) and
   reveals with the action. `supersede` today stages it under the parent and
   notifies at once.
 - **Lane holds under actions** — `lane-hold-on-observation` ×6 (an async
@@ -2558,7 +2559,7 @@ builds to; the spec files are not edited on this worktree.
   only cleared by landing of source or transition tear down so aren't these
   orthogonal?" — yes. These pins are INV-3 applied to lanes (#3289: a
   lane's reveal is held while async derived from its guess is in flight
-  *and observed*) and "whose flight is it" for nodes that did not exist at
+  _and observed_) and "whose flight is it" for nodes that did not exist at
   the write (mounted by the lane's reveal, merged lanes #3335, mounted
   mid-hold #3460/#3479). All ruled; actions only keep the scenario
   observable. The failures are mechanism (the guess never shows in the
@@ -2574,7 +2575,7 @@ builds to; the spec files are not edited on this worktree.
   Entering a fallback may happen ahead; leaving one falls with the rules
   (held with the transaction like any content). "For both directions do
   whatever feels more natural with the less code." The two
-  `createErrorBoundary` pins observe the view effect's *compute*; re-pinned
+  `createErrorBoundary` pins observe the view effect's _compute_; re-pinned
   to observe the run (the DOM): `error` until the landing, `content` after.
   (Maintainer notes an earlier eager ruling may have been read from how a
   thing was said rather than what was said; mechanically the subject was
@@ -2589,33 +2590,31 @@ builds to; the spec files are not edited on this worktree.
   arc: rc.8 value-compared key staged into the write (did nothing under any
   outside hold) → 2026-09-19 eager re-arm escaping the transaction
   (rejected: ProductPage A→B gave `[A] → [A + spinner] → [B + spinner] → [B
-  + comments]`) → 2026-09-22 (#3575): dependency list, re-arm releases the
-  boundary's hold at once, the swap lands with the notifying write's frame,
-  display-ahead reads in `on` (`latest`, `isPending`, an optimistic signal)
-  are eager, same-source outside hold never shows the fallback (by design,
-  `LOADING_ON_OUTSIDE_HOLD`). Probe of this build: every row of #3575 holds
-  — shell-hold `on={id}` gives `[A] → [B + spinner] → [B + comments]` and no
-  spinner when comments land first; `on={latest(id)}` and a direct
-  `isPending` in `on` are eager; `on={m2()}` under a same-source hold shows
-  nothing. The one gap is a *memo* between `isPending` and `on`: the memo is
-  the verdict reader (its pass is the verdict lane's) but its staging is not
-  marked as lane work, so `on`'s plain read follows the frame. **Resolution:
-  fix, not drop.** L2's own rule is "a reader of lane work is lane work"
-  (how a memo over `createOptimistic` carries the lane); a direct
-  `isPending` eager but a memo over it frame-following would be the "second
-  concept nobody would guess" the thread rejected, and the memo form is
-  mizulu's component verbatim. A verdict reader's staging is lane staging;
-  pins stand.
+  - comments]`) → 2026-09-22 (#3575): dependency list, re-arm releases the
+boundary's hold at once, the swap lands with the notifying write's frame,
+display-ahead reads in `on` (`latest`, `isPending`, an optimistic signal)
+are eager, same-source outside hold never shows the fallback (by design,
+`LOADING_ON_OUTSIDE_HOLD`). Probe of this build: every row of #3575 holds
+— shell-hold `on={id}`gives`[A] → [B + spinner] → [B + comments]`and no
+spinner when comments land first;`on={latest(id)}`and a direct`isPending`in`on`are eager;`on={m2()}`under a same-source hold shows
+nothing. The one gap is a *memo* between`isPending`and`on`: the memo is
+the verdict reader (its pass is the verdict lane's) but its staging is not
+marked as lane work, so `on`'s plain read follows the frame. **Resolution:
+fix, not drop.** L2's own rule is "a reader of lane work is lane work"
+(how a memo over `createOptimistic`carries the lane); a direct`isPending` eager but a memo over it frame-following would be the "second
+    concept nobody would guess" the thread rejected, and the memo form is
+    mizulu's component verbatim. A verdict reader's staging is lane staging;
+    pins stand.
 - **7b web `loading.spec` #2700/#2701: (a), re-pin to the build.** "What we
   can't have happen is the error fallback just clear and see some broken
   state underneath. As long as we keep the view consistent I'm ok." The
   build's frames: `0 | Fetch error for 0` → `1 | Fetch error for 0` → `1 |
-  Fetch error for 1`; the error stays until the new answer (a pending is not
+Fetch error for 1`; the error stays until the new answer (a pending is not
   a value; the inner Loading's fallback is hidden behind it). Lost: the
   top-level `isPending(count)` affordance — "no one was expecting something
   that high in the parent scope to be isPending".
-- **7c #3404 / #3444: mechanism.** #3404 now shows a *missing* `cleanup
-  1.0/1@2600` when the outer effect re-runs mainline during the hold (a
+- **7c #3404 / #3444: mechanism.** #3404 now shows a _missing_ `cleanup
+1.0/1@2600` when the outer effect re-runs mainline during the hold (a
   frame child not torn down — a bug, not an order question). #3444: "If a
   branch has been staged for removal it's a zombie.. latest is expected to
   peer through so it does see the 1." Pin stands.
@@ -2629,7 +2628,7 @@ builds to; the spec files are not edited on this worktree.
   we definitely shouldn't be showing portals early. Flip it." The build
   had held user/tracked runs only and let queued render-effect updates run
   off-screen (§23.5); `Portal`'s `schedule: true` render effect reached
-  `document.body` while hidden. Now: every *queued* run behind a fallback —
+  `document.body` while hidden. Now: every _queued_ run behind a fallback —
   render updates and user effects — waits in the boundary and is released
   at the reveal; the synchronous first render on creation goes through.
   No special case for `schedule: true`.
@@ -2682,6 +2681,7 @@ readers of the transaction (`laneStagedReads` → `_reruns`), not for a
 verdict lane's work.
 
 **Lane mechanism group.**
+
 - `laneRead`'s lane-work tail serves the lane's own staging to a plain read
   (`plain` argument from `read`; a verdict read still falls through to the
   verdict's held arm) — a lane pass reading its blocked lane's staging is
@@ -2812,7 +2812,7 @@ the move lands); with `latest()` in the ghost, or the flag optimistic, both
 show at once. His actual code (`GabbeV/solid-kanban`, `board/cards.tsx`)
 already shadows the flag optimistically AND writes the plain truth at the
 start — the entanglement there is the store layer joining a reader of an
-*overridden* leaf to the hold on the base beneath it (A17 says it must
+_overridden_ leaf to the hold on the base beneath it (A17 says it must
 not): a `next` store bug, for the store step, which inherits today's
 "guess over a staged truth" representation (`CONFIG_HELD_TRUTH`). Fixture to
 lift: plain truth + optimistic shadow on one leaf inside an action, a new
@@ -2845,12 +2845,12 @@ Fixed: `computed()` honours `_extraConfig`; `watch` passes
 changed the reject path). New pin in `until.test.ts`; an oracle cell fixed.
 
 **Checkout ×6 (`latest` independence).** A verdict reader of lane work was
-made the *lane's* work by `laneRead`'s `enterLane`, so a blocked lane held
+made the _lane's_ work by `laneRead`'s `enterLane`, so a blocked lane held
 its run — the opposite of display-ahead. `verdictValue`'s lane arm now
 routes the reader to the holder's verdict lane (as for a guess) and serves
 the lane's staging to `latest` (the staged landing a blocked lane holds has
 answered the node's question — `isPending` false, A24). The six pins pass
-with two re-pins: the `latest` text arrays compare the *shown* sequence
+with two re-pins: the `latest` text arrays compare the _shown_ sequence
 (`shown()` collapses a render effect's re-application of the committed
 value when a verdict re-derives it — effects have no comparator, by
 design; a global `Object.is` gate was tried and broke 74/26 pins), and the
@@ -2875,7 +2875,7 @@ about a displayed override. Never committed → direct reads throw NotReady
 and `isPending` is false (A19 exc. 1). There is no override to
 "un-supersede"; the later landing is a plain truth staged under the action.
 `superseded-before-first-commit.test.ts` re-pinned likewise.
-`isPending-memo-consistency` #3078: a verdict read of an *unflushed* staging
+`isPending-memo-consistency` #3078: a verdict read of an _unflushed_ staging
 outside a flush now watches the seam (nothing else would re-derive a memo
 created after the write); the pin allows the watcher's round.
 `latest-isPending-consistency` A10 re-pinned to the pairing invariant (a
@@ -2936,13 +2936,13 @@ scheduler consolidation (§25) except at the touch points listed in 28.10.
   guess" depending on one bit; `_pendingValue` means frame staging, lane
   staging, the base under a guess, or the truth held under a guess
   depending on `GUESS`/`OVERRIDE`/`LANE_HELD`/`HELD_TRUTH`. The seam
-  *swaps the two slots* when a lane blocks or unblocks (`laneSeam`). Eighty-
+  _swaps the two slots_ when a lane blocks or unblocks (`laneSeam`). Eighty-
   one reads of those four bits across seven files, each reconstructing
   which world a value belongs to. The A18 sync-twin misreads (#3479,
   #3648 B, the oracle rows re-pinned in §27.2) are all this.
 - **The seat is a side effect of reading.** `enterLane` with no `passLane`
   does `setPassLane(l)`: a read mutates the global seat mid-pass, so what a
-  pass *is* is decided by what it *touched*. Leaves (render effects) get
+  pass _is_ is decided by what it _touched_. Leaves (render effects) get
   converted into lane work and their own frame commits without them (the
   A15 LANE tear, `[true,false],'hidden'`). The lane tail then tries to undo
   it from evidence (`REACTIVE_STAGED_READ` → leave the lane).
@@ -2976,15 +2976,15 @@ The rulings this replay is built from, stated as rules of the layer:
    the intentional entanglement. A render effect or verdict reader reads
    committed and is re-derived at the landing. A lane sees committed
    values plus its own (and ancestors') shown guesses — never a
-   transaction's held writes, *including the current flush's unparked
-   staging* (28.5 (c)).
+   transaction's held writes, _including the current flush's unparked
+   staging_ (28.5 (c)).
 2. **A value lives in its world's slot; its world is where it lives, not a
    bit pattern.** (28.4.)
 3. **The seat of a pass is its node's state at the head; a derivation's
    reads may move it into a lane; a leaf's seat never moves.** (28.5.)
 4. **A hold is on the thing read.** A derivation joins the world it read; a
-   leaf reading a *shown* lane value shows it and holds nothing; a leaf
-   reading a *pending* lane flight waits on that flight — its own frame
+   leaf reading a _shown_ lane value shows it and holds nothing; a leaf
+   reading a _pending_ lane flight waits on that flight — its own frame
    blocks on the flight's landing, never on the lane's parent (#3334,
    A15). (28.6.)
 5. **A lane displays ahead on its own account** (§16, §22): it shows when
@@ -2999,21 +2999,21 @@ The rulings this replay is built from, stated as rules of the layer:
    readers are leaves in the holder's display-ahead world — shown now,
    re-derived at the landing. One mechanism with lanes if the probe
    dimension fits (28.8).
-8. **Actions are transitions** (Q5); outward language is *holds*.
+8. **Actions are transitions** (Q5); outward language is _holds_.
 
 ### 28.4 Representation
 
 Per node, three places, each meaning one thing always:
 
-| place | meaning | today |
-|---|---|---|
-| `_value` | the committed value — the screen's truth | also "the guess" when shown (swap) |
-| `_pendingValue` | the frame's staging (a transaction's future), `NOT_PENDING` if none | also lane staging, the base, the held truth |
+| place                 | meaning                                                                           | today                                       |
+| --------------------- | --------------------------------------------------------------------------------- | ------------------------------------------- |
+| `_value`              | the committed value — the screen's truth                                          | also "the guess" when shown (swap)          |
+| `_pendingValue`       | the frame's staging (a transaction's future), `NOT_PENDING` if none               | also lane staging, the base, the held truth |
 | `_x._lane` (new slot) | the lane's value for this node — a written guess or a derived one; `NONE` if none | spread over `_value`/`_pendingValue` by bit |
 
 Per lane transaction, one flag: `_shown` — set at the seam when the lane is
-not blocked, cleared when it is. *Shown vs held is the lane's state, not a
-swap on each node.*
+not blocked, cleared when it is. _Shown vs held is the lane's state, not a
+swap on each node._
 
 `display(n)` — what the screen shows — is `n._x._lane !== NONE &&
 n._x._transaction._shown ? n._x._lane : n._value`. Reached only behind the
@@ -3021,6 +3021,7 @@ one slow-path gate `read` already has (`CONFIG_OVERRIDE`, kept as "has a
 lane value"); the hot path is untouched.
 
 Consequences:
+
 - `CONFIG_LANE_HELD` and `CONFIG_HELD_TRUTH` go. A held truth under a guess
   is simply `_pendingValue !== NOT_PENDING` on a node with a lane value; a
   blocked lane's staging is a lane value whose lane is not `_shown`.
@@ -3034,7 +3035,7 @@ Consequences:
 - **Lane-derived values do not commit into `_value` at the reveal.** Today
   the reveal `commitPendingNode`s the lane's staging (so `_value` becomes
   the guess-derived value and the revert must re-derive it back). Proposed:
-  the reveal sets `_shown`, applies the lane's *frames* (children:
+  the reveal sets `_shown`, applies the lane's _frames_ (children:
   `_pendingFirstChild`/`_pendingDisposal` — Owner-level staging is separate
   from the value slot) and releases the lane's queues; the lane value stays
   in its slot until the parent lands. The frame's own passes keep seeing
@@ -3065,10 +3066,10 @@ first lane read are the frame's — is today's too (no pin fails on it);
 28.13 Q2 asks whether to re-run in the discovered world instead.
 
 (c) **A lane pass sees the frame's staging as committed — this flush's
-unparked staging included.** Today only *held* (parked) staging takes the
+unparked staging included.** Today only _held_ (parked) staging takes the
 `frameRead` committed path; same-flush unparked staging is read through
 (`stagedRead` → `REACTIVE_STAGED_READ`) and the tail then makes the pass
-*the frame's* ("writes this flush may yet hold") — so a guess's derivation
+_the frame's_ ("writes this flush may yet hold") — so a guess's derivation
 that also reads a frame write in the same tick does not display ahead at
 all, and the result depends on which dep was read first. Proposed: one
 rule for both — the lane pass reads `_value`, is marked `FRAME_READ`, and
@@ -3095,7 +3096,7 @@ lane's, as today, now a one-line arm.
   today (the core's rule).
 - A leaf reading a pending lane flight (`display(n)` has nothing to show:
   the lane value is `NONE` and the node is `STATUS_PENDING`) throws
-  NotReady as any pending read; the leaf is pending in *its own frame's*
+  NotReady as any pending read; the leaf is pending in _its own frame's_
   `_nodes`, `blockedBy` finds a pending on-screen render effect and the
   frame parks; the settle walk re-runs it when the flight lands
   (`_pendingSources`), it reads the now-shown lane value, the frame lands.
@@ -3121,8 +3122,8 @@ At `settle()`, after the park/commit decision:
    frame's transaction (as today; a committing frame has nothing to be
    optimistic over → dropped, §16).
 2. **Corrections** — body-end supersessions (A18 corollary, #3427) and
-   stale answers — run *and their re-derivations are run in the same pure
-   round under `passTx = parent`* before any landing is judged. The
+   stale answers — run _and their re-derivations are run in the same pure
+   round under `passTx = parent`_ before any landing is judged. The
    re-derivations read the superseded node (held by the parent) and join
    it; their flights are the parent's; the parent waits for them (#3409:
    the indicators clear together). Mechanically: `_laneSeams` reports a
@@ -3151,8 +3152,8 @@ that answered it (`_pendingValue` for a landed-but-held frame node; the lane
 value for a blocked lane's landed derivation — §27.2 checkout).
 
 The reader is a leaf in the holder's display-ahead world: it shows now, its
-runs go now, it re-derives at the landing. Today that world is a *verdict
-lane* (`t._verdict`, a `newLane(t)` with no write and nothing to stage)
+runs go now, it re-derives at the landing. Today that world is a _verdict
+lane_ (`t._verdict`, a `newLane(t)` with no write and nothing to stage)
 with its own dirty flag, rerun gate (`_parked`) and seam. **Hypothesis to
 test in S2:** a verdict reader is exactly a lane leaf whose lane value is
 computed rather than stored — the same `_shown`, `_reruns`, and queue
@@ -3183,6 +3184,7 @@ Hooks, unchanged in name and arity: `_laneRead`, `_laneStage`,
 (`_laneSeams` gains a boolean return: "a correction notified".)
 
 Core changes, each one site:
+
 - `recompute` head: seat from carriage (28.5 a). Tail: the `STAGED_READ`
   lane branch goes (28.5 c); `laneStage` on lane work as today.
 - `read`: the lane gate calls `display()`-based `laneRead`; `stagedRead`
@@ -3203,20 +3205,20 @@ Public surface: none. Behaviour: the re-pins listed in 28.12.
 
 ### 28.11 Expected effect on the reds (hypotheses, with confidence)
 
-| red | principle | confidence |
-|---|---|---|
-| A15 LANE "existing flight" ×3 (#3334) | 28.5 (d) + 28.6 — the leaf is not converted | high |
-| `reveal-carve-out` retired lane | same, plus 28.4 (no retired swap state) | medium |
-| #3479 boundary over a lane-born memo | 28.5 (a) + 28.4 (no sync-twin misread) | high |
-| #3648 shape B | 28.5 (a) + 28.4 | high |
-| #3698 held lane / #3460 shape | 28.5 (a) (c) — needs a trace; the failing assertion is before the sync write | medium |
-| `body-end-supersession-visibility` | 28.4 (display keeps the shown guess through the correction window: the slot is dropped only at the dissolve) | medium |
-| #3409 indicators clear together | 28.7 (2) | high |
-| #3463 zombie keeps holding | 28.6 zombie relevance | medium |
-| V5/A17 `20` vs `999` | 28.4 (a guess over a staged truth: `_pendingValue` untouched) | medium |
-| `loading-on-rearm` `on: () => latest(dep)` | 28.8 (verdict reader is a lane leaf; no `verdictDerived` dep walk) | medium |
-| `held-truth-lane-only` precondition | test asserts `next`'s bit — rewrite to observables either way | n/a |
-| `refresh-await`, `createOptimistic` affects | store / `affects` — later steps | n/a |
+| red                                         | principle                                                                                                    | confidence |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------- |
+| A15 LANE "existing flight" ×3 (#3334)       | 28.5 (d) + 28.6 — the leaf is not converted                                                                  | high       |
+| `reveal-carve-out` retired lane             | same, plus 28.4 (no retired swap state)                                                                      | medium     |
+| #3479 boundary over a lane-born memo        | 28.5 (a) + 28.4 (no sync-twin misread)                                                                       | high       |
+| #3648 shape B                               | 28.5 (a) + 28.4                                                                                              | high       |
+| #3698 held lane / #3460 shape               | 28.5 (a) (c) — needs a trace; the failing assertion is before the sync write                                 | medium     |
+| `body-end-supersession-visibility`          | 28.4 (display keeps the shown guess through the correction window: the slot is dropped only at the dissolve) | medium     |
+| #3409 indicators clear together             | 28.7 (2)                                                                                                     | high       |
+| #3463 zombie keeps holding                  | 28.6 zombie relevance                                                                                        | medium     |
+| V5/A17 `20` vs `999`                        | 28.4 (a guess over a staged truth: `_pendingValue` untouched)                                                | medium     |
+| `loading-on-rearm` `on: () => latest(dep)`  | 28.8 (verdict reader is a lane leaf; no `verdictDerived` dep walk)                                           | medium     |
+| `held-truth-lane-only` precondition         | test asserts `next`'s bit — rewrite to observables either way                                                | n/a        |
+| `refresh-await`, `createOptimistic` affects | store / `affects` — later steps                                                                              | n/a        |
 
 ### 28.12 Build order and acceptance
 
@@ -3269,7 +3271,7 @@ uncertain part (could be a day on its own, or fall out in an hour).
   bullet) rather than committing into `_value` at the reveal. User-
   visible: nothing I can find — `display()` serves the same value. Internal:
   revert is a drop; the frame's own passes see the truth-world. Confirm the
-  intent: *the screen is `display()`; `_value` is the truth.*
+  intent: _the screen is `display()`; `_value` is the truth._
 - **Q4 — lane passes see this flush's unparked staging as committed**
   (28.5 (c)). This is §19's rule applied one tick earlier; it changes
   behaviour where a guess's derivation also reads a same-tick plain write
@@ -3308,7 +3310,7 @@ on `display()`; the S0 byte gate reads the floor (core changes only) and
 ### 28.14 What would stop it
 
 The S0 byte gate failing; the A15 LANE trio not clearing with 28.5 (d) +
-28.6 *and* the link fallback (would mean the hold model needs the second
+28.6 _and_ the link fallback (would mean the hold model needs the second
 edge after all — report, do not improvise); or S2's unification costing
 more than it removes (then the fallback, not a deeper rewrite).
 
@@ -3329,7 +3331,7 @@ replay wants back (`staleAnswer`, `supersede`'s confirm/notify,
 `carved()` stubs (CARVE 5); `lanes.ts` and `verdict.ts` deleted; the core's
 lane touch points are dead, gated code until S0 rewrites them. Suite
 (`carved-tests.json`): **1612 passed**, 2872 carved, 274 failed. Of the 513
-pins that left "passed": 303 are `[CARVED]`; 210 are the *halt cascade* — a
+pins that left "passed": 303 are `[CARVED]`; 210 are the _halt cascade_ — a
 `[CARVED]` throw inside a render effect halts the scheduler, and every later
 test in that file fails (no global `resetErrorHalt` in the harness;
 `action.test.ts` from its `latest()` pin at line 588 onward is the clear
@@ -3350,7 +3352,7 @@ Result: signals **2128 passed** (pre-replay 2125; +3), carved 2536, failed
 888, solid 678, unchanged. Two of the fifteen family reds fell on the way
 (#3409 — the correction round; #3698 held-lane — children of a lane pass).
 
-*What the code taught the design* — amendments to §28, each a rule, not a
+_What the code taught the design_ — amendments to §28, each a rule, not a
 patch:
 
 1. **28.5 (d) corrected.** A leaf never moves by reading a lane that has
@@ -3393,7 +3395,7 @@ patch:
    from the truth** — their landing is the void world's answer, and an
    input's truth equal to its committed value notifies nobody (#3479
    "never finished preparing" showed `0:1`).
-8. **Q4's form.** Lane work reads this flush's unparked staging *through*
+8. **Q4's form.** Lane work reads this flush's unparked staging _through_
    (one pass when the frame commits — the common case; a `<Show>` reading
    an unrelated plain signal is not re-created on every sync write); if the
    frame **parks**, the seam repairs the leak: those passes re-derive on the
@@ -3411,9 +3413,9 @@ patch:
    keep-list predates the replay; the loss was latent.
 10. **`laneValueOf`/`display` fall back to the committed value on an empty
     slot** (a user `equals` was handed the sentinel — `async-lane-landing-
-    equals-order`).
+equals-order`).
 
-*Re-pins (2):* oracle "superseded before its first commit" childrenForbidden
+_Re-pins (2):_ oracle "superseded before its first commit" childrenForbidden
 → `NOT_READY` (A32 / A19 exc. 1: nothing committed; the `0` was the old
 representation committing the superseded first landing — `serve` now throws
 for a children-forbidden reader of an uninitialized node, the rule `read`
@@ -3421,7 +3423,7 @@ already applied to pending ones); `held-truth-lane-only` precondition
 asserts `CONFIG_HELD` + `_pendingValue` instead of the removed bit, and its
 OWNING-lane pin is "pinned by membership, not count" (the file's own words).
 
-*Size (br), reds → S0:* floor 7202 → **7222 (+20)**; CSR 12677 → 12701
+_Size (br), reds → S0:_ floor 7202 → **7222 (+20)**; CSR 12677 → 12701
 (+24); `+ isPending/latest` 9025 → **9213 (+188)**; page live 39519 → 39758
 (+239). The S0 gate (floor ≤ 7202) is missed by 20: the slot itself is ~12
 B; the growth is seam machinery that landed in the core while driving the
@@ -3433,7 +3435,7 @@ consolidation** (28.8); the floor's 20 go with the hooks review there.
 Recorded rather than forced: the gate's purpose was to catch the slot
 costing more than the arms it removed, and it did not.
 
-*Process notes.* One `git checkout` of a working file by mistake, restored
+_Process notes._ One `git checkout` of a working file by mistake, restored
 from the session's backup and re-applied edits (no loss); orphaned vitest
 workers from a hung run (a `resolveTx` cycle) — the timeout wrapper now kills
 the worker tree. Fresh baselines: `s0-final3-tests.json`, `s0-final3.json`.
@@ -3488,7 +3490,7 @@ The family is down to the two store/`affects` pins.
    one input when the worlds coincide is the price; `reveal-carve-out`
    re-pinned to resolve both.
 
-*Re-pins (3):* `body-end-supersession-visibility` to the lane rulings the
+_Re-pins (3):_ `body-end-supersession-visibility` to the lane rulings the
 oracle's "body ended" row already carries (a never-shown guess is void at
 the correction: display, stale re-run and verdicts say the truth; a fresh
 derivation is held); `lane-outside-view` #3479 "boundary mounted mid-hold"
@@ -3497,7 +3499,7 @@ the explicit display-ahead read — and the lane's node: it is the verdict
 lane's work like the pre-existing reader and reveals with each landing;
 `next` had one landing reveal at two times); `reveal-carve-out` gates (6).
 
-*Size (br), S0 → S1:* floor 7222 → **7212 (−10)**; CSR 12701 → 12712;
+_Size (br), S0 → S1:_ floor 7222 → **7212 (−10)**; CSR 12701 → 12712;
 `+ isPending/latest` 9213 → **9269 (+56)**; page live 39758 → 39825. The
 layer's growth is the rules above (`laneRead`'s leaf arms, `judge`, the
 dissolve flag); the floor fell (the `blockedBy` condition simplified). S2
@@ -3506,7 +3508,7 @@ consolidates.
 **S2 — verdicts and consolidation (with S3/S4 folded in), 2026-10-02
 night.** Signals 2138, web 888, solid 678, 0 passed→not-passed throughout.
 
-*The unification, as far as it goes.* What is lane-like about a verdict
+_The unification, as far as it goes._ What is lane-like about a verdict
 reader was already the lane's: `verdictLane(t)` is a lane (judged at the
 seam like any — S0 amendment 2), its readers' runs go through the lane's
 queues, their reruns through `_reruns`. What S2 merged: the **watchers**
@@ -3528,7 +3530,7 @@ them; collapsing the guess/derivation/held predicates into one needs a
 `(GUESS || !latestActive)`-shaped exemption that would be cleverness, not a
 rule. `verdict.js` 2477 → **2091 min** (−386).
 
-*lanes.ts consolidation.* `dissolveLane` restructured by outcome (landing /
+_lanes.ts consolidation._ `dissolveLane` restructured by outcome (landing /
 a guess of a dissolving lane / a corrected derivation) — with one rule
 generalized: **every guess of a dissolving lane is re-homed with its truth**
 (a landing held beneath it, else the value it covered), not only those with
@@ -3541,14 +3543,14 @@ correction round, the leak repair, the dissolve outcomes, `laneWrite` for
 landings on lane derivations, `laneStage`'s leave rule moved from
 `recompute`'s tail).
 
-*S4 checks.* `arm`'s `verdictDerived` branch is still load-bearing (#3528
+_S4 checks._ `arm`'s `verdictDerived` branch is still load-bearing (#3528
 one-boundary: the `on` probe of a pending-not-held memo cannot be routed
 before the frame has a transaction) — kept; the `_initialized` re-home goes
 through `flip`. The `shown()` dedupe in the checkout arrays is still needed
 (`latest` verdict re-derivations re-apply equal values; effects have no
 comparator — by design) — kept.
 
-*Size (br), reds → S2:* floor 7202 → **7208 (+6)**; render+signal +18; CSR
+_Size (br), reds → S2:_ floor 7202 → **7208 (+6)**; render+signal +18; CSR
 12677 → 12721 (+44); `+ isPending/latest` 9025 → **9212 (+187)**; page base
 +19; page live 39519 → 39740 (+221). Against the S0 gate (7202 / 9025):
 the floor is 6 over, the layer 187 over. The 187 is the rules S0/S1
@@ -3558,7 +3560,7 @@ condition was the slot costing more than the arms it removed, and it did
 not — the slot is ~12 B; the arms it removed came back as rules the old
 representation could not express.
 
-*State.* The lane family is green except the two store/`affects` pins
+_State._ The lane family is green except the two store/`affects` pins
 (`createOptimistic` declared reload; `refresh-await`). Remaining failures
 are the pre-existing families (attribution, rules-index, treeshake,
 dist-artifacts, store/`affects`). Next: stores (with Gabriel's kanban
@@ -3633,7 +3635,7 @@ the pre-replay tree (7202 / 9692) and the floor below the carved one
 
 **Scope.** The attribution engine (`core/attribution.ts`, observe tier) was
 kept intact through the carve and the replay; what the carve removed was
-its *feed* — the hooks the lane and verdict layers fired and the census the
+its _feed_ — the hooks the lane and verdict layers fired and the census the
 engine took of a hold. This step re-feeds it from L2. Nothing about the
 engine's records, findings, or thresholds changed; the web
 `performance-tracks` consumer is unchanged and its three hold/fallback pins
@@ -3641,12 +3643,12 @@ pass again.
 
 **The feed, hook by hook.**
 
-- *Holds.* `holdStart(t)` fires at the seam when the frame parks (the
+- _Holds._ `holdStart(t)` fires at the seam when the frame parks (the
   transaction the frame's stagings went into); `holdEnd()` after the
   effects of the next flush that parked nothing; `transitionSettled(t)` in
   `land`, before the reruns; `transitionMerged(from, into)` in `merge`.
   `Transition` is `Transaction` (type alias in `attribution-hooks.ts`).
-- *The hold census* (`censusHold`): the hold's nodes are `t._nodes`; its
+- _The hold census_ (`censusHold`): the hold's nodes are `t._nodes`; its
   action is `t._open > 0`; its **blockers** are `blockersOf(t)` (scheduler,
   observe-only export): the pending non-effect nodes of the transaction
   that `blockedBy` still finds blocking — the reporter effect itself is not
@@ -3655,14 +3657,14 @@ pass again.
   observe-only hook: the written guesses of the lanes under `t`);
   `affects` from `t._marks`; `isPending`/`latest` from the verdict readers
   downstream of the hold's nodes — a pass that entered a window is
-  `CONFIG_VERDICT`, and the observe tier notes *which* window on the pass
+  `CONFIG_VERDICT`, and the observe tier notes _which_ window on the pass
   (`_devWindows`, bit 1 `isPending`, bit 2 `latest`; set in
   `markVerdictReader`, cleared at the top of each recompute). The reader
   credited is the sub itself when it is an effect, else the first effect it
   reaches. `isCompanion` (a node that is a lane pass's result, never a
   write anyone made — not an acknowledgement) is `CONFIG_OVERRIDE` without
   `CONFIG_GUESS`.
-- *Optimistic reverts.* `optimisticReverted(node, shown, truth, how)` fires
+- _Optimistic reverts._ `optimisticReverted(node, shown, truth, how)` fires
   from `supersede` when a **shown** guess is replaced by a differing truth
   (`l._shown` — a guess the screen never showed reverts silently, as
   before), and from `dissolveLane`'s landing branch for a guess re-homed
@@ -3672,7 +3674,7 @@ pass again.
   observe-only state in lanes.ts (`reverting`, set around the correction
   round's `supersede`) — passing it as a parameter leaked ~46 min B into
   `lanes.js` for every lane consumer; moved off the signature.
-- *Fallbacks.* `boundaryFallback(b, tree, shown, transition)` fires from
+- _Fallbacks._ `boundaryFallback(b, tree, shown, transition)` fires from
   `boundaries.ts`: on the swap to the fallback (with the transaction the
   swap lands with — the frame's `flushTransaction`, the pass's `passTx`,
   or `null` for lane work and no transaction) and on the swap back. A
@@ -3682,8 +3684,8 @@ pass again.
   three fallback pins (`timeline` "one record per showing",
   `feedback` "how long each fallback showed, and counts flashes",
   `findings` FALLBACK_FLASH) were all this one missing drain.
-- *Run posture.* `recomputeEnd(el, create, changed, optimistic, transition,
-  held)`: `optimistic` is `lane !== null` (the pass ran as lane work —
+- _Run posture._ `recomputeEnd(el, create, changed, optimistic, transition,
+held)`: `optimistic` is `lane !== null` (the pass ran as lane work —
   overlay, never waste), `transition` is "the pass ran under a hold"
   (`flushTransaction`/`passTx` set, or the node `CONFIG_HELD`), `held` is a
   staged value as before.
@@ -3766,8 +3768,7 @@ slots unless a Q below says so.
 under holds / lane twins ≈ 200 (`adoption-unchanged-key-read-3706` 17,
 `createProjection.draft-lifetime-3585` 17, `strict-read-pending-store`,
 `held-truth-lane-only`, `late-pending-equality`, `latest-held-till-flush`,
-`owned-scope-write-guard`, `question-scoped-pending` 32, …), attribution
-11. Web: 177 carved (spread runtime → `viewOf`/`hasStaticKeys`/
+`owned-scope-write-guard`, `question-scoped-pending` 32, …), attribution 11. Web: 177 carved (spread runtime → `viewOf`/`hasStaticKeys`/
 `resolvedTable`/`merge`/`omit` ≈ 120; store fixtures ≈ 57). Web/solid
 runtime imports, by count: `snapshot` 58, `merge` 41, `omit` 24,
 `createStore` 18, `createProjection` 17, `reconcile` 16,
@@ -3787,53 +3788,53 @@ state). What shipped drifted from that, because the core it sat on could
 not express a hold at the container level — so the store grew its own
 copy of the hold model, in store vocabulary. Per target (`target.ts`):
 
-| store-side state on `next` | what it is | on L2 it is |
-| --- | --- | --- |
-| `pb` (pending backing, overlay or clone) | the container's staging | a container node's `_pendingValue` (Q-A) |
-| `hv` / `ht` (held committed view + holder) | screen vs staging under a hold | the container node's `_value` while its staging is parked — nothing extra |
-| `ab` (adoption diff base) | "the view the nodes were last told" | the container node's `_value` (the diff base is the committed frame) |
-| `foldOlds` / `foldBatches` / `drainFolds` polling node `_pendingValue` to learn when the hold settled | a second commit protocol | `land(t)` commits the container node like any node; `park` holds it |
-| `heldFoldTransition` / `heldAdoptionTransition` / `stageHeldKey` (born-holding keys) | a leaf created mid-hold learns both frames | `getNode` reads committed from `_value` of the container, staged from `_pendingValue` — born-held is A29, already core |
-| `heldKeys` / `adoptionChangedKeys` (#3706: the hold's unit is the key) | which keys the adoption changed | the diff that emits node writes only touches changed keys — by construction |
-| optimistic `overlaid` / `rt` (retaining transactions) / `ft` (flight-owned transaction) / `stagedTruthPB` / `heldMaskView` | "a landing under a guess stages beneath it", lane membership, who owns the flight | `supersede`'s unchanged branch / `laneOutcome` (A18), `txOf(node)`, `ownFlights` — all core |
-| `CONFIG_HELD_TRUTH`, `_overrideValue` arming (`fam.opt` → every node armed) | the write channel chosen per node | chosen per **write** by the setter (`optimisticWrite` vs `setSignal`) — as `createOptimistic` already does on L2; no arming bit |
-| `transitionHoldsOptimism` / `installNextBlockedHalf` (store half of `blocked`) | store-aware settle gate | `blocked(t)` over nodes — the container node is a node |
-| `_firewall` on leaves + `_firewall \|\| el` in `read()` | a leaf reads its projection's status/height/error | **Q-B** |
+| store-side state on `next`                                                                                                 | what it is                                                                        | on L2 it is                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `pb` (pending backing, overlay or clone)                                                                                   | the container's staging                                                           | a container node's `_pendingValue` (Q-A)                                                                                        |
+| `hv` / `ht` (held committed view + holder)                                                                                 | screen vs staging under a hold                                                    | the container node's `_value` while its staging is parked — nothing extra                                                       |
+| `ab` (adoption diff base)                                                                                                  | "the view the nodes were last told"                                               | the container node's `_value` (the diff base is the committed frame)                                                            |
+| `foldOlds` / `foldBatches` / `drainFolds` polling node `_pendingValue` to learn when the hold settled                      | a second commit protocol                                                          | `land(t)` commits the container node like any node; `park` holds it                                                             |
+| `heldFoldTransition` / `heldAdoptionTransition` / `stageHeldKey` (born-holding keys)                                       | a leaf created mid-hold learns both frames                                        | `getNode` reads committed from `_value` of the container, staged from `_pendingValue` — born-held is A29, already core          |
+| `heldKeys` / `adoptionChangedKeys` (#3706: the hold's unit is the key)                                                     | which keys the adoption changed                                                   | the diff that emits node writes only touches changed keys — by construction                                                     |
+| optimistic `overlaid` / `rt` (retaining transactions) / `ft` (flight-owned transaction) / `stagedTruthPB` / `heldMaskView` | "a landing under a guess stages beneath it", lane membership, who owns the flight | `supersede`'s unchanged branch / `laneOutcome` (A18), `txOf(node)`, `ownFlights` — all core                                     |
+| `CONFIG_HELD_TRUTH`, `_overrideValue` arming (`fam.opt` → every node armed)                                                | the write channel chosen per node                                                 | chosen per **write** by the setter (`optimisticWrite` vs `setSignal`) — as `createOptimistic` already does on L2; no arming bit |
+| `transitionHoldsOptimism` / `installNextBlockedHalf` (store half of `blocked`)                                             | store-aware settle gate                                                           | `blocked(t)` over nodes — the container node is a node                                                                          |
+| `_firewall` on leaves + `_firewall \|\| el` in `read()`                                                                    | a leaf reads its projection's status/height/error                                 | **Q-B**                                                                                                                         |
 
-What stays store-owned because it is the *membership dimension* signals do
+What stays store-owned because it is the _membership dimension_ signals do
 not have (R2): the proxy traps, the raw/owned backing graph and CoW path
 copying, lazy node tables (`n`, `h`, `k`, `dk`), the key-set/presence/deep
 witness nodes, `wk` (written-keys bound), the accessor scan (`a`/`sc`),
 the overlay-vs-clone choice (`ovl`, thresholds), chained backings (§7b),
 reconcile's keyed diff, and the **function-of-truth replay** of retained
 optimistic setters (RUL-2 as re-ruled 2026-08-31b — a maintainer ruling
-with a lot of weight; the replay stays a *semantic*, its representation
+with a lot of weight; the replay stays a _semantic_, its representation
 becomes lane membership).
 
 ### 31.3 Design (candidate — the Qs below decide it)
 
 **A store is a tree of L2 nodes; nothing else carries reactive state.**
 
-- *Leaf node per tracked-or-written key* (lazy, as today): `_value` =
+- _Leaf node per tracked-or-written key_ (lazy, as today): `_value` =
   committed, `_pendingValue` = this frame's staging, `_x._lane` = lane
   value. One literal (`slotSignal` returns: `_host`/`_key` back-refs,
   equals baked, no options object, no `_x` at birth — the create-floor
   diet; `dist-artifacts` pins the literal).
-- *Container node per touched container* (new; lazy — created by the
+- _Container node per touched container_ (new; lazy — created by the
   first write that has no leaf to stage on, or the first structural
   subscription): `_value` = the committed backing object, `_pendingValue`
   = the pending backing (overlay or clone, the existing choice logic),
   `_x._lane` = the optimistic overlay object. It **is** today's key-set
   node `k` with a value: `ownKeys`/iteration/`$TRACK`/`length` subscribe
   to it; its commit swaps/flattens the backing; its park holds the
-  backing. Unsubscribed keys written under a hold stage *here*. The
-  hold's unit stays the key for *leaf* readers (#3706: a leaf's own frames)
+  backing. Unsubscribed keys written under a hold stage _here_. The
+  hold's unit stays the key for _leaf_ readers (#3706: a leaf's own frames)
   and the container for keyless readers — exactly §3's rule, with no
   `heldKeys` bookkeeping.
-- *Presence nodes* `h` and the *deep witness* `dk`: unchanged in role;
+- _Presence nodes_ `h` and the _deep witness_ `dk`: unchanged in role;
   structural optimism = guesses on presence nodes + the container node
   (§6, FINDING-2 by construction).
-- *Writes*: the draft mutates the pending backing natively (today's
+- _Writes_: the draft mutates the pending backing natively (today's
   O(written) path); setter exit emits node writes for written keys with
   leaves (`notifyWrites`, `wk`-bounded) and **one** write to the container
   node (its staging = the pending backing). Channel per write: a plain
@@ -3844,22 +3845,22 @@ becomes lane membership).
   the backing flatten / path copy, run from the container node's commit
   (a `_host` hook, or `CONFIG_PLUMBING`-style dispatch — size to be
   measured).
-- *Adoption* (`reconcile`, setter replacement, projection landing): a diff
+- _Adoption_ (`reconcile`, setter replacement, projection landing): a diff
   of incoming vs the container node's **committed** `_value`, emitting leaf
   writes for changed subscribed keys and staging the incoming object on the
   container node. Under a hold the staging parks; a leaf first read during
   the hold is born held from the two frames (A29). Lane view composition
   (§6b) = `display(container)` + `display(leaf)`.
-- *Projections*: a computed whose pass writes the store through the draft
+- _Projections_: a computed whose pass writes the store through the draft
   (today's `runProjectionComputedNext` shape, R37 one-draft-per-run,
   A25 seed = draft). Its nodes' status: Q-B.
-- *Optimistic stores*: an optimistic projection; nodes are plain L2 nodes;
+- _Optimistic stores_: an optimistic projection; nodes are plain L2 nodes;
   the setter chooses `optimisticWrite`; a landing is `laneWrite`/`supersede`
   on the leaf, the container's landing a lane-aware adoption (R28/R29:
   arrangement from the lane view, entity identity from committed). Retained
   setters `[t, fn]` live on the family and replay as ruled; `rt`/`ft` are
   replaced by `txOf`/`ownFlights` of the family's nodes.
-- *Utilities* (`merge`/`omit`/views/source dispatch, `storePath`,
+- _Utilities_ (`merge`/`omit`/views/source dispatch, `storePath`,
   `snapshot`/`deep`): independent of the above; `snapshot` reads
   `display(container)`/pending explicitly (R27), zero-copy when settled.
 
@@ -3905,35 +3906,35 @@ matrix vs the carved core and the previous step (0 passed→not-passed),
 web/solid, the size suite; re-pins flagged individually; a Q-list ruled
 before each step that needs one.
 
-| step | scope | gate |
-| --- | --- | --- |
-| **T0** | this section; rulings on Q-A…Q-G | rulings |
-| **S-U** | `utils.ts` back: `merge`/`omit`/views/source dispatch/`isWrappable`/`isStatic`/`resolvedTable`/`hasStaticKeys`, with the proxy branch targeting the store's trap contract (stubbed until S1); `storePath` | web ≈ 1,010 (+120); floor +0; own module line |
-| **S1** | plain store, sync: target + traps + lazy leaf/presence/container/deep nodes; `slotSignal`; draft/setter; CoW path copy; overlay/clone; `snapshot`/`deep`; `$TRACK` back in `mapArray`; `createStore` sync pins + `optimistic-list-mutation-matrix`'s plain rows | `+ createStore` **≤ floor + 4.0 kB br** (next: +7.3); `createStore.test` / `overlay` / `write-floor` / `native-collections` / `enumerator-presence-nodes` / `storePath` green |
-| **S2** | stores under holds: setter writes in actions; container staging; adoption as diff + container staging; born-held leaves; `latest`/`isPending` on leaves; **Gabriel's fixture** (plain truth + optimistic shadow on one leaf in an action; a new reader mid-action shows now, joins nothing — A17) as the first new pin; `adoption-unchanged-key-read-3706`, `store-unchanged-read-independent-write-3688`, `held-derivation-3612`, `latest-held-till-flush`, `owned-scope-write-guard`, `visibility-oracle-store` plain rows | 0 regressions; A17 fixture; no store-side hold state |
-| **S3** | projections / derived stores: `createProjection`, `createStore(fn, seed)`, `reconcile` (the adoption channel), draft lifetime (R37, #3585), A25 seed gate, chained backings (§7b), the `read()` firewall seam resolved per Q-B; `createProjection*`, `reconcile*`, `projection-*`, `fold-*`, `late-pending-equality`, `loading-value`, `strict-read-pending-store` | firewall either returns as one bit or does not return; `reconcile`/`projection` shed from plain bundles stays as ruled (API symmetry — they do not) |
-| **S4** | `createOptimisticStore`: lanes on nodes; structural optimism on presence/container; retained-setter replay (RUL-2 re-ruling); `optimistic-list-mutation-matrix` optimistic rows (336), `visibility-oracle-posture` (629), `question-scoped-pending`, lane twins; web F1/3706 fixtures | optimistic module sheds from plain-store bundles; `every store family` **≤ hydrating + 7 kB br** (next: +11.1) |
-| **S5** | store half of `affects`; store attribution (path names, `storeOwners`); `dist-artifacts` literal pin; `shallow` decision executed (Q-F); web/solid store fixtures; **PR #3761 assessed** against the built thing; final matrix vs `next` | page live target; perf gate request |
+| step    | scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | gate                                                                                                                                                                          |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **T0**  | this section; rulings on Q-A…Q-G                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | rulings                                                                                                                                                                       |
+| **S-U** | `utils.ts` back: `merge`/`omit`/views/source dispatch/`isWrappable`/`isStatic`/`resolvedTable`/`hasStaticKeys`, with the proxy branch targeting the store's trap contract (stubbed until S1); `storePath`                                                                                                                                                                                                                                                                                                                    | web ≈ 1,010 (+120); floor +0; own module line                                                                                                                                 |
+| **S1**  | plain store, sync: target + traps + lazy leaf/presence/container/deep nodes; `slotSignal`; draft/setter; CoW path copy; overlay/clone; `snapshot`/`deep`; `$TRACK` back in `mapArray`; `createStore` sync pins + `optimistic-list-mutation-matrix`'s plain rows                                                                                                                                                                                                                                                              | `+ createStore` **≤ floor + 4.0 kB br** (next: +7.3); `createStore.test` / `overlay` / `write-floor` / `native-collections` / `enumerator-presence-nodes` / `storePath` green |
+| **S2**  | stores under holds: setter writes in actions; container staging; adoption as diff + container staging; born-held leaves; `latest`/`isPending` on leaves; **Gabriel's fixture** (plain truth + optimistic shadow on one leaf in an action; a new reader mid-action shows now, joins nothing — A17) as the first new pin; `adoption-unchanged-key-read-3706`, `store-unchanged-read-independent-write-3688`, `held-derivation-3612`, `latest-held-till-flush`, `owned-scope-write-guard`, `visibility-oracle-store` plain rows | 0 regressions; A17 fixture; no store-side hold state                                                                                                                          |
+| **S3**  | projections / derived stores: `createProjection`, `createStore(fn, seed)`, `reconcile` (the adoption channel), draft lifetime (R37, #3585), A25 seed gate, chained backings (§7b), the `read()` firewall seam resolved per Q-B; `createProjection*`, `reconcile*`, `projection-*`, `fold-*`, `late-pending-equality`, `loading-value`, `strict-read-pending-store`                                                                                                                                                           | firewall either returns as one bit or does not return; `reconcile`/`projection` shed from plain bundles stays as ruled (API symmetry — they do not)                           |
+| **S4**  | `createOptimisticStore`: lanes on nodes; structural optimism on presence/container; retained-setter replay (RUL-2 re-ruling); `optimistic-list-mutation-matrix` optimistic rows (336), `visibility-oracle-posture` (629), `question-scoped-pending`, lane twins; web F1/3706 fixtures                                                                                                                                                                                                                                        | optimistic module sheds from plain-store bundles; `every store family` **≤ hydrating + 7 kB br** (next: +11.1)                                                                |
+| **S5**  | store half of `affects`; store attribution (path names, `storeOwners`); `dist-artifacts` literal pin; `shallow` decision executed (Q-F); web/solid store fixtures; **PR #3761 assessed** against the built thing; final matrix vs `next`                                                                                                                                                                                                                                                                                     | page live target; perf gate request                                                                                                                                           |
 
 **Risk, named.** S2 is the bet: if container-node staging cannot express
 adoption diffs and held views at `next`'s perf, the fallback is `next`'s
-per-target `pb` with its *lifetime* derived from the hold model (the
+per-target `pb` with its _lifetime_ derived from the hold model (the
 container node still exists, but holds the backing by reference rather
 than being the staging). Two representations again — better than today,
 but seams. Find out in S2 with S1's ~1,400 pins green, not in S4.
 
 ### 31.6 Questions for the maintainer (T0)
 
-- **Q-A — The container node.** (a) *Recommended:* the pending backing
+- **Q-A — The container node.** (a) _Recommended:_ the pending backing
   **is** the container node's `_pendingValue` (one representation; the
   hold model parks/commits/dissolves it; `hv`/`ht`/`ab`/fold polling go).
-  Cost: one node per *touched* container (reuses `k`'s pointer — no new
+  Cost: one node per _touched_ container (reuses `k`'s pointer — no new
   target field); the backing flatten runs from the node's commit.
   (b) Keep `pb` as store staging with its lifetime bound to the
   transaction via the container node holding it (fallback above).
 - **Q-B — Projection status on leaves.** `read()`'s last store seam
   (`_firewall || el`): a leaf's pending/error/height came from its
-  projection computed. (a) *Recommended:* status lives on the **leaf**
+  projection computed. (a) _Recommended:_ status lives on the **leaf**
   (and the container node): a derive's pass that pends marks the nodes it
   would write — the store's traps gate on the container node's status
   (§6c's "one field on the root target" becomes that node's
@@ -3944,11 +3945,11 @@ but seams. Find out in S2 with S1's ~1,400 pins green, not in S4.
   floor, every read pays a load).
 - **Q-C — Draft visibility under a hold.** A setter running inside an
   action reads its own transaction's staging (A25's write-visibility
-  corollary; RUL-1 "drafts read pending explicitly"). *Recommended:* keep
+  corollary; RUL-1 "drafts read pending explicitly"). _Recommended:_ keep
   — the draft reads `display`-of-staging for its own transaction, the
   screen for a foreign one (A17: a reader of an overridden leaf never joins
   the hold on the base). Gabriel's fixture pins the foreign half.
-- **Q-D — Optimistic landing semantics.** (a) *Recommended:* keep the
+- **Q-D — Optimistic landing semantics.** (a) _Recommended:_ keep the
   RUL-2 re-ruling verbatim (equal landing holds; contradicting
   continuation rebases via retained-setter replay; contradicting
   replacement consumes and drops) — the representation changes (lane
@@ -3958,7 +3959,7 @@ but seams. Find out in S2 with S1's ~1,400 pins green, not in S4.
 - **Q-E — Perf contracts.** Confirm the eight in §31.4 as contracts
   (thresholds tunable), and that benchmarks run only when asked, at S1
   end (create/commit floor) and S5 (end state).
-- **Q-F — Shallow stores.** (a) *Recommended per O4:* do not port the
+- **Q-F — Shallow stores.** (a) _Recommended per O4:_ do not port the
   legacy shallow implementation; `createStore(v, { shallow })` becomes a
   flag on the same target (`s`, values served raw — as `next`'s rewrite
   already does: `storeIsShallow` is one field), and the dbmon shallow
@@ -3978,12 +3979,12 @@ making it a hard dependency of the reader." And: "firewall being
 projection-only makes sense" — a generic pure-signals firewall API (Milo /
 R3) never became ergonomic and had no use case outside projections; the
 perf-critical shapes (`mapArray`) are made safe by construction instead.
-**Pinned as the invariant:** every read served *through* a projection
+**Pinned as the invariant:** every read served _through_ a projection
 first brings the derive up to date — **pull, don't link.**
 
 **Q-A — container node: (a), ruled**, with the benchmark as the gate
 ("we go with it for A but we need to benchmark this carefully up front").
-Clarifications recorded during the discussion: it *is* the `$TRACK`
+Clarifications recorded during the discussion: it _is_ the `$TRACK`
 (key-set) node given a value; arrays are where both its roles (structural
 notification, tear-free `length`) matter, objects mostly the staging role
 (un-noded keys under a hold, adoption, optimistic key add/delete); **at
@@ -4002,7 +4003,7 @@ at the price of that parity — **a ruling, listed, not taken.**
 absent-key reads make leaves (R1), writes are O(written) via `wk` with the
 overlay (never the clone) for large records, deleted keys behave as
 signals, and **release on unmount is non-negotiable** (below).
-*Benchmark plan:* two-arm A/B with the existing harnesses
+_Benchmark plan:_ two-arm A/B with the existing harnesses
 (`octane-dbmon-local/ab-dbmon.mjs` builds `iso-dbmon-deep` + `-shallow`
 per Solid root and alternates rounds; `iso-jfb-deep`/`-shallow`/`-signal`;
 `solid-uibench` headless two-arm) — arm A = `next` @ 309b08730, arm B =
@@ -4014,10 +4015,10 @@ comparatively it only needs to be approximate; we are competing with them
 as much as ourselves"): the references are **vue-vapor and octane-tsrx**
 (the harness's same-machine references; "we recorded comparative numbers
 geomean previously"), `next` is the second column, and approximate
-attribution is enough. *Metric, as recorded before:* `run.mjs`'s per-op
+attribution is enough. _Metric, as recorded before:_ `run.mjs`'s per-op
 ratio vs vue-vapor, and `analyze-iso.mjs`'s per-scenario **geomean** vs a
 baseline under the no-default-regression rule (12 % noise band).
-*Reference points on record:* 2026-08-17 shipped rebaseline
+_Reference points on record:_ 2026-08-17 shipped rebaseline
 (`baselines/`), dbmon vs vue-vapor — octane-tsrx 1.07× mount / 1.22× tick;
 `solid-next` **3.61× mount / 5.15× tick** / 1.95× tick_partial / 2.52×
 remount / 1.64× sort / 3.68× unmount; `solid-shallow` 1.54× / 0.97× / 0.70×
@@ -4035,7 +4036,7 @@ we benchmark starting with signals later." Runs only when asked.
 **Q-B — firewall link: (a), ruled** — and T0's (a) was underspecified:
 status was never the hard part; **height ordering and the freshness pull**
 are. Corrected mechanism: the firewall is `fam.node`, reached target →
-family at the **trap**; before serving *any* read through that target
+family at the **trap**; before serving _any_ read through that target
 (tracked, untracked, `in`, enumeration, `length`) the trap does
 `updateIfNecessary(fam.node)` (freshness), throws the derive's status
 (uninitialized/pending/errored), bumps the reader's height past the derive
@@ -4068,8 +4069,8 @@ of optimistic stores is reference stability when backend data changes. An
 optimistic new item that matches the server returning a new object with
 the same id in the same position means we don't run `For` again. We
 reconcile the truth against the optimistic projected override on
-landing." On L2 that is one rule applied per node — *a landing on a guess
-stages beneath it and confirms it when equal (A18/A24)*: the array
+landing." On L2 that is one rule applied per node — _a landing on a guess
+stages beneath it and confirms it when equal (A18/A24)_: the array
 container's guess (the optimistic arrangement in `_x._lane`) is confirmed
 by the derive's rows when keys and positions match (RUL-2's key-set
 predicate) → silent, `For` stays; the key-matched row target adopts the
@@ -4077,7 +4078,7 @@ server object as its backing behind the same proxy; row leaves write only
 where values differ. A contradicting landing is `supersede` on the
 container — truth replaces the arrangement, equality-gated. Diff baseline
 for key matching is the lane view (R28). **Retained-setter replay (the
-2026-08-31b continuation-rebase half) is built *after* the matrix says
+2026-08-31b continuation-rebase half) is built _after_ the matrix says
 which rows need it:** S4 ships the table above without replay, runs
 `optimistic-list-mutation-matrix` (899), and the maintainer rules on the
 failing rows.
@@ -4167,7 +4168,7 @@ the same fold.
 
 **Three rules settled by pins during the port:**
 
-1. *Staging visibility is the pass's* (`stagingReader()`): `context`, not
+1. _Staging visibility is the pass's_ (`stagingReader()`): `context`, not
    the owner — a handler, an effect callback or `onSettled` has an owner
    and no pass and sees the committed frame (`effect-phase-writes`
    "onSettled store write-then-read returns the settled value"); frame
@@ -4175,7 +4176,7 @@ the same fold.
    staging is `stagedRead`-marked (the seam's hook for S2). Applied to the
    backing (`readSource`) and to an existing leaf's untracked read
    (`nodeValue`) alike.
-2. *Adoption notifies at adoption time* (#3296): a setter's returned
+2. _Adoption notifies at adoption time_ (#3296): a setter's returned
    replacement diffs against the view the nodes were last told — the
    draft's pending backing when one preceded it in the batch, else
    committed — and writes the nodes **then**, so a draft write followed by
@@ -4183,7 +4184,7 @@ the same fold.
    sees the draft's value). `next` deferred this diff to the fold (`ab`);
    on L2 the fold's commit of the leaf would have published the draft's
    value first. `ab` is gone with it; the fold keeps only the path copy.
-3. *The enumerator check is per pass*: a descriptor read tracks presence
+3. _The enumerator check is per pass_: a descriptor read tracks presence
    unless **this pass** already holds the container (`_gen === _depGen`
    while recomputing) — a link left from a previous pass is stale.
 
@@ -4207,10 +4208,11 @@ spread/`For`/store fixtures that only needed `createStore`); solid 691
 dispatch, the commit hook call and the `$TRACK` symbol — the two seams'
 whole cost. `+ createStore` 7243 → **11134** = floor **+3919 br** (gate
 was ≤ +4000; `next`: +7340), `store/store.js` 11505 min + `types.js` 664
-+ `target.js` 225. Hello world 9712 (+24), CSR 12726 (+42; `mapArray`'s
-`$TRACK`), hydrating 17521 (+11), every store family 23704 (+3820;
-`next` 30789 — projections/reconcile/optimistic still out), page base
-36219 (+25), page live 39809 (+72). Observe +31/+32.
+
+- `target.js` 225. Hello world 9712 (+24), CSR 12726 (+42; `mapArray`'s
+  `$TRACK`), hydrating 17521 (+11), every store family 23704 (+3820;
+  `next` 30789 — projections/reconcile/optimistic still out), page base
+  36219 (+25), page live 39809 (+72). Observe +31/+32.
 
 **Process note.** A full-suite comparison mid-step showed 79 "regressions"
 in files that pass alone; the command had used `timeout`, which macOS
@@ -4266,14 +4268,14 @@ through core:
 `joinPass` — now applies to **untracked** reads by a pass too, in the fast
 block and the slow path (`untrack` is about dependencies, not about which
 world a pass derives from). Pinned by `posture-store-parity` S4/S5's
-*signal* twins, which had never run on L2 (the file was carved at
+_signal_ twins, which had never run on L2 (the file was carved at
 collection): a memo created mainline during a hold that `untrack`s a held
 signal is born held and publishes nothing until the commit; a render
 effect's untracked read of a foreign hold is served committed and replays
 at the landing. Cost: +2 min B, −2 br on the floor.
 
 **Re-pins (flagged):** `posture-store-parity` S6 — the pin recorded a
-*divergence* ("store publishes the pending 1 (CURRENT; rule says 0) …
+_divergence_ ("store publishes the pending 1 (CURRENT; rule says 0) …
 flip it to `[0]` then"); the store now follows the signal by construction,
 flipped as instructed. `visibility-oracle-store` structure rows — the
 `latest` cell was a pinned **violation** ("latest() sees the parked VALUE
@@ -4374,7 +4376,7 @@ outer node is a subscription point); `resolveChainedRaw` for inner-owned
 raws; `$TRACK` reads through; `deep()` walks the chain's containers and
 witnesses.
 
-**Core (two seams, flagged):** (1) `recompute`'s *self-registered flight*
+**Core (two seams, flagged):** (1) `recompute`'s _self-registered flight_
 probe is back (`prevInFlight` / `selfRegistered`): a projection's body
 registers its flight through `handleAsync` with the commit as setter, so
 its `undefined` return is not a sync answer and must not clear the loading
@@ -4458,6 +4460,146 @@ Still open (S3c, 12): `3706` enumerability-descriptor row,
 sync-recompute-supersedes-flight behind a memo), `createStore` "isPending
 sees a derived store update held by async work", `lane-authority-twins`
 #3334, `draft-lifetime-3585` never-resolving workaround.
+
+---
+
+## 35. Stores on L2 — S4: optimistic stores on lanes (2026-10-03, 4:00–5:40 AM)
+
+`src/store/optimistic.ts` (new, ~430 lines; `createOptimisticStore` out of
+`carved.ts`). No store-side layer, no backup snapshots, no retaining
+ledger: **a user write to an optimistic store is a guess on the written
+key's node** (`optimisticWrite` — the same write `createOptimistic`'s
+setter makes), a presence guess on its presence node, and, when membership
+or arrangement changed, an **arrangement guess on the container node**
+(`LaneView { rows, base }` — the rows the setter left, over the committed
+backing it is shown over; the container's comparator `containerEquals`
+judges a landing against it by row identity, by key when the family has
+one). Lanes do the rest: the guess shows under the action's hold, a landing
+beneath stages as truth and confirms it when equal (A18/A24), the action's
+settle dissolves it. The committed backing is never touched by a guess.
+
+**The store side (store.ts, late-bound through `OptHooks` — a plain store
+pays nothing: `treeshake` "plain stores shed … lanes.ts" holds):**
+
+- `ensurePB`: a user's draft on an optimistic family is a clone of the
+  **writer's view** (`committed(t)` with the lanes' values and the tick's
+  own unflushed guesses over it — #3665, `pendingGuessOf`); a staging
+  already on the target (a landing adopted this flush) is set aside
+  (`optStaged`) for the setter's duration and restored at its exit. A read
+  inside the setter before its first write births the draft (read-your-
+  writes across setters in one tick).
+- `notifyWrites` → `optHooks.writes` (`notifyOptimisticWrites`): the
+  per-key diff of the draft against the writer's view becomes guesses;
+  the draft is discarded. A returned replacement on an optimistic family
+  is the same channel (`next` parity); so is a user's `reconcile(...)` —
+  the keyed diff is written INTO the draft (`reconcileDraft`: a matched
+  row keeps its proxy, its changed leaves become its guesses).
+- Reads compose per key, never per object: a guessed key always has its
+  node and the node serves it (`nodeValue` → core `read`, the lane's
+  rules); `has`/descriptor compose the presence guess (`optimisticHas`,
+  `optimisticOwnDescriptor`); enumeration and `snapshot` compose the view
+  (`optimisticView`). A guessed key's read does not consult the container
+  (no stale-reader registration on its hold). `fam.overlaid` is the hint
+  set; it is swept at the flush's commit (`_storeCommit`), never on the
+  read path (a guess is pending between the setter and the seam).
+- **The pull under an in-flight derive**: an optimistic family carrying
+  guesses stands in for its flight (A17) — a reader is served the leaves
+  (committed plus guesses) and does not suspend on the derive; a verdict
+  window still asks it (`isPending` true while the flight is up).
+- **Chained views** (`createOptimisticStore(base)`, §7b): the outer's
+  nodes are links; their committed value now follows the inner store on
+  every read-through (and before every guess), so core's reveal/revert
+  compares judge against the inner's truth (#3672); a chained read serves
+  the outer node only when it carries a guess; `has`/descriptor read
+  through; when a chained view's lanes end, `rebaseChained` re-derives the
+  readers whose shown value the inner's truth is not (the "re-base when
+  the base changes shape" rule the matrix asked for; F7 unpinned).
+- A node carrying a lane's value is never released (`releaseSlot`
+  deferred, like a staging). The store never re-homes a lane's node into
+  a transaction (`holdWithDerive`/`bornStaged` skip `CONFIG_OVERRIDE`).
+  Write-override reads (a derive's draft) serve the backing only — never a
+  lane's or a hold's frame (the continuation composes on the truth).
+- Function leaves are guessed by value (`() => nv`, #3017).
+
+**Core seams (flagged):**
+
+- `lanes.ts` `inFlight(n)`: a guess's own truth is in flight when the node
+  is pending OR, a slot node's, when `GlobalQueue._slotFlight(n)` says its
+  family's derive is (`scheduler.ts` declares the hook; `optimistic.ts`
+  installs it). Used by `applyGuesses` (a no-frame guess opens a
+  transaction for the flight — #2864, A17) and `guessFlights` (the lane's
+  parent waits for the landing; the lane shows).
+- `laneRead`: an **untracked read inside lane work** derives from the lane
+  like a tracked one, minus the subscription (`enterLane` → the lanes a
+  pass reads link): `untrack` is about dependencies, not about which world
+  a pass derives from (a mapper's row reads under its root).
+- `enterLane`: a pass that read a held write before its first lane read
+  (`REACTIVE_JOINED`) is a staged reader — the seam re-derives it on the
+  screen next round (the park's repair; `held-truth-lane-only`'s owning-
+  lane row computes once torn, publishes once coherent).
+- `linkBlocked`: `blocked(k)` without the group recursion — `guessFlights`
+  no longer blocks the group (a guess whose flight is up blocks its
+  parent, not the lane; two linked lanes over one in-flight family were
+  both held).
+- `supersede`: the lane's parent is **resolved** (two actions guessing one
+  slot merge their transactions; the truth is held by the one that lands
+  — `#2899` same-key entangle left `b` staged under the merged-away one).
+- `guessedValueOf` / `pendingGuessOf` exported (the writer's view).
+
+**Re-pins (each noted in place):** the 15 no-parent "flash" pins of
+`createOptimisticStore.test.ts` → lane contract 2 (the signal twins'
+wording), with three action-wrapped twins added so the draft-composition
+shapes (`13`, pushes, filter chains) stay covered; `shallow` optimistic
+replacement, `deep-chained-view` ×2 (action-wrapped), `#2899` ambient,
+`question-scoped-pending` "writes display and revert" — the same rule;
+`posture-store-parity` S8 and the store oracle's `supersede` state → the
+signal oracle's lane rules (a never-shown guess is void at the
+correction); `held-truth-lane-only` owning-lane row: one repaired compute;
+`fold-scheduling` #3089: a derived store's re-derive over a guess is lane
+work and shows ahead (rails coherent at 2/["0","1"]); `3706` "CHANGED
+still holds": the first move's landing is its own action's;
+"a real write mid-refetch" restructured so the refetch is actually up at
+the write (`await setup()` yielded the landing its microtasks).
+
+**Results.** Signals **4707 passed** (+1513 vs S3b), **0 passed→not-passed
+vs S3b and vs the carved core**; carved 76 (utils). Web **998** (+67, 0
+regressions), solid **812** (+23). Size (br): floor 7250 (−7),
+`+ createStore` **13968** (+666 — the optimistic seams in the plain store
+paths; `next` 16848), `+ isPending/latest` 9322 (+54), every store family
+**27800** (`next` 30789; the gate is a size pass), page base/live
+42566/46227 (`next` 46193/50442). lanes.ts stays out of the plain-store
+bundle.
+
+**Open after S4 (the matrix evidence for Q-D's replay half):**
+
+- **Overlapping actions on one array where the first landing contradicts
+  the combined arrangement** — matrix `update text (c) + swap a<->b,
+resolved A then B` ×2 (keyed/index), `#2951 compose half` (A's truth
+  lands under B's +1: on lanes a landing that differs from the guessed
+  slot is a correction and voids B's guess until B lands; `next` replayed
+  B's increment / kept B's positional override). This is exactly the
+  "replay decided on matrix evidence" item: the lane model has one slot
+  per node, so two actions' structural guesses on one array entangle and
+  the first landing judges them together. Options for the ruling: (a)
+  accept (B's guess re-shows when B lands — one frame of truth in
+  between), (b) per-question arrangement entries on the container
+  (`LaneView[]` keyed by `_q`, the landing confirms its own question's
+  entry; a positional entry re-based on the new truth needs the delta —
+  replay), (c) retain setters and replay (RUL-2's continuation half).
+- `direct-commit-readers-posture` ×2 (`until`/`resolve` over an optimistic
+  family's held landing — actions-step territory), `lane-frame-deferred-
+run-3662` ×1, `question-scoped-pending` quiet-refetch ×2 (a quiet
+  `refresh` landing pulses an `isPending` memo once; a re-refresh under a
+  new question reads settled — projection verdict windows, S3c class),
+  `optimistic-chained-revert-3672` "delete and re-add of the same inner
+  row" one spurious re-run, web `optimistic-for-index-frame-f1` ×5
+  (chained view + index `For` + a differing landing committed INSIDE the
+  action: the DOM keeps 6 rows after settle — the landing's rerun order
+  against the inner's commit; the signals matrix twin passes).
+- S5 as planned: `affects` store half (`question-scoped-pending` ×14,
+  `createOptimisticStore` ×6 affects contrasts, `affects-propagation` ×2,
+  `affects-audit`), store attribution, the size pass, `rules-index` ×3.
+- Gabriel's A17 kanban fixture as the first new pin (not yet written).
 
 ---
 
