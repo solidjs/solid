@@ -5211,15 +5211,44 @@ seam materializing + holding the fold list's node-less containers when a
 flush parks (O(adopted), only then). Not done tonight; it is the next
 store item if the +20% is not acceptable.
 
-**jfb (signal / shallow / deep) and the reorder matrix: blocked.** The
-fixtures compile with `@dom-expressions/babel-plugin-jsx@0.50.0-next.42`
-(`vite-plugin-solid 3.0.0-next.5`), which emits `el.$$click = …`; the web
-runtime on both arms reads `EVENT_KEY = "_$$"` — every delegated click is
-inert (verified: listener attached to `#main`, fires, handler never
-called; `btn.$$click()` directly renders 1000 rows). Harness drift against
-the in-house compiler, same on both arms; fixing it means pointing the
-fixtures at the repo's `@solidjs/babel-plugin`. uibench not run (same
-fixture family).
+**jfb (signal / shallow / deep) and the reorder matrix.** First run
+blocked: the fixtures compiled with
+`@dom-expressions/babel-plugin-jsx@0.50.0-next.42` (`vite-plugin-solid
+3.0.0-next.5`), which emits `el.$$click = …`, while the web runtime on
+both arms reads `EVENT_KEY = "_$$"` — every delegated click inert
+(listener on `#main` attached and firing, handler never reached;
+`btn.$$click()` directly rendered 1000 rows). Fixed in the harness
+(10:15 PM): the three `iso-jfb-*` fixtures now build with
+`@solidjs/vite-plugin@3.0.0-next.35` (`compiler: 'babel'` →
+`@solidjs/babel-plugin@2.0.0-rc.13`, the same version as both arms'
+workspace package); the `iso-dbmon-*` fixtures (no events) were left on
+the old plugin. The sequential `battery.mjs` run then showed `reverse`
+1.6–1.7× and `prepend/append/insert` +27–38% on every fixture, the pure
+`createSignal` one included — thermal/order drift of a block-ordered
+runner (the harness's own caveat), not the engine: the mapArray shapes in
+node are identical or faster on the carve (`/tmp/carve/reorderbench.mjs`:
+reverse 50 µs both, prepend100 85 → 75), and an **interleaved same-browser
+two-arm run** (both dists served, ops alternated per iteration, 40
+samples, Chrome `performance.now()` at 0.1 ms resolution) reads parity on
+all three fixtures after §41.4:
+
+| op (ms)      | signal fork/carve | shallow fork/carve | deep fork/carve |
+| ------------ | ----------------- | ------------------ | --------------- |
+| run          | 1.5 / 1.5         | 1.6 / 1.6          | 2.3 / 2.3       |
+| update       | 0.3 / 0.3         | 0.4 / 0.4          | 0.4 / 0.4       |
+| swaprows     | 0.3 / 0.3         | 0.4 / 0.4          | 0.8 / 0.8       |
+| remove       | 0.2 / 0.2         | 0.3 / 0.3          | 0.8 / 0.8       |
+| select       | 0.1 / 0.1         | 0.1 / 0.1          | 0.1 / 0.1       |
+| reverse      | 2.2 / 2.2         | 2.3 / 2.4          | 2.9 / 3.0       |
+| shuffle      | 2.9 / 3.0         | 3.0 / 2.9          | 3.3 / 3.3       |
+| prepend100   | 0.4 / 0.4         | 0.5 / 0.5          | 1.3 / 1.3       |
+| append100    | 0.4 / 0.4         | 0.4 / 0.5          | 1.0 / 1.0       |
+| insertmid100 | 0.4 / 0.4         | 0.5 / 0.5          | 1.2 / 1.1       |
+| removefirst  | 0.2 / 0.2         | 0.3 / 0.3          | 0.8 / 0.8       |
+
+(Before §41.4 the deep fixture read update 1.33×, remove 1.25×,
+removefirst 1.25×, swap 1.14×, prepend 1.15× — the per-key question
+asked once per key, below.) uibench not run.
 
 ### 41.3 Two regressions found and fixed (uncommitted; staged)
 
@@ -5245,7 +5274,57 @@ fixture family).
 
 Signals 4838/3 (0 moved), web 1115/1 (0 moved). Size: +createStore 14248
 (+79 br: the `shape` threading and `woke`), floor ±0, every-store +63,
-page live +43.
+page live +43. Committed `241c14437`.
+
+### 41.4 Two more, from the jfb-deep store ops (uncommitted; staged)
+
+3. **The per-key question, once per pass.** After a `shift` every index
+   key changed, so `keyChanged` answered true 1000 times and each read
+   went on to `untrack(() => readNode(k))` — a closure and a `read()` per
+   key, to set a mark the first one had already set. `readSource` now
+   serves an unheld staging directly to a plain pass already marked
+   `REACTIVE_STAGED_READ` (not a verdict reader, not children-forbidden):
+   an unchanged key is the same value in both frames, a changed one is
+   what the mark stands for. jfb-deep in node: swap 564 → 464 µs (fork
+   463), remove 915 → 722 (722), removeFirst 970 → 783 (792), reverse
+   917 → 771 (785), prepend100 1186 → 993 (987), insertmid100 1021 → ~1000
+   (840). 10%-changed reconcile 400 → 335 µs (fork 285).
+4. **`parentSlotKey`'s O(rows) miss.** At the fold, a child whose parent
+   was adopted whole re-resolved its slot by `indexOf(oldRaw)` over the
+   parent array — a guaranteed miss (the parent already holds the new
+   raw), 1000 comparisons per changed row. Short-circuit when the slot
+   already holds this target's backing. 100%-changed reconcile 0.99 →
+   0.81 ms (fork 0.94 — the carve is now ahead there).
+
+Signals 4838/3 (0 moved), web 1115/1 (0 moved); size +createStore +16 br,
+every-store +23, page live −8.
+
+**dbmon-deep tick after all four** — the one number still over the band.
+Browser, same page, back-to-back medians of 60 ticks: fork **4.20 ms**,
+carve **4.90 ms** (1.17×; `ab-dbmon` round medians 5.5 vs 7.1 in a warmer
+run, 1.29×). The in-browser CPU profiles (CDP `Profiler`, 100 µs
+sampling) name it: `adoptPB` self **20.9% vs 13.2%**, plus `drainFolds`
+2.5%, `foldTarget` 0.9%, `commitPendingNodes` ≈ fork's. The reason is in
+`foldTarget`: _"a container nobody subscribes to was a transient staging
+home — gone with the batch"_ (`if (k._subs === null) t.k = null`) — so
+every unsubscribed container (dbmon: ~7000 rows + query arrays + query
+records per tick) gets its node **re-created on every adoption**
+(`getContainerNode` in `adoptPB`: a slot-node literal + `ext`), queued
+(`queuePendingNode`), swept (`commitPendingNodes`) and dropped again at
+the fold. That is Q-A's "one new allocation … created once per container,
+persistent" turned per-tick by the transient-home rule, and it is the
+escape hatch Q-A recorded — _materialize only when a hold is live or a
+subscriber exists_: `adoptPB` stages without a node when `t.k === null`
+(no `notePromotedWrite`/`holdWithDerive` wanted — both need one and are
+cheap to test), `readSource`/`committed`/`keyChanged`/`bornStaged` read
+"no node ⇒ not held ⇒ the staging" (`target.v` is already the adopted
+object, eagerly), `foldTarget` folds a node-less target unconditionally,
+and the seam materializes + holds the fold list's node-less containers
+when — and only when — the flush parks (O(adopted), the one case the
+staging home exists for). Estimated from the profile: ~10% of the tick,
+i.e. 1.17× → ~1.05×. Not done tonight (a design change with hold
+semantics behind it); listed for the maintainer with the §33 Q-A ruling
+it completes.
 
 ---
 

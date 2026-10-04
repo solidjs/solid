@@ -36,11 +36,13 @@ import {
   CONFIG_MANUAL_WRITE,
   CONFIG_OVERRIDE,
   CONFIG_PROMOTED,
+  CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING
 } from "../core/constants.js";
@@ -708,11 +710,14 @@ function privatizeCommitted(target: StoreTarget): void {
 }
 
 /** The key this target sits under in its parent — re-resolved by identity
- * when an array parent moved it (#3282). */
+ * when an array parent moved it (#3282). Not searched when the slot already
+ * holds this target's backing (a parent adopted whole carries its children's
+ * new raws before the children fold — the miss was O(rows) per changed row
+ * of a keyed reconcile). */
 function parentSlotKey(target: StoreTarget, expected: unknown): PropertyKey {
   const pk = target.pk!;
   const pv = target.u!.v;
-  if (pv[pk] === expected || !Array.isArray(pv)) return pk;
+  if (pv[pk] === expected || pv[pk] === target.v || !Array.isArray(pv)) return pk;
   const at = (pv as unknown[]).indexOf(expected);
   if (at === -1) return pk;
   target.pk = at;
@@ -1420,7 +1425,8 @@ function readSource(
   // write above the hold publishes mainline (#3688, #3612); a key it
   // changed reads the frame core serves this reader.
   if (held && key !== undefined && !heldKeyChanged(target, key, shape)) return pb;
-  if (stagingReader() === null) {
+  const c = stagingReader();
+  if (c === null) {
     if (getObserver() !== null) return pb; // a frame reader's leaf decides the value
     // A projection's writes are its truth as soon as made (the derive is
     // the authority, nothing it writes is a proposal): a context-free reader
@@ -1441,7 +1447,20 @@ function readSource(
   // sees committed and re-derives at the landing, a memo joins the future,
   // a staging read is marked. The key's own leaf, when it has one, decides
   // the value the same way.
-  if (!held && key !== undefined && !keyChanged(target, key, shape)) return committed(target);
+  if (!held) {
+    // A plain pass this flush already served a staging as the screen
+    // (REACTIVE_STAGED_READ — what `read()` would set again here) reads an
+    // unheld staging directly: an unchanged key is the same value in both
+    // frames, a changed one is what the mark already stands for. The
+    // per-key question is asked once per pass, not once per key (a
+    // `mapArray` over 1k shifted rows asked it 1k times).
+    if (
+      c._flags & REACTIVE_STAGED_READ &&
+      !(c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN))
+    )
+      return pb;
+    if (key !== undefined && !keyChanged(target, key, shape)) return committed(target);
+  }
   return asBacking(untrack(() => readNode(k)));
 }
 
