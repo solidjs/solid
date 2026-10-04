@@ -1,16 +1,18 @@
 /**
- * Membership in a hold is the tick's (ruling 1, one frame concept; maintainer
- * ruling 2026-10-04, surfaced by #3761's review). A mainline pass outside a
- * flush joins the transaction of what it read through `passTx` — "the entry
- * is the pass's alone" (A29, creation-time form) scopes the entry away from
- * the tick's OTHER writes, not from the tick's other passes: `passTx` is one
- * per tick, and a second pass in the same tick that reads a DIFFERENT foreign
- * hold merges that hold into it (`joinPassTx` → `merge`). The tick is one
- * synchronous frame, and a frame that derives from two futures waits on
- * both. A15's "writes on fully disjoint graphs keep independent transitions"
- * is about writes in different ticks: the same two mounts in two ticks are
- * two frames, each born held into its own hold, and the first reveals at its
- * own release.
+ * Membership in a hold is the tick's — the synchronous work one flush settles
+ * (ruling 1, one frame concept; maintainer ruling 2026-10-04, surfaced by
+ * #3761's review). A mainline pass outside a flush joins the transaction of
+ * what it read through `passTx` — "the entry is the pass's alone" (A29,
+ * creation-time form) scopes the entry away from the tick's OTHER writes, not
+ * from the tick's other passes: `passTx` is one per tick, cleared by the
+ * flush that consumes it, and a second pass before that flush that reads a
+ * DIFFERENT foreign hold merges that hold into it (`joinPassTx` → `merge`).
+ * The tick is one frame, and a frame that derives from two futures waits on
+ * both. A manual `flush()` between two passes ends the frame: the second pass
+ * is a new tick, escapes the first's transaction, and the holds stay
+ * independent — that is A15's "writes on fully disjoint graphs keep
+ * independent transitions". The tick is defined by the flush, not by a
+ * microtask, `await` or timer boundary.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -54,13 +56,14 @@ function twoHolds() {
   return { a, b, releaseA, releaseB, shownA, shownB, mountA, mountB };
 }
 
-describe("membership in a hold is the tick's (ruling 1; `passTx` is tick-scoped)", () => {
-  it("two mainline mounts in ONE tick over two different foreign holds merge them: both reveal at the second release", async () => {
+describe("membership in a hold is the tick's — the work one flush settles (ruling 1; `passTx` is tick-scoped)", () => {
+  it("mountA(); mountB(); flush() — one frame over two foreign holds: the holds merge, both reveal at the second release", async () => {
     const h = twoHolds();
     h.mountA();
     h.mountB();
     flush();
-    // Both born held (A29); nothing shows.
+    // One flush settles both mounts: one frame. Both born held (A29);
+    // nothing shows.
     expect(h.shownA).toEqual([]);
     expect(h.shownB).toEqual([]);
     expect([isPending(h.a), isPending(h.b)]).toEqual([true, true]);
@@ -83,10 +86,11 @@ describe("membership in a hold is the tick's (ruling 1; `passTx` is tick-scoped)
     expect([isPending(h.a), isPending(h.b)]).toEqual([false, false]);
   });
 
-  it("the same two mounts in SEPARATE ticks stay independent: the first reveals at its own release", async () => {
+  it("mountA(); flush(); mountB(); flush() — the manual flush ends the frame: independent, A reveals at its own release while B stays held", async () => {
     const h = twoHolds();
     h.mountA();
     flush();
+    // The flush consumed A's `passTx`; B is a new tick and escapes A's hold.
     h.mountB();
     flush();
     expect(h.shownA).toEqual([]);
