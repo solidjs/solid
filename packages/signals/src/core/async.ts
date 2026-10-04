@@ -320,7 +320,12 @@ export function releaseFlightTeardown(el: Computed<any>): void {
 export function handleAsync<T>(
   el: Computed<T>,
   result: T | PromiseLike<T> | AsyncIterable<T>,
-  setter?: (value: T) => void
+  setter?: (value: T) => void,
+  // The flight rejected (after the node's status is set): a projection
+  // tells its leaves' readers, who are not the node's dependents
+  // (store/projection.ts). `pending`: a NotReady rejection — the node is
+  // pending on another source, not errored.
+  onError?: (error: unknown, pending: boolean) => void
 ): T {
   let iterator: any = false;
   let thenable = false;
@@ -426,6 +431,7 @@ export function handleAsync<T>(
     // cleared their pending sources), so stranded lazy ones release here —
     // the error twin of settlePendingSource's release (#2934).
     if (!stillPending) releaseSettledDependents(el);
+    onError?.(error, stillPending);
   };
 
   const asyncWrite = (value: T, then?: () => void) => {
@@ -827,6 +833,22 @@ export function notifyStatus(
     }
     return;
   }
+  propagateStatus(el, status, error, downstreamBlockStatus);
+}
+
+/** The dependents' half of `notifyStatus`: `el`'s status reaches each
+ * subscriber as a propagated mark (or a re-derive). On its own for a store
+ * family's leaves, which are not the derive's dependents — the family
+ * propagates the derive's status from each leaf to the leaf's readers
+ * (store/projection.ts `wakeFamily`), exactly as a memo's would reach its. */
+export function propagateStatus(
+  el: Computed<any>,
+  status: number,
+  error: any,
+  downstreamBlockStatus?: boolean
+): void {
+  const pendingSource =
+    status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   forEachDependent(el, (sub, link) => {
     sub._time = clock;
     // A pending mark on a kept-tail link re-derives the subscriber instead of

@@ -22,6 +22,7 @@ import {
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
+  REACTIVE_PROBE_UNANSWERED,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -62,7 +63,8 @@ import type { Computed, Root, Signal } from "./types.js";
  * again next round, as lane work that did the same does (`stagedReaders`,
  * lanes.ts — entering the verdict lane then voids what it staged); if it
  * commits, the answer stood. */
-function watchVerdict(c: Computed<any>): void {
+function watchVerdict(c: Computed<any>, unanswered = false): void {
+  if (unanswered) c._flags |= REACTIVE_PROBE_UNANSWERED;
   stagedReaders.push(c);
 }
 
@@ -144,8 +146,14 @@ function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
   if (flushTransaction !== null) {
     if (notFinal) probeFound = true;
     verdictRead(c, flushTransaction);
+    if (c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
+    return;
   }
-  if (flushTransaction === null || c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
+  // Before anything joined, a staging that would not be final held has no
+  // answer yet: whatever the seam decides, the pass runs again — a later
+  // plain read of the same pass may route it into the verdict lane
+  // (`observeFlight`), which the seam must not take as this probe's answer.
+  watchVerdict(c, notFinal);
 }
 
 /** A19 exc. 2 / A24: a flight that re-asks the question already answered

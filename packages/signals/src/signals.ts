@@ -31,8 +31,12 @@ import {
   flushTransaction,
   globalQueue,
   joinFuture,
-  resolveTx
+  passTx,
+  resolveTx,
+  staleReader,
+  type Transaction
 } from "./core/scheduler.js";
+import { REACTIVE_JOINED } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
 import { optimisticWrite } from "./core/lanes.js";
 
@@ -742,12 +746,23 @@ export function createReaction(
  * transaction (#2930); the heap runs a pass parked or not. A pending read
  * re-runs it when the source lands (the pass is pending itself); the
  * expression throwing settles the rejection. */
+/** The promise-delivery readers' pass (`resolve`, `until`, `refresh`'s
+ * waiter): delivers what it read on a microtask. By posture (#3482, #3490):
+ * - the reader of the transaction it was created in (`own`: an action's
+ *   body, a `refresh()` called there — the waiter reads its slice's frame on
+ *   a later microtask) delivers that frame — the staged landing an action
+ *   holds (the action awaits the promise that would otherwise wait on its
+ *   own settle);
+ * - a mainline reader whose pass read a frame another transaction holds
+ *   joined it (L2, born held — A29) and delivers at that commit: the
+ *   committed view, never a foreign hold's unrevealed frame. */
 function watch<T>(
   fn: () => T,
   onValue: (v: T) => void,
   onError: (e: unknown) => void,
   config = 0,
-  inPass?: (v: T) => void
+  inPass?: (v: T) => void,
+  own: Transaction | null = flushTransaction
 ): void {
   // `config` is on the node for its first pass too (the pass runs inside
   // `computed()`): `until`'s predicate is authoritative from its first read,
@@ -761,6 +776,17 @@ function watch<T>(
       } catch (e) {
         if (e instanceof NotReadyError) throw e;
         queueMicrotask(() => onError(unwrapStatusError(e)));
+        return;
+      }
+      const c = getOwner() as Computed<any>;
+      // (Outside a flush a mainline pass joins through `passTx`.)
+      const joined = flushTransaction ?? passTx;
+      if (
+        c._flags & REACTIVE_JOINED &&
+        joined !== null &&
+        (own === null || resolveTx(own) !== resolveTx(joined))
+      ) {
+        staleReader(c, resolveTx(joined));
         return;
       }
       inPass?.(v);
@@ -875,18 +901,19 @@ export function refresh<T>(
   // refresh it still settles stale-while-revalidate (#2930) — its contract is
   // "first settled value", not "next quiescent state".
   markRefresh(node);
+  // The transaction `refresh()` is called in (an action's slice): the
+  // waiter, created on the microtask below, is its reader (`watch`).
+  const own = flushTransaction;
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {
-      // No createRoot: the microtask has no ambient owner, so the effect is
-      // naturally detached, and settle disposes the node directly — the root
-      // added ~560B of otherwise-shakeable machinery for nothing but the
-      // dev-mode NO_OWNER_EFFECT warning, so dev keeps a root husk purely to
-      // stay quiet. Typed as the effect node, not Owner: the capture runs
-      // inside the effect's own compute, where the ambient owner IS the
-      // effect — exactly what dispose() takes.
+      // No createRoot: the microtask has no ambient owner, so the watcher is
+      // naturally detached, and settle disposes the node directly (dev keeps
+      // a root husk purely to stay quiet about the missing owner). The
+      // capture runs inside the watcher's own pass, where the ambient owner
+      // IS the watcher — exactly what dispose() takes.
       let waiter: Computed<unknown> | null = null;
       const make = () =>
-        effect(
+        watch(
           () => {
             if (waiter === null) waiter = getOwner() as Computed<unknown>;
             return read(node);
@@ -899,7 +926,9 @@ export function refresh<T>(
             rej(err);
             dispose(waiter!);
           },
-          { user: true, _extraConfig: CONFIG_FRESH_READ }
+          CONFIG_FRESH_READ,
+          undefined,
+          own
         );
       __DEV__ ? createRoot(make) : make();
     });

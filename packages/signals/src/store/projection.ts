@@ -16,16 +16,16 @@
  * (uninitialized / pending / errored) and the reader's height, by the
  * rules a memo's read follows. No per-leaf back-pointer, nothing in core.
  */
-import {
-  CONFIG_AUTO_DISPOSE,
-  CONFIG_REDERIVE,
-  CONFIG_VERDICT,
-  STATUS_PENDING,
-  STATUS_UNINITIALIZED
-} from "../core/constants.js";
+import { CONFIG_AUTO_DISPOSE, STATUS_PENDING, STATUS_UNINITIALIZED } from "../core/constants.js";
 import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
-import { forEachDependent, handleAsync, notifyStatus, settlePendingSource } from "../core/async.js";
+import {
+  addPendingSource,
+  forEachDependent,
+  handleAsync,
+  propagateStatus,
+  settlePendingSource
+} from "../core/async.js";
 import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
 import { question, schedule, setQuestion } from "../core/scheduler.js";
@@ -131,15 +131,32 @@ function cloneState<T extends object>(v: T, shallow: boolean): T {
  * landing). The leaves do not subscribe to the derive, so the family does
  * the walk. */
 function wakeFamily(fam: StoreFamily, error: unknown): void {
+  const fw = fam.node!;
+  forEachFamilyNode(fam, n => {
+    if (n._subs === null) return;
+    // The leaf carries the derive's pending as a propagated copy, as a memo
+    // between them would: a dependent recovering one branch stays pending
+    // through a leaf it still reads (core `retryReaches`), and the landing's
+    // walk retires the copy first (`settleFamily` → `settlePendingSource`).
+    addPendingSource(n as unknown as Computed<any>, fw);
+    // Its readers: core's propagation from the leaf — a verdict or re-derive
+    // reader re-runs, any other is pending derivatively on the derive and
+    // queued for the frame (held with it: the frame waits on the flight
+    // through them, `blocked`).
+    propagateStatus(n as unknown as Computed<any>, STATUS_PENDING, error);
+  });
+}
+
+/** The derive's flight rejected: every live reader of the family
+ * re-derives (its pull throws the derive's error). */
+function errorFamily(fam: StoreFamily): void {
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
     forEachDependent(n as unknown as Computed<any>, sub => {
-      if (sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT)) {
-        enqueueSub(sub);
-        schedule();
-      } else if (!(sub._statusFlags & STATUS_PENDING)) notifyStatus(sub, STATUS_PENDING, error);
+      enqueueSub(sub);
     });
   });
+  schedule();
 }
 
 /** The flight landed: the readers the wake left pending on the derive
@@ -233,7 +250,17 @@ export function runProjectionComputed<T extends object>(
           // pending on the derive settle.
           if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
         };
-        const sync = handleAsync(owner, result, commit);
+        const sync = handleAsync(owner, result, commit, (error, pending) => {
+          // The flight rejected: the leaves' readers learn it from here —
+          // they do not subscribe to the derive. Pending again (a NotReady
+          // rejection): the wake, as for the pass. Errored: every live
+          // reader re-derives and meets the error at its pull (memo parity,
+          // #2897) — and the flush that runs them advances the clock, so a
+          // later tracked re-read may retry (core `read`).
+          if (first && owner._statusFlags & STATUS_UNINITIALIZED) return;
+          if (pending) wakeFamily(fam, error);
+          else errorFamily(fam);
+        });
         if (!owner._loading) commit(sync as void | T);
       },
       false
@@ -247,7 +274,16 @@ export function runProjectionComputed<T extends object>(
     if (e instanceof NotReadyError && !first) wakeFamily(fam, e);
     throw e;
   }
-  if (owner._statusFlags & STATUS_PENDING && !owner._loading && !first)
+  // A pass that returned with a flight up (an iterator's sync first yield):
+  // the wake, as for the throw. Not a sync pass that superseded one — the
+  // status it reads is the dead flight's, cleared when this pass settles
+  // (#3181: a reader the settle walk had just released, re-parked for good).
+  if (
+    owner._statusFlags & STATUS_PENDING &&
+    owner._x!._inFlight !== null &&
+    !owner._loading &&
+    !first
+  )
     wakeFamily(fam, owner._x?._error);
   return owner;
 }

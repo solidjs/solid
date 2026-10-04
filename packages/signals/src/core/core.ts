@@ -40,6 +40,7 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
+  REACTIVE_PROBE_UNANSWERED,
   REACTIVE_SCREEN_READ,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_LAZY,
@@ -337,7 +338,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
   const wasPendingSource = el._x?._pendingSources?.has(el);
-  const reask = (el._flags & REACTIVE_REASK) !== 0;
+  // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
+  // for the verdict — unless the question in flight is a new one, which the
+  // re-ask does not launder (a poll during a quiet confirm stays quiet).
+  const reask =
+    (el._flags & REACTIVE_REASK) !== 0 &&
+    !(el._statusFlags & STATUS_PENDING && el._x !== null && !el._x._reask);
 
   const oldcontext = context;
   context = el;
@@ -456,7 +462,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           REACTIVE_FRAME_READ |
           REACTIVE_STAGED_READ |
           REACTIVE_LANE_READ |
-          REACTIVE_SCREEN_READ)) |
+          REACTIVE_SCREEN_READ |
+          REACTIVE_PROBE_UNANSWERED)) |
       (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
     // A19 exc. 2: a pass that went pending on a `refresh()` re-asks the
@@ -785,7 +792,8 @@ function updateIfNecessary(el: Computed<unknown>): void {
       REACTIVE_FRAME_READ |
       REACTIVE_STAGED_READ |
       REACTIVE_LANE_READ |
-      REACTIVE_SCREEN_READ);
+      REACTIVE_SCREEN_READ |
+      REACTIVE_PROBE_UNANSWERED);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;

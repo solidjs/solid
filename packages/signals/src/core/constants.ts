@@ -63,6 +63,11 @@ export const REACTIVE_LANE_READ = 1 << 17;
  * run — an effect has no comparator, and the guess's notification is not a
  * change it can see. Per pass. */
 export const REACTIVE_SCREEN_READ = 1 << 18;
+/** A verdict reader whose probe was answered before the flush had a
+ * transaction (verdict.ts `watchVerdict`): the seam re-runs it even if a
+ * later read of the same pass routed it into a verdict lane — that was not
+ * the probe's answer (lanes.ts). Per pass. */
+export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;

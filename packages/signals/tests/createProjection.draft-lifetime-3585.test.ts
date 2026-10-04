@@ -156,9 +156,21 @@ describe("#3585 draft lifetime: valid until superseded or disposed", () => {
       flush();
       feed.emit(2, 20);
       flush();
-      expect(feed.unsubscribes).toBe(1);
+      // Re-pinned 2026-10-03 (L2): run #2 is a staged pass that never
+      // commits, so run #1's frame — its `onCleanup` included — stays the
+      // committed one until a frame replaces it (A29, ruling A: a pass's
+      // frame dies with the commit that publishes its successor, never
+      // leaving a gap). The old subscription therefore outlives the re-run
+      // here; what it writes is dropped all the same (R37: the draft is
+      // invalid once the next run starts), so the store sees only run #2's.
+      expect(feed.unsubscribes).toBe(0);
+      expect(feed.listeners(1)).toBe(1);
+      expect([...data]).toEqual([20]);
+      feed.emit(1, 11);
+      flush();
       expect([...data]).toEqual([20]);
       dispose();
+      expect(feed.unsubscribes).toBe(2);
     });
   });
 

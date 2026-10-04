@@ -4972,6 +4972,147 @@ Signals **4819** (+4), 0 regressions.
 
 ---
 
+## 40. S3c — the verdict-window and family-pending reds; the promise-delivery readers (2026-10-03, 6:00–7:20 PM)
+
+Working the remaining signals reds under "continue" (no benchmarks — not
+on power). **22 → 3** (the three `rules-index` pins, PR-time: spec files
+untouched); web **2 → 1**; solid 0. Of the 19 closed, 15 are engine fixes
+and 4 are re-pins — each re-pin listed below with the rule it moved to, for
+the maintainer to veto.
+
+### 40.1 Engine fixes
+
+**Projection verdict windows.**
+
+- A probe answered before the flush had a transaction (`provisionalVerdict`
+  with `flushTransaction === null` and a not-final staging: "final unless
+  the flush parks") was dropped by the lane seam when a later plain read of
+  the same pass routed it into the verdict lane (`observeFlight`) — the
+  seam took that routing as the probe's answer (#3322/#3540's one-run rule)
+  and the `pending: true` frame never formed (async-generator `refresh`).
+  Now the probe marks its pass `REACTIVE_PROBE_UNANSWERED` (per pass,
+  carried past the pass's end like FRAME_READ) and `_laneSeams` re-runs it
+  once. Narrow on purpose: a probe that already found a flight
+  (`pendingVerdict`, "decided above") is answered and does not re-run.
+- `pullFamily`'s render-effect skip ("outside the flight's own flush the
+  frame learns from the leaves") dropped a render effect's link to a
+  pending derive on ANY re-run after the park — the effect was the frame's
+  blocker, so the transaction landed with its flight still up (then a
+  verdict reader of the pending, un-held derive opened a holding-nothing
+  transaction per flush: the loop guard tripped). A render effect already
+  linked to the derive (`linkedTo`) keeps pulling it. The closed ruling of
+  the skip (an unchanged leaf's effect does not re-run at the landing) is
+  intact — it governs effects that never observed the flight.
+- A sync re-derive superseding a flight (#3181) fired the post-pass wake
+  with the DEAD flight's `STATUS_PENDING` (recompute clears it after the
+  pass): the memo the settle walk had just released was re-parked for good.
+  The post-pass wake now requires a flight registered by this pass
+  (`_inFlight !== null`); the throw path is unchanged.
+- The derive's rejection never reached the leaves' readers (no dependents
+  → no flush → `clock` unchanged → the error-retry pull never re-asked).
+  `handleAsync` gains an `onError(error, pending)` seam (core; a 4th
+  optional parameter, called after the node's status is set); the
+  projection wakes the family on a NotReady rejection and re-derives every
+  live reader on an error (`errorFamily`), memo parity (#2897).
+
+**Family pending, done as core does it.**
+
+- `wakeFamily` now stamps each live leaf with the derive as a pending
+  source (`addPendingSource(leaf, fw)`) and runs core's own
+  `propagateStatus` from it — the dependents' half of `notifyStatus`,
+  split out and exported. Two reds were this: (a) a reader recovering one
+  branch (`!virtual() && data.enabled`) stayed pending through the leaf it
+  still read on the other path only if the leaf _carried_ the source
+  (`retryReaches`); (b) a render effect marked pending by the old
+  hand-rolled wake was never `queuePendingNode`d — not held by the frame,
+  so two refetches "joining one transition" held nothing once the first
+  landed (finalize-reentry ×2). With the propagation shared, leaves cannot
+  drift from memos again (kept-tail re-derive, already-pending join, lane
+  staging, held-memo join — all inherited).
+
+**Quiet re-asks (A19 exc. 2) on stores.**
+
+- A re-ask does not launder a new question: the pre-carve `applyReask`
+  guard (`isReask = hadReask && !(wasPending && !_reask)`) had collapsed to
+  `reask && pending` in L2's recompute; restored at the pass's head
+  (`refresh()` during a non-quiet flight stays non-quiet; a poll during a
+  quiet confirm stays quiet).
+- A quiet flight's landing writes are quiet through their reveal:
+  `holdWithDerive` stamps the leaf's `_x._reask` from the derive (core's
+  `heldNotFinal` reads the leaf's own classification since CARVE 1 — the
+  old `_firewall` indirection used to answer this).
+
+**The promise-delivery readers (`resolve`, `until`, `refresh`'s waiter) by
+posture (#3482/#3490).** `watch` takes the transaction it was created in
+(`own`, default `flushTransaction`; `refresh()` captures it at the call,
+the waiter being created on a microtask). A pass that joined a frame
+another transaction holds (`REACTIVE_JOINED`; outside a flush the join is
+`passTx`) does not deliver — it is a stale reader of that transaction
+(`staleReader`) and delivers at the commit: the committed view, never a
+foreign hold's unrevealed frame. The reader of its own transaction delivers
+the frame it read — the staged landing an action holds (the action awaits
+the promise that would otherwise wait on its own settle). The refresh
+waiter is now a `watch` (was an `effect` with `CONFIG_FRESH_READ` — a run
+the transaction would have stashed). Closes direct-commit-readers ×2 and
+refresh-await; the web frames-optimistic-hold multi-flight red fell with
+it.
+
+**Descriptors (#3706 contrast).** The descriptor trap's plain branch took
+the staging whenever the key was in it; it now takes the backing the
+container's frame serves this reader (`readSource`): a held key's
+enumerability change reads committed for a stale reader.
+
+### 40.2 Re-pins (maintainer to veto)
+
+1. **spec-async-semantics A22-3** "verdicts never inherit consumers'
+   in-flight state": was _leaves commit under the downstream hold_; now
+   _leaves reveal with the frame the landing resumes_ (`data` 10, pending,
+   until `downstream`'s flight lands). The old pin was the pre-L2
+   firewall's own commit, and on this branch it held only through the
+   `pullFamily` link-drop above (the frame landed with its flight up). The
+   signal twin (memo `a` lands, consumer `b` goes async) reads `a=10,
+pending` through phase 2 — the store now agrees; A22-1/A22-2 in the
+   same describe already pinned the hold.
+2. **lane-frame-deferred-run-3662 step 1**: was _the body's end leaves a
+   held store lane in place until its derivation flight lands, then the
+   lane reveals, then the overlay reverts_ (a flash of the guess frame
+   after the action ended); now the A18 body-end corollary (#3427) applies
+   to a store guess as to a signal's — the correction starts at the body's
+   end, the obsolete lane flight is not waited on, the never-shown lane
+   frame is retired by the reversion pass. On `next` this was an explicit
+   limitation of the overlay store ("cannot yet"); S4 removed the overlay.
+   Cleanup accounting (every generation once, no leaks) still pinned.
+3. **createProjection.draft-lifetime-3585** (the never-resolving-Promise
+   case): was _run #1's `onCleanup` fires at the re-run_; now it fires when
+   a frame replaces run #1's (A29, ruling A) — run #2 never commits, so the
+   old subscription outlives the re-run; its writes are dropped all the
+   same (R37) and the store sees only run #2's. Pinned both.
+4. **store/child-companion-walk** (#3038): pinned a mechanism that no
+   longer exists (`GlobalQueue._updateChildCompanions`, the `_child` chain
+   walk). Re-pinned on the behaviour the gate protected: one derive per
+   update with or without a verdict reader below the derive, the probe
+   re-runs once, the verdict answers.
+
+### 40.3 Numbers
+
+Signals **4838** passed / 3 failed (rules-index) / 2 suites not importing
+(`next-smoke`, `owner-stamp` — `src/store/next/` is gone; PR-time cleanup);
+0 passed→not-passed vs `qd8`. Web 1115/1 (`call-driven-lifecycle` mid-flight
+switch — the superseded call's unanswered flight keeps the gate; pre-existing,
+frames territory). Solid 819/0.
+
+Size (br, vs §39 `qd2`): floor **7309** (+46; min +117: the re-ask guard,
+the `propagateStatus` split, `onError?.()`), +createStore **14169** (+94:
+`linkedTo`, the leaf stamps, `readSource` in the descriptor trap),
++isPending 9441 (+81), every-store **28415** (±0), page live 47348 (+72).
+
+Core seams touched (flagged): `handleAsync(el, result, setter, onError?)`
+— 4th optional parameter; `propagateStatus` exported from `core/async.ts`;
+`REACTIVE_PROBE_UNANSWERED = 1 << 19`; `watch`'s `own` parameter
+(internal). No public API change.
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

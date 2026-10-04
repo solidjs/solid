@@ -1551,6 +1551,12 @@ function serveDataKey(
   return draftServe(target, wrap(v, target, key as any));
 }
 
+/** Is `n` among `c`'s dependencies (any pass's — a kept tail included)? */
+function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
+  for (let d = c._deps; d !== null; d = d._nextDep) if (d._dep === n) return true;
+  return false;
+}
+
 /** The projection's obligation (§31.7 Q-B): before any value is served
  * through a family target, the derive — the firewall — is brought up to
  * date WITHOUT the reader subscribing to it. Core's `read()` of the
@@ -1572,12 +1578,17 @@ function pullFamily(target: StoreTarget): void {
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a
     // stale reader of the derive). Inside the flush it suspends like any.
+    // One that already observes the flight (linked by the pass that saw it
+    // go up — the frame's hold, `blocked`) keeps observing it: a re-run for
+    // another reason (a guess it read, the seam) that dropped the link would
+    // release the hold with the flight still up.
     const c: any = context;
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
       fw._config & CONFIG_HELD &&
-      flushTransaction !== txOf(fw)
+      flushTransaction !== txOf(fw) &&
+      !linkedTo(c, fw)
     )
       return;
     // An optimistic family carrying guesses that stand in for the flight
@@ -1601,7 +1612,9 @@ function pullFamily(target: StoreTarget): void {
 /** A projection's writes are its derive's: a staging made while the derive
  * is held (a flight up — its continuation writes after an `await`, a
  * callback's late write) belongs to the derive's transaction and reveals
- * with it, never drained early. */
+ * with it, never drained early — and answers the derive's question: a quiet
+ * re-ask's landing is quiet through its reveal (A19 exc. 2; the leaf's own
+ * classification, as core reads it — `heldNotFinal`). */
 function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
   const fw = target.fam?.node;
   if (
@@ -1613,8 +1626,10 @@ function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
     // A node carrying a guess is the lane's: its staging is the truth beneath
     // the guess (`setSignal` → `laneWrite`), never re-homed by the store.
     !(node._config & (CONFIG_HELD | CONFIG_OVERRIDE))
-  )
+  ) {
     holdNode(node, txOf(fw));
+    node._x!._reask = fw._x!._reask;
+  }
 }
 
 /** A chained backing's child (§7b): a raw the inner family owns, or holds
@@ -1880,10 +1895,14 @@ const traps: ProxyHandler<StoreTarget> = {
     if (enumerating) src = enumerationSource(target);
     else if (plain) {
       // The presence node's frame (core decides which) is the one described
-      // (a chained target's inner store answers through the backing, §7b).
+      // (a chained target's inner store answers through the backing, §7b);
+      // the descriptor itself comes from the backing the container's frame
+      // serves this reader (`readSource`: a held container's changed key —
+      // enumerability, accessor-ness — reads committed for a stale reader,
+      // the staging for a member; #3706 contrast).
       const node = getHasNode(target, key);
       const present = readNode(node);
-      src = target.pb !== null && key in target.pb ? target.pb : target.v;
+      src = readSource(target, key);
       if (!present && (!target.ch || node._config & CONFIG_OVERRIDE || !(key in src)))
         return undefined;
     } else src = readSource(target, key);

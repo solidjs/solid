@@ -47,6 +47,7 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
+  REACTIVE_PROBE_UNANSWERED,
   REACTIVE_SCREEN_READ,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -762,7 +763,11 @@ GlobalQueue._laneSeams = leaks => {
       // A verdict reader a later read of the same pass routed into a verdict
       // lane answered for itself: it re-derives at the holder's landing, not
       // now (one run — #3322, #3540).
-      if (r._flags & REACTIVE_DISPOSED || (l != null && l._parent?._verdict === l)) continue;
+      if (
+        r._flags & REACTIVE_DISPOSED ||
+        (l != null && l._parent?._verdict === l && !(r._flags & REACTIVE_PROBE_UNANSWERED))
+      )
+        continue;
       enqueueSub(r);
       if (l != null && l._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }
