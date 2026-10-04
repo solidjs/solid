@@ -134,6 +134,7 @@ type Method = NodePath<t.ObjectMethod>;
 interface Capture {
   binding: Binding;
   name: string;
+  reference: t.Identifier;
   index: number;
 }
 
@@ -272,7 +273,7 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
         }
         let capture = captures.get(binding);
         if (!capture) {
-          capture = { binding, name, index: captures.size };
+          capture = { binding, name, reference: q.node, index: captures.size };
           captures.set(binding, capture);
         }
         uses.add(binding);
@@ -294,7 +295,9 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
   for (const capture of captures.values()) {
     const param = scope.generateUidIdentifier("p");
     params.push(param);
-    args.push(t.identifier(capture.name));
+    const argument = t.identifier(capture.name);
+    argument.loc = capture.reference.loc;
+    args.push(argument);
     body.push(
       t.expressionStatement(
         t.assignmentExpression(
