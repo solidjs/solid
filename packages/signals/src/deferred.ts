@@ -177,8 +177,9 @@ function closeFlight(el: Computed<any>): void {
  * brings the seam — the error outranks the verdict from there; a verdict
  * reader that ran in that flush's heap read the mark once more and
  * re-derives), a node disposed mid-flight (its landing is dropped by
- * identity; `disposeChildren` schedules the seam), a window closed with no
- * `asyncWrite` (a stream's buffered yield). */
+ * identity; a disposal outside a flush schedules no seam, so the mark holds
+ * until the next flush that runs one), a window closed with no `asyncWrite`
+ * (a stream's buffered yield). */
 function seam(): void {
   if (open.size === 0) return;
   for (const el of open)

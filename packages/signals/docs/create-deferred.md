@@ -709,9 +709,6 @@ What core carries, all of it in the floor:
 - `commitPendingNode`'s window close is gated on a staged value (§6.1);
 - `GlobalQueue._deferredLanded`, called with `?.` from `asyncWrite` ahead of
   the landing's write (§6.3);
-- `disposeChildren` schedules a seam for a dying loading window, as it does
-  for a held flight's death (a node disposed mid-flight: its landing is
-  dropped by identity, and the seam sweep closes the flight);
 - `GlobalQueue._slotDerive` (store/store.ts installs it): a slot node's
   family derive, for D9's walk.
 
@@ -872,8 +869,13 @@ verdict reader re-run in that flush's heap read the mark once more over the
 same `true` it already showed, and re-derives at the close. Superseded →
 stays open until the _new_ flight lands. Hangs → stays open, same as any
 async memo's `STATUS_PENDING`. Quiet re-ask (A24) → open, unmarked. Disposed
-→ closed at the next seam (`disposeChildren` schedules one). Nothing leaks:
-the set is the lifecycle, the count follows it.
+→ closed at the next seam that runs. A disposal inside a flush gets that
+flush's seam; one outside a flush schedules nothing (`disposeChildren`
+forces a seam only for a held flight or a stale frame reader), so the dead
+node's mark outlives it until the next write's flush — a pending verdict
+over a value that will never change, bounded by the application's next
+flush, taken over the 5 B the dispose clause cost. Nothing leaks: the set is
+the lifecycle, the count follows it.
 
 Deliberately **not** copied from `affects()`: the scope lists and the
 boundary channel. A mark holds nothing on L2 either (`blocked` never sees

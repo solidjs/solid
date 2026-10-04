@@ -1022,9 +1022,10 @@ describe("createDeferred", () => {
   });
 
   describe("L2 — disposal and latest", () => {
-    it("a node disposed mid-flight drops its landing; the flight closes at the next seam", async () => {
+    it("a node disposed mid-flight outside a flush drops its landing and keeps its mark until the next seam that runs", async () => {
       const fetcher = deferredFetcher((n: number) => `rows-${n}`);
       const [n, setN] = createSignal(1);
+      const [tick, setTick] = createSignal(0);
       let rows!: () => string;
       let dispose!: () => void;
       createRoot(d => {
@@ -1032,18 +1033,31 @@ describe("createDeferred", () => {
         rows = createDeferred(() => fetcher.fetch(n()));
         createRenderEffect(rows, () => {});
       });
+      createRoot(() => {
+        // An unrelated live graph: writing `tick` gives the scheduler real
+        // work, so its flush ends in a seam.
+        createRenderEffect(tick, () => {});
+      });
       flush();
       fetcher.resolve(1);
       await settle();
       setN(2);
       flush();
       expect(isPending(rows)).toBe(true);
+      // Disposing outside a flush schedules nothing (disposeChildren only
+      // forces a seam for a held flight or a stale frame reader), so the open
+      // flight's mark outlives the node; the late landing is still dropped by
+      // identity and a dead node freezes at its last committed value (#3024).
       dispose();
       flush();
       fetcher.resolve(2);
       await settle();
-      // The late landing is dropped by identity; a dead node freezes at its
-      // last committed value (#3024).
+      expect(rows()).toBe("rows-1");
+      expect(isPending(rows)).toBe(true);
+      // The next seam that runs — here, an unrelated write's flush — sweeps
+      // the dead flight and releases the mark.
+      setTick(1);
+      flush();
       expect(rows()).toBe("rows-1");
       expect(isPending(rows)).toBe(false);
     });
