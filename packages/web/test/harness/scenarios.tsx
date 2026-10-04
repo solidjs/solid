@@ -24,6 +24,7 @@
 import {
   createSignal,
   createMemo,
+  createDeferred,
   createEffect,
   onSettled,
   createProjection,
@@ -252,6 +253,32 @@ function AsyncSettledDiv() {
   const [version, setVersion] = createSignal(0);
   refreshAsyncDiv = () => setVersion(v => v + 1);
   const data = createMemo(async () => {
+    const v = version();
+    await sleep(5);
+    return 42 + v;
+  });
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>Value: {data()}</div>
+    </Loading>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 10a. createDeferred under Loading (docs/create-deferred.md D5/D7): the
+// server renders it as the memo it wraps (one pass, no previous answer), so
+// the chunk shape and the client's claim are scenario 10's; the serialized
+// value is the client's commit #0. The post-hydration update is the one
+// thing that differs: the refetch is CLAMPED — the claimed DOM keeps "Value:
+// 42" while the flight is up (the update signal committed; nothing held it)
+// and swaps to 43 at the landing. The harness sees the landing; the lag is
+// pinned by test/hydration/create-deferred-lag.spec.tsx over this scenario's
+// artifact.
+let refreshDeferredDiv!: () => void;
+function DeferredSettledDiv() {
+  const [version, setVersion] = createSignal(0);
+  refreshDeferredDiv = () => setVersion(v => v + 1);
+  const data = createDeferred(async () => {
     const v = version();
     await sleep(5);
     return 42 + v;
@@ -2328,6 +2355,15 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "Value: 42",
     update: () => refreshAsyncDiv(),
+    expectedTextAfterUpdate: "Value: 43",
+    stableSelector: "div"
+  },
+  {
+    name: "deferred-settled-element",
+    App: DeferredSettledDiv,
+    async: true,
+    expectedText: "Value: 42",
+    update: () => refreshDeferredDiv(),
     expectedTextAfterUpdate: "Value: 43",
     stableSelector: "div"
   },

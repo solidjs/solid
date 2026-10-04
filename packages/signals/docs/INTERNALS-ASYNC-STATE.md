@@ -27,6 +27,8 @@ ruling. Anything marked `[ruled]` cites the decision.
 
 **Store** (`store/*`): the target (`target.ts` — `v`, `pb`, `k` the container node, `n` leaves, `h` presence, `dk` deep, `fam`), `readSource` (which backing a read serves — the key is the hold's unit), `pullFamily` (the firewall as a pull), `holdWithDerive`, `stageOn`/`_storePark`/the fold queue (`queueFold`/`drainFolds`/`foldTarget`), `optimistic.ts` (guesses on lanes, `LaneView`, `_laneRebase`), `projection.ts` (`runProjectionComputed`, `wakeFamily` via `propagateStatus`, `settleFamily`, `errorFamily`), `affects.ts` (the store half of marks).
 
+**Deferred** (`src/deferred.ts`, 2026-10-04 — `docs/create-deferred.md` §6): `createDeferred`'s clamp is the commit-#0 loading window (`_loading`) re-opened per answered pass by a compute wrapper (`deferredCompute`, which registers an async-shaped result through `handleAsync` itself and opens a flight only for one still in the air); its verdict is an `affects()` mark whose scope is the flight (`openFlight`/`closeFlight` — `mark`/`unmark` from `affects.ts`, the push `wake`); "never leads" is the wrapper queueing the node as a pending node of the flush it ran in, for the seam's hold decision. Hooks: `GlobalQueue._deferredLanded` (`asyncWrite`, ahead of the landing's write), `_slotDerive` (store: a slot node's family derive, for `until`'s D9 walk); the seam sweep (a rejected flight, a dead node) rides affects.ts's `_releaseAmbientMarks` (`onSeam`). `commitPendingNode` closes the window only for a staged value; `recompute` keeps `REACTIVE_REASK` readable through the pass; `disposeChildren` schedules a seam for a dying loading window.
+
 ## 1. Node state fields
 
 A `Signal`/`Computed` participating in async/transitions carries:

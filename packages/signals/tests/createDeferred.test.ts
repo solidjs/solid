@@ -4,10 +4,18 @@
  *
  * Once initialized, the node's own non-finality is invisible to the graph:
  * readers are served the committed value during a refetch (no NotReadyError,
- * no transition hold, no async reporter), while `isPending` stays loud. The
- * landing commits on the plain path — ambient when the flight was asked
- * against committed inputs, joining the input's hold when it was asked against
- * a staged write that a sibling turned into a transition (never leads).
+ * no STATUS_PENDING, no frame observing a flight — the flush does not park),
+ * while `isPending` stays loud through the `affects()` mark channel (A24).
+ * The landing commits on the plain path — ambient when the flight was asked
+ * against committed inputs, joining the input's hold when it was asked
+ * against a staged write that a sibling's flight parked (never leads: the
+ * node is held with the transaction like any pending node of the flush).
+ *
+ * The first `describe`s are the PR's (#3710), one per proposition; the "L2
+ * pins" at the end fix what the hold model adds: the boundary interplay, the
+ * flight inside an action, the verdict's display-ahead under a parked flush,
+ * the D9 push through unchanged derivations and derived stores, the
+ * sync-resolved thenable, disposal, and `latest`.
  */
 import {
   action,
@@ -23,6 +31,7 @@ import {
   createStore,
   flush,
   isPending,
+  latest,
   refresh,
   until,
   type SourceAccessor
@@ -702,6 +711,362 @@ describe("createDeferred", () => {
       // written mid-action; only the values are pinned here.)
       expect(rowA.slice(3).every(v => v === "rows-2:false")).toBe(true);
       expect(rowA.length).toBeGreaterThan(3);
+    });
+  });
+
+  // ── L2 pins (the hold model) ────────────────────────────────────────────
+
+  describe("L2 — Loading boundary: owns the first load, never sees a refetch (create-deferred.md 5)", () => {
+    it("content stays through a refetch — the boundary shows no fallback, isPending is the affordance", async () => {
+      const fetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [period, setPeriod] = createSignal(1);
+      const log: string[] = [];
+      let rows!: () => string;
+      createRoot(() => {
+        rows = createDeferred(() => fetcher.fetch(period()));
+        const view = createLoadingBoundary(
+          () => rows(),
+          () => "loading"
+        );
+        createRenderEffect(view, v => {
+          log.push(v);
+        });
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+      expect(log).toEqual(["loading", "rows-1"]);
+
+      setPeriod(2);
+      flush();
+      // No fallback: the node never went pending, so the boundary has
+      // nothing to catch (A33 — a boundary collects pending readers; there
+      // are none). The write committed.
+      expect(log).toEqual(["loading", "rows-1"]);
+      expect(period()).toBe(2);
+      expect(isPending(rows)).toBe(true);
+
+      fetcher.resolve(2);
+      await settle();
+      expect(log).toEqual(["loading", "rows-1", "rows-2"]);
+      expect(isPending(rows)).toBe(false);
+    });
+
+    it("an `on` re-arm is inert for a deferred source: the boundary arms, nothing pends, the content stays", async () => {
+      const fetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [period, setPeriod] = createSignal(1);
+      const log: string[] = [];
+      createRoot(() => {
+        const rows = createDeferred(() => fetcher.fetch(period()));
+        const view = createLoadingBoundary(
+          () => rows(),
+          () => "loading",
+          { on: () => period() }
+        );
+        createRenderEffect(view, v => {
+          log.push(v);
+        });
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+      expect(log).toEqual(["loading", "rows-1"]);
+
+      setPeriod(2);
+      flush();
+      // The re-arm would flip to the fallback at the first pending reader
+      // under it; a deferred refetch pends nobody (create-deferred.md 5: "a deferred node's
+      // refetch never arrives").
+      expect(log).toEqual(["loading", "rows-1"]);
+      fetcher.resolve(2);
+      await settle();
+      expect(log).toEqual(["loading", "rows-1", "rows-2"]);
+    });
+  });
+
+  describe("L2 — inside an action: the flight is the action's work, never ahead of it", () => {
+    it("a flight asked by the action's write is held with the action; its landing reveals at the settle", async () => {
+      const fetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [period, setPeriod] = createSignal(1);
+      let label: number | undefined, rowsSlot: string | undefined;
+      let rows!: () => string;
+      createRoot(() => {
+        rows = createDeferred(() => fetcher.fetch(period()));
+        createRenderEffect(period, v => {
+          label = v;
+        });
+        createRenderEffect(rows, v => {
+          rowsSlot = v;
+        });
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+
+      let finish!: () => void;
+      const act = action(function* () {
+        setPeriod(2);
+        yield new Promise<void>(r => (finish = r));
+      });
+      act();
+      await settle();
+      // The action holds the write; the panel serves stale and does not
+      // suspend the body (nothing holds the action but itself).
+      expect([label, rowsSlot]).toEqual([1, "rows-1"]);
+      expect(isPending(period)).toBe(true);
+      expect(isPending(rows)).toBe(true);
+
+      // The landing arrives mid-action: asked against the held write, it is
+      // the action's (D2) — staged under its transaction, nothing moves.
+      fetcher.resolve(2);
+      await settle();
+      expect([label, rowsSlot]).toEqual([1, "rows-1"]);
+      // Not final either way: the landed value is held uncommitted (A19 iii).
+      expect(isPending(rows)).toBe(true);
+
+      finish();
+      await settle();
+      expect([label, rowsSlot]).toEqual([2, "rows-2"]);
+      expect(isPending(rows)).toBe(false);
+      expect(isPending(period)).toBe(false);
+    });
+
+    it("the action does not wait for the flight: it settles, the write reveals, the panel follows", async () => {
+      const fetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [period, setPeriod] = createSignal(1);
+      let label: number | undefined, rowsSlot: string | undefined;
+      let rows!: () => string;
+      createRoot(() => {
+        rows = createDeferred(() => fetcher.fetch(period()));
+        createRenderEffect(period, v => {
+          label = v;
+        });
+        createRenderEffect(rows, v => {
+          rowsSlot = v;
+        });
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+
+      let finish!: () => void;
+      let done = false;
+      const act = action(function* () {
+        setPeriod(2);
+        yield new Promise<void>(r => (finish = r));
+      });
+      act().then(() => (done = true));
+      await settle();
+      finish();
+      await settle();
+      // The body returned and nothing on screen derives from a flight the
+      // transaction holds (`blocked`: a deferred node is never pending), so
+      // it lands: the write reveals, the panel still shows its previous answer.
+      expect(done).toBe(true);
+      expect([label, rowsSlot]).toEqual([2, "rows-1"]);
+      expect(isPending(rows)).toBe(true);
+
+      fetcher.resolve(2);
+      await settle();
+      expect([label, rowsSlot]).toEqual([2, "rows-2"]);
+      expect(isPending(rows)).toBe(false);
+    });
+  });
+
+  describe("L2 — the verdict is display-ahead (ruling 6): a tracked isPending flips while the flush parks", () => {
+    it("a render effect on isPending(rows) shows true at once, though a sibling's flight holds the write", async () => {
+      const summaryFetcher = deferredFetcher((n: number) => `summary-${n}`);
+      const rowsFetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [period, setPeriod] = createSignal(1);
+      const pendingLog: boolean[] = [];
+      let summarySlot: string | undefined;
+      createRoot(() => {
+        const summary = createMemo(() => summaryFetcher.fetch(period()));
+        const rows = createDeferred(() => rowsFetcher.fetch(period()));
+        createRenderEffect(summary, v => {
+          summarySlot = v;
+        });
+        createRenderEffect(
+          () => isPending(rows),
+          v => {
+            pendingLog.push(v);
+          }
+        );
+      });
+      flush();
+      summaryFetcher.resolve(1);
+      rowsFetcher.resolve(1);
+      await settle();
+      expect(pendingLog).toEqual([false]);
+
+      setPeriod(2);
+      flush();
+      // The flush parked on `summary`; the verdict reader is the holder's
+      // verdict lane's — shown now, not stashed with the frame.
+      expect(summarySlot).toBe("summary-1");
+      expect(pendingLog).toEqual([false, true]);
+
+      // The panel's landing joins the hold (D2); the verdict stays true
+      // through it — the landed value is held uncommitted (A19 iii), and the
+      // reader re-derives at the held landing exactly as a plain memo's
+      // does (a render effect has no equality gate; the run count is the
+      // engine's, the values are pinned here)...
+      rowsFetcher.resolve(2);
+      await settle();
+      expect(pendingLog.every(v => v)).toBe(false);
+      expect(pendingLog.slice(1).every(v => v)).toBe(true);
+      // ...and flips at the reveal.
+      summaryFetcher.resolve(2);
+      await settle();
+      expect(summarySlot).toBe("summary-2");
+      expect(pendingLog.at(-1)).toBe(false);
+      expect(pendingLog.filter(v => !v)).toEqual([false, false]);
+    });
+  });
+
+  describe("L2 — D9's push: the flight's close wakes the readers parked on it", () => {
+    it("until(() => derived()) over an unchanged derivation is released by an equal-value landing", async () => {
+      // The derivation never re-runs (the landing equals the committed
+      // value), so no value notification reaches the predicate; the flight's
+      // close re-runs it (deferred.ts `wake`).
+      const fetcher = deferredFetcher((_: number) => 1);
+      const [n, setN] = createSignal(1);
+      let derived!: () => number;
+      createRoot(() => {
+        const rows = createDeferred(() => fetcher.fetch(n()));
+        derived = createMemo(() => rows() * 10);
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+      expect(derived()).toBe(10);
+
+      setN(2);
+      flush();
+      let result: number | undefined;
+      const p = until(() => derived()).then(v => (result = v));
+      await settle();
+      expect(result).toBeUndefined();
+      fetcher.resolve(2);
+      await settle();
+      await p;
+      expect(result).toBe(10);
+    });
+
+    it("until over a derived store built on the deferred node parks on the flight through the family's derive", async () => {
+      const fetcher = deferredFetcher((n: number) => ({
+        items: Array.from({ length: n }, (_, i) => i)
+      }));
+      const [n, setN] = createSignal(2);
+      let store!: { items: number[] };
+      createRoot(() => {
+        const rows = createDeferred(() => fetcher.fetch(n()));
+        [store] = createStore(() => rows(), { items: [] as number[] });
+      });
+      flush();
+      fetcher.resolve(2);
+      await settle();
+      expect(store.items.length).toBe(2);
+
+      setN(3);
+      flush();
+      let result: number | undefined;
+      // Truthy on the stale store too: only parking on the flight (reached
+      // from the leaf through its family's derive) delivers the landed one.
+      const p = until(() => store.items.length).then(v => (result = v));
+      await settle();
+      expect(result).toBeUndefined();
+      fetcher.resolve(3);
+      await settle();
+      await p;
+      expect(result).toBe(3);
+    });
+  });
+
+  describe("L2 — a refetch that resolves synchronously is a landing (create-deferred.md 8.3, closed)", () => {
+    it("a sync-resolving thenable closes the flight in the same flush; derived verdict readers re-derive", async () => {
+      const [n, setN] = createSignal(1);
+      let sync = false;
+      const thenable = (v: string) => ({
+        then(res: (v: string) => void) {
+          if (sync) res(v);
+          else setTimeout(() => res(v), 0);
+        }
+      });
+      let upper!: () => string;
+      const pendingLog: boolean[] = [];
+      createRoot(() => {
+        const rows = createDeferred(() => thenable(`rows-${n()}`));
+        upper = createMemo(() => rows().toUpperCase());
+        createRenderEffect(
+          () => isPending(upper),
+          v => {
+            pendingLog.push(v);
+          }
+        );
+      });
+      flush();
+      await settle();
+      expect(upper()).toBe("ROWS-1");
+      expect(pendingLog).toEqual([false]);
+
+      sync = true;
+      setN(2);
+      flush();
+      expect(upper()).toBe("ROWS-2");
+      expect(isPending(upper)).toBe(false);
+      // The answer was never in flight: no reader saw it pending (the probe
+      // re-ran for `upper`'s change, and read final).
+      expect(pendingLog.every(v => v === false)).toBe(true);
+    });
+  });
+
+  describe("L2 — disposal and latest", () => {
+    it("a node disposed mid-flight drops its landing; the flight closes at the next seam", async () => {
+      const fetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [n, setN] = createSignal(1);
+      let rows!: () => string;
+      let dispose!: () => void;
+      createRoot(d => {
+        dispose = d;
+        rows = createDeferred(() => fetcher.fetch(n()));
+        createRenderEffect(rows, () => {});
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+      setN(2);
+      flush();
+      expect(isPending(rows)).toBe(true);
+      dispose();
+      flush();
+      fetcher.resolve(2);
+      await settle();
+      // The late landing is dropped by identity; a dead node freezes at its
+      // last committed value (#3024).
+      expect(rows()).toBe("rows-1");
+      expect(isPending(rows)).toBe(false);
+    });
+
+    it("latest(() => d()) is a no-op — nothing staged to lead with — and its own-async verdict is loud (A8)", async () => {
+      const fetcher = deferredFetcher((n: number) => `rows-${n}`);
+      const [n, setN] = createSignal(1);
+      let rows!: () => string;
+      createRoot(() => {
+        rows = createDeferred(() => fetcher.fetch(n()));
+      });
+      flush();
+      fetcher.resolve(1);
+      await settle();
+
+      setN(2);
+      flush();
+      expect(latest(() => rows())).toBe("rows-1");
+      expect(isPending(() => latest(() => rows()))).toBe(true);
+      fetcher.resolve(2);
+      await settle();
+      expect(latest(() => rows())).toBe("rows-2");
+      expect(isPending(() => latest(() => rows()))).toBe(false);
     });
   });
 });
