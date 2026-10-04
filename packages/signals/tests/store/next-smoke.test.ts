@@ -1,18 +1,18 @@
 /**
- * Store rewrite increment 1 smoke — plain deep stores against the doc's
+ * Store rewrite increment 1 smoke (kept through the carve: the rebuilt store
+ * answers the same pins) — plain deep stores against the doc's
  * core rules: wrapping/identity, per-property tracking, signal-parity
  * batching (RUL-1 matrix), CoW privatization (no source mutation), draft
  * read-your-writes, transient-node laziness.
  */
 import { describe, expect, it } from "vitest";
-import { createEffect, createRoot, flush } from "../../src/index.js";
-import { createStoreNext } from "../../src/store/next/store.js";
-import { isOwned, storeNextLookup } from "../../src/store/next/target.js";
+import { createEffect, createRoot, createStore, flush } from "../../src/index.js";
+import { isOwned, storeLookup } from "../../src/store/target.js";
 
 describe("store-next increment 1", () => {
   it("wraps, tracks per-property, and batches like signals", () => {
     const source = { a: 1, b: 2, nested: { c: 3 } };
-    const [s, setS] = createStoreNext(source);
+    const [s, setS] = createStore(source);
     expect(s.nested).not.toBe(source.nested); // wrapped
     expect(s.nested).toBe(s.nested); // stable proxy identity
 
@@ -64,7 +64,7 @@ describe("store-next increment 1", () => {
 
   it("drafts are read-your-writes; sources are never mutated (CoW)", () => {
     const source = { a: 1, nested: { c: 3 } };
-    const [s, setS] = createStoreNext(source);
+    const [s, setS] = createStore(source);
     createRoot(() => {
       createEffect(
         () => s.nested.c,
@@ -88,14 +88,14 @@ describe("store-next increment 1", () => {
     expect(source.nested.c).toBe(3);
 
     // Backing privatized (owned), original still resolves to the same proxy.
-    expect(storeNextLookup.get(source)).toBeDefined();
-    expect(isOwned(storeNextLookup.get(source)!.v)).toBe(true);
-    expect(storeNextLookup.get(source)!.v).not.toBe(source);
-    expect(storeNextLookup.get(source)!.px).toBe(s);
+    expect(storeLookup.get(source)).toBeDefined();
+    expect(isOwned(storeLookup.get(source)!.v)).toBe(true);
+    expect(storeLookup.get(source)!.v).not.toBe(source);
+    expect(storeLookup.get(source)!.px).toBe(s);
   });
 
   it("writes outside the setter are silently ignored", () => {
-    const [s] = createStoreNext({ a: 1 } as { a: number });
+    const [s] = createStore({ a: 1 } as { a: number });
     expect(() => {
       (s as any).a = 99;
     }).not.toThrow();
@@ -104,14 +104,14 @@ describe("store-next increment 1", () => {
 
   it("unobserved writes leave no permanent node (transient sweep)", () => {
     const source = { a: 1, b: 2 };
-    const [s, setS] = createStoreNext(source);
+    const [s, setS] = createStore(source);
     setS(d => {
       d.a = 42;
     });
     flush();
     expect(s.a).toBe(42);
     expect(source.a).toBe(1);
-    const target = storeNextLookup.get(source)!;
+    const target = storeLookup.get(source)!;
     // Post-flush, the write-created node was swept (no subscribers).
     expect(target.n?.a).toBeUndefined();
     // Committed value lives in owned backing alone (single home).
@@ -119,7 +119,7 @@ describe("store-next increment 1", () => {
   });
 
   it("key add and delete round-trip", () => {
-    const [s, setS] = createStoreNext({ a: 1 } as Record<string, number>);
+    const [s, setS] = createStore({ a: 1 } as Record<string, number>);
     setS(d => {
       d.z = 9;
     });
