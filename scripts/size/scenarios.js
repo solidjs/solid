@@ -3098,6 +3098,22 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 46.20 KB.
+    // Size-Exception (#3741, 2026-10-02): 46.20 -> 46.24 KB, measured at
+    // 46,240 B against `next` @ 98d35b9bc's 46,181 (+59 B; +1 B minified).
+    // `spread` runs its attribute effect before its children insert (the
+    // two blocks swap places; no code is added), so a prop getter's
+    // hydration id lands where the server's attribute walk takes it. Brotli
+    // layout only: three equivalent encodings measured +59..+129 B here and
+    // -21..+13 B on the live page; this is the smallest. Accepted by the
+    // maintainer. The cap is frozen again at 46.24 KB.
+    // Size-Exception (#3749, 2026-10-02): 46.24 -> 46.25 KB, measured at
+    // 46,249 B against `next` @ 9e85a092d's 46,240 (+9 B; +92 B minified).
+    // While hydrating, an untracked region whose incoming nodes are already
+    // children of its parent leaves them in place: a <Loading> claiming its
+    // server nodes on a late lazy() resume no longer moves them (focus loss).
+    // Twelve equivalent encodings measured; this is the only one over by
+    // page base alone. Accepted by the maintainer. The cap is frozen again
+    // at 46.25 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3227,6 +3243,15 @@ module.exports = [
     // text positions themselves, so none of that code is retained here; the
     // code shrinks and brotli layout grows. Accepted by the maintainer. The
     // cap is frozen again at 20.38 KB.
+    // Size-Exception (#3763, 2026-10-03): 20.38 -> 20.42 KB, measured at
+    // 20,412 B against `next` @ 4738c6dfe's 20,377 (+35 B; 32 B over the cap;
+    // +72 B minified, 71,741 -> 71,813). A synchronous throw out of
+    // `renderToString` is reported to the server error hook as
+    // `render`/`failed` before it is rethrown, so a request handler's
+    // `reportRequestFailure` of the same error is deduped instead of being
+    // heard as `request`. The cost is the `catch` and its one
+    // `reportServerError` call (already retained here). Accepted by the
+    // maintainer. The cap is frozen again at 20.42 KB.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     limit: floorCaps["server: renderToString (the server-render floor)"],

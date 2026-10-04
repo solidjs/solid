@@ -23,6 +23,9 @@
  *    the latter winning;
  *  - `handling: "failed"` has no wire — the return is ignored — and with no
  *    hook anywhere it reaches `console.error`;
+ *  - a failure the framework's request handler meets before any render
+ *    (`reportRequestFailure`) is heard as `kind: "request"`, `handling:
+ *    "failed"`, with its event, under the same once-per-error ledger;
  *  - a throwing hook is reported and treated as silent.
  *
  * Runs the runtimes from source (the dev tier: the default is fidelity, so a
@@ -37,8 +40,10 @@ import {
   Errored,
   Loading,
   configureServerErrors,
+  createRequestEvent,
   renderToStream,
   renderToString,
+  reportRequestFailure,
   type ServerErrorContext
 } from "@solidjs/web";
 import { NotReadyError, createMemo } from "solid-js";
@@ -49,6 +54,7 @@ import {
   registerServerReference
 } from "@solidjs/web/server-functions/server";
 import { createServerReference as clientReference } from "@solidjs/web/server-functions/client";
+import { renderToFrameStream } from "../../frames/src/frame-sink.js";
 import type { JSX } from "@solidjs/web";
 
 const RequestContext = Symbol.for("solid.RequestContext");
@@ -425,5 +431,158 @@ describe("server functions", () => {
     expect(bare(html)).toContain('<p class="fallback">Data unavailable</p>');
     expect(html).toContain('new Error("Data unavailable")');
     expect(html).not.toContain("ECONNREFUSED");
+  });
+});
+
+describe("a request that fails before any render (reportRequestFailure)", () => {
+  const event = () => createRequestEvent(new Request("https://app.example/page"));
+
+  test("the ambient hook hears one `request`/`failed` call with the event; the return is ignored", () => {
+    const failure = new Error("middleware broke");
+    configureServerErrors({ onError: hook(() => new Error("ignored")) });
+    const request = event();
+    expect(reportRequestFailure(failure, request)).toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(failure);
+    expect(calls[0].context).toMatchObject({ kind: "request", handling: "failed" });
+    expect(calls[0].context.event).toBe(request);
+    expect(reported).toHaveLength(0);
+  });
+
+  test("once per error object: the same failure reported again is not heard again", () => {
+    const failure = new Error("middleware broke");
+    configureServerErrors({ onError: hook() });
+    reportRequestFailure(failure, event());
+    reportRequestFailure(failure, event());
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a direct server-function failure that escapes to the request handler is heard once, as the function's", () => {
+    const boom = new Error("connect ECONNREFUSED");
+    configureServerErrors({ onError: hook() });
+    const load = createServerReference(
+      registerServerReference("hook/request-escape", () => {
+        throw boom;
+      })
+    );
+    let escaped: unknown;
+    underRequest(() => {
+      try {
+        (load as any)();
+      } catch (error) {
+        escaped = error;
+      }
+    });
+    expect(escaped).toBe(boom);
+    reportRequestFailure(escaped, event());
+    expect(calls).toHaveLength(1);
+    expect(calls[0].context).toMatchObject({
+      kind: "server-function",
+      handling: "thrown",
+      functionId: "hook/request-escape",
+      direct: true
+    });
+  });
+
+  test("without a hook the failure reaches console.error", () => {
+    const failure = new Error("middleware broke");
+    reportRequestFailure(failure, event());
+    expect(reported).toEqual([[failure]]);
+  });
+
+  test("a throwing hook is reported on the console and the call returns normally", () => {
+    const failure = new Error("middleware broke");
+    configureServerErrors({
+      onError: () => {
+        throw new Error("hook broke");
+      }
+    });
+    expect(() => reportRequestFailure(failure, event())).not.toThrow();
+    expect(reported.map(args => (args[0] as Error).message)).toEqual(["hook broke"]);
+  });
+
+  test("a failure that is not a render's still reports as `request`, after a render that failed", () => {
+    configureServerErrors({ onError: hook() });
+    expect(() =>
+      renderToString(() => {
+        throw new Error("render broke");
+      })
+    ).toThrow("render broke");
+    const failure = new Error("middleware broke");
+    reportRequestFailure(failure, event());
+    expect(calls.map(c => `${c.context.kind}/${c.context.handling}`)).toEqual([
+      "render/failed",
+      "request/failed"
+    ]);
+    expect(calls[1].error).toBe(failure);
+  });
+});
+
+describe("a render that throws synchronously to its caller", () => {
+  const event = () => createRequestEvent(new Request("https://app.example/page"));
+  function Bad(): JSX.Element {
+    throw boom;
+  }
+  let boom: Error;
+  beforeEach(() => {
+    boom = new Error("sync render boom");
+  });
+  /** What a framework's request handler does: catch the rethrow, report it. */
+  function handle(render: () => unknown) {
+    let caught: unknown;
+    underRequest(() => {
+      try {
+        render();
+      } catch (error) {
+        caught = error;
+      }
+    });
+    expect(caught).toBe(boom);
+    reportRequestFailure(caught, event());
+  }
+
+  test("renderToString: the hook hears one `render`/`failed` before the rethrow; reportRequestFailure adds nothing", () => {
+    configureServerErrors({ onError: hook() });
+    handle(() => renderToString(() => <Bad />));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(boom);
+    expect(calls[0].context).toMatchObject({ kind: "render", handling: "failed" });
+    expect(calls[0].context.event).toBeDefined();
+    expect(reported).toHaveLength(0);
+  });
+
+  test("renderToStream: the hook hears one `render`/`failed` before the rethrow; reportRequestFailure adds nothing", () => {
+    configureServerErrors({ onError: hook() });
+    handle(() => renderToStream(() => <Bad />));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(boom);
+    expect(calls[0].context).toMatchObject({ kind: "render", handling: "failed" });
+    expect(reported).toHaveLength(0);
+  });
+
+  test("renderToFrameStream: the error chunk it sends was heard first as `render`/`failed`", async () => {
+    configureServerErrors({ onError: hook() });
+    const chunks: any[] = await (renderToFrameStream(() => <Bad />) as any);
+    expect(chunks.some(c => c.type === "error")).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(boom);
+    expect(calls[0].context).toMatchObject({ kind: "render", handling: "failed" });
+  });
+
+  test("the render's own onError hears it, ahead of the ambient hook", () => {
+    const heard: unknown[] = [];
+    configureServerErrors({ onError: hook() });
+    expect(() =>
+      renderToString(() => <Bad />, { onError: (error: unknown) => void heard.push(error) })
+    ).toThrow(boom);
+    expect(heard).toEqual([boom]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("without a hook the rethrow is the caller's: nothing reaches console.error until it reports", () => {
+    expect(() => renderToString(() => <Bad />)).toThrow(boom);
+    expect(reported).toHaveLength(0);
+    reportRequestFailure(boom, event());
+    expect(reported).toEqual([[boom]]);
   });
 });
