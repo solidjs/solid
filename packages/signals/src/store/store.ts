@@ -479,7 +479,7 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
     // pending backing staged — so whoever asked for it reads the frame it
     // would have read had the node been there from the write.
     if (target.pb !== null && !directCommit) {
-      k._value = foldOlds.get(target) ?? target.v;
+      k._value = preBatch(target);
       k._pendingValue = target.pb;
       queuePendingNode(k);
     }
@@ -720,11 +720,12 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
     pb = target.pb = cloneRaw(pb, target);
+    draftedAdoptions.add(target);
     const k = target.k;
     if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
     const v = target.v;
-    if (!directCommit) queueFold(target);
+    if (!directCommit) queueFold(target, false);
     if (
       !target.ch &&
       !Array.isArray(v) &&
@@ -746,6 +747,10 @@ function privatizeCommitted(target: StoreTarget): void {
   if (isOwned(target.v)) return;
   const before = target.v;
   const clone = cloneRaw(before, target);
+  // Mid-batch (a staging is open on this target): the fold must still see
+  // the backing the batch started from (`preBatch`).
+  if (target.pb !== null && target.pb !== before && !draftedAdoptions.has(target))
+    privatizedOlds.set(target, before);
   target.v = clone;
   target.ch = false;
   if (target.u) {
@@ -804,7 +809,7 @@ export function adoptPB(
   incoming: Record<PropertyKey, any>,
   notify = true
 ): void {
-  if (!directCommit) queueFold(target);
+  if (!directCommit) queueFold(target, true);
   let base: Record<PropertyKey, any>;
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
@@ -841,22 +846,41 @@ export function adoptPB(
 
 /** The fold queue: the targets with a batch open (`pb !== null` IS the
  * membership — a target is queued exactly while it carries a staging; the
- * drain skips one already folded), in two reusable arrays, and each
- * target's pre-batch committed backing in a weak map whose entry is
- * written in place batch after batch. Nothing here allocates per batch
- * once warm: a dbmon tick queues ~7000 containers, and a map built and
- * drained per tick cost ~540 KB of table allocation — most of the tick's
- * young-generation GC, and the whole of its gap to `next` (plan sec. 41.5). */
+ * drain skips one already folded), in two reusable arrays. Nothing here
+ * allocates per batch once warm: a dbmon tick queues ~7000 containers, and
+ * a map built and drained per tick cost ~540 KB of table allocation — most
+ * of the tick's young-generation GC, and the whole of its gap to `next`
+ * (plan sec. 41.5).
+ *
+ * The pre-batch committed backing (`preBatch`): a DRAFT's is `t.v` itself —
+ * the backing does not move until the fold — so nothing is recorded for
+ * it (2000 fresh one-key stores per flush recorded 2000 weak-map entries
+ * for nothing, 2× the fork); an ADOPTION swaps the backing eagerly, so its
+ * pre-batch backing is kept in a weak map written in place batch after
+ * batch (the containers of a keyed reconcile are reused — no churn); the
+ * two rare cases that move a draft's backing mid-batch — a privatization
+ * (a child's path copy repointed the parent), a draft over an adopted raw
+ * (cloned) — are kept in small per-batch maps. */
 let foldList: StoreTarget[] = [];
 let foldSpare: StoreTarget[] = [];
-const foldOlds = new WeakMap<StoreTarget, Record<PropertyKey, any>>();
+const adoptOlds = new WeakMap<StoreTarget, Record<PropertyKey, any>>();
+const privatizedOlds = new Map<StoreTarget, Record<PropertyKey, any>>();
+const draftedAdoptions = new Set<StoreTarget>();
 
 /** Before the staging is set and before an adoption swaps the backing. */
-function queueFold(target: StoreTarget): void {
+function queueFold(target: StoreTarget, adoption: boolean): void {
   if (target.pb !== null) return;
   schedule();
-  foldOlds.set(target, target.v);
+  if (adoption) adoptOlds.set(target, target.v);
   foldList.push(target);
+}
+
+/** The committed backing before this batch (valid while `pb !== null`). An
+ * eager adoption nothing wrote after is `pb === v`; one a draft wrote over
+ * is listed; a privatized draft's is listed; any other draft's is `v`. */
+function preBatch(t: StoreTarget): Record<PropertyKey, any> {
+  if (t.pb === t.v || draftedAdoptions.has(t)) return adoptOlds.get(t) ?? t.v;
+  return privatizedOlds.get(t) ?? t.v;
 }
 
 /** The flush committed its pending nodes: fold every pending backing whose
@@ -875,9 +899,13 @@ function drainFolds(): void {
       const k = t.k;
       if (k !== null && k._pendingValue !== NOT_PENDING)
         foldList.push(t); // held: commits with its hold
-      else foldTarget(t, foldOlds.get(t)!);
+      else foldTarget(t, preBatch(t));
     }
     list.length = 0;
+    if (foldList.length === 0) {
+      if (privatizedOlds.size !== 0) privatizedOlds.clear();
+      if (draftedAdoptions.size !== 0) draftedAdoptions.clear();
+    }
   }
   if (deferredReleases.size !== 0) {
     for (const node of deferredReleases) {
@@ -1418,7 +1446,7 @@ export function committed(t: StoreTarget): Record<PropertyKey, any> {
   const k = t.k;
   if (k !== null) return k._pendingValue !== NOT_PENDING ? asBacking(k._value) : t.v;
   // A node-less staging (`stageOn`): the fold queue remembers the frame.
-  return t.pb !== null ? (foldOlds.get(t) ?? t.v) : t.v;
+  return t.pb !== null ? preBatch(t) : t.v;
 }
 
 /** The pass that sees this flush's staging (signal parity — `read()`'s
