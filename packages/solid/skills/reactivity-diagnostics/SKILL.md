@@ -131,9 +131,17 @@ Delete the call; observe results after the action resolves.
 
 ### NO_OWNER_EFFECT / NO_OWNER_BOUNDARY
 
-An effect or boundary was created outside any reactive context (no root, no
-component). It will never be disposed — a leak. Create it under a component
-or `createRoot`, or use `runWithOwner` to attach it to an existing owner.
+#### NO_OWNER_EFFECT
+
+An effect was created outside any reactive context (no root, no component).
+Create it under a component or `createRoot`, or use `runWithOwner` to attach
+it to an existing owner so it can be disposed.
+
+#### NO_OWNER_BOUNDARY
+
+A boundary was created outside any reactive context. Like an unowned effect,
+it needs an owner to dispose it. Create it under a component or `createRoot`,
+or attach it to an existing owner with `runWithOwner`.
 
 ### NO_OWNER_CLEANUP
 
@@ -167,6 +175,14 @@ stored past its lifetime — re-capture the owner at call time or guard with
 work: `createEffect(() => signal(), value => doWork(value))`. For a derived
 value use `createMemo`; for a one-shot side effect just call the function.
 
+### PRIMITIVE_IN_EFFECT_CALLBACK
+
+A memo, effect, or root was created without an owner inside an effect
+callback or its cleanup. The effect phase has no ambient owner, so those
+computations cannot be disposed or held by a parent. Create them in the
+compute phase, or attach them to an existing owner with `runWithOwner`.
+Creating a signal alone does not trigger this error.
+
 ### PRIMITIVE_IN_FORBIDDEN_SCOPE
 
 Reactive primitives cannot be created inside `createTrackedEffect` or
@@ -190,6 +206,29 @@ AsyncIterable; the value would be stored as-is, never awaited, in
 production. Remove `sync: true` to use async-aware behavior, or unwrap
 before returning.
 
+## Loading boundaries
+
+### ASYNC_OUTSIDE_LOADING_BOUNDARY
+
+On the client, an async value was read outside a Loading boundary during
+mounting. The root
+mount waits until the pending async work settles. Put the pending content
+inside `<Loading>` and provide a fallback if the page should show something
+while it waits.
+
+During SSR, reading a source declared with `ssrSource: "client"` outside
+`<Loading>` throws an error because the server cannot run that source.
+Wrap the read in `<Loading>` to provide a fallback, or declare
+`loadingValue`/`seedLoadingValue` to render a provisional value.
+
+### LOADING_ON_OUTSIDE_HOLD
+
+`on` re-armed a Loading boundary, but a source it is waiting on is also read
+outside the boundary and holds the frame. The frame waits for that same
+source, so the fallback cannot appear. Move the outside read under the boundary.
+If the fallback should appear immediately beside the held frame, use a
+`latest()` read in `on`.
+
 ## Hard failures
 
 ### REACTIVITY_HALTED
@@ -198,6 +237,15 @@ An earlier uncaught error halted the reactive system; subsequent updates are
 ignored. Do not treat this code as the bug — find the original error above
 it (or add an error boundary with `<Errored>`) and fix
 that.
+
+### SETTLE_WALK_UNINITIALIZED_SOURCE
+
+The runtime tried to settle a source before it produced a value or an
+error. Waking its parked readers at that point would expose its initial
+value instead of settled data. This is an internal consistency check,
+reported in development. Keep the full diagnostic and reduce the async
+sequence to a reproduction when reporting it; adding `flush()` or hiding
+the warning does not repair the missing value.
 
 ### INVARIANT_VIOLATION
 
@@ -224,9 +272,17 @@ derived from other state, `createProjection` builds it.
 
 ### HUGE_FAN_IN / WIDE_SCOPE_DEPS
 
-One computation reads very many sources, so it re-runs when any of them
-change. Narrow its reads or split it into smaller memos that each track only
-what they need. The message lists the sources — start with those.
+#### HUGE_FAN_IN
+
+One computation reads many sources, so it re-runs when any of them change.
+Narrow its reads or split it into smaller memos that each track only what
+they need. Start with the sources listed in the message.
+
+#### WIDE_SCOPE_DEPS
+
+Attribution found a scope that tracks many dependencies. Use the sources
+listed in the message to narrow its reads, as described under
+[HUGE_FAN_IN](#huge_fan_in).
 
 ### GRAPH_GROWTH
 
