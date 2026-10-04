@@ -5451,11 +5451,15 @@ all resolving; every live A-rule cited by a test.
 Benchmarks: signals +5–7% / diamond +66%; stores at parity except
 dbmon-deep tick 1.08–1.13× by the harness's method (§41.5).
 
-**Open for the maintainer** (unchanged): the store size gates (§35.1's
-levers — #2883 symmetry 1.3 kB, per-key holds ~0.5, accessors ~0.5, the
-overlay 0.4); the deep tick's last ~10% (the per-adopted-raw lookup
-registration, §41.5); the unkeyed positional residue under Q-D; the
-`Mechanism` paragraphs' rewrite rule-by-rule, if wanted beyond the note.
+**Rulings (maintainer, 2026-10-04 12:10 AM).** Store size gates: **none
+of the levers** — the store layer stands at −5%; the gates were the wrong
+targets. Deep tick: **accept** 1.08–1.13× within the band; the lookup
+registration listed as the lever. Q-D unkeyed residue: **leave documented**
+— an unkeyed list is positional by definition. Spec `Mechanism` paragraphs:
+**rewrite rule-by-rule now** — done (`7654e1709` + this commit): all 32
+A-rules carry `Mechanism (L2, 2026-10-04)` against the running code; the
+pre-L2 paragraphs are under History verbatim. The branch's fate: **push
+and open one PR against `next`**, this document the design record.
 
 ---
 
