@@ -251,7 +251,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // §12d: any recompute can clean a marked subscriber — invalidate skips.
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
-  // Lanes (§28): the seat of a pass is its node's. A node carrying a lane's
+  // Lanes (plan sec. 28): the seat of a pass is its node's. A node carrying a lane's
   // derived value runs as the lane's whoever dirtied it — a sync write, a
   // boundary reset, a frame rerun — so its children and its result are the
   // lane's; so does a member the lane's own re-staging dirtied
@@ -1815,7 +1815,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 }
 
 /** A pass read a staging of this flush: it derives from what the flush may
- * yet hold (REACTIVE_STAGED_READ — the seam decides). Lane work too (§28, a
+ * yet hold (REACTIVE_STAGED_READ — the seam decides). Lane work too (plan sec. 28, a
  * lane sees the screen plus its own guesses): the staging is the screen if
  * the frame commits — one pass, the common case — and a held write if it
  * parks, which the seam repairs (`stagedReaders`): the pass re-derives on

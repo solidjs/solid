@@ -5389,6 +5389,76 @@ seams: `GlobalQueue._storePark` (new hook), `stagedScreen` exported from
 
 ---
 
+## 42. Finishing out — green everywhere (2026-10-04, 12:40–1:35 AM)
+
+**Web frames** (`e133516c8`): the address switch's re-arm and rebind moved
+from the follow effect's run to its pass (compute half); the gate signal
+takes `ownedWrite`. Under L2 the run was stashed behind the gate it would
+release (§40.3). Web **1116/0**, then 1132/0 after the picks. +21 br on the
+frames client.
+
+**`next` reapplied** by cherry-pick, oldest first: 11 of the 12 commits
+since the fork — the ten that touch nothing the carve touched (`html` ×2,
+`fix!` lowercase `on*` #3753 — a `dev.ts` diagnostic code on the signals
+side, picked clean — compilers/web SSR style #3737, WASI #3758, spread
+order #3741 (a size-comment conflict, theirs), CSP sheets #3755, `h` #3756,
+late claim #3749, size CI #3765) and #3742 "derived writes apply first,
+then derivations re-run" (`87ce0fce9`): its core already held on the carve
+(its pins — `createMemo` R31 ×7, `held-derivation-3612` ×19,
+`derived-write-then-derivation-3733` — pass against the carve's `core.ts`),
+so `core.ts`/`heap.ts`/`types.ts` kept the carve's text and `next`'s docs,
+tests, changeset, `signals.ts` doc comment and `solid` hydration change were
+taken; the carve's `resolveAsync` re-pin re-applied; `src/store/next/*`
+stays deleted. #3740 (`3ed381009`, the frame-scoped mask #3742 reverted) is
+not picked — its net effect is nil and its changeset was deleted upstream.
+One #3733 pin needed engine work (`e26bb58c3`): a derive reading a key a
+transaction holds through its draft now joins that transaction
+(`readSource`'s draft arm, derive only), so the re-derived result reveals
+with the action ("under the transaction and revealed with it") instead of
+key by key — `["A3!", "B0"]` through the hold. Compilers rebuilt (#3753
+changes both); compiler 5957, babel-plugin 271, h 70, html 206, solid 819.
+
+**Spec pass** (`SPEC-ASYNC-SEMANTICS.md`, `INTERNALS-ASYNC-STATE.md`,
+`RULES-INDEX.md` regenerated). A new top section, **"The hold model — L2
+(2026-10-04)"**, carries the rulings in the spec's voice (nine numbered
+statements: one frame concept; reading the future joins; a staging read is
+the frame's; lanes and lane contract 2 and the body-end corollary for store
+guesses; provenance (Q-D); verdicts display-ahead with A24 kept and the
+quiet re-ask; stores — the key as the hold's unit, the firewall as a pull,
+the derive's draft join, the container node and its escape hatch; the
+promise-delivery readers by posture; `affects()`), the 2026-10-03 re-pins
+with the maintainer's "all four stand", and a **mechanism note**: every
+rule's "Mechanism (index, 2026-09-14/15)" paragraph describes the
+implementation it was indexed against, which is gone; the L2 module map is
+the cross-reference now. Dated amendments on A22 (leaves reveal with the
+resumed frame), A19 (the quiet re-ask does not launder a new question; a
+quiet landing's leaf stagings are quiet), A29 (generalized; ruling A), A18
+(provenance to stores, one predicate; body-end for store guesses), A34 (the
+L2 form of (1)–(3)). INTERNALS gains **"0. L2 — the hold model: what
+replaced §1–§4"** (state, Transaction, read, lanes, verdicts, store — by
+module and function) and marks §1–§4 as the reasoning record. In `src/`,
+plan-section citations are written `plan sec. N` (the `§N` grammar is
+INTERNALS-STORE-STATE's); `rules-index` ×3 green — 57 ids cited from src,
+all resolving; every live A-rule cited by a test.
+
+**The branch is green.** Signals **4894 / 0** (0 suites failing — the two
+`store/next` suites re-pointed), web **1132 / 0**, solid 819 / 0, compiler
+5957, babel-plugin 271, h 70, html 206. Size (br, vs `next` @ fork): floor
+**7315** (−23.1%), render + one signal **9801** (−18.1%), CSR 12807
+(−14.1%), hydrating 17632 (−10.3%), +createStore 14435 (−14.3%),
++isPending 9438 (−22.4%), every-store 28721 (−6.7%), page base 43936
+(−4.9%), page live 47588 (−5.7%); frames +34 (the gate fix), server ±0.
+Benchmarks: signals +5–7% / diamond +66%; stores at parity except
+dbmon-deep tick 1.08–1.13× by the harness's method (§41.5).
+
+**Open for the maintainer** (unchanged): the store size gates (§35.1's
+levers — #2883 symmetry 1.3 kB, per-key holds ~0.5, accessors ~0.5, the
+overlay 0.4); the deep tick's last ~10% (the per-adopted-raw lookup
+registration, §41.5); the unkeyed positional residue under Q-D; the
+`Mechanism` paragraphs' rewrite rule-by-rule, if wanted beyond the note.
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

@@ -1,5 +1,5 @@
 /**
- * Store — the store half of `affects()` (plan §29, §37; A24 (4), #2882,
+ * Store — the store half of `affects()` (plan sec. 29, plan sec. 37; A24 (4), #2882,
  * #2893, #2904).
  *
  * A mark on a store is a mark on nodes (affects.ts: a count on the node, a

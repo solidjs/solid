@@ -1,7 +1,7 @@
-// Lanes (§28 replay, 2026-10-02; maintainer rulings 2026-10-01/02). A lane
+// Lanes (plan sec. 28 replay, 2026-10-02; maintainer rulings 2026-10-01/02). A lane
 // is "a new base of a transition": the sub-frame an optimistic write opens
 // in the transition of the frame it is made in. It sees the screen plus its
-// own guesses (§19), breaks out of the parent's hold — its effects run now —
+// own guesses (plan sec. 19), breaks out of the parent's hold — its effects run now —
 // and holds itself if its own derivations hit async (and, blocked, holds its
 // parent). It ends when the parent lands: a guess reverts to the truth it
 // covered, or lands as the truth that superseded it. A frame that does not
@@ -191,7 +191,7 @@ function applyGuesses(parent: Transaction | null): void {
       // (A guess equal to a truth staged beneath it is confirmed at birth —
       // A24 — and still re-derives its readers as the lane's: the truth's
       // derivations are the transaction's world, the lane's are the
-      // screen's plus the guess (§19) — a derivation reading a held write
+      // screen's plus the guess (plan sec. 19) — a derivation reading a held write
       // beside the guess must not show it. Two flights for one input, when
       // the worlds coincide, is the price.)
       ext(n)._lane = v;
@@ -666,7 +666,7 @@ function nestedBlocked(t: Transaction): boolean {
  * reveal), its slot before; the lane's members re-derive as its work. */
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
   if (el._config & CONFIG_GUESS) {
-    // Provenance (A18, #3331; Q-D, plan §39): a write asking an OLDER
+    // Provenance (A18, #3331; Q-D, plan sec. 39): a write asking an OLDER
     // question than the guess's — another action's landing beneath it —
     // is not its answer: held beneath (the truth for the commit; the
     // guess's own question judges), and nothing moves. The writer's

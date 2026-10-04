@@ -1,4 +1,4 @@
-// Verdicts (§28 replay, 2026-10-02; maintainer, 2026-10-01: verdicts are
+// Verdicts (plan sec. 28 replay, 2026-10-02; maintainer, 2026-10-01: verdicts are
 // optimistic state the system supplies). `isPending(fn)` asks whether what
 // `fn` reads is final; `latest(fn)` reads the proposal — the staged write or
 // landing, the lane's value — instead of the screen. A verdict is a guess

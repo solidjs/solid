@@ -52,12 +52,12 @@ export const REACTIVE_PROBED = 1 << 15;
  * lane's from the start (`recompute`), not a stale reader's re-run by an
  * unrelated write (#3460). Consumed by the pass. */
 export const REACTIVE_LANE_DIRTY = 1 << 16;
-/** Lanes (§28) — the pass read a lane's value as lane work (`enterLane`): a
+/** Lanes (plan sec. 28) — the pass read a lane's value as lane work (`enterLane`): a
  * tracked derivation's read of displayed optimism, a verdict read routed
  * into the holder's verdict lane. A pass in a lane's seat that read none of
  * its world has left the lane (`recompute`'s tail). Per pass. */
 export const REACTIVE_LANE_READ = 1 << 17;
-/** Lanes (§28) — a render effect in the frame's seat was served the screen
+/** Lanes (plan sec. 28) — a render effect in the frame's seat was served the screen
  * for a lane's node (`laneRead`: a stale reader of a lane that has not
  * shown). Its pass computing exactly what it last applied has nothing to
  * run — an effect has no comparator, and the guess's notification is not a
@@ -102,7 +102,7 @@ export const CONFIG_HELD = 1 << 8;
  * earned it for as long as the node stays pending, and no longer: the
  * commit that lands a value clears it. */
 export const CONFIG_INPUTS_PUBLISHED = 1 << 10;
-/** Lanes (§28) — the node has a lane's value (`_x._lane`): a written guess
+/** Lanes (plan sec. 28) — the node has a lane's value (`_x._lane`): a written guess
  * (CONFIG_GUESS) or a lane pass's derivation of one. Its lane is
  * `_x._transaction`. The gate to the lane arm of `read`; `_value` stays the
  * committed truth and `_pendingValue` a transaction's staging throughout —

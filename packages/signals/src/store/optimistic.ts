@@ -1,5 +1,5 @@
 /**
- * Store — optimistic stores on lanes (plan §31, S4; INTERNALS §3/§7, RUL-3).
+ * Store — optimistic stores on lanes (plan sec. 31, S4; INTERNALS §3/§7, RUL-3).
  *
  * No store-side layer, no backup snapshots, no retaining ledger: a user
  * write to an optimistic store is a GUESS on the written key's node
@@ -15,7 +15,7 @@
  * with the lanes' values over it (`optimisticView` — per node, by the same
  * rule a leaf read follows: what the lane shows).
  *
- * Landings (Q-D, §31.7): the derive's output is reconciled against the
+ * Landings (Q-D, plan sec. 31.7): the derive's output is reconciled against the
  * optimistic VIEW — a row the guess added and the server returns with the
  * same key in the same position keeps its proxy (the row target adopts the
  * server object), its leaves write truth beneath their guesses, and the
@@ -257,7 +257,7 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
   for (const k of Object.keys(draft)) if (!(k in incoming)) delete draft[k];
 }
 
-/** Q-D (plan §39): an OLDER question's truth landed beneath an arrangement
+/** Q-D (plan sec. 39): an OLDER question's truth landed beneath an arrangement
  * guess (`laneWrite` held it — another action's landing is not this guess's
  * answer). The guess is re-based over it: order from the guess, rows from
  * the truth by key (a guessed row the truth has is the truth's object — the

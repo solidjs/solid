@@ -1,10 +1,10 @@
 /**
- * Store — target & ownership (INTERNALS-STORE-STATE.md §1, §5b; plan §31).
+ * Store — target & ownership (INTERNALS-STORE-STATE.md §1, §5b; plan sec. 31).
  *
  * The proxy wraps this internal target, never the raw. `v` is the single
  * committed home; the pending backing (`pb`) is the CoW overlay/clone the
  * draft mutates natively — and, on L2, the **container node's staging**
- * (§31.3, Q-A): `k` is the `$TRACK` node given a value. Its `_value` is the
+ * (plan sec. 31.3, Q-A): `k` is the `$TRACK` node given a value. Its `_value` is the
  * committed backing, its `_pendingValue` the pending backing, so the
  * scheduler owns the backing's lifetime (park, commit, revert) and the store
  * keeps no fold ledger of its own. The fold at the flush's commit
@@ -59,7 +59,7 @@ export interface StoreTarget {
   /** Lazy per-key presence nodes (`in` tracks presence, not value — R13). */
   h: Record<PropertyKey, Signal<boolean>> | null;
   /** Lazy CONTAINER node: membership/iteration/`$TRACK`/`length`
-   * subscriptions (§6) and the backing's staging home (§31.3). */
+   * subscriptions (§6) and the backing's staging home (plan sec. 31.3). */
   k: Signal<any> | null;
   /** Keys written through the traps since the last fold commit. Bounds the
    * setter notify/hold-check to O(written) instead of O(subscribed nodes) —

@@ -1,5 +1,5 @@
 /**
- * Store — projections (plan §31, S3; INTERNALS §7/§7b).
+ * Store — projections (plan sec. 31, S3; INTERNALS §7/§7b).
  *
  * A projection is a computed store: the derive runs inside a computed — the
  * **firewall** — whose pass writes the store through a draft; its output is

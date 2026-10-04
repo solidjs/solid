@@ -139,9 +139,9 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
   return t;
 }
 
-// Lanes (§28, 2026-10-02; lanes.ts). A lane is "a new base of a transition":
+// Lanes (plan sec. 28, 2026-10-02; lanes.ts). A lane is "a new base of a transition":
 // the sub-frame an optimistic write opens in the transition of the frame it
-// is made in. It sees the screen plus its own guesses (§19), breaks out of
+// is made in. It sees the screen plus its own guesses (plan sec. 19), breaks out of
 // the parent's hold — its effects run now — and holds itself if its own
 // derivations hit async. It ends when the parent lands: a guess reverts to
 // the truth it covered, or lands as the truth that superseded it. A frame

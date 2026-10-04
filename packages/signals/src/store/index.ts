@@ -1,7 +1,7 @@
 /**
  * Store — public surface. Plain stores (S1) are live; the derived form
  * (`createStore(fn, seed)`), projections, optimistic stores and reconcile
- * return on later steps (plan §31.5).
+ * return on later steps (plan sec. 31.5).
  */
 export type {
   NoFn,
@@ -46,7 +46,7 @@ import type {
 
 export { createOptimisticStore, createProjection };
 /** The store's internal record behind a proxy (`store[$TARGET]`). Kept
- * under `next`'s public name; its shape is the L2 target's (plan §31–§32:
+ * under `next`'s public name; its shape is the L2 target's (plan plan sec. 31–32:
  * the symbol-keyed legacy record is gone with the representation). */
 export type { StoreTarget as StoreNode } from "./target.js";
 export type { Merge, Omit } from "./utils.js";

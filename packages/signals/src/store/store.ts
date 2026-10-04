@@ -1,5 +1,5 @@
 /**
- * Store — plain stores on L2 (plan §31, S1).
+ * Store — plain stores on L2 (plan sec. 31, S1).
  *
  * A store is a tree of L2 nodes and nothing else carries reactive state:
  *
@@ -7,7 +7,7 @@
  *   literal): `_value` committed, `_pendingValue` this batch's staging.
  * - **Presence nodes** (`in` tracks presence, not value — R13) and the
  *   **deep witness** (`deep()` subscribes one node per record).
- * - The **container node** `k` (§31.3, Q-A): the `$TRACK` node given a
+ * - The **container node** `k` (plan sec. 31.3, Q-A): the `$TRACK` node given a
  *   value. `_value` is the committed backing, `_pendingValue` the pending
  *   backing the draft mutates — so a write to a key nobody reads has a
  *   staging home the scheduler owns, and park/commit/revert of the backing
@@ -24,7 +24,7 @@
  * committed backing until the flush; a pass sees the staging (signal
  * parity, RUL-1); the draft reads its own staging.
  *
- * Perf contracts (§31.4): lazy nodes; one literal per node; O(written) per
+ * Perf contracts (plan sec. 31.4): lazy nodes; one literal per node; O(written) per
  * setter (`wk`); overlay drafts for large plain records; no new named
  * fields on array targets; zero allocation for adopted-but-unread objects.
  */
@@ -465,7 +465,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   return node;
 }
 
-/** The container node (§31.3): created by the first structural subscription
+/** The container node (plan sec. 31.3): created by the first structural subscription
  * or the first write that needs to stage. Its committed value is the
  * committed backing. */
 export function getContainerNode(target: StoreTarget): Signal<any> {
@@ -487,7 +487,7 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
   return k;
 }
 
-/** Q-A's escape hatch (§33; measured §41.4): a staging needs the container
+/** Q-A's escape hatch (plan sec. 33; measured plan sec. 41.4): a staging needs the container
  * node as its home only when something can read the frame through it — a
  * structural subscriber (the node exists), lane work (the staging is the
  * lane's), a pass outside a flush (its write is promoted at the pass's end,
@@ -846,7 +846,7 @@ export function adoptPB(
  * written in place batch after batch. Nothing here allocates per batch
  * once warm: a dbmon tick queues ~7000 containers, and a map built and
  * drained per tick cost ~540 KB of table allocation — most of the tick's
- * young-generation GC, and the whole of its gap to `next` (§41.5). */
+ * young-generation GC, and the whole of its gap to `next` (plan sec. 41.5). */
 let foldList: StoreTarget[] = [];
 let foldSpare: StoreTarget[] = [];
 const foldOlds = new WeakMap<StoreTarget, Record<PropertyKey, any>>();
@@ -1681,7 +1681,7 @@ function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
   return false;
 }
 
-/** The projection's obligation (§31.7 Q-B): before any value is served
+/** The projection's obligation (plan sec. 31.7 Q-B): before any value is served
  * through a family target, the derive — the firewall — is brought up to
  * date WITHOUT the reader subscribing to it. Core's `read()` of the
  * firewall with no link does all of it: the pull, the status gate
