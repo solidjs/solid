@@ -28,17 +28,21 @@ import {
   NotReadyError,
   action,
   createLoadingBoundary,
+  createMemo,
+  createOptimisticStore,
   createRenderEffect,
   createRoot,
   createSignal,
   createStore,
   flush,
   isPending,
+  mapArray,
   untrack,
   type Store
 } from "../../src/index.js";
 
 const tick = () => new Promise(r => setTimeout(r, 0));
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const microtasks = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
@@ -149,30 +153,31 @@ describe("sync landing after a pending first flight wakes unchanged-node readers
 });
 
 describe("#3726 on the hold model — the parked reader is the derive's, woken by its first commit", () => {
-  it("the report's sequence: source write and promise resolution in one timer callback, under <Loading>", async () => {
-    const [source, setSource] = createSignal<number[] | null>(null);
-    let resolve!: (v: number[]) => void;
+  it("the report's playground: one promise, its timer writes the source and resolves it; presence under <Loading>, source outside", async () => {
     let presence = "";
     let sourceState = "";
     let shown: unknown;
     createRoot(() => {
-      const [store] = createStore<number[]>(() => {
-        const s = source();
-        if (s) return s;
-        return new Promise<number[]>(r => (resolve = r));
-      }, []);
+      const [ready, setReady] = createSignal<number[]>();
+      const pending = new Promise<number[]>(resolve =>
+        setTimeout(() => {
+          setReady([1]);
+          resolve([1]);
+        }, 10)
+      );
+      const [data] = createStore<number[]>(() => ready() ?? pending, []);
+      createRenderEffect(
+        () => (ready() ? "resolved" : "pending"),
+        v => {
+          sourceState = v;
+        }
+      );
       const boundary = createLoadingBoundary(
         () => {
           createRenderEffect(
-            () => ("length" in store ? "present" : "missing"),
+            () => ("length" in data ? "present" : "missing"),
             v => {
               presence = v;
-            }
-          );
-          createRenderEffect(
-            () => (source() ? "resolved" : "pending"),
-            v => {
-              sourceState = v;
             }
           );
           return "content";
@@ -189,17 +194,12 @@ describe("#3726 on the hold model — the parked reader is the derive's, woken b
     // No manual flush: the scheduler's own microtask, as in the app.
     await microtasks();
     expect(shown).toBe("fallback");
+    expect(sourceState).toBe("pending");
     expect(presence).toBe("");
 
-    // The report's timer callback: the source lands the derive synchronously
-    // and the superseded first flight resolves in the same tick.
-    await new Promise<void>(r =>
-      setTimeout(() => {
-        setSource([1]);
-        resolve([1]);
-        r();
-      }, 0)
-    );
+    // The timer: the source lands the derive synchronously and the
+    // superseded first flight resolves in the same tick.
+    await sleep(30);
     await microtasks();
     expect(sourceState).toBe("resolved");
     expect(presence).toBe("present");
@@ -321,5 +321,86 @@ describe("#3726 on the hold model — the parked reader is the derive's, woken b
     flush();
     expect(shown).toBe("content");
     expect(presence).toBe("present");
+  });
+});
+
+/** GabbeV's board (the #3726 comment), reduced: an async card source behind
+ * a memo → a derived `createStore` → `createOptimisticStore` → a keyed list,
+ * remounted under a loading boundary that has already revealed. Before, the
+ * remounted readers were parked on the derive's first flight under the
+ * boundary's hold and the held synchronous landing never woke them — an
+ * empty lane beside the outside count (PR #3732's open case; red on its base
+ * with and without its fix). On L2 the revealed boundary holds the view
+ * switch (A29: a boundary already showing content holds like any reader)
+ * and the lane reveals with its rows as one frame. The web twin renders the
+ * playground itself (`packages/web/test/derived-presence-async-3726.spec.tsx`). */
+describe("#3726 board shape — a lane remounted under a revealed boundary fills at the held sync landing", () => {
+  type Card = { id: string; title: string };
+  const snapshot: Card[] = [{ id: "1", title: "Review the proposal" }];
+
+  it("async source → derived store → optimistic store → keyed list, remounted", async () => {
+    const [view, setView] = createSignal<"board" | "activity">("board");
+    let shown: unknown;
+    let mounts = 0;
+    createRoot(() => {
+      const boundary = createLoadingBoundary(
+        () => {
+          // The `{view() === 'board' ? <CardList /> : null}` hole.
+          const hole = createMemo(() => {
+            if (view() !== "board") return null;
+            mounts++;
+            const [ready, setReady] = createSignal<Card[]>();
+            const pending = new Promise<Card[]>(resolve =>
+              setTimeout(() => {
+                setReady(snapshot);
+                resolve(snapshot);
+              }, 10)
+            );
+            const source = createMemo(() => ready() ?? pending);
+            const [localCards] = createStore(() => source(), [] as Card[]);
+            const [cards] = createOptimisticStore(localCards);
+            return mapArray(
+              () => cards,
+              card => card().title,
+              { keyed: (c: Card) => c.id }
+            );
+          });
+          return () => {
+            const h = hole();
+            return h === null ? null : h();
+          };
+        },
+        () => "fallback"
+      );
+      createRenderEffect(
+        () => {
+          const b = boundary();
+          return typeof b === "function" ? b() : b;
+        },
+        v => {
+          shown = v;
+        }
+      );
+    });
+    await microtasks();
+    expect(shown).toBe("fallback");
+    await sleep(30);
+    await microtasks();
+    expect(shown).toEqual(["Review the proposal"]);
+    expect(mounts).toBe(1);
+
+    setView("activity");
+    await microtasks();
+    expect(shown).toBe(null);
+
+    setView("board");
+    await microtasks();
+    // Held: the revealed boundary keeps its frame until the remounted
+    // lane's flight lands.
+    expect(shown).toBe(null);
+    expect(mounts).toBe(2);
+    await sleep(30);
+    await microtasks();
+    expect(shown).toEqual(["Review the proposal"]);
   });
 });
