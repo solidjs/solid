@@ -625,6 +625,11 @@ export class GlobalQueue implements IQueue {
   /** Store (store/store.ts): fold the pending backings whose container
    * nodes this flush committed — the owned-raw model's one mutation point. */
   declare static _storeCommit: (() => void) | undefined;
+  /** The flush parked into `t`: the store materializes and holds the
+   * container node of every staging that had none (store/store.ts — a
+   * staging needs the node as its home only when something can read the
+   * frame through it; a hold can). */
+  declare static _storePark: ((t: Transaction) => void) | undefined;
   // `affects()` marks (affects.ts): the probe's coverage test, the releases
   // at a landing and at the seam (ambient marks).
   declare static _marked: ((el: Signal<any> | Computed<any>) => boolean) | undefined;
@@ -762,6 +767,7 @@ export class GlobalQueue implements IQueue {
         if (n._config & CONFIG_STAGED) holdFrame(n as unknown as Owner, t);
       }
       pendingNodes.length = 0;
+      GlobalQueue._storePark?.(t);
 
       // (This flush's runs are stashed with `t` below — after the landings,
       // so a `t` that lands at this very seam runs them first, ahead of

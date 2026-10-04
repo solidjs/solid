@@ -5328,6 +5328,67 @@ it completes.
 
 ---
 
+### 41.5 The Q-A escape hatch, ruled and built (2026-10-03, 11:15 PM–12:40 AM)
+
+Ruled (11:12 PM): the §40.2 re-pins stand; A24 stays as pinned; the
+escape hatch goes in before the `next` reapply; the spec pass is mine after
+the reapply; reapply by cherry-pick.
+
+**Built.** `stageOn(target, pb)`: a staging gets its container node only
+when something can read the frame through it — the node already exists (a
+structural subscriber), lane work (`passLane`), a pass outside a flush
+(its write is promoted at the pass's end, A28 (4)), or a derive a
+transaction holds (`holdWithDerive`). Otherwise the backing swap and the
+fold queue are the whole staging. The seam materializes and holds the
+node for every node-less staging when — and only when — the flush parks
+(`GlobalQueue._storePark`, after the `pendingNodes` hold sweep; O(adopted),
+the one case the staging home exists for). `getContainerNode` born under
+a staging takes it as its own (`_value` the pre-batch backing,
+`_pendingValue` the staging, queued), so an enumerator or guess arriving
+mid-batch reads the frame it would have. `committed(t)` for a node-less
+staging is the fold queue's pre-batch backing; `readSource` for a pass
+does what `read()` of the node would (a verdict reader sees the screen,
+any other derives from the staging and is marked); `bornStaged` holds
+nothing for a node-less container. New pin (spec-async-semantics A22): a
+never-read key of a container held through a park reads committed from a
+handler until the landing — fails with the park hook removed (tears to
+the staged value).
+
+**Then the fold queue.** With the node gone, the browser gap stayed
+(same-page back-to-back 4.2 → 4.9 ms, 1.17×) while node read parity; the
+heap sampler (CDP `HeapProfiler.startSampling`) named it: `Map.prototype.set`
+**429 KB/tick** + `delete` 112 KB — `foldOlds`, a `Map` built and drained
+per batch (~7000 entries: table growth is the allocation, clear-and-regrow
+or delete-and-rehash alike), and the rest of the tick's young-generation GC;
+`globalThis.__nofold` dropped the tick to the fork's 968 KB/tick and 4.6 ms.
+Replaced by a reusable `foldList` array (membership is `pb !== null`; the
+drain skips a target already folded by a direct commit) plus a `WeakMap` of
+pre-batch backings written in place batch after batch — nothing allocates
+once warm. Direct commits (a projection's creation run) fold at the
+setter's exit unqueued, with `t.v` as the pre-batch backing.
+
+**Numbers.** Node (`dbmonbench.mjs`): 5.46 vs 5.28–5.41 ms — parity.
+Browser, interleaved two pages, the harness's own method (`gc()` before
+each sample + yield): **1.135×**; no-gc + yield 1.08×; gc without yield
+1.245× — the carve is more sensitive to a cold heap than `next`, and the
+block-ordered `ab-dbmon` (3×40, gc before each sample, fresh page per
+arm) still reads 1.19–1.23× with its larger between-round variance.
+Allocation 1153 vs 965 KB/tick: the remaining +190 KB is `adoptPB`'s own
+frame (115) + `set` (68), i.e. the identity hash and ephemeron growth of
+`storeLookup.set(incoming, target)` per adopted user raw — which `next`'s
+profile does not show at all, so `next`'s reconcile must not register the
+user's raws the same way (clones, or a lazier registration); the next
+thing to look at if the deep tick is to be closed fully. Everything else
+on dbmon deep/shallow 0.88–1.00×.
+
+Signals 4853/3 (0 moved; +1 pin), web 1115/1, solid 819/0. Size:
++createStore 14388 (+124 br — `stageOn`, `_storePark`, the born-staged
+node, the list drain), floor +6, every-store +109, page live +124. Core
+seams: `GlobalQueue._storePark` (new hook), `stagedScreen` exported from
+`core/core.ts`.
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

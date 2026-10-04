@@ -1771,6 +1771,45 @@ describe("A22: pending is per-node — store-wide is only the firewall's own wor
     dispose();
   });
 
+  // Q-A's escape hatch (plan §41.4): a container nobody subscribes to is
+  // staged without a node — the backing swap and the fold queue are the
+  // whole staging — and the seam materializes and holds the node only when
+  // the flush parks. The hold must then cover keys no reader ever asked for:
+  // a handler's read of one sees the committed frame until the landing.
+  it("a never-read key of a container held through a park reads committed until the landing", async () => {
+    const [x, setX] = createStore({ count: 0, foo: 0 });
+    let resolveDownstream!: () => void;
+    const dispose = createRoot(d => {
+      const downstream = createMemo(async () => {
+        const v = x.count;
+        if (v > 0) await new Promise<void>(r => (resolveDownstream = r));
+        return v;
+      });
+      createRenderEffect(
+        () => downstream(),
+        () => {}
+      );
+      return d;
+    });
+    flush();
+    await tick();
+
+    setX(s => {
+      s.count++;
+      s.foo = 5; // no node: never read before this write
+    });
+    flush();
+    expect(x.count).toBe(0); // held
+    expect(x.foo).toBe(0); // held too — not folded under the park
+
+    resolveDownstream();
+    await tick();
+    flush();
+    expect(x.count).toBe(1);
+    expect(x.foo).toBe(5);
+    dispose();
+  });
+
   it("a projection write held by downstream async pends only the written leaf", async () => {
     const [$src, setSrc] = createSignal(1);
     let resolveDownstream!: () => void;

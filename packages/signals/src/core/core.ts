@@ -1835,7 +1835,7 @@ export function stagedRead(c: Computed<any>): void {
  * transaction the answer is the seam's and the reader watches it
  * (verdict.ts). A node born into the future has no screen: its staging is
  * its only value (A29). */
-function stagedScreen(c: Computed<any>): boolean {
+export function stagedScreen(c: Computed<any>): boolean {
   if (flushTransaction === null) return false;
   staleReader(c, flushTransaction);
   return true;

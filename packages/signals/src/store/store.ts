@@ -56,6 +56,7 @@ import {
   setSignal,
   slotSignal,
   stagedRead,
+  stagedScreen,
   strictRead,
   untrack,
   untrackDepth,
@@ -76,12 +77,15 @@ import {
   dirtyQueue,
   flushTransaction,
   GlobalQueue,
+  globalQueue,
   holdNode,
   insertSubs,
   joinFuture,
+  passLane,
   queuePendingNode,
   schedule,
-  txOf
+  txOf,
+  type Transaction
 } from "../core/scheduler.js";
 import type { Computed, Owner, Signal } from "../core/types.js";
 import {
@@ -386,7 +390,8 @@ function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: Pr
   if (node._equals && node._equals(node._value, staged)) return;
   queuePendingNode(node);
   node._pendingValue = staged;
-  const k = target.k!;
+  const k = target.k;
+  if (k === null) return; // a node-less staging holds nothing (`stageOn`)
   // Held by the container's transaction only for a key the HELD staging
   // changed — a mainline layer's change above it stages mainline. (A
   // container carrying a guess is a lane's: the flush's park decides.)
@@ -468,9 +473,59 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
     k = target.k = slotSignal(target.v, containerEquals, target, $TRACK, false);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(k, target);
     noteNode(target, k, $TRACK);
+    // Born while a batch is staged without a node (`stageOn`): the node
+    // takes the staging as its own — the pre-batch backing committed, the
+    // pending backing staged — so whoever asked for it reads the frame it
+    // would have read had the node been there from the write.
+    if (target.pb !== null && !directCommit) {
+      k._value = foldOlds.get(target) ?? target.v;
+      k._pendingValue = target.pb;
+      queuePendingNode(k);
+    }
   }
   return k;
 }
+
+/** Q-A's escape hatch (§33; measured §41.4): a staging needs the container
+ * node as its home only when something can read the frame through it — a
+ * structural subscriber (the node exists), lane work (the staging is the
+ * lane's), a pass outside a flush (its write is promoted at the pass's end,
+ * A28 (4)), or a derive a transaction holds (the staging is the derive's,
+ * `holdWithDerive`). Otherwise the backing and the fold queue are the whole
+ * staging: nothing allocates, nothing is swept at the commit (dbmon's tick
+ * re-created, queued, swept and dropped ~7000 container nodes). If the
+ * flush parks, the seam materializes and holds the node then
+ * (`_storePark`) — the one case the staging home exists for. */
+function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
+  if (
+    target.k === null &&
+    passLane === null &&
+    (context === null || globalQueue._running) &&
+    !deriveHolds(target)
+  )
+    return;
+  const k = getContainerNode(target);
+  if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
+  k._pendingValue = pb;
+  // A28 (4): a write issued inside a pass outside a flush (a creation-time
+  // derive) is promoted at the pass's end — the batch with it.
+  if (context !== null) notePromotedWrite(k);
+  if (target.fam !== null) holdWithDerive(target, k);
+}
+
+/** The projection's derive is held by a transaction and this is its own
+ * write (not a user setter's): the staging is the derive's (`holdWithDerive`). */
+function deriveHolds(target: StoreTarget): boolean {
+  const fw = target.fam?.node;
+  return fw != null && !userWrite && (fw._config & CONFIG_HELD) !== 0;
+}
+
+GlobalQueue._storePark = t => {
+  for (let i = 0; i < foldList.length; i++) {
+    const target = foldList[i];
+    if (target.k === null && target.pb !== null) holdNode(getContainerNode(target), t);
+  }
+};
 
 function getDeepNode(target: StoreTarget): Signal<number> {
   let dk = target.dk;
@@ -664,10 +719,11 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
     pb = target.pb = cloneRaw(pb, target);
-    const k = target.k!;
-    if (!(k._config & CONFIG_HELD)) k._pendingValue = pb;
+    const k = target.k;
+    if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
     const v = target.v;
+    if (!directCommit) queueFold(target);
     if (
       !target.ch &&
       !Array.isArray(v) &&
@@ -678,16 +734,7 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
       pb = target.pb = Object.create(v) as Record<PropertyKey, any>;
       target.ovl = true;
     } else pb = target.pb = cloneRaw(v, target);
-    queueFold(target);
-    if (!directCommit) {
-      const k = getContainerNode(target);
-      if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
-      k._pendingValue = pb;
-      // A28 (4): a write issued inside a pass outside a flush (a creation-time
-      // derive) is promoted at the pass's end — the batch with it.
-      if (context !== null) notePromotedWrite(k);
-      if (target.fam !== null) holdWithDerive(target, k);
-    }
+    if (!directCommit) stageOn(target, pb);
   }
   return pb;
 }
@@ -756,27 +803,23 @@ export function adoptPB(
   incoming: Record<PropertyKey, any>,
   notify = true
 ): void {
-  queueFold(target);
+  if (!directCommit) queueFold(target);
   let base: Record<PropertyKey, any>;
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
     base = target.pb!;
   } else base = target.v;
   if (directCommit) {
-    foldOlds.delete(target);
     target.pb = null;
     if (target.k !== null) target.k._value = incoming;
   } else {
     // Eager (INTERNALS §3): the backing swaps now — handlers read the
-    // adopted object before the flush — while the container node keeps
-    // the committed frame (`_value`) for readers a hold keeps on it, and
-    // stages the adoption for the fold's path copy.
-    const k = getContainerNode(target);
-    if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
-    k._pendingValue = incoming;
+    // adopted object before the flush — while the container node, when
+    // there is one (`stageOn`), keeps the committed frame (`_value`) for
+    // readers a hold keeps on it, and stages the adoption for the fold's
+    // path copy.
     target.pb = incoming;
-    if (context !== null) notePromotedWrite(k);
-    if (target.fam !== null) holdWithDerive(target, k);
+    stageOn(target, incoming);
   }
   target.v = incoming;
   target.ch = (incoming as any)[$TARGET] !== undefined;
@@ -795,13 +838,24 @@ export function adoptPB(
 // ---------------------------------------------------------------------------
 // the fold: owned raw's one mutation point, at the flush's commit
 
-/** Targets with a batch open → their pre-batch committed backing. */
-const foldOlds = new Map<StoreTarget, Record<PropertyKey, any>>();
+/** The fold queue: the targets with a batch open (`pb !== null` IS the
+ * membership — a target is queued exactly while it carries a staging; the
+ * drain skips one already folded), in two reusable arrays, and each
+ * target's pre-batch committed backing in a weak map whose entry is
+ * written in place batch after batch. Nothing here allocates per batch
+ * once warm: a dbmon tick queues ~7000 containers, and a map built and
+ * drained per tick cost ~540 KB of table allocation — most of the tick's
+ * young-generation GC, and the whole of its gap to `next` (§41.5). */
+let foldList: StoreTarget[] = [];
+let foldSpare: StoreTarget[] = [];
+const foldOlds = new WeakMap<StoreTarget, Record<PropertyKey, any>>();
 
+/** Before the staging is set and before an adoption swaps the backing. */
 function queueFold(target: StoreTarget): void {
-  if (foldOlds.has(target)) return;
+  if (target.pb !== null) return;
   schedule();
   foldOlds.set(target, target.v);
+  foldList.push(target);
 }
 
 /** The flush committed its pending nodes: fold every pending backing whose
@@ -810,17 +864,19 @@ function queueFold(target: StoreTarget): void {
  * staged) waits for the flush that commits it. Then the deferred slot
  * releases. */
 function drainFolds(): void {
-  if (foldOlds.size !== 0) {
-    const entries = [...foldOlds];
-    foldOlds.clear();
-    for (const [t, old] of entries) {
+  if (foldList.length !== 0) {
+    const list = foldList;
+    foldList = foldSpare;
+    foldSpare = list;
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      if (t.pb === null) continue; // folded already (a direct commit)
       const k = t.k;
-      if (k !== null && k._pendingValue !== NOT_PENDING) {
-        foldOlds.set(t, old); // held: commits with its hold
-        continue;
-      }
-      foldTarget(t, old);
+      if (k !== null && k._pendingValue !== NOT_PENDING)
+        foldList.push(t); // held: commits with its hold
+      else foldTarget(t, foldOlds.get(t)!);
     }
+    list.length = 0;
   }
   if (deferredReleases.size !== 0) {
     for (const node of deferredReleases) {
@@ -1359,7 +1415,9 @@ function draftServe(target: StoreTarget, proxy: any): any {
  * readers under a hold still see), `t.v` otherwise. */
 export function committed(t: StoreTarget): Record<PropertyKey, any> {
   const k = t.k;
-  return k !== null && k._pendingValue !== NOT_PENDING ? asBacking(k._value) : t.v;
+  if (k !== null) return k._pendingValue !== NOT_PENDING ? asBacking(k._value) : t.v;
+  // A node-less staging (`stageOn`): the fold queue remembers the frame.
+  return t.pb !== null ? (foldOlds.get(t) ?? t.v) : t.v;
 }
 
 /** The pass that sees this flush's staging (signal parity — `read()`'s
@@ -1410,7 +1468,7 @@ function readSource(
   const pb = target.pb;
   if (pb === null) return target.v;
   if (inDraft(target) || writeOverride) return pb;
-  const k = target.k!;
+  const k = target.k;
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
   // it — the container's frame is not consulted (a reader is not made a
   // stale reader of the container's hold for a key it does not see through
@@ -1419,7 +1477,7 @@ function readSource(
     const leaf = target.n?.[key as any];
     if (leaf !== undefined && leaf._config & CONFIG_OVERRIDE) return committed(target);
   }
-  const held = (k._config & CONFIG_HELD) !== 0;
+  const held = k !== null && (k._config & CONFIG_HELD) !== 0;
   // A held container: the hold's unit is the key (#3706). A key the HELD
   // staging left unchanged reads the ambient view — a mainline layer's
   // write above the hold publishes mainline (#3688, #3612); a key it
@@ -1437,8 +1495,8 @@ function readSource(
     // changed; an unchanged key is committed and final (A22: pending is per
     // key). A held container's committed frame is the node's.
     if (verdict === null || (!held && key !== undefined && !keyChanged(target, key, shape)))
-      return held ? asBacking(k._value) : target.v;
-    return asBacking(readNode(k));
+      return held ? asBacking(k!._value) : target.v;
+    return k === null ? committed(target) : asBacking(readNode(k));
   }
   // A pass reading a key the batch left unchanged: the same value in both
   // frames — committed, holding no one. Otherwise the container's frame by
@@ -1460,6 +1518,14 @@ function readSource(
     )
       return pb;
     if (key !== undefined && !keyChanged(target, key, shape)) return committed(target);
+    // A node-less staging (`stageOn`): what `read()` of its node would do
+    // for this pass — a verdict reader sees the screen, any other derives
+    // from the staging and is marked as having read it.
+    if (k === null) {
+      if (c._config & CONFIG_VERDICT && stagedScreen(c)) return committed(target);
+      stagedRead(c);
+      return pb;
+    }
   }
   return asBacking(untrack(() => readNode(k)));
 }
@@ -2114,14 +2180,9 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
       const touched = [...pendingNotify];
       pendingNotify.clear();
       for (const t of touched) notifyWrites(t);
-      if (directCommit)
-        for (const t of touched) {
-          const old = foldOlds.get(t);
-          if (old !== undefined) {
-            foldOlds.delete(t);
-            foldTarget(t, old);
-          }
-        }
+      // A direct commit (a projection's creation run) folds at the setter's
+      // exit, unqueued: the backing is the pre-batch one (nothing swapped).
+      if (directCommit) for (const t of touched) if (t.pb !== null) foldTarget(t, t.v);
     }
     userWrite = prevUser;
   }
@@ -2322,7 +2383,10 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
     // R27: a snapshot sees the batch's pending backing — a held one (another
     // transaction's future) only from its own draft.
     let backing = t.v;
-    if (t.pb !== null && (inDraft(t) || writeOverride || !(t.k!._config & CONFIG_HELD))) {
+    if (
+      t.pb !== null &&
+      (inDraft(t) || writeOverride || t.k === null || !(t.k._config & CONFIG_HELD))
+    ) {
       if (t.ovl) materializePB(t);
       backing = t.pb!;
     }
