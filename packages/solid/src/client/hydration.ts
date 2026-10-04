@@ -11,6 +11,7 @@ import {
   peekNextChildId,
   createRevealOrder as coreRevealOrder,
   createMemo as coreMemo,
+  createDeferred as coreDeferred,
   createSignal as coreSignal,
   createOptimistic as coreOptimistic,
   createProjection as coreProjection,
@@ -2000,6 +2001,66 @@ export const createMemo: {
   ): SourceAccessor<T>;
 } = ((...args: any[]) => {
   return (_createMemo || coreMemo)(...args);
+}) as any;
+
+/**
+ * Creates an async memo that **may lag the global clock, but never leads it**.
+ *
+ * ```ts
+ * const value = createDeferred<T>(compute, options?: MemoOptions<T>);
+ * ```
+ *
+ * A plain async `createMemo` holds: while a refetch is in flight, its readers
+ * suspend and the write that caused the refetch is held with it until the
+ * fetch lands — one atomic commit. `createDeferred` opts one node out of that
+ * coordination. Once it has a committed value, a refetch is invisible to the
+ * graph: readers keep the previous answer, the input's write commits
+ * immediately, and the landing commits on its own schedule. The flight stays
+ * visible to `isPending`, which drives the "refreshing" indicator.
+ *
+ * - **First load is unchanged** — reads suspend to the nearest `<Loading>`
+ *   until the first answer. `loadingValue` composes: a node born committed
+ *   has no first-load window.
+ * - **It never leads** — a flight asked against a write another node is
+ *   holding reveals with that write, not ahead of it.
+ * - **Errors propagate** — a rejected refetch throws to the nearest
+ *   `<Errored>`; the stale value never masks it.
+ *
+ * Use it for independent widgets where the previous answer plus a refreshing
+ * indicator is fine (dashboards, feeds, search-as-you-type); keep `createMemo`
+ * for coherent views whose parts must agree.
+ *
+ * **Hydration:** as `createMemo` — `ssrSource`, `transparent`, and the
+ * serialized-value handoff behave identically; the server renders it as a
+ * plain memo.
+ *
+ * @example
+ * ```tsx
+ * const rows = createDeferred(() => fetchPanelRows(period()));
+ *
+ * <section class={{ stale: isPending(rows) }}>
+ *   <For each={rows()}>{row => <Row row={row} />}</For>
+ * </section>
+ * ```
+ */
+export const createDeferred: {
+  <T>(
+    compute: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationMemoOptions<T> & { loadingValue: T }
+  ): SourceAccessor<T>;
+  <T>(
+    compute: ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationMemoOptions<T>
+  ): SourceAccessor<T>;
+} = ((compute: any, options?: any) => {
+  // The server renders a deferred node as a plain memo (its clamp is a client
+  // scheduling property), so it hydrates exactly like one: the serialized
+  // value is commit #0, and the first refetch after that is already clamped.
+  // Through the adapter slot, as createOptimistic: an enableHydration()-
+  // installed impl would retain the primitive in every hydrating bundle.
+  return sharedConfig.hydrating
+    ? _hydrateSignalLike!(coreDeferred, compute, options)
+    : coreDeferred(compute, options);
 }) as any;
 
 /**

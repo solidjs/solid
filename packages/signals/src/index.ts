@@ -87,6 +87,7 @@ export {
   createSignal,
   createOptimistic,
   createMemo,
+  createDeferred,
   createEffect,
   createRenderEffect,
   createTrackedEffect,

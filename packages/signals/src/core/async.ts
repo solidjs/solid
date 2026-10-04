@@ -440,6 +440,10 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & REACTIVE_DIRTY) return;
+    // A `createDeferred` flight landed (deferred.ts): its mark drops ahead of
+    // the write, as `landStatus` clears a plain memo's pending ahead of it —
+    // the verdict readers the write re-runs read the landing as final.
+    GlobalQueue._deferredLanded?.(el);
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing

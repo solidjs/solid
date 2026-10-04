@@ -105,9 +105,26 @@ function register(node: Marked): void {
   }
   repoll(node);
 }
-function mark(node: Marked): void {
+/** One mark on the node, outside any scope list: `createDeferred`'s flight
+ * (deferred.ts) registers one at its start and `unmark`s it at its close —
+ * a mark whose window is the flight, released by the module that owns the
+ * flight (the push half is its own). */
+export function mark(node: Marked): void {
   ext(node)._marks++;
   active++;
+}
+export function unmark(node: Marked): void {
+  node._x!._marks--;
+  active--;
+}
+/** A scope sweep run at every seam, ahead of the ambient release: a module
+ * whose marks' window is neither a transaction's nor the flush's
+ * (deferred.ts: the flight's) decides there which of its marks ended. The
+ * seam hook is this module's (`_releaseAmbientMarks`); a second core hook
+ * for the same instant would cost the floor. */
+const sweeps: Array<() => void> = [];
+export function onSeam(sweep: () => void): void {
+  sweeps.push(sweep);
 }
 
 /**
@@ -179,6 +196,7 @@ GlobalQueue._marked = el => active !== 0 && marked(el, new Set());
 GlobalQueue._mark = mark;
 GlobalQueue._releaseMarks = release;
 GlobalQueue._releaseAmbientMarks = parked => {
+  for (let i = 0; i < sweeps.length; i++) sweeps[i]();
   if (ambient.length === 0) return;
   // The flush parked: the declaration's window is the frame's — the marks
   // are its transaction's ("nothing async below ⇒ no window").
