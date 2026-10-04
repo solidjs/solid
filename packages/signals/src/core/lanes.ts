@@ -668,9 +668,11 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
     // Provenance (A18, #3331; Q-D, plan §39): a write asking an OLDER
     // question than the guess's — another action's landing beneath it —
     // is not its answer: held beneath (the truth for the commit; the
-    // guess's own question judges), and nothing moves. Unstamped writes
-    // and mainline are current.
-    if (question !== 0 && question < el._x!._q) {
+    // guess's own question judges), and nothing moves. The writer's
+    // question is the one being asked (`question`: a slice's, a derive's
+    // continuation's — the flight's); unstamped writes and mainline are
+    // current.
+    if (stale(el, question)) {
       el._pendingValue = v;
       el._config |= CONFIG_HELD;
       GlobalQueue._laneRebase?.(el, v);
@@ -705,7 +707,7 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
  * A24). The guess's own question answering supersedes as usual. */
 function laneOutcome(el: Computed<any>, value: unknown, errored: boolean): boolean {
   if (errored) return true;
-  if (staleAnswer(el)) {
+  if (stale(el, answered(el))) {
     el._pendingValue = value;
     el._config |= CONFIG_HELD;
     return true;
@@ -714,17 +716,23 @@ function laneOutcome(el: Computed<any>, value: unknown, errored: boolean): boole
   return true;
 }
 
-/** The question this pass answered: the newest among the stamped sources
- * that changed this round (a flight's landing carries the question that
- * started it). Stale when older than the guess's; an unstamped source (a
- * plain write) and mainline are current. */
-function staleAnswer(el: Computed<any>): boolean {
+/** THE provenance test, for a derivation's pass and a write alike: an
+ * answer to question `q` landing on a guess is stale when `q` is older
+ * than the guess's own; unstamped (0) and mainline are current. */
+function stale(el: Signal<any> | Computed<any>, q: number): boolean {
+  return q !== 0 && q < el._x!._q;
+}
+
+/** The question a derivation's pass answered: the newest among the stamped
+ * sources that changed this round (a flight's landing carries the question
+ * that started it); 0 when none is stamped. */
+function answered(el: Computed<any>): number {
   let q = 0;
   for (let l = el._deps; l !== null; l = l._nextDep) {
     const d = l._dep as Computed<any>;
     if (d._x !== null && d._x._q > q && d._time === clock) q = d._x._q;
   }
-  return q !== 0 && q < el._x!._q;
+  return q;
 }
 
 GlobalQueue._laneRead = laneRead;

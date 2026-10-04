@@ -4940,6 +4940,36 @@ S3c/verdict class, `direct-commit-readers` ×2, `3706` enumerability,
 Residue, documented not fixed: unkeyed/index lists with positional edits
 under concurrent restructuring from another action.
 
+### 39.1 Parity check — signal twins; one `stale()` (5:20–5:50 PM)
+
+The maintainer's question: do the core rule changes make stores disagree
+with signals? Answer recorded in the thread: no new disagreement, one old
+one closed (store landings ignored provenance; signal derivations honoured
+it through `staleAnswer`). The one place to be conscious of was the rule
+living in two mechanisms — `laneOutcome` reading the question off the
+dependencies that changed this round, `laneWrite` reading the writer's
+`question`. Now **one function**: `stale(el, q)` (`q !== 0 && q < el._x._q`),
+fed by `answered(el)` for a derivation's pass and by `question` for a
+write. Behaviour unchanged (0 pins moved).
+
+**New pins — `tests/store/signal-store-twins-qd.test.ts`**, each shape run
+on `createOptimistic` nodes and on an optimistic store, asserting the same
+frames: (1) the Q-D row — two actions on one list, A edits a row's text, B
+swaps the order, A's refetch lands first: on signals the list is two
+optimistic nodes over one async upstream (the row text, the order), on the
+store one keyed array; both hold A's landing beneath B's guess (no frame),
+both confirm B silently. The signal twin's order node takes an `equals` by
+content — the store judges an arrangement by row key, so its signal twin
+gets the same knowledge; a fresh array from the server with the same order
+is the same arrangement. (2) Gabriel's kanban — plain truth and optimistic
+shadow in one action, a ghost mounted mid-move: on signals `createSignal`
+
+- `createOptimistic(() => flag())`, on the store `createStore` +
+  `createOptimisticStore(base)`; both show the guess now, `dragging` writes
+  show with it, `latest`/`isPending` agree, the landing moves nothing.
+
+Signals **4819** (+4), 0 regressions.
+
 ---
 
 ## Appendix — ledger (verbatim)
