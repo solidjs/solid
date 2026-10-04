@@ -230,6 +230,10 @@ what they need. The message lists the sources — start with those.
 
 ### GRAPH_GROWTH
 
+The initial route declaration (`initial: true`) emits a `graph` record but is
+excluded from growth comparisons because it runs before route content mounts.
+Later visits to that route count as usual.
+
 The live graph got bigger on every one of the last `data.history.length`
 visits to `data.route`, and it did not shrink on the visits in between —
 something each visit creates is never disposed. This is the leak a heap
