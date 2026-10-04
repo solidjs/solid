@@ -171,8 +171,10 @@ export interface RenderEvent {
    * `"complete"` — the render ran to its end; `"abandoned"` — the consumer
    * left mid-stream (the sink threw, the readable was cancelled — the
    * `SSR_STREAM_ABANDONED` finding is that request's account) and the
-   * render was torn down; `"error"` — the render failed: a string render
-   * threw, a stream's uncontained failure wound it down through `onError`.
+   * render was torn down, or `createSSRResponse` discarded the page for a
+   * pre-flush redirect (no finding); `"error"` — the render failed: a
+   * string render threw, a stream's uncontained failure wound it down
+   * through `onError`.
    */
   outcome: "complete" | "abandoned" | "error";
   /**
