@@ -2415,8 +2415,12 @@ export function renderToStream(code, options = {}) {
   // END of the response (serializer flush → complete); shell and fragment
   // flushing proceed normally around them.
   let holds = 0;
+  // Pending root holes gate the end too: a fragment settling while the shell
+  // is suspended empties the registry before the holes re-pull, and a flush
+  // then would drop everything they serialize and complete the render with
+  // no shell. Both consumers' flush loops call this again once they resolve.
   const flushEnd = () => {
-    if (!registry.size && !holds) {
+    if (!registry.size && !holds && !rootHoles) {
       serializeRootAssets();
       queue(() =>
         queue(() => {
