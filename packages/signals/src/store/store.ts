@@ -81,6 +81,7 @@ import {
   holdNode,
   insertSubs,
   joinFuture,
+  joinPassTx,
   passLane,
   queuePendingNode,
   schedule,
@@ -1467,7 +1468,31 @@ function readSource(
   }
   const pb = target.pb;
   if (pb === null) return target.v;
-  if (inDraft(target) || writeOverride) return pb;
+  if (inDraft(target) || writeOverride) {
+    // The derive reads its own store through its draft: a key (or the
+    // container) a transaction holds — a user's write inside an action,
+    // held with it — is the future, and the pass that reads it derives
+    // from the future (L2: a read of something already held joins it): the
+    // derive's whole result reveals with the action (core R31 / #3733:
+    // "under the transaction and revealed with it"), not key by key. A
+    // user's setter reading its draft is no pass and joins nothing here.
+    if (writeOverride && !userWrite) {
+      const leaf = key !== undefined ? target.n?.[key as any] : undefined;
+      if (leaf !== undefined) {
+        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
+          joinPassTx(txOf(leaf));
+      } else {
+        const k = target.k;
+        if (
+          k !== null &&
+          (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+          (key === undefined || heldKeyChanged(target, key))
+        )
+          joinPassTx(txOf(k));
+      }
+    }
+    return pb;
+  }
   const k = target.k;
   // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
   // it — the container's frame is not consulted (a reader is not made a
