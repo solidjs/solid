@@ -2057,7 +2057,7 @@ export function staleValues<T>(fn: () => T, set = true): T {
  * it validates the target, marks through here, then builds the quiescence
  * promise on the resolve()/until() effect machinery). Flags the node's next
  * recompute as a quiet re-ask and schedules it; no-ops for non-derived or
- * disposed targets and for same-tick manual writes.
+ * disposed targets.
  */
 export function markRefresh(node: Computed<any>): void {
   if (

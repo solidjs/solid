@@ -441,6 +441,18 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // 0 B core-retained (26,678). The slot arm rides the installed
     // `_landOnOverride` hook (no new static slot) and sheds with the engine;
     // `mapArray`'s per-pass writer pick sheds with map.
+    // A derived write's mask lasts its frame, not the hold (#3733,
+    // 2026-10-01): +44 B core-retained (26,678 -> 26,722) — `masked()` in
+    // heap.ts compares `_manualWriteTime` to `clock` beside the flag at both
+    // heap inserts, and `markRefresh`'s same-tick arm folds into it. The flag
+    // itself stays until the recompute or commit (A34's proposal mark).
+    // Size-Exception, accepted by the maintainer.
+    // Derived writes apply first, then derivations re-run (#3733 rule B,
+    // 2026-10-01): -85 B core-retained (26,722 -> 26,637) — the frame-scoped
+    // mask is removed: no heap refusal, no `_manualWriteTime` stamp, no
+    // `deleteFromHeap` or DIRTY/CHECK clear in the setter (`markManualWrite`
+    // only stages and flags), no mask arm in `markRefresh`. Reverts the #3740
+    // raise.
     expect(minifiedBytes).toBeLessThan(26_690);
   });
 
