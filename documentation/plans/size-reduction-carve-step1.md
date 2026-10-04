@@ -5098,8 +5098,22 @@ pending` through phase 2 — the store now agrees; A22-1/A22-2 in the
 Signals **4838** passed / 3 failed (rules-index) / 2 suites not importing
 (`next-smoke`, `owner-stamp` — `src/store/next/` is gone; PR-time cleanup);
 0 passed→not-passed vs `qd8`. Web 1115/1 (`call-driven-lifecycle` mid-flight
-switch — the superseded call's unanswered flight keeps the gate; pre-existing,
-frames territory). Solid 819/0.
+switch; pre-existing). Solid 819/0.
+
+**The web red, diagnosed (not fixed — frames design under L2).** Switch 1
+arms gate P1 (the gate memo pends on it; the frame T holds `count`, the
+boundary, the gate). Switch 2 mid-flight: `setCount(2)` joins T (a write to
+a held node); call 2's header lands the `dynamic` memo's binding — held in
+T, so the `createRenderEffect(binding, …)` whose EFFECT half does
+`setGatePromise(arm())` + `frame.rebind(address)` is T's work and its run
+is stashed with T. T is blocked by gate P1, which only call 1 (never
+answering here) or a rebind-to-2's apply would release — the rebind is in
+the stashed run. Deadlock: no settle fires after call 2 answers (probe:
+zero flushes). Pre-L2 the effect half ran in its computing flush. The fix
+belongs in `web/frames/src/client.ts`: the rebind (plumbing, not display)
+must not wait on the display hold — run it from the binding's compute, or
+release the superseded gate when the question changes. Left for the
+maintainer's call on which.
 
 Size (br, vs §39 `qd2`): floor **7309** (+46; min +117: the re-ask guard,
 the `propagateStatus` split, `onError?.()`), +createStore **14169** (+94:
