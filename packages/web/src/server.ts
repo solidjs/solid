@@ -1870,6 +1870,10 @@ export function renderToString(code, options = {}) {
 // is a successful empty document, so the two need separate roads; every
 // other `pipe` sink keeps the plain `end()` (failure) or silence (abort).
 const SHELL_ABANDONED = Symbol();
+// The reverse handle, set on that same sink by `pipe`: the render's
+// teardown, for the response that knows nobody will read the rest — its
+// body cancelled, or a pre-flush redirect that discards the page.
+const ABANDON_RENDER = Symbol();
 
 export function renderToStream<T>(
   fn: () => T,
@@ -2034,9 +2038,11 @@ export function renderToStream(code, options = {}) {
         }
       : complete;
   };
-  const abandon = disconnect => {
+  // `quiet` tears down as a disconnect without the finding: the response
+  // chose to discard the page (a pre-flush redirect) — nobody left.
+  const abandon = (disconnect, quiet) => {
     if (dead) return;
-    if ("_SOLID_OBSERVE_" && disconnect)
+    if ("_SOLID_OBSERVE_" && disconnect && !quiet)
       emitFinding(
         {
           code: "SSR_STREAM_ABANDONED",
@@ -3309,6 +3315,7 @@ export function renderToStream(code, options = {}) {
         } catch (_) {}
       });
       if (abandoned) {
+        w[ABANDON_RENDER] = abandon;
         if (disconnected) abandoned();
         else onDisconnectedBeforeShell = abandoned;
       }
@@ -6820,7 +6827,9 @@ export function createSSRResponse(
  *   header writes fail loudly — see `commitResponseStub`), its
  *   status/headers merged over `options.responseInit`, and a pre-flush
  *   `Location` short-circuits to a redirect with no body (the render is
- *   abandoned). A `Location` set after the flush
+ *   torn down, without an `SSR_STREAM_ABANDONED` finding — nobody left).
+ *   Cancelling the resolved body tears the render down as a disconnect
+ *   (`data.reason: "consumer"`). A `Location` set after the flush
  *   can only be honored client-side, so stream completion appends
  *   `<script>window.location=...</script>` for relative or HTTP(S) targets
  *   (carrying `options.nonce` for strict `script-src` CSPs) before closing.
@@ -6883,6 +6892,7 @@ export function createSSRResponse(result, event, options = {}) {
             resolve(
               new Response(null, { status: getExpectedRedirectStatus(stub), headers: head.headers })
             );
+            sink[ABANDON_RENDER]("redirect", true);
             return;
           }
           if (!head.headers.has("content-type")) {
@@ -6894,8 +6904,12 @@ export function createSSRResponse(result, event, options = {}) {
                 start(c) {
                   controller = c;
                 },
+                // A cancel while chunks queued after `end()` drain finds
+                // the render already over (`closed`): nothing to tear down.
                 cancel() {
+                  if (closed) return;
                   closed = true;
+                  sink[ABANDON_RENDER]("consumer");
                 }
               }),
               { status: head.status, statusText: head.statusText, headers: head.headers }
@@ -6935,7 +6949,10 @@ export function createSSRResponse(result, event, options = {}) {
         // otherwise a status set before the failure does not describe it.
         const status = stub && stub.headers.get("Location") ? getExpectedRedirectStatus(stub) : 500;
         resolve(new Response(null, { status, headers: head.headers }));
-      }
+      },
+      // Replaced by `renderToStream`'s `pipe`; any other `pipe` result has
+      // no render to tear down.
+      [ABANDON_RENDER]() {}
     };
     result.pipe(sink);
   });
