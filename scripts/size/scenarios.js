@@ -1266,6 +1266,19 @@ module.exports = [
     // -3 B minified). The same parking-gate change as the `+ isPending/latest`
     // note; brotli layout turns the -3 B minified into a saving here. Not
     // lowered (frozen caps only fall on a deliberate ratchet).
+    // Size-Exception (settle fast path, 2026-10-04): 9.81 -> 9.83 KB, measured
+    // at 9,812 B against `next` @ 924d909d9's 9,801 (+11 B; 2 B over the cap;
+    // +5 B minified). The seam's effect-queue merge is skipped on the plain
+    // flush — nothing parked, no lane reveal, no landing — and the per-flush
+    // list resets run only on a non-empty list: ~100 ns less fixed cost per
+    // flush (one signal + one render effect + flush: 240 -> 133 ns; a 20k-key
+    // store commit: 844 -> 748 ns). Brotli layout: the same +5 B minified
+    // measures -16 B on `+ createStore`, 0 B on the CSR app, +28 B on
+    // `+ every store primitive family` and +17/+21 B on the two pages (both
+    // within their caps); 44 equivalent encodings measured, none under every
+    // cap at once, this one the smallest minified. Accepted by the
+    // maintainer (2026-10-04). The cap is frozen again at 9.83 KB
+    // (measured + 10 B).
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     alias
   },
@@ -1573,6 +1586,12 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 19.69 KB.
+    // Size-Exception (settle fast path, 2026-10-04): 17.64 -> 17.66 KB,
+    // measured at 17,650 B against `next` @ 924d909d9's 17,632 (+18 B; 10 B
+    // over the cap; +4 B minified). The same seam change as the simple-app
+    // floor note; brotli layout over the larger bundle. Accepted by the
+    // maintainer (2026-10-04). The cap is frozen again at 17.66 KB
+    // (measured + 10 B).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1975,7 +1994,14 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 30.82 -> 28.78 KB, measured at 28.77 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "28.78 KB",
+    // Size-Exception (settle fast path, 2026-10-04): 28.78 -> 28.80 KB,
+    // measured at 28,785 B against `next` @ 924d909d9's 28,757 (+28 B; 5 B
+    // over the cap; +5 B minified, all of it the signals core). The same
+    // seam change as the simple-app floor note; brotli layout over this
+    // bundle (before #3791 the same +5 B measured +2 B here). Accepted by
+    // the maintainer (2026-10-04). The cap is frozen again at 28.80 KB
+    // (measured + 10 B).
+    limit: "28.80 KB",
     alias
   },
   {
