@@ -5,7 +5,7 @@
 // and every node on the original target (the observer's subscription among
 // them) was orphaned: later writes to the ancestor notified nobody. The clone
 // now registers in the target's own map; identity and subscriptions survive.
-import { createRenderEffect, createRoot, createStore, flush, untrack } from "../../src/index.ts";
+import { createRenderEffect, createRoot, createStore, flush, untrack } from "../../src/index.js";
 
 describe("subscriptions after descendant writes", () => {
   for (const derived of [false, true]) {

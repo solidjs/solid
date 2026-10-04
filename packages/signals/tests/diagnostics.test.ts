@@ -192,7 +192,8 @@ describe("diagnostics", () => {
     const capture = OBSERVE!.diagnostics.capture();
 
     createRoot(() => {
-      expect(() => createEffect(() => 1)).toThrow(
+      // Deliberately omit the required effect callback to exercise the runtime guard.
+      expect(() => (createEffect as unknown as (compute: () => number) => void)(() => 1)).toThrow(
         /createEffect requires both a compute function and an effect function/
       );
     });
@@ -279,7 +280,7 @@ describe("diagnostics console footer", () => {
     expect(url).toMatch(
       /^https:\/\/github\.com\/solidjs\/solid\/blob\/main\/.*SKILL\.md#strict_read_untracked$/
     );
-    expect(DEV!.guideUrl("WIDE_WRITE")).toBe(url.replace(/#.*$/, "#wide_write"));
+    expect(DEV!.guideUrl("SILENT_HOLD")).toBe(url.replace(/#.*$/, "#silent_hold"));
   });
 
   afterEach(() => {

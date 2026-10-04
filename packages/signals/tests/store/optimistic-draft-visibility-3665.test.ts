@@ -7,7 +7,8 @@ import {
   createRoot,
   createStore,
   deep,
-  flush
+  flush,
+  type NoFn
 } from "../../src/index.js";
 
 /**
@@ -39,7 +40,7 @@ type Row = { id: string; qty?: number };
  * draft. The action's only yield resolves at once; the caller flushes. */
 function twoSetters<T extends object>(
   kind: "plain" | "optimistic",
-  init: T,
+  init: NoFn<T>,
   write: (d: T) => void,
   read: (d: T) => void,
   yieldBetween = false
