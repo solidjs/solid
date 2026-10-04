@@ -95,13 +95,30 @@ pub(crate) struct InsertMarker<'a> {
     pub(crate) initial: Option<Expression<'a>>,
 }
 
-/// 1-based line and column for a byte offset, for diagnostics.
+/// 1-based line and UTF-16 column for a byte offset, for diagnostics.
 fn line_and_column(source: &str, offset: u32) -> (usize, usize) {
     let offset = (offset as usize).min(source.len());
-    let prefix = &source[..offset];
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = prefix.rfind('\n').map_or(offset, |at| offset - at - 1) + 1;
-    (line, column)
+    let mut line = 1;
+    let mut line_start = 0;
+    let mut chars = source[..offset].char_indices().peekable();
+    while let Some((position, ch)) = chars.next() {
+        let next = match ch {
+            '\r' => {
+                if chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                    let (next_position, next) = chars.next().expect("peeked line feed");
+                    next_position + next.len_utf8()
+                } else {
+                    position + ch.len_utf8()
+                }
+            }
+            '\n' | '\u{2028}' | '\u{2029}' => position + ch.len_utf8(),
+            _ => continue,
+        };
+        line += 1;
+        line_start = next;
+    }
+    let column = source[line_start..offset].encode_utf16().count();
+    (line, column + 1)
 }
 
 impl DomTemplateState {
@@ -629,5 +646,35 @@ impl<'a> AstDomTransform<'a, '_> {
             span,
             self.call_identifier(span, "_$delegateEvents", vec![events]),
         )
+    }
+}
+
+#[cfg(test)]
+mod source_location_tests {
+    use super::line_and_column;
+
+    #[test]
+    fn source_locations_count_javascript_line_terminators_and_utf16_columns() {
+        for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+            let source = format!("é🚀{terminator}a🚀z");
+            let next_line = "é🚀".len() + terminator.len();
+            for (offset, line, column) in [
+                (0, 1, 0),
+                (2, 1, 1),
+                (6, 1, 3),
+                (next_line, 2, 0),
+                (next_line + 1, 2, 1),
+                (next_line + 5, 2, 3),
+                (source.len(), 2, 4),
+            ] {
+                assert_eq!(
+                    line_and_column(&source, offset as u32),
+                    (line, column + 1),
+                    "offset {offset}, terminator {terminator:?}"
+                );
+            }
+        }
+        assert_eq!(line_and_column("a\r\nb", 2), (2, 1));
+        assert_eq!(line_and_column("", 0), (1, 1));
     }
 }

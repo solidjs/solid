@@ -354,16 +354,27 @@ fn span_of(node: Node<'_>) -> Result<(u32, u32), ProjectError> {
 
 fn source_line_column(source: &str, offset: u32) -> (u32, u32) {
     let offset = (offset as usize).min(source.len());
-    let before = &source.as_bytes()[..offset];
-    let line = 1 + before.iter().filter(|byte| **byte == b'\n').count() as u32;
-    let line_start = before
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(0, |position| position + 1);
-    (
-        line,
-        source[line_start..offset].encode_utf16().count() as u32,
-    )
+    let mut line = 1;
+    let mut line_start = 0;
+    let mut chars = source[..offset].char_indices().peekable();
+    while let Some((position, ch)) = chars.next() {
+        let next = match ch {
+            '\r' => {
+                if chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                    let (next_position, next) = chars.next().expect("peeked line feed");
+                    next_position + next.len_utf8()
+                } else {
+                    position + ch.len_utf8()
+                }
+            }
+            '\n' | '\u{2028}' | '\u{2029}' => position + ch.len_utf8(),
+            _ => continue,
+        };
+        line += 1;
+        line_start = next;
+    }
+    let column = source[line_start..offset].encode_utf16().count() as u32;
+    (line, column)
 }
 
 fn is_native_render_root(node: Node<'_>) -> bool {
@@ -742,4 +753,34 @@ pub(super) fn decode_json_string(value: &str) -> Option<String> {
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod source_location_tests {
+    use super::source_line_column;
+
+    #[test]
+    fn source_locations_count_javascript_line_terminators_and_utf16_columns() {
+        for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+            let source = format!("é🚀{terminator}a🚀z");
+            let next_line = "é🚀".len() + terminator.len();
+            for (offset, line, column) in [
+                (0, 1, 0),
+                (2, 1, 1),
+                (6, 1, 3),
+                (next_line, 2, 0),
+                (next_line + 1, 2, 1),
+                (next_line + 5, 2, 3),
+                (source.len(), 2, 4),
+            ] {
+                assert_eq!(
+                    source_line_column(&source, offset as u32),
+                    (line, column),
+                    "offset {offset}, terminator {terminator:?}"
+                );
+            }
+        }
+        assert_eq!(source_line_column("a\r\nb", 2), (2, 0));
+        assert_eq!(source_line_column("", 0), (1, 0));
+    }
 }
