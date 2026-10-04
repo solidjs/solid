@@ -255,25 +255,30 @@ describe("promise-of-AsyncIterable flattening (deferred posture)", () => {
   });
 
   it("surfaces a stream error through the memo", async () => {
+    const errors: unknown[] = [];
+    const failure = new Error("stream boom");
     const gate = deferred();
     let memo!: () => number;
     const failing: AsyncIterable<number> = {
       [Symbol.asyncIterator]: () => ({
-        next: () => Promise.reject(new Error("stream boom"))
+        next: () => Promise.reject(failure)
       })
     };
     createRoot(() => {
       memo = createMemo(() => gate.promise.then(() => failing) as unknown as number);
-      createEffect(
-        () => memo(),
-        () => {},
-        { error: () => {} }
-      );
+      createEffect(() => memo(), {
+        effect: () => {},
+        error: error => {
+          errors.push(error);
+        }
+      });
     });
     flush();
     gate.resolve();
     await tick();
     flush();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBe(failure);
     expect(() => memo()).toThrow("stream boom");
   });
 

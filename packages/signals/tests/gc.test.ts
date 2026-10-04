@@ -80,9 +80,13 @@ if (global.gc) {
       ref!: WeakRef<any>;
 
     const dispose = createRoot(dispose => {
-      createEffect($x, () => {
-        ref = new WeakRef(getOwner()!);
-      });
+      createEffect(
+        () => {
+          ref = new WeakRef(getOwner()!);
+          return $x();
+        },
+        () => {}
+      );
 
       return dispose;
     });
@@ -159,9 +163,13 @@ if (global.gc) {
   for (const mode of ["latest", "isPending"] as const) {
     it(`releases an obsolete leaf value after a ${mode}() reader is disposed (#3503)`, async () => {
       const fixture = createRoot(dispose => {
-        const [state, setState] = createStore(() => {}, {} as { value?: object }, {
-          shallow: true
-        });
+        const [state, setState] = createStore<{ value?: object }>(
+          () => {},
+          {},
+          {
+            shallow: true
+          }
+        );
         return { state, setState, dispose };
       });
       const ref = (() => {
