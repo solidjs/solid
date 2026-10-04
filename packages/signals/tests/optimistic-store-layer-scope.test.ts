@@ -225,14 +225,16 @@ it("#2899: ambient write reverts at flush end without touching an in-flight acti
   expect(s.a).toBe(10);
   expect(sums).toEqual([4, 13]);
 
-  // Ambient optimistic write (no action): unflushed until its flush (A28),
-  // shown by that flush, then reverted at its end.
+  // Ambient optimistic write (no action): lane contract 2 (maintainer,
+  // 2026-10-01) — a write in a frame that does not park is as if it never
+  // happened; action A's override is untouched. (Was: shown by its flush
+  // for one frame, then reverted.)
   setS(d => {
     d.c = 30;
   });
   expect(s.c).toBe(3);
   flush();
-  expect(sums).toEqual([4, 13, 40, 13]);
+  expect(sums).toEqual([4, 13]);
   expect(s.c).toBe(3);
   expect(s.a).toBe(10); // action A's override untouched
 

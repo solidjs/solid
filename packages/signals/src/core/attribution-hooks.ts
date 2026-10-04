@@ -1,6 +1,11 @@
 import type { ChangeOrigin } from "./attribution.js";
-import type { Transition } from "./scheduler.js";
+import type { Transaction } from "./scheduler.js";
 import type { Computed, Owner, Signal } from "./types.js";
+
+/** The hold the engine records against (L2: scheduler.ts `Transaction`).
+ * Outward-facing language says *holds*; the engine's hook names keep their
+ * historical `transition` wording. */
+export type Transition = Transaction;
 
 /**
  * Observe-tier hook points for the reactive core.

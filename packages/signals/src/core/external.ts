@@ -72,11 +72,11 @@ function externalUntrack<T>(fn: () => T): T {
 }
 
 // The hooks mirror the config's liveness exactly (installed on enable,
-// removed on reset) so core's null checks stay equivalent to the old
+// removed on reset) so core's presence checks stay equivalent to the old
 // `externalSourceConfig` truthiness checks.
 function syncExternalHooks(): void {
-  GlobalQueue._wireExternalSource = externalSourceConfig ? wireExternalSource : null;
-  GlobalQueue._externalUntrack = externalSourceConfig ? externalUntrack : null;
+  GlobalQueue._wireExternalSource = externalSourceConfig ? wireExternalSource : undefined;
+  GlobalQueue._externalUntrack = externalSourceConfig ? externalUntrack : undefined;
 }
 
 export function enableExternalSource(config: ExternalSourceConfig): void {

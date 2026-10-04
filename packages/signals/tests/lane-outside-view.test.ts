@@ -330,12 +330,18 @@ describe("a held lane from the outside", () => {
     await settle();
     await advanceTo(9000);
     // `Late` never publishes `undefined`; it reveals the whole tuple with the
-    // lane. `Node` is the lane's own reader and shows each landing.
+    // lane. `Node` is the lane's own reader and shows each landing — and so
+    // is `Late` (§28): its content reads the proposal (`latest(source)`,
+    // the explicit display-ahead read) and the lane's `node`, so it is the
+    // verdict lane's work like `Node` and reveals with each landing, `0 0`
+    // at 3500 and `1 1` at 5000. (Was pinned to `next`, where the boundary
+    // mounted mid-hold waited for the action while the pre-existing reader
+    // of the same node showed ahead — one landing, two reveal times.)
     expect(frames(log, when)).toEqual([
       "1000: Node: 0",
       "2000: Node: 1",
       "3000: Late: loading",
-      "3500: Node: 0",
+      "3500: Late: 0 0 | Node: 0",
       "5000: Late: 1 1 | Node: 1"
     ]);
   });

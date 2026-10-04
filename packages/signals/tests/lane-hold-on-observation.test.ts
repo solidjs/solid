@@ -145,7 +145,12 @@ describe("lane async holds on observation, like a transaction (#3289)", () => {
   it("an async memo CREATED under the lane and observed holds it (stamp at recompute)", async () => {
     // Nothing propagated a lane onto a node that did not exist when the
     // optimistic write fanned out; its own first compute under the lane must
-    // tag it, or the queue cannot tell whose async it is.
+    // tag it, or the queue cannot tell whose async it is. The child is built
+    // by a memo that reads the guess — a flow component's shape, the mount
+    // owned by the pass that made it (a root created in an effect callback
+    // is PRIMITIVE_IN_EFFECT_CALLBACK). Created by the lane's pass, the
+    // child is the lane's frame (ruling A): its observed async holds the
+    // lane from the first guess, and a SECOND lane write waits for it too.
     const [opt, setOpt] = createOptimistic(0);
     const gate = deferred();
     const shown: number[] = [];
@@ -154,18 +159,15 @@ describe("lane async holds on observation, like a transaction (#3289)", () => {
     createRoot(d => {
       dispose = d;
       createRenderEffect(opt, v => void shown.push(v));
-      const mounted = createMemo(() => opt() > 0);
-      createRenderEffect(mounted, on => {
-        if (!on) return;
-        // Mounted by the lane's reveal: created, computed and observed under it.
-        createRoot(() => {
-          const derived = createMemo(async () => {
-            const v = opt();
-            await gate.promise;
-            return v * 10;
-          });
-          createRenderEffect(derived, v => void inner.push(v));
+      createMemo(() => {
+        if (!(opt() > 0)) return false;
+        const derived = createMemo(async () => {
+          const v = opt();
+          await gate.promise;
+          return v * 10;
         });
+        createRenderEffect(derived, v => void inner.push(v));
+        return true;
       });
     });
     flush();
@@ -178,17 +180,19 @@ describe("lane async holds on observation, like a transaction (#3289)", () => {
     });
     const done = act();
     await tick();
-    // The direct display revealed 1 (that reveal is what mounted the child);
-    // the child's observed async is the lane's now, so a SECOND lane write
-    // waits for it.
-    expect(shown).toEqual([0, 1]);
+    // The child's observed async is the lane's: the guess waits for it.
+    expect(shown).toEqual([0]);
     expect(inner).toEqual([]);
     setOpt(2);
     await tick();
-    expect(shown).toEqual([0, 1]);
+    // The second guess replaces the first in the lane's staging; the lane's
+    // own render effect is not re-run for it (it re-derives at the reveal).
+    expect(shown).toEqual([0]);
     gate.resolve();
     await tick();
-    expect(shown).toEqual([0, 1, 2]);
+    // One reveal: the latest guess and its derivation.
+    expect(shown).toEqual([0, 2]);
+    expect(inner).toEqual([20]);
     hold.resolve();
     await done;
     await tick();

@@ -1,42 +1,48 @@
-import {
-  actionStepDepth,
-  activeTransition,
-  currentTransition,
-  enterActionStep,
-  exitActionStep,
-  flush,
-  globalQueue,
-  schedule,
-  setOrigin,
-  type Transition
-} from "./scheduler.js";
+import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { isThenable } from "./async.js";
 import { enterCallback, exitCallback } from "./core.js";
 import { getOwner } from "./owner.js";
-import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
 import { emitDiagnostic } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
+import {
+  actionDepth,
+  enterAction,
+  exitAction,
+  flush,
+  inEffectCallback,
+  joinFuture,
+  newTransaction,
+  nextQuestion,
+  question,
+  resolveTx,
+  schedule,
+  setEffectCallback,
+  setQuestion,
+  type Transaction
+} from "./scheduler.js";
 
 const ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE =
   "[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed. " +
   "Call it from an event handler or another imperative scope.";
 
-/** Invocation order across all actions — the provenance every slice of an
- * action runs under (scheduler `origin`): the flights and overrides its
- * ambient windows issue are stamped with it, so a later action's override
- * can tell this action's late answer from its own (#3331). */
-let actionSeq = 0;
-
-function restoreTransition<T>(seq: number, transition: Transition, fn: () => T): T {
-  const prevOrigin = setOrigin(seq);
-  globalQueue.initTransition(transition);
+/** A slice of the body runs in the action's transaction: the flush that
+ * carries its writes parks into it (`joinFuture` — merging whatever the tick
+ * already joined: O1, an action that opens in a tick owns it; a second
+ * action in the tick, or one called from the body, merges into the first).
+ * A resumed slice drains at once: the seam parks what it wrote (the action
+ * holds the transaction open) or, the body having returned, lands it. A
+ * nested action resuming synchronously inside the outer body does not drain
+ * — that would park the outer's remaining writes' frame mid-slice; the outer
+ * step's own return does. */
+function inTransaction<T>(t: Transaction, q: number, fn: () => T): T {
+  // The slice and its flush ask this action's question (A18 provenance):
+  // the guesses it writes and the flights it starts are stamped with it.
+  const prevQ = question;
+  setQuestion(q);
+  joinFuture(t);
   const result = fn();
-  // A nested action resuming synchronously (its body yielded a non-thenable)
-  // runs this inside the OUTER action's slice: draining here would park the
-  // shared transaction and detach the outer body's remaining writes (the
-  // flush() rule, scheduler.ts). The outer step's own return drains.
-  if (actionStepDepth === 0) flush();
-  setOrigin(prevOrigin);
+  if (actionDepth === 0) flush();
+  setQuestion(prevQ);
   return result;
 }
 
@@ -58,9 +64,9 @@ function restoreTransition<T>(seq: number, transition: Transition, fn: () => T):
  * submission tracking layered on top. The shared name is deliberate.
  *
  * Wraps a generator function so each invocation runs as a single transaction
- * (a "transition") that batches every signal/store write between yields. The
- * surrounding UI sees one atomic update per yielded step; nothing is committed
- * until the action either completes or the next `yield` resolves.
+ * that holds every signal/store write between yields. The surrounding UI sees
+ * one atomic update when the action completes; nothing is committed until
+ * every action in the transaction has returned.
  *
  * `yield` is the transaction-safe suspension point: the action waits for a
  * yielded promise and re-enters the transaction before running the code after
@@ -70,8 +76,7 @@ function restoreTransition<T>(seq: number, transition: Transition, fn: () => T):
  * commit immediately, and anything that creates a reader there — `until()`,
  * `latest()`, a memo or effect, a mount — is created mainline, where a read of
  * this action's held state makes it born held (A29): staged with the
- * transaction and replayed at its commit. For `until()` that commit is the
- * settle its own promise holds open (#3482). `await` is still the ergonomic
+ * transaction and replayed at its commit. `await` is still the ergonomic
  * choice for typed results; just put a bare `yield` before any write or
  * reader creation that follows it — including the expression of the next
  * `yield`, which is evaluated before the step re-enters:
@@ -84,7 +89,7 @@ function restoreTransition<T>(seq: number, transition: Transition, fn: () => T):
  * ```
  *
  * (For the same reason, don't call `flush()` inside an action body — it
- * drains the transaction mid-step.)
+ * cannot reveal the held writes and is refused.)
  *
  * Each call returns a `Promise` that resolves with the generator's return
  * value, or rejects if it throws. Pair with `createOptimistic` /
@@ -114,14 +119,13 @@ export function action<Args extends any[], Y, R>(
   genFn: (...args: Args) => Generator<Y, R, any> | AsyncGenerator<Y, R, any>
 ) {
   return (...args: Args): Promise<R> => {
-    // Invoking an action starts a transaction — like a write, it is invalid
+    // Invoking an action opens a transaction — like a write, it is invalid
     // synchronously inside an owned scope. The write guard can't catch this
     // at the real hazard point: post-await writes run with no ambient owner,
     // and a computation tracking what its action writes livelocks (every
-    // write retriggers the compute, which fires a fresh invocation whose
-    // transition supersedes the last — the value never commits). Same scope
-    // test as setSignal: leaf imperative scopes (tracked effects, onSettled)
-    // stay legal.
+    // write retriggers the compute, which fires a fresh invocation). Same
+    // scope test as setSignal: leaf imperative scopes (tracked effects,
+    // onSettled) stay legal.
     if (__DEV__) {
       const owner = getOwner();
       if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
@@ -138,29 +142,17 @@ export function action<Args extends any[], Y, R>(
     }
     return new Promise((resolve, reject) => {
       const it = genFn(...args);
-      const seq = ++actionSeq;
-      // The first slice's window runs to the scheduled flush, which clears
-      // the provenance with the window — no restore here.
-      setOrigin(seq);
-      globalQueue.initTransition();
-      let ctx = activeTransition!;
-      ctx._actions.push(it);
-      ctx._acted = true;
-
+      // The action's transaction, held open until the body returns. The
+      // first slice's writes are carried by the tick's scheduled flush.
+      const t = newTransaction(false);
+      t._open = 1;
+      t._acted = true;
+      const q = nextQuestion();
       const done = (v?: R, e?: any, failed = false) => {
-        ctx = currentTransition(ctx);
-        const i = ctx._actions.indexOf(it);
-        if (i >= 0) ctx._actions.splice(i, 1);
-        // Re-adopt through initTransition like every other resumption site:
-        // a bare setActiveTransition leaves globalQueue._batch as a detached
-        // ambient batch, and anything registered before the scheduled flush
-        // (held writes on a merging transition, optimistic overrides,
-        // affects() marks) lands there with nothing to ever finalize it.
-        globalQueue.initTransition(ctx);
+        resolveTx(t)._open--;
         schedule();
         failed ? reject(e) : resolve(v!);
       };
-
       const step = (v?: any, err?: boolean): void => {
         let r: IteratorResult<Y, R> | Promise<IteratorResult<Y, R>>;
         // Attribution hooks bracket the synchronous slice of generator body
@@ -170,20 +162,28 @@ export function action<Args extends any[], Y, R>(
           attrHooks.actionStepStart(it, genFn.name || undefined);
         // The body is on the stack between these brackets: flush() is
         // refused inside (FLUSH_IN_ACTION, scheduler.ts).
-        enterActionStep();
+        enterAction();
         // Dev: the body's reads are imperative, not post-await reads of the
-        // continuation that invoked the action (UNTRACKED_READ_AFTER_AWAIT).
-        if (__DEV__) enterCallback();
+        // continuation that invoked the action (UNTRACKED_READ_AFTER_AWAIT);
+        // and it is an imperative scope of its own, not the effect callback
+        // it may have been called from — a root created in it (`until`,
+        // `resolve`) is deliberate (PRIMITIVE_IN_EFFECT_CALLBACK is off).
+        let effectCallback = false;
+        if (__DEV__) {
+          enterCallback();
+          effectCallback = inEffectCallback;
+          setEffectCallback(false);
+        }
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
-          exitActionStep();
-          if (__DEV__) exitCallback();
+          exitAction();
+          if (__DEV__) (exitCallback(), setEffectCallback(effectCallback));
           if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
           return done(undefined, e, true);
         }
-        exitActionStep();
-        if (__DEV__) exitCallback();
+        exitAction();
+        if (__DEV__) (exitCallback(), setEffectCallback(effectCallback));
         if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in
@@ -191,16 +191,14 @@ export function action<Args extends any[], Y, R>(
         if (isThenable(r)) return void r.then(run, e => done(undefined, e, true));
         run(r);
       };
-
       const run = (r: IteratorResult<Y, R>) => {
         if (r.done) return done(r.value);
         // Thenable assimilation can itself throw synchronously (a `then`
         // getter, or a `then()` method that throws — #2918). Match `await`
         // semantics: the failure is thrown back into the generator at the
         // yield point (catchable there); if uncaught, step()'s guard settles
-        // the action so its iterator never leaks in the transition. The
-        // settled flag implements A+ 2.3.3.3.4.1: a throw after the thenable
-        // already called a callback is ignored.
+        // the action. The settled flag implements A+ 2.3.3.3.4.1: a throw
+        // after the thenable already called a callback is ignored.
         let settled = false;
         try {
           if (isThenable(r.value))
@@ -208,23 +206,29 @@ export function action<Args extends any[], Y, R>(
               v => {
                 if (settled) return;
                 settled = true;
-                restoreTransition(seq, ctx, () => step(v));
+                inTransaction(t, q, () => step(v));
               },
               e => {
                 if (settled) return;
                 settled = true;
-                restoreTransition(seq, ctx, () => step(e, true));
+                inTransaction(t, q, () => step(e, true));
               }
             );
         } catch (e) {
           if (settled) return;
           settled = true;
-          return void restoreTransition(seq, ctx, () => step(e, true));
+          return void inTransaction(t, q, () => step(e, true));
         }
-        restoreTransition(seq, ctx, () => step(r.value));
+        inTransaction(t, q, () => step(r.value));
       };
-
+      // The first slice's writes are carried by the tick's scheduled flush;
+      // the slice itself asks the action's question (its guesses are stamped
+      // at the write).
+      joinFuture(t);
+      const prevQ = question;
+      setQuestion(q);
       step();
+      setQuestion(prevQ);
     });
   };
 }

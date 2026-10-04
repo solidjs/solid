@@ -92,8 +92,8 @@ describe("C — latest() entangles: lanes are transition-bound (A15, ruled 2026-
   });
 });
 
-describe("B — creation under a transaction escapes the hold (OBSERVED, spec O2; not a ruling)", () => {
-  it("a memo + render effect created inside another live action over a held value publishes the held value; the frame keeps the committed one until both actions settle", async () => {
+describe("B — creation under a transaction is born held with it (spec O2: recorded, 'fine either way as long as consistent'; re-pinned 2026-10-02)", () => {
+  it("a memo + render effect created inside another live action over a held value is born held into the merged transaction; everything reveals when both actions settle", async () => {
     const { x, release } = heldByAction();
     const [y, setY] = createSignal(0);
     const published: number[] = [];
@@ -110,11 +110,17 @@ describe("B — creation under a transaction escapes the hold (OBSERVED, spec O2
     });
     runU();
     flush();
-    expect(published).toEqual([1]); // observed: the creation direct-committed the held value
-    expect(x()).toBe(0); // while the frame reads committed
+    // The creation derived from T's world: born held (A29) — nothing of it
+    // shows beside a frame that still says 0. (Before 2026-10-02 the
+    // creation pass direct-committed `1` into the mainline frame, the
+    // escape O2 recorded; the carve's L2 model has one rule for creation
+    // during a hold, mainline or in a body.)
+    expect(published).toEqual([]);
+    expect(x()).toBe(0); // the frame reads committed
     release(); // the creation derived from T's world, so U merged into T (A15): T alone does not reveal
     await tick();
     expect(x()).toBe(0);
+    expect(published).toEqual([]);
     releaseU();
     await tick();
     expect(x()).toBe(1);

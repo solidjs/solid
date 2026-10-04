@@ -60,5 +60,8 @@ it("gated render effect is not one value behind after landing", async () => {
   flush();
   await tick();
   flush();
-  expect(seen).toEqual(["idle:v0", "pending", "idle:v0", "idle:v1"]);
+  // The landing shows `idle:v1` directly: the verdict flips and the value
+  // commits in one frame. (`next` showed a one-frame `idle:v0` in between —
+  // the verdict flipping before the landed value committed.)
+  expect(seen).toEqual(["idle:v0", "pending", "idle:v1"]);
 });

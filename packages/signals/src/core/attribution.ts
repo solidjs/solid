@@ -2,9 +2,16 @@ import {
   setAttributionHooks,
   type AttributionHooks,
   type InteractionRef,
-  type NavigationRef
+  type NavigationRef,
+  type Transition
 } from "./attribution-hooks.js";
-import { CONFIG_DERIVED_OVERRIDE, CONFIG_PLUMBING, NOT_PENDING } from "./constants.js";
+import {
+  CONFIG_GUESS,
+  CONFIG_OVERRIDE,
+  CONFIG_PLUMBING,
+  CONFIG_VERDICT,
+  NOT_PENDING
+} from "./constants.js";
 import {
   anyExcluded,
   emitDiagnostic,
@@ -17,7 +24,7 @@ import {
   ownerPath,
   reportDiagnostic
 } from "./dev.js";
-import type { Transition } from "./scheduler.js";
+import { blockersOf, GlobalQueue } from "./scheduler.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 /**
@@ -2643,14 +2650,11 @@ const holdStates = new WeakMap<Transition, HoldState>();
 let activeHold: HoldState | null = null;
 let holdLog: HoldEvent[] = [];
 
-/** Companions are optimistic nodes too; `_parentSource` marks them. So is a
- * memo carrying a DERIVED override (lanes stage, #3479) — a lane pass's
- * result, not a write anyone made: neither is an acknowledgement. */
+/** A lane's derivation (L2: a node carrying the lane's value that is not a
+ * written guess — lanes.ts) is a lane pass's result, not a write anyone
+ * made: not an acknowledgement. */
 function isCompanion(node: Signal<any> | Computed<any>): boolean {
-  return (
-    (!!node._x && node._x._parentSource !== undefined) ||
-    (node._config & CONFIG_DERIVED_OVERRIDE) !== 0
-  );
+  return (node._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE;
 }
 
 const HOLD_CENSUS_CAP = 10_000;
@@ -2674,15 +2678,17 @@ function acknowledge(
   else if (path !== undefined) existing.reader ??= path;
 }
 
+/** The declarations made against the hold: the guesses of its lanes
+ * (lanes.ts `_laneGuesses`) and its `affects()` marks (`_marks`). */
 function censusRegistrations(t: Transition, state: HoldState): void {
   const budget = { left: HOLD_CENSUS_CAP };
-  for (const node of t._optimisticNodes)
-    if (!isCompanion(node))
+  const guesses = GlobalQueue._laneGuesses?.(t);
+  if (guesses !== undefined)
+    for (const node of guesses)
       acknowledge(state, "optimistic", nodeName(node), reachesEffect(node, budget));
-  for (const store of t._optimisticStores)
-    acknowledge(state, "optimistic", (store as { _name?: string })?._name ?? "store", null);
-  for (const node of t._affectsNodes)
-    acknowledge(state, "affects", nodeName(node), reachesEffect(node, budget));
+  if (t._marks !== null)
+    for (const node of t._marks)
+      acknowledge(state, "affects", nodeName(node), reachesEffect(node, budget));
 }
 
 /**
@@ -2712,7 +2718,10 @@ function reachesEffect(
   return null;
 }
 
-/** Companions an effect reads, anywhere downstream of the hold's nodes. */
+/** Verdict readers an effect reads, anywhere downstream of the hold's nodes
+ * (L2: a pass that entered an `isPending`/`latest` window is marked
+ * CONFIG_VERDICT; the observe tier notes which windows — verdict.ts
+ * `_devWindows`). The reader acknowledges the node it derives from. */
 function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, state: HoldState): void {
   const visited = new Set<Signal<any> | Computed<any>>();
   const stack: (Signal<any> | Computed<any>)[] = [...roots];
@@ -2721,24 +2730,16 @@ function censusCompanions(roots: Iterable<Signal<any> | Computed<any>>, state: H
     const node = stack.pop()!;
     if (visited.has(node)) continue;
     visited.add(node);
-    const x = node._x;
-    if (x) {
-      let reader: Computed<any> | null;
-      if (x._pendingSignal !== undefined && (reader = reachesEffect(x._pendingSignal, budget)))
-        acknowledge(state, "isPending", nodeName(node), reader);
-      if (
-        x._latestValueComputed !== undefined &&
-        (reader = reachesEffect(x._latestValueComputed, budget))
-      )
-        acknowledge(state, "latest", nodeName(node), reader);
-      for (
-        let child: Signal<any> | null = (x as { _child?: Signal<any> | null })._child ?? null;
-        child !== null;
-        child = (child as { _nextChild?: Signal<any> | null })._nextChild ?? null
-      )
-        stack.push(child);
+    for (let s = node._subs; s !== null; s = s._nextSub) {
+      const sub = s._sub;
+      if (sub._config & CONFIG_VERDICT) {
+        const windows = (sub as { _devWindows?: number })._devWindows ?? 0;
+        const reader = (sub as { _type?: number })._type ? sub : reachesEffect(sub, budget);
+        if (windows & 1 && reader !== null) acknowledge(state, "isPending", nodeName(node), reader);
+        if (windows & 2 && reader !== null) acknowledge(state, "latest", nodeName(node), reader);
+      }
+      stack.push(sub);
     }
-    for (let s = node._subs; s !== null; s = s._nextSub) stack.push(s._sub);
   }
 }
 
@@ -2766,9 +2767,8 @@ function trackHoldStart(t: Transition): void {
   if (options.holds === false) return;
   const state = holdState(t);
   state.flushes++;
-  if (t._actions.length > 0) state.action = true;
-  for (const [source, reporters] of t._asyncReporters)
-    if (reporters.size > 0) state.blockers.add(source);
+  if (t._open > 0) state.action = true;
+  for (const source of blockersOf(t)) state.blockers.add(source);
   censusRegistrations(t, state);
   activeHold = state;
 }
@@ -2806,7 +2806,7 @@ function trackHoldSettled(t: Transition): void {
   let interaction: ChangeOrigin | undefined;
   let origin: ChangeOrigin | undefined;
   let lastJoinAt = -Infinity;
-  for (const node of t._pendingNodes) {
+  for (const node of t._nodes) {
     if (typeof (node as Computed<any>)._fn === "function" || isCompanion(node)) continue;
     const change = (node as AttributedNode)._devChange;
     if (change === undefined || change.kind !== "write") continue;
@@ -2836,7 +2836,7 @@ function trackHoldSettled(t: Transition): void {
     return;
   }
   censusRegistrations(t, state);
-  censusCompanions([...t._pendingNodes, ...state.blockers], state);
+  censusCompanions([...t._nodes, ...state.blockers], state);
   const end = now();
   // The hold began no later than its first parked flush; an interaction stamp
   // reaches further back (dispatch). A node rewritten mid-hold keeps only its
@@ -3546,7 +3546,7 @@ function noteNavigationWrite(prior: ChangeRecord | undefined, record: ChangeReco
 /** holdStart: `t`'s staged writes are parked — their navigations settle with `t`. */
 function markNavigationsHeld(t: Transition): void {
   if (openNavs.size === 0) return;
-  for (const node of t._pendingNodes) {
+  for (const node of t._nodes) {
     const origin = (node as AttributedNode)._devChange?.origin;
     if (origin?.kind !== "navigation") continue;
     const state = navStates.get(origin);
@@ -3557,7 +3557,7 @@ function markNavigationsHeld(t: Transition): void {
 /** transitionSettled: `t` commits — the navigations whose writes it staged are done. */
 function settleNavigations(t: Transition, hold: HoldEvent | undefined): void {
   if (openNavs.size === 0) return;
-  for (const node of t._pendingNodes) {
+  for (const node of t._nodes) {
     const origin = (node as AttributedNode)._devChange?.origin;
     if (origin?.kind !== "navigation") continue;
     const state = navStates.get(origin);
@@ -4033,7 +4033,7 @@ function noteInteractionNavigation(event: NavigationEvent): void {
 /** holdStart: `t` parked writes — the interactions that performed them wait for `t`. */
 function markInteractionsHeld(t: Transition): void {
   if (openInteractions.size === 0) return;
-  for (const node of t._pendingNodes) {
+  for (const node of t._nodes) {
     const state = openInteractionOf((node as AttributedNode)._devChange?.origin);
     if (state !== undefined) {
       state.heldIn.add(t);

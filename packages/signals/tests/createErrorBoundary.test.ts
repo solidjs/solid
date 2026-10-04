@@ -220,6 +220,12 @@ it("should handle errors when the effect is on the outside and memo in the middl
   expect(rootHandler).toHaveBeenCalledTimes(1);
 });
 
+// Leaving a fallback falls with the rules (maintainer, 2026-10-02: "actions
+// are just transitions"): the recovery an action's write produces is held
+// with the action like any content, and shows at its landing. The hold is
+// on the run — the DOM — not the compute: the view effect's pass derives
+// the recovered content under the hold (the boundary's output re-derives
+// against the staged world), and its run waits.
 it("should hold error boundary during transition when signal change clears error", async () => {
   const error = new Error("test error");
   const [$shouldError, setShouldError] = createSignal(true);
@@ -233,10 +239,7 @@ it("should hold error boundary during transition when signal change clears error
       },
       () => "error"
     );
-    createRenderEffect(
-      () => (result = b()),
-      () => {}
-    );
+    createRenderEffect(b, v => void (result = v));
   });
 
   flush();
@@ -254,6 +257,8 @@ it("should hold error boundary during transition when signal change clears error
   expect(result).toBe("error");
 
   await Promise.resolve();
+  await Promise.resolve();
+  flush();
   // Transition complete - boundary should now show content
   expect(result).toBe("content");
 });
@@ -275,10 +280,7 @@ it("should hold error boundary during transition when reset is called", async ()
         return "error";
       }
     );
-    createRenderEffect(
-      () => (result = b()),
-      () => {}
-    );
+    createRenderEffect(b, v => void (result = v));
   });
 
   flush();
@@ -298,6 +300,8 @@ it("should hold error boundary during transition when reset is called", async ()
   expect(result).toBe("error");
 
   await Promise.resolve();
+  await Promise.resolve();
+  flush();
   // Transition complete - boundary should now show content
   expect(result).toBe("content");
 });
@@ -1037,4 +1041,101 @@ it("reveals resolved content under snapshot capture (Loading > Errored > async)"
   } finally {
     clearSnapshots();
   }
+});
+
+it("instantiates the fallback once per show: a second error reaches it through the `error` accessor, not a re-render", () => {
+  const [a, setA] = createSignal(0);
+  const [b, setB] = createSignal(0);
+  let fallbackRuns = 0;
+  let shown: unknown;
+  createRoot(() => {
+    const boundary = createErrorBoundary(
+      () => {
+        createRenderEffect(
+          () => {
+            if (a() > 0) throw new Error(`a:${a()}`);
+          },
+          () => {}
+        );
+        createRenderEffect(
+          () => {
+            if (b() > 0) throw new Error(`b:${b()}`);
+          },
+          () => {}
+        );
+        return "content";
+      },
+      err => {
+        fallbackRuns++;
+        // The accessor is the channel: a fallback reads it reactively.
+        createRenderEffect(
+          () => (err() as Error).message,
+          m => {
+            shown = m;
+          }
+        );
+        return "fallback";
+      }
+    );
+    createRenderEffect(boundary, () => {});
+  });
+  flush();
+  expect(fallbackRuns).toBe(0);
+
+  setA(1);
+  flush();
+  expect(fallbackRuns).toBe(1);
+  expect(shown).toBe("a:1");
+
+  // A second reader errors while the fallback is showing: the fallback is
+  // not rebuilt; `error` moves to the latest one.
+  setB(1);
+  flush();
+  expect(fallbackRuns).toBe(1);
+  expect(shown).toBe("b:1");
+});
+
+it("holds user effects behind the error fallback until recovery", () => {
+  const log: string[] = [];
+  const [count, setCount] = createSignal(0);
+  const [bad, setBad] = createSignal(false);
+  let resetFn!: () => void;
+  let result: unknown;
+  createRoot(() => {
+    const boundary = createErrorBoundary(
+      () => {
+        createEffect(count, v => void log.push(`user ${v}`));
+        createRenderEffect(
+          () => {
+            if (bad()) throw new Error("boom");
+          },
+          () => {}
+        );
+        return "content";
+      },
+      (_e, reset) => {
+        resetFn = reset;
+        return "fallback";
+      }
+    );
+    createRenderEffect(boundary, v => void (result = v));
+  });
+  flush();
+  expect(result).toBe("content");
+  expect(log).toEqual(["user 0"]);
+
+  setBad(true);
+  flush();
+  expect(result).toBe("fallback");
+
+  // Behind the fallback: due, not run.
+  setCount(1);
+  flush();
+  expect(log).toEqual(["user 0"]);
+
+  setBad(false);
+  resetFn();
+  flush();
+  expect(result).toBe("content");
+  expect(log).toEqual(["user 0", "user 1"]);
 });

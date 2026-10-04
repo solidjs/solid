@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attribution, costs, formatRerun, subscriptions, why } from "../src/attribution.js";
 import {
+  action,
   createEffect,
   createMemo,
   createOptimistic,
@@ -681,7 +682,12 @@ describe("why-did-this-run attribution", () => {
     flush();
 
     const events = collect({ hotRuns: false, hotTime: false });
-    setX(2);
+    // Lane contract 2 (2026-10-01): a guess in a frame that does not park is
+    // as if it never happened — the write is made in an action's hold.
+    action(function* () {
+      setX(2);
+      yield new Promise<void>(() => {});
+    })();
     flush();
 
     const runs = events.filter(e => e.nodeName === "opt-effect");

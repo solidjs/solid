@@ -5,7 +5,6 @@ import {
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
-  LANE_RUN,
   REACTIVE_DISPOSED,
   STATUS_ERROR,
   STATUS_PENDING
@@ -28,15 +27,13 @@ import { trimStaleDeps } from "./graph.js";
 import { enqueueSub } from "./heap.js";
 import {
   _hitUnhandledAsync,
-  activeTransition,
-  currentTransition,
   GlobalQueue,
+  globalQueue,
   haltReactivity,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
-  setEffectCallback,
-  type Transition
+  setEffectCallback
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -47,12 +44,6 @@ export interface Effect<T> extends Computed<T>, Owner {
   _prevValue: T | undefined;
   _type: number;
   _boundRunEffect?: (type: number) => void;
-  /** The transaction whose staged view produced `_value` (null = committed
-   * view). Effects have one value slot and do not entangle transactions, so
-   * a second transaction recomputing the same effect overwrites a value the
-   * first one still owes a run for; see the contested-effect arm of recompute
-   * (#3322). */
-  _valueTransition: Transition | null;
 }
 
 /**
@@ -75,14 +66,16 @@ export function effect<T>(
     options
   ) as Effect<T>;
   recompute(node, true);
-  // A first pass that derived from a live transaction's staged world was
-  // staged into that transaction (recompute: born held); the transaction's
-  // commit replays this effect. Its first run is not this creation's (A29).
+  // A first pass that read a staged value was staged itself (recompute: born
+  // staged); the flush's commit replays this effect. Its first run is not this
+  // creation's (A29). A lane's node likewise: its run is the lane's, queued
+  // by the pass and released at the reveal (lanes.ts).
   !options?.defer &&
     node._pendingValue === NOT_PENDING &&
+    !node._x?._transaction?._lane &&
     (node._type === EFFECT_USER || options?.schedule
-      ? node._queue.enqueue(node._type, runEffect.bind(null, node))
-      : runEffect(node, LANE_RUN));
+      ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
+      : runEffect(node, node._type));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -108,29 +101,27 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
   const actualStatus = status !== undefined ? status : this._statusFlags;
   const actualError = error !== undefined ? error : this._x?._error;
   if (actualStatus & STATUS_ERROR) {
-    this._queue.notify(this, STATUS_PENDING, 0);
+    globalQueue.notify(this, STATUS_PENDING, 0);
     if (this._type === EFFECT_USER) {
       // The error handler is the error arm of the effect phase (#2840 ruling):
       // queue it like the effect function. It runs in the same imperative,
-      // writable scope, throws escalate the same way, and a held transition
-      // (or optimistic lane) defers it exactly as it defers the success arm.
-      // No payload is queued — the node already carries `_statusFlags`/`_error`,
+      // writable scope and throws escalate the same way. No payload is queued — the node already carries `_statusFlags`/`_error`,
       // and the runner dispatches on them, so a recovery before the effect
       // phase takes the success arm instead. Blocked forwards (explicit
       // `status` arg without node-state writes) don't queue: the status
       // re-propagates unblocked at commit.
       if (this._statusFlags & STATUS_ERROR) {
         this._modified = true;
-        this._queue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
+        globalQueue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
       }
       return;
     }
-    if (!this._queue.notify(this, STATUS_ERROR, STATUS_ERROR)) {
+    if (!globalQueue.notify(this, STATUS_ERROR, STATUS_ERROR)) {
       haltReactivity(unwrapStatusError(actualError));
       throw actualError;
     }
   } else if (this._type === EFFECT_RENDER) {
-    this._queue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
+    globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
     if (__DEV__ && _hitUnhandledAsync && resetUnhandledAsync()) {
       // Async without a `Loading` ancestor is legal (the mount defers), so this
       // is a consistent FYI — an `Errored` above must not swallow it. The old
@@ -160,30 +151,15 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
 
 function runEffect(node: Effect<any>, type: number): void {
   if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
-  // Ownership (#3319): a value computed under a transaction is applied by that
-  // transaction's commit. The ordinary effect phase runs with a transaction
-  // active only when the flush's finalize ENTERED one (every other path parks
-  // or settles first): leave a run owned by a still-held transaction queued —
-  // `_modified` stays set — and the next gate stashes it with the owner.
-  // Mainline-owned runs (null) apply now. Lanes are exempt by design (they
-  // apply their own effects ahead of their transaction — the optimistic view)
-  // and mark their runs with LANE_RUN.
-  //
-  // Lane exemption has one exception (#3331): a lane runner for an effect that
-  // no longer rides a lane — its optimistic source was superseded, so the lane
-  // has no optimistic view left to apply, and the value this effect now
-  // carries (or will, once its plain recompute lands) belongs to the still-held
-  // transaction. Hand the run to the regular queue, where the transaction's
-  // gate stashes it with the owner. Lane-less runners with no live owner
-  // (reverts, wake-only lanes) apply now.
-  if (
-    node._valueTransition !== null &&
-    !currentTransition(node._valueTransition)._done &&
-    (type & LANE_RUN ? !node._x?._optimisticLane : activeTransition !== null)
-  ) {
-    node._queue.enqueue(node._type, node._boundRunEffect!);
-    return;
-  }
+  // A queued run behind a fallback (boundaries.ts) waits for the reveal: a
+  // user effect's, which would read a DOM that is not attached, and a render
+  // effect's update too (maintainer, 2026-10-02: "we held the queue but let
+  // the sync renders through… we definitely shouldn't be showing portals
+  // early") — a Portal's or head-tag's render effect writes outside the
+  // hidden subtree. The synchronous first render on creation is not a queued
+  // run and goes through. `_modified` stays set; the boundary re-queues the
+  // run (`release`).
+  if (GlobalQueue._heldRun && GlobalQueue._heldRun(node)) return;
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
@@ -207,7 +183,7 @@ function runEffect(node: Effect<any>, type: number): void {
           })
         : console.error(err);
     } catch (error) {
-      if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
+      if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
         haltReactivity(error);
         throw error;
       }
@@ -243,7 +219,7 @@ function runEffect(node: Effect<any>, type: number): void {
   } catch (error) {
     ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;
-    if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
+    if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
       haltReactivity(error);
       throw error;
     }
@@ -283,9 +259,10 @@ export interface TrackedEffect extends Computed<void> {
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
   const run = () => {
     // `_modified` is NOT redundant with the heap: the heap dedups within a
-    // pass, but a held transition's passes each enqueue `_run` into the same
-    // user queue, and this gate is what collapses them into one run at commit.
+    // pass, but several passes in one flush each enqueue `_run` into the same
+    // user queue, and this gate is what collapses them into one run.
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
+    if (GlobalQueue._heldRun && GlobalQueue._heldRun(node)) return;
     if (__DEV__) setTrackedQueueCallback(true);
     try {
       node._modified = false;

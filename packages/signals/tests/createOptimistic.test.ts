@@ -17,6 +17,16 @@ import {
 
 afterEach(() => flush());
 
+/** What a `latest()` text showed, in order. A render effect over a verdict
+ * re-derives whenever a dependency's status changes (L2 verdicts: the
+ * question changed, so the reader runs again — it decides, breaking out or
+ * going pending) and, having no comparator, re-applies the committed value
+ * it still sees; the screen is unchanged. The pins read the displayed
+ * sequence, not the re-applications. */
+function shown<T>(values: T[]): T[] {
+  return values.filter((v, i) => i === 0 || !Object.is(v, values[i - 1]));
+}
+
 function countFalseToTrue(values: boolean[]) {
   let count = 0;
   for (let i = 1; i < values.length; i++) {
@@ -124,7 +134,11 @@ describe("createOptimistic", () => {
     // ambient one (no action in flight) is installed when the flush starts and
     // reverted when it ends, so effects are the only channel that sees it;
     // plain reads answer the flushed value on both sides of the flush.
-    it("should update signal via setter and revert on flush", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("a setter write in a frame that does not park never shows", () => {
       const [$x, setX] = createOptimistic(1);
       const values: number[] = [];
       createRoot(() =>
@@ -137,11 +151,15 @@ describe("createOptimistic", () => {
       setX(2);
       expect($x()).toBe(1); // unflushed — not visible yet
       flush();
-      expect(values).toEqual([1, 2, 1]); // the flush shows 2, then reverts the ambient write
+      expect(values).toEqual([1]); // no frame to be optimistic over: nothing shown
       expect($x()).toBe(1);
     });
 
-    it("should update signal via update function and revert on flush", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("an updater write in a frame that does not park never shows", () => {
       const [$x, setX] = createOptimistic(1);
       const values: number[] = [];
       createRoot(() =>
@@ -154,11 +172,15 @@ describe("createOptimistic", () => {
       setX(n => n + 1);
       expect($x()).toBe(1);
       flush();
-      expect(values).toEqual([1, 2, 1]);
+      expect(values).toEqual([1]);
       expect($x()).toBe(1);
     });
 
-    it("should allow multiple optimistic updates before flush", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("multiple optimistic updates before a flush that does not park never show", () => {
       const [$x, setX] = createOptimistic(1);
       const values: number[] = [];
       createRoot(() =>
@@ -173,10 +195,14 @@ describe("createOptimistic", () => {
       setX(n => n + 10); // the updater sees its own tick's write (3)
       expect($x()).toBe(1); // readers do not
       flush();
-      expect(values).toEqual([1, 13, 1]); // one flush carries the last write, then reverts
+      expect(values).toEqual([1]); // the last write is what the frame would carry; nothing parks
       expect($x()).toBe(1);
     });
 
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
     it("should provide current optimistic value in update callback", () => {
       const [$x, setX] = createOptimistic(10);
       const values: number[] = [];
@@ -201,7 +227,7 @@ describe("createOptimistic", () => {
       expect($x()).toBe(10);
 
       flush();
-      expect(values).toEqual([10, 25, 10]);
+      expect(values).toEqual([10]);
       expect($x()).toBe(10);
     });
   });
@@ -510,7 +536,11 @@ describe("createOptimistic", () => {
   });
 
   describe("computed optimistic", () => {
-    it("should derive from source and revert optimistic writes", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("should derive from source; an optimistic write with no frame to hold it never shows", () => {
       const [$x, setX] = createSignal(1);
       const [$y, setY] = createOptimistic(() => $x() + 1);
 
@@ -529,7 +559,7 @@ describe("createOptimistic", () => {
 
       // The flush shows 100 to effects, then reverts the ambient write
       flush();
-      expect(values).toEqual([2, 100, 2]);
+      expect(values).toEqual([2]);
       expect($y()).toBe(2);
 
       // Source change propagates through
@@ -1170,7 +1200,11 @@ describe("createOptimistic", () => {
   });
 
   describe("per-lane optimistic architecture", () => {
-    it("independent optimistic writes create separate lanes", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("independent optimistic writes with no frame to hold them never show", () => {
       // Two independent optimistic signals should have separate effect tracking
       const [a, setA] = createOptimistic(1);
       const [b, setB] = createOptimistic(10);
@@ -1200,17 +1234,21 @@ describe("createOptimistic", () => {
       // Write to a - should only trigger a's effect
       setA(2);
       flush();
-      expect(aEffects).toEqual([1, 2, 1]); // optimistic then revert
+      expect(aEffects).toEqual([1]); // nothing parks: no lane
       expect(bEffects).toEqual([10]); // unchanged
 
       // Write to b - should only trigger b's effect
       setB(20);
       flush();
-      expect(aEffects).toEqual([1, 2, 1]); // unchanged
-      expect(bEffects).toEqual([10, 20, 10]); // optimistic then revert
+      expect(aEffects).toEqual([1]); // unchanged
+      expect(bEffects).toEqual([10]); // nothing parks: no lane
     });
 
-    it("lanes merge when computed depends on multiple optimistic sources", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("a computed over multiple optimistic sources with no frame to hold them never shows the guesses", () => {
       // When a computed reads from two optimistic signals, their lanes merge
       const [a, setA] = createOptimistic(1);
       const [b, setB] = createOptimistic(10);
@@ -1239,7 +1277,7 @@ describe("createOptimistic", () => {
 
       // Both writes revert together as one lane
       expect(sum!()).toBe(11); // back to original
-      expect(sumEffects).toEqual([11, 22, 11]); // combined optimistic then revert
+      expect(sumEffects).toEqual([11]); // nothing parks: no lane
     });
 
     it("concurrent optimistic writes in same action share a lane", async () => {
@@ -1274,7 +1312,11 @@ describe("createOptimistic", () => {
       expect(value()).toBe(0); // reverted after transition
     });
 
-    it("optimistic effect runs before regular effect on same node", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("an optimistic write with no frame to hold it runs no effect", () => {
       const [value, setValue] = createOptimistic(0);
       const callOrder: string[] = [];
 
@@ -1296,10 +1338,14 @@ describe("createOptimistic", () => {
       flush();
 
       // Effect runs twice: once for optimistic value, once for reversion
-      expect(callOrder).toEqual(["regular", "regular", "regular"]);
+      expect(callOrder).toEqual(["regular"]); // nothing parks: the write never happened
     });
 
-    it("nested optimistic computeds propagate through single lane", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("nested optimistic computeds with no frame to hold the guess never show it", () => {
       const [source, setSource] = createOptimistic(1);
       const effects: number[] = [];
 
@@ -1327,10 +1373,14 @@ describe("createOptimistic", () => {
       flush();
 
       expect(quadrupled!()).toBe(4); // reverted
-      expect(effects).toEqual([4, 40, 4]); // optimistic: 10*2*2=40, then revert to 4
+      expect(effects).toEqual([4]); // nothing parks: no lane
     });
 
-    it("lane effects run even when transition is stashed", async () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("an optimistic write beside an unrelated pending flight has no parent: it never shows", async () => {
       let resolveAsync: () => void;
       const asyncSignal = createMemo(() => {
         return new Promise<number>(res => {
@@ -1364,7 +1414,7 @@ describe("createOptimistic", () => {
       flush();
 
       // Lane effect should run even though transition is stashed
-      expect(effects).toEqual([0, 1, 0]); // optimistic then revert
+      expect(effects).toEqual([0]); // the write's own frame holds nothing: no lane
 
       // Resolve async to complete transition
       resolveAsync!();
@@ -1372,7 +1422,11 @@ describe("createOptimistic", () => {
       flush();
     });
 
-    it("lane reuses existing lane for same signal", () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("repeated optimistic writes with no frame to hold them never show", () => {
       // Multiple writes to the same optimistic signal should use the same lane
       const [value, setValue] = createOptimistic(0);
       const effects: number[] = [];
@@ -1396,10 +1450,14 @@ describe("createOptimistic", () => {
       flush();
 
       // Should see final optimistic value, then revert
-      expect(effects).toEqual([0, 2, 0]);
+      expect(effects).toEqual([0]); // nothing parks: no lane
     });
 
-    it("cross-lane reads return committed value during optimistic context", async () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("an optimistic write beside another node's pending flight has no parent: it never shows", async () => {
       // When in one optimistic lane, reading from another lane's pending async
       // should return the committed value (not throw)
       let resolveLaneA: (v: number) => void;
@@ -1440,11 +1498,7 @@ describe("createOptimistic", () => {
       flush();
 
       // Effect should see optimistic B value
-      expect(effectValues).toEqual([
-        { a: 1, b: 10 },
-        { a: 1, b: 20 },
-        { a: 1, b: 10 } // revert
-      ]);
+      expect(effectValues).toEqual([{ a: 1, b: 10 }]); // sourceB's frame holds nothing: no lane
 
       // Resolve async
       resolveLaneA!(2);
@@ -2657,46 +2711,20 @@ describe("createOptimistic", () => {
 
       expect(selectedValues).toEqual(["News"]);
 
-      // Without action: test correction like async chain tests
-      // User selects "Finance" optimistically
+      // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a
+      // frame that does not park is as if it never happened — there is
+      // nothing to be optimistic over, so no reader ever sees it and no
+      // derivation re-asks. (Was: the write displayed, its derivation
+      // re-fetched, and a later refresh of the source corrected it; that
+      // flow, inside an action, is the "action pattern" tests above.)
       setOptimisticCategory("Finance");
       flush();
-
-      // Direct read shows optimistic value
-      expect(optimisticCategory()).toBe("Finance");
-      // Lane effects wait for async
-      expect(selectedValues).toEqual(["News"]);
-
-      // Resolve optimistic categoryData (lane becomes ready)
-      resolveCategoryDetails!(categoryItems["Finance"]);
-      await Promise.resolve();
-      flush();
-
-      // Lane effects fire with optimistic value
-      expect(selectedValues.at(-1)).toBe("Finance");
-      expect(categoryDataValues).toEqual([
-        ["Daily Brief", "World Report"],
-        ["Stock Ticker", "Market Analysis"]
-      ]);
-
-      // Server update FAILS - refresh source with different value
-      refresh(userCategory);
-      flush();
-
-      // Source refetching, resolve with "News" (mismatch!)
-      resolveUserCategory!("News");
-      await Promise.resolve();
-      flush();
-
-      // categoryData recomputes with corrected value, resolve it
-      resolveCategoryDetails!(categoryItems["News"]);
-      await Promise.resolve();
-      flush();
-
-      // Full correction visible - optimistic corrected to "News"
       expect(optimisticCategory()).toBe("News");
-      expect(selectedValues.at(-1)).toBe("News");
-      expect(categoryDataValues.at(-1)).toEqual(["Daily Brief", "World Report"]);
+      expect(selectedValues).toEqual(["News"]);
+      expect(categoryDataValues).toEqual([["Daily Brief", "World Report"]]);
+      await Promise.resolve();
+      flush();
+      expect(selectedValues).toEqual(["News"]);
     });
 
     it("rapid user actions: multiple selections before first resolves", async () => {
@@ -2749,48 +2777,20 @@ describe("createOptimistic", () => {
 
       expect(selectedValues).toEqual(["News"]);
 
-      // User rapidly selects Finance, then Sports (before anything resolves)
+      // Lane contract 2 (maintainer, 2026-10-01): mainline optimistic writes
+      // in frames that do not park are as if they never happened — rapid or
+      // not, no reader sees them and no derivation re-asks. (Was: each write
+      // displayed and the last one's derivation landed; that flow, inside
+      // actions, is "second action while first still in flight" above.)
       setOptimisticCategory("Finance");
       flush();
-
-      // Direct read shows optimistic, effect waits
-      expect(optimisticCategory()).toBe("Finance");
-      expect(selectedValues).toEqual(["News"]);
-
+      expect(optimisticCategory()).toBe("News");
       setOptimisticCategory("Sports");
       flush();
-
-      // Direct read shows latest optimistic
-      expect(optimisticCategory()).toBe("Sports");
-      expect(selectedValues).toEqual(["News"]); // Still waiting
-
-      // Resolve categoryData for Sports (the current optimistic value)
-      resolveCategoryDetails!(categoryItems["Sports"]);
-      await Promise.resolve();
-      flush();
-
-      // Lane effects fire with final value
-      expect(selectedValues.at(-1)).toBe("Sports");
-      expect(categoryDataValues.at(-1)).toEqual(["Live Scores"]);
-
-      // Server confirms Sports
-      dbUserCategory = "Sports";
-      refresh(userCategory);
-      flush();
-
-      resolveUserCategory!("Sports");
-      await Promise.resolve();
-      flush();
-
-      resolveCategoryDetails!(categoryItems["Sports"]);
-      await Promise.resolve();
-      flush();
-
-      // Final state: Sports
-      expect(optimisticCategory()).toBe("Sports");
-      expect(selectedValues.at(-1)).toBe("Sports");
+      expect(optimisticCategory()).toBe("News");
+      expect(selectedValues).toEqual(["News"]);
+      expect(categoryDataValues).toEqual([["Daily Brief"]]);
     });
-
     it("two full cycles with action+refresh - lanes clean up between transitions", async () => {
       let dbUserCategory = "News";
       const categoryItems: Record<string, string[]> = {
@@ -3345,8 +3345,8 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(shippingValues).toEqual([10]);
-      expect(taxValues).toEqual([5]);
+      expect(shown(shippingValues)).toEqual([10]);
+      expect(shown(taxValues)).toEqual([5]);
       expect(totalValues).toEqual([15]);
 
       // --- User changes country to UK ---
@@ -3366,8 +3366,8 @@ describe("createOptimistic", () => {
       flush();
 
       // Both async paths re-fired with optimistic IDs, nothing resolved yet
-      expect(shippingValues).toEqual([10]);
-      expect(taxValues).toEqual([5]);
+      expect(shown(shippingValues)).toEqual([10]);
+      expect(shown(taxValues)).toEqual([5]);
       expect(totalValues).toEqual([15]);
 
       // --- Shipping resolves first ---
@@ -3376,9 +3376,9 @@ describe("createOptimistic", () => {
       flush();
 
       // latest() reader: shipping updates independently
-      expect(shippingValues).toEqual([10, 12]);
+      expect(shown(shippingValues)).toEqual([10, 12]);
       // Tax hasn't resolved - still shows initial value
-      expect(taxValues).toEqual([5]);
+      expect(shown(taxValues)).toEqual([5]);
       // orderTotal stays pending: lanes merged at convergence point,
       // so it waits for both deps to resolve (no intermediate half-state)
       expect(totalValues).toEqual([15]);
@@ -3389,7 +3389,7 @@ describe("createOptimistic", () => {
       flush();
 
       // latest() reader: tax now also updates independently
-      expect(taxValues).toEqual([5, 8]);
+      expect(shown(taxValues)).toEqual([5, 8]);
       // Both resolved: orderTotal updates with final value
       expect(totalValues).toEqual([15, 20]); // 12 + 8
 
@@ -3485,8 +3485,8 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(shippingValues).toEqual([10]);
-      expect(taxValues).toEqual([5]);
+      expect(shown(shippingValues)).toEqual([10]);
+      expect(shown(taxValues)).toEqual([5]);
       expect(totalValues).toEqual([15]);
 
       // === CYCLE 1: US -> UK ===
@@ -3505,8 +3505,8 @@ describe("createOptimistic", () => {
       handleCountryChange("UK");
       flush();
 
-      expect(shippingValues).toEqual([10]);
-      expect(taxValues).toEqual([5]);
+      expect(shown(shippingValues)).toEqual([10]);
+      expect(shown(taxValues)).toEqual([5]);
       expect(totalValues).toEqual([15]);
 
       // Resolve both asyncs
@@ -3517,8 +3517,8 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(shippingValues).toEqual([10, 12]);
-      expect(taxValues).toEqual([5, 8]);
+      expect(shown(shippingValues)).toEqual([10, 12]);
+      expect(shown(taxValues)).toEqual([5, 8]);
 
       // Complete action + refresh
       resolveApiUpdate!();
@@ -3729,8 +3729,8 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(shippingTexts).toEqual(["FEDEX"]);
-      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX"]);
+      expect(shown(taxTexts)).toEqual(["US_SALES_TAX"]);
       expect(totalValues).toEqual([123]); // 100 + 100*0.08 + 15
       expect(shippingPending.at(-1)).toBe(false);
       expect(taxPending.at(-1)).toBe(false);
@@ -3764,8 +3764,8 @@ describe("createOptimistic", () => {
       expect(totalPendingComputes.at(-1)).toBe(true);
 
       // Text should still show old values (async not resolved)
-      expect(shippingTexts).toEqual(["FEDEX"]);
-      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX"]);
+      expect(shown(taxTexts)).toEqual(["US_SALES_TAX"]);
 
       // --- Tax resolves FIRST (faster API: 700ms vs 1000ms) ---
       resolveTax!({ name: "UK_VAT", rate: 0.2 });
@@ -3773,12 +3773,12 @@ describe("createOptimistic", () => {
       flush();
 
       // CRITICAL: tax text should update independently
-      expect(taxTexts).toEqual(["US_SALES_TAX", "UK_VAT"]);
+      expect(shown(taxTexts)).toEqual(["US_SALES_TAX", "UK_VAT"]);
       // Tax's own async slot has resolved even though shipping is still pending.
       expect(taxPendingComputes.at(-1)).toBe(false);
 
       // Shipping text should NOT have updated yet
-      expect(shippingTexts).toEqual(["FEDEX"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX"]);
       // Shipping should still be pending
       expect(shippingPendingComputes.at(-1)).toBe(true);
 
@@ -3788,7 +3788,7 @@ describe("createOptimistic", () => {
       flush();
 
       // Shipping text should now update
-      expect(shippingTexts).toEqual(["FEDEX", "DHL"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX", "DHL"]);
       expect(shippingPendingComputes.at(-1)).toBe(false);
       expect(taxPendingComputes.at(-1)).toBe(false);
       expect(totalPendingComputes.at(-1)).toBe(false);
@@ -4126,8 +4126,8 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(shippingTexts).toEqual(["FEDEX"]);
-      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX"]);
+      expect(shown(taxTexts)).toEqual(["US_SALES_TAX"]);
       expect(totalValues).toEqual([123]); // 100 + 100*0.08 + 15
       expect(shippingPending.at(-1)).toBe(false);
       expect(taxPending.at(-1)).toBe(false);
@@ -4176,12 +4176,12 @@ describe("createOptimistic", () => {
       flush();
 
       // CRITICAL: shipping text should update INDEPENDENTLY
-      expect(shippingTexts).toEqual(["FEDEX", "DHL"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX", "DHL"]);
       // Shipping's own async slot has resolved independently.
       expect(shippingPendingComputes.at(-1)).toBe(false);
 
       // Tax should NOT have updated yet (correction re-fetch still in flight)
-      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(shown(taxTexts)).toEqual(["US_SALES_TAX"]);
       expect(taxPendingComputes.at(-1)).toBe(true);
 
       // CRITICAL: orderTotal should NOT show intermediate "half-state"
@@ -4196,7 +4196,7 @@ describe("createOptimistic", () => {
       flush();
 
       // Tax text should now update independently
-      expect(taxTexts).toEqual(["US_SALES_TAX", "UK_VAT_FINAL"]);
+      expect(shown(taxTexts)).toEqual(["US_SALES_TAX", "UK_VAT_FINAL"]);
       // NOW both isPending clear - merged lane fully resolved
       expect(shippingPendingComputes.at(-1)).toBe(false);
       expect(taxPendingComputes.at(-1)).toBe(false);
@@ -4507,8 +4507,8 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(taxTexts).toEqual(["US_TAX"]);
-      expect(shippingTexts).toEqual(["FEDEX"]);
+      expect(shown(taxTexts)).toEqual(["US_TAX"]);
+      expect(shown(shippingTexts)).toEqual(["FEDEX"]);
       expect(totalValues).toEqual([123]); // 100 + 8 + 15
       expect(taxPending.at(-1)).toBe(false);
 
@@ -4559,8 +4559,10 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // Correction triggered a re-fetch for the real tax
-      expect(optimisticTaxScheme()).toBe("UK_TAX_REAL");
+      // Correction triggered a re-fetch for the real tax. The truth is in the
+      // graph (`latest`); the display keeps the override until the commit
+      // (A18 (c), #3331 — an untracked read is display).
+      expect(latest(optimisticTaxScheme)).toBe("UK_TAX_REAL");
 
       // === Action 2 (RAPID): UK → US with WRONG tax guess ===
       // This reuses the lane — _overrideVersion increments but _laneVersion doesn't
@@ -4706,7 +4708,7 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      expect(taxTexts).toEqual(["US_TAX"]);
+      expect(shown(taxTexts)).toEqual(["US_TAX"]);
       expect(totalValues).toEqual([123]);
 
       // === Action 1: US → UK with WRONG tax guess ===
@@ -4749,8 +4751,10 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // Correction fires: optimisticTaxScheme "UK_TAX_WRONG" → "UK_TAX_REAL"
-      expect(optimisticTaxScheme()).toBe("UK_TAX_REAL");
+      // Correction fires: optimisticTaxScheme "UK_TAX_WRONG" → "UK_TAX_REAL" in
+      // the graph (`latest`); the display keeps the override until the commit
+      // (A18 (c)).
+      expect(latest(optimisticTaxScheme)).toBe("UK_TAX_REAL");
 
       // Re-fetch for corrected tax resolves
       resolveTax!({ name: "UK_TAX_REAL", rate: 0.2 });
@@ -5108,7 +5112,11 @@ describe("createOptimistic", () => {
       expect(values).toEqual([99]);
     });
 
-    it("should still revert overrides when source is async", async () => {
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a frame
+    // that does not park is as if it never happened — there is nothing to be
+    // optimistic over, so no reader ever sees it. (Was: the flush showed the
+    // write for one frame, then reverted it.)
+    it("an optimistic write over a settled async source, in a frame that does not park, never shows", async () => {
       let resolve!: (v: number) => void;
       const $source = createMemo(
         () =>
@@ -5140,7 +5148,7 @@ describe("createOptimistic", () => {
 
       // The flush shows the override, then reverts it to the source value
       flush();
-      expect(values).toEqual([10, 999, 10]);
+      expect(values).toEqual([10]); // the write's frame holds nothing: no lane
       expect($opt()).toBe(10);
     });
   });

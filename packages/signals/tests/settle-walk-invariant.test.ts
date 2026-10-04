@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { OBSERVE } from "../src/index.js";
 import { settlePendingSource } from "../src/core/async.js";
-import {
-  CONFIG_DERIVED_OVERRIDE,
-  NOT_PENDING,
-  STATUS_UNINITIALIZED
-} from "../src/core/constants.js";
+import { CONFIG_OVERRIDE, NOT_PENDING, STATUS_UNINITIALIZED } from "../src/core/constants.js";
 import type { Computed } from "../src/core/core.js";
 
 /**
@@ -82,15 +78,15 @@ describe("settlePendingSource uninitialized-source invariant", () => {
   });
 
   it("stays silent for a first landing displayed as a derived lane override (#3648)", () => {
-    // asyncWrite's lane branch: the landing sits in the override slot with
-    // CONFIG_DERIVED_OVERRIDE set, `_value` untouched and the flag still on
-    // until the lane's transaction commits and promotes it — the override is
-    // the truth the walk releases dependents into.
+    // laneWrite's derivation branch: before the lane shows, the landing sits
+    // in the lane slot with CONFIG_OVERRIDE set (no GUESS — a derivation),
+    // `_value` untouched and the flag still on until the lane dissolves —
+    // the slot is the truth the walk releases dependents into.
     const codes = captureCodes(() =>
       settlePendingSource(
         fakeNode({
-          _config: CONFIG_DERIVED_OVERRIDE,
-          _x: { _error: null, _overrideValue: "landed under the lane" }
+          _config: CONFIG_OVERRIDE,
+          _x: { _error: null, _lane: "landed under the lane" }
         })
       )
     );
@@ -98,13 +94,13 @@ describe("settlePendingSource uninitialized-source invariant", () => {
   });
 
   it("a dropped derived override (slot disarmed) no longer counts as truth", () => {
-    // The bit alone is not the tell: resolveOptimisticNodes disarms the slot
-    // and clears the bit together, but the predicate reads the slot.
+    // The bit alone is not the tell: dissolveLane disarms the slot and clears
+    // the bit together, but the predicate reads the slot.
     const codes = captureCodes(() =>
       settlePendingSource(
         fakeNode({
-          _config: CONFIG_DERIVED_OVERRIDE,
-          _x: { _error: null, _overrideValue: undefined }
+          _config: CONFIG_OVERRIDE,
+          _x: { _error: null, _lane: NOT_PENDING }
         })
       )
     );

@@ -103,6 +103,14 @@ describe("isPending memo consistency (#3078)", () => {
 
     const done = act() as Promise<unknown>;
     flush(); // what the browser render loop does while the action runs
+    // m2's creation pass asked before the frame had a verdict (the write was
+    // unflushed, no transaction yet): it is a watcher of the seam, re-derived
+    // in the round after the flush parked (L2 verdicts, §20) — the same
+    // task, one microtask later. m1, dirtied by the write itself, re-derived
+    // in the flush.
+    expect(untrack(m1)).toBe(true);
+    await Promise.resolve();
+    flush();
 
     try {
       expect(isPending(count)).toBe(true);

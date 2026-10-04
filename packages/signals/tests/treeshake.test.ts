@@ -74,7 +74,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
         "map.ts",
         "affects.ts",
         "core/verdict.ts",
-        "core/optimistic.ts",
+        "core/lanes.ts",
         "core/action.ts",
         "core/context.ts"
       ])
@@ -465,7 +465,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     expect(
       retainedFrom(retained, [
         "core/verdict.ts",
-        "core/optimistic.ts",
+        "core/lanes.ts",
         "affects.ts",
         "boundaries.ts",
         "map.ts"
@@ -473,11 +473,11 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     ).toEqual([]);
   });
 
-  it("createOptimistic loads the optimistic engine; the floor ceiling reflects its absence", async () => {
+  it("createOptimistic loads the lane engine; the floor ceiling reflects its absence", async () => {
     const { retained } = await bundleFixture(
       `export { createSignal, createEffect, createRoot, flush, createOptimistic } from "sigsrc";`
     );
-    expect(retainedFrom(retained, ["core/optimistic.ts"])).toEqual(["core/optimistic.ts"]);
+    expect(retainedFrom(retained, ["core/lanes.ts"])).toEqual(["core/lanes.ts"]);
   });
 
   it("isPending/latest load the verdict layer and nothing else new", async () => {
@@ -485,17 +485,16 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       `export { createSignal, createEffect, createRoot, flush, isPending, latest } from "sigsrc";`
     );
     expect(retainedFrom(retained, ["core/verdict.ts"])).toEqual(["core/verdict.ts"]);
-    // The verdict layer brings the optimistic engine WITH it, by design
-    // (verdict.ts's module-scope installOptimisticEngine()): companions
-    // (pending signals / latest shadows) are optimistic nodes — their flips
-    // route through the optimistic write path and their reversion rides
-    // lanes, which is what lets a companion wake escape an incomplete
-    // transition's effect stash (#2887; also #2898/#2912). Asserted
-    // POSITIVELY so the cost is named instead of invisible: an isPending
-    // consumer pays verdict + engine (~1.6 kB gz), and if a future round
-    // decouples companion writes from the engine this expectation is the
-    // one to flip to an exclusion.
-    expect(retainedFrom(retained, ["core/optimistic.ts"])).toEqual(["core/optimistic.ts"]);
+    // The verdict layer brings the lane engine WITH it, by design (L2, §28:
+    // a verdict read of a held node is the holder's verdict lane's work —
+    // `verdictLane`, `display`, `laneValueOf` are lanes.ts's; a `latest`
+    // reader's pass re-derives at the holder's landing like any lane's
+    // member, which is what lets it escape an incomplete hold's effect
+    // stash (#2887; also #2898/#2912). Asserted POSITIVELY so the cost is
+    // named instead of invisible: an isPending consumer pays verdict +
+    // lanes, and if a future round decouples the verdict lane from the
+    // engine this expectation is the one to flip to an exclusion.
+    expect(retainedFrom(retained, ["core/lanes.ts"])).toEqual(["core/lanes.ts"]);
     expect(retainedFrom(retained, ["store/", "boundaries.ts", "map.ts", "affects.ts"])).toEqual([]);
   });
 
@@ -537,9 +536,9 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       const fixture = `export { createSignal, createEffect, createRoot, flush, isPending, latest } from "SPEC";`;
       const distRetained = await bundleDistFixture(fixture.replace("SPEC", "sigdist"));
       const { retained: srcRetained } = await bundleFixture(fixture.replace("SPEC", "sigsrc"));
-      // The by-design verdict -> engine coupling, mirrored from the src test.
+      // The by-design verdict -> lanes coupling, mirrored from the src test.
       expect(retainedFrom(distRetained, ["core/verdict.js"])).toEqual(["core/verdict.js"]);
-      expect(retainedFrom(distRetained, ["core/optimistic.js"])).toEqual(["core/optimistic.js"]);
+      expect(retainedFrom(distRetained, ["core/lanes.js"])).toEqual(["core/lanes.js"]);
       expect(
         retainedFrom(distRetained, ["store/", "boundaries.js", "map.js", "affects.js"])
       ).toEqual([]);
@@ -562,7 +561,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
           "map.js",
           "affects.js",
           "core/verdict.js",
-          "core/optimistic.js",
+          "core/lanes.js",
           "core/action.js",
           "core/context.js"
         ])

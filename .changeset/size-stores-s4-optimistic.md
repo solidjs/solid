@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+Stores on L2, S4: optimistic stores on lanes. A user write to an optimistic store is a guess on the written key's node (presence and container arrangement guesses alongside), shown under the action's hold, confirmed or corrected by a landing beneath it, dissolved at settle — no store-side layer or backup snapshots. The committed backing is never touched by a guess. Reads compose per key through the nodes; a guess over an in-flight derive stands in for the flight (A17). Chained views (`createOptimisticStore(base)`) keep their links on the inner store's truth. A user's `reconcile` on an optimistic family writes the draft. The optimistic machinery is late-bound: a plain store does not carry the lane layer. Core: a slot node's flight is its family's derive (`_slotFlight`); an untracked read inside lane work derives from the lane; a pass that joined a hold before its first lane read is re-derived on the screen; linked lanes are judged by `blocked`; a supersession resolves the lane's merged parent.

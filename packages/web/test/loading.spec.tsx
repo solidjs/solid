@@ -294,10 +294,16 @@ describe("Testing Loading", () => {
     expect(localDiv.firstElementChild!.getAttribute("style")).toBe("opacity: 1;");
     expect(localDiv.textContent).toBe("0Fetch error for 0");
 
+    // Maintainer, 2026-10-02: the Loading never showed content, so it catches
+    // the refetch's pending (A33); nothing on screen derives from the flight
+    // and the write publishes beside the old error — the error fallback never
+    // clears to a broken state underneath, and `isPending(count)` has
+    // nothing to report. (`next` held the write by accident: the error had
+    // marked the Loading initialized.)
     increment();
     flush();
-    expect(localDiv.firstElementChild!.getAttribute("style")).toBe("opacity: 0.5;");
-    expect(localDiv.textContent).toBe("0Fetch error for 0");
+    expect(localDiv.firstElementChild!.getAttribute("style")).toBe("opacity: 1;");
+    expect(localDiv.textContent).toBe("1Fetch error for 0");
 
     requests[1].resolve();
     await Promise.resolve();
@@ -349,9 +355,11 @@ describe("Testing Loading", () => {
     flush();
     expect(localDiv.textContent).toBe("0Fetch error for 0");
 
+    // The write publishes beside the old error (see above); the new error
+    // replaces it when the refetch rejects.
     increment();
     flush();
-    expect(localDiv.textContent).toBe("0Fetch error for 0");
+    expect(localDiv.textContent).toBe("1Fetch error for 0");
 
     requests[1].resolve();
     await Promise.resolve();

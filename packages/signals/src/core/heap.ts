@@ -1,32 +1,24 @@
 import { ext } from "./core.js";
 import {
-  CONFIG_FW_CHILDREN,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_IN_HEAP,
   REACTIVE_IN_HEAP_HEIGHT,
-  REACTIVE_RECOMPUTING_DEPS,
-  REACTIVE_ZOMBIE
+  REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
-import { dirtyQueue, zombieQueue } from "./scheduler.js";
-import type { Computed, FirewallSignal, Root } from "./types.js";
-
-/** The queue a node belongs to, picked from its own zombie flag. */
-export function queueFor(n: Computed<any>): Heap {
-  return n._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-}
+import { dirtyQueue } from "./scheduler.js";
+import type { Computed, Root } from "./types.js";
 
 /**
- * Schedule one subscriber to re-run on the next flush: inserted into its own
- * (zombie-flag-routed) heap with the `_min` cursor pulled down. Tracked
- * effects ride the heap too — the heap visit is their (empty) compute phase,
- * which hands the callback to the user queue once the pass has committed
- * (see GlobalQueue._update, #3291).
+ * Schedule one subscriber to re-run on the next flush: inserted into the
+ * dirty heap with the `_min` cursor pulled down. Tracked effects ride the
+ * heap too — the heap visit is their (empty) compute phase, which hands the
+ * callback to the user queue once the pass has committed (see
+ * GlobalQueue._update, #3291).
  */
 export function enqueueSub(node: Computed<any>): void {
-  const queue = queueFor(node);
-  if (queue._min > node._height) queue._min = node._height;
-  insertIntoHeap(node, queue);
+  if (dirtyQueue._min > node._height) dirtyQueue._min = node._height;
+  insertIntoHeap(node, dirtyQueue);
 }
 
 export interface Heap {
@@ -126,20 +118,6 @@ export function markNode(el: Computed<unknown>, newState = REACTIVE_DIRTY) {
   for (let link = el._subs; link !== null; link = link._nextSub) {
     markNode(link._sub, REACTIVE_CHECK);
   }
-  // Firewall children (projection machinery only): gate the cold-extension
-  // deref on the config bit — markNode runs per sub edge per write, and an
-  // unconditional _x chase here taxed every propagation (diamond -22%).
-  if (el._config & CONFIG_FW_CHILDREN) {
-    for (
-      let child: FirewallSignal<unknown> | null = el._x!._child;
-      child !== null;
-      child = child._nextChild
-    ) {
-      for (let link = child._subs; link !== null; link = link._nextSub) {
-        markNode(link._sub, REACTIVE_CHECK);
-      }
-    }
-  }
 }
 
 export function runHeap(heap: Heap, recompute: (el: Computed<unknown>) => void): void {
@@ -159,19 +137,12 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
   deleteFromHeap(el, heap);
   let newHeight = el._height;
   for (let d = el._deps; d; d = d._nextDep) {
-    const dep1 = d._dep;
-    const dep = (dep1 as FirewallSignal<unknown>)._firewall || dep1;
-    if ((dep as Computed<unknown>)._fn && dep._height >= newHeight) newHeight = dep._height + 1;
+    const dep = d._dep;
+    if ((dep as Computed<unknown>)._fn && (dep as Computed<unknown>)._height >= newHeight)
+      newHeight = (dep as Computed<unknown>)._height + 1;
   }
   if (el._height !== newHeight) {
     el._height = newHeight;
-    for (let s = el._subs; s !== null; s = s._nextSub) {
-      // Route each subscriber by its own zombie flag, mirroring the
-      // post-recompute height-adjust path. Inserting into the running `heap`
-      // unconditionally can park a zombie in `dirtyQueue` (or a live node in
-      // `zombieQueue`), breaking the flag/queue invariant `deleteFromHeap`
-      // relies on — the same corruption class as #2759.
-      insertIntoHeapHeight(s._sub, queueFor(s._sub));
-    }
+    for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, heap);
   }
 }

@@ -54,16 +54,20 @@ function text(fn: () => string, log: string[], when: number[]) {
     }
   });
 }
-/** <Show when={cond()}>{children}</Show>: a memo on the condition and a render
- * effect that (re)creates the child root. */
+/** <Show when={cond()}>{children}</Show> as compiled: a render effect whose
+ * pass creates the child under itself, so a re-pass disposes the previous
+ * child as a zombie of that pass (A15 #3463). An earlier version of this
+ * helper created the child as a root inside the effect callback — outside
+ * every owner and every hold, which PRIMITIVE_IN_EFFECT_CALLBACK now refuses. */
 function show(cond: () => boolean, children: () => void) {
-  const c = createMemo(cond);
-  let dispose: (() => void) | null = null;
-  createRenderEffect(c, on => {
-    dispose?.();
-    dispose = null;
-    if (on) dispose = createRoot(d => (children(), d));
-  });
+  createRenderEffect(
+    () => {
+      const on = cond();
+      if (on) children();
+      return on;
+    },
+    () => {}
+  );
 }
 
 describe("a held write whose reader leaves before the hold commits", () => {

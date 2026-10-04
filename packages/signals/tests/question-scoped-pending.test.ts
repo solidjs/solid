@@ -453,8 +453,10 @@ describe("plain optimistic stores (no source)", () => {
     expect(state.count).toBe(0);
     expect(isPending(() => state.count)).toBe(false);
     flush();
-    // The flush displayed the write, then reverted the ambient override
-    expect(seen).toEqual([0, 1, 0]);
+    // Lane contract 2 (maintainer, 2026-10-01): an optimistic write in a
+    // frame that does not park is as if it never happened — nothing shown,
+    // nothing pending. (Was: displayed for one frame, then reverted.)
+    expect(seen).toEqual([0]);
     expect(state.count).toBe(0);
     expect(isPending(() => state.count)).toBe(false);
   });

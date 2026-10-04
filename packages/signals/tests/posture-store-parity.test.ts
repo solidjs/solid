@@ -392,17 +392,16 @@ describe("S5 — a mainline derivation's UNTRACKED read of a held value is born 
   }
 });
 
-/** S6 — DIVERGENCE, ruled, fix deferred. Staged, ambient (a write before
- * any flush), reader created INSIDE a foreign action (which adopts the
- * write, spec O1): the signal's memo → render effect publishes the committed
- * 0 (A28 / #3510: adopted before any flush = unflushed, served committed);
- * the store's publishes the pending 1 (pendingBackingVisible: owner context
- * → pending backing). The verdict channels already agree (S1); the
- * derivation reads do not. Ruling: the store follows the signal (0). The
- * store side is pinned at its CURRENT value so the divergence stays visible
- * until the store's value selection shares core's (`serve`, move 3b step 6);
- * flip it to `[0]` then. */
-describe("S6 — DIVERGENCE (ruled: store follows signal; fix deferred to `serve`): staged-ambient write read by a derivation created inside a foreign action", () => {
+/** S6 (fixed on L2, §31 S2). Staged, ambient (a write before any flush),
+ * reader created INSIDE a foreign action (which adopts the write, spec O1):
+ * the signal's memo → render effect publishes the committed 0 (A28 / #3510:
+ * adopted before any flush = unflushed, served committed). The store used to
+ * publish the pending 1 (its own `pendingBackingVisible`: owner context →
+ * pending backing); ruled: the store follows the signal. On L2 the store's
+ * value selection is core's — a leaf is a node and the backing's visibility
+ * is the pass's (`stagingReader`) — so the divergence is gone by
+ * construction. */
+describe("S6 — staged-ambient write read by a derivation created inside a foreign action — signal vs store", () => {
   function publishedInsideForeignAction(read: () => number) {
     const log: number[] = [];
     action(function* () {
@@ -422,12 +421,12 @@ describe("S6 — DIVERGENCE (ruled: store follows signal; fix deferred to `serve
     setX(1);
     expect(publishedInsideForeignAction(x)).toEqual([0]);
   });
-  it("store: publishes the pending 1 (CURRENT; rule says 0)", () => {
+  it("store: publishes the committed 0", () => {
     const [s, setS] = createStore({ n: 0 });
     setS(d => {
       d.n = 1;
     });
-    expect(publishedInsideForeignAction(() => s.n)).toEqual([1]);
+    expect(publishedInsideForeignAction(() => s.n)).toEqual([0]);
   });
 });
 
@@ -583,7 +582,13 @@ describe("S8 — a derivation's UNTRACKED read of a superseded store node derive
     flush();
     fetches.shift()!(); // own truth lands {n: 2} ≠ 3
     await settle();
-    expect(s.n).toBe(3); // A18 (c): the override stays displayed for an untracked mainline read
+    // Lanes (2026-10-01/02; the signal oracle's `supersede` state): the guess
+    // was written in the frame that re-asked its source, so its lane was
+    // blocked and the guess never displayed — "a correction while blocked
+    // voids the never-shown guess" (§16). A18 (c)'s "the display keeps the
+    // override" is about a displayed override: direct reads see the
+    // committed value, the truth is staged under the action. (Was 3.)
+    expect(s.n).toBe(0);
     const log: number[] = [];
     createRoot(() => {
       const m = createMemo(() => untrack(() => s.n));

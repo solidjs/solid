@@ -4,10 +4,8 @@ import {
   cleanup,
   computed,
   TimeoutError,
-  CONFIG_AUTHORITATIVE_READ,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
-  CONFIG_DIRECT_COMMIT,
   CONFIG_FRESH_READ,
   createRoot,
   dispose,
@@ -15,28 +13,32 @@ import {
   EFFECT_USER,
   getObserver,
   getOwner,
-  installAuthoritativeRead,
   markRefresh,
   NotReadyError,
-  optimisticComputed,
-  optimisticSignal,
   read,
   runWithOwner,
   setMemo,
   setSignal,
   signal,
   trackedEffect,
-  untrack
+  untrack,
+  CONFIG_REDERIVE,
+  CONFIG_AUTHORITATIVE
 } from "./core/index.js";
 import { emitDiagnostic, registerGraph, reportDiagnostic } from "./core/dev.js";
-import { installOptimisticEngine } from "./core/optimistic.js";
 import {
-  activeTransition,
   dirtyQueue,
-  entangleConfirmingTransitions,
+  flushTransaction,
   globalQueue,
-  Queue
+  joinFuture,
+  passTx,
+  resolveTx,
+  staleReader,
+  type Transaction
 } from "./core/scheduler.js";
+import { REACTIVE_JOINED } from "./core/constants.js";
+import { unwrapStatusError } from "./core/error.js";
+import { optimisticWrite } from "./core/lanes.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when
@@ -394,6 +396,50 @@ export function createSignal<T>(
 }
 
 /**
+ * Creates an optimistic signal: a value that can be set optimistically inside
+ * a transition and reverts to the value it covered when the transition ends.
+ *
+ * The write is a guess over the transition of the frame it is made in — the
+ * frame's held writes are its base, and it shows at once while they wait.
+ * Outside such a frame (nothing is held) the write is as if it never
+ * happened. With a function, the memo form: its own recompute is the truth
+ * — equal to the guess it confirms silently, different it corrects at the
+ * transition's commit.
+ *
+ * ```typescript
+ * const [state, setState] = createOptimistic<T>(value, options?: SignalOptions<T>);
+ * const [state, setState] = createOptimistic<T>(fn, options?: SignalOptions<T> & MemoOptions<T>);
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
+ */
+export function createOptimistic<T>(): Signal<T | undefined>;
+export function createOptimistic<T>(
+  value: Exclude<T, Function>,
+  options?: SignalOptions<T>
+): Signal<T>;
+export function createOptimistic<T>(
+  fn: ComputeFunction<T>,
+  options?: SignalOptions<T> & MemoOptions<T>
+): Signal<T>;
+export function createOptimistic<T>(
+  first?: T | ComputeFunction<T>,
+  second?: SignalOptions<T> & MemoOptions<T>
+): Signal<T | undefined> {
+  if (typeof first === "function") {
+    const node = computed<T>(first as any, second as any);
+    node._config &= ~CONFIG_AUTO_DISPOSE;
+    return [
+      accessor<T | undefined>(node),
+      optimisticWrite.bind(null, node as any) as Setter<T | undefined>
+    ];
+  }
+  const node = signal<T>(first as any, second as SignalOptions<T>);
+  if (__OBSERVE__) registerGraph(node, getOwner());
+  return [accessor<T>(node), optimisticWrite.bind(null, node as any) as Setter<T | undefined>];
+}
+
+/**
  * Creates a readonly derived reactive memoized signal.
  *
  * ```typescript
@@ -694,11 +740,61 @@ export function createReaction(
   };
 }
 
-/** Delivers effect applies on a microtask instead of queueing them (#2930). */
-class MicrotaskQueue extends Queue {
-  enqueue(type: number, fn: (type: number) => void): void {
-    queueMicrotask(() => fn(type));
-  }
+/** A promise over a reactive expression (`resolve`, `until`): a pass that
+ * runs the expression and settles on a microtask. Not an effect — an
+ * effect's run is the flush's effect phase, and a flush parked by the
+ * action that is `yield`ing on this promise stashes its runs with the
+ * transaction (#2930); the heap runs a pass parked or not. A pending read
+ * re-runs it when the source lands (the pass is pending itself); the
+ * expression throwing settles the rejection. */
+/** The promise-delivery readers' pass (`resolve`, `until`, `refresh`'s
+ * waiter): delivers what it read on a microtask. By posture (#3482, #3490):
+ * - the reader of the transaction it was created in (`own`: an action's
+ *   body, a `refresh()` called there — the waiter reads its slice's frame on
+ *   a later microtask) delivers that frame — the staged landing an action
+ *   holds (the action awaits the promise that would otherwise wait on its
+ *   own settle);
+ * - a mainline reader whose pass read a frame another transaction holds
+ *   joined it (L2, born held — A29) and delivers at that commit: the
+ *   committed view, never a foreign hold's unrevealed frame. */
+function watch<T>(
+  fn: () => T,
+  onValue: (v: T) => void,
+  onError: (e: unknown) => void,
+  config = 0,
+  inPass?: (v: T) => void,
+  own: Transaction | null = flushTransaction
+): void {
+  // `config` is on the node for its first pass too (the pass runs inside
+  // `computed()`): `until`'s predicate is authoritative from its first read,
+  // or an already-displayed guess would satisfy it in a later slice. (REDERIVE
+  // after: the first pass's own error is the promise's rejection.)
+  computed(
+    () => {
+      let v: T;
+      try {
+        v = fn();
+      } catch (e) {
+        if (e instanceof NotReadyError) throw e;
+        queueMicrotask(() => onError(unwrapStatusError(e)));
+        return;
+      }
+      const c = getOwner() as Computed<any>;
+      // (Outside a flush a mainline pass joins through `passTx`.)
+      const joined = flushTransaction ?? passTx;
+      if (
+        c._flags & REACTIVE_JOINED &&
+        joined !== null &&
+        (own === null || resolveTx(own) !== resolveTx(joined))
+      ) {
+        staleReader(c, resolveTx(joined));
+        return;
+      }
+      inPass?.(v);
+      queueMicrotask(() => onValue(v));
+    },
+    { _extraConfig: config }
+  )._config |= CONFIG_REDERIVE;
 }
 
 /**
@@ -729,41 +825,13 @@ export function resolve<T>(fn: () => T): Promise<T> {
     );
   }
   return new Promise((res, rej) => {
-    createRoot(dispose => {
-      // Deliver effect applies on a microtask instead of the owner queue: an
-      // incomplete transition stashes its effect queues until it settles, but
-      // an action yielding this promise is itself what keeps the transition
-      // open — the stashed res() deadlocked the action (#2930). The compute
-      // still runs in place (under the transaction's view when created inside
-      // an action step), and status/boundary notifications keep their normal
-      // route through the inherited queue.
-      const owner = getOwner()!;
-      const queue = new MicrotaskQueue();
-      queue._parent = owner._queue; // notify() forwards up the normal chain
-      owner._queue = queue;
-      // A user effect rather than a bare computed: computeds are pull-based and
-      // are only re-enqueued when a pending source *resolves* — a rejection just
-      // marks them errored, so nothing would re-run and the promise would never
-      // settle (#2842). The effect's error channel is notified on rejection.
-      effect(
+    createRoot(dispose =>
+      watch(
         fn,
-        value => {
-          res(value);
-          dispose();
-        },
-        err => {
-          // The error arm already unwraps StatusError (#2840) — `err` is the
-          // user's original error, matching what error boundaries expose.
-          rej(err);
-          dispose();
-        },
-        // DIRECT_COMMIT: a source settling INTO the held transaction (e.g. a
-        // refresh this action issued) stages its landing; the effect's own
-        // recompute must not stage too, or the microtask apply reads the
-        // stale mainline value and resolves with old data.
-        { user: true, _extraConfig: CONFIG_DIRECT_COMMIT }
-      );
-    });
+        value => (res(value), dispose()),
+        err => (rej(err), dispose())
+      )
+    );
   });
 }
 
@@ -783,19 +851,10 @@ export function resolve<T>(fn: () => T): Promise<T> {
  * read:
  * - Accessor targets resolve with the settled value; store targets resolve
  *   with the store node passed (reads through it are fresh after the await).
- * - A failed re-ask rejects with the error (inside an action's generator,
- *   `yield refresh(x)` throws back at the yield point and the action reverts
- *   like any other failure).
+ * - A failed re-ask rejects with the error.
  * - Semantics are quiescence, not flight identity: if another refresh (or
  *   any invalidation) supersedes this one mid-flight, the promise waits for
  *   — and delivers — whatever finally lands.
- * - Inside an action, truth landing into the held transaction is STAGED;
- *   the promise still settles then (matching `resolve()`/`until()`, #2930)
- *   and delivers the staged value — the caller's own optimistic override is
- *   never the delivered value.
- * - The re-ask itself stays verdict-quiet exactly as before: `isPending`
- *   does not flip for a bare refresh (pair with `affects()` for a visible
- *   pending window).
  *
  * @example
  * ```ts
@@ -837,43 +896,27 @@ export function refresh<T>(
   // no-ops, so N waiters cost one pull; this also closes the race where a
   // waiter reads the PRE-re-ask value as settled and delivers stale), after
   // which the read either parks on the re-ask's pending window (async — the
-  // settle walk re-runs it on every landing, equal-value and
-  // staged-under-hold included, and a rejection arrives through the effect's
-  // error channel) or serves the sync answer. AUTHORITATIVE_READ keeps an
-  // action's own optimistic override out of the delivered value. resolve()'s
-  // own eager compute is untouched: created after a refresh it still settles
-  // stale-while-revalidate (#2930) — its contract is "first settled value",
-  // not "next quiescent state".
-  //
-  // An authoritative reader is woken through a late-bound hook when the truth
-  // lands EQUAL to a standing override (the A17-silent path). Every setter of
-  // that reader bit must install it — until() does, and this waiter is the
-  // other one (#3303: refresh of an optimistic in an app that never called
-  // until() dereferenced the null hook).
-  installAuthoritativeRead();
+  // settle walk re-runs it on every landing, equal-value included, and a
+  // rejection arrives through the effect's error channel) or serves the sync
+  // answer. resolve()'s own eager compute is untouched: created after a
+  // refresh it still settles stale-while-revalidate (#2930) — its contract is
+  // "first settled value", not "next quiescent state".
   markRefresh(node);
+  // The transaction `refresh()` is called in (an action's slice): the
+  // waiter, created on the microtask below, is its reader (`watch`).
+  const own = flushTransaction;
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {
-      // No createRoot: the microtask has no ambient owner, so the effect is
-      // naturally detached, and settle disposes the node directly — the root
-      // added ~560B of otherwise-shakeable machinery for nothing but the
-      // dev-mode NO_OWNER_EFFECT warning, so dev keeps a root husk purely to
-      // stay quiet. The waiter swaps in its microtask queue during its own
-      // first compute (before the initial apply enqueue), replacing the
-      // root-owner plumbing.
-      // Typed as the effect node, not Owner: the capture runs inside the
-      // effect's own compute, where the ambient owner IS the effect —
-      // exactly what dispose() takes.
+      // No createRoot: the microtask has no ambient owner, so the watcher is
+      // naturally detached, and settle disposes the node directly (dev keeps
+      // a root husk purely to stay quiet about the missing owner). The
+      // capture runs inside the watcher's own pass, where the ambient owner
+      // IS the watcher — exactly what dispose() takes.
       let waiter: Computed<unknown> | null = null;
       const make = () =>
-        effect(
+        watch(
           () => {
-            if (waiter === null) {
-              waiter = getOwner() as Computed<unknown>;
-              const queue = new MicrotaskQueue();
-              queue._parent = waiter._queue;
-              waiter._queue = queue;
-            }
+            if (waiter === null) waiter = getOwner() as Computed<unknown>;
             return read(node);
           },
           value => {
@@ -884,10 +927,9 @@ export function refresh<T>(
             rej(err);
             dispose(waiter!);
           },
-          {
-            user: true,
-            _extraConfig: CONFIG_DIRECT_COMMIT | CONFIG_AUTHORITATIVE_READ | CONFIG_FRESH_READ
-          }
+          CONFIG_FRESH_READ,
+          undefined,
+          own
         );
       __DEV__ ? createRoot(make) : make();
     });
@@ -933,58 +975,24 @@ export interface UntilOptions {
  *
  * Where {@link resolve} answers "what is this value" (first settled value,
  * whatever it is), `until` answers "when does the world confirm this
- * condition". The difference matters inside an `action()`: `yield until(...)`
- * holds the action's transaction — and any optimistic state riding it — open
- * until the condition is independently true.
- *
- * To make that sound, `until`'s predicate reads the AUTHORITATIVE view — and
- * this is the one read-semantics difference from `resolve`, which reads the
- * normal (transaction's own) view where overrides are visible:
- *
- * - **Optimistic overrides are invisible** to the predicate. Your own
- *   tentative write can never satisfy your own ack, even on the
- *   single-primitive shape where the optimistic store IS the live-fed store.
- *   (Derived computeds serve their normal cached values — express the
- *   condition over sources of truth, not derived views of the overlay.)
- * - **Everything else reads normally, including uncommitted transition-staged
- *   data.** Real data is real wherever it currently lives. This is
- *   load-bearing, not a loophole: truth that arrives *into* the open
- *   transaction (a `refresh()` this action issued, an entangled landing)
- *   stages and cannot commit until the hold releases — a predicate that
- *   refused staged reads would deadlock on the very data it is waiting for.
+ * condition".
  *
  * This is the acknowledgment mechanism for mutations confirmed on a live data
  * channel (sockets, subscriptions, live queries) rather than by the mutation's
  * own response: correlate by a client-generated id or version in the predicate,
  * and let truth arrive however it arrives — push, refetch, or another tab.
  *
- * Failure composes with action semantics: a rejection is thrown back into the
- * generator at the `yield` point — catchable there, or the action fails and
- * its optimistic state reverts.
- *
  * Must be called *outside* a tracking scope.
- *
- * Inside an action, call it from a step: after an `await`, put a bare `yield`
- * before `yield until(...)`. The runtime cannot hook an async generator's
- * `await` continuation, so the `until(...)` expression — which CREATES the
- * predicate's reader — would otherwise run outside the transaction; created
- * there it is born held (A29) and replays only at the commit its own promise
- * holds open (#3482). See {@link action}.
  *
  * @example
  * ```ts
- * const send = action(async function* (text: string) {
- *   const clientId = crypto.randomUUID();
- *   setMessages(m => { m.push({ clientId, text, pending: true }); }); // optimistic
- *   await socket.send({ clientId, text }); // fire-and-forget transport
- *   yield; // re-enter the transaction after the await
- *   // Hold until the live source echoes the write (authoritative view —
- *   // the optimistic row above cannot satisfy this):
- *   yield until(() => messages.some(m => m.clientId === clientId), { timeout: 10_000 });
- * });
+ * const clientId = crypto.randomUUID();
+ * await socket.send({ clientId, text }); // fire-and-forget transport
+ * // Wait until the live source echoes the write:
+ * await until(() => messages.some(m => m.clientId === clientId), { timeout: 10_000 });
  * ```
  *
- * @param fn a reactive predicate over authoritative state
+ * @param fn a reactive predicate
  * @param options optional `timeout` (ms) and abort `signal`
  */
 export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>> {
@@ -993,27 +1001,18 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
       "Cannot call until inside a reactive scope; await it from an action or another imperative scope."
     );
   }
-  // Late-bind the wakeup hook for the A17-silent ack paths (pay-for-use:
-  // apps that never call until() never retain it).
-  installAuthoritativeRead();
-  // Flip-entanglement (#3164 follow-up): the transaction this until() holds
-  // open (the action's, when yielded from one). The predicate is the user's
-  // declaration of what confirms it — when a foreign transition's staged
-  // write flips it truthy, that transition merges here and reveals at the
-  // joint settle instead of painting the confirmation under live optimism.
-  const awaiting = activeTransition;
   return new Promise((res, rej) => {
     const signal = options?.signal;
     if (signal?.aborted) return rej(signal.reason);
+    // The awaiting action's transaction, if any (its body runs joined to
+    // it). `until()` is a declaration of relatedness (#3164 follow-up): the
+    // predicate names the condition that confirms the action, so the frame
+    // whose landing flips it truthy is the confirming event by the user's
+    // own definition — it reveals WITH the action's settle, not before
+    // (`saving=true` beside the confirmed `version=1` is a tear no timeline
+    // contains). Updates that do not flip the predicate reveal freely.
+    const t = flushTransaction;
     createRoot(dispose => {
-      // Same delivery contract as resolve() (#2930): effect applies ride a
-      // microtask so the promise can settle while the transaction the caller
-      // yielded it into is still open — that transaction being open is the
-      // entire point of the hold.
-      const owner = getOwner()!;
-      const queue = new MicrotaskQueue();
-      queue._parent = owner._queue;
-      owner._queue = queue;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let onAbort: (() => void) | undefined;
       const settle = (fire: () => void) => {
@@ -1022,30 +1021,25 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
         fire();
         dispose();
       };
-      effect(
-        awaiting === null
-          ? fn
-          : () => {
-              const value = fn();
-              // Runs inside the compute (pure phase): the confirming
-              // transition's stamps are live and its commit hasn't run, so
-              // the merge lands before any reveal. Falsy evaluations skip —
-              // non-flipping updates were never named as the confirmation.
-              if (value) entangleConfirmingTransitions(getObserver() as Computed<any>, awaiting);
-              return value;
-            },
+      // Authoritative: the predicate sees the truth, never the action's own
+      // optimistic guess — a guess cannot satisfy the wait for its own
+      // confirmation.
+      watch(
+        fn,
         value => {
           // Falsy is "not yet": keep the subscription live and wait for the
           // next evaluation. Only a truthy settled value resolves.
           if (value) settle(() => res(value as Truthy<T>));
         },
         err => settle(() => rej(err)),
-        // AUTHORITATIVE_READ: overrides invisible to the predicate.
-        // DIRECT_COMMIT: truth that stages into the held transaction (a
-        // refresh the action issued) must flow through to the microtask
-        // apply — a staged effect value would deadlock the hold on data
-        // the hold itself is keeping uncommitted.
-        { user: true, _extraConfig: CONFIG_AUTHORITATIVE_READ | CONFIG_DIRECT_COMMIT }
+        CONFIG_AUTHORITATIVE,
+        value => {
+          // The flip, inside the pass of the flush carrying it: the flush
+          // joins the action's transaction, and what it staged is held and
+          // revealed with the action.
+          if (value && t !== null && globalQueue._running && resolveTx(t)._open !== 0)
+            joinFuture(t);
+        }
       );
       if (options?.timeout !== undefined)
         timer = setTimeout(() => settle(() => rej(new TimeoutError())), options.timeout);
@@ -1055,71 +1049,6 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
       }
     });
   });
-}
-
-/**
- * Creates an optimistic signal that can be used to optimistically update a value
- * and then revert it back to the previous value at end of transition.
- *
- * When called with a plain value, creates an optimistic signal with `SignalOptions` (name, equals, ownedWrite, unobserved).
- * When called with a function, creates a writable optimistic memo with `SignalOptions & MemoOptions` (adds id, lazy).
- *
- * ```typescript
- * // Plain optimistic signal
- * const [state, setState] = createOptimistic<T>(value, options?: SignalOptions<T>);
- * // Writable optimistic memo (function overload)
- * const [state, setState] = createOptimistic<T>(fn, options?: SignalOptions<T> & MemoOptions<T>);
- * ```
- * @param value initial value of the signal; if empty, the signal's type will automatically extended with undefined
- * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
- *
- * @returns `[state: Accessor<T>, setState: Setter<T>]`
- *
- * @example
- * ```ts
- * const [todos, setTodos] = createOptimistic(initialTodos);
- *
- * const addTodo = action(function* (text: string) {
- *   const tempId = crypto.randomUUID();
- *   setTodos(t => [...t, { id: tempId, text, pending: true }]); // optimistic
- *   const saved = yield api.createTodo(text);
- *   setTodos(t => t.map(x => (x.id === tempId ? saved : x)));   // reconcile
- * });
- * ```
- *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
- */
-export function createOptimistic<T>(): Signal<T | undefined>;
-export function createOptimistic<T>(
-  value: Exclude<T, Function>,
-  options?: SignalOptions<T>
-): Signal<T>;
-export function createOptimistic<T>(
-  fn: ComputeFunction<T>,
-  options?: SignalOptions<T> & MemoOptions<T>
-): Signal<T>;
-export function createOptimistic<T>(
-  first?: T | ComputeFunction<T>,
-  second?: SignalOptions<T> & MemoOptions<T>
-): Signal<T | undefined> {
-  // Install before the node exists: only engine-installed programs can carry
-  // an _overrideValue slot (same runtime-install pattern as
-  // GlobalQueue._clearOptimisticStore in createOptimisticStore).
-  installOptimisticEngine();
-  if (typeof first === "function") {
-    const node = optimisticComputed<T>(first as any, second as any);
-    node._config &= ~CONFIG_AUTO_DISPOSE;
-    return [
-      accessor<T | undefined>(node),
-      setSignal.bind(null, node as any) as Setter<T | undefined>
-    ];
-  }
-  const node = optimisticSignal<T>(first as any, second as SignalOptions<T>);
-  if (__OBSERVE__) registerGraph(node, getOwner());
-  return [
-    accessor<T | undefined>(node),
-    setSignal.bind(null, node as any) as Setter<T | undefined>
-  ];
 }
 
 /**

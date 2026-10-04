@@ -253,6 +253,7 @@ function build(form: Form, key: Key) {
   const [count, setCount] = createSignal(1);
   const view = { count: "", A: "", B: "" };
   let dispose!: () => void;
+  let mounts = 0;
   createRoot(d => {
     dispose = d;
     const data = createMemo(async () => {
@@ -261,7 +262,7 @@ function build(form: Form, key: Key) {
       return v;
     });
     const k = key === "latest" ? () => latest(count) : count;
-    const LoadingA = () => Loading(() => data(), "Loading A");
+    const LoadingA = () => (mounts++, Loading(() => data(), "Loading A"));
     let A: () => unknown;
     switch (form) {
       case "static":
@@ -293,7 +294,12 @@ function build(form: Form, key: Key) {
     insert(count, v => (view.count = String(v)));
   });
   flush();
-  return { setCount, dispose, snapshot: () => `${view.count}|${view.A}|${view.B}` };
+  return {
+    setCount,
+    dispose,
+    snapshot: () => `${view.count}|${view.A}|${view.B}`,
+    mounts: () => mounts
+  };
 }
 
 const HELD = "1|1|1";
@@ -334,14 +340,24 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
       await vi.advanceTimersByTimeAsync(1000);
       flush();
       expect(t.snapshot()).toBe("1|1|1");
+      const seen = [t.mounts()];
       t.setCount(2);
       flush();
       await microtask();
       flush();
       expect(t.snapshot()).toBe(midFlight);
+      seen.push(t.mounts());
       await vi.advanceTimersByTimeAsync(1000);
       flush();
       expect(t.snapshot()).toBe("2|2|2");
+      seen.push(t.mounts());
+      // A keyed Show remounts ONCE at the key change — over `latest(count)`
+      // mid-flight, over `count()` at the landing. One pass: `latest()` of
+      // the staged key settles the reader's membership at once (the frame's
+      // transaction opens; verdict-lane work), so no provisional pass is
+      // voided and re-derived — the child is not mounted twice (#3540 web,
+      // `mounts [1, 2, 2]`). `on` never remounts.
+      expect(seen).toEqual(form === "on" ? [0, 0, 0] : [1, 2, 2]);
       t.dispose();
       expect(warn).toHaveBeenCalledTimes(form === "on" && key === "committed" ? 1 : 0);
       warn.mockRestore();

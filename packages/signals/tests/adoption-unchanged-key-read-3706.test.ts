@@ -497,11 +497,16 @@ describe("#3706 unchanged key read under an adoption hold", () => {
 
     b.setDrag("0");
     flush();
-    // The memo derives from the adopted column: it joins the hold, and the
-    // independent signal is held with it until the transaction settles.
-    expect(isPending(b.drag)).toBe(true);
-    expect(latest(b.drag)).toBe("0");
-    expect(b.drag()).toBe(undefined);
+    // L2 / §28 (S4): the first move's landing is the first ACTION's — its
+    // transaction landed when its body ended (`await first`), the guess it
+    // confirmed with it; the second move's guess is its own lane's. The
+    // adopted column is committed when the memo reads it: nothing to join,
+    // the independent signal publishes at once. (Was: the adoption held
+    // under the family's open transaction — `next`'s declared-flight
+    // entanglement — and the memo joined it, A29.)
+    expect(isPending(b.drag)).toBe(false);
+    expect(b.drag()).toBe("0");
+    expect(b.derived()).toBe("0:1");
 
     b.confirm("1");
     await second;

@@ -1,7 +1,6 @@
-import { pendingCheckActive } from "../core/core.js";
-import { SUPPORTS_PROXY } from "../core/index.js";
+import { SUPPORTS_PROXY } from "../core/constants.js";
 import { createMemo } from "../signals.js";
-import { $PROXY, $RECORD, $TARGET, ownEnumerableKeys } from "./store.js";
+import { $PROXY, $RECORD, $TARGET, ownEnumerableKeys } from "./types.js";
 
 function trueFn() {
   return true;

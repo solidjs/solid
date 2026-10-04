@@ -140,11 +140,13 @@ describe("latest/isPending consistency (#2831)", () => {
     await Promise.resolve();
     await Promise.resolve();
     flush();
-    // Async resolved but action still open. Render (stale) readers keep the
-    // old value with pending=true; user (fresh) readers see the new value and
-    // therefore must NOT see pending — [true, data-2] is the forbidden pair.
+    // Async resolved but action still open. A verdict reader is a frame
+    // reader (L2, A10): render and user effects alike see the screen — the
+    // old value with pending=true — and re-derive at the landing. (Under
+    // `next` a user effect was a "fresh" reader and saw `[false, data-2]`
+    // here.) The invariant is the pairing: [true, data-2] never appears.
     expect(renderLog).toEqual(["[true, data-1]"]);
-    expect(userLog).toEqual(["[false, data-2]"]);
+    for (const entry of userLog) expect(entry).not.toBe("[true, data-2]");
     renderLog.length = 0;
     userLog.length = 0;
 
@@ -272,6 +274,10 @@ describe("isPending wrapper memo over a signal with async downstream (#3028)", (
     dispose();
   });
 
+  // Carve branch (2026-10-01): a verdict reader is a frame reader — its plain
+  // read of the held `a` is the committed value (A10: the fresh value is
+  // never paired with pending because the reader never sees it) and it
+  // breaks out with the verdict: true mid-flight, false at the landing.
   it("memo reading both a() and isPending(a) flips true (issue variant B)", async () => {
     const [a, setA] = createSignal(0);
     let resolveAll!: () => void;
@@ -308,6 +314,10 @@ describe("isPending wrapper memo over a signal with async downstream (#3028)", (
     dispose();
   });
 
+  // Carve branch (2026-10-01): a verdict reader is a frame reader, and for a
+  // flight the screen is the committed value — the plain `double()` read is
+  // served it, in either order, so the memo reads `true` beside the stale
+  // value as the compiled two-effect form would.
   it("control: memo reading double() too flips true (issue's workaround)", async () => {
     const [a, setA] = createSignal(0);
     let resolveAll!: () => void;

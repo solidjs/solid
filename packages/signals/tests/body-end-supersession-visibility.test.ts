@@ -34,7 +34,14 @@ const settle = async () => {
 };
 
 describe("A18 body-end supersession: the correction window", () => {
-  it("display keeps the override, a stale re-run keeps it, a fresh derivation is held, the verdict says it differs", async () => {
+  // Lanes (2026-10-01/02, §16/§21; the visibility oracle's "body ended"
+  // row): the guess was never shown — its lane was blocked on the
+  // downstream flight — and a correction while blocked voids the never-shown
+  // guess. From the body-end supersession on there is no override for any
+  // reader to keep: the display, a stale re-run and the verdicts say the
+  // truth (0); a fresh derivation reads the held truth and is held. (Was
+  // pinned to `next`'s override slot, which outlived the supersession.)
+  it("a never-shown guess is void at the body-end correction: display, stale re-run and verdicts say the truth; a fresh derivation is held", async () => {
     const flights: Array<() => void> = [];
     const [u, setU] = createSignal(0);
     const staleLog: number[] = [];
@@ -74,21 +81,22 @@ describe("A18 body-end supersession: the correction window", () => {
     flush();
     await settle();
     await settle();
-    // Body-end: the override (1) is superseded by the committed truth (0); the
-    // graph re-derives (a downstream flight for 0 starts) and the transaction
-    // waits for it.
+    // Body-end: the never-shown guess (1) is void, superseded by the
+    // committed truth (0); the graph re-derives (a downstream flight for 0
+    // starts) and the transaction waits for it.
     expect(flights.length).toBe(2);
-    expect(x()).toBe(1); // display
+    expect(x()).toBe(0); // display: the guess never showed
     expect(latest(x)).toBe(0); // truth
-    expect(isPending(x)).toBe(true); // differs
+    expect(isPending(x)).toBe(false); // nothing differs (A24)
     // (Reading the verdicts here is deliberate: a latest() pull once entered
     // the owning transaction ambiently and the two checks below depended on
     // whether latest() had been called first.)
 
-    // A stale reader re-run by an unrelated write keeps displaying the override.
+    // A stale reader re-run by an unrelated write sees the truth (the guess
+    // it never showed is void).
     setU(1);
     flush();
-    expect(staleLog).toEqual([1]);
+    expect(staleLog).toEqual([0]);
 
     // A fresh mainline derivation derives from the truth and is held.
     const fresh: number[] = [];

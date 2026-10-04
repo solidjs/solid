@@ -1,17 +1,55 @@
+/**
+ * Store — public surface. Plain stores (S1) are live; the derived form
+ * (`createStore(fn, seed)`), projections, optimistic stores and reconcile
+ * return on later steps (plan sec. 31.5).
+ */
 export type {
-  Store,
-  StoreReturn,
-  ProjectionStoreReturn,
-  StoreSetter,
-  StoreNode,
-  StoreOptions,
-  ProjectionOptions,
+  NoFn,
   NotWrappable,
-  SolidStore
-} from "./store.js";
-export type { Merge, Omit } from "./utils.js";
+  ProjectionOptions,
+  ProjectionStoreReturn,
+  SolidStore,
+  Store,
+  StoreOptions,
+  StoreReturn,
+  StoreSetter
+} from "./types.js";
+export { $PROXY, $RECORD, $TARGET, $TRACK, isWrappable, markRaw } from "./types.js";
+export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./store.js";
+export { storePath } from "./storePath.js";
+export type {
+  StorePathRange,
+  PathSetter,
+  Part,
+  CustomPartial,
+  ArrayFilterFn
+} from "./storePath.js";
 
-export { isWrappable, $TRACK, $PROXY, $TARGET, $RECORD } from "./store.js";
+import "./affects.js";
+import { createOptimisticStore } from "./optimistic.js";
+import { createProjection, createStoreDerived } from "./projection.js";
+import { reconcileState } from "./reconcile.js";
+import {
+  createStore as createPlainStore,
+  deep as deepStore,
+  snapshot as snapshotStore
+} from "./store.js";
+import type {
+  NoFn,
+  ProjectionOptions,
+  ProjectionStoreReturn,
+  Store,
+  StoreOptions,
+  StoreReturn,
+  StoreSetter
+} from "./types.js";
+
+export { createOptimisticStore, createProjection };
+/** The store's internal record behind a proxy (`store[$TARGET]`). Kept
+ * under `next`'s public name; its shape is the L2 target's (plan plan sec. 31–32:
+ * the symbol-keyed legacy record is gone with the representation). */
+export type { StoreTarget as StoreNode } from "./target.js";
+export type { Merge, Omit } from "./utils.js";
 export {
   mergeSources,
   mergeView,
@@ -30,69 +68,50 @@ export {
   SOURCE_PROXY,
   SOURCE_MEMO,
   SOURCE_MERGE,
-  sourceOwners
+  sourceOwners,
+  merge,
+  omit
 } from "./utils.js";
 export type { SourceKind } from "./utils.js";
 
-import type { NoFn, ProjectionOptions, Store, StoreOptions, StoreSetter } from "./store.js";
-import type { Refreshable } from "../core/index.js";
-import {
-  createStoreNext,
-  deepNext,
-  nameStore,
-  snapshotNext,
-  type SetStoreNextFunction
-} from "./next/store.js";
-import { reconcileNextState } from "./next/reconcile.js";
-import { createStoreDerivedNext } from "./next/projection.js";
-
-export { createProjectionNext as createProjection } from "./next/projection.js";
-export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./next/store.js";
-export { createOptimisticStoreNext as createOptimisticStore } from "./next/optimistic.js";
-
-/** Public createStore: plain form `(initialValue, options?)` and derived writable
- * form `(fn, seed, options?)`. */
+/**
+ * Create a reactive store: a proxy over plain data with fine-grained
+ * subscriptions per read path, written through its setter's draft — or, in
+ * the derived form, a projection with a setter.
+ */
 export function createStore<T extends object = {}>(
-  initialValue: NoFn<T> | Store<NoFn<T>>,
+  initialValue: NoFn<T>,
   options?: StoreOptions
-): [get: Store<T>, set: StoreSetter<T>];
+): StoreReturn<T>;
 export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
-): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+): ProjectionStoreReturn<T>;
 export function createStore(first: any, second?: any, third?: any): any {
-  if (typeof first === "function") return createStoreDerivedNext(first, second, third);
-  if (__OBSERVE__) {
-    const store = createStoreNext(first, !!second?.shallow);
-    if (second?.name) nameStore(store[0], second.name);
-    return store;
-  }
-  return createStoreNext(first, !!second?.shallow);
+  if (typeof first === "function") return createStoreDerived(first, second, third);
+  return createPlainStore(first, second) as [Store<any>, StoreSetter<any>];
 }
 
+/**
+ * A setter transform that reconciles `value` into the store by key
+ * (`"id"` by default; `null` positional), preserving store identity for
+ * surviving rows.
+ */
 export function reconcile<T extends U, U>(
   value: T,
   key: string | ((item: NonNullable<any>) => any) | null = "id"
-) {
-  return (state: U): T => reconcileNextState(value, state, key) as any;
+): (state: U) => T {
+  return (state: U): T => reconcileState(value, state, key) as any;
 }
 
+/** Non-tracking snapshot of a store's current value (source identity for
+ * unmodified subtrees). */
 export function snapshot<T>(value: T): T {
-  return snapshotNext(value);
+  return snapshotStore(value);
 }
 
+/** Tracking snapshot: subscribes to every reachable record. */
 export function deep<T>(value: T): T {
-  return deepNext(value);
+  return deepStore(value);
 }
-
-export { storePath } from "./storePath.js";
-export type {
-  PathSetter,
-  Part,
-  StorePathRange,
-  ArrayFilterFn,
-  CustomPartial
-} from "./storePath.js";
-
-export { merge, omit } from "./utils.js";

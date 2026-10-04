@@ -1,10 +1,10 @@
 export {
   $REFRESH,
+  action,
   ContextNotFoundError,
   NoOwnerError,
   NotReadyError,
   TimeoutError,
-  action,
   createContext,
   createOwner,
   createRoot,
@@ -85,12 +85,12 @@ export type {
 } from "./core/index.js";
 export {
   createSignal,
+  createOptimistic,
   createMemo,
   createEffect,
   createRenderEffect,
   createTrackedEffect,
   createReaction,
-  createOptimistic,
   refresh,
   resolve,
   until,
@@ -112,13 +112,10 @@ export type {
   MemoOptions,
   NoInfer
 } from "./signals.js";
-export { affects } from "./affects.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
+export * from "./carved.js";
 export * from "./store/index.js";
-export {
-  createLoadingBoundary,
-  createErrorBoundary,
-  createRevealOrder,
-  flatten,
-  type RevealOrder
-} from "./boundaries.js";
+export { affects } from "./affects.js";
+export { flatten } from "./flatten.js";
+export { createLoadingBoundary, createErrorBoundary } from "./boundaries.js";
+export { createRevealOrder, type RevealOrder } from "./reveal.js";

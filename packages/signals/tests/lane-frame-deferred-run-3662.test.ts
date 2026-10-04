@@ -7,11 +7,16 @@
  * here is HELD (the moved card's row reads an async memo that pends under the
  * lane), so that run is deferred and something else happens first:
  *
- *   1. The action's body ends while the lane's flight is up. A held lane
- *      holds its transaction (A15), so nothing reverts yet: the transaction
- *      completes at the landing, the lane's cleanup applies its queued runs
- *      (retiring the frame) before the overlay's reversion pass re-derives.
- *      Every generation's cleanup runs exactly once.
+ *   1. The action's body ends while the lane's flight is up. Re-pinned
+ *      2026-10-03 (S4, stores on lanes): the body's end starts the
+ *      correction (A18 body-end corollary, #3427) for a store guess exactly
+ *      as for a signal's — the lane's derivation flight is obsolete (its
+ *      input is the guess reverting) and is not waited on, so the never-shown
+ *      lane frame never flashes. (Before S4 an optimistic store edit kept the
+ *      settle-then-revert order: its truth was a base layer under an overlay
+ *      the settle folded off — a limitation, not a ruling.) The reversion
+ *      pass re-derives the frame; the never-applied lane frame is retired
+ *      with it. Every generation's cleanup runs exactly once.
  *   2. The owner is disposed while the lane is held: the displayed frame
  *      (parked) and the never-applied frame (live) each clean up once
  *      (#3561, a parked frame dies with its owner).
@@ -128,7 +133,7 @@ function setup() {
 }
 
 describe("#3662 a lane frame whose retiring run is deferred", () => {
-  it("action body ends while the lane is held: the frame is retired at the reveal, the revert re-derives, nothing leaks", async () => {
+  it("action body ends while the lane is held: the correction starts, the never-shown lane frame is retired, nothing leaks", async () => {
     const t = setup();
     expect(t.frames.at(-1)).toEqual({ lanes: [[0, 1], [2]], detail: "d0" });
 
@@ -138,24 +143,29 @@ describe("#3662 a lane frame whose retiring run is deferred", () => {
     expect(t.frames.at(-1)).toEqual({ lanes: [[0, 1], [2]], detail: "d0" });
     expect(t.log).toEqual(["E pass 1", "inner run 1", "E pass 2"]);
 
-    // The body ends while the flight is up: the held lane holds the
-    // transaction, nothing reverts, frame 1 stays.
+    // The body ends while the lane's derivation flight is up: the guess has
+    // no answer coming (its truth is the one it covered), so the correction
+    // starts now (#3427) — the reversion pass re-derives frame 3 from the
+    // truth and retires frame 1 (displayed) and frame 2 (the lane's, never
+    // applied); the obsolete flight is not waited on.
     t.endAction(0);
     await settle();
-    expect(t.cards.map(c => c.lane)).toEqual([1, 0, 1]);
+    expect(t.cards.map(c => c.lane)).toEqual([0, 0, 1]);
     expect(t.frames.at(-1)).toEqual({ lanes: [[0, 1], [2]], detail: "d0" });
-    expect(t.count("cleanup 1")).toBe(0);
+    t.cleanedOnce([1, 2]);
+    expect(t.count("inner run 2")).toBe(0);
+    expect(t.count("inner run 3")).toBe(1);
 
-    // The flight lands: the lane reveals frame 2 (retiring frame 1), the
-    // transaction completes and the overlay reverts to the unchanged base —
-    // the reversion pass re-derives frame 3 and retires frame 2.
+    // The obsolete flight lands: superseded, nothing changes — the guess
+    // arrangement never shows.
+    const framesBefore = t.frames.length;
     t.resolveDetail("d1");
     await settle();
     expect(t.cards.map(c => c.lane)).toEqual([0, 0, 1]);
-    expect(t.frames).toContainEqual({ lanes: [[1], [0, 2]], detail: "d1" });
+    expect(t.frames.length).toBe(framesBefore);
+    expect(t.frames).not.toContainEqual({ lanes: [[1], [0, 2]], detail: "d1" });
     expect(t.frames.at(-1)).toEqual({ lanes: [[0, 1], [2]], detail: "d0" });
     t.cleanedOnce([1, 2]);
-    expect(t.count("inner run 2")).toBe(1);
 
     const before = t.log.length;
     t.dispose();

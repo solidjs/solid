@@ -11,7 +11,7 @@ import {
   latest
 } from "../src/index.js";
 import { REACTIVE_IN_HEAP, REACTIVE_IN_HEAP_HEIGHT } from "../src/core/constants.js";
-import { dirtyQueue, zombieQueue } from "../src/core/scheduler.js";
+import { dirtyQueue } from "../src/core/scheduler.js";
 import type { Computed } from "../src/core/types.js";
 
 /** A chain of pass-through memos, standing in for a deep derived-data pipeline. */
@@ -111,14 +111,14 @@ it("disposing a subtree with a stale height-adjust entry does not corrupt the di
   flush();
 
   // Unmount: `markDisposal` zombifies the subtree and the pending disposal
-  // commits. The height-only entry must migrate queues together with its
-  // zombie flag, otherwise the commit deletes it from the queue its flag
-  // names (`zombieQueue`) while it is physically linked in `dirtyQueue`.
+  // commits. The height-only entry must leave the heap with its flags
+  // consistent (one heap on this tree — zombies are run from `dirtyQueue`
+  // by their flag, not from a second queue), otherwise the commit deletes
+  // an entry the heap no longer agrees it holds.
   setOpen(false);
   flush();
 
   expect(entriesWithoutInHeapFlags(dirtyQueue)).toEqual([]);
-  expect(entriesWithoutInHeapFlags(zombieQueue)).toEqual([]);
 
   // Remount: on corrupted state this flush livelocks in `runHeap`, pinning
   // the thread forever.

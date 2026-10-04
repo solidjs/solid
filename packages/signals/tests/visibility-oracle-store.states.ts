@@ -213,7 +213,17 @@ export const STATES: State[] = [
       return { x, dispose };
     },
     expect: {
-      untracked: rule(3, "A18 (c): the overlay stays displayed until settle"),
+      // Lanes (2026-10-01/02; the signal oracle's `supersede` state, S4): the
+      // guess was written in the frame that re-asked its source and
+      // re-fetched its derivation, so its lane was blocked and the guess
+      // never displayed; "a correction while blocked voids the never-shown
+      // guess" (§16). A18 (c)'s "the display keeps the override" is about a
+      // displayed override — there is none here: direct reads see the
+      // committed value, the truth is staged under the action.
+      untracked: rule(
+        0,
+        "lanes: the never-shown guess is void at the correction; the truth is staged"
+      ),
       derivesFrom: rule(
         2,
         "A18 (b) through a store node: the tracked pass derives from the landed truth. (#3434's store carve-out is about the body-end SETTLE order, not landing supersession.)"
@@ -223,8 +233,8 @@ export const STATES: State[] = [
         "A18 (c) / A29 (born held): the fresh derivation is held with the transaction; the frame keeps the overlay"
       ),
       preexisting: rule(HELD, "A18 (c): the frame keeps the overlay until settle"),
-      staleForeign: rule(3, "A18 (c): a stale reader displays the overlay"),
-      childrenForbidden: rule(3, "A32"),
+      staleForeign: rule(0, "lanes: a stale reader of a void guess sees the committed value"),
+      childrenForbidden: rule(0, "A32 / lanes: the frame — the never-shown guess is void"),
       latest: rule(2, "A18 (d) / #3075: latest() sees the landed truth beneath the overlay"),
       isPending: rule(true, "A18 (d) / OS-R39: the landing differs from the override"),
       authoritative: rule(2, "A17 carve-out / authoritativeServe(): the base layer")
@@ -363,10 +373,9 @@ export const STATES: State[] = [
           "A15 / A26: a stale reader of a parallel transaction shows committed structure"
         ),
         childrenForbidden: rule(false, "A32"),
-        latest: violation(
+        latest: rule(
           true,
-          false,
-          "A11 for structure: latest() sees the parked VALUE of `s.n` (#3075) but not the parked STRUCTURE — the has-node / key-set / descriptor channels have no latest() tunnel (structural oracle, 2026-09-17)"
+          "A11 for structure (fixed on L2, §31 S2): structure rides the presence nodes and the container node, which latest() tunnels like any node — the 2026-09-17 violation (no latest() tunnel for the structural channels) is gone by construction"
         ),
         isPending: rule(true, "A19 (i) / CS-R33: a held add pends the key"),
         authoritative: rule(true, "A17 carve-out: staged structure is authoritative")

@@ -1,4 +1,6 @@
 export { ContextNotFoundError, NoOwnerError, NotReadyError, TimeoutError } from "./error.js";
+export { isPending, latest } from "./verdict.js";
+export { action } from "./action.js";
 export {
   isEqual,
   untrack,
@@ -8,9 +10,6 @@ export {
   read,
   setSignal,
   setMemo,
-  optimisticSignal,
-  optimisticComputed,
-  installAuthoritativeRead,
   markRefresh,
   staleValues,
   setSnapshotCapture,
@@ -44,22 +43,10 @@ export {
   type ContextRecord
 } from "./context.js";
 export { handleAsync } from "./async.js";
-export { isPending, latest } from "./verdict.js";
-export type {
-  Computed,
-  Disposable,
-  FirewallSignal,
-  Link,
-  Owner,
-  Root,
-  Signal,
-  NodeOptions
-} from "./types.js";
+export type { Computed, Disposable, Link, Owner, Root, Signal, NodeOptions } from "./types.js";
 export { effect, trackedEffect, type Effect, type TrackedEffect } from "./effect.js";
-export { action } from "./action.js";
 export {
   flush,
-  Queue,
   GlobalQueue,
   enforceLoadingBoundary,
   resetErrorHalt,

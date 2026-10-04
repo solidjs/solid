@@ -939,8 +939,11 @@ function boundaryComponent(host: any, fnId: string) {
         setGate && setGate(undefined);
       }
     });
+    // `ownedWrite`: the re-arm below is written from a pass (the follow's
+    // compute), and a warm rebind's seed releases the gate from inside it.
     const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(
-      applied ? undefined : mountGate
+      applied ? undefined : mountGate,
+      { ownedWrite: true }
     );
     setGate = setGatePromise;
     if (binding) {
@@ -965,13 +968,28 @@ function boundaryComponent(host: any, fnId: string) {
       // synchronously, and the seed's apply releases the gate before any
       // reader sees it. Only switches with a stream begun gate (same rule
       // as the mount gate) — nothing else is coming to release one.
-      createRenderEffect(binding, (address, prev) => {
-        if (prev !== undefined && address !== prev && tables.has(address)) {
-          applied = false;
-          setGatePromise(arm());
-        }
-        frame.rebind(address);
-      });
+      //
+      // Done in the PASS that sees the new address (the compute), not an
+      // effect's run: the re-arm and the rebind are plumbing, not display.
+      // Under the hold model a switch delivered while the previous switch's
+      // gate still pends lands the binding in the frame that gate holds,
+      // and an effect's run is stashed with that frame — behind the very
+      // gate the rebind would release (the superseded call never answers;
+      // the live one cannot be bound to). A second switch mid-flight is
+      // the shape (`call-driven-lifecycle`).
+      let bound: string | undefined;
+      createRenderEffect(
+        () => {
+          const address = binding();
+          if (bound !== undefined && address !== bound && tables.has(address)) {
+            applied = false;
+            setGatePromise(arm());
+          }
+          bound = address;
+          frame.rebind(address);
+        },
+        () => {}
+      );
     }
     onCleanup(dispose);
     // A warm DIRECT mount (resident store, registration flushed
@@ -1429,15 +1447,24 @@ function adoptBoundary(
   // stream begun gate — nothing else is coming to release one.
   if (binding) {
     const arm = () => new Promise<void>(r => (release = r));
-    const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(undefined);
+    const [gatePromise, setGatePromise] = createSignal<Promise<void> | undefined>(undefined, {
+      ownedWrite: true
+    });
     setGate = setGatePromise;
     const gate = createMemo(() => gatePromise());
-    createRenderEffect(binding, (address: string, prev?: string) => {
-      if (prev !== undefined && address !== prev && tables.has(address)) {
-        setGatePromise(arm());
-      }
-      frame.rebind(address);
-    });
+    // Re-arm and rebind in the pass that sees the new address (see the
+    // call-driven mount: an effect's run would be stashed behind the gate
+    // it releases when a switch lands mid-hold).
+    let bound: string | undefined;
+    createRenderEffect(
+      () => {
+        const address = binding();
+        if (bound !== undefined && address !== bound && tables.has(address)) setGatePromise(arm());
+        bound = address;
+        frame.rebind(address);
+      },
+      () => {}
+    );
     // The pending observer (no-op effect half: the pend IS the point).
     createRenderEffect(
       () => (gate(), undefined),

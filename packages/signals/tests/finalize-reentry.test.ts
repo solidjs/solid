@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   action,
+  createEffect,
   createMemo,
   createProjection,
   createRenderEffect,
@@ -10,16 +11,25 @@ import {
   flush,
   snapshot
 } from "../src/index.js";
-import { Queue, globalQueue } from "../src/core/scheduler.js";
 
-it("keeps writes and effects held when a boundary check re-enters an action", async () => {
+// L2 (was: a boundary `_checkSources` hook re-entering the parked action's
+// transaction from an ambient flush). A write to a node an action holds,
+// made from an unrelated flush — here a user effect of an unrelated tick —
+// joins the hold (A34: a write on a held node entangles its tick): the
+// written value stays held, nothing it dirtied shows, and it reveals with
+// the action.
+it("keeps writes and effects held when an unrelated flush re-enters an action's hold", async () => {
   const gate = Promise.withResolvers<void>();
   const rendered: number[] = [];
   const [value, setValue] = createSignal(0);
-  const [, setTick] = createSignal(0);
+  const [tick, setTick] = createSignal(0);
   const dispose = createRoot(dispose => {
     createRenderEffect(value, v => {
       rendered.push(v);
+    });
+    // Writing a signal held by the parked action re-enters its transaction.
+    createEffect(tick, t => {
+      if (t === 1) setValue(2);
     });
     return dispose;
   });
@@ -33,24 +43,14 @@ it("keeps writes and effects held when a boundary check re-enters an action", as
   const done = start();
   flush();
 
-  let checked = false;
-  const boundary = Object.assign(new Queue(), {
-    _checkSources() {
-      if (checked) return;
-      checked = true;
-      // Writing a signal owned by the parked action re-enters its transaction.
-      setValue(2);
-    }
-  });
-  globalQueue.addChild(boundary);
   try {
-    // Unrelated work starts an ambient flush that checks boundary sources.
+    // Unrelated work: its effect writes into the hold.
     setTick(1);
+    flush();
     flush();
     expect.soft(value()).toBe(0);
     expect.soft(rendered).toEqual([0]);
   } finally {
-    globalQueue.removeChild(boundary);
     gate.resolve();
     await done;
     flush();
@@ -190,11 +190,11 @@ it("applies mainline-computed effects in the flush that entered a transaction", 
   }
 });
 
-// A write staged during finalize BEFORE the entry is adopted by the entered
-// transaction (held). Finalize's heap runs after its hooks, so the dependent
-// effect recomputes after the entry, owner-stamped, and parks with it: state
-// and DOM stay consistent and release together.
-it("holds a pre-entry hook write and its effect together with the entered transaction", async () => {
+// L2 (was: a `_checkSources` hook writing an ambient signal and then a held
+// one, inside finalize). A tick that writes a plain signal and a node an
+// action holds is one proposal (A34): both writes are held with the action
+// and their effects release together — state and DOM stay consistent.
+it("holds a pre-entry write and its effect together with the entered transaction", async () => {
   const gate = Promise.withResolvers<void>();
   const [value, setValue] = createSignal(0);
   const [other, setOther] = createSignal(0);
@@ -206,6 +206,12 @@ it("holds a pre-entry hook write and its effect together with the entered transa
     createRenderEffect(value, v => void renderedValue.push(v));
     createRenderEffect(other, v => void renderedOther.push(v));
     createRenderEffect(tick, v => void renderedTick.push(v));
+    createEffect(tick, t => {
+      if (t === 1) {
+        setOther(1); // ambient, staged before the entry
+        setValue(2); // enters the parked action
+      }
+    });
     return dispose;
   });
   flush();
@@ -217,18 +223,9 @@ it("holds a pre-entry hook write and its effect together with the entered transa
   const done = start();
   flush();
 
-  let checked = false;
-  const boundary = Object.assign(new Queue(), {
-    _checkSources() {
-      if (checked) return;
-      checked = true;
-      setOther(1); // ambient, staged before the entry
-      setValue(2); // enters the parked action
-    }
-  });
-  globalQueue.addChild(boundary);
   try {
     setTick(1);
+    flush();
     flush();
     expect.soft(tick()).toBe(1);
     expect.soft(renderedTick).toEqual([0, 1]);
@@ -237,7 +234,6 @@ it("holds a pre-entry hook write and its effect together with the entered transa
     expect.soft(other()).toBe(0);
     expect.soft(renderedOther).toEqual([0]);
   } finally {
-    globalQueue.removeChild(boundary);
     gate.resolve();
     await done;
     flush();

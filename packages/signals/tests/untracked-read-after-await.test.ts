@@ -368,6 +368,8 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
   });
 
   it("names the source, not a bare shadow, for a latest() read after await", async () => {
+    // L2 (§28): `latest` is a window over the read, not a shadow node — the
+    // diagnostic names the source itself (there is no "computed" to leak).
     const stop = captureWarnings();
     const [a] = createSignal(1, { name: "a" });
     const { dispose } = mount(async () => {
@@ -375,7 +377,7 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
       return latest(a);
     });
     await settle();
-    expect(stop().map(e => e.nodeName)).toEqual(["latest(a)"]);
+    expect(stop().map(e => e.nodeName)).toEqual(["a"]);
     dispose();
   });
 

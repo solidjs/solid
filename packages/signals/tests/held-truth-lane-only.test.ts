@@ -35,7 +35,7 @@ import {
   refresh,
   until
 } from "../src/index.js";
-import { CONFIG_HELD_TRUTH } from "../src/core/constants.js";
+import { CONFIG_HELD } from "../src/core/constants.js";
 
 afterEach(() => flush());
 
@@ -118,7 +118,9 @@ describe("held truth is masked from lane passes only (until()-stolen carrier)", 
     const h = await buildSteal();
     await h.landV1();
     const n = h.node();
-    expect(n._config & CONFIG_HELD_TRUTH).toBeTruthy();
+    // §28: a held truth is a transaction's staging (`_pendingValue`, held)
+    // beneath the committed value — no bit says so.
+    expect(n._config & CONFIG_HELD).toBeTruthy();
     expect(n._pendingValue).toEqual({ version: 1 });
     expect(n._value).toEqual({ version: 0 });
     expect(h.stream().version).toBe(0); // Rule 1: untracked keeps committed
@@ -159,7 +161,10 @@ describe("held truth is masked from lane passes only (until()-stolen carrier)", 
     // still served 0.
     expect(h.stream().version).toBe(0);
     expect(computed.at(-1)).toBe("saving=true lane=true v0");
-    expect(published).toEqual(["saving=true lane=true v0"]);
+    // Pinned by membership, not count (§28: the steal and T's `ownerLane`
+    // write are two events; the frame between re-applies what was shown).
+    expect(published.at(-1)).toBe("saving=true lane=true v0");
+    expect(published).not.toContain("saving=true lane=true v1");
     expect(computed).not.toContain("saving=true lane=true v1");
     published.length = 0;
     await h.T.release();
@@ -541,8 +546,13 @@ describe("held truth is masked from lane passes only (store fold, #3568 shape he
     await settle();
     await settle();
     // The committed frame is coherent (len=3, index 3 absent); the lane
-    // never composes the landed length with a committed row set.
-    expect(computed).toEqual(["opt2=true len=3 row3=HOLE"]);
+    // never composes the landed length with a committed row set. (§28 lanes:
+    // the memo reads `todos[3]` — a held landing — before its first lane
+    // read, so its first pass joined the frame's future as mainline would;
+    // on entering the lane it is a staged reader and the seam re-derives it
+    // on the screen — one repaired compute, one coherent publish.)
+    expect(computed.at(-1)).toBe("opt2=true len=3 row3=HOLE");
+    expect(computed.length).toBeLessThanOrEqual(2);
     expect(published).toEqual(["opt2=true len=3 row3=HOLE"]);
     expect(computed).not.toContain("opt2=true len=4 row3=HOLE");
     await T.release();

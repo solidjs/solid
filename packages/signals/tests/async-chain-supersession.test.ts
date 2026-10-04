@@ -62,6 +62,18 @@ function text(fn: () => string, log: string[], when?: number[]) {
   });
 }
 
+/** `<Show keyed when={key()}>` — the flow effect's compute owns the child and
+ * remounts it on each key (its children are disposed with its re-run). */
+function remount(key: () => unknown, children: () => void) {
+  createRenderEffect(
+    () => {
+      key();
+      children();
+    },
+    () => {}
+  );
+}
+
 describe("a second write while an async chain is in flight", () => {
   it("#3373 the stale first-hop landing does not commit the newer signal value", async () => {
     reset();
@@ -264,12 +276,10 @@ describe("a second write while an async chain is in flight", () => {
       setVersion = sv;
       const details = createMemo(() => delay(2000, count()));
       text(() => `Count: ${count()}`, log, when);
-      // <Show keyed when={version()}>: remount the reader on each version.
-      let dispose: (() => void) | null = null;
-      createRenderEffect(version, () => {
-        dispose?.();
-        dispose = createRoot(d => (text(() => `Details: ${details()}`, log, when), d));
-      });
+      // <Show keyed when={version()}>: remount the reader on each version
+      // (compiled shape — the flow effect's compute owns the child; a root
+      // created in its callback is PRIMITIVE_IN_EFFECT_CALLBACK).
+      remount(version, () => text(() => `Details: ${details()}`, log, when));
     });
     flush();
     await settle();
@@ -306,11 +316,7 @@ describe("a second write while an async chain is in flight", () => {
       const a = createMemo(() => delay(1000, count()));
       const b = createMemo(() => delay(1000, a()));
       text(() => `Count: ${count()}`, log, when);
-      let dispose: (() => void) | null = null;
-      createRenderEffect(version, () => {
-        dispose?.();
-        dispose = createRoot(d => (text(() => `B: ${b()}`, log, when), d));
-      });
+      remount(version, () => text(() => `B: ${b()}`, log, when));
     });
     flush();
     await settle();
@@ -350,11 +356,7 @@ describe("a second write while an async chain is in flight", () => {
       const details = createMemo(() => delay(2000, count()));
       const shown = createMemo(() => `Details: ${details()}`);
       text(() => `Count: ${count()}`, log, when);
-      let dispose: (() => void) | null = null;
-      createRenderEffect(version, () => {
-        dispose?.();
-        dispose = createRoot(d => (text(shown, log, when), d));
-      });
+      remount(version, () => text(shown, log, when));
     });
     flush();
     await settle();

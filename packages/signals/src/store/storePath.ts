@@ -1,4 +1,4 @@
-import { isWrappable, ownEnumerableKeys, type NotWrappable } from "./store.js";
+import { isWrappable, ownEnumerableKeys, type NotWrappable } from "./types.js";
 
 type W<T> = Exclude<T, NotWrappable>;
 

@@ -88,8 +88,9 @@ it("an in-flight foreign action does not strand unrelated derived-store folds (#
   expect(snapshot(view).length).toBe(1);
 
   // An optimistic membership edit mid-action: the user's store shows the
-  // overlay; the derived view's committed rails stay coherent at committed
-  // state (the re-derive is transition-scoped and lands at settle).
+  // guess, and the derived view's re-derive over it is the lane's work —
+  // shown ahead with the guess (§28 lanes; was: committed until settle) —
+  // coherent on every rail, never torn.
   const add = action(function* () {
     setUsers((d: any) => {
       d.push({ id: 2 });
@@ -99,9 +100,10 @@ it("an in-flight foreign action does not strand unrelated derived-store folds (#
   const p = add();
   flush();
   expect(users.length).toBe(2);
-  expect(view.length).toBe(1); // committed — never 0, never torn
-  expect(Object.keys(view)).toEqual(["0"]);
+  expect(view.length).toBe(2);
+  expect(Object.keys(view)).toEqual(["0", "1"]);
   expect(view[0]).not.toBeUndefined();
+  expect(view[1].data.id).toBe(2);
 
   resolveServer();
   await p;

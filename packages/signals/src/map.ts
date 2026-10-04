@@ -1,10 +1,9 @@
-import { currentOptimisticLane, setStrictRead } from "./core/core.js";
-import { activeLanes } from "./core/lanes.js";
+import { setStrictRead } from "./core/core.js";
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
   createOwner,
-  GlobalQueue,
+  getOwner,
   runWithOwner,
   setSignal,
   signal,
@@ -12,8 +11,8 @@ import {
   type Signal
 } from "./core/index.js";
 import { accessor, type Accessor } from "./signals.js";
-import { $TRACK } from "./store/index.js";
 import { attrHooks } from "./core/attribution-hooks.js";
+import { $TRACK } from "./store/types.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
 
@@ -103,9 +102,6 @@ export function mapArray<Item, MappedItem>(
     updateKeyedMap.bind(data as MapData<unknown, unknown>),
     __OBSERVE__ && options?.name ? { name: options.name } : undefined
   );
-  // Untracked reads inside the internal owner resolve via _parentComputed; routing
-  // them through node lets store-proxy lookups see pending writes (not stale _value).
-  data._owner._parentComputed = node;
   node._config &= ~CONFIG_AUTO_DISPOSE;
   return accessor(node);
 }
@@ -305,9 +301,16 @@ function commitSmallMove<Item, MappedItem>(
 }
 
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
+  // Untracked reads inside the internal owner resolve via _parentComputed:
+  // routed through the node, a store-proxy lookup sees pending writes (not a
+  // stale _value) and an async read in a row callback registers the node as
+  // the flight's reader (pending tracking + post-settle retry) instead of
+  // vanishing. Set per pass: the first pass runs inside `computed()`, before
+  // the node exists to the caller.
+  (this._owner as Root)._parentComputed = getOwner() as Root["_parentComputed"];
   const newItems = this._list() || [],
     newLen = newItems.length;
-  (newItems as any)[$TRACK]; // top level tracking
+  (newItems as any)[$TRACK]; // top level tracking (a store array's container node)
 
   runWithOwner(this._owner, () => {
     let i: number,
@@ -420,10 +423,8 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       // knows the slots are clean and drops the mark — and an unmarked map
       // takes `setSignal` directly. The engine is installed whenever a lane
       // is active.
-      const write: <T>(el: Signal<T>, v: T) => unknown = (this._laneSlots =
-        currentOptimisticLane !== null || (this._laneSlots && activeLanes.size !== 0))
-        ? GlobalQueue._landOnOverride!
-        : setSignal;
+      // CARVE 2: the lane-slot arm (`_landOnOverride`, F1) went with the engine.
+      const write: <T>(el: Signal<T>, v: T) => unknown = setSignal;
 
       // skip common prefix
       for (
@@ -631,10 +632,6 @@ export function repeat(
     _fallback: options?.fallback
   };
   const node = computed(updateRepeat.bind(data));
-  // Same as mapArray: untracked reads inside the internal owner resolve via
-  // _parentComputed, so async reads in row callbacks register with the node
-  // (pending tracking + post-settle retry) instead of vanishing.
-  data._owner._parentComputed = node;
   node._config &= ~CONFIG_AUTO_DISPOSE;
   return accessor(node);
 }
@@ -647,6 +644,8 @@ export function repeat(
 // for the post-settle retry. The overlap math also subsumes the previous
 // disjoint-window/front-clear/end-clear/shift special cases.
 function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {
+  // As in updateKeyedMap: the node is the row callbacks' reader, per pass.
+  (this._owner as Root)._parentComputed = getOwner() as Root["_parentComputed"];
   const newLen = this._count();
   const from = this._from?.() || 0;
   runWithOwner(this._owner, () => {
@@ -740,5 +739,4 @@ interface MapData<Item = any, MappedItem = any> {
   _fallback?: Accessor<any>;
   /** A lane pass has run over this map: its slot signals may carry a lane's
    * derived override, so every slot write routes through the engine (F1). */
-  _laneSlots?: boolean;
 }

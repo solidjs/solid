@@ -568,17 +568,15 @@ describe("A34 — review (#3519)", () => {
     await settle();
     expect(show()).toBe(false);
     await advanceTo(6000);
-    // The hide is mainline (the point of the drop) — and the `Show` effect had
-    // computed under `count`'s born-held transaction at 2000 (it sits above
-    // the memo, so it ran after `data` pended), so it is a contested effect
-    // (#3322): the reveal at 4000 re-derives it against the committed world.
-    // Same value, one redundant run; the signal form above computes below the
-    // transaction's birth and is never contested. Not this rule's business.
+    // The hide is mainline (the point of the drop). (On `next` the `Show`
+    // effect, a contested effect (#3322), re-ran redundantly at 4000 with the
+    // same value — "not this rule's business"; the carve branch's hold model
+    // has no such re-run, so the 4000 frame is `Data` alone.)
     expect(frames(log, when)).toEqual([
       "0: Show: true",
       "2000: Data: 0",
       "2500: Show: false",
-      "4000: Data: 1 | Show: false"
+      "4000: Data: 1"
     ]);
   });
 });

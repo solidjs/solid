@@ -166,12 +166,17 @@ describe("#3404 nested render effect reading a downstream async value", () => {
     await advanceTo(3000);
     expect(log).toEqual(["run 1.0/1@1500", "run 1.1/1@2600", "cleanup 1.0/1@2600"]);
     await advanceTo(4000);
+    // The landing re-derives the outer effect (a stale reader of `b`): the
+    // frame it builds replaces the mainline one — new frame's first run,
+    // then the replaced frame's cleanup at the commit, the same order as the
+    // mainline replacement at 2600 (L2; `next` disposed first). The inner
+    // effect `c` landed on never runs with the new `c` under the old frame.
     expect(log).toEqual([
       "run 1.0/1@1500",
       "run 1.1/1@2600",
       "cleanup 1.0/1@2600",
-      "cleanup 1.1/1@3500",
-      "run 2.1/2@3500"
+      "run 2.1/2@3500",
+      "cleanup 1.1/1@3500"
     ]);
   });
 

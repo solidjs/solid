@@ -1771,6 +1771,45 @@ describe("A22: pending is per-node — store-wide is only the firewall's own wor
     dispose();
   });
 
+  // Q-A's escape hatch (plan §41.4): a container nobody subscribes to is
+  // staged without a node — the backing swap and the fold queue are the
+  // whole staging — and the seam materializes and holds the node only when
+  // the flush parks. The hold must then cover keys no reader ever asked for:
+  // a handler's read of one sees the committed frame until the landing.
+  it("a never-read key of a container held through a park reads committed until the landing", async () => {
+    const [x, setX] = createStore({ count: 0, foo: 0 });
+    let resolveDownstream!: () => void;
+    const dispose = createRoot(d => {
+      const downstream = createMemo(async () => {
+        const v = x.count;
+        if (v > 0) await new Promise<void>(r => (resolveDownstream = r));
+        return v;
+      });
+      createRenderEffect(
+        () => downstream(),
+        () => {}
+      );
+      return d;
+    });
+    flush();
+    await tick();
+
+    setX(s => {
+      s.count++;
+      s.foo = 5; // no node: never read before this write
+    });
+    flush();
+    expect(x.count).toBe(0); // held
+    expect(x.foo).toBe(0); // held too — not folded under the park
+
+    resolveDownstream();
+    await tick();
+    flush();
+    expect(x.count).toBe(1);
+    expect(x.foo).toBe(5);
+    dispose();
+  });
+
   it("a projection write held by downstream async pends only the written leaf", async () => {
     const [$src, setSrc] = createSignal(1);
     let resolveDownstream!: () => void;
@@ -1815,7 +1854,15 @@ describe("A22: pending is per-node — store-wide is only the firewall's own wor
     dispose();
   });
 
-  it("verdicts never inherit consumers' in-flight state: leaves settle at commit even under a downstream hold", async () => {
+  // Re-pinned 2026-10-03 (L2, signal parity): the fetch's landing resumes
+  // the frame that asked it; the downstream re-pass over the landed value is
+  // that frame's work, and its flight holds the frame — `data` reveals with
+  // `downstream`, as a memo chain's `a` does under `b`'s flight (the signal
+  // twin reads `a=10, pending` through phase 2). The old pin (leaves commit
+  // under the downstream hold) was the pre-L2 firewall's own commit — and
+  // under L2 it held only while the frame's render reader dropped its link
+  // to the flight on re-run (the frame landed with its flight still up).
+  it("verdicts never inherit consumers' in-flight state: leaves reveal with the frame the landing resumes", async () => {
     const [$id, setId] = createSignal(1);
     let resolveFetch!: () => void;
     let resolveDownstream!: () => void;
@@ -1856,18 +1903,20 @@ describe("A22: pending is per-node — store-wide is only the firewall's own wor
     expect(isPending(() => store.data)).toBe(true);
     expect(isPending(() => store.other)).toBe(true);
 
-    // Phase 2 — fetch commits; downstream async still holds the effect-level
-    // reveal, but the data-level commit is immediate: leaves show the landed
-    // value and read settled (companions probe from their own lane, A14).
+    // Phase 2 — the fetch lands and the frame resumes: downstream re-passes
+    // over the landed value and goes async, holding the frame — the landed
+    // `data` is a value change in flight (pending, A24); the untouched
+    // sibling has none (per-node).
     resolveFetch();
     await tick();
-    expect(store.data).toBe(20);
-    expect(isPending(() => store.data)).toBe(false);
+    expect(store.data).toBe(10);
+    expect(isPending(() => store.data)).toBe(true);
     expect(isPending(() => store.other)).toBe(false);
 
     resolveDownstream();
     await tick();
     flush();
+    expect(store.data).toBe(20);
     expect(isPending(() => store.data)).toBe(false);
     dispose();
   });
