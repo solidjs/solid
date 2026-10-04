@@ -2981,7 +2981,16 @@ module.exports = [
     // over an element's direct children was weighed and rejected (~100 B
     // for a new rule: no text position at a component's top level).
     // Accepted by the maintainer. The cap is frozen again at 12.98 KB.
-    limit: "12.98 KB",
+    // Size-Exception (#3774, 2026-10-04): 12.98 -> 13.00 KB, measured at
+    // 12,997 B against `next` @ 41fdf9696's 12,976 (+21 B; +0 B minified).
+    // An address switch re-arms the shell gate and rebinds the frame in the
+    // pass that sees the new address (the follow's compute), not in an
+    // effect's run: under the hold model the run was stashed behind the
+    // gate it would release, so a second switch mid-flight never bound to
+    // the live call (`call-driven-lifecycle`). The gate signal takes
+    // `ownedWrite`; the bytes are the two `bound` locals and the option.
+    // Pending maintainer review. The cap is frozen again at 13.00 KB.
+    limit: "13.00 KB",
     alias: framesAlias,
     external: framesExternal
   },
