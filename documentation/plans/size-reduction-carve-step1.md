@@ -5461,6 +5461,101 @@ A-rules carry `Mechanism (L2, 2026-10-04)` against the running code; the
 pre-L2 paragraphs are under History verbatim. The branch's fate: **push
 and open one PR against `next`**, this document the design record.
 
+## 43. After the merge — CodSpeed against the dist; the fold queue's record (2026-10-04, 1:30–2:10 AM)
+
+#3774 merged as `1b9ceb679`. CodSpeed (not a required check) listed 14
+regressions on it; §41.1 had already shown its method — vite-node, one ESM
+module per source file, every cross-module call a namespace-object
+property load — penalizes the carve's layout and contradicts the dist on
+the core suite. Four store shapes had not been dist-measured. This section
+is both halves: the audit, and making the next report mean something.
+
+### 43.1 Benchmarks measure the built package
+
+`packages/signals/vite.config.ts`: in benchmark mode the benches'
+`src/index.js` import is aliased to the dist entry of the tier
+(`SIGNALS_TIER`, default **prod** for benchmarks — the artifact users ship;
+the test suite keeps dev), and the dist is **externalized** so Node links it
+natively — the prod build preserves modules, and vite-node's SSR transform
+would have turned its cross-module imports straight back into the namespace
+loads the alias exists to remove. `SIGNALS_BENCH=source` keeps a from-source
+loop for local iteration. A stale or missing dist fails the run with the
+rebuild instruction instead of silently timing code not under test (a fresh
+checkout bumps `src` mtimes — rebuild). The CodSpeed workflow already
+builds before benching; no workflow change. Web's benches already measured
+signals through the package `exports` (its `development` condition →
+`dist/dev.js`); signals' own were the only ones on source.
+
+Consequence for CodSpeed: the first run after this lands re-baselines every
+signals bench (a different series — bundled prod instead of per-module dev
+source). The 14 "regressions" on `1b9ceb679` are superseded by that
+re-baseline; the four shapes below are the only ones that were real, and
+43.2 is their fix.
+
+### 43.2 The four unmeasured shapes, on the dist
+
+Harness `/tmp/carve/cs3.mjs`: the CodSpeed benches reproduced exactly (one
+`createEffect` walking all 1111 tree nodes; one effect reading all ~12k
+leaves), prod dist, Node 26, fork (`next` @ `8950bb7b7`) vs L2, interleaved.
+
+| shape (CodSpeed name) | fork | L2 @ `1b9ceb679` | |
+|---|---|---|---|
+| store reconcile tree reverse: 1111 keyed nodes | 1.21–1.25 ms | 1.36–1.38 | +11% |
+| store reconcile tree shuffle: 1111 keyed nodes | 1.02–1.04 | 1.12–1.18 | +10–13% |
+| reconcile: deep tree, all ~12k paths subscribed | 3.79 | 4.37–4.41 | +15% |
+| reconcile: deep tree, 10 of ~12k paths subscribed | 0.37 | 0.22–0.38 | parity/ahead |
+| dbmon shallow full tick (1000 rows; `shapes4.mjs`) | 0.89–0.93 | 0.67–0.69 | L2 −25% |
+
+So two of CodSpeed's four were real (the tree pair is one shape), one was
+the harness (dbmon shallow — L2 is a quarter faster on the dist), one was
+noise.
+
+**Cause.** The profile's self-time differences were small (`queueFold`,
+`drainFolds`, `preBatch`, `foldTarget`, `parentSlotKey` ≈ 7–9%) but
+`(garbage collector)` was 16% against 6%, and removing the two weak-map
+operations alone took the saturated shape *under* the fork. §41.5's fold
+queue kept each adopted container's pre-batch backing in a `WeakMap`
+keyed by target, "written in place batch after batch — no churn". No
+churn, but **retention**: an entry lives as long as its target, so every
+container held its last adopted-away backing until its next adoption — for
+a keyed reconcile, the previous tick's entire tree (5,400 containers,
+12k strings) stayed reachable through the scavenges, was promoted, and
+became old-generation garbage every tick; for a store adopted once, the
+old tree is retained for the store's lifetime. A memory bug as much as a
+speed one.
+
+**Fix.** The record moves beside the target: `foldOlds`, parallel to
+`foldList`, set to `t.v` at `queueFold` for **every** queued target
+(adoption or draft) and cleared with the drain. That one record is the
+fold's base in every case — a draft's backing does not move before the
+fold (the record is `t.v` still), an adoption's swaps eagerly (the record
+is the frame committed readers keep), a mid-batch privatization or a draft
+over an adopted raw moves it again (the record is what the batch started
+from) — so `privatizedOlds`, `draftedAdoptions` and the adoption flag on
+`queueFold` go too. The target has no slot for the record (ARRAY SHAPE RULE:
+20 named fields, 21 ≡ 0 mod 3 normalizes array targets to dictionary
+mode), so the by-target lookups (`preBatch`: a container node born onto an
+open staging, a committed-frame read of a node-less staging, `_storePark`)
+go through an index map built on first use per batch and kept in step by
+`queueFold`; the drain walks the two lists together and never builds it.
+The arrays' `length = 0` releases the entries — nothing outlives the batch.
+
+**After** (same harness, interleaved, 3 rounds, medians): tree reverse
+1.232 → **1.267** (+3%), shuffle 1.196 → **1.245** (+4%, 1.137 vs 1.153 in
+the profiled run), saturated 3.166 → **3.212** (+1.5%), sparse 0.333 →
+0.330. The residual is the queue itself — `drainFolds` + `foldTarget` +
+`parentSlotKey` ≈ 3.5% of a tick — the price of a staging per adopted
+container under the hold model. `adoptPB` at 21% self is the per-adopted-raw
+`storeLookup.set` registration, the same in both arms (the lever listed with the deep-tick ruling, §42).
+No regression elsewhere: fresh stores 1.00–1.27 ms (fork 1.16), 2000 owned
+backings 0.30–0.32 (fork 0.35), enumerate 7.3/7.9 (fork 8.5/8.1),
+storebench parity; GC totals over the store battery identical to the head
+(40 scavenges 87 ms, 4 major 94 ms; fork 38/108 + 5/98). Size: within every
+cap (`+ createStore` 14519, every-store 28755, page base 44029 — 1 B under
+its cap — live 47654); a few bytes over the head per scenario, the arrays
+and the lazy index against the three collections. Signals **4894 / 0**,
+web 1132 / 0, solid 819 / 0.
+
 ---
 
 ## Appendix — ledger (verbatim)
