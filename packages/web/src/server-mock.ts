@@ -23,7 +23,7 @@ export interface ServerErrorsConfig {
  */
 export function configureServerErrors(_config: ServerErrorsConfig): void {}
 /**
- * Reports a failure that fails a request before any render met it (see the
+ * Reports a failure that fails a request outside any render (see the
  * server entry's `reportRequestFailure`). Server-only; on the client this is
  * a no-op.
  */
