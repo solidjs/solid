@@ -1,5 +1,5 @@
 @@ -20,7 +20,7 @@
- var _g11$ = ["<button class=\"", "\" type=\"button\">Write</button>"];
+ var _g11$ = ["<button", " type=\"button\">Write</button>"];
  var _g12$ = ["<button class=\"", "\">Hi</button>"];
  var _g13$ = k => {
 -  return k === "disabled" || k === "readonly" || k === "title" || k === "style";

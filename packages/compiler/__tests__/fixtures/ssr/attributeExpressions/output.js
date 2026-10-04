@@ -10,7 +10,7 @@ import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
-var _ref$, _v$, _v$2, _v$22, _v$23, _v$37, _v$38, _v$39, _v$40, _v$41;
+var _ref$, _v$, _v$2, _v$28, _v$30, _v$50, _v$51, _v$52, _v$53, _v$54;
 var _tmpl$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
 var _tmpl$2 = ["<div>", "</div>"];
 var _tmpl$3 = "<div><div/></div>";
@@ -27,7 +27,7 @@ var _tmpl$5 = [
 	"\"></div>"
 ];
 var _tmpl$6 = "<div class=\"a\" className=\"b\"></div>";
-var _tmpl$7 = ["<div style=\"", "\">Hi</div>"];
+var _tmpl$7 = ["<div", ">Hi</div>"];
 var _tmpl$8 = [
 	"<div style=\"",
 	"\" class=\"",
@@ -38,9 +38,9 @@ var _tmpl$10 = "<div onclick=\"console.log('hi')\"></div>";
 var _tmpl$11 = "<input type=\"checkbox\" checked>";
 var _tmpl$12 = ["<input type=\"checkbox\"", ">"];
 var _tmpl$13 = "<div class=\"`a\">`$`</div>";
-var _tmpl$14 = ["<button class=\"", "\" type=\"button\">Write</button>"];
+var _tmpl$14 = ["<button", " type=\"button\">Write</button>"];
 var _tmpl$15 = ["<button class=\"", "\">Hi</button>"];
-var _tmpl$16 = ["<div class=\"", "\"></div>"];
+var _tmpl$16 = ["<div", "></div>"];
 var _tmpl$17 = [
 	"<div><input",
 	"",
@@ -64,7 +64,7 @@ var _tmpl$21 = [
 	"</div>"
 ];
 var _tmpl$22 = "<div class=\"class1 class2 class3 class4 class5 class6\" style=\"color:red;background-color:blue !important;border:1px solid black;font-size:12px;\" random=\"random1 random2\n    random3 random4\"></div>";
-var _tmpl$23 = ["<button class=\"", "\"></button>"];
+var _tmpl$23 = ["<button", "></button>"];
 var _tmpl$24 = "<input value=\"10\">";
 var _tmpl$25 = [
 	"<select",
@@ -105,32 +105,38 @@ var _tmpl$47 = [
 ];
 var _tmpl$48 = [
 	"<button type=\"button\"",
-	" style=\"",
-	"\" class=\"",
-	"\">",
+	"",
+	"",
+	">",
 	"</button>"
 ];
 var _tmpl$49 = ["<style>", "</style>"];
 var _tmpl$50 = ["<div class=\"bg-(--bg)\" style=\"", "\"></div>"];
-var _tmpl$51 = ["<div", "></div>"];
-var _tmpl$52 = ["<div class=\"progress-fill\" style=\"", "\"></div>"];
-var _tmpl$53 = [
+var _tmpl$51 = ["<div class=\"progress-fill\" style=\"", "\"></div>"];
+var _tmpl$52 = [
 	"<div><textarea>",
 	"</textarea><textarea>",
 	"</textarea><textarea>",
 	"</textarea><textarea></textarea><textarea>",
 	"</textarea><textarea>static content</textarea><textarea>static content</textarea></div>"
 ];
-var _tmpl$54 = ["<div><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
-var _tmpl$55 = [
+var _tmpl$53 = ["<div><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
+var _tmpl$54 = [
 	"<div><textarea>a &lt;b> &amp; c</textarea>",
 	"",
 	"",
 	"</div>"
 ];
-var _tmpl$56 = "if (a < b) { x && y }";
-var _tmpl$57 = "a < b { x: 1 }";
-var _tmpl$58 = "a &lt; b";
+var _tmpl$55 = "if (a < b) { x && y }";
+var _tmpl$56 = "a < b { x: 1 }";
+var _tmpl$57 = "a &lt; b";
+var _tmpl$58 = [
+	"<div",
+	"",
+	"",
+	"></div>"
+];
+var _tmpl$59 = "<div class></div>";
 var _sk$ = (k) => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class";
 var _sk$2 = (k) => k === "class" || k === "style";
 var _sk$3 = (k) => k === "something";
@@ -177,19 +183,19 @@ var _v$5 = () => {
 };
 const template4 = _$ssr(_tmpl$5, _v$5, "ccc:ddd");
 const template5 = _$ssr(_tmpl$6);
-var _v$6 = () => {
-	return _$ssrStyle(someStyle());
-};
-const template6 = _$ssr(_tmpl$7, _v$6);
-let undefVar;
 var _v$7 = () => {
+	return ((_v$6) => _v$6 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$6)))(someStyle());
+};
+const template6 = _$ssr(_tmpl$7, _v$7);
+let undefVar;
+var _v$8 = () => {
 	return _$ssrStyle({
 		"background-color": color(),
 		"margin-right": "40px",
 		...props.style
 	});
 };
-const template7 = _$ssr(_tmpl$8, _v$7, undefVar ? "other-class2" : "");
+const template7 = _$ssr(_tmpl$8, _v$8, undefVar ? "other-class2" : "");
 let refTarget;
 var _ref$2 = refTarget;
 const template8 = _$ssr(_tmpl$9);
@@ -199,46 +205,46 @@ var _ref$4 = refFactory();
 const template10 = _$ssr(_tmpl$9);
 const template12 = _$ssr(_tmpl$10);
 const template13 = _$ssr(_tmpl$11);
-var _v$8 = () => {
+var _v$9 = () => {
 	return _$ssrAttribute("checked", _$escape(state.visible, true));
 };
-const template14 = _$ssr(_tmpl$12, _v$8);
+const template14 = _$ssr(_tmpl$12, _v$9);
 const template15 = _$ssr(_tmpl$13);
-const template16 = _$ssr(_tmpl$14, _$ssrClassName(["static", { hi: "k" }]));
+const template16 = _$ssr(_tmpl$14, ((_v$10) => _v$10 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$10)))(["static", { hi: "k" }]));
 const template17 = _$ssr(_tmpl$15, "a  b  c");
 const template18 = _$ssrElement("div", { get [key()]() {
 	return props.value;
 } }, undefined, false);
-const template19 = _$ssr(_tmpl$16, _$ssrClassName([{ "bg-red-500": true }, "flex flex-col"]));
+const template19 = _$ssr(_tmpl$16, ((_v$11) => _v$11 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$11)))([{ "bg-red-500": true }, "flex flex-col"]));
 var _g$3 = _$ssrGroup(() => {
 	return [_$ssrAttribute("min", _$escape(min(), true)), _$ssrAttribute("max", _$escape(max(), true))];
 }, 2), _g$2 = _$ssrGroup(() => {
 	return [_$ssrAttribute("min", _$escape(min(), true)), _$ssrAttribute("max", _$escape(max(), true))];
-}, 2), _v$9 = () => {
+}, 2), _v$12 = () => {
 	return _$ssrAttribute("value", _$escape(s(), true));
-}, _v$12 = () => {
+}, _v$15 = () => {
 	return _$ssrAttribute("checked", _$escape(s2(), true));
 };
-const template20 = _$ssr(_tmpl$17, _v$9, _g$3, _g$3, _v$12, _g$2, _g$2, _$ssrAttribute("readonly", _$escape(value, true)));
-var _v$15 = () => {
+const template20 = _$ssr(_tmpl$17, _v$12, _g$3, _g$3, _v$15, _g$2, _g$2, _$ssrAttribute("readonly", _$escape(value, true)));
+var _v$18 = () => {
 	return _$ssrStyle({
 		a: "static",
 		...rest
 	});
 };
-const template21 = _$ssr(_tmpl$18, _v$15);
+const template21 = _$ssr(_tmpl$18, _v$18);
 const template22 = _$ssr(_tmpl$19);
-var _v$16 = () => {
+var _v$19 = () => {
 	return _$ssrAttribute("disabled", "t" in _$escape(test, true));
-}, _v$17 = () => {
+}, _v$20 = () => {
 	return "t" in test && "true";
 };
-const template23 = _$ssr(_tmpl$20, _v$16, _v$17);
+const template23 = _$ssr(_tmpl$20, _v$19, _v$20);
 const template24 = _$ssrElement("a", props, undefined, false, _sk$3, " something");
-var _v$18 = () => {
+var _v$21 = () => {
 	return _$escape(props.children);
-}, _v$19 = _$ssrElement("a", props, undefined, false, _sk$3, " something");
-const template25 = _$ssr(_tmpl$21, _v$18, _v$19);
+}, _v$22 = _$ssrElement("a", props, undefined, false, _sk$3, " something");
+const template25 = _$ssr(_tmpl$21, _v$21, _v$22);
 const template26 = _$ssrElement("div", [{
 	start: "Hi",
 	middle
@@ -256,23 +262,23 @@ const template28 = _$ssrElement("label", api(), [
 	_$ssrElement("input", api(), undefined, false),
 	_$ssrElement("div", api(), undefined, false)
 ], false);
-var _v$20 = !!someValue;
-const template29 = _$ssr(_tmpl$20, _$ssrAttribute("attribute", !!someValue), _v$20);
+var _v$23 = !!someValue;
+const template29 = _$ssr(_tmpl$20, _$ssrAttribute("attribute", !!someValue), _v$23);
 const template30 = _$ssr(_tmpl$22);
-var _v$21 = () => {
+var _v$24 = () => {
 	return _$ssrStyleProperty("background-color:", _$escape(getStore.itemProperties.color, true));
 };
-const template31 = _$ssr(_tmpl$18, _v$21);
+const template31 = _$ssr(_tmpl$18, _v$24);
 const template32 = _$ssr(_tmpl$18, _$ssrStyleProperty("background-color:", _$escape(undefined, true)));
 const template33 = [
-	_$ssr(_tmpl$23, _$ssrClassName(styles.button)),
-	_$ssr(_tmpl$23, _$ssrClassName(styles["foo--bar"])),
-	(_v$22 = () => {
-		return _$ssrClassName(styles.foo.bar);
-	}, _$ssr(_tmpl$23, _v$22)),
-	(_v$23 = () => {
-		return _$ssrClassName(styles[foo()]);
-	}, _$ssr(_tmpl$23, _v$23))
+	_$ssr(_tmpl$23, ((_v$25) => _v$25 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$25)))(styles.button)),
+	_$ssr(_tmpl$23, ((_v$26) => _v$26 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$26)))(styles["foo--bar"])),
+	(_v$28 = () => {
+		return ((_v$27) => _v$27 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$27)))(styles.foo.bar);
+	}, _$ssr(_tmpl$23, _v$28)),
+	(_v$30 = () => {
+		return ((_v$29) => _v$29 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$29)))(styles[foo()]);
+	}, _$ssr(_tmpl$23, _v$30))
 ];
 var _ref$5 = a().b.c;
 const template35 = _$ssr(_tmpl$9);
@@ -283,18 +289,18 @@ const template37 = _$ssr(_tmpl$9);
 var _ref$8 = a() ?? b;
 const template38 = _$ssr(_tmpl$9);
 const template39 = _$ssr(_tmpl$24);
-var _v$24 = () => {
+var _v$31 = () => {
 	return _$ssrStyleProperty("color:", _$escape(a(), true));
 };
-const template40 = _$ssr(_tmpl$18, _v$24);
-var _v$25 = () => {
+const template40 = _$ssr(_tmpl$18, _v$31);
+var _v$32 = () => {
 	return _$ssrAttribute("value", _$escape(state.color, true));
-}, _v$26 = () => {
+}, _v$33 = () => {
 	return _$ssrAttribute("value", _$escape(Color.Red, true));
-}, _v$27 = () => {
+}, _v$34 = () => {
 	return _$ssrAttribute("value", _$escape(Color.Blue, true));
 };
-const template41 = _$ssr(_tmpl$25, _v$25, _v$26, _v$27);
+const template41 = _$ssr(_tmpl$25, _v$32, _v$33, _v$34);
 const template42 = _$ssr(_tmpl$26);
 const template43 = _$ssr(_tmpl$27);
 const template44 = _$ssr(_tmpl$28);
@@ -324,15 +330,15 @@ const template62 = _$ssr(_tmpl$40);
 const template63 = _$ssr(_tmpl$18, _$ssrStyleProperty("background:", "red"));
 const template64 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "margin:", 3, "padding:", .4));
 const template65 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(undefined, true)));
-var _v$28 = () => {
+var _v$35 = () => {
 	return _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(signal(), true));
 };
-const template66 = _$ssr(_tmpl$18, _v$28);
+const template66 = _$ssr(_tmpl$18, _v$35);
 const template67 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(somevalue, true)));
-var _v$29 = () => {
+var _v$36 = () => {
 	return _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(some.access, true));
 };
-const template68 = _$ssr(_tmpl$18, _v$29);
+const template68 = _$ssr(_tmpl$18, _v$36);
 const template69 = _$ssr(_tmpl$18, _$ssrStyleProperties("background:", "red", "color:", "green", "border:", _$escape(null, true)));
 const template70 = _$ssr(_tmpl$41, _$ssrAttribute("playsinline", _$escape(value, true)));
 const template71 = _$ssr(_tmpl$42);
@@ -343,11 +349,11 @@ const template75 = _$ssr(_tmpl$43);
 const template76 = _$ssr(_tmpl$46);
 // STATIC TESTS
 const template77 = _$ssr(_tmpl$18, _$ssrStyleProperties("width:", _$escape(props.width, true), "height:", _$escape(props.height, true)));
-var _v$30 = () => {
+var _v$37 = () => {
 	return _$ssrAttribute("something", _$escape(color(), true));
 };
-const template78 = _$ssr(_tmpl$47, _$ssrStyleProperties("width:", _$escape(props.width, true), "height:", _$escape(props.height, true)), _v$30);
-var _v$31 = () => {
+const template78 = _$ssr(_tmpl$47, _$ssrStyleProperties("width:", _$escape(props.width, true), "height:", _$escape(props.height, true)), _v$37);
+var _v$38 = () => {
 	return _$ssrStyleProperties(
 		"width:",
 		_$escape(props.width, true),
@@ -356,7 +362,7 @@ var _v$31 = () => {
 		_$escape(props.height, true)
 	);
 };
-const template79 = _$ssr(_tmpl$47, _v$31, _$ssrAttribute(
+const template79 = _$ssr(_tmpl$47, _v$38, _$ssrAttribute(
 	"something",
 	/*@static*/
 	_$escape(color(), true)
@@ -397,53 +403,53 @@ const styleProp = { style: {
 	width: props.width,
 	height: props.height
 } };
-const template85 = _$ssr(_tmpl$18, _$ssrStyle(
+const template85 = _$ssr(_tmpl$16, ((_v$39) => _v$39 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$39)))(
 	/* @static */
 	styleProp.style
 ));
-var _v$32 = () => {
-	return _$ssrStyle(styleProp.style);
+var _v$41 = () => {
+	return ((_v$40) => _v$40 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$40)))(styleProp.style);
 };
-const template86 = _$ssr(_tmpl$18, _v$32);
+const template86 = _$ssr(_tmpl$16, _v$41);
 const style = {
 	background: "red",
 	border: "solid black " + count() + "px"
 };
-var _v$33 = () => {
+var _v$42 = () => {
 	return _$ssrAttribute("aria-label", _$escape(count(), true));
-}, _v$34 = () => {
+}, _v$45 = () => {
 	return _$escape(count());
 };
-const template87 = _$ssr(_tmpl$48, _v$33, _$ssrStyle(style), _$ssrClassName(style), _v$34);
-var _v$35 = () => {
+const template87 = _$ssr(_tmpl$48, _v$42, ((_v$43) => _v$43 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$43)))(style), ((_v$44) => _v$44 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$44)))(style), _v$45);
+var _v$46 = () => {
 	return _$ssrAttribute("aria-label", _$escape(count(), true));
-}, _v$36 = () => {
+}, _v$49 = () => {
 	return _$escape(count());
 };
-const template88 = _$ssr(_tmpl$48, _v$35, _$ssrStyle(
+const template88 = _$ssr(_tmpl$48, _v$46, ((_v$47) => _v$47 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$47)))(
 	/* @static*/
 	style
-), _$ssrClassName(
+), ((_v$48) => _v$48 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$48)))(
 	/* @static*/
 	style
-), _v$36);
+), _v$49);
 const css = () => "&{color:red}";
 const template89 = [
-	(_v$37 = () => {
+	(_v$50 = () => {
 		return css();
-	}, _$ssr(_tmpl$49, _v$37)),
-	(_v$38 = () => {
+	}, _$ssr(_tmpl$49, _v$50)),
+	(_v$51 = () => {
 		return css();
-	}, _$ssr(_tmpl$49, _v$38)),
-	(_v$39 = () => {
+	}, _$ssr(_tmpl$49, _v$51)),
+	(_v$52 = () => {
 		return css();
-	}, _$ssr(_tmpl$49, _v$39)),
-	(_v$40 = () => {
+	}, _$ssr(_tmpl$49, _v$52)),
+	(_v$53 = () => {
 		return css();
-	}, _$ssr(_tmpl$49, _v$40)),
-	(_v$41 = () => {
+	}, _$ssr(_tmpl$49, _v$53)),
+	(_v$54 = () => {
 		return css();
-	}, _$ssr(_tmpl$49, _v$41))
+	}, _$ssr(_tmpl$49, _v$54))
 ];
 const styleProps = { children: css };
 const template90 = [
@@ -464,41 +470,41 @@ const template90 = [
 	} }], undefined, false)
 ];
 const nope = () => undefined;
-var _v$42 = () => {
+var _v$55 = () => {
 	return _$ssrStyleProperty("--bg:", _$escape(nope(), true));
 };
-const template91 = _$ssr(_tmpl$50, _v$42);
+const template91 = _$ssr(_tmpl$50, _v$55);
 const template92 = _$ssr(_tmpl$9);
-var _v$43 = () => {
+var _v$56 = () => {
 	return _$ssrAttribute("data-test", _$escape(state.flag || undefined, true));
 };
-const template93 = _$ssr(_tmpl$51, _v$43);
+const template93 = _$ssr(_tmpl$16, _v$56);
 function Progress(props) {
-	var _v$44 = () => {
+	var _v$57 = () => {
 		return _$ssrStyleProperty(_$escape(props.orientation === "y" ? "height" : "width", true) + ":", `${_$escape(props.value, true) * 100}%`);
 	};
-	return _$ssr(_tmpl$52, _v$44);
+	return _$ssr(_tmpl$51, _v$57);
 }
-var _v$45 = () => {
+var _v$58 = () => {
 	return _$escape(dynamicProperty());
-}, _v$46 = () => {
+}, _v$59 = () => {
 	return _$escape(dynamicProperty());
-}, _v$47 = () => {
+}, _v$60 = () => {
 	return _$escape(dynamicContent());
-}, _v$48 = () => {
+}, _v$61 = () => {
 	return _$escape(dynamicContent());
 };
-const template94 = _$ssr(_tmpl$53, _v$45, _v$46, _v$47, _v$48);
-var _v$49 = () => {
+const template94 = _$ssr(_tmpl$52, _v$58, _v$59, _v$60, _v$61);
+var _v$62 = () => {
 	return _$ssrAttribute("muted", _$escape(dynamicAttribute(), true));
 };
-const template95 = _$ssr(_tmpl$54, _v$49);
-var _v$50 = _$ssrElement("textarea", [spread, { value: "a <b> & c" }], undefined, false), _v$51 = _$ssrElement("textarea", [spread, { value: "static" }], undefined, false), _v$52 = _$ssrElement("textarea", [{ value: "static" }, spread], undefined, false);
-const template96 = _$ssr(_tmpl$55, _v$50, _v$51, _v$52);
+const template95 = _$ssr(_tmpl$53, _v$62);
+var _v$63 = _$ssrElement("textarea", [spread, { value: "a <b> & c" }], undefined, false), _v$64 = _$ssrElement("textarea", [spread, { value: "static" }], undefined, false), _v$65 = _$ssrElement("textarea", [{ value: "static" }, spread], undefined, false);
+const template96 = _$ssr(_tmpl$54, _v$63, _v$64, _v$65);
 const template97 = [
-	_$ssrElement("script", spread, _$ssr(_tmpl$56), false),
-	_$ssrElement("style", spread, _$ssr(_tmpl$57), false),
-	_$ssrElement("div", spread, _$ssr(_tmpl$58), false)
+	_$ssrElement("script", spread, _$ssr(_tmpl$55), false),
+	_$ssrElement("style", spread, _$ssr(_tmpl$56), false),
+	_$ssrElement("div", spread, _$ssr(_tmpl$57), false)
 ];
 // Static attributes after the last spread bake into ssrElement's attribute
 // string with their keys skipped on the spread; statics before a spread, and
@@ -519,7 +525,17 @@ const template113 = _$ssrElement("div", [
 const template114 = _$ssrElement("input", spread, undefined, false, _sk$8, " type=\"text\" tabindex=\"0\" style=\" color:red;top:0 \"");
 const template115 = _$ssrElement("textarea", [spread, { innerHTML: "<b>x</b>" }], undefined, false);
 const template116 = _$ssrElement("li", spread, undefined, false, _sk$5, " class=\"row\" data-kind=\"item\"");
-var _v$53 = () => {
+var _v$66 = () => {
 	return _$ssrStyleProperties("color:", _$escape(color(), true), _$escape(key, true) + ":", _$escape(size(), true), "margin-right:", "40px");
 };
-const template117 = _$ssr(_tmpl$18, _v$53);
+const template117 = _$ssr(_tmpl$18, _v$66);
+const nullishAttributes = _$ssr(_tmpl$58, ((_v$67) => _v$67 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$67)))(null), ((_v$68) => _v$68 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$68)))(undefined), _$ssrAttribute("title", _$escape(null, true)));
+var _g$4 = _$ssrGroup(() => {
+	return [
+		((_v$69) => _v$69 == null ? "" : _$ssrAttribute("style", _$ssrStyle(_v$69)))(props.style),
+		((_v$71) => _v$71 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$71)))(props.class),
+		_$ssrAttribute("title", _$escape(props.title, true))
+	];
+}, 3);
+const nullableAttributes = _$ssr(_tmpl$58, _g$4, _g$4, _g$4);
+const emptyAttributes = _$ssr(_tmpl$59);
