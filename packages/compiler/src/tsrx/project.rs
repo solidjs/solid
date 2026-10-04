@@ -165,9 +165,8 @@ fn collect_specials<'t>(
                 || styles.owner_setups.contains_key(&start)
                 || has_synthetic_closing_element(node)))
         || (ty == "JSXFragment" && styles.owner_setups.contains_key(&start))
+        || is_synthetic_undefined(node)
     {
-        node.span()
-    } else if is_synthetic_undefined(node) {
         node.span()
     } else {
         None
