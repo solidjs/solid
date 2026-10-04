@@ -868,7 +868,10 @@ module.exports = [
     // with `wk` and for covering enumerability and inherited accessors.
     // Accepted by the maintainer. On the store read path, paid by every
     // store user; core floor 0 B.
-    limit: "16.85 KB",
+    // Lowered (#3774, 2026-10-04): 16.85 -> 14.53 KB, measured at 14.52 KB by CI
+    // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
+    // rulings. Lowering is the ratchet; raise only with a Size-Exception.
+    limit: "14.53 KB",
     alias
   },
   {
@@ -1091,7 +1094,10 @@ module.exports = [
     // writes apply first, then derivations re-run: the frame-scoped mask
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise.
-    limit: "12.16 KB",
+    // Lowered (#3774, 2026-10-04): 12.16 -> 9.45 KB, measured at 9.44 KB by CI
+    // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
+    // rulings. Lowering is the ratchet; raise only with a Size-Exception.
+    limit: "9.45 KB",
     alias
   },
   {
@@ -1966,7 +1972,10 @@ module.exports = [
     // 30,818 B against `next` @ 3ed381009's 30,817 (+1 B; -82 B minified). The
     // same mask removal as the core floor note; brotli layout over the larger
     // bundle keeps it 28 B over the pre-#3740 30.79 KB, so that raise stays.
-    limit: "30.82 KB",
+    // Lowered (#3774, 2026-10-04): 30.82 -> 28.78 KB, measured at 28.77 KB by CI
+    // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
+    // rulings. Lowering is the ratchet; raise only with a Size-Exception.
+    limit: "28.78 KB",
     alias
   },
   {
@@ -2177,7 +2186,10 @@ module.exports = [
     // 14.94 KB, measured at 14,938 B against `next` @ f1b07761f's 14,933 (+5 B;
     // -3 B minified). Same parking-gate change as the hydrating note; brotli
     // layout over the shifted stream.
-    limit: "14.94 KB",
+    // Lowered (#3774, 2026-10-04): 14.94 -> 12.82 KB, measured at 12.81 KB by CI
+    // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
+    // rulings. Lowering is the ratchet; raise only with a Size-Exception.
+    limit: "12.82 KB",
     alias
   },
   {
@@ -2438,7 +2450,10 @@ module.exports = [
     // request reconstruction and response clone are taken only for a body
     // viewer, never for an APM-style listener (+235 B minified). Every prod
     // scenario byte-identical.
-    limit: "16.48 KB",
+    // Lowered (#3774, 2026-10-04): 16.48 -> 14.39 KB, measured at 14.38 KB by CI
+    // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
+    // rulings. Lowering is the ratchet; raise only with a Size-Exception.
+    limit: "14.39 KB",
     alias: observeAlias
   },
   {
@@ -2810,7 +2825,10 @@ module.exports = [
     // by the nearest marked ancestor, so a devtools shell rendered AROUND
     // the app can hand the app back to the engine. No engine change; every
     // prod scenario byte-identical.
-    limit: "30.71 KB",
+    // Lowered (#3774, 2026-10-04): 30.71 -> 28.61 KB, measured at 28.60 KB by CI
+    // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
+    // rulings. Lowering is the ratchet; raise only with a Size-Exception.
+    limit: "28.61 KB",
     alias: observeAlias
   },
   {
