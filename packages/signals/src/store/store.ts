@@ -720,12 +720,11 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
     pb = target.pb = cloneRaw(pb, target);
-    draftedAdoptions.add(target);
     const k = target.k;
     if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
     const v = target.v;
-    if (!directCommit) queueFold(target, false);
+    if (!directCommit) queueFold(target);
     if (
       !target.ch &&
       !Array.isArray(v) &&
@@ -747,10 +746,8 @@ function privatizeCommitted(target: StoreTarget): void {
   if (isOwned(target.v)) return;
   const before = target.v;
   const clone = cloneRaw(before, target);
-  // Mid-batch (a staging is open on this target): the fold must still see
-  // the backing the batch started from (`preBatch`).
-  if (target.pb !== null && target.pb !== before && !draftedAdoptions.has(target))
-    privatizedOlds.set(target, before);
+  // Mid-batch (a staging is open on this target) the fold still sees the
+  // backing the batch started from: the queue recorded it (`foldOlds`).
   target.v = clone;
   target.ch = false;
   if (target.u) {
@@ -809,7 +806,7 @@ export function adoptPB(
   incoming: Record<PropertyKey, any>,
   notify = true
 ): void {
-  if (!directCommit) queueFold(target, true);
+  if (!directCommit) queueFold(target);
   let base: Record<PropertyKey, any>;
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
@@ -852,35 +849,48 @@ export function adoptPB(
  * of the tick's young-generation GC, and the whole of its gap to `next`
  * (plan sec. 41.5).
  *
- * The pre-batch committed backing (`preBatch`): a DRAFT's is `t.v` itself —
- * the backing does not move until the fold — so nothing is recorded for
- * it (2000 fresh one-key stores per flush recorded 2000 weak-map entries
- * for nothing, 2× the fork); an ADOPTION swaps the backing eagerly, so its
- * pre-batch backing is kept in a weak map written in place batch after
- * batch (the containers of a keyed reconcile are reused — no churn); the
- * two rare cases that move a draft's backing mid-batch — a privatization
- * (a child's path copy repointed the parent), a draft over an adopted raw
- * (cloned) — are kept in small per-batch maps. */
+ * Beside each target, its PRE-BATCH committed backing — `t.v` as the batch
+ * opened on it (`foldOlds`, parallel to `foldList`). That one record is the
+ * fold's base in every case: a draft's backing does not move until the fold
+ * (so the record is `t.v` still), an adoption swaps it eagerly (the record
+ * is the frame committed readers keep), a mid-batch privatization or a
+ * draft over an adopted raw moves it again (the record is what the batch
+ * started from, which is all the fold wants to know). The record lives
+ * exactly as long as the batch: a weak map keyed by target kept every
+ * container's LAST adopted-away backing alive until its next adoption —
+ * for a keyed reconcile, the whole previous tree promoted out of the
+ * nursery every tick (the saturated listened-paths shape ran 15–25% over
+ * the fork, all of it this; plan sec. 43.2) — and for a store adopted
+ * once, for its lifetime.
+ *
+ * The target carries no slot for its record (ARRAY SHAPE RULE, target.ts),
+ * so a lookup by target (`preBatch`: a container node born onto an open
+ * staging, a committed-frame read of a node-less staging, a park) indexes
+ * the list through a map built on first use per batch — the drain itself
+ * walks the two lists in step and never builds it. */
 let foldList: StoreTarget[] = [];
+let foldOlds: Record<PropertyKey, any>[] = [];
 let foldSpare: StoreTarget[] = [];
-const adoptOlds = new WeakMap<StoreTarget, Record<PropertyKey, any>>();
-const privatizedOlds = new Map<StoreTarget, Record<PropertyKey, any>>();
-const draftedAdoptions = new Set<StoreTarget>();
+let foldOldsSpare: Record<PropertyKey, any>[] = [];
+let foldIndex: Map<StoreTarget, number> | null = null;
 
 /** Before the staging is set and before an adoption swaps the backing. */
-function queueFold(target: StoreTarget, adoption: boolean): void {
+function queueFold(target: StoreTarget): void {
   if (target.pb !== null) return;
   schedule();
-  if (adoption) adoptOlds.set(target, target.v);
+  if (foldIndex !== null) foldIndex.set(target, foldList.length);
   foldList.push(target);
+  foldOlds.push(target.v);
 }
 
-/** The committed backing before this batch (valid while `pb !== null`). An
- * eager adoption nothing wrote after is `pb === v`; one a draft wrote over
- * is listed; a privatized draft's is listed; any other draft's is `v`. */
+/** The committed backing before this batch (valid while `pb !== null`). */
 function preBatch(t: StoreTarget): Record<PropertyKey, any> {
-  if (t.pb === t.v || draftedAdoptions.has(t)) return adoptOlds.get(t) ?? t.v;
-  return privatizedOlds.get(t) ?? t.v;
+  if (foldIndex === null) {
+    foldIndex = new Map();
+    for (let i = 0; i < foldList.length; i++) foldIndex.set(foldList[i], i);
+  }
+  const at = foldIndex.get(t);
+  return at === undefined ? t.v : foldOlds[at];
 }
 
 /** The flush committed its pending nodes: fold every pending backing whose
@@ -891,21 +901,24 @@ function preBatch(t: StoreTarget): Record<PropertyKey, any> {
 function drainFolds(): void {
   if (foldList.length !== 0) {
     const list = foldList;
+    const olds = foldOlds;
     foldList = foldSpare;
+    foldOlds = foldOldsSpare;
     foldSpare = list;
+    foldOldsSpare = olds;
+    foldIndex = null;
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
       if (t.pb === null) continue; // folded already (a direct commit)
       const k = t.k;
-      if (k !== null && k._pendingValue !== NOT_PENDING)
-        foldList.push(t); // held: commits with its hold
-      else foldTarget(t, preBatch(t));
+      if (k !== null && k._pendingValue !== NOT_PENDING) {
+        // held: commits with its hold
+        foldList.push(t);
+        foldOlds.push(olds[i]);
+      } else foldTarget(t, olds[i]);
     }
     list.length = 0;
-    if (foldList.length === 0) {
-      if (privatizedOlds.size !== 0) privatizedOlds.clear();
-      if (draftedAdoptions.size !== 0) draftedAdoptions.clear();
-    }
+    olds.length = 0;
   }
   if (deferredReleases.size !== 0) {
     for (const node of deferredReleases) {
