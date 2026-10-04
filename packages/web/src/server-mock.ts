@@ -7,7 +7,7 @@ import type { ServerErrorSite } from "solid-js";
  * Where a server-side failure was met, as the server error hook hears it —
  * the client's view of the server entry's type (see `configureServerErrors`
  * there). `kind: "render"`: `fallback`/`client`/`failed`; `kind:
- * "server-function"`: `thrown`/`channel`.
+ * "server-function"`: `thrown`/`channel`; `kind: "request"`: `failed`.
  */
 export interface ServerErrorContext extends Omit<ServerErrorSite, "event"> {
   event?: RequestEvent;
@@ -22,6 +22,12 @@ export interface ServerErrorsConfig {
  * is a no-op so isomorphic setup code can call it unguarded.
  */
 export function configureServerErrors(_config: ServerErrorsConfig): void {}
+/**
+ * Reports a failure that fails a request outside any render (see the
+ * server entry's `reportRequestFailure`). Server-only; on the client this is
+ * a no-op.
+ */
+export function reportRequestFailure(_error: unknown, _event: RequestEvent): void {}
 
 function throwInBrowser(func: Function) {
   const err = new Error(`${func.name} is not supported in the browser, returning undefined`);

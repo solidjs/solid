@@ -1702,8 +1702,10 @@ export function renderToString<T>(
      * This render's server error hook, ahead of `configureServerErrors`'
      * (see `ServerErrorHook`): every failure the render handles — an
      * `<Errored>` fallback (`handling: "fallback"`), a hydration value that
-     * would not serialize (`"serialize"`) — once per error, with where it
-     * was met. A one-argument listener still works; it hears them all.
+     * would not serialize (`"serialize"`) — and the throw that fails it
+     * (`"failed"`, heard before it is rethrown to the caller), once per
+     * error, with where it was met. A one-argument listener still works; it
+     * hears them all.
      */
     onError?: ServerErrorHook;
     /**
@@ -1853,6 +1855,11 @@ export function renderToString(code, options = {}) {
     }
     rendered = true;
     return document;
+  } catch (err) {
+    // The rethrow is the caller's, so no console fallback; the hook hears it
+    // first, and a handler's `reportRequestFailure` of it is a repeat.
+    reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+    throw err;
   } finally {
     // The render record settles before the trace is let go: a listener
     // reading `getTraceContext()` from its callback finds the render's.
@@ -2949,7 +2956,15 @@ export function renderToStream(code, options = {}) {
       };
       rootOwner = claimRenderRoot(context);
       if (requestEvent) claimEventRender(requestEvent, context);
-      const res = resolveSSRNode(escape(code()));
+      let res;
+      try {
+        res = resolveSSRNode(escape(code()));
+      } catch (err) {
+        // The first pass throws out of `renderToStream` to the caller: the
+        // hook hears it first, as for `renderToString`.
+        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+        throw err;
+      }
       if (!res.h.length) return res.t[0];
       rootHoles = [];
       let out = res.t[0];
@@ -6127,12 +6142,17 @@ export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") 
  *
  * `kind: "render"` — `fallback`: an `<Errored>` rendered its fallback;
  * `client`: a `<Loading>` fragment rejected and the client re-renders the
- * subtree; `failed`: nothing contained it and the request fails;
+ * subtree; `failed`: nothing contained it and the request fails — including
+ * a synchronous throw out of `renderToString` or `renderToStream`'s first
+ * pass, reported before it reaches the caller;
  * `serialize`: a hydration value would not serialize and the render went on
  * without it (a render that passed `onError`). `kind: "server-function"` — `thrown`:
  * the body threw; `channel`: a rejection or throw escaping through the
  * result graph (a promise, an iterable, a stream) with the head already
- * committed. `boundary` is the hydration id the boundary records and
+ * committed. `kind: "request"` (always `failed`): a failure that fails the
+ * request outside any render or server function the runtime reports — a
+ * middleware throw the framework's request handler catches (see
+ * `reportRequestFailure`). `boundary` is the hydration id the boundary records and
  * findings use; `ownerPath` is where the error was THROWN — the component
  * labels root-first up the owner chain it escaped, when the compiler emitted
  * them — and `boundaryPath` where it was MET, the same labels up the
@@ -6194,6 +6214,21 @@ const ServerErrors: unique symbol = Symbol.for("solid-js/server/errors") as any;
 export function configureServerErrors(config: ServerErrorsConfig): void;
 
 /**
+ * Reports a failure that fails a request outside any render or server
+ * function the runtime reports, such as a throw a framework's request
+ * handler catches from its middleware. The ambient server error hook hears
+ * it as `{ kind: "request", handling: "failed", event }`, once per error
+ * object, and its return is ignored, as for every `handling: "failed"`. A
+ * render failure is the render's: a synchronous throw out of
+ * `renderToString` or `renderToStream` was already heard as `kind:
+ * "render"` before the caller caught it, so reporting it here adds nothing.
+ * With no hook registered the failure goes to `console.error`, as a render
+ * that fails before its shell does. There is no per-request hook at this
+ * layer.
+ */
+export function reportRequestFailure(error: unknown, event: RequestEvent): void;
+
+/**
  * The serializer's `onError`, when a render passed one: seroval reports a
  * value that would not serialize here instead of throwing at the write
  * (that difference is why this is only wired when a hook was given — as
@@ -6219,6 +6254,11 @@ export function configureServerErrors(config) {
     throw new TypeError(`Invalid onError: expected a function, received ${typeof config.onError}.`);
   }
   (g[ServerErrors] ||= {}).hook = config ? config.onError : undefined;
+}
+
+export function reportRequestFailure(error, event) {
+  reportServerError(error, { kind: "request", handling: "failed", event }, null);
+  if (ambientServerErrorHook() === undefined) console.error(error);
 }
 
 /**

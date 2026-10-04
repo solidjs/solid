@@ -3243,6 +3243,15 @@ module.exports = [
     // text positions themselves, so none of that code is retained here; the
     // code shrinks and brotli layout grows. Accepted by the maintainer. The
     // cap is frozen again at 20.38 KB.
+    // Size-Exception (#3763, 2026-10-03): 20.38 -> 20.42 KB, measured at
+    // 20,412 B against `next` @ 4738c6dfe's 20,377 (+35 B; 32 B over the cap;
+    // +72 B minified, 71,741 -> 71,813). A synchronous throw out of
+    // `renderToString` is reported to the server error hook as
+    // `render`/`failed` before it is rethrown, so a request handler's
+    // `reportRequestFailure` of the same error is deduped instead of being
+    // heard as `request`. The cost is the `catch` and its one
+    // `reportServerError` call (already retained here). Accepted by the
+    // maintainer. The cap is frozen again at 20.42 KB.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     limit: floorCaps["server: renderToString (the server-render floor)"],
