@@ -5492,6 +5492,21 @@ source). The 14 "regressions" on `1b9ceb679` are superseded by that
 re-baseline; the four shapes below are the only ones that were real, and
 43.2 is their fix.
 
+**The PR's first CodSpeed run** (#3776, `3ab88fd5e` vs `next`): 84
+improved (×2–5 — the layout cost, now gone from the measurement: dbmon
+full tick 750 → 337 ms of simulated time, createOwners ×5), 100 untouched,
+4 "regressed", flagged by CodSpeed itself as compared across different
+runtime environments. All four are the instrument: `merge-merge-mixed(deep
+0, 100, 3, 2)` 46 → 819 µs is a GC landing inside a ~75 ns operation's
+measured window (`--predictable-gc-schedule`; the operation itself is 72–98
+ns on prod and dev dist alike, JIT or `--no-opt`, every variant);
+`merge-static(deep)` −7% is the same window's small cousin; and the two
+`projection-root-write` rows had no live base at all — that file **fails to
+load under the dev tier** (a store write inside `createRoot` trips the
+owned-scope check), so its base was stale while the prod run has values
+(20 µs each, consistent with the file's own reference line). The warm-up
+write moved outside the root so the file runs in every tier.
+
 ### 43.2 The four unmeasured shapes, on the dist
 
 Harness `/tmp/carve/cs3.mjs`: the CodSpeed benches reproduced exactly (one
