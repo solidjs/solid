@@ -264,9 +264,12 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
  * row target adopted it, its proxy survives), guessed rows the truth lacks
  * kept (the guess's own landing judges them), truth rows the guess lacks
  * appended. The composed arrangement becomes the lane's value on every
- * index whose row the committed backing does not already show (a node is
- * born for it as the lane's derivation), on `length`, and as the
- * `LaneView`'s base for structural reads. Unkeyed families compose
+ * index whose row the committed backing does not already show — compared
+ * BY KEY, never by raw identity: the same key's new object is the same row
+ * (its target adopted it) and the slot stays the committed backing's — (a
+ * node is born for it as the lane's derivation), on `length` only when the
+ * committed length differs, and as the `LaneView`'s base for structural
+ * reads. Unkeyed families compose
  * positionally — the guess stands as written (the documented residue). */
 GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
   const t = (el as any)._host as StoreTarget | undefined;
@@ -310,9 +313,12 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
   const nodes = t.n;
   for (let i = 0; i < rows.length; i++) {
     const node = nodes?.[i];
+    // A slot the lane does not own shows the committed row: it becomes the
+    // lane's only where the composed row is another row (by key — the same
+    // key's new object is the same row, its target adopted it).
     if (node === undefined) {
-      if (rows[i] !== base[i]) laneSet(getNode(t, i), rows[i], lane);
-    } else if (!(node._config & CONFIG_OVERRIDE) || !sameRow(node._x!._lane, rows[i], keyFn))
+      if (!sameRow(base[i], rows[i], keyFn)) laneSet(getNode(t, i), rows[i], lane);
+    } else if (!sameRow(node._config & CONFIG_OVERRIDE ? node._x!._lane : base[i], rows[i], keyFn))
       laneSet(node, rows[i], lane);
   }
   if (nodes !== null) {
@@ -322,7 +328,8 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
       laneSet(node, undefined, lane);
     }
     const len = nodes.length;
-    if (len !== undefined && len._x?._lane !== rows.length) laneSet(len, rows.length, lane);
+    if (len !== undefined && (len._config & CONFIG_OVERRIDE || base.length !== rows.length))
+      laneSet(len, rows.length, lane);
   }
 };
 
