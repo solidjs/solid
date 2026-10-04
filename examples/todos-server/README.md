@@ -29,7 +29,12 @@ binds its id with `.with()`, and the button carries the value it submits:
 
 ```tsx
 <form class="toggle-form" action={toggleTodo.with(t.id)} method="post">
-  <button class="toggle" name="completed" value={t.completed ? "false" : "true"} />
+  <button
+    class="toggle"
+    name="completed"
+    value={t.completed ? "false" : "true"}
+    aria-pressed={t.completed ? "true" : "false"}
+  />
 </form>
 ```
 
@@ -39,6 +44,15 @@ through the action, and the response is **single-flight**
 ([src/server-config.ts](./src/server-config.ts)): the POST reruns the
 page's preload, so one round trip carries the mutation's result and the
 list's fresh markup.
+
+Without JavaScript the page also has to arrive whole. The server streams by
+default: content that settles before the first flush is inlined into the
+document, and anything later arrives as markup that a script swaps into
+place. This example's reads answer immediately, so the list lands before
+the flush — but that is timing, not a guarantee. An app that has to work
+without JavaScript renders in the vite plugin's `async` mode
+(`start.renderMode`), which waits for the whole page before sending it:
+either always, or only for crawlers, chosen per request from the user agent.
 
 ## Intent is CSS
 
@@ -68,7 +82,8 @@ renders the failures under the list — the one piece of client code the list
 has — and each action's `onSettled` clears the earlier answers to the same
 question, so a success dismisses an old error and a new failure takes its
 place. After a no-JavaScript post the router seeds the same list from its
-flash cookie, so the failures render on the server too.
+flash cookie, so the failures render on the server too — under the same
+condition as the list, since the cookie's decode is async.
 
 Adding works the same way: the header ([src/app.tsx](./src/app.tsx)) marks
 the input busy while the add is in flight, clears it on success, and keeps
