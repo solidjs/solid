@@ -116,7 +116,14 @@ jobs:
           path: scripts/size
       - run: node report.mjs size-head.json size-base.json > size-comment.md
         working-directory: scripts/size
-      - uses: actions/github-script@v7
+      # The job summary carries the report on every PR. The comment only goes
+      # on PRs from this repository: a fork PR's token is read-only, so
+      # createComment answered 403 and the job showed as failed on every
+      # external PR.
+      - run: cat size-comment.md >> "$GITHUB_STEP_SUMMARY"
+        working-directory: scripts/size
+      - if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require("fs");
