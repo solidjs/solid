@@ -5127,6 +5127,128 @@ Core seams touched (flagged): `handleAsync(el, result, setter, onError?)`
 
 ---
 
+## 41. Benchmarks — fork vs carve, signals first, then stores (2026-10-03, 9:25–10:05 PM)
+
+On power; the maintainer's ruled order (§33 Q-A: signals first — "if
+signals are slow this will be too" — then stores, two arms, deep + shallow).
+Arm A = `~/Development/solid` @ `8950bb7b7` (before the fork; zero signals
+commits between it and `309b08730`; dists rebuilt), arm B = this branch at
+`cb04977b0` + the two fixes in §41.3, dists rebuilt. Same Node (26.4),
+same sitting, arms interleaved.
+
+### 41.1 Signals
+
+**Built prod dist** (`/tmp/carve/microbench.mjs`, recreated — the harness
+of §12.5/§16.7; best of 4 interleaved rounds, hz):
+
+| shape                         | fork   | carve  | Δ         |
+| ----------------------------- | ------ | ------ | --------- |
+| createComputations:create1to1 | 12181  | 13018  | **+6.9%** |
+| updateSignals:update1to1      | 12214  | 12901  | **+5.6%** |
+| propagation:diamond           | 121772 | 202482 | **+66%**  |
+| propagation:avoidable         | 120408 | 125784 | +4.5%     |
+
+`diamond` (1000 re-writes of one signal per flush) is where `next`'s
+transition machinery sat on `setSignal`; L2's write path is the plain one.
+(§16.7's `s4` point — the pre-L2 carve — was 240k on this shape; the hold
+model costs ~15% of that ceiling, as recorded there.)
+
+**In-repo vitest benches** (`SIGNALS_TIER=prod`, CodSpeed harness, best of
+3 interleaved): `createOwners` +13.5%, `createSignals` +7.5%,
+`createRenderEffects` +1.6%, `storeWrap:shallow` +2.1%; `create0to1`
+−15%, `update1to1` −15%, `update1to1000` −10%, `diamond` −3%,
+`storeWrap:deep` −22%, `createDispose` −3%. The two harnesses disagree on
+the same shapes (`update1to1` +5.6% on dist, −15% under vite-node;
+`storeWrap:deep` **+42%** on dist, −22% under vite-node) for the reason
+§12.5 recorded: vite-node serves every imported constant and live binding
+as a module-namespace property load, so each cross-module reference on a
+hot path counts several times over, and the carve moved rules into
+modules. The dist is what ships; CodSpeed will show the vite-node numbers
+on the PR and the §12.5 note is the answer.
+
+### 41.2 Stores
+
+**Dist microbench** (`/tmp/carve/storebench.mjs`, best of 4 interleaved,
+after §41.3's fixes):
+
+| shape                                    | fork   | carve  | Δ        |
+| ---------------------------------------- | ------ | ------ | -------- |
+| storeWrap:deep 1k (untracked)            | 1686   | 2391   | **+42%** |
+| storeWrap:deep 1k (tracked read)         | 1370   | 1814   | **+32%** |
+| storeMount:1k rows mapArray+effects      | 1264   | 1297   | +2.7%    |
+| storeWrite:10 leaves of 1k, flushed      | 124668 | 133072 | +6.7%    |
+| storeWrite:1k leaves (tick), flushed     | 1882   | 1860   | −1.1%    |
+| derivedStore:reconcile 1k rows (10% new) | 3514   | 2215   | **−37%** |
+
+**dbmon two-arm A/B** (`octane-dbmon-local/ab-dbmon.mjs`, Chrome
+headless, 3 rounds × 40 iterations, alternating arm order; ms, median of
+round medians; the `battery.mjs` run agreed within 0.1 ms on every op):
+
+| fixture:op              | fork  | carve | Δ          |
+| ----------------------- | ----- | ----- | ---------- |
+| dbmon-deep:mount        | 12.90 | 12.40 | 0.96×      |
+| dbmon-deep:tick         | 5.50  | 6.60  | **1.20×**  |
+| dbmon-deep:tick_partial | 1.00  | 1.00  | 1.00×      |
+| dbmon-deep:remount      | 8.80  | 9.00  | 1.02×      |
+| dbmon-deep:sort         | 2.50  | 2.70  | 1.08×      |
+| dbmon-deep:unmount      | 2.20  | 2.00  | 0.91×      |
+| dbmon-shallow (all 6)   | —     | —     | 0.94–1.00× |
+
+One regression over the 12% band: **deep tick +20%** (every row's count +
+5 queries replaced, keyed reconcile, ~7000 containers adopted per tick).
+Reproduced DOM-free in node (`/tmp/carve/dbmonbench.mjs`: 4.6–5.1 ms fork,
+5.2–5.3 ms carve, +8–13%); profiles side by side: the shapes match except
+the carve's fold queue — `queueFold` 5.6% + `drainFolds` 2.8% +
+`parentSlotKey` 2.3% + `queuePendingNode` 1.7% + `commitPendingNodes` 2.4%
+≈ **12% of the tick is the container-node-per-adoption design** (§33 Q-A:
+a node materialized for every written container, staged, swept at the
+commit, folded). The fork's `adoptPB` was heavier itself (15.9% self vs
+8.2%) but had no sweep. The lever Q-A anticipated is the escape hatch
+recorded there — _materialize the container node only when a hold is
+live or a subscriber exists_ — which needs: `readSource`/`keyChanged`
+without a `k` (no node ⇒ no hold ⇒ a pass reads the staging), and the
+seam materializing + holding the fold list's node-less containers when a
+flush parks (O(adopted), only then). Not done tonight; it is the next
+store item if the +20% is not acceptable.
+
+**jfb (signal / shallow / deep) and the reorder matrix: blocked.** The
+fixtures compile with `@dom-expressions/babel-plugin-jsx@0.50.0-next.42`
+(`vite-plugin-solid 3.0.0-next.5`), which emits `el.$$click = …`; the web
+runtime on both arms reads `EVENT_KEY = "_$$"` — every delegated click is
+inert (verified: listener attached to `#main`, fires, handler never
+called; `btn.$$click()` directly renders 1000 rows). Harness drift against
+the in-house compiler, same on both arms; fixing it means pointing the
+fixtures at the repo's `@solidjs/babel-plugin`. uibench not run (same
+fixture family).
+
+### 41.3 Two regressions found and fixed (uncommitted; staged)
+
+1. **`settleFamily` on every sync commit.** The family's settle walk
+   (`forEachFamilyNode` → `settlePendingSource(leaf, fw)` per leaf with
+   subscribers) ran at every derive commit, flight or not — O(all leaf
+   nodes) per sync re-derive; 81% of a 1k-row derived store's tick when
+   nothing changed (`new array, same row objects`: 130 µs vs the fork's
+   9 µs, 14×). Now gated on `fam.woke` (set by `wakeFamily`, cleared by
+   the walk): a sync commit with no wake behind it walks nothing. 12 µs.
+2. **Descriptor probes on every value read under a staging.** `keyChanged`
+   → `changedBetween` asked `__lookupGetter__`/`__lookupSetter__`/
+   `propertyIsEnumerable` twice each per key — the full "did this key
+   change in value, presence, enumerability or accessor-ness" question —
+   for every `state[i]` read by `mapArray` in the flush that staged a
+   reconcile (1000 keys: ~270 µs of a 670 µs tick). A VALUE read needs
+   value + presence only: the same value serves from either frame
+   whatever its descriptor did. `readSource(target, key, shape)` — the
+   descriptor trap asks with `shape`; `heldKeyChanged`'s hold callers
+   (`bornStaged`, the hold check) keep the full test; a container with
+   accessors seen (`t.a`) keeps it on every path. 10%-changed reconcile:
+   996 → 400 µs (fork 270; the rest is the fold queue above).
+
+Signals 4838/3 (0 moved), web 1115/1 (0 moved). Size: +createStore 14248
+(+79 br: the `shape` threading and `woke`), floor ±0, every-store +63,
+page live +43.
+
+---
+
 ## Appendix — ledger (verbatim)
 
 ### Carve ledger — size/carve-step1 off next @ 309b08730 (2026-09-30)

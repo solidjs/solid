@@ -1382,7 +1382,11 @@ function stagingReader(): Computed<any> | null {
  * NOT composed here: a guessed key always has its node, and the node is
  * what serves its value (`nodeValue`); presence and enumeration compose
  * per key / per walk (`optimisticHas`, `enumerationSource`). */
-function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey, any> {
+function readSource(
+  target: StoreTarget,
+  key?: PropertyKey,
+  shape = false
+): Record<PropertyKey, any> {
   // An optimistic setter's read before its first write sees what the writer
   // sees — the lanes' values and the tick's own guesses over the truth
   // (#3665), never a staging awaiting its fold: the draft is born on the
@@ -1415,7 +1419,7 @@ function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey,
   // staging left unchanged reads the ambient view — a mainline layer's
   // write above the hold publishes mainline (#3688, #3612); a key it
   // changed reads the frame core serves this reader.
-  if (held && key !== undefined && !heldKeyChanged(target, key)) return pb;
+  if (held && key !== undefined && !heldKeyChanged(target, key, shape)) return pb;
   if (stagingReader() === null) {
     if (getObserver() !== null) return pb; // a frame reader's leaf decides the value
     // A projection's writes are its truth as soon as made (the derive is
@@ -1426,7 +1430,7 @@ function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey,
     // probe) judges the container like any node — for a key the batch
     // changed; an unchanged key is committed and final (A22: pending is per
     // key). A held container's committed frame is the node's.
-    if (verdict === null || (!held && key !== undefined && !keyChanged(target, key)))
+    if (verdict === null || (!held && key !== undefined && !keyChanged(target, key, shape)))
       return held ? asBacking(k._value) : target.v;
     return asBacking(readNode(k));
   }
@@ -1437,14 +1441,14 @@ function readSource(target: StoreTarget, key?: PropertyKey): Record<PropertyKey,
   // sees committed and re-derives at the landing, a memo joins the future,
   // a staging read is marked. The key's own leaf, when it has one, decides
   // the value the same way.
-  if (!held && key !== undefined && !keyChanged(target, key)) return committed(target);
+  if (!held && key !== undefined && !keyChanged(target, key, shape)) return committed(target);
   return asBacking(untrack(() => readNode(k)));
 }
 
 /** Did the HELD staging (the container node's, not a mainline layer above
  * it) change `key`? */
-function heldKeyChanged(target: StoreTarget, key: PropertyKey): boolean {
-  return changedBetween(target, target.k!._value, target.k!._pendingValue, key);
+function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
+  return changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape);
 }
 
 /** A family target's unheld staging, read with no pass (a handler). */
@@ -1456,19 +1460,28 @@ function familyAhead(target: StoreTarget): boolean {
   );
 }
 
-/** Did this batch change `key` — value (slot equality), presence,
- * enumerability or accessor-ness? A swapped or non-plain prototype, or a
- * chained backing, changes every key (#3706: those hold the whole
- * container). */
-function keyChanged(target: StoreTarget, key: PropertyKey): boolean {
-  return changedBetween(target, committed(target), target.pb!, key);
+/** Did this batch change `key` — value (slot equality), presence, and (for
+ * a `shape` reader — a descriptor read, a node's hold) enumerability or
+ * accessor-ness? A swapped or non-plain prototype, or a chained backing,
+ * changes every key (#3706: those hold the whole container).
+ *
+ * A VALUE read asks without `shape`: a key whose value is the same in both
+ * frames serves the same value from either, whatever its descriptor did —
+ * and the descriptor probes (`__lookupGetter__`, `propertyIsEnumerable`,
+ * twice each) are the cost of the question on a wide container read under
+ * a staging (a keyed reconcile's 1k rows, read by `mapArray` in the flush
+ * that staged them: ~3× the tick). A container with accessors seen (`a`)
+ * keeps the full test — a getter's answer is not a slot's. */
+function keyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
+  return changedBetween(target, committed(target), target.pb!, key, shape);
 }
 
 function changedBetween(
   target: StoreTarget,
   v: Record<PropertyKey, any>,
   pb: Record<PropertyKey, any>,
-  key: PropertyKey
+  key: PropertyKey,
+  shape: boolean
 ): boolean {
   if (
     target.ch ||
@@ -1482,9 +1495,10 @@ function changedBetween(
   if (inNew !== hasOwn.call(v, key)) return true;
   if (!inNew) return false;
   if (
-    isOwnAccessor(v, key) ||
-    isOwnAccessor(pb, key) ||
-    propertyIsEnumerable.call(v, key) !== propertyIsEnumerable.call(pb, key)
+    (shape || target.a) &&
+    (isOwnAccessor(v, key) ||
+      isOwnAccessor(pb, key) ||
+      propertyIsEnumerable.call(v, key) !== propertyIsEnumerable.call(pb, key))
   )
     return true;
   const nv = pb[key as any];
@@ -1902,10 +1916,10 @@ const traps: ProxyHandler<StoreTarget> = {
       // the staging for a member; #3706 contrast).
       const node = getHasNode(target, key);
       const present = readNode(node);
-      src = readSource(target, key);
+      src = readSource(target, key, true);
       if (!present && (!target.ch || node._config & CONFIG_OVERRIDE || !(key in src)))
         return undefined;
-    } else src = readSource(target, key);
+    } else src = readSource(target, key, true);
     let desc: PropertyDescriptor | undefined;
     if (!enumerating && optRead(target)) {
       const guessed = optHooks!.descriptor(target, key);

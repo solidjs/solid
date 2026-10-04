@@ -38,6 +38,10 @@ export interface StoreFamily {
   shallow?: boolean;
   /** Derive run counter (proj R37): the run whose draft is live. */
   run?: number;
+  /** The derive's pending reached the leaves' readers (`wakeFamily`) and no
+   * landing has settled them yet: the next commit walks the family
+   * (`settleFamily`). A sync commit with no wake behind it walks nothing. */
+  woke?: boolean;
 }
 
 export interface StoreTarget {

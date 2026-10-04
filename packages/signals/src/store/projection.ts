@@ -132,6 +132,7 @@ function cloneState<T extends object>(v: T, shallow: boolean): T {
  * the walk. */
 function wakeFamily(fam: StoreFamily, error: unknown): void {
   const fw = fam.node!;
+  fam.woke = true;
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo
@@ -163,6 +164,8 @@ function errorFamily(fam: StoreFamily): void {
  * settle — core's walk, from each leaf (the leaves are not the derive's
  * dependents, so its own settle walk does not reach them). */
 function settleFamily(fam: StoreFamily): void {
+  if (!fam.woke) return;
+  fam.woke = false;
   const fw = fam.node!;
   forEachFamilyNode(fam, n => {
     if (n._subs !== null) settlePendingSource(n as unknown as Computed<any>, fw);
