@@ -108,9 +108,7 @@ impl Implicit {
     /// level, and the way out.
     fn explanation(self) -> &'static str {
         match self {
-            Implicit::This => {
-                "where `this` is undefined. Pass the value in as a parameter instead"
-            }
+            Implicit::This => "where `this` is undefined. Pass the value in as a parameter instead",
             Implicit::Arguments => {
                 "where `arguments` does not exist. Declare a rest parameter instead"
             }
@@ -391,11 +389,7 @@ impl<'a> Visit<'a> for CaptureValidator<'_> {
     fn visit_object_property(&mut self, property: &oxc_ast::ast::ObjectProperty<'a>) {
         if property.method || property.kind != PropertyKind::Init {
             if let Expression::FunctionExpression(function) = &property.value {
-                self.check_method_directive(
-                    function.body.as_deref(),
-                    &property.key,
-                    property.span,
-                );
+                self.check_method_directive(function.body.as_deref(), &property.key, property.span);
             }
             if self.error.is_some() {
                 return;

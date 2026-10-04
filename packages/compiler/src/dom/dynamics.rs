@@ -29,7 +29,12 @@ impl<'a> AstDomTransform<'a, '_> {
     /// enumerate their object in the untracked commit phase, so a proxy value
     /// (a store sub-object, merged props) would be identity-reactive only.
     /// Skipped when the expression is provably a string or a fresh literal.
-    fn wrap_read_shallow(&mut self, span: Span, key: &str, value: Expression<'a>) -> Expression<'a> {
+    fn wrap_read_shallow(
+        &mut self,
+        span: Span,
+        key: &str,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
         if key != "class" && key != "style" {
             return value;
         }
