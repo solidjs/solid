@@ -1084,11 +1084,15 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
 /** Lane work re-staged (lanes.ts; `recompute`): the lane's members among
  * its subscribers re-derive as the lane's work (REACTIVE_LANE_DIRTY), their
  * runs held with it — not as stale readers republishing the committed view
- * (#3460). After `insertSubs`. */
+ * (#3460). After `insertSubs`. A render effect on no lane is marked too:
+ * inert for its pass (`recompute` seats a lane only from its own `_x`), it
+ * is a live write if the effect becomes a zombie later this flush — an
+ * on-screen reader whose removal an adopted write stages follows the lane
+ * (the lane-membership ruling, 2026-10-05; `_update`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const t = s._sub._x?._transaction;
-    if (t != null && sameLane(t, l)) s._sub._flags |= REACTIVE_LANE_DIRTY;
+    if (t?._lane ? sameLane(t, l) : (s._sub as any)._type) s._sub._flags |= REACTIVE_LANE_DIRTY;
   }
 }
 /** One lane, or two of one link group (#3335): one reveal unit. */

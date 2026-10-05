@@ -595,6 +595,75 @@ describe("fuzz findings on L2 — lanes", () => {
     dispose();
   });
 
+  // Adopted staging (ex-"R-oracle", latest cohort). The lane-membership
+  // ruling (2026-10-05, reading A): an on-screen render effect whose removal
+  // an adopted write has staged follows the lane's re-derivation of a memo
+  // it reads; A15 #3463: a zombie is live for every hold until the commit
+  // that disposes it; A28 (1): wrapping a `latest` read in a memo does not
+  // change what it answers. An action writes `source = 1`; the same tick
+  // withdraws the mount around `E` (adopted, O1), so `E` is a zombie of the
+  // action's frame. The lane recomputes `m = [latest(source)]`; `E`'s pass
+  // was deferred as a zombie's and the park cancelled it — `E` kept `[0]`
+  // while a sibling reader of `m` showed `[1]` (the direct `latest()` twin
+  // already re-ran, #3444). The lane's re-staging of `m` marks `E` too
+  // (`laneDirty`: a render effect on no lane), so its zombie pass is a live
+  // write and runs now, as the lane's dirty members do.
+  it("adopted staging: a reader whose removal an action adopted follows the lane's re-derivation of a memo it reads (A15 #3463, A28 (1))", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(true);
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let E: unknown = "absent",
+      S: unknown,
+      M: unknown;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => [latest(source)]);
+      createRenderEffect(m, v => {
+        S = JSON.stringify(v);
+      });
+      createRenderEffect(mounted, v => {
+        M = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(m, v => {
+                  E = JSON.stringify(v);
+                });
+                onCleanup(() => {
+                  E = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        setSource(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+      });
+    });
+    flush();
+    expect([M, E, S]).toEqual([true, "[0]", "[0]"]);
+    const p = run();
+    setMounted(false); // the action's tick: the withdrawal rides with it (O1)
+    await drain();
+    // The withdrawal is held: E is still on screen, and shows the lane's frame.
+    expect([M, E, S]).toEqual([true, "[1]", "[1]"]);
+    resume();
+    await p;
+    await drain();
+    expect([M, E, S]).toEqual([false, "absent", "[1]"]);
+    dispose();
+  });
+
   // F13. A29 (creation-time form): a reader born held is "staged into [the
   // transaction], committed with it" — `recompute`'s own note: "An effect
   // still carrying an uncommitted staged value re-stages: the commit applies
