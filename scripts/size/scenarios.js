@@ -2956,15 +2956,18 @@ module.exports = [
     // `_$$click` and `delegateEvents`. Its delta against that floor is what
     // the first real template costs over a hand-written app.
     //
-    // Added 2026-10-05: first compiled-template scenarios; measured
-    // 10,019 B on next @ b07fed550 (28,184 B minified; signals=21,598
-    // web=6,098 solid=260 app=229) — +171 B brotli / +531 B minified over
-    // the hand-written floor's 9,848: `template`, `delegateEvents` and the
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 10,033 B (28,188 B minified; signals=21,602
+    // web=6,099 solid=260 app=229) — +187 B brotli / +531 B minified over
+    // the hand-written floor's 9,846: `template`, `delegateEvents` and the
     // delegated-handler branch of the dispatcher, and the compiled
-    // component itself. Cap at measured + 10 B rounded up to 0.01 KB.
+    // component itself. (Measured locally at 10,019 / 28,184 on next @
+    // b07fed550 before #3806's +4 B minified in the signals scheduler
+    // landed; the compiled app's own bytes are identical on both.) Cap at
+    // CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/floor.jsx",
     compile: { hydratable: false },
-    limit: "10.03 KB",
+    limit: "10.05 KB",
     alias
   },
   {
@@ -2976,9 +2979,11 @@ module.exports = [
     // `spread` reads a source through, whether or not the app calls
     // `merge` itself (audit §1.3 finding 2).
     //
-    // Added 2026-10-05: first compiled-template scenarios; measured
-    // 25,128 B on next @ b07fed550 (78,803 B minified; signals=62,628
-    // web=12,166 app=2,575 solid=1,431; lazy stats.js 182 B brotli). The
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 25,070 B (78,807 B minified; signals=62,632
+    // web=12,167 app=2,575 solid=1,431; lazy stats.js 182 B brotli). (Locally
+    // 25,128 / 78,803 on next @ b07fed550, before #3806's +4 B minified in
+    // the signals scheduler; the brotli layout moved -58 B over it.) The
     // store engine is ~24 KB minified of the signals figure (the app uses
     // createStore, as the `+ createStore` scenario measures); the same app
     // on signals alone measures 54,467 / 18,097 — the audit's §1.3 fixture,
@@ -2989,10 +2994,10 @@ module.exports = [
     // merge still used; merge/omit/mergeProps alone 5,139 / 1,171; the
     // spread alone retains 9.6 KB minified when nothing else uses merge,
     // because it reads sources through the merge/omit view records). Cap at
-    // measured + 10 B rounded up to 0.01 KB.
+    // CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/csr.jsx",
     compile: { hydratable: false },
-    limit: "25.14 KB",
+    limit: "25.08 KB",
     alias
   },
   {
@@ -3006,15 +3011,16 @@ module.exports = [
     // `runHydrationEvents()` calls, `addEvent` in place of the `_$$click`
     // property form).
     //
-    // Added 2026-10-05: first compiled-template scenarios; measured
-    // 30,898 B on next @ b07fed550 (99,064 B minified; signals=62,812
-    // solid=16,599 web=16,594 app=3,058; lazy stats.js 196 B brotli):
-    // +5,770 B brotli / +20,261 B minified over the compiled CSR scenario —
-    // solid +15,168 (client/hydration.ts, including the store adapters the
-    // store import reaches), web +4,428 (`hydrate`, the claim walk,
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 30,899 B (99,068 B minified; signals=62,815
+    // solid=16,600 web=16,594 app=3,058; lazy stats.js 195 B brotli):
+    // +5,829 B brotli / +20,261 B minified over the compiled CSR scenario —
+    // solid +15,169 (client/hydration.ts, including the store adapters the
+    // store import reaches), web +4,427 (`hydrate`, the claim walk,
     // `getNextElement`/`getNextMarker`/`runHydrationEvents`/`setProperty`),
-    // app +483 (the compiled output's own growth). Cap at measured + 10 B
-    // rounded up to 0.01 KB.
+    // app +483 (the compiled output's own growth). (Locally 30,898 / 99,064
+    // on next @ b07fed550, before #3806.) Cap at CI-measured + 10 B rounded
+    // up to 0.01 KB.
     path: "fixtures/compiled/hydrating.jsx",
     compile: { hydratable: true },
     limit: "30.91 KB",
