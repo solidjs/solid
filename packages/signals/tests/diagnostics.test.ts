@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createEffect,
@@ -17,7 +18,13 @@ import {
   DEV,
   OBSERVE
 } from "../src/index.js";
-import { emitDiagnostic, ownerPath, reportDiagnostic, setConsoleFooter } from "../src/core/dev.js";
+import {
+  emitDiagnostic,
+  ownerPath,
+  reportDiagnostic,
+  setConsoleFooter,
+  type DiagnosticCode
+} from "../src/core/dev.js";
 
 // Several diagnostics are escaping errors, which halt the reactive system.
 afterEach(() => {
@@ -275,6 +282,28 @@ describe("diagnostics", () => {
 });
 
 describe("diagnostics console footer", () => {
+  it("links every diagnostic code to an existing guide section", () => {
+    const source = readFileSync(new URL("../src/core/dev.ts", import.meta.url), "utf8");
+    const declaration = source.match(/export type DiagnosticCode =([\s\S]*?);/);
+    expect(declaration).not.toBeNull();
+    const codes = Array.from(
+      declaration![1].matchAll(/"([A-Z][A-Z0-9_]*)"/g),
+      match => match[1] as DiagnosticCode
+    );
+    expect(codes.length).toBeGreaterThan(0);
+    const guide = readFileSync(
+      new URL("../../solid/skills/reactivity-diagnostics/SKILL.md", import.meta.url),
+      "utf8"
+    );
+    const anchors = Array.from(guide.matchAll(/^#{3,4} ([A-Z][A-Z0-9_]*)$/gm), match =>
+      match[1].toLowerCase()
+    );
+    const missing = codes.filter(
+      code => !anchors.includes(new URL(DEV!.guideUrl(code)).hash.slice(1))
+    );
+    expect(missing).toEqual([]);
+  });
+
   it("DEV.guideUrl is the repair guide's section for a code", () => {
     const url = DEV!.guideUrl("STRICT_READ_UNTRACKED");
     expect(url).toMatch(
