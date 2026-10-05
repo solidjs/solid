@@ -46,6 +46,7 @@ import {
   REACTIVE_FRAME_READ,
   REACTIVE_IN_HEAP,
   REACTIVE_JOINED,
+  REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_SCREEN_READ,
@@ -294,21 +295,25 @@ export function verdictLane(t: Transaction): Transaction {
  * pass's answer replaces it, and the frame's hold on it is over. An
  * effect's value slot is private (no lane value). A pass in a lane's seat
  * that read none of the lane's world has left it (false): its result is the
- * frame's — a derivation whose branch no longer reaches the guess. A first
- * pass under a lane is the lane's (ruling A); a guess is written, not
- * derived — it never leaves this way. */
+ * frame's — a derivation whose branch no longer reaches the guess — and no
+ * hold the lane took over from a transaction stays on it (#3698: lane work
+ * never makes its node transaction work; a born-held effect's hold went to
+ * the lane). A pass interrupted before it got there (pending, errored) did
+ * not leave (A30: it never got there). A first pass under a lane is the
+ * lane's (ruling A); a guess is written, not derived — it never leaves this
+ * way. */
 export function laneStage(
   el: Computed<any>,
   l: Transaction,
   create: boolean,
   errored: boolean
 ): boolean {
-  if (!create && !(el._flags & REACTIVE_LANE_READ) && !(el._config & CONFIG_GUESS)) {
+  if (!create && !errored && !(el._flags & REACTIVE_LANE_READ) && !(el._config & CONFIG_GUESS)) {
     if (el._x !== null) {
       if (el._x._transaction?._lane) el._x._transaction = null;
       el._x._lane = NOT_PENDING;
     }
-    el._config &= ~CONFIG_OVERRIDE;
+    el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD);
     return false;
   }
   if (!(el as any)._type) {
@@ -325,6 +330,11 @@ export function laneStage(
     // leaves the guess.
     if (!errored) el._config &= ~CONFIG_GUESS;
   }
+  // A leaf has no lane value to seat it (`recompute`): one left waiting on
+  // the lane's flight runs its next pass as the lane's — the landing that
+  // wakes it is the lane's re-staging (A31), and the lane holds its render
+  // effects until its derivations land (A17; #3766, F5).
+  else if (errored) el._flags |= REACTIVE_LANE_DIRTY;
   list(el, l);
   return true;
 }
