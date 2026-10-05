@@ -14,7 +14,8 @@ import {
   disposedReader,
   releasedFallback,
   separateUpdates,
-  heldAction
+  heldAction,
+  obsoleteInFlight
 } from "./fixtures.js";
 import { CandidateQueue, type Candidate } from "./selection.js";
 import { scenarioKey } from "./normalize.js";
@@ -355,7 +356,8 @@ export async function main(context: Context) {
         disposedReader(),
         releasedFallback(),
         separateUpdates(),
-        heldAction()
+        heldAction(),
+        obsoleteInFlight()
       ];
     else if (v.corpus) scenarios = corpus.map(c => c.scenario);
     else scenarios = generate(seed, count, cohort as import("./generate.js").Cohort);

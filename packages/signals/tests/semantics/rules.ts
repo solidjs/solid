@@ -9,6 +9,10 @@ export interface Frame {
   mounts?: Record<number, boolean>;
   show: boolean;
   outputs: Record<number, Output>;
+  /** S1 in flight: nodes whose answer for this frame's published inputs is
+   * still in flight, each with the answers it has produced (landings of its
+   * newest question). A reader of such a node directly may show one of them. */
+  inflight?: Record<number, number[]>;
 }
 export interface Failure {
   rule: string;
@@ -25,7 +29,13 @@ export interface Failure {
 // not on one merely replaced by its parent's re-pass (ruling A, #3698); G1/G2's
 // proven batch is the tick — the writes one flush settles (A34 (1)), closed at
 // `flushEnd`, not at a callback boundary.
-export const ruleRevision = 18;
+// Revision 19 (2026-10-05, the lane-membership ruling — F8): S1 lets a reader
+// that reads an async node directly show an answer the node has produced while
+// its answer for the published inputs is in flight (a stale reader of the
+// lane, SPEC "A lane's readers are placed by the screen"); it must agree once
+// that flight lands. A derivation in between (a sync node) is not exempt, and
+// neither is an answer that landed for a superseded question.
+export const ruleRevision = 19;
 export const rules = [
   {
     id: "A1",
@@ -261,7 +271,10 @@ export function checkFrame(s: Scenario, frame: Frame, model = new Model(s)): Fai
     let wrong = !Array.isArray(output) || output.length !== r.refs.length;
     if (Array.isArray(output))
       for (let i = 0; i < output.length && !wrong; i++)
-        wrong = model.witnessed(r.refs[i]) && output[i] !== values.get(r.refs[i]);
+        wrong =
+          model.witnessed(r.refs[i]) &&
+          output[i] !== values.get(r.refs[i]) &&
+          !frame.inflight?.[r.refs[i]]?.includes(output[i]);
     if (wrong)
       return {
         rule: "S1",

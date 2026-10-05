@@ -122,3 +122,29 @@ export function heldAction(): Scenario {
   ];
   return s;
 }
+
+/** S1's in-flight window (revision 19): `latest(s)` publishes 2 while the
+ * node's answer for 2 is in flight, so a direct reader may show an answer the
+ * node produced. The answer to the superseded question 3 landing inside that
+ * window is inert in the runtime; written anyway (`stale-result`), it is not
+ * one the node produced for its newest question, and S1 still fires. */
+export function obsoleteInFlight(): Scenario {
+  return {
+    version: 2,
+    show: true,
+    sources: [-1, -2],
+    anchors: [-1, -2],
+    anchorShow: true,
+    optimistic: { kind: "latest", proposals: [3, 2], authoritative: 2, viaMemo: false },
+    nodes: [{ id: 0, deps: [-2], factor: 1, offset: 1, delivery: "manual" }],
+    readers: [{ id: 0, refs: [-2, 0], gated: false, boundary: "none" }],
+    turns: [
+      { steps: [{ op: "start-action" }] },
+      { steps: [{ op: "resume-action" }] },
+      { steps: [{ op: "resolve", node: 0, which: "oldest" }] },
+      { steps: [{ op: "resolve", node: 0, which: "newest" }] },
+      { steps: [{ op: "resume-action" }] }
+    ],
+    strict: true
+  };
+}

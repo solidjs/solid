@@ -83,6 +83,26 @@ test.each([
   20000
 );
 
+// S1's in-flight exemption (revision 19) accepts only answers a node produced
+// for its newest question: an answer to a superseded question landing inside
+// the window (calibration case 11) is still S1.
+test("stale-result inside S1's in-flight window is still detected", async () => {
+  const out = await mkdtemp(join(tmpdir(), "solid-fuzz-inflight-"));
+  try {
+    await exec(process.execPath, [cli, "--calibrate", "--fault", "stale-result", "--out", out]);
+    const found = (await readFile(join(out, "findings.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+      .find(f => f.index === 11);
+    expect(found?.status).toBe("fail");
+    expect(found.failure.rule).toBe("S1");
+    expect(found.failure.frame.inflight).toBeDefined();
+  } finally {
+    await rm(out, { recursive: true, force: true });
+  }
+}, 20000);
+
 test("watchdog terminates a worker that cannot yield", async () => {
   const out = await mkdtemp(join(tmpdir(), "solid-fuzz-watchdog-"));
   const file = join(out, "worker.mjs");

@@ -61,6 +61,7 @@ interface Work {
   inputs: number[];
   value: number;
   state: "waiting" | "resolved";
+  landed?: boolean;
   registered: boolean;
   observations: Observation[];
   resolve: () => void;
@@ -240,6 +241,24 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
   for (const reader of s.readers) if (reader.mounted !== undefined) mountIds.push(reader.id);
   const workByNode = new Map<number, Work[]>();
   for (const node of s.nodes) workByNode.set(node.id, []);
+  // S1 in flight (revision 19): what each node has produced — the landings of
+  // its newest question (an answer to a superseded question is inert in the
+  // runtime, and stays outside the exemption) — and, for a set of published
+  // values, the nodes whose answer for them has not landed.
+  const produced = new Map<number, Set<number>>();
+  const inflight = (values: {
+    get(ref: number): number | undefined;
+  }): Record<number, number[]> | undefined => {
+    let out: Record<number, number[]> | undefined;
+    for (const node of s.nodes) {
+      const answers = produced.get(node.id);
+      if (!answers) continue;
+      const inputs = capture(node, id => values.get(id)!);
+      if (workByNode.get(node.id)!.some(w => !w.landed && sameNumbers(w.inputs, inputs)))
+        (out ??= {})[node.id] = [...answers];
+    }
+    return out;
+  };
   const lastRequest = (node: number, inputs: number[]): Work | undefined => {
     const flights = workByNode.get(node)!;
     for (let i = flights.length - 1; i >= 0; i--)
@@ -366,6 +385,8 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
       frame.inputs = inputs;
     }
     if (mountIds.length) frame.mounts = { ...shownMounts };
+    const flights = inflight(model.evaluate(frame.input, frame.inputs));
+    if (flights) frame.inflight = flights;
     return frame;
   };
   function requirements(): Requirement[] {
@@ -655,8 +676,14 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
         const values = model.evaluate(inputs[-1] ?? 0, inputs);
         // A tuple can certify a derivation only if it contains all of that
         // derivation's sources. Missing unrelated sources create no obligation.
+        const flights = inflight(values);
         if (
-          reader.refs.some((ref, i) => model.witnessed(ref, mask) && value[i] !== values.get(ref))
+          reader.refs.some(
+            (ref, i) =>
+              model.witnessed(ref, mask) &&
+              value[i] !== values.get(ref) &&
+              !flights?.[ref]?.includes(value[i])
+          )
         )
           fail({
             rule: "S1",
@@ -1118,6 +1145,16 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
             work.push(w);
             workByNode.get(node.id)!.push(w);
             const promise = node.delivery === "await" ? awaitAnswer(gate, value) : gate;
+            // Landed: delivered to the runtime (this reaction runs before the
+            // runtime's own). Produced only as its node's newest question.
+            void promise.then(() => {
+              w.landed = true;
+              const flights = workByNode.get(node.id)!;
+              if (flights[flights.length - 1] !== w) return;
+              let answers = produced.get(node.id);
+              if (!answers) produced.set(node.id, (answers = new Set()));
+              answers.add(value);
+            });
             byPromise.set(promise, w);
             if (node.delivery === "promise") w.resolve();
             record(`start ${w.key}`);
