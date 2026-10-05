@@ -54,7 +54,7 @@ function compileRuntime(source, compiler, generate) {
 // prod (signals' `DEV` export is undefined) and the first click throws. Every
 // flag the runtime packages gate on must be listed in BOTH places: a flag the
 // define misses is a ReferenceError at first use.
-const workspaceSourceRoots = ["solid", "web", "signals"].map(
+const workspaceSourceRoots = ["solid", "web", "signals", "universal"].map(
   name => path.join(repoRoot, "packages", name, "src") + path.sep
 );
 
@@ -62,7 +62,13 @@ async function loadRuntimeModule(code, generate) {
   const aliases = new Map([
     [
       "@solidjs/web",
-      path.join(repoRoot, "packages/web/src", generate === "ssr" ? "index.server.ts" : "index.ts")
+      generate === "universal"
+        ? path.join(repoRoot, "packages/universal/test/custom.js")
+        : path.join(
+            repoRoot,
+            "packages/web/src",
+            generate === "ssr" ? "index.server.ts" : "index.ts"
+          )
     ],
     ["solid-js", path.join(repoRoot, "packages/solid/src/index.ts")],
     // The web runtime reaches solid-js's seams through this subpath (#3470).
@@ -99,6 +105,11 @@ async function loadRuntimeModule(code, generate) {
               path: aliases.get(args.path)
             })
           );
+          esbuild.onLoad({ filter: /\/universal\/test\/custom\.js$/ }, args => ({
+            contents: fs.readFileSync(args.path, "utf8") + '\nexport * from "solid-js";',
+            loader: "js",
+            resolveDir: path.dirname(args.path)
+          }));
           esbuild.onLoad({ filter: /\.ts$/ }, args => {
             if (!workspaceSourceRoots.some(root => args.path.startsWith(root))) return;
             return {
@@ -157,6 +168,33 @@ afterAll(() => {
 });
 
 describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
+  test.each(["dom", "ssr"])("executes semicolonless setup once in %s", async generate => {
+    const source = `
+      import { ${generate === "dom" ? "render" : "renderToString"} } from "@solidjs/web";
+      export let calls = 0;
+      function View() @{
+        const label = "café 🚀"
+        calls++
+        const a = () => label // keep the following element separate
+        <div>{a()}</div>
+      }
+      export function run(root) {
+        return ${generate === "dom" ? "render(() => <View />, root)" : "renderToString(() => <View />)"};
+      }
+    `.replaceAll("\n", "\r\n");
+    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, generate), generate);
+    if (generate === "dom") {
+      const root = document.createElement("div");
+      const dispose = runtime.run(root);
+      expect(root.textContent).toBe("café 🚀");
+      expect(runtime.calls).toBe(1);
+      dispose();
+    } else {
+      expect(runtime.run()).toBe("<div>café 🚀</div>");
+      expect(runtime.calls).toBe(1);
+    }
+  });
+
   test("executes statement containers in expression positions", async () => {
     const source = `
       import { render } from "@solidjs/web";
@@ -188,7 +226,11 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     dispose();
   });
 
-  test("passes For and Errored accessor bindings through as authored", async () => {
+  test.each(
+    ["dom", "universal"].flatMap(mode =>
+      [" row.id", "(row.id)", "(/* key */ ((row.id)))"].map(key => [mode, key])
+    )
+  )("passes For and Errored accessor bindings through in %s with key%s", async (mode, key) => {
     // #3474: the bindings are the accessors Solid hands out. `row()` and `i()`
     // read live under a custom key, `err()` is the ErrorAccessor.
     const source = `
@@ -209,7 +251,7 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
       export function App() @{
         <section>
           <ul>
-            @for (const row of rows(); index i; key row.id) {
+            @for (const row of rows(); index i; key${key}) {
               const snapshot = row;
               <li data-id={snapshot().id}>{i()}:{row().label ?? row().id}:{row().extra}</li>
             }
@@ -231,7 +273,7 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
         flush();
       }
     `;
-    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "dom"), "dom");
+    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, mode), mode);
     const root = document.createElement("div");
     const dispose = runtime.mount(root);
 
@@ -251,6 +293,54 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
       "0:TWO:updated",
       "1:3:third"
     ]);
+    dispose();
+  });
+
+  test.each(
+    ["dom", "ssr", "universal"].flatMap(mode =>
+      ["key item.id", "index i", "index i; key item.id"].map(annotation => [mode, annotation])
+    )
+  )("renders a statement-position annotated loop in %s with %s", async (mode, annotation) => {
+    const source = `
+      import { createSignal, flush } from "solid-js";
+      import { ${mode === "ssr" ? "renderToString" : "render"} } from "@solidjs/web";
+      const [items, setItems] = createSignal([
+        { id: 1, label: "one" }, { id: 2, label: "two" }
+      ]);
+      export function App() @{
+        @for (const item of items(); ${annotation}) {
+          <span data-id={item().id}>{item().label}</span>
+        }
+      }
+      export function run(target) {
+        return ${mode === "ssr" ? "renderToString(App)" : "render(App, target)"};
+      }
+      export function replaceItems(next) {
+        setItems(next);
+        flush();
+      }
+    `;
+    const output = compileRuntime(source, compiler, mode);
+    expect(output).not.toMatch(/__tsrx/);
+    const runtime = await loadRuntimeModule(output, mode);
+    if (mode === "ssr") {
+      expect(runtime.run()).toBe('<span data-id="1">one</span><span data-id="2">two</span>');
+      return;
+    }
+    const root = document.createElement("div");
+    const dispose = runtime.run(root);
+    expect(root.textContent).toBe("onetwo");
+    const retained = root.querySelector('[data-id="2"]');
+    runtime.replaceItems([
+      { id: 2, label: "TWO" },
+      { id: 3, label: "three" }
+    ]);
+    expect(root.textContent).toBe("TWOthree");
+    if (annotation.includes("key")) {
+      expect(root.querySelector('[data-id="2"]')).toBe(retained);
+    }
+    runtime.replaceItems([]);
+    expect(root.textContent).toBe("");
     dispose();
   });
 
@@ -321,22 +411,25 @@ describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
     dispose();
   });
 
-  test("renders SSR branches, keyed lists, and empty fallbacks", async () => {
-    const source = readRuntimeFixture("ssr");
-    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "ssr"), "ssr");
+  test.each([" item.id", "(item.id)", "(/* key */ ((item.id)))"])(
+    "renders SSR branches, keyed lists, and empty fallbacks with key%s",
+    async key => {
+      const source = readRuntimeFixture("ssr").replace("key item.id", `key${key}`);
+      const runtime = await loadRuntimeModule(compileRuntime(source, compiler, "ssr"), "ssr");
 
-    expect(
-      runtime.renderPage({
-        show: true,
-        items: [
-          { id: 1, label: "one" },
-          { id: 2, label: "two" }
-        ]
-      })
-    ).toBe("<main><ul><li>one</li><li>two</li></ul></main>");
-    expect(runtime.renderPage({ show: true, items: [] })).toBe(
-      "<main><ul><li>empty</li></ul></main>"
-    );
-    expect(runtime.renderPage({ show: false, items: [] })).toBe("<main><p>hidden</p></main>");
-  });
+      expect(
+        runtime.renderPage({
+          show: true,
+          items: [
+            { id: 1, label: "one" },
+            { id: 2, label: "two" }
+          ]
+        })
+      ).toBe("<main><ul><li>one</li><li>two</li></ul></main>");
+      expect(runtime.renderPage({ show: true, items: [] })).toBe(
+        "<main><ul><li>empty</li></ul></main>"
+      );
+      expect(runtime.renderPage({ show: false, items: [] })).toBe("<main><p>hidden</p></main>");
+    }
+  );
 });

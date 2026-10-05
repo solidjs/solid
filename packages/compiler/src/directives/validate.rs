@@ -108,9 +108,7 @@ impl Implicit {
     /// level, and the way out.
     fn explanation(self) -> &'static str {
         match self {
-            Implicit::This => {
-                "where `this` is undefined. Pass the value in as a parameter instead"
-            }
+            Implicit::This => "where `this` is undefined. Pass the value in as a parameter instead",
             Implicit::Arguments => {
                 "where `arguments` does not exist. Declare a rest parameter instead"
             }
@@ -161,16 +159,30 @@ fn format_error(error: CaptureError, code: &str, filename: &str, directive: &str
     }
 }
 
-/// 1-based line/column for a byte offset.
-pub(crate) fn line_column(code: &str, offset: u32) -> (usize, usize) {
-    let offset = (offset as usize).min(code.len());
-    let before = &code[..offset];
-    let line = before.matches('\n').count() + 1;
-    let column = before
-        .rfind('\n')
-        .map(|newline| offset - newline)
-        .unwrap_or(offset + 1);
-    (line, column)
+/// 1-based line and UTF-16 column for a byte offset.
+pub(crate) fn line_column(source: &str, offset: u32) -> (usize, usize) {
+    let offset = (offset as usize).min(source.len());
+    let mut line = 1;
+    let mut line_start = 0;
+    let mut chars = source[..offset].char_indices().peekable();
+    while let Some((position, ch)) = chars.next() {
+        let next = match ch {
+            '\r' => {
+                if chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                    let (next_position, next) = chars.next().expect("peeked line feed");
+                    next_position + next.len_utf8()
+                } else {
+                    position + ch.len_utf8()
+                }
+            }
+            '\n' | '\u{2028}' | '\u{2029}' => position + ch.len_utf8(),
+            _ => continue,
+        };
+        line += 1;
+        line_start = next;
+    }
+    let column = source[line_start..offset].encode_utf16().count();
+    (line, column + 1)
 }
 
 struct CaptureValidator<'s> {
@@ -391,11 +403,7 @@ impl<'a> Visit<'a> for CaptureValidator<'_> {
     fn visit_object_property(&mut self, property: &oxc_ast::ast::ObjectProperty<'a>) {
         if property.method || property.kind != PropertyKind::Init {
             if let Expression::FunctionExpression(function) = &property.value {
-                self.check_method_directive(
-                    function.body.as_deref(),
-                    &property.key,
-                    property.span,
-                );
+                self.check_method_directive(function.body.as_deref(), &property.key, property.span);
             }
             if self.error.is_some() {
                 return;
@@ -426,5 +434,35 @@ impl<'a> Visit<'a> for CaptureValidator<'_> {
             return;
         }
         walk::walk_method_definition(self, method);
+    }
+}
+
+#[cfg(test)]
+mod source_location_tests {
+    use super::line_column;
+
+    #[test]
+    fn source_locations_count_javascript_line_terminators_and_utf16_columns() {
+        for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+            let source = format!("é🚀{terminator}a🚀z");
+            let next_line = "é🚀".len() + terminator.len();
+            for (offset, line, column) in [
+                (0, 1, 0),
+                (2, 1, 1),
+                (6, 1, 3),
+                (next_line, 2, 0),
+                (next_line + 1, 2, 1),
+                (next_line + 5, 2, 3),
+                (source.len(), 2, 4),
+            ] {
+                assert_eq!(
+                    line_column(&source, offset as u32),
+                    (line, column + 1),
+                    "offset {offset}, terminator {terminator:?}"
+                );
+            }
+        }
+        assert_eq!(line_column("a\r\nb", 2), (2, 1));
+        assert_eq!(line_column("", 0), (1, 1));
     }
 }

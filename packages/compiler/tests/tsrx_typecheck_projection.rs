@@ -50,22 +50,40 @@ fn projects_callback_bindings_as_authored() {
     assert!(output.code.contains("from \"solid-js\""));
     assert!(output.code.contains("<__tsrx_For0"));
     assert!(output.code.contains("<__tsrx_Errored0"));
-    assert!(output.code.contains("{(plain) => <p>{plain.name}</p>}"), "{}", output.code);
     assert!(
-        output.code.contains("{(indexed, index) => <p>{indexed().name}:{index}</p>}"),
+        output.code.contains("{(plain) => <p>{plain.name}</p>}"),
+        "{}",
+        output.code
+    );
+    assert!(
+        output
+            .code
+            .contains("{(indexed, index) => <p>{indexed().name}:{index}</p>}"),
         "{}",
         output.code
     );
     assert!(output.code.contains("keyed={false}"));
-    assert!(output.code.contains("keyed={(keyed) => keyed.id}"), "{}", output.code);
-    assert!(output.code.contains("{(keyed) => <p>{keyed().name}</p>}"), "{}", output.code);
     assert!(
-        output.code.contains("{(both, position) => <p>{both().name}:{position()}</p>}"),
+        output.code.contains("keyed={(keyed) => keyed.id}"),
         "{}",
         output.code
     );
     assert!(
-        output.code.contains("fallback={(error) => <p>{error().message}</p>}"),
+        output.code.contains("{(keyed) => <p>{keyed().name}</p>}"),
+        "{}",
+        output.code
+    );
+    assert!(
+        output
+            .code
+            .contains("{(both, position) => <p>{both().name}:{position()}</p>}"),
+        "{}",
+        output.code
+    );
+    assert!(
+        output
+            .code
+            .contains("fallback={(error) => <p>{error().message}</p>}"),
         "{}",
         output.code
     );
@@ -82,7 +100,12 @@ fn projects_callback_bindings_as_authored() {
         },
     )
     .expect("runtime projection");
-    for shared_semantic_read in ["indexed().name", "both().name", "error().message", "plain.name"] {
+    for shared_semantic_read in [
+        "indexed().name",
+        "both().name",
+        "error().message",
+        "plain.name",
+    ] {
         assert!(
             runtime.code.contains(shared_semantic_read),
             "runtime and tooling must share {shared_semantic_read}: {}",
@@ -155,7 +178,10 @@ fn rejects_destructuring_where_solid_passes_an_accessor() {
             },
         )
         .expect_err("destructured accessor must be rejected by the compile");
-        assert!(error.message().contains(expected), "{source}\nruntime: {error}");
+        assert!(
+            error.message().contains(expected),
+            "{source}\nruntime: {error}"
+        );
         assert!(
             error.message().ends_with(&format!("({line}:{column})")),
             "{source}\nruntime location: {error}"
@@ -164,8 +190,13 @@ fn rejects_destructuring_where_solid_passes_an_accessor() {
 
     // Default keyed `@for` hands the callback the raw item: destructuring is
     // an ordinary one-time destructure there and stays allowed.
-    let keyed = "export function Rows({ rows }) @{\n  @for (const { name } of rows) { <p>{name}</p> }\n}";
-    assert!(project(keyed).code.contains("{({ name }) => <p>{name}</p>}"));
+    let keyed =
+        "export function Rows({ rows }) @{\n  @for (const { name } of rows) { <p>{name}</p> }\n}";
+    assert!(
+        project(keyed)
+            .code
+            .contains("{({ name }) => <p>{name}</p>}")
+    );
     compile(
         keyed,
         &CompileOptions {
