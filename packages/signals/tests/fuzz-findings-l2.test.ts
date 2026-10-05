@@ -593,35 +593,36 @@ describe("fuzz findings on L2 — verdicts", () => {
   // F9. A19: "`isPending(x)` ≡ the observable value is not final … final the
   // moment [no cause] holds it"; A34 (2): a tick whose writes net to the
   // committed value "pends nothing: `isPending` stays false". `setSrc(1);
-  // setSrc(0)` re-asks the async memo for the committed input; the quiet
-  // re-ask lands and nothing is held — yet a probe-only reader of the memo
-  // reads `true` forever. (With a plain data reader beside it the verdict
-  // settles; the probe alone is stranded.)
-  it.fails(
-    "F9: a probe-only isPending settles after a coalesced toggle's re-ask lands (A19, A34 (2))",
-    async () => {
-      const [src, setSrc] = createSignal(0);
-      let verdict: unknown = "unpublished";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m = createMemo(() => Promise.resolve(src()));
-        createRenderEffect(
-          () => isPending(m),
-          v => {
-            verdict = v;
-          }
-        );
-      });
-      await drain();
-      expect(verdict).toBe(false);
-      setSrc(1);
-      setSrc(0); // nets to the committed value: no proposal
-      await drain(5);
-      expect(verdict).toBe(false);
-      dispose();
-    }
-  );
+  // setSrc(0)` re-asks the async memo for the committed input; the probe
+  // reader was re-derived when the memo went pending (`propagateStatus`'s
+  // verdict arm) and read `true`. The re-ask landed equal to the committed
+  // value: `setSignal` notified nobody, and the settle walk skipped the
+  // reader — a verdict reader holds no pending source of its own — so it
+  // read `true` forever. (A plain data reader beside it re-ran on its own
+  // settle and took the probe with it.) The settle walk now re-derives a
+  // verdict reader it reaches: the source settling is its verdict changing.
+  it("F9: a probe-only isPending settles when a coalesced toggle's re-ask lands silently (A19, A34 (2))", async () => {
+    const [src, setSrc] = createSignal(0);
+    let verdict: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => Promise.resolve(src()));
+      createRenderEffect(
+        () => isPending(m),
+        v => {
+          verdict = v;
+        }
+      );
+    });
+    await drain();
+    expect(verdict).toBe(false);
+    setSrc(1);
+    setSrc(0); // nets to the committed value: no proposal
+    await drain(5);
+    expect(verdict).toBe(false);
+    dispose();
+  });
 
   // F10. A31: "A memo computes under its own lane posture, never its
   // puller's"; A28: "a write becomes visible at flush — to every channel". A
