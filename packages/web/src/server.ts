@@ -5654,12 +5654,17 @@ export function generateHydrationScript(options?: {
   eventNames?: string[];
 }): string;
 
+// `r` owns every promise the payload files under it the moment it lands
+// (#3769): a record the client never reads — under an <Errored> that showed
+// its fallback, or keyed outside any boundary — would otherwise raise
+// `unhandledrejection` from the inline script alone, and a handler attached
+// later only revokes the report. A consumer still meets the rejection.
 export function generateHydrationScript({ eventNames = ["click", "input"], nonce } = {}) {
   return `<script${
     nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
   }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
     '","'
-  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:{},fe(){}});</script><!--xs-->`;
+  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs-->`;
 }
 
 function queue(fn) {
