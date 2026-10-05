@@ -74,6 +74,9 @@ export const $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),
   $RECORD = Symbol(__DEV__ ? "VIEW_RECORD" : 0);
 
+/** The store proxy behind a projection draft wrapper (internal only). */
+export const $DRAFT_INNER = Symbol(__DEV__ ? "STORE_DRAFT_INNER" : 0);
+
 export namespace SolidStore {
   export interface Unwrappable {}
 }

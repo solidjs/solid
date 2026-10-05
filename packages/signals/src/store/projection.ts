@@ -35,6 +35,7 @@ import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
 import type { StoreFamily, StoreTarget } from "./target.js";
 import {
+  $DRAFT_INNER,
   $TARGET,
   markRawIngest,
   setWriteOverride,
@@ -91,6 +92,7 @@ function wrapDraft(
   };
   const traps: ProxyHandler<any> = {
     get(_, prop) {
+      if (prop === $DRAFT_INNER) return inner;
       const value = read(() => inner[prop]);
       return !shallow && typeof value === "object" && value !== null && prop !== $TARGET
         ? wrapDraft(value, isActive, aroundWrite, false, afterWrite, asking)

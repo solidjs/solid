@@ -145,6 +145,7 @@ export function installAffectsHooks(hooks: AffectsHooks): void {
   affectsHooks = hooks;
 }
 import {
+  $DRAFT_INNER,
   $PROXY,
   $RECORD,
   $TARGET,
@@ -265,6 +266,8 @@ export function wrap<T extends Record<PropertyKey, any>>(
     if (fam === null || t.fam === fam) return value;
     return createTarget(value as any, parent, parentKey, fam).px;
   }
+  if (t !== undefined && (value as any)[$DRAFT_INNER] === t.px)
+    return wrap(t.px, parent, parentKey, fam);
   return createTarget(value, parent, parentKey, fam).px;
 }
 
@@ -279,6 +282,7 @@ export function unwrapValue(v: any): any {
     if (t.ovl) materializePB(t);
     return t.pb ?? t.v;
   }
+  if (t !== undefined && v[$DRAFT_INNER] === t.px) return unwrapValue(t.px);
   return v;
 }
 
