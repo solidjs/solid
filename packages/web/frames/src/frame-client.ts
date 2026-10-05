@@ -253,7 +253,7 @@ export interface FrameHost {
   /** `frameId` is the resolving frame's id — route to its stream's table. */
   resolve(ref: { $ref: string }, frameId?: string): unknown;
   /** See FrameHostOptions.revive. */
-  revive?(value: unknown): unknown;
+  revive?(value: unknown, claiming?: boolean): unknown;
   /** See FrameHostOptions.isContainer. */
   isContainer?(value: unknown): boolean;
   /** See FrameHostOptions.prepareArgs. */
@@ -294,8 +294,10 @@ export interface FrameHostOptions {
    * neither `{$ref}` nor `{$frame}`) at arg-resolution time. Document-face
    * container traces ride this way — inline in the record, revived by the
    * integration (`reviveContainerTraces`) into live local containers.
+   * `claiming` marks the args of an adopt-time mount — the occurrence is
+   * about to hydrate server markup rendered from these values.
    */
-  revive?(value: unknown): unknown;
+  revive?(value: unknown, claiming?: boolean): unknown;
   /**
    * An async step a record's LITERAL slot args need before `revive` can
    * answer — the container-trace materializer loading, for a document-face
@@ -664,7 +666,7 @@ export function createFrameHost(options?: FrameHostOptions): FrameHost;
  *   resolve?: (ref: { $ref: string }) => unknown,
  *   applyData?: (chunk: object) => void,
  *   prepareData?: (chunk: object) => Promise<unknown>,
- *   revive?: (value: unknown) => unknown,
+ *   revive?: (value: unknown, claiming?: boolean) => unknown,
  *   isContainer?: (value: unknown) => boolean,
  *   prepareArgs?: (args: object) => Promise<unknown> | undefined
  * }} [options]
@@ -879,6 +881,12 @@ class FrameImpl {
   // The pending re-sync for occurrences held on the host's async arg step
   // (FrameHostOptions.prepareArgs — see #argsUnprepared).
   #argsRefresh = null;
+  // Adopt path: the record an unmounted occurrence was first HELD with
+  // (refs not arrived / args not prepared — see #syncSlots). The adopted
+  // range's server interior was rendered from that record; should the store
+  // move on while it waits (a refetch, a rebind), the mount still claims
+  // with it and the current record applies as the args change it is.
+  #heldRecords = new Map();
   #disposed = false;
   // Stable identity so a pending stylesheet holds at most one waiter per
   // frame across repeated readiness checks.
@@ -1311,8 +1319,19 @@ class FrameImpl {
         record &&
         record.kind === "slot" &&
         (this.#refsUnresolved(record.args) || this.#argsUnprepared(record.args))
-      )
+      ) {
+        // Remember what the adopted interior was rendered from. A hold is
+        // the t=0 mount deferred: when it lifts, the mount must do what t=0
+        // would have — claim with THIS record — even if a later stream has
+        // since replaced it in the store (the mount below falls through to
+        // the args-change path for the replacement). A claim with the
+        // replacement's args instead would trust markup rendered from the
+        // old ones and leave every differing text hole stale: a claim pass
+        // never rewrites text.
+        if (this.#options.adopt && !this.#mountedSlots.has(occurrence))
+          this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, record);
         continue;
+      }
       // A mount whose output the morph destroyed (its range was recreated
       // inside a different server parent — ranges only relocate among
       // siblings) is a zombie: remount fresh so content stays correct, even
@@ -1402,7 +1421,19 @@ class FrameImpl {
         // regions yet; discovery is a no-op then, and #resolveArgs creates
         // its entries during the invoke instead.
         if (this.#options.adopt) this.#discoverRegions(occurrence, start);
-        const nodes = this.#invokeSlot(occurrence, callback, record, start, this.#options.adopt);
+        // A held occurrence mounts with the record it was held on (see the
+        // hold above); a current record that differs applies right after,
+        // through the mounted path below.
+        const held = this.#heldRecords.get(occurrence);
+        this.#heldRecords.delete(occurrence);
+        const mountRecord = held || record;
+        const nodes = this.#invokeSlot(
+          occurrence,
+          callback,
+          mountRecord,
+          start,
+          this.#options.adopt
+        );
         // A data occurrence's nodes are its consuming elements (so the
         // zombie check above sees a morph that replaced them all); its mount
         // never returns nodes to place.
@@ -1425,7 +1456,7 @@ class FrameImpl {
         // large adopted tree).
         if (!this.#options.adopt || nodes) this.#discoverRegions(occurrence, start);
         this.#bindRegions(occurrence);
-        continue;
+        if (mountRecord === record || !record || record.kind !== "slot") continue;
       }
       // A mounted data occurrence whose CONSUMERS changed — a morph replaced
       // one of its elements, a response added or dropped a bound position
@@ -1569,7 +1600,9 @@ class FrameImpl {
     // already-rendered element from the first render (a client-only
     // toggle can hide/show it at t=0, no re-arming stream needed).
     const props =
-      record && record.kind === "slot" ? this.#resolveArgs(occurrence, record.args) : {};
+      record && record.kind === "slot"
+        ? this.#resolveArgs(occurrence, record.args, undefined, adopted)
+        : {};
     // Run under the boundary's owner (when the creator provided one): slot
     // content reads the mount point's context (routers, stores) and bounds
     // its lifetime there. The t=0 adopt sync happens to run inside the
@@ -1600,6 +1633,7 @@ class FrameImpl {
     this.#slotUpdaters.delete(key);
     this.#slotRebinders.delete(key);
     this.#slotResolvedRefs.delete(key);
+    this.#heldRecords.delete(key);
     this.#removeSlotRecord(key);
     this.#runSlotCleanups(key);
     const regions = this.#slotRegions.get(key);
@@ -1682,7 +1716,7 @@ class FrameImpl {
     return regions;
   }
 
-  #resolveArgs(slotKey, args, resolve?) {
+  #resolveArgs(slotKey, args, resolve?, claiming?) {
     const host = this.#options.host;
     const regions = this.#regionsFor(slotKey);
     const props = {};
@@ -1718,7 +1752,7 @@ class FrameImpl {
         // to revive (document-face container traces arrive as inline
         // literals rather than `{$ref}`s — see reviveContainerTraces). The
         // host hook keeps this module protocol-agnostic.
-        props[key] = host && host.revive ? host.revive(value) : value;
+        props[key] = host && host.revive ? host.revive(value, claiming) : value;
       }
     }
     return props;

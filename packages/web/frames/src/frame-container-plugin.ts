@@ -92,7 +92,9 @@ export function setAsyncIterableSharer(
 export function setAsyncIterableSharer(fn) {
   state.shareIterable = fn;
 } /** Client half: install the reactive core's trace materializer. */
-export function setContainerTraceMaterializer(fn: (marker: ContainerTraceMarker) => unknown): void;
+export function setContainerTraceMaterializer(
+  fn: (marker: ContainerTraceMarker, claiming?: boolean) => unknown
+): void;
 
 /** Client half: install the reactive core's trace materializer. */
 export function setContainerTraceMaterializer(fn) {
@@ -252,10 +254,10 @@ function isShareableIterable(value) {
 // across independent revival sites (an eval-face marker read by two
 // occurrences, a codec node re-resolved per record — possibly by DIFFERENT
 // copies of this module).
-function materialize(marker) {
+function materialize(marker, claiming) {
   let value = state.materialized.get(marker.$tr);
   if (value === undefined) {
-    value = state.materializeTrace(marker);
+    value = state.materializeTrace(marker, claiming);
     state.materialized.set(marker.$tr, value);
     if (value !== null && typeof value === "object") state.materializedValues.add(value);
   }
@@ -292,23 +294,26 @@ export function isContainerTraceMarker(value) {
   const tr = value.$tr;
   return tr.__SEROVAL_STREAM__ === true || typeof tr[Symbol.asyncIterator] === "function";
 } /** Deep-revive trace markers inside a decoded value (document-face slot args). */
-export function reviveContainerTraces(value: unknown): unknown;
+export function reviveContainerTraces(value: unknown, claiming?: boolean): unknown;
 
 /**
  * Deep-revive trace markers inside a decoded value (document-face slot args
  * arrive as literals, and a container can sit at ANY depth of an argument —
  * `{ filters: { user: proj } }` is one arg). In-place: args records are
  * per-record decoded copies. No-op until the materializer is installed.
+ * `claiming`: the value's reader is about to hydrate server markup rendered
+ * from it (a frame's adopt-time mount) — the materializer holds a trace's
+ * backlog beyond the snapshot the markup shows until hydration ends.
  */
-export function reviveContainerTraces(value) {
+export function reviveContainerTraces(value, claiming) {
   if (!state.materializeTrace || value == null || typeof value !== "object") return value;
-  if (isContainerTraceMarker(value)) return materialize(value);
+  if (isContainerTraceMarker(value)) return materialize(value, claiming);
   // Plain containers only — anything exotic was either produced by the
   // codec plugin (already materialized) or is an app value not ours to walk.
   if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) value[i] = reviveContainerTraces(value[i]);
+    for (let i = 0; i < value.length; i++) value[i] = reviveContainerTraces(value[i], claiming);
   } else if (Object.getPrototypeOf(value) === Object.prototype) {
-    for (const key of Object.keys(value)) value[key] = reviveContainerTraces(value[key]);
+    for (const key of Object.keys(value)) value[key] = reviveContainerTraces(value[key], claiming);
   }
   return value;
 }
