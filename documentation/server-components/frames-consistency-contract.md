@@ -3,7 +3,10 @@
 Branch `spec/frames-consistency-contract` off `next` @ `ea5f1da07`. **Nothing
 here changes an engine.** The branch carries this document, one pin per
 invariant under `packages/web/test/consistency/`, and a property harness
-under `packages/web/test/consistency/harness/`.
+under `packages/web/test/consistency/harness/`. Counts on `next` at the
+end of the audit: 17 invariants stated, 2 more found by the harness (C18,
+C19); 7 hold (C1, C8–C11, C14–C16 — eight pins), 11 red (C2–C7, C12, C13,
+C17, C18, C19), ten red diagnoses R1–R10.
 
 The question this answers is not the one `documentation/plans/sc-layer-audit.md`
 §3 answers. That inventory lists 75 statements of what the server-components
@@ -72,7 +75,8 @@ is adopted by at most one frame.
   fresh nodes replaces, leaving no server node of the range behind; (c) a
   second mount of the same function while the first adopted mounts fresh and
   the adopted element is untouched.
-- **Verdict:** see §Table.
+- **Verdict:** **holds on `next`** (3/3); the harness's C1 laws (key miss,
+  unclaimed, duplicate, node identity) fired in none of 1000 cases.
 
 ### C2 — no inert server content
 
@@ -298,7 +302,11 @@ while a sibling hole of the same sweep still shows the previous value.
   written in one synchronous span; (b) stream face: two `hole` chunks in one
   burst; a `frame:applied` listener and a `MutationObserver` must never
   observe one updated without the other; (control) one hole alone.
-- **Verdict:** **red on `next`** (arms a, b). See §Red R7.
+- **Verdict:** **red on `next`** (arms a, b; identical torn frames on both
+  faces). See §Red R7. This confirms the assumption in the rulings draft
+  (`frames-rulings.md`, branch `spec/frames-rulings`) that C13 needs a wire
+  sweep delimiter: no client-side unit larger than one op exists today, so
+  no client change alone can carry the invariant.
 
 ### C14 — disposal leaves nothing
 
@@ -312,10 +320,16 @@ reveal touches the DOM or invokes a fill.
   `client.ts:adoptBoundary`'s `onCleanup` (applier, `fr` unsubscribe, fragment
   claims released), `client.ts:documentBoundary`'s `boundaryWaiters` cleanup,
   `client.ts:followAddress.drop`.
-- **Pin:** `c14-dispose-clean.spec.tsx` — arms: dispose during the record
-  defer; during a `{$ref}` wait on a stream; during a late-boundary wait;
-  mid-stream — then deliver everything and assert nothing moved.
-- **Verdict:** see §Table.
+- **Pin:** `c14-dispose-clean.spec.tsx` — arms: (a) dispose during the
+  record defer (`readyState` "loading"), the record lands after; (b) during a
+  `{$ref}` wait on a stream, the data lands after; (c) during a late-boundary
+  wait, the fragment reveals after and a fresh mount adopts it; (d) mid-stream
+  (hole, slot, root morph after dispose); (control) the undisposed twin lands
+  everything.
+- **Verdict:** **holds on `next`** (5/5). The disposed frame unregisters
+  first, its `#recordRefresh` is cleared, the live applier and fragment claims
+  retire, and a fresh mount adopts the element the dead one never claimed
+  with no key miss.
 
 ### C15 — a staged refetch lands at the commit, whole
 
@@ -327,11 +341,18 @@ land at that transaction's commit — never when the body finishes arriving.
 - **Mechanism:** `frame-transport.ts:createServerComponentHandler.stage` /
   `stagedContent` / `named`, `client.ts:followAddress` (compute `preview`,
   effect `commit`), `frame-client.ts:FrameImpl.preview`, `client.ts:stageTables`.
-- **Pin:** `c15-staging-atomic.spec.tsx` — a refetch inside an action whose
-  transaction is held by a sibling async write: the frame's text and the
-  sibling's text change in the same frame; a staged response's chunks never
-  write through before the commit.
-- **Verdict:** see §Table.
+- **Pin:** `c15-staging-atomic.spec.tsx` — a refetch inside an `action`
+  whose transaction is held by a sibling async write (`heldSibling`), a
+  `MutationObserver` recording every distinct `sibling|root|fill` frame:
+  (a) the body completes before the sibling releases; (b) the sibling
+  releases first, the body completes after; (c) a second refetch supersedes
+  the first while staged; (control) a refetch holding nothing else lands at
+  body end.
+- **Verdict:** **holds on `next`** (4/4). Nothing of the staged version is
+  visible, applied (`frame:applied`) or versioned in the host before the
+  commit; root, fill and sibling change in one frame in both orders; a
+  superseded staged version never shows; the fill is updated in place (one
+  read of the new arg, no re-call).
 
 ### C16 — one component identity per function
 
@@ -345,11 +366,15 @@ across hydration and navigation.
   (`componentFor`, `bindingFor`, `showing`, `resolveServerComponent`),
   `client.ts:installServerComponents` (`_$SC.r` and its `b`/`c` tables),
   `web/src/index.ts:dynamic` (`sameInstance`, `resolveBinding`).
-- **Pin:** `c16-reference-identity.spec.tsx` — the component behind the
-  document's `_$SC.r(id, address)` binding is the component the transport's
-  binding carries after a refetch and after an args switch; the instance
-  (frame element) stands through both.
-- **Verdict:** see §Table.
+- **Pin:** `c16-reference-identity.spec.tsx` — (a)(b)(d) one document page:
+  the hydration reference `_$SC.r(id, A)` adopts the SSR'd element, then a
+  staged refetch of A, a switch to B, a re-call of A — every resolution's
+  `COMPONENT_BINDING.component` is `_$SC.r(id)` and the `<solid-frame>` is
+  the same node throughout; (c) a flight reference inside a single-flight
+  envelope resolves through `resolveServerComponent` to the same component
+  and the site switching from the transport's answer to the envelope's
+  value keeps its element.
+- **Verdict:** **holds on `next`** (2/2, covering the four paths).
 
 ### C17 — the shell gate answers only to the bound address
 
@@ -372,30 +397,67 @@ address's late chunks never release it.
 
 ## Table
 
-| #   | invariant                           | mechanism (carrier)                                         | pin                                    | `next`  |
-| --- | ----------------------------------- | ----------------------------------------------------------- | -------------------------------------- | ------- |
-| C1  | claim once / replace / one adopter  | `claimRender`, `slotsFor.settle`, `#replaceRange`, `claimedBoundaries` | `c01-claim-once`              | holds   |
-| C2  | no inert server content             | `#syncSlots`, `adoptBoundary` reveal cascade                | `c02-revealed-occurrence-mounts`       | **red** (a2, b) |
-| C3  | done counts every hold              | `_pendingBoundaries` vs `#recordRefresh`/`#refsUnresolved`  | `c03-hydration-done-counts-holds`      | **red** (a) |
-| C4  | record applies once, any order      | `drainRecords`, `write`, `argsEquivalent`, `#appliedHoles`  | `c04-record-applies-once`              | **red** (d) |
-| C5  | data response-scoped                | `beginStream`/`tableFor`, `host.apply` (data path)          | `c05-data-response-scoped`             | **red** (a, b, e) |
-| C6  | held record never lands stale       | `#refsUnresolved` retry, `rebind`, `dispose`                | `c06-stale-wait-never-lands`           | **red** (a1, b2) |
-| C7  | store is the truth                  | `#flush`, `#segmentReady`, `#resetStreamState`              | `c07-store-is-truth`                   | **red** (c) |
-| C8  | fan-out equality                    | `createFrameHost.register`/`apply`                          | `c08-fanout-equal`                     | holds   |
-| C9  | no phantom                          | `claimRender`, `slotArgsProxy`, settled-branch hydration    | `c09-no-phantom`                       | holds   |
-| C10 | ids timing-independent              | `claimRender` owner id, `#invokeSlot` ctx                   | `c10-ids-timing-independent`           | holds   |
-| C11 | trace equals oracle                 | `materializeContainerTrace`, `materialize` memo             | `c11-trace-equals-oracle`              | holds   |
-| C12 | boundary parity at claim            | `hydratedCreateLoadingBoundary`, `claimRegionFragments`     | `c12-boundary-parity`                  | **red** (c) |
-| C13 | one sweep, one frame                | `applyFrames.drain`, `#flush` hole pass                     | `c13-sweep-atomic`                     | **red** (a, b) |
-| C14 | disposal leaves nothing             | `dispose`, `unregister`, adopt cleanups                     | `c14-dispose-clean`                    | _tbd_   |
-| C15 | staged refetch lands whole          | `stage`/`stagedContent`, `followAddress`                    | `c15-staging-atomic`                   | _tbd_   |
-| C16 | one component identity              | `componentFor`/`bindingFor`/`showing`, `sameInstance`       | `c16-reference-identity`               | _tbd_   |
-| C17 | gate answers to the bound address   | `boundaryComponent` gate, `followAddress` re-arm, `rebind`  | `c17-gate-bound-address`               | **red** (a, c) |
+| #   | invariant                          | mechanism (carrier)                                                    | pin                               | `next`            |
+| --- | ---------------------------------- | ---------------------------------------------------------------------- | --------------------------------- | ----------------- |
+| C1  | claim once / replace / one adopter | `claimRender`, `slotsFor.settle`, `#replaceRange`, `claimedBoundaries` | `c01-claim-once`                  | holds             |
+| C2  | no inert server content            | `#syncSlots`, `adoptBoundary` reveal cascade                           | `c02-revealed-occurrence-mounts`  | **red** (a2, b)   |
+| C3  | done counts every hold             | `_pendingBoundaries` vs `#recordRefresh`/`#refsUnresolved`             | `c03-hydration-done-counts-holds` | **red** (a)       |
+| C4  | record applies once, any order     | `drainRecords`, `write`, `argsEquivalent`, `#appliedHoles`             | `c04-record-applies-once`         | **red** (d)       |
+| C5  | data response-scoped               | `beginStream`/`tableFor`, `host.apply` (data path)                     | `c05-data-response-scoped`        | **red** (a, b, e) |
+| C6  | held record never lands stale      | `#refsUnresolved` retry, `rebind`, `dispose`                           | `c06-stale-wait-never-lands`      | **red** (a1, b2)  |
+| C7  | store is the truth                 | `#flush`, `#segmentReady`, `#resetStreamState`                         | `c07-store-is-truth`              | **red** (c)       |
+| C8  | fan-out equality                   | `createFrameHost.register`/`apply`                                     | `c08-fanout-equal`                | holds             |
+| C9  | no phantom                         | `claimRender`, `slotArgsProxy`, settled-branch hydration               | `c09-no-phantom`                  | holds             |
+| C10 | ids timing-independent             | `claimRender` owner id, `#invokeSlot` ctx                              | `c10-ids-timing-independent`      | holds             |
+| C11 | trace equals oracle                | `materializeContainerTrace`, `materialize` memo                        | `c11-trace-equals-oracle`         | holds             |
+| C12 | boundary parity at claim           | `hydratedCreateLoadingBoundary`, `claimRegionFragments`                | `c12-boundary-parity`             | **red** (c)       |
+| C13 | one sweep, one frame               | `applyFrames.drain`, `#flush` hole pass                                | `c13-sweep-atomic`                | **red** (a, b)    |
+| C14 | disposal leaves nothing            | `dispose`, `unregister`, adopt cleanups                                | `c14-dispose-clean`               | holds             |
+| C15 | staged refetch lands whole         | `stage`/`stagedContent`, `followAddress`                               | `c15-staging-atomic`              | holds             |
+| C16 | one component identity             | `componentFor`/`bindingFor`/`showing`, `sameInstance`                  | `c16-reference-identity`          | holds             |
+| C17 | gate answers to the bound address  | `boundaryComponent` gate, `followAddress` re-arm, `rebind`             | `c17-gate-bound-address`          | **red** (a, c)    |
+| C18 | classification waits for the drain | `#syncSlots` defer / `drainRecords` (one apply per record)             | `harness/replay` (C18 ×3)         | **red**           |
+| C19 | a claim shows the value it read    | hydration claim pass (non-mutating) × trace replay                     | `harness/replay` (C19 ×2)         | **red**           |
+
+C18 and C19 are shapes the property harness found (§Harness); they are
+stated as invariants in §Harness-found invariants below and pinned in
+`harness/replay.spec.tsx`.
+
+## Harness-found invariants
+
+### C18 — classification waits for the drain
+
+A recordless adopted occurrence is classified (direct-insert vs invoked) only
+after every record the document already holds for the boundary has been
+applied: no sync that runs between the parser's end and the deferred drain —
+the drain's own first `host.apply`, a live op, the live pump's catch-up
+read — may evaluate a render prop as a zero-arg accessor.
+
+- **Mechanism:** `frame-client.ts:FrameImpl.#syncSlots` (#2968 defer: arms
+  `#recordRefresh` only while `recordsPending()`; classifies otherwise),
+  `client.ts:adoptBoundary.drainRecords` (one `host.apply` per record, each a
+  synchronous `#flush` → `#syncSlots`), `recordsPending` (`readyState` /
+  `fr.pending()`).
+- **Pin:** `harness/replay.spec.tsx` C18 ×3 (`test.fails`) + control.
+- **Verdict:** **red on `next`.** See §Red R9.
+
+### C19 — a claim shows the value it read
+
+A fill claiming server-rendered text shows, after the claim, the value its
+first read produced: when a container trace's patches landed before the
+claim, the DOM shows the patched value, not the snapshot the server rendered.
+
+- **Mechanism:** `web/src/client.ts:insertExpression` (a hydrating render is
+  a claim pass, not a mutation pass — by design), `materializeContainerTrace`
+  (replays snapshot + patches synchronously at revive, so the first read is
+  already the patched value), `claimRender`.
+- **Pin:** `harness/replay.spec.tsx` C19 ×2 (`test.fails`) + control.
+- **Verdict:** **red on `next`**, **green on S1** (§S1 delta). See §Red R10.
 
 ## Red on `next`
 
-_(filled in as pins land — each: minimal shape, observed vs expected frame,
-diagnosis in the code's terms, severity)_
+Each: minimal shape, observed vs expected frame, diagnosis in the code's
+terms, severity, and the existing test that should have caught it.
 
 ### R1 — C3: hydration reports done while an adopted occurrence is still deferred
 
@@ -425,26 +487,27 @@ done" treats done-before-claim as the expected order.
 ### R2 — C7: a refetch whose shell is byte-identical never reveals its new segment
 
 **Shape.** One frame; v1 = root shell with a `<Loading>` placeholder `pl-a`
-+ `fragment a` + `reveal a` (revealed: the placeholder is gone, A1 shows).
-v2 = the SAME root html (the shell of a server component rarely changes
-between refetches; fragment names restart per stream, so `pl-a` again) +
-`fragment a` (A2) + `reveal a`. **Observed:** the DOM keeps showing A1; v2's
-`seg:a` and its reveal gate sit in the store forever. **Expected:** v2's
-shell re-applies (placeholder back, fallback), then A2 reveals. **Where it
-goes wrong.** `FrameImpl.apply`'s version-bump arm calls `#resetStreamState()`
-(segments, fallbacks, holes, assets, the error latch) but **not**
-`#appliedRootValue`, which only `rebind` clears; `#flush` then value-skips the
-root (`root.value !== this.#appliedRootValue` is false), so v1's revealed
-interior stays in the DOM with no placeholder, and `#segmentReady("a")`
-fails its structural prerequisite (`#findPlaceholder` finds nothing) on
-every later flush. The store is v2; the page is v1. Staging (#3759) commits
-through the same `host.apply` path and has the same hole. **Severity:**
-stale content after refetch for every server component with a streamed
-`<Loading>` whose shell did not change (high). **Should have been caught
-by:** `frames-client.spec.tsx` "mounts, fills slot ranges from props, morphs
-on re-fetch without remounting" — its refetch changes the root html, so the
-value-skip never fires; no existing refetch test streams a `<Loading>`
-segment under an unchanged shell.
+
+- `fragment a` + `reveal a` (revealed: the placeholder is gone, A1 shows).
+  v2 = the SAME root html (the shell of a server component rarely changes
+  between refetches; fragment names restart per stream, so `pl-a` again) +
+  `fragment a` (A2) + `reveal a`. **Observed:** the DOM keeps showing A1; v2's
+  `seg:a` and its reveal gate sit in the store forever. **Expected:** v2's
+  shell re-applies (placeholder back, fallback), then A2 reveals. **Where it
+  goes wrong.** `FrameImpl.apply`'s version-bump arm calls `#resetStreamState()`
+  (segments, fallbacks, holes, assets, the error latch) but **not**
+  `#appliedRootValue`, which only `rebind` clears; `#flush` then value-skips the
+  root (`root.value !== this.#appliedRootValue` is false), so v1's revealed
+  interior stays in the DOM with no placeholder, and `#segmentReady("a")`
+  fails its structural prerequisite (`#findPlaceholder` finds nothing) on
+  every later flush. The store is v2; the page is v1. Staging (#3759) commits
+  through the same `host.apply` path and has the same hole. **Severity:**
+  stale content after refetch for every server component with a streamed
+  `<Loading>` whose shell did not change (high). **Should have been caught
+  by:** `frames-client.spec.tsx` "mounts, fills slot ranges from props, morphs
+  on re-fetch without remounting" — its refetch changes the root html, so the
+  value-skip never fires; no existing refetch test streams a `<Loading>`
+  segment under an unchanged shell.
 
 ### R3 — C2 / C4: a fragment reveal is not a sync trigger (three arms, one root)
 
@@ -613,11 +676,155 @@ remounted site binds the latest call's address (away/back)" and
 boundary" — both complete the old stream before the switch or never deliver
 the new one; no test leaves the old stream open across a delivered switch.
 
+### R9 — C18: a sync between the parser's end and the deferred drain classifies undrained records as content
+
+**Shape.** One adopted boundary, two render-prop occurrences whose records
+are still owed when the boundary adopts (`readyState === "loading"`, the
+#2968 defer arms); both records execute, then the parser finishes
+(`readyState` leaves "loading") before the deferred `setTimeout` fires.
+Minimal: `[item#0 item#1] :: H R0 R1`. Two further triggers with ONE
+occurrence: a live hole op arriving after the record and before the drain
+(`[item#0] hole :: H R0 L(ab)`), and ops logged before adoption replayed by
+the live pump's first async read (`L L H R0`). **Observed:** the drain's
+first `host.apply` (or the live op) runs `#flush` → `#syncSlots`; the other
+occurrence is still recordless — its record sits undrained in `_$HY.r` —
+and `recordsPending()` is now false, so it is classified direct-insert and
+its render prop is evaluated as a zero-arg accessor. A real fill reads
+`props.text` there: `TypeError` inside the insert effect →
+`[REACTIVITY_HALTED]` — the whole page stops updating. **Expected:** no
+zero-arg evaluation; both occurrences claim with their args. **Where it goes
+wrong.** The #2968 defer treats `recordsPending()` as the only guard: once
+the parser is done, any sync classifies whatever is recordless, but the
+records that already executed are only moved from `_$HY.r` into the store
+by `drainRecords`, which the frame calls only inside the `#recordRefresh`
+timer — and applies one record at a time, each apply syncing the frame. The
+window between "parser done" and "timer fired" (one macrotask) is exactly
+where a document's tail — the frame's data scripts followed by the end of
+the response, parsed in one go — lands. **Severity:** page-halting crash
+under a realistic ordering, no recovery (high). **Should have been caught
+by:** `hydration/adopted-slot-late-record.spec.tsx` and the #2968 pins —
+they use one occurrence and keep `readyState` "loading" through the drain,
+so no sync ever runs over an undrained record with the parser done.
+**Fix shape (frames-client):** drain before classifying (call
+`drainRecords` — or consult `_$HY.r` — in `#syncSlots` before the
+direct-insert branch), and/or make `drainRecords` apply all records before
+the first sync.
+
+### R10 — C19: a claim keeps the snapshot's text when the trace moved before the claim
+
+**Shape.** One render-prop occurrence with a container-trace arg; the
+server rendered the snapshot (`n = 2`); a patch (`n = 5`) lands before the
+fill claims — record→patch→hydrate, patch→record→hydrate, or
+hydrate→patch→record (deferred claim). **Observed:** the fill's first read
+is `5` (the trace replays synchronously at revive), yet the DOM keeps `2`
+with no warning; it catches up at the next patch — unless that patch sets
+the same value, in which case the store never changes and the DOM stays
+stale indefinitely (`item#1trace(0,-2,0) :: R1 R0 T1.0 H T1.1`). **Expected:**
+the claimed text equals the value read. **Where it goes wrong.** A hydrating
+`insertExpression` is a claim pass — "not a mutation pass" — by design; the
+trace model assumes the server text IS the store's first value, which holds
+only if no patch precedes the claim. On S1 (`9927ddddd`, "a held
+container-trace fill hydrates like a resident one") the shape is green: the
+held fill's claim runs under a path that reconciles the text with the live
+value (the same path that produces C3(b)'s red there). **Severity:** stale
+value shown after hydration with no diagnostic; self-heals on the next
+distinct patch (medium). **Should have been caught by:** `c11-trace-equals-
+oracle` (d) — it patches only after the claim; no hydration test lets a
+container trace move between SSR and claim.
+
 ## Harness
 
-`packages/web/test/consistency/harness/` — see its README. Summary of what
-it generates, the oracle, seeds and results: _(filled in after the runs)_.
+`packages/web/test/consistency/harness/` (see its README): a fast-check
+scenario generator over one adopted boundary — 1–4 occurrences (render-prop
+with a plain or container-trace arg, or direct-insert `children`), 0–2
+server `<Loading>` fragments, an optional live hole, a late dispose — and a
+shuffled schedule of the required events (hydrate, each record, each reveal,
+trace patches in order, live ops, ticks, microtasks). The runner builds the
+page with `support.ts`'s `bootPage` (production host, shipped document
+runtime, real `hydrate`), mocks the parser's clock (`readyState` "loading"
+while records/reveals are owed), and checks the oracle after every event:
+immediate laws (G no-runtime-error; C1 key-miss / unclaimed / duplicate /
+node-identity; C4 invoke-once / known hole value; C14 dispose-no-invoke /
+no-apply; C18 classify-after-drain), settled laws at ticks and the end (C11/
+C19 trace vs oracle; C4 live-op-latest; C12 fragment parity; C14 host
+cleared), end laws (C3 done-counts-holds; C2 every-range-live / reactive
+after a signal bump). Survey mode tallies by invariant; shrink mode reduces
+one counterexample to JSON.
+
+Campaigns on `next` (`1f8b2caf4`):
+
+| seed  | cases | ignore           | cases with findings | findings by invariant                                                                      |
+| ----- | ----- | ---------------- | ------------------- | ------------------------------------------------------------------------------------------ |
+| 3289  | 500   | —                | 323                 | C3 280 (R1), C19 71 (R10, new), C18 49 (R9, new), C2 16+11 (R3), C11 0, C4 0, C12 0, C14 0 |
+| 91501 | 500   | —                | 327                 | C3 268, C19 68, C18 55, C2 26+25                                                           |
+| 91501 | 500   | C3, C18, C19, C2 | **0**               | nothing else surfaces                                                                      |
+
+Shrink mode (seed 3289, ignore C3) reduces to
+`[item#0 item#1 children] :: H R1 R0` → C18 on the first failing case.
+Replay pins (`harness/replay.spec.tsx`): C18 ×3 (two records drained after
+the parser finished; a live op before the drain; the pump's catch-up read),
+C19 ×2 (patch before claim, two orders), C2 ×1 and C3 ×1 (R3/R1
+rediscovered), three passing controls and a smoke. Harness bugs fixed during
+sanity (laws were mis-stated, the contract text was not): the fill's
+occurrence-id read is `untrack`ed (a top-level fill read is a
+`STRICT_READ_UNTRACKED` diagnostic); a zero-arg fill evaluation is counted as
+C18 and returns inert content instead of halting the system so later laws
+stay readable; a trace occurrence whose first patch preceded the claim is
+C19 regardless of later patches.
+
+Limitations: one boundary per page; no stream face (refetch/switch —
+C5/C6/C13/C15/C17 are pinned by hand); every case after the first runs in
+the post-`_hydrationDone` regime; trace snapshots always precede the record;
+the parser's clock flips synchronously after the last owed event (the
+tightest realistic timing).
 
 ## S1 delta
 
-_(filled in after step 5)_
+Worktree `~/Development/wt-sc-contract-s1`, branch
+`spec/frames-consistency-contract-s1` = `size/s1-lazy-store-materializer` @
+`9927ddddd` + the eight pin/harness commits cherry-picked (clean). Consistency
+suite there: 60 passed, 20 expected-fail, **3 failed**, 1 skipped (the
+campaign). Versus `next` (61 passed, 22 expected-fail, 1 skipped):
+
+- **Newly red:** C3 (b) — "container-trace arg present at adoption: the
+  occurrence has claimed by hydration end". On S1 the materializer loads
+  lazily and `prepareArgs` holds the occurrence; hydration-done fires before
+  the held claim (the claim and a later patch still land). Same family as
+  R1 (a hold hydration does not count).
+- **Newly green:** C19 ×2 — the `test.fails` pins pass on S1: a trace patch
+  before the claim IS shown (`R0 T H` runs with no finding at all, node
+  identity included; `H T R0` shows the oracle and only C3 fires). The held
+  container-trace fill of `9927ddddd` claims through a path that reconciles
+  the text with the live value.
+- Everything else identical to `next` (every other pin and expected-fail
+  agrees; the codec warm-up probe chunk keeps C5/C6 portable).
+
+## Recommended fix order
+
+Hydration-core (`packages/solid/src/client/hydration.ts`, `web/src/client.ts`):
+
+1. **R1/C3** — count frame holds (`#recordRefresh`, `#refsUnresolved`, S1's
+   `prepareArgs`) in what hydration-done waits on; this also fixes the S1
+   newly-red C3(b).
+2. **R6/C12** — give a rejected server `<Loading>` fragment a consumer
+   (error fallback + surfaced rejection) instead of the blank swap.
+3. **R10/C19** — decide: either the claim pass reconciles a text hole whose
+   value already differs (narrow, trace-only), or the trace model forbids
+   patches before the claim (the producer holds them until the record's
+   claim) — S1's held-fill path shows the former is reachable.
+
+Frames-client (`packages/web/frames/src/`):
+
+1. **R9/C18** (new, page-halting) — drain before classifying; batch the drain.
+2. **R3/C2+C4** — make a reveal a sync trigger (re-walk the revealed range;
+   do not consume a record drained while its range is still in `<template>`).
+3. **R2/C7** — clear `#appliedRootValue` on a version bump so an identical
+   shell re-applies its placeholders.
+4. **R4/C5** — version-check the `data` path (or tag tables by response).
+5. **R5/C6** — drop held `slot:*` records on rebind / staged commit, or
+   re-resolve them against the carrying response only.
+6. **R8/C17** — rebind the frame to the new address in the compute half (or
+   make `onApply` check the address) so a stale address cannot release the
+   gate.
+7. **R7/C13** — needs a wire sweep delimiter (producer + transport), per the
+   rulings draft; client-only work cannot carry it.
