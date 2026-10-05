@@ -109,7 +109,7 @@ export async function runScenario(scenario: Scenario): Promise<RunResult> {
     step: -1,
     invoked: new Map(),
     invokedAt: new Map(),
-    lastPatchAt: new Map(),
+    firstPatchAt: new Map(),
     bootNodes: new Map(),
     revealed: new Map(),
     hydratedAt: -1,
@@ -250,7 +250,7 @@ export async function runScenario(scenario: Scenario): Promise<RunResult> {
         if (o.arg.kind !== "trace") break;
         const n = (world.traceN.get(e.occ) ?? o.arg.snapshot) + o.arg.patches[e.patch];
         world.traceN.set(e.occ, n);
-        world.lastPatchAt.set(e.occ, world.step);
+        if (!world.firstPatchAt.has(e.occ)) world.firstPatchAt.set(e.occ, world.step);
         traces.get(e.occ)!.patch([[["n"], n]]);
         break;
       }

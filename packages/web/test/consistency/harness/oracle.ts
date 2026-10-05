@@ -27,8 +27,8 @@ export interface World {
   /** Fill invocations per occurrence name (render occurrences), and the step of the first. */
   invoked: Map<string, number>;
   invokedAt: Map<string, number>;
-  /** Trace occurrence index → step of its last patch. */
-  lastPatchAt: Map<number, number>;
+  /** Trace occurrence index → step of its first patch. */
+  firstPatchAt: Map<number, number>;
   /** `_hk` → the node the server rendered (root content at boot, fragment content at its reveal). */
   bootNodes: Map<string, Element>;
   /** Fragment index → step of its reveal. */
@@ -165,8 +165,10 @@ export function settled(w: World): Finding[] {
       const text = shown(r.elements[0]);
       if (!text.startsWith(want)) {
         // A patch that landed BEFORE the fill claimed is C19 (the claim
-        // adopted the snapshot's text); one after the claim is C11 proper.
-        const preClaim = (w.lastPatchAt.get(i) ?? -1) < (w.invokedAt.get(o.name) ?? Infinity);
+        // adopted the snapshot's text, and a later patch to the same value
+        // cannot heal it); patches only after the claim are C11 proper.
+        const preClaim =
+          (w.firstPatchAt.get(i) ?? Infinity) < (w.invokedAt.get(o.name) ?? Infinity);
         at(
           preClaim ? "C19" : "C11",
           preClaim ? "claim-shows-oracle" : "trace-equals-oracle",
