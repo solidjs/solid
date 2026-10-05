@@ -183,8 +183,14 @@ function closeFlight(el: Computed<any>): void {
 function seam(): void {
   if (open.size === 0) return;
   for (const el of open)
-    if (!el._loading || el._statusFlags & STATUS_ERROR || el._flags & REACTIVE_DISPOSED)
-      closeFlight(el);
+    if (el._statusFlags & STATUS_ERROR || el._flags & REACTIVE_DISPOSED) closeFlight(el);
+    // A commit closed the window under an open question: a held landing —
+    // the answer to the question BEFORE this one, landed and closed at its
+    // `asyncWrite` — committed with its hold while the re-ask is in the
+    // air (`commitPendingNode` closes a loading window on any staged value,
+    // A27). The question stands, and the window with it: `isPending` is
+    // true while the node's own flight is in flight (D4).
+    else if (!el._loading) el._loading = true;
 }
 
 /** The clamp: a compute wrapper that keeps an answered node's window open. */
@@ -231,8 +237,19 @@ export function deferredCompute<T>(compute: (prev: T) => T): (prev: T) => T {
       }
       throw e;
     }
-    if (async && el._loading) openFlight(el, reask);
-    else {
+    if (async && el._loading) {
+      // A pass over a held landing (the node is held: a downstream hold
+      // staged its last landing, and a write to an input re-passed it): the
+      // question is re-asked, the held answer stands. `handleAsync` served
+      // the committed value; returned as the pass's result it would be
+      // compared against the staging (INV-11) and restaged over the landing
+      // — the hold's readers re-deriving against the old input and the
+      // landing lost until the next flight re-lands it. The staging is the
+      // result: unchanged, nothing downstream re-derives, the new flight's
+      // landing replaces it (A34 (1)).
+      if (el._pendingValue !== NOT_PENDING) result = el._pendingValue as T;
+      openFlight(el, reask);
+    } else {
       el._loading = false;
       closeFlight(el);
     }

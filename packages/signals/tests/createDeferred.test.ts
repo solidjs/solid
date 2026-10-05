@@ -1194,6 +1194,62 @@ describe("createDeferred", () => {
       expect(isPending(p.m1)).toBe(false);
     });
 
+    // The common part (lands ahead of the ruling, correct under either
+    // reading): a re-pass over a held landing keeps it. `m1`'s flight holds
+    // the frame and `d1`'s landing (2) is staged with it; a mainline write
+    // to `count` re-passes `d1`. The wrapper's pass returns the staging as
+    // its result — `handleAsync` served the committed value, and returned
+    // as the result it was compared against the staging (INV-11) and
+    // restaged over the landing: `m1` re-fetched against the OLD input and
+    // the landing was lost until a later flight re-landed it. And the seam
+    // sweep re-opens the window a commit closed under a question it did
+    // not answer: when the hold lands, `commitPendingNode` closes `d1`'s
+    // window on the older landing while the click's flight is still in the
+    // air (D4). Pinned on the text-memo graph, where the tick is held
+    // either way (the memo reads `m1`, ruling 3).
+    describe("a re-pass over a held landing keeps it (the common part)", () => {
+      it("m1 keeps its one flight; the hold lands with the landing it staged; isPending(d1) stays true while the newer flight is live", async () => {
+        const p = playground(createMemo);
+        await load(p);
+        p.setCount(1);
+        flush();
+        p.d1Fetch.resolve(1);
+        await settle();
+        expect(p.out.view).toBe("signal 1 deferred 0 m1 0");
+        expect(p.m1Fetch.inFlight()).toEqual([2]);
+        // Clicks while m1 is in flight re-pass d1 (held, staged 2).
+        p.setCount(2);
+        flush();
+        p.setCount(3);
+        flush();
+        // The held landing stands: m1 is not re-run against the old input;
+        // d1's own questions are the clicks'.
+        expect(p.m1Fetch.inFlight()).toEqual([2]);
+        expect(p.d1Fetch.inFlight()).toEqual([2, 3]);
+        expect(isPending(p.d1)).toBe(true);
+        p.m1Fetch.resolve(2);
+        await settle();
+        // The hold lands with the landing it staged, never without it.
+        expect(p.out.view).toBe("signal 3 deferred 2 m1 2");
+        expect(p.out.button).toBe(3);
+        // The commit of the older landing did not answer the newer question
+        // — the window re-opens at the seam, the mark stays (D4).
+        expect(isPending(p.d1)).toBe(true);
+        expect(isPending(p.m1)).toBe(true);
+        p.d1Fetch.resolve(2); // superseded: dropped by identity
+        await settle();
+        expect(p.out.view).toBe("signal 3 deferred 2 m1 2");
+        p.d1Fetch.resolve(3);
+        await settle();
+        expect(p.m1Fetch.inFlight()).toEqual([6]);
+        p.m1Fetch.resolve(6);
+        await settle();
+        expect(p.out.view).toBe("signal 3 deferred 6 m1 6");
+        expect(isPending(p.d1)).toBe(false);
+        expect(isPending(p.m1)).toBe(false);
+      });
+    });
+
     // TODO(ruling): the reported half. Once `m1`'s flight holds the frame,
     // `d1` is a held node (its landing is staged in that transaction), and
     // a mainline write to `count` — committed, held by no one — re-passes
