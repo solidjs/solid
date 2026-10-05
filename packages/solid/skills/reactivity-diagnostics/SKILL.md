@@ -211,10 +211,9 @@ before returning.
 ### ASYNC_OUTSIDE_LOADING_BOUNDARY
 
 On the client, an async value was read outside a Loading boundary during
-mounting. The root
-mount waits until the pending async work settles. Put the pending content
-inside `<Loading>` and provide a fallback if the page should show something
-while it waits.
+mounting. The root mount waits until the pending async work settles. Put the
+pending content inside `<Loading>` and provide a fallback if the page should
+show something while it waits.
 
 During SSR, reading a source declared with `ssrSource: "client"` outside
 `<Loading>` throws an error because the server cannot run that source.
@@ -244,8 +243,8 @@ The runtime tried to settle a source before it produced a value or an
 error. Waking its parked readers at that point would expose its initial
 value instead of settled data. This is an internal consistency check,
 reported in development. Keep the full diagnostic and reduce the async
-sequence to a reproduction when reporting it; adding `flush()` or hiding
-the warning does not repair the missing value.
+sequence to a reproduction when reporting it; adding `flush()` or silencing
+the diagnostic does not repair the missing value.
 
 ### INVARIANT_VIOLATION
 
@@ -274,14 +273,19 @@ derived from other state, `createProjection` builds it.
 
 #### HUGE_FAN_IN
 
-One computation reads many sources, so it re-runs when any of them change.
-Narrow its reads or split it into smaller memos that each track only what
-they need. Start with the sources listed in the message.
+The always-on backstop: one computation tracked 2000 or more sources in a
+single pass, so it re-runs when any of them change. The message names the
+computation and the count (`data: { count }`); it does NOT list the sources.
+To see which sources, enable the attribution engine and read
+[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires far earlier (30 sources)
+and names up to 12 of them. The repair is the same: narrow the reads or
+split the derivation into smaller memos that each track only what they need.
 
 #### WIDE_SCOPE_DEPS
 
-Attribution found a scope that tracks many dependencies. Use the sources
-listed in the message to narrow its reads, as described under
+Attribution engine only: a scope is subscribed to 30 or more sources (it
+re-warns on 50% further growth). The message lists up to 12 of them — start
+there, and narrow the reads or split the scope as described under
 [HUGE_FAN_IN](#huge_fan_in).
 
 ### GRAPH_GROWTH
