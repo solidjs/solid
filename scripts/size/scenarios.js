@@ -887,7 +887,14 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 14.56 KB.
-    limit: "14.56 KB",
+    // Size-Exception (#3767, 2026-10-05): 14.56 -> 14.58 KB, measured at
+    // 14,565 B against `next` @ 01e80a601's 14,546 (+19 B; 5 B over the cap;
+    // +63 B minified) — a projection draft wrapper registers as its store
+    // target's alias, and `unwrapValue` resolves the alias (a retained draft
+    // row adopted as its own backing recursed forever). Cap set at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-05).
+    // The cap is frozen again at 14.58 KB.
+    limit: "14.58 KB",
     alias
   },
   {
@@ -3408,6 +3415,13 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 48.51 KB.
+    // Size-Exception (#3767, 2026-10-05): 48.51 -> 48.53 KB
+    // (floor-caps.json), measured at 48,514 B against `next` @ 01e80a601's
+    // 48,495 (+19 B; 4 B over the cap; +63 B minified) — the #3767 store
+    // alias (draft wrapper registration + `unwrapValue` alias check; see
+    // `signals: + createStore`). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is frozen
+    // again at 48.53 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
