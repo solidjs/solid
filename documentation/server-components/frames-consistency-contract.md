@@ -1,6 +1,10 @@
 # Frames / hydration consistency contract (2026-10-05)
 
-Branch `spec/frames-consistency-contract` off `next` @ `ea5f1da07`. **Nothing
+Branch `spec/frames-consistency-contract` off `next` @ `a8c98bd2e` (the pins
+were first measured at `ea5f1da07`; the ten `next` commits between —
+compiler/babel SSR spans, signals fuzzer fixes, the server `<Loading>`
+yield (#3808), the hydration payload's rejections (#3803) — change no
+verdict: identical suite counts and campaign tallies on both bases). **Nothing
 here changes an engine.** The branch carries this document, one pin per
 invariant under `packages/web/test/consistency/`, and a property harness
 under `packages/web/test/consistency/harness/`. Counts on `next` at the
