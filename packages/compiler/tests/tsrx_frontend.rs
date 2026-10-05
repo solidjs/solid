@@ -16,6 +16,53 @@ use std::path::{Path, PathBuf};
 use oxc_sourcemap::SourceMap;
 use solidjs_compiler::{CompileErrorKind, CompileOptions, Generate, Syntax, compile};
 
+#[test]
+fn setup_without_semicolon_before_markup() {
+    let source = "export function F() @{\n  const a = () => 1\n  <div>{a()}</div>\n}";
+    for generate in [Generate::Dom, Generate::Ssr, Generate::Universal] {
+        compile(
+            source,
+            &CompileOptions {
+                filename: Some("setup.tsrx".into()),
+                ..fixture_options(generate)
+            },
+        )
+        .expect("setup without an explicit semicolon must compile");
+    }
+}
+
+#[test]
+fn semicolonless_setup_preserves_source_maps_and_neighbors() {
+    for newline in ["\n", "\r\n"] {
+        for setup in [
+            "const a = () => label",
+            "const a = () => label;",
+            "const a = () => label // café 🚀",
+            "const a = () => label /* café 🚀 */",
+            "const a = () => (\n label\n)",
+            "const a = () => ({ value: label }).value",
+            "const a = () => label\nconst b = a\nb()",
+        ] {
+            let source = format!(
+                "const label = 'café 🚀';\nexport function F() @{{\n{setup}\n<div>{{a()}}</div>\n}}"
+            )
+            .replace('\n', newline);
+            for generate in [Generate::Dom, Generate::Ssr, Generate::Universal] {
+                let output = compile(
+                    &source,
+                    &CompileOptions {
+                        filename: Some("setup.tsrx".into()),
+                        source_map: true,
+                        ..fixture_options(generate)
+                    },
+                )
+                .unwrap_or_else(|error| panic!("{setup:?}, {newline:?}: {error}"));
+                assert_maps_to(&output, "const a", 6, &source, "a =");
+            }
+        }
+    }
+}
+
 fn built_ins() -> Vec<String> {
     [
         "For", "Show", "Switch", "Match", "Errored", "Loading", "Dynamic",
