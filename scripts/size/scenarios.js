@@ -2828,7 +2828,16 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 30.71 -> 28.61 KB, measured at 28.60 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "28.61 KB",
+    // Size-Exception (#3777, 2026-10-05): 28.61 -> 28.62 KB, measured at
+    // 28,612 B against `next` @ 6be6c5174's 28,592 (+20 B; +11 B minified).
+    // GRAPH_GROWTH keeps the initial route declaration (`initial: true`) out
+    // of a route's visit history: it settles before route content mounts, so
+    // it is not a completed visit to compare against (#3735). One gate in
+    // trackGraph, read by truthiness; the record is still emitted. The +20 B
+    // is brotli layout (the same change measured -10 B against 203ab1a43).
+    // Engine-only: every prod scenario byte-identical, the observe tier
+    // scenario above did not move.
+    limit: "28.62 KB",
     alias: observeAlias
   },
   {
