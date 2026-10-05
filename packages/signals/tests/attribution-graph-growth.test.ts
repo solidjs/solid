@@ -18,7 +18,8 @@ import {
   createSignal,
   flush,
   OBSERVE,
-  runWithOwner
+  runWithOwner,
+  untrack
 } from "../src/index.js";
 import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
 
@@ -159,6 +160,86 @@ describe("graphSize()", () => {
 });
 
 describe("GRAPH_GROWTH", () => {
+  it.each([false, true])(
+    "keeps initial declarations out of visit comparisons (retained roots: %s)",
+    leak => {
+      const before = graphSize();
+      const { graphs, navigations, findings } = arm();
+      const detached: (() => void)[] = [];
+      const [location, setLocation] = createSignal("/a");
+      let rowCount = 100;
+      const rows = () => {
+        const [value] = createSignal(1);
+        for (let i = 0; i < rowCount; i++) {
+          const row = createMemo(() => value() + i);
+          untrack(row);
+        }
+      };
+      const dispose = createRoot(dispose => {
+        // The router declares its initial match before mounting route content.
+        OBSERVE!.attribution.withOrigin(
+          { kind: "navigation", initial: true, name: "/a", to: "/a" },
+          () => {}
+        );
+        const page = createMemo(() => {
+          const route = location();
+          if (route === "/a") rows();
+          return route;
+        });
+        createEffect(page, () => {});
+        return dispose;
+      });
+      const retainRoot = () =>
+        createRoot(dispose => {
+          detached.push(dispose);
+          rows();
+        });
+      try {
+        flush();
+        if (leak) retainRoot();
+        for (const count of [101, 102, 103]) {
+          // Let /a complete three visits before any other route can report growth.
+          navigate(setLocation, leak && count === 101 ? "/c" : "/b");
+          if (!leak) rowCount = count;
+          navigate(setLocation, "/a");
+          if (leak) retainRoot();
+        }
+        expect(graphs).toHaveLength(7);
+        expect(navigations).toHaveLength(7);
+        expect(graphs[0]).toMatchObject({ route: "/a", navigation: { initial: true } });
+        expect(graphs[0].navigation).toBe(navigations[0]);
+        const visits = graphs.filter(g => g.route === "/a" && !g.navigation.initial);
+        expect(visits).toHaveLength(3);
+        const away = graphs.filter(g => g.route === "/b");
+        const counts = ({ roots, owners, computations, signals, edges }: GraphEvent) => ({
+          roots,
+          owners,
+          computations,
+          signals,
+          edges
+        });
+        if (leak) {
+          expect(away).toHaveLength(2);
+          expect(visits[2].roots).toBe(visits[0].roots + 2);
+          expect(findings).toHaveLength(1);
+          expect(findings[0].data).toMatchObject({
+            route: "/a",
+            history: visits.map(counts)
+          });
+        } else {
+          expect(away.map(counts)).toEqual([counts(away[0]), counts(away[0]), counts(away[0])]);
+          expect(visits.map(g => g.computations - visits[0].computations)).toEqual([0, 1, 2]);
+          expect(findings).toHaveLength(0);
+        }
+      } finally {
+        dispose();
+        for (const dispose of detached) dispose();
+        flush();
+      }
+      expect(graphSize()).toEqual(before);
+    }
+  );
+
   it("emits a graph record per settled navigation, with the route and the counts", () => {
     const { graphs, navigations } = arm(false);
     const { setLocation, dispose } = app(false);

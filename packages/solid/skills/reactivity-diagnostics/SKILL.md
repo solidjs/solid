@@ -317,6 +317,10 @@ ownership — create the thing under the owner whose lifetime it should share.
 `graphSize()` from `solid-js/attribution` gives the count on demand;
 `OBSERVE.records.subscribe("graph", …)` gives it at every navigation's settle.
 
+The initial route declaration (`initial: true`) emits a `graph` record but is
+excluded from growth comparisons because it settles before route content
+mounts. Later visits to that route count as usual.
+
 ### HOT_SCOPE_RERUNS
 
 A scope re-ran far more often than any UI cadence justifies — a hot signal
