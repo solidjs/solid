@@ -1097,7 +1097,14 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 12.16 -> 9.45 KB, measured at 9.44 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "9.45 KB",
+    // Size-Exception (fuzzer F7/F12 fixes, 2026-10-05): 9.45 -> 9.47 KB,
+    // measured at 9,456 B against `next` @ 6f77b1bde's 9,446 (+10 B; 6 B
+    // over the cap) — fuzzer F7/F12 fixes, +33 B minified in signals
+    // (holdFrame lane gate +16, observeFlight first-observer hold +17);
+    // brotli layout. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-05). The cap is frozen again at
+    // 9.47 KB.
+    limit: "9.47 KB",
     alias
   },
   {
@@ -3223,6 +3230,13 @@ module.exports = [
     // solid, web and the sf client is attribution drift. Accepted by the
     // maintainer (2026-10-04). The cap is frozen again at 44.78 KB (head +
     // 10 B).
+    // Size-Exception (fuzzer F7/F12 fixes, 2026-10-05): 44.78 -> 44.84 KB
+    // (floor-caps.json), measured at 44,829 B against `next` @ 6f77b1bde's
+    // 44,762 (+67 B; 49 B over the cap; +16 B minified on this page) —
+    // fuzzer F7/F12 fixes, +33 B minified in signals (holdFrame lane gate
+    // +16, observeFlight first-observer hold +17); brotli layout. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 44.84 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3315,6 +3329,13 @@ module.exports = [
     // cap; +2,265 B minified, frames client +2,044). The same staging bytes
     // as the base page. Accepted by the maintainer (2026-10-04). The cap is
     // frozen again at 48.45 KB (head + 10 B).
+    // Size-Exception (fuzzer F7/F12 fixes, 2026-10-05): 48.45 -> 48.47 KB
+    // (floor-caps.json), measured at 48,454 B against `next` @ 6f77b1bde's
+    // 48,436 (+18 B; 4 B over the cap; +33 B minified) — fuzzer F7/F12
+    // fixes, +33 B minified in signals (holdFrame lane gate +16,
+    // observeFlight first-observer hold +17); brotli layout. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 48.47 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
