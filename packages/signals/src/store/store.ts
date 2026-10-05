@@ -96,6 +96,7 @@ import {
   isOwned,
   lookupTarget,
   markDescendants,
+  setLookup,
   storeLookup,
   storeOwners,
   type StoreFamily,
@@ -242,7 +243,7 @@ function createTarget(
   t.ovl = false;
   t.del = null;
   t.px = new Proxy(t, traps);
-  (fam?.map ?? storeLookup).set(value, t);
+  setLookup(value, t);
   if (__TEST__ && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
   return t;
 }
@@ -268,11 +269,14 @@ export function wrap<T extends Record<PropertyKey, any>>(
   return createTarget(value, parent, parentKey, fam).px;
 }
 
-/** Unwrap our own proxies to their current backing; leave everything else. */
+/** Unwrap our own proxies to their current backing; leave everything else.
+ * A projection draft wrapper is registered as its target's alias
+ * (projection.ts `wrapDraft`) — adopted as a backing, it would forward to
+ * itself (#3767). */
 export function unwrapValue(v: any): any {
   if (v == null || typeof v !== "object") return v;
   const t: StoreTarget | undefined = v[$TARGET];
-  if (t !== undefined && t.px === v && t.v !== undefined) {
+  if (t !== undefined && (t.px === v || lookupTarget(v, t.fam) === t) && t.v !== undefined) {
     // A draft escaping into other storage must be a REAL container that
     // becomes this target's committed backing at fold (the shared-raw
     // contract) — a prototype overlay is neither.
@@ -833,7 +837,7 @@ export function adoptPB(
   target.wk = null; // adoption supersedes staged trap writes
   const owner: StoreTarget | undefined = (incoming as any)[$OWNER];
   if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
-  else (target.fam?.map ?? storeLookup).set(incoming, target);
+  else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
 }

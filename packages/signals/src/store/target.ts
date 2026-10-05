@@ -139,6 +139,10 @@ export const $OWNER: unique symbol = Symbol(__DEV__ ? "STORE_OWNER" : 0);
  * map so one raw can wrap once per family (§7b). */
 export const storeLookup = new WeakMap<object, StoreTarget>();
 
+export function setLookup(raw: object, t: StoreTarget): void {
+  (t.fam?.map ?? storeLookup).set(raw, t);
+}
+
 export function isOwned(raw: object): boolean {
   return (raw as any)[$OWNER] !== undefined;
 }
