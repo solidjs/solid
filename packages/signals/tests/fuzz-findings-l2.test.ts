@@ -196,78 +196,77 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // is "live for every hold until the commit that disposes it". A reader
   // mounted while a flight is up is born held (its mount control stays
   // unpublished); unmounting it in the same hold stages its removal; that
-  // hold lands (mount nets to committed) — and the reader survives it as a
-  // zombie no longer owned by any transaction, keeping an unrelated write
-  // (`src=0`, held only because the zombie observes its flight) unpublished
-  // although nothing on screen waits on anything (fuzzer P1).
-  it.fails(
-    "F3: a born-held reader dies with the commit that withdraws its mount, releasing an unrelated write (A29 ruling A, A15 #3463)",
-    async () => {
-      const gates = new Map<string, () => void>();
-      const [src, setSrc] = createSignal(0);
-      const [mounted, setMounted] = createSignal(false);
-      let shownSrc = -1,
-        shownMounted: boolean | undefined,
-        panel: unknown = "absent";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const a = createMemo(() => gated(gates, `a:${src()}`, src()));
-        const b = createMemo(() => {
-          const v = a();
-          return gated(gates, `b:${v}`, v);
-        });
-        createRenderEffect(src, v => {
-          shownSrc = v;
-        });
-        createRenderEffect(mounted, v => {
-          shownMounted = v;
-        });
-        createRenderEffect(
-          () =>
-            mounted()
-              ? createRoot(d2 => {
-                  createRenderEffect(b, v => {
-                    panel = v;
-                  });
-                  onCleanup(() => {
-                    panel = "absent";
-                  });
-                  return d2;
-                })
-              : undefined,
-          d2 => {
-            if (d2) onCleanup(d2);
-          }
-        );
+  // hold lands (mount nets to committed) and its commits dispose the zombie.
+  // The seam judged the newer transaction (`src=0`, held only because the
+  // zombie observes its flight) first, blocked, and never again: a
+  // `schedule()` from the disposal inside the landing is overwritten by the
+  // flush's own `scheduled` recompute. The seam now re-judges the parked
+  // transactions after every landing (fuzzer P1).
+  it("F3: a write held only by a zombie lands with the commit that disposes it (A29 ruling A, A15 #3463)", async () => {
+    const gates = new Map<string, () => void>();
+    const [src, setSrc] = createSignal(0);
+    const [mounted, setMounted] = createSignal(false);
+    let shownSrc = -1,
+      shownMounted: boolean | undefined,
+      panel: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const a = createMemo(() => gated(gates, `a:${src()}`, src()));
+      const b = createMemo(() => {
+        const v = a();
+        return gated(gates, `b:${v}`, v);
       });
-      flush();
-      gates.get("a:0")!();
-      await drain();
-      gates.get("b:0")!();
-      await drain();
-      expect([shownSrc, shownMounted, panel]).toEqual([0, false, "absent"]);
-      setSrc(1); // a:1 flies unobserved → commits
-      await drain();
-      expect(shownSrc).toBe(1);
-      gates.get("a:1")!(); // b:1 starts, unobserved
-      await drain();
-      setMounted(true); // the reader is born held on b:1; the mount is held with it
-      await drain();
-      expect([shownMounted, panel]).toEqual([false, "absent"]);
-      setSrc(0); // a:0 — held while the (unshown) reader waits
-      await drain();
-      expect(shownSrc).toBe(1);
-      setMounted(false); // the mount request is withdrawn: nets to committed, lands
-      await drain();
-      expect([shownMounted, panel]).toEqual([false, "absent"]);
-      // Nothing visible observes any flight: the write publishes.
-      expect(shownSrc).toBe(0);
-      dispose();
-      for (const g of gates.values()) g();
-      await drain();
-    }
-  );
+      createRenderEffect(src, v => {
+        shownSrc = v;
+      });
+      createRenderEffect(mounted, v => {
+        shownMounted = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(d2 => {
+                createRenderEffect(b, v => {
+                  panel = v;
+                });
+                onCleanup(() => {
+                  panel = "absent";
+                });
+                return d2;
+              })
+            : undefined,
+        d2 => {
+          if (d2) onCleanup(d2);
+        }
+      );
+    });
+    flush();
+    gates.get("a:0")!();
+    await drain();
+    gates.get("b:0")!();
+    await drain();
+    expect([shownSrc, shownMounted, panel]).toEqual([0, false, "absent"]);
+    setSrc(1); // a:1 flies unobserved → commits
+    await drain();
+    expect(shownSrc).toBe(1);
+    gates.get("a:1")!(); // b:1 starts, unobserved
+    await drain();
+    setMounted(true); // the reader is born held on b:1; the mount is held with it
+    await drain();
+    expect([shownMounted, panel]).toEqual([false, "absent"]);
+    setSrc(0); // a:0 — held while the (unshown) reader waits
+    await drain();
+    expect(shownSrc).toBe(1);
+    setMounted(false); // the mount request is withdrawn: nets to committed, lands
+    await drain();
+    expect([shownMounted, panel]).toEqual([false, "absent"]);
+    // Nothing visible observes any flight: the write publishes.
+    expect(shownSrc).toBe(0);
+    dispose();
+    for (const g of gates.values()) g();
+    await drain();
+  });
 
   // F4. A15: "writes whose async work is observed by a shared reader settle
   // as one unit (no tearing — nothing commits until all entangled async

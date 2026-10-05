@@ -834,6 +834,10 @@ export class GlobalQueue implements IQueue {
       transactions.splice(k, 1);
       GlobalQueue._endLanes?.(u);
       land(u);
+      // A landing's commits can dispose a zombie a transaction judged above
+      // was blocked on (#3463: live "until the commit that disposes it") —
+      // judge them again.
+      k = transactions.length;
     }
     // The store folds the pending backings whose container nodes committed
     // — this flush's, or a landing's (store/store.ts installs it).
