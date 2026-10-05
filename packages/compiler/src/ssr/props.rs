@@ -83,10 +83,16 @@ pub(crate) fn hoist_props<'a>(
     if plans.is_empty() {
         return std::vec::Vec::new();
     }
+    let commented = program
+        .comments
+        .iter()
+        .map(|comment| comment.attached_to)
+        .collect();
     let mut emitter = Emitter {
         ast: AstBuilder::new(allocator),
         plans,
         taken,
+        commented,
         dev,
         symbol_index: 0,
         ctor_index: 0,
@@ -140,6 +146,8 @@ struct SitePlan {
 struct Capture {
     symbol: SymbolId,
     name: String,
+    /// The first authored reference — the `new` argument's source position.
+    span: Span,
 }
 
 #[derive(Default)]
@@ -370,7 +378,7 @@ struct BodyScan<'p, 's, 'a> {
 }
 
 impl<'a> BodyScan<'_, '_, 'a> {
-    fn reference(&mut self, symbol: SymbolId, name: &str, write: bool) {
+    fn reference(&mut self, symbol: SymbolId, name: &str, span: Span, write: bool) {
         if self.fallback {
             return;
         }
@@ -408,6 +416,7 @@ impl<'a> BodyScan<'_, '_, 'a> {
                 self.captures.push(Capture {
                     symbol,
                     name: name.to_string(),
+                    span,
                 });
                 self.captures.len() - 1
             }
@@ -438,7 +447,7 @@ impl<'a> Visit<'a> for BodyScan<'_, '_, 'a> {
         // module level and are not this body's business.
         let captures = inner.captures.clone();
         for capture in captures {
-            self.reference(capture.symbol, &capture.name, false);
+            self.reference(capture.symbol, &capture.name, capture.span, false);
         }
         for property in &it.properties {
             if let ObjectPropertyKind::ObjectProperty(property) = property
@@ -467,7 +476,7 @@ impl<'a> Visit<'a> for BodyScan<'_, '_, 'a> {
                     self.receiver_use(it.node_id.get());
                 }
             }
-            Some(symbol) => self.reference(symbol, &it.name, reference.is_write()),
+            Some(symbol) => self.reference(symbol, &it.name, it.span, reference.is_write()),
         }
     }
 
@@ -530,6 +539,10 @@ struct Emitter<'t, 'a> {
     ast: AstBuilder<'a>,
     plans: HashMap<NodeId, SitePlan>,
     taken: &'t HashSet<String>,
+    /// Positions authored comments are anchored to. Codegen prints a comment
+    /// at the first node starting there, so a `new` argument mapped to such a
+    /// reference would pull the comment out of the getter's position.
+    commented: HashSet<u32>,
     dev: bool,
     symbol_index: usize,
     ctor_index: usize,
@@ -695,7 +708,15 @@ impl<'a> Emitter<'_, 'a> {
 
         for (index, capture) in plan.captures.iter().enumerate() {
             let param = param_uid(&mut self.param_index, self.taken);
-            args.push(expression_to_argument(self.ident(&capture.name)));
+            let span = if self.commented.contains(&capture.span.start) {
+                SPAN
+            } else {
+                capture.span
+            };
+            args.push(expression_to_argument(
+                self.ast
+                    .expression_identifier(span, self.ast.ident(&capture.name)),
+            ));
             body.push(self.assign(self.this_slot(index), self.ident(&param)));
             params.push(param);
         }
