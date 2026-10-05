@@ -950,6 +950,31 @@ written mid-action — and is not this primitive's to pin.)
   re-run in that flush's heap reads the mark once more over the `true` it
   already showed, then re-derives `false` at the close. At rest, an errored
   deferred node is never pending (D6, A16's "error outranks").
+- **A held deferred node re-passed by a mainline write** (mizulu's report on
+  #3710, 2026-10-04; same on the PR and on L2). Shape: `count` → `d1 =
+createDeferred` → `m1 = createMemo(async)`, both under a frame reader;
+  `count` also read by a reader outside. `d1`'s landing re-runs `m1`, which
+  pends under its reader: an ordinary hold (A15), and the landing — an
+  ordinary commit — is staged with it (`CONFIG_HELD`). A later write to
+  `count` (committed, held by no one) re-passes `d1`, and `recompute`'s
+  "a pass over a held derivation joins its transaction" (T4) joins the whole
+  tick: the outside reader's run parks until `m1` lands — the report. The
+  same pass stages the served committed value over the held landing, so
+  `m1` re-fetches against the old input and the landing is lost until a
+  later flight re-lands it. Two readings, undecided by D1–D9 (D2 covers a
+  flight asked against a _staged_ write; this write is mainline and the
+  hold is a downstream plain memo's): (1) the join stands — `d1` is held
+  and a tick cannot finish in two parts (A34 (1), T4) — and the wrapper's
+  pass must then leave the held landing in place rather than restage the
+  served value; (2) a deferred re-ask is a lagging question, not an answer
+  — it stages and replaces nothing, so it joins nothing: the write commits
+  mainline (the outside reader repaints; the frame reader is a stale reader
+  re-derived at the landing, A15) and the held landing stays staged for
+  `m1`'s hold. Either fix touches `recompute`'s join or the wrapper's
+  result under a hold. Current behaviour pinned skipped (`tests/
+createDeferred.test.ts`, "pending ruling"); the shape with `m1` deferred
+  too never waits and is pinned live. Until ruled, the user-side form is to
+  defer the downstream memo as well.
 
 Not open — rejected, recorded so they aren't re-proposed: a `<Deferred>`
 boundary (§4.1: ambient scope is the theme-fanout hazard; not planned) and a
