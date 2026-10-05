@@ -469,6 +469,13 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 7.35 KB.
+    // Size-Exception (F6, #3811, 2026-10-05): 7.35 -> 7.37 KB,
+    // measured at 7,360 B by CI against `next` @ a8c98bd2e's 7,349
+    // (+11 B; 10 B over the cap; +20 B minified) — F6: a lane holds
+    // through a boundary showing content (a boundary output exactly pending
+    // is a frame reader in blockedBy), signals core only. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 7.37 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
@@ -1128,7 +1135,14 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.49 KB.
-    limit: "9.49 KB",
+    // Size-Exception (F6, #3811, 2026-10-05): 9.49 -> 9.52 KB,
+    // measured at 9,506 B by CI against `next` @ a8c98bd2e's 9,486
+    // (+20 B; 16 B over the cap; +20 B minified) — F6: a lane holds
+    // through a boundary showing content (a boundary output exactly pending
+    // is a frame reader in blockedBy), signals core only. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 9.52 KB.
+    limit: "9.52 KB",
     alias
   },
   {
@@ -2948,7 +2962,14 @@ module.exports = [
     // core only; brotli layout over the engine's bundle. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 28.66 KB.
-    limit: "28.66 KB",
+    // Size-Exception (F6, #3811, 2026-10-05): 28.66 -> 28.68 KB,
+    // measured at 28,666 B by CI against `next` @ a8c98bd2e's 28,642
+    // (+24 B; 6 B over the cap; +20 B minified) — F6: a lane holds
+    // through a boundary showing content (a boundary output exactly pending
+    // is a frame reader in blockedBy), signals core only. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 28.68 KB.
+    limit: "28.68 KB",
     alias: observeAlias
   },
   {
@@ -3422,6 +3443,14 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 48.51 KB.
+    // Size-Exception (F6, #3811, 2026-10-05): 48.51 -> 48.57 KB
+    // (floor-caps.json),
+    // measured at 48,551 B by CI against `next` @ a8c98bd2e's 48,481
+    // (+70 B; 41 B over the cap; +20 B minified) — F6: a lane holds
+    // through a boundary showing content (a boundary output exactly pending
+    // is a frame reader in blockedBy), signals core only. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 48.57 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
