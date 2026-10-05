@@ -3161,8 +3161,10 @@ function trackGraph(navigation: NavigationEvent): void {
   const event: GraphEvent = { at: now(), ...size, navigation };
   if (route !== undefined) event.route = route;
   records.emit("graph", event, undefined);
-  // Initial declarations precede route content and are not completed visits.
-  if (cfg === false || route === undefined || navigation.initial === true) return;
+  // The initial declaration is not a visit (it settles before route content
+  // mounts — the same gate the feedback folds apply as `event.initial !== true`);
+  // `initial` is `true | undefined`, set only by openNavigation, so truthiness is exact.
+  if (cfg === false || route === undefined || navigation.initial) return;
   let history = routeCounts.get(route);
   if (history === undefined) routeCounts.set(route, (history = []));
   history.push(size);

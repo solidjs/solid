@@ -230,10 +230,6 @@ what they need. The message lists the sources — start with those.
 
 ### GRAPH_GROWTH
 
-The initial route declaration (`initial: true`) emits a `graph` record but is
-excluded from growth comparisons because it runs before route content mounts.
-Later visits to that route count as usual.
-
 The live graph got bigger on every one of the last `data.history.length`
 visits to `data.route`, and it did not shrink on the visits in between —
 something each visit creates is never disposed. This is the leak a heap
@@ -260,6 +256,10 @@ Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
 ownership — create the thing under the owner whose lifetime it should share.
 `graphSize()` from `solid-js/attribution` gives the count on demand;
 `OBSERVE.records.subscribe("graph", …)` gives it at every navigation's settle.
+
+The initial route declaration (`initial: true`) emits a `graph` record but is
+excluded from growth comparisons because it settles before route content
+mounts. Later visits to that route count as usual.
 
 ### HOT_SCOPE_RERUNS
 
