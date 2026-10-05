@@ -273,49 +273,47 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // resolves)"; A30: "an errored pass (a throw, NotReady included) keeps its
   // full list". The tuple reader observed m0's flight for `a=1`; a later
   // `b=1` re-runs it and the pass throws NotReady at `m1` before reaching
-  // `m0`. `blockedBy` reads only the pass's reads up to `_depsTail` (the O3
-  // "stopped reading" rule), so the unreached `m0` counts as dropped, the
-  // hold on `a=1` lands, and `A=1` shows beside a tuple still derived from
-  // `a=0` while m0's flight is in the air.
-  it.fails(
-    "F4: a NotReady-interrupted pass still observes the flights it did not reach (A15, A30)",
-    async () => {
-      const gates = new Map<string, () => void>();
-      const [a, setA] = createSignal(0);
-      const [b, setB] = createSignal(0);
-      let shownA = -1;
-      let tuple: number[] = [];
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m0 = createMemo(() => gated(gates, `a:${a()}`, a()));
-        const m1 = createMemo(() => Promise.resolve(b()));
-        createRenderEffect(a, v => {
-          shownA = v;
-        });
-        createRenderEffect(
-          () => [b(), m1(), m0()],
-          t => {
-            tuple = t;
-          }
-        );
+  // `m0`. `blockedBy` read only the pass's reads up to `_depsTail` (the O3
+  // "stopped reading" rule), so the unreached `m0` counted as dropped, the
+  // hold on `a=1` landed, and `A=1` showed beside a tuple still derived
+  // from `a=0` while m0's flight was in the air. An errored pass did not
+  // stop reading: its whole list now observes.
+  it("F4: a NotReady-interrupted pass still observes the flights it did not reach (A15, A30)", async () => {
+    const gates = new Map<string, () => void>();
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    let shownA = -1;
+    let tuple: number[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m0 = createMemo(() => gated(gates, `a:${a()}`, a()));
+      const m1 = createMemo(() => Promise.resolve(b()));
+      createRenderEffect(a, v => {
+        shownA = v;
       });
-      flush();
-      gates.get("a:0")!();
-      await drain();
-      expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
-      setA(1); // m0 flies for a=1, observed by the tuple reader → a=1 held
-      await drain();
-      expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
-      setB(1); // the reader re-runs and throws at m1, before reading m0
-      await drain(4);
-      // a=1 must not show beside a tuple whose m0 still answers a=0.
-      expect(shownA === 1 ? tuple[2] : 0).toBe(shownA === 1 ? 1 : 0);
-      dispose();
-      gates.get("a:1")?.();
-      await drain();
-    }
-  );
+      createRenderEffect(
+        () => [b(), m1(), m0()],
+        t => {
+          tuple = t;
+        }
+      );
+    });
+    flush();
+    gates.get("a:0")!();
+    await drain();
+    expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
+    setA(1); // m0 flies for a=1, observed by the tuple reader → a=1 held
+    await drain();
+    expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
+    setB(1); // the reader re-runs and throws at m1, before reading m0
+    await drain(4);
+    // a=1 must not show beside a tuple whose m0 still answers a=0.
+    expect(shownA === 1 ? tuple[2] : 0).toBe(shownA === 1 ? 1 : 0);
+    dispose();
+    gates.get("a:1")?.();
+    await drain();
+  });
 });
 
 describe("fuzz findings on L2 — lanes", () => {
