@@ -1030,3 +1030,64 @@ Doc consequences (owed regardless of this primitive, sharper with it):
     (the literal translation).
 - The effect-write-back discouragement stays; `createDeferred` is what makes
   it fair to keep.
+
+## 10. Review brief (for the maintainer, 2026-10-04)
+
+Six places to read first, each with the one question it should answer.
+
+1. `src/core/async.ts` : `asyncWrite` — the `GlobalQueue._deferredLanded?.(el)`
+   call after the `REACTIVE_DIRTY` drop, ahead of `landStatus`. _Is dropping
+   the mark before the landing's write the right ordering, so the verdict
+   readers that write re-runs read the landing as final (D1/D4) — and is
+   "after the dirty-drop" right, so a superseded landing never touches the
+   mark?_
+2. `src/deferred.ts` : `openFlight` + `src/core/scheduler.ts` : `settle` /
+   `commitPendingNode` — the wrapper calls `queuePendingNode(el)` with
+   nothing staged, and `commitPendingNode` now closes `_loading` only under
+   `_pendingValue !== NOT_PENDING`. _Is a pending node with no staged value
+   a legitimate input to the seam's hold decision ("never leads", D2), and
+   does the gated close leave any non-deferred loading-window node open that
+   used to close?_
+3. `src/affects.ts` : `mark` / `unmark` / `onSeam` → `_releaseAmbientMarks`,
+   read by `src/core/verdict.ts` : `verdictValue`'s `GlobalQueue._marked`
+   arm. _Is reusing the `affects()` mark count as `createDeferred`'s verdict
+   (scope = the flight; no scope lists, no boundary channel) sound,
+   including the sweep running inside affects' release hook?_
+4. `src/store/store.ts` : `GlobalQueue._slotDerive` + `src/deferred.ts` :
+   `unansweredFlight` (consumed by `until` and the `refresh` waiter in
+   `src/signals.ts`). _Is hopping a slot node to its family derive the
+   correct and only hole in D9's authoritative dep walk, and is it
+   acceptable that `until` throws `NotReadyError` for an equal-value
+   derived answer?_
+5. `src/core/scheduler.ts` : `commitPendingNode` — the one behaviour change
+   reachable without calling `createDeferred`: a loading-window node
+   committed with nothing staged keeps its window open (before, the sweep
+   closed it unconditionally). _Can a plain async memo reach
+   `commitPendingNode` with `_loading` set and nothing staged, and if so is
+   "window stays open" what A27 wants there?_
+6. `src/core/core.ts` : `recompute`, the T4 arm (`if (el._config &
+CONFIG_HELD) … joinPassTx(tx)`) over a deferred node held because a
+   downstream plain memo's hold staged its landing, re-passed by a mainline
+   write to its input — and, in the same pass, the wrapper's served
+   committed value compared against the staging and restaged over the held
+   landing. _Does a deferred re-ask join the hold of a downstream plain memo
+   (reading 1), or is a lagging question not an answer and joins nothing
+   (reading 2)?_ §8.3 ("A held deferred node re-passed by a mainline write")
+   has the two readings; `tests/createDeferred.test.ts` pins today's
+   behaviour skipped ("pending ruling") beside the live pins of the decided
+   halves.
+
+Also worth a glance: `src/core/core.ts` : `recompute` keeps `REACTIVE_REASK`
+through the pass (the wrapper classifies quiet re-asks by it);
+`src/core/owner.ts` is comment-only after the dispose-clause cut.
+
+**`core/` footprint** (everything else is the module, the store hop, the
+public surface, tests and docs):
+
+- `src/core/async.ts` — the `_deferredLanded` hook call (4 lines);
+- `src/core/core.ts` — the `REACTIVE_REASK` mask in `recompute`'s pre-pass
+  wipe (1 code line);
+- `src/core/owner.ts` — comment only;
+- `src/core/scheduler.ts` — two `declare static` hook slots
+  (`_slotDerive`, `_deferredLanded`); `commitPendingNode`'s `_loading` close
+  gated on a staged value.
