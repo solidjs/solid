@@ -2241,7 +2241,7 @@ function serverEffect<T>(
   }
 }
 
-export function createEffect<T>(
+export function createEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effect: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
@@ -2249,7 +2249,7 @@ export function createEffect<T>(
   serverEffect(compute, undefined, options);
 }
 
-export function createRenderEffect<T>(
+export function createRenderEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions

@@ -556,7 +556,7 @@ export function createMemo<T>(
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
-export function createEffect<T>(
+export function createEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effectFn: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
@@ -610,7 +610,7 @@ export function createEffect<T>(
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
-export function createRenderEffect<T>(
+export function createRenderEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
