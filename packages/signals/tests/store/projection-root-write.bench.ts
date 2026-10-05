@@ -63,12 +63,16 @@ describe(`one root key per commit, ${KEYS}-key record`, () => {
 
     const [store, set] = createStore<Record<string, { n: number }>>(seed());
     void store.k0;
-    set(d => {
-      d.k0 = { n: -1 };
-    });
-    flush();
     setStore = set;
   });
+  // The warm-up write happens outside the root: inside it, the dev tier's
+  // owned-scope write check throws and the whole file fails to load under
+  // `SIGNALS_TIER=dev` — leaving CodSpeed to compare a prod run against a
+  // stale base.
+  setStore(d => {
+    d.k0 = { n: -1 };
+  });
+  flush();
 
   bench("projection derive: delete + set one ROOT key (#3352)", () => {
     for (let c = 0; c < COMMITS; c++) {
