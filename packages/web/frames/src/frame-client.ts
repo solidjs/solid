@@ -256,6 +256,8 @@ export interface FrameHost {
   revive?(value: unknown): unknown;
   /** See FrameHostOptions.isContainer. */
   isContainer?(value: unknown): boolean;
+  /** See FrameHostOptions.prepareArgs. */
+  prepareArgs?(args: Record<string, unknown>): Promise<unknown> | undefined;
 }
 
 /**
@@ -281,9 +283,12 @@ export interface FrameHostOptions {
    * A lazily-loaded deserializer's load, awaited by the transport before it
    * delivers a `data` chunk — `applyData`/`resolve` can assume the codec is
    * resident once data has arrived. Keeps codec weight out of the eager
-   * client graph for responses that never carry serialized data.
+   * client graph for responses that never carry serialized data. Receives
+   * the chunk about to be delivered, so a host can load more than the codec
+   * for payloads that need it (the container-trace materializer, when the
+   * chunk's node tree carries a trace — `needsContainerTraceMaterializer`).
    */
-  prepareData?(): Promise<unknown>;
+  prepareData?(chunk: Extract<FrameChunk, { type: "data" }>): Promise<unknown>;
   /**
    * Revive protocol markers inside LITERAL slot args (values that are
    * neither `{$ref}` nor `{$frame}`) at arg-resolution time. Document-face
@@ -291,6 +296,18 @@ export interface FrameHostOptions {
    * integration (`reviveContainerTraces`) into live local containers.
    */
   revive?(value: unknown): unknown;
+  /**
+   * An async step a record's LITERAL slot args need before `revive` can
+   * answer — the container-trace materializer loading, for a document-face
+   * record whose args carry a trace marker (`needsContainerTraceMaterializer`).
+   * Return the load's promise and the frame holds that occurrence (its
+   * server-rendered interior stays on screen; on an adopted boundary the
+   * mount IS the hydration attach, which simply happens when the promise
+   * settles and the frame re-syncs); return `undefined` when nothing is
+   * needed. Asked before every mount or args update of a record-bearing
+   * occurrence, so it must be cheap once satisfied.
+   */
+  prepareArgs?(args: Record<string, unknown>): Promise<unknown> | undefined;
   /**
    * Whether a resolved arg value is a LIVE CONTAINER (a materialized trace —
    * see `isMaterializedContainer`). The record-dedupe compare must know: a
@@ -646,17 +663,20 @@ export function createFrameHost(options?: FrameHostOptions): FrameHost;
  *   serialize?: (value: unknown) => { $ref: string },
  *   resolve?: (ref: { $ref: string }) => unknown,
  *   applyData?: (chunk: object) => void,
- *   prepareData?: () => Promise<unknown>,
+ *   prepareData?: (chunk: object) => Promise<unknown>,
  *   revive?: (value: unknown) => unknown,
- *   isContainer?: (value: unknown) => boolean
+ *   isContainer?: (value: unknown) => boolean,
+ *   prepareArgs?: (args: object) => Promise<unknown> | undefined
  * }} [options]
  *   `serialize`/`resolve` back slot data refs (response-scoped table);
  *   `applyData` receives each `data` chunk whole — keyed codec records
  *   ({ key, node, initial }, apply via createJSONDataTable) or eval-style
  *   `payload` scripts, depending on the producer's serializer. A host whose
  *   deserializer loads lazily exposes the load as `prepareData`: the
- *   transport awaits it before delivering a `data` chunk, so `applyData`
- *   and `resolve` can assume the codec is resident once data has arrived.
+ *   transport awaits it (with the chunk) before delivering a `data` chunk,
+ *   so `applyData` and `resolve` can assume the codec is resident once data
+ *   has arrived. `prepareArgs` is the same for a record's literal args: a
+ *   promise holds the occurrence until it settles (see FrameHostOptions).
  */
 export function createFrameHost(options = {}) {
   // One logical stream may feed several mounted boundaries (the same server
@@ -793,7 +813,8 @@ export function createFrameHost(options = {}) {
     },
     revive: options.revive,
     isContainer: options.isContainer,
-    prepareData: options.prepareData
+    prepareData: options.prepareData,
+    prepareArgs: options.prepareArgs
   };
 }
 
@@ -855,6 +876,9 @@ class FrameImpl {
   // The pending re-check for adopt-time occurrences deferred on a
   // still-arriving args record (#2968 — see #syncSlots).
   #recordRefresh = null;
+  // The pending re-sync for occurrences held on the host's async arg step
+  // (FrameHostOptions.prepareArgs — see #argsUnprepared).
+  #argsRefresh = null;
   #disposed = false;
   // Stable identity so a pending stylesheet holds at most one waiter per
   // frame across repeated readiness checks.
@@ -1276,7 +1300,19 @@ class FrameImpl {
       // real args (an async one then suspends and holds, as the value tier
       // intends). A fresh mount is skipped for the same reason — mounting
       // with a fabricated `undefined` is what makes it visible.
-      if (record && record.kind === "slot" && this.#refsUnresolved(record.args)) continue;
+      // Nor is a record whose LITERAL args the host cannot revive yet: the
+      // container-trace materializer loads lazily (behind the first record
+      // that carries a trace), and a document-face marker resolved ahead of
+      // it would reach the consumer as a plain object. Hold the occurrence —
+      // like the ref wait, deferral is invisible on an adopted range (the
+      // server-rendered interior is already on screen; the mount is the
+      // hydration attach) — and re-sync when the host's step settles.
+      if (
+        record &&
+        record.kind === "slot" &&
+        (this.#refsUnresolved(record.args) || this.#argsUnprepared(record.args))
+      )
+        continue;
       // A mount whose output the morph destroyed (its range was recreated
       // inside a different server parent — ranges only relocate among
       // siblings) is a zombie: remount fresh so content stays correct, even
@@ -1612,6 +1648,25 @@ class FrameImpl {
       if (isDataRef(args[key]) && this.#resolveRef(args[key], resolve) === undefined) return true;
     }
     return false;
+  }
+
+  /**
+   * Whether a record's literal args need the host's async step first (see
+   * FrameHostOptions.prepareArgs). One re-sync per pending step however many
+   * occurrences wait on it; a later step (a different promise) is picked up
+   * by that re-sync asking again.
+   */
+  #argsUnprepared(args) {
+    const host = this.#options.host;
+    const pending = host && host.prepareArgs && host.prepareArgs(args);
+    if (!pending) return false;
+    if (!this.#argsRefresh) {
+      this.#argsRefresh = pending.then(() => {
+        this.#argsRefresh = null;
+        if (!this.#disposed) this.#syncSlots();
+      });
+    }
+    return true;
   }
 
   /** A data ref through the host's tables, or a staged response's. */

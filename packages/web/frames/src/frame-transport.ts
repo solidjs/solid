@@ -323,7 +323,9 @@ function applyFrames(response, host, options = {}, observation) {
         // referencing this data included — queues behind the load. Chunk
         // ORDER is the only contract downstream (network jitter already
         // stretches time between chunks), so nothing else observes the wait.
-        if (chunk.type === "data" && host.prepareData) await host.prepareData();
+        // The chunk rides along so the host can load what THIS payload needs
+        // beyond the codec (a container trace's materializer).
+        if (chunk.type === "data" && host.prepareData) await host.prepareData(chunk);
         host.apply(chunk);
       }
       result = await reader.next();

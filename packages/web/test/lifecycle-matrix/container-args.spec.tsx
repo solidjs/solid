@@ -18,19 +18,27 @@
 //
 // The producer halves (classification, envelope, wire shape) and real-core
 // server faces are pinned in `test/server/container-traces.spec.tsx`; the
-// materializer's
-// unit semantics in solid `test/container-trace.spec.ts`. See MATRIX.md.
+// materializer's unit semantics in solid `test/container-trace.spec.ts`; the
+// LOAD of the materializer — the frames client fetches it lazily, behind the
+// first record that carries a trace — in `test/frames-container-lazy.spec.tsx`.
+// These cells run with it resident (installed below, as the production host
+// has it after that first load) and pin what the two faces do with it. See
+// MATRIX.md.
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, flush, Loading } from "solid-js";
+import { materializeContainerTrace } from "solid-js/internal/container-trace";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import {
   toBorderForm,
   reviveContainerTraces,
+  setContainerTraceMaterializer,
   setContainerTraceResolver
 } from "../../frames/src/frame-container-plugin.js";
 import { makeHost, frameResponse, createDataSource, pump, settle } from "./harness.js";
+
+setContainerTraceMaterializer(materializeContainerTrace);
 
 const getStream = createServerReference("matrix/containers/stream");
 const getShared = createServerReference("matrix/containers/shared");

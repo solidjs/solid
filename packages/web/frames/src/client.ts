@@ -46,20 +46,22 @@ import {
 } from "./frame-transport.js";
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
-// projections. The materializer is solid's (it owns the patch protocol);
-// this entry installs it and wires the host's literal-arg reviver (document
-// face). The seroval plugin itself needs no wiring — it rides the codec's
-// default plugin set, in the lazy codec chunk. These named imports pull
-// only the eager core (hooks + revive walk + the WeakSet probe); the
-// plugin object tree-shakes away.
+// projections. The materializer is solid's (it owns the patch protocol) and
+// it is the store engine's one edge into a server-component page — so it
+// loads LAZILY (`loadContainers`, below), behind the first record that
+// carries a trace, and this entry only wires the host's hooks: the
+// literal-arg reviver (document face), the container probe, and the two
+// "load first" seams. The seroval plugin itself needs no wiring — it rides
+// the codec's default plugin set, in the lazy codec chunk. These named
+// imports pull only the eager core (hooks + the walks + the WeakSet probe);
+// the plugin object tree-shakes away.
 import {
   isMaterializedContainer,
+  needsContainerTraceMaterializer,
   reviveContainerTraces,
   setContainerTraceMaterializer
 } from "./frame-container-plugin.js";
-import { createLoadingBoundary, materializeContainerTrace, sharedConfig } from "solid-js/internal";
-
-setContainerTraceMaterializer(materializeContainerTrace);
+import { createLoadingBoundary, sharedConfig } from "solid-js/internal";
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
@@ -138,6 +140,21 @@ function loadCodec() {
   // serialization module costs the encoder too (~13 vs ~6.5 kB gz).
   return (codecLoading ??= import("@solidjs/web/serialization/decode").then(m => {
     codec = m;
+  }));
+}
+// The container-trace materializer — solid's, and the store engine's only
+// edge into a page that has no client store of its own (~8 kB brotli with
+// the projection/reconcile machinery it builds on). Its own `solid-js`
+// entry, loaded behind the first record that carries a trace: a `data`
+// chunk whose node tree holds the plugin's node (`prepareData`, before the
+// chunk decodes — the plugin materializes at decode), or a document-face
+// record whose literal args hold a marker (`prepareArgs` — the frame holds
+// that occurrence, its server-rendered interior on screen, and attaches it
+// when the load settles). A page that never meets a trace never loads it.
+let containersLoading: Promise<unknown> | undefined;
+function loadContainers() {
+  return (containersLoading ??= import("solid-js/internal/container-trace").then(m => {
+    setContainerTraceMaterializer(m.materializeContainerTrace);
   }));
 }
 const tables = new Map<string, any>();
@@ -251,12 +268,20 @@ function followAddress(
 export function getFrameHost() {
   if (!sharedHost) {
     sharedHost = createFrameHost({
-      prepareData: loadCodec,
+      // The codec, and — for a payload that carries a trace — the
+      // materializer the codec's plugin hands the decode to.
+      prepareData: (c: any) =>
+        needsContainerTraceMaterializer(c.node)
+          ? Promise.all([loadCodec(), loadContainers()])
+          : loadCodec(),
       applyData: (c: any) => tableFor(c.id)?.apply(c),
       resolve: (ref: any, id: string) => tableFor(id)?.resolve(ref),
       // Document-face container traces ride slot records as inline literals
-      // (never `{$ref}`s); this revives them into live stores at arg-read.
+      // (never `{$ref}`s); this revives them into live stores at arg-read —
+      // once the materializer is resident, which `prepareArgs` sees to.
       revive: reviveContainerTraces,
+      prepareArgs: (args: any) =>
+        needsContainerTraceMaterializer(args) ? loadContainers() : undefined,
       // Lets the record-dedupe compare identity-test containers instead of
       // probing them (a pending container's property reads throw not-ready).
       isContainer: isMaterializedContainer

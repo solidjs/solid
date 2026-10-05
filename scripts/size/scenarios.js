@@ -46,9 +46,15 @@ const floorCaps = require("./floor-caps.json");
 // Rolldown splits it the same way, so it shows up in the report as a lazy
 // chunk at its true size and stays out of the cap. (Under size-limit the
 // specifiers resolved to a stub because esbuild did not split there.) The
-// "frames: eager client consumer" scenario measures the package; these
-// measure the page. Subpath aliases first (see above).
+// container-trace materializer (`solid-js/internal/container-trace`, the
+// store engine's one edge into these pages) is the frames client's second
+// dynamic import since S1 of the SC size plan (2026-10-05) and reports the
+// same way: `container-trace.js` is the engine + the materializer, lazy,
+// not counted. The "frames: eager client consumer" scenario measures the
+// package; these measure the page. Subpath aliases first (see above) — the
+// materializer's before `solid-js/internal`, which would otherwise swallow it.
 const pageAlias = {
+  "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/frames": "../../packages/web/frames/dist/client.js",
@@ -88,6 +94,10 @@ const framesAlias = {
 const framesExternal = [
   "solid-js",
   "solid-js/internal",
+  // The container-trace materializer: lazily imported by the frames client
+  // (S1, 2026-10-05), a `solid-js` entry — external like the codec, so this
+  // scenario keeps measuring the eager graph alone.
+  "solid-js/internal/container-trace",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3078,6 +3088,21 @@ module.exports = [
     // reads the new response's refs before the commit. Accepted by the
     // maintainer (2026-10-04). The cap is frozen again at 13.78 KB (head +
     // 10 B).
+    // SC size plan S1 — the container-trace materializer loads lazily
+    // (2026-10-05): measured at 13,904 B against `next` @ b0bad0267's 13,770
+    // (+134 B; 124 B OVER the cap; +543 B minified, 43,310 -> 43,853, all in
+    // the frames client). The materializer — the store engine's one edge
+    // into a server-component page — is no longer imported and installed at
+    // module load (-77 B minified); it is `solid-js/internal/container-trace`
+    // now, fetched behind the first record that carries a trace, and the
+    // bytes are that seam's two faces: the `data`-chunk node scan ahead of
+    // the decode (`needsContainerTraceMaterializer`, one walk shared with
+    // the document face), `loadContainers`, the host's `prepareData`/
+    // `prepareArgs` wiring, and the frame's hold on an occurrence whose
+    // literal args carry a marker (`#argsUnprepared`, re-syncing when the
+    // load settles). The pages drop ~6.4 KB brotli for it (their notes).
+    // NOT accepted here — the cap is left at 13.78 KB for the maintainer's
+    // ruling (a Size-Exception for the seam, or a slimmer seam).
     limit: "13.78 KB",
     alias: framesAlias,
     external: framesExternal
@@ -3237,6 +3262,21 @@ module.exports = [
     // +16, observeFlight first-observer hold +17); brotli layout. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 44.84 KB.
+    // SC size plan S1 — the container-trace materializer loads lazily
+    // (2026-10-05): measured at 38,439 B against `next` @ b0bad0267's 44,829
+    // (-6,390 B; -22,899 B minified, 145,408 -> 122,509). The store engine
+    // (signals `store/*`, 27.8 KB minified) and the materializer itself
+    // leave this page's eager chunk for `container-trace.js` — reported
+    // above as lazy, not counted, 7.86 KB brotli — which the frames client
+    // fetches behind the first record that carries a trace. What stays
+    // (short of the audit's -7.7 KB edit-the-dist floor by ~1.3 KB): the
+    // store HYDRATION adapters (~2.6 KB minified: `hydrateStoreLike` and
+    // what it reaches), retained because the materializer must dispatch
+    // through the wrappers' hydration seam (`withStoreHydration`) and that
+    // seam lives in solid's flat main module; the store symbols the lazy
+    // chunk shares with the eager one (`store/types`, hoisted); and the
+    // seam's own bytes in the frames client (its note). Lowered in the
+    // follow-up commit to measured + 10 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3336,6 +3376,13 @@ module.exports = [
     // observeFlight first-observer hold +17); brotli layout. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 48.47 KB.
+    // SC size plan S1 — the container-trace materializer loads lazily
+    // (2026-10-05): measured at 42,102 B against `next` @ b0bad0267's 48,454
+    // (-6,352 B; -22,998 B minified, 157,345 -> 134,347). The same split as
+    // the base page (its note): the store engine and the materializer leave
+    // for `container-trace.js` (lazy, not counted, 7.88 KB brotli); the
+    // store hydration adapters stay. Lowered in the follow-up commit to
+    // measured + 10 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },

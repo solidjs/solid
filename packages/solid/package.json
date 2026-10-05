@@ -104,6 +104,10 @@
       "types": "./types/internal.d.ts",
       "default": "./dist/internal.js"
     },
+    "./internal/container-trace": {
+      "types": "./types/client/container-trace.d.ts",
+      "default": "./dist/container-trace.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

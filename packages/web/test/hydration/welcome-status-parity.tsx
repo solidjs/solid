@@ -16,20 +16,35 @@
  * paths the client allocates must be byte-identical to what the ssr compile
  * minted — any extra reactive scope the client wraps an arg read in shows up
  * as a hydration key miss and a re-rendered (or blank) range.
+ *
+ * The `usage` arg is a container trace, and the frames client loads the
+ * materializer LAZILY (`solid-js/internal/container-trace`, behind the first
+ * record that carries a trace). Two configurations, one per spec file:
+ *   - resident (default): the materializer is installed before `hydrate()`,
+ *     as the production host has it once that load has settled — the claim
+ *     walk revives synchronously and the fill claims in the root pass;
+ *   - `lazy`: the production host wiring with nothing installed — the frame
+ *     HOLDS the `status#0` occurrence (server interior on screen) while the
+ *     materializer loads, then mounts the fill, which claims the same nodes
+ *     in place. Same assertions: the attach is late, never a re-render.
  */
 import { expect, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
+import { materializeContainerTrace } from "solid-js/internal/container-trace";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import {
   reviveContainerTraces,
-  isMaterializedContainer
+  isMaterializedContainer,
+  setContainerTraceMaterializer
 } from "../../frames/src/frame-container-plugin.js";
 import { FID, statusFill } from "../harness/frames-welcome.jsx";
+
+const traceState = () => (globalThis as any)[Symbol.for("solid.container-trace-state")];
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
 
@@ -85,7 +100,10 @@ export function cleanupWelcomeStatusParity() {
   document.body.innerHTML = "";
 }
 
-export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
+export async function runWelcomeStatusParity(
+  mode: "loaded" | "streamed",
+  options: { lazy?: boolean } = {}
+) {
   const { shell, rest } = loadArtifact(mode);
   const fid = FID(mode);
   const container = document.createElement("div");
@@ -94,7 +112,13 @@ export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
   vi.stubGlobal("fetch", () => {
     throw new Error("fetch must not be called");
   });
-  installServerComponents(makeHost());
+  if (options.lazy) {
+    expect(traceState()?.materializeTrace).toBeUndefined();
+    installServerComponents();
+  } else {
+    setContainerTraceMaterializer(materializeContainerTrace);
+    installServerComponents(makeHost());
+  }
 
   const warnings: string[] = [];
   vi.spyOn(console, "warn").mockImplementation((...args: any[]) => {
@@ -107,12 +131,24 @@ export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
   const frame = container.querySelector(`solid-frame[data-fid="${fid}"]`)!;
   const ssrStatus = container.querySelector(".status");
   expect(ssrStatus).toBeTruthy();
+  const ssrText = frame.textContent;
 
   const SC = (globalThis as any)._$SC.r(fid);
   const dispose = hydrate(() => <SC status={statusFill} />, container);
   flush();
   await Promise.resolve();
   flush();
+
+  if (options.lazy) {
+    // The hold: the root pass adopted the boundary with the materializer
+    // absent, so `status#0` is not mounted yet and the server-rendered
+    // interior stands untouched — exactly what was on screen.
+    expect(frame.textContent).toBe(ssrText);
+    // The load (a dynamic import through the frames client) settles on its
+    // own schedule; wait for the install, then for the re-sync it triggers.
+    for (let i = 0; i < 200 && !traceState()?.materializeTrace; i++) await sleep(10);
+    expect(traceState()?.materializeTrace).toBeTypeOf("function");
+  }
 
   if (mode === "streamed") applyChunk(container, rest, false);
   await settle();

@@ -47,13 +47,13 @@ export interface ContainerTraceMarker {
 
 // Hook state is shared ACROSS MODULE COPIES, like the TRACE symbol below:
 // integration bundles carry this module once per entry (the frames client
-// installs the materializer on its copy; the LAZY CODEC chunk's copy is the
-// one whose plugin deserializes stream data), and module-local state would
-// leave the codec copy hookless — deserialize falls back to the inert
-// marker, the arg reads as a plain object, and the meter just renders
-// nothing (chat example, 2026-08-10). One registered global carries the
-// hooks and the materialization memo, so every copy is the same protocol
-// endpoint.
+// installs the materializer on its copy — lazily, once a trace is in sight;
+// the LAZY CODEC chunk's copy is the one whose plugin deserializes stream
+// data), and module-local state would leave the codec copy hookless —
+// deserialize falls back to the inert marker, the arg reads as a plain
+// object, and the meter just renders nothing (chat example, 2026-08-10). One
+// registered global carries the hooks and the materialization memo, so every
+// copy is the same protocol endpoint.
 /**
  * @type {{
  *   resolveTrace?: (value: unknown) => ({ subscribe(): AsyncIterable<any>, array: boolean } | undefined),
@@ -97,6 +97,39 @@ export function setContainerTraceMaterializer(fn: (marker: ContainerTraceMarker)
 /** Client half: install the reactive core's trace materializer. */
 export function setContainerTraceMaterializer(fn) {
   state.materializeTrace = fn;
+}
+
+// The plugin's seroval tag — also the mark by which a `data` chunk's node
+// tree is known to carry a trace before it decodes (see
+// needsContainerTraceMaterializer).
+const TRACE_TAG = "solid/container-trace";
+
+// Depth-first: does the value carry a trace in either wire form — a plugin
+// node tagged with TRACE_TAG (a `data` chunk's node tree, pre-decode;
+// seroval's cross-JSON writes the tag on the node) or a decoded marker
+// (document-face literal args)? One test serves both: a node tree never
+// holds a marker and args never hold a node. Walks every own key, the way
+// reviveContainerTraces does over plain containers; only ever runs before
+// the materializer is resident, so no live container can be in the value.
+function carriesTrace(value) {
+  if (value == null || typeof value !== "object") return false;
+  if (value.c === TRACE_TAG || isContainerTraceMarker(value)) return true;
+  for (const key in value) if (carriesTrace(value[key])) return true;
+  return false;
+}
+
+/**
+ * Client half, before the materializer is resident: whether a value needs
+ * it — a `data` chunk's node tree about to decode (the plugin materializes
+ * AT decode, so the integration loads first: `FrameHostOptions.prepareData`)
+ * or a document-face record's literal args (a marker reviveContainerTraces
+ * would otherwise pass through inert; the integration holds the occurrence
+ * until the load settles: `FrameHostOptions.prepareArgs`). `false` once
+ * installed — nothing to load, and no walk.
+ */
+export function needsContainerTraceMaterializer(value: unknown): boolean;
+export function needsContainerTraceMaterializer(value) {
+  return !state.materializeTrace && carriesTrace(value);
 }
 
 /**
@@ -335,9 +368,10 @@ export const ContainerTracePlugin = {
     const iterable = ctx.deserialize(node.i);
     const marker = { $tr: iterable, $ta: node.a };
     // Codec face: the decode runs where the reactive core is resident (the
-    // frames client installs the materializer at module load, before any
-    // response can decode), so the value leaves the table already live. The
-    // marker fallback keeps a hookless decode inert instead of broken.
+    // frames client loads the materializer before it lets a `data` chunk
+    // carrying this plugin's node decode — hasContainerTraceNode), so the
+    // value leaves the table already live. The marker fallback keeps a
+    // hookless decode inert instead of broken.
     return state.materializeTrace ? materialize(marker) : marker;
   }
 };

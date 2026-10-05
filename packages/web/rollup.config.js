@@ -374,7 +374,13 @@ export default [
       "@solidjs/web/server-functions/client",
       // Lazily imported (`prepareData`): the codec loads only when a `data`
       // chunk actually arrives, so the frames client ships seroval-free.
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      // Lazily imported (`loadContainers`): the container-trace materializer
+      // — the store engine's one edge into a server-component page — loads
+      // behind the first record that carries a trace. Its own `solid-js`
+      // entry (see packages/solid/rollup.config.js) so the app's bundler can
+      // give the engine to that chunk; bundled here it would be eager again.
+      "solid-js/internal/container-trace"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -396,7 +402,8 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      "solid-js/internal/container-trace"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -414,7 +421,8 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      "solid-js/internal/container-trace"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)

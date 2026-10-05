@@ -1,0 +1,6 @@
+---
+"@solidjs/web": patch
+"solid-js": patch
+---
+
+The container-trace materializer — the store engine's one edge into a server-component page — loads lazily. `@solidjs/web/frames` no longer imports and installs it at module load; it fetches `solid-js/internal/container-trace` (a new `solid-js` entry carrying `materializeContainerTrace`, so the engine can be the app bundler's lazy chunk) behind the first record that carries a trace: a `data` chunk whose node tree holds the trace plugin's node loads it before the chunk decodes (`FrameHostOptions.prepareData` now receives the chunk), and a document-face record whose literal args hold a marker holds that occurrence — its server-rendered interior on screen — until the load settles (`FrameHostOptions.prepareArgs`, new). A page that never passes a projection across the slot border no longer ships `createProjection` and the store machinery behind it (−22.9 KB minified / −6.4 KB brotli on the harness's server-component pages); a page that does takes the chunk load at that first record. `materializeContainerTrace` leaves `solid-js`, `solid-js/internal` and the server entry; the main entry gains the `@internal` seams the new entry reads (`withStoreHydration`, `applyPatches`, `forwardIteratorReturn`).

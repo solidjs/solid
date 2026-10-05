@@ -7,7 +7,7 @@
 // batches keep updating, latched when the trace ends.
 import { describe, expect, test } from "vitest";
 import { createRoot, createRenderEffect, flush } from "../src/index.js";
-import { materializeContainerTrace } from "../src/index.js";
+import { materializeContainerTrace } from "../src/client/container-trace.js";
 
 /**
  * A hand-cranked RAW seroval stream (the wire shape since the stream-mint

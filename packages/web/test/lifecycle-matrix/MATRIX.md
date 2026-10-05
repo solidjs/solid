@@ -79,10 +79,18 @@ classification must never probe a pending container's properties (they
 throw not-ready) — containers test FIRST, by WeakSet, on both faces. The
 producer and server faces are pinned in `test/server/container-traces.spec.tsx`,
 the client faces in `container-args.spec.tsx`, and the materializer's unit semantics
-in solid `test/container-trace.spec.ts`.
+in solid `test/container-trace.spec.ts`. The materializer is the store engine's one
+edge into a server-component page, so the frames client loads it LAZILY
+(`solid-js/internal/container-trace`), behind the first record that carries a
+trace; those load paths are pinned in `test/frames-container-lazy-*.spec.tsx` and
+`test/hydration/welcome-status-lazy.spec.tsx`, and the cells below run with it
+resident.
 
 | Cell | Spec / test | Status |
 | --- | --- | --- |
+| codec face, materializer not resident: a `data` chunk whose node tree carries the trace plugin's node loads the materializer BEFORE it decodes (the `{$ref}` still resolves to a live store); a `data` chunk without one loads nothing | `frames-container-lazy-codec` | pass |
+| document face, materializer not resident: an adopted record's marker holds the occurrence (server interior on screen, no fill) until the load settles, then the fill mounts with the live store; nested references share it | `frames-container-lazy-document` | pass |
+| document face under `hydrate()`, materializer not resident: the fill claims the server nodes in place after the load — no key misses, no re-render | `hydration/welcome-status-lazy` | pass |
 | container `{$ref}` arg materializes live: reference synchronous, reads suspend until the snapshot, patch batches update granularly (sibling reads don't re-fire), trace end latches | `container-args` › `call-driven/args/containers` (materializes live) | pass — closed gap: the client's arg classification (`slotArgsProxy` async probe, `#refArgsUnchanged` compare) detonated pending containers; both now classify containers first, trap-safe |
 | updates flow through the store — never a re-call, node identity survives | `container-args` › `call-driven/args/containers` (materializes live) | pass |
 | one container, many references: every `{$ref}` to the same trace resolves to the SAME live store instance | `container-args` › `call-driven/args/containers` (two arg positions) | pass |

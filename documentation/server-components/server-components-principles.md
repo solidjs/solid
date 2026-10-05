@@ -329,6 +329,18 @@ binding's **wire shape**, never its liveness:
        same contract as the value tier), patch batches apply through
        `applyPatches`, and the result is readonly — writes stay
        producer-owned by construction.
+     - *The receiver's engine is a lazy chunk (SC size plan S1, 2026-10-05).*
+       The materializer — and the store engine it builds on, the one edge
+       that engine has into a server-component page — is its own entry,
+       `solid-js/internal/container-trace`, which the frames client loads
+       behind the first record that carries a trace: a `data` chunk's node
+       tree before it decodes (`prepareData`; the plugin materializes at
+       decode), or a document-face record's marker literal, whose occurrence
+       the frame HOLDS — server-rendered interior on screen, the mount being
+       the hydration attach — until the load settles (`prepareArgs`). A page
+       that never meets a trace never ships the engine; one that does takes
+       the chunk load at that first record until the server-driven preload
+       seam (§D of the size plan) announces it from the document.
      - *The envelope.* Seroval's own classification runs before plugin
        tests — it reads `.constructor` (detonating a pending proxy) and
        claims arrays outright — so raw containers can't be intercepted
