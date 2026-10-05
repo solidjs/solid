@@ -2063,7 +2063,14 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 28.84 KB.
-    limit: "28.84 KB",
+    // Size-Exception (fuzz Batch C, #3806, 2026-10-05): 28.84 -> 28.87 KB,
+    // measured at 28,857 B by CI against `next` @ b07fed550's 28,829
+    // (+28 B; 17 B over the cap; +13 B minified) — the lane-membership
+    // ruling: F8's stale-reader arm in laneRead (+9) and adopted staging's
+    // render-effect mark in laneDirty (+4). Cap set at measured + 10 B
+    // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-05). The
+    // cap is frozen again at 28.87 KB.
+    limit: "28.87 KB",
     alias
   },
   {
@@ -2941,7 +2948,14 @@ module.exports = [
     // is brotli layout (the same change measured -10 B against 203ab1a43).
     // Engine-only: every prod scenario byte-identical, the observe tier
     // scenario above did not move.
-    limit: "28.62 KB",
+    // Size-Exception (fuzz Batch C, #3806, 2026-10-05): 28.62 -> 28.66 KB,
+    // measured at 28,642 B by CI against `next` @ b07fed550's 28,611
+    // (+31 B; 22 B over the cap; +4 B minified) — the lane-membership
+    // ruling (F8's laneRead arm, adopted staging's laneDirty mark), signals
+    // core only; brotli layout over the engine's bundle. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 28.66 KB.
+    limit: "28.66 KB",
     alias: observeAlias
   },
   {
