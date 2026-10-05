@@ -14,16 +14,30 @@
 // is reported but never counted against the cap — the cap is the eager graph.
 // (size-limit did not split, so the harness used a stub for the codec; the
 // stub is gone and the lazy codec chunk is reported at its true size.)
+//
+// Compiled scenarios (2026-10-05): a scenario with `compile` is written as
+// JSX under fixtures/ and compiled here, at measure time, by the native
+// @solidjs/compiler of the checkout being measured (packagesRoot — the
+// compare job's base checkout builds its own compiler, so a compiler-only
+// change moves these scenarios on the comparison, as it should). Client DOM
+// output with the production posture @solidjs/vite-plugin uses
+// (`generate: "dom"`, `dev: false`, `hydratable` from the scenario, every
+// other option at the compiler's default). The entry and every `.jsx`
+// module it reaches are compiled; the output is handed to Rolldown as plain
+// JS. The compiler sees only each file's basename, so no host path can reach
+// the output and the numbers are the same on every machine.
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants } from "node:zlib";
 import { rolldown } from "rolldown";
 import { minifySync } from "rolldown/experimental";
 
+const require = createRequire(import.meta.url);
 export const here = dirname(fileURLToPath(import.meta.url));
-export const scenarios = createRequire(import.meta.url)("./scenarios.js");
+export const scenarios = require("./scenarios.js");
 
 // Where `../../packages/...` resolves. Overridable so the compare job can
 // measure a base checkout with the head's harness.
@@ -31,10 +45,31 @@ export const packagesRoot = process.env.SIZE_PACKAGES_ROOT
   ? join(process.env.SIZE_PACKAGES_ROOT, "packages")
   : join(here, "..", "..", "packages");
 
+// The JSX sources of the compiled scenarios. Their modules are the `app`
+// package in every report: the compiled app's own bytes, separable from
+// the runtime's.
+export const fixturesRoot = join(here, "fixtures");
+
 const resolvePath = p =>
   p.startsWith("../../packages/")
     ? join(packagesRoot, p.slice("../../packages/".length))
     : join(here, p);
+
+// The native compiler of the measured checkout, loaded once. Its entry
+// (packages/compiler/index.js) picks the binding the way the test suites
+// get it — the local `compiler.<platform>.node` the build step emits
+// (Linux CI and macOS alike), falling back to the installed platform
+// package — so no path here depends on the host.
+let compiler;
+const compile = (id, hydratable) => {
+  compiler ??= require(join(packagesRoot, "compiler", "index.js"));
+  return compiler.transform(readFileSync(id, "utf8"), {
+    filename: basename(id),
+    generate: "dom",
+    hydratable,
+    dev: false
+  }).code;
+};
 
 export const brotli = buf =>
   brotliCompressSync(buf, { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
@@ -53,14 +88,19 @@ export const toKB = b => (b / 1000).toFixed(2) + " KB";
 
 const ENTRY = "\0scenario-entry";
 
-/** Maps a module id to the package that shipped it; anything outside packages/ is "other". */
+/**
+ * Maps a module id to the package that shipped it; a compiled scenario's own
+ * sources (fixtures/) are "app", anything else outside packages/ is "other".
+ */
 export function packageOf(id) {
+  if (id.startsWith(fixturesRoot)) return "app";
   const m = id.match(/packages\/([^/]+)\/(?:([^/]+)\/)?dist\//);
   if (!m) return "other";
   const [, pkg, sub] = m;
   return sub && sub !== "dist" ? `${pkg}/${sub}` : pkg;
 }
 export function moduleOf(id) {
+  if (id.startsWith(fixturesRoot)) return `app:${relative(fixturesRoot, id)}`;
   return id.replace(/^.*packages\//, "").replace(/\/dist\/(prod\/|observe\/)?/, ":");
 }
 
@@ -92,7 +132,21 @@ export async function bundle(scenario) {
         name: "scenario-entry",
         resolveId: id => (id === ENTRY ? ENTRY : null),
         load: id => (id === ENTRY ? synthetic : null)
-      }
+      },
+      // Compiled scenarios: every `.jsx` module is compiled before Rolldown
+      // parses it, and arrives as plain JS so Rolldown's own JSX transform
+      // never runs on it.
+      ...(scenario.compile
+        ? [
+            {
+              name: "scenario-compile",
+              load: id =>
+                id.endsWith(".jsx")
+                  ? { code: compile(id, !!scenario.compile.hydratable), moduleType: "js" }
+                  : null
+            }
+          ]
+        : [])
     ]
   });
   try {
