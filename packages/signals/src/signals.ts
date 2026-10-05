@@ -6,6 +6,7 @@ import {
   TimeoutError,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_DEFERRED,
   CONFIG_FRESH_READ,
   createRoot,
   dispose,
@@ -544,7 +545,11 @@ export function createDeferred<T>(
   options?: MemoOptions<T>
 ): SourceAccessor<T> {
   installDeferred();
-  return accessor<T>(computed<T>(deferredCompute(compute as any), options));
+  const node = computed<T>(deferredCompute(compute as any), options);
+  // The brand core reads (`recompute`'s T4 arm): a held deferred node's
+  // re-pass joins nothing — a lagging question is not an answer.
+  node._config |= CONFIG_DEFERRED;
+  return accessor<T>(node);
 }
 
 /**

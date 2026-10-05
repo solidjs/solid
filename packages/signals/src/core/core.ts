@@ -11,6 +11,7 @@ import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_DEFERRED,
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
   CONFIG_VERDICT,
@@ -301,7 +302,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // Held by a blocked lane: the frame joins nothing — a lane never holds
       // a sync write (#3460). The pass is the lane's if it reads the lane's
       // world (`read`), and has left it otherwise.
-      if (tx._lane) {
+      // A deferred node held because a downstream hold staged its landing
+      // (CONFIG_DEFERRED, deferred.ts): its re-pass is a lagging question,
+      // not an answer — it stages nothing (the wrapper returns the held
+      // landing as its result) and joins nothing, so a mainline write that
+      // reaches it commits mainline; the landing stays staged for the
+      // hold's reveal and the new flight's landing re-enters it (A34 (1)).
+      if (tx._lane || el._config & CONFIG_DEFERRED) {
       } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT)) joinPassTx(tx);
       else if (tx !== flushTransaction && !(el._statusFlags & STATUS_UNINITIALIZED)) {
         // Published mainline, it is not held: the frame this pass builds is

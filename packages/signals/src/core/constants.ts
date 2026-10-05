@@ -140,6 +140,11 @@ export const CONFIG_REDERIVE = 1 << 15;
  * pass no lane's, and the truth landing wakes it even when it confirms the
  * guess (the one case ordinary subscribers are not told — A17's silence). */
 export const CONFIG_AUTHORITATIVE = 1 << 17;
+/** A `createDeferred` node (deferred.ts). Read in one place: `recompute`'s
+ * T4 arm — a pass over a held deferred node is a lagging question, not an
+ * answer: it joins no transaction and does not publish the held landing
+ * mainline (reading 2 of create-deferred.md 8.3). */
+export const CONFIG_DEFERRED = 1 << 19;
 // Presence bits (stage-3 hot-path monomorphism, DESIGN-PATCH-CHANNEL §11b):
 // optional per-node slots (_overrideValue, _pendingSignal/_latestValueComputed,
 // _snapshotValue, _optimisticLane) are NOT part of every node's hidden class —

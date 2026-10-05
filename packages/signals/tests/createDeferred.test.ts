@@ -1,6 +1,6 @@
 /**
  * createDeferred — an async memo that may lag the global clock, but never
- * leads it (docs/create-deferred.md, propositions D1–D10).
+ * leads it (docs/create-deferred.md, propositions D1–D11).
  *
  * Once initialized, the node's own non-finality is invisible to the graph:
  * readers are served the committed value during a refetch (no NotReadyError,
@@ -16,8 +16,9 @@
  * flight inside an action, the verdict's display-ahead under a parked flush,
  * the D9 push through unchanged derivations and derived stores, the
  * sync-resolved thenable, disposal, `latest`, and mizulu's #3710 shape (a
- * plain async memo over a deferred node; its reported half is pending a
- * ruling and pinned skipped).
+ * plain async memo over a deferred node: the common part, the D11 ruling on
+ * the playground's real graph, and its limit — a derivation between the
+ * held memo and the frame joins by ruling 3, L2-general).
  */
 import {
   action,
@@ -1250,59 +1251,183 @@ describe("createDeferred", () => {
       });
     });
 
-    // TODO(ruling): the reported half. Once `m1`'s flight holds the frame,
-    // `d1` is a held node (its landing is staged in that transaction), and
-    // a mainline write to `count` — committed, held by no one — re-passes
-    // `d1`, and `recompute`'s "a pass over a held derivation joins its
-    // transaction" (L2 T4) joins the whole tick: the button's run parks
-    // with it until `m1` lands. The same pass also stages the served
-    // committed value over the held landing (`staged 4 → 0`), so `m1`
-    // re-fetches against the OLD input and the landing is lost until a
-    // later flight re-lands it. Two readings: (1) the join stands — `d1`
-    // is held, its re-pass is a pass over a held derivation, and a tick
-    // cannot finish in two parts (A34 (1), T4); the wrapper's pass must then
-    // leave the held landing in place rather than restage the served value.
-    // (2) A deferred's re-ask is a lagging question, not an answer: it
-    // stages nothing and replaces nothing, so it joins nothing — the write
-    // commits mainline (the button repaints, the boundary's reader is a
-    // stale reader re-derived at the landing, A15) and the held landing
-    // stays staged for `m1`'s hold. D1–D9 do not decide it (D2 covers a
-    // flight asked against a STAGED write; this write is mainline and the
-    // hold is a downstream plain memo's). Current behaviour, pinned so the
-    // change is visible when ruled.
-    describe.skip("a write to the input while the downstream plain memo is in flight (current behaviour, pending ruling)", () => {
-      it("joins the downstream hold: the button waits for m1, and the held landing is restaged as the served value", async () => {
+    /** The playground's real graph: the `{}` inserts under `<Loading>` are
+     * render effects of their own; the boundary's compute reads none of the
+     * held nodes. (The text-memo `playground()` above puts a derivation
+     * between them and the frame — which joins any hold it reads, ruling 3.) */
+    function playgroundDom() {
+      const d1Fetch = deferredFetcher((c: number) => c * 2);
+      const m1Fetch = deferredFetcher((d: number) => d);
+      const [count, setCount] = createSignal(0);
+      let d1!: () => number;
+      let m1!: () => number;
+      const dom = { fallback: false, sig: -1, def: -1, m1: -1, button: -1 };
+      createRoot(() => {
+        d1 = createDeferred(() => d1Fetch.fetch(count()));
+        m1 = createMemo(() => m1Fetch.fetch(d1()));
+        const boundary = createLoadingBoundary(
+          () => {
+            createRenderEffect(count, v => {
+              dom.sig = v;
+            });
+            createRenderEffect(d1, v => {
+              dom.def = v;
+            });
+            createRenderEffect(m1, v => {
+              dom.m1 = v;
+            });
+            return "content";
+          },
+          () => "fallback"
+        );
+        createRenderEffect(boundary, v => {
+          dom.fallback = v === "fallback";
+        });
+        createRenderEffect(count, v => {
+          dom.button = v;
+        });
+      });
+      const view = () =>
+        dom.fallback ? "fallback" : `signal ${dom.sig} deferred ${dom.def} m1 ${dom.m1}`;
+      return { d1Fetch, m1Fetch, setCount, d1: () => d1(), m1: () => m1(), dom, view };
+    }
+
+    // Ruled 2026-10-04 (D11 — a lagging question is not an answer). Once `m1`'s
+    // flight holds the frame, `d1` is a held node (its landing is staged in
+    // that hold). A mainline write to `count` re-passes it; the pass joins
+    // nothing (`recompute`'s T4 arm skips a CONFIG_DEFERRED node) and keeps
+    // the held landing (the wrapper returns the staging as its result), so
+    // the write commits mainline: the button and the boundary's sync insert
+    // repaint, the inserts of `d1` and `m1` are stale readers re-derived at
+    // `m1`'s landing (A15), and the seam sweep keeps `d1`'s window open
+    // under the question the commit of the older landing did not answer
+    // (D4).
+    describe("a write to the input while the downstream plain memo is in flight commits mainline; the held landing stands (D11)", () => {
+      it("the button never waits; the frame's readers of the flight are stale readers; m1 lands with the input it was asked with", async () => {
+        const p = playgroundDom();
+        flush();
+        expect(p.view()).toBe("fallback");
+        p.d1Fetch.resolve(0);
+        await settle();
+        p.m1Fetch.resolve(0);
+        await settle();
+        expect(p.view()).toBe("signal 0 deferred 0 m1 0");
+        p.setCount(1);
+        flush();
+        expect(p.view()).toBe("signal 1 deferred 0 m1 0");
+        expect(p.dom.button).toBe(1);
+        p.d1Fetch.resolve(1);
+        await settle();
+        // m1 re-ran on the landing and holds the frame; the landing is staged with it.
+        expect(p.view()).toBe("signal 1 deferred 0 m1 0");
+        expect(p.m1Fetch.inFlight()).toEqual([2]);
+        expect(isPending(p.m1)).toBe(true);
+        // Clicks while m1 is in flight: mainline. The sync readers repaint;
+        // the readers of the flight keep the committed frame.
+        p.setCount(2);
+        flush();
+        expect(p.dom.button).toBe(2);
+        expect(p.view()).toBe("signal 2 deferred 0 m1 0");
+        p.setCount(3);
+        flush();
+        expect(p.dom.button).toBe(3);
+        expect(p.view()).toBe("signal 3 deferred 0 m1 0");
+        // The held landing (2) stands: m1 keeps its one flight; d1's own
+        // questions are the clicks'.
+        expect(p.m1Fetch.inFlight()).toEqual([2]);
+        expect(p.d1Fetch.inFlight()).toEqual([2, 3]);
+        expect(isPending(p.d1)).toBe(true);
+        p.m1Fetch.resolve(2);
+        await settle();
+        // The hold lands with the landing it staged; the stale readers
+        // re-derive on it.
+        expect(p.view()).toBe("signal 3 deferred 2 m1 2");
+        expect(p.dom.button).toBe(3);
+        // d1's newest question is still in the air (D4).
+        expect(isPending(p.d1)).toBe(true);
+        p.d1Fetch.resolve(2);
+        await settle();
+        expect(p.view()).toBe("signal 3 deferred 2 m1 2");
+        p.d1Fetch.resolve(3);
+        await settle();
+        expect(p.m1Fetch.inFlight()).toEqual([6]);
+        p.m1Fetch.resolve(6);
+        await settle();
+        expect(p.view()).toBe("signal 3 deferred 6 m1 6");
+        expect(isPending(p.d1)).toBe(false);
+        expect(isPending(p.m1)).toBe(false);
+      });
+
+      // The limit of D11, L2-general and not deferred-specific: a derivation
+      // (here the boundary's text memo) re-run by the write reads the held
+      // pending `m1` and joins its hold (`read` → `joinPass`, ruling 3: a
+      // derivation of a held node published mainline would tear). The
+      // deferred node is not involved — the pure-L2 control below, with no
+      // deferred node in the graph, holds the same way.
+      it("with a derivation between the held memo and the frame, the write still joins — the derivation reads m1 (ruling 3); nothing deferred-specific", async () => {
         const p = playground(createMemo);
         await load(p);
         p.setCount(1);
         flush();
         p.d1Fetch.resolve(1);
         await settle();
-        expect(p.out.view).toBe("signal 1 deferred 0 m1 0");
         expect(p.m1Fetch.inFlight()).toEqual([2]);
-        // Click while m1 is in flight.
         p.setCount(2);
         flush();
-        expect(p.out.button).toBe(1); // held — mizulu's report
+        // The boundary's text memo re-passes, reads the held pending `m1`,
+        // and joins its hold: the tick parks, the button with it — as it
+        // would with no deferred node in the graph at all.
+        expect(p.out.button).toBe(1);
         expect(p.out.view).toBe("signal 1 deferred 0 m1 0");
-        // The joined pass re-ran m1 against the served 0: the landed 2 is
-        // gone from the hold, and m1 refetches the old input.
-        expect(p.m1Fetch.inFlight()).toEqual([2, 0]);
+        // The held landing stands all the same (the common part).
+        expect(p.m1Fetch.inFlight()).toEqual([2]);
         p.m1Fetch.resolve(2);
         await settle();
-        expect(p.out.view).toBe("signal 1 deferred 0 m1 0"); // 2's landing dropped
-        p.m1Fetch.resolve(0);
-        await settle();
-        // The hold lands with d1 at 0 — the landing it staged is lost until
-        // d1(2) lands.
-        expect(p.out.view).toBe("signal 2 deferred 0 m1 0");
+        expect(p.out.view).toBe("signal 2 deferred 2 m1 2");
         expect(p.out.button).toBe(2);
         p.d1Fetch.resolve(2);
         await settle();
-        expect(p.m1Fetch.inFlight()).toEqual([4]);
         p.m1Fetch.resolve(4);
         await settle();
         expect(p.out.view).toBe("signal 2 deferred 4 m1 4");
+      });
+
+      it("pure-L2 control: no deferred node — a derivation reading a held pending memo joins the hold on an unrelated write", async () => {
+        const fetcher = deferredFetcher((n: number) => n * 10);
+        const [a, setA] = createSignal(0);
+        const [b, setB] = createSignal(0);
+        const out = { view: "", button: -1 };
+        let m!: () => number;
+        createRoot(() => {
+          m = createMemo(() => fetcher.fetch(a()));
+          const boundary = createLoadingBoundary(
+            () => `b ${b()} m ${m()}`,
+            () => "loading..."
+          );
+          createRenderEffect(boundary, v => {
+            out.view = v;
+          });
+          createRenderEffect(b, v => {
+            out.button = v;
+          });
+        });
+        flush();
+        fetcher.resolve(0);
+        await settle();
+        expect(out.view).toBe("b 0 m 0");
+        setA(1);
+        flush();
+        expect(isPending(m)).toBe(true);
+        // A write to `b`, unrelated to the flight: the text memo re-passes,
+        // reads the held pending `m`, joins — the button waits too.
+        setB(1);
+        flush();
+        expect(out.button).toBe(0);
+        expect(out.view).toBe("b 0 m 0");
+        fetcher.resolve(1);
+        await settle();
+        expect(out.view).toBe("b 1 m 10");
+        expect(out.button).toBe(1);
       });
     });
   });

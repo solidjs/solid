@@ -710,7 +710,10 @@ What core carries, all of it in the floor:
 - `GlobalQueue._deferredLanded`, called with `?.` from `asyncWrite` ahead of
   the landing's write (§6.3);
 - `GlobalQueue._slotDerive` (store/store.ts installs it): a slot node's
-  family derive, for D9's walk.
+  family derive, for D9's walk;
+- `recompute`'s T4 arm skips a `CONFIG_DEFERRED` node: a held deferred
+  node's re-pass joins nothing and does not publish the held landing
+  mainline (D11, §8.3).
 
 `verdict.ts` is untouched: the mark is read where `affects()`'s are. No
 INV-4 twin (L2 has no companions to check against an oracle).
@@ -723,9 +726,12 @@ createMemo` identity, D7); exported from both `solid-js` entries.
 
 ### 6.5 Constants
 
-None. The brand is the wrapper; the state is `_loading` plus membership in
+One: `CONFIG_DEFERRED = 1 << 19`, set by `createDeferred` and read in one
+place — `recompute`'s T4 arm, where a held deferred node's re-pass takes
+neither the join nor the mainline-publish branch (D11, ruled 2026-10-04).
+Everything else is the wrapper: the state is `_loading` plus membership in
 two module-level sets and a mark count the node already carries. No
-`CONFIG_*` bit, no `NodeExtension` field.
+`NodeExtension` field.
 
 ## 7. Spec propositions (to add to `SPEC-ASYNC-SEMANTICS.md` on landing)
 
@@ -770,6 +776,21 @@ Numbered provisionally; renumber into the A-series when adopted.
 - ~~**D10.** (amends A18) `_value` changes at commit points or at a lane
   landing.~~ Withdrawn at implementation (§6.2): the landing is a plain
   commit, not a lane landing; A18 stands unamended.
+- **D11** (ruled 2026-10-04, mizulu's report on #3710). A deferred node's
+  re-ask stages nothing and joins nothing. A held deferred node — one whose
+  landing a downstream hold staged — re-passed by a mainline write keeps
+  its held landing (the wrapper's pass returns the staging as its result;
+  nothing is restaged over the landing, nothing downstream re-derives
+  against the served value) and the write's tick stays mainline
+  (`recompute`'s T4 arm takes neither the join nor the mainline-publish
+  branch for `CONFIG_DEFERRED`). Readers of the held flight in that frame
+  are stale readers (A15): served the committed value, re-derived at the
+  hold's landing. The new flight's landing re-enters the hold (A34 (1)),
+  and the window stays open under a question the commit of an older
+  landing did not answer (D4). Limit: a derivation between the held memo
+  and the frame — a memo reading `m1()` — joins by ruling 3; L2-general,
+  not deferred-specific (a pure-L2 graph with no deferred node holds the
+  same way).
 
 Pinned in `tests/createDeferred.test.ts`, one `describe` per proposition.
 
@@ -935,8 +956,9 @@ written mid-action — and is not this primitive's to pin.)
   plain memo's, so quiet/loud classification should fall through unchanged.
   Confirm the quiet re-ask keeps `isPending(() => d())` false (A24) while
   still resolving the waiter.
-- ~~`CONFIG_DEFERRED = 1 << 19`.~~ No config bit was spent: the brand is
-  the compute wrapper (§6.5).
+- `CONFIG_DEFERRED = 1 << 19`. Not spent at first (the brand was the
+  compute wrapper alone); spent by D11 (2026-10-04) — `recompute`'s T4 arm
+  runs before the wrapper and needs the brand on the node (§6.5).
 - ~~**Known edge: a synchronously-resolved refetch.**~~ Closed on L2 (§6.1):
   the wrapper registers the flight through `handleAsync` itself and
   classifies the outcome, so a thenable that resolves synchronously (a
@@ -950,31 +972,39 @@ written mid-action — and is not this primitive's to pin.)
   re-run in that flush's heap reads the mark once more over the `true` it
   already showed, then re-derives `false` at the close. At rest, an errored
   deferred node is never pending (D6, A16's "error outranks").
-- **A held deferred node re-passed by a mainline write** (mizulu's report on
-  #3710, 2026-10-04; same on the PR and on L2). Shape: `count` → `d1 =
-createDeferred` → `m1 = createMemo(async)`, both under a frame reader;
-  `count` also read by a reader outside. `d1`'s landing re-runs `m1`, which
-  pends under its reader: an ordinary hold (A15), and the landing — an
-  ordinary commit — is staged with it (`CONFIG_HELD`). A later write to
-  `count` (committed, held by no one) re-passes `d1`, and `recompute`'s
-  "a pass over a held derivation joins its transaction" (T4) joins the whole
-  tick: the outside reader's run parks until `m1` lands — the report. The
-  same pass stages the served committed value over the held landing, so
-  `m1` re-fetches against the old input and the landing is lost until a
-  later flight re-lands it. Two readings, undecided by D1–D9 (D2 covers a
-  flight asked against a _staged_ write; this write is mainline and the
-  hold is a downstream plain memo's): (1) the join stands — `d1` is held
-  and a tick cannot finish in two parts (A34 (1), T4) — and the wrapper's
-  pass must then leave the held landing in place rather than restage the
-  served value; (2) a deferred re-ask is a lagging question, not an answer
-  — it stages and replaces nothing, so it joins nothing: the write commits
-  mainline (the outside reader repaints; the frame reader is a stale reader
-  re-derived at the landing, A15) and the held landing stays staged for
-  `m1`'s hold. Either fix touches `recompute`'s join or the wrapper's
-  result under a hold. Current behaviour pinned skipped (`tests/
-createDeferred.test.ts`, "pending ruling"); the shape with `m1` deferred
-  too never waits and is pinned live. Until ruled, the user-side form is to
-  defer the downstream memo as well.
+- **A held deferred node re-passed by a mainline write** — ruled
+  2026-10-04 (D11; mizulu's report on #3710, same on the PR and on L2).
+  Shape: `count` → `d1 = createDeferred` → `m1 = createMemo(async)`, both
+  read by `{}` holes under `<Loading>`; `count` also read by a button
+  outside. `d1`'s landing re-runs `m1`, which pends under its reader: an
+  ordinary hold (A15), and the landing — an ordinary commit — is staged
+  with it (`CONFIG_HELD`). A later click (a mainline write to `count`,
+  held by no one) re-passed `d1`, and `recompute`'s "a pass over a held
+  derivation joins its transaction" (T4) joined the whole tick: the button
+  parked until `m1` landed — the report. The same pass restaged the served
+  committed value over the held landing, so `m1` re-fetched against the
+  old input and the landing was lost until a later flight re-landed it
+  (5 `m1` runs, two `m1:done(0)`). Two readings were spiked on evidence:
+  (1) the join stands and only the restaging is fixed — the button still
+  waits; (2) a lagging question is not an answer — the re-pass joins
+  nothing. The maintainer ruled for (2). Landed in two commits: the common
+  part (`fix(createDeferred): a re-ask over a held landing keeps it; the
+window stays open under a newer question` — deferred-module only, required
+  under either reading: without it the restaged value dirties `m1`, a held
+  plain memo, which joins by T4 itself) and the ruling (`signals(
+createDeferred): a lagging question is not an answer — a held deferred
+re-pass joins nothing` — `CONFIG_DEFERRED`, the T4 arm). Cost: +12 B
+  minified in the core floor; no test moved. **Limit, L2-general:** a
+  derivation between the held memo and the frame (the first signals
+  harness put the boundary's text in a memo reading `d1()` and `m1()`)
+  re-passes, reads the held pending `m1` and joins by ruling 3 — the tick
+  parks with no deferred node involved at all (pinned beside a pure-L2
+  control). The ruling is reachable on the playground's real graph because
+  the `{}` holes are render effects — stale readers, which do not join.
+  Pinned: `tests/createDeferred.test.ts` ("a re-pass over a held landing
+  keeps it (the common part)", "… commits mainline; the held landing stands
+  (D11)", the derivation limit and the pure-L2 control) and the user's
+  exact graph in `packages/web/test/create-deferred-mizulu-3710.spec.tsx`.
 
 Not open — rejected, recorded so they aren't re-proposed: a `<Deferred>`
 boundary (§4.1: ambient scope is the theme-fanout hazard; not planned) and a
@@ -1065,17 +1095,24 @@ Six places to read first, each with the one question it should answer.
    closed it unconditionally). _Can a plain async memo reach
    `commitPendingNode` with `_loading` set and nothing staged, and if so is
    "window stays open" what A27 wants there?_
-6. `src/core/core.ts` : `recompute`, the T4 arm (`if (el._config &
-CONFIG_HELD) … joinPassTx(tx)`) over a deferred node held because a
-   downstream plain memo's hold staged its landing, re-passed by a mainline
-   write to its input — and, in the same pass, the wrapper's served
-   committed value compared against the staging and restaged over the held
-   landing. _Does a deferred re-ask join the hold of a downstream plain memo
-   (reading 1), or is a lagging question not an answer and joins nothing
-   (reading 2)?_ §8.3 ("A held deferred node re-passed by a mainline write")
-   has the two readings; `tests/createDeferred.test.ts` pins today's
-   behaviour skipped ("pending ruling") beside the live pins of the decided
-   halves.
+6. `src/core/core.ts` : `recompute`, the T4 arm (`if (tx._lane || el._config
+& CONFIG_DEFERRED) {} else if (…) joinPassTx(tx) else if (…) publish
+mainline`) and `src/deferred.ts` : `deferredCompute`'s `async &&
+el._loading` arm (`result = el._pendingValue` over a held landing) +
+   `seam()`'s window re-open. The ruling (D11, 2026-10-04): _a held
+   deferred node's re-pass joins nothing and keeps its held landing; is the
+   brand check in the T4 arm the right and only core seam, and is the
+   window re-open at the sweep sound against every other path that clears
+   `_loading`?_ Landed as two commits on this branch — the common part
+   (`fix(createDeferred): a re-ask over a held landing keeps it; the window
+stays open under a newer question`, deferred-module only) and the ruling
+   (`signals(createDeferred): a lagging question is not an answer — a held
+deferred re-pass joins nothing`). §8.3 ("A held deferred node re-passed
+   by a mainline write") has the evidence and the L2-general limit;
+   pins: `tests/createDeferred.test.ts` (the common part; "… commits
+   mainline; the held landing stands (D11)"; the derivation limit; the
+   pure-L2 control) and `packages/web/test/create-deferred-mizulu-3710.spec.tsx`
+   (the user's exact graph).
 
 Also worth a glance: `src/core/core.ts` : `recompute` keeps `REACTIVE_REASK`
 through the pass (the wrapper classifies quiet re-asks by it);
@@ -1085,8 +1122,9 @@ through the pass (the wrapper classifies quiet re-asks by it);
 public surface, tests and docs):
 
 - `src/core/async.ts` — the `_deferredLanded` hook call (4 lines);
+- `src/core/constants.ts` — `CONFIG_DEFERRED = 1 << 19`;
 - `src/core/core.ts` — the `REACTIVE_REASK` mask in `recompute`'s pre-pass
-  wipe (1 code line);
+  wipe (1 code line); the `CONFIG_DEFERRED` test in the T4 arm (D11);
 - `src/core/owner.ts` — comment only;
 - `src/core/scheduler.ts` — two `declare static` hook slots
   (`_slotDerive`, `_deferredLanded`); `commitPendingNode`'s `_loading` close
