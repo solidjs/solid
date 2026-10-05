@@ -93,6 +93,7 @@ pub(super) fn lower<'a>(
         semantic,
         leaves: &leaves,
     };
+    let parenthesized_starts = leaves.parenthesized_starts();
     let mut expression_replacements = HashMap::new();
     let mut statement_replacements = HashMap::new();
     for (index, (control, context)) in controls
@@ -107,6 +108,7 @@ pub(super) fn lower<'a>(
                     "a statement control-flow construct is missing its anchor",
                 ));
             };
+            let anchor = parenthesized_starts.get(&anchor).copied().unwrap_or(anchor);
             statement_replacements.insert(anchor, expression);
         } else {
             expression_replacements.insert(leaves.wrapper_name(index), expression);
@@ -128,6 +130,7 @@ pub(super) fn lower<'a>(
                 "a code block render expression is missing its authored span",
             ));
         };
+        let start = parenthesized_starts.get(&start).copied().unwrap_or(start);
         code_block_replacements.insert(start, lowerer.code_block(block)?);
         code_block_origins.insert(start, ast_span(block.origin.span));
     }
@@ -138,6 +141,8 @@ pub(super) fn lower<'a>(
     leaves.rebase();
     let mut replacer = ScaffoldReplacer {
         ast: AstBuilder::new(allocator),
+        marker_prefix: &marker_prefix,
+        parenthesized_starts: &parenthesized_starts,
         expression_replacements,
         statement_replacements,
         code_block_replacements,
@@ -181,6 +186,7 @@ pub(super) fn lower<'a>(
     FunctionCodeBlockFinalizer {
         ast: AstBuilder::new(allocator),
         code_blocks: &mut code_blocks,
+        parenthesized_starts: &parenthesized_starts,
     }
     .visit_program(&mut leaves.program);
     if !code_blocks.is_empty() {
@@ -1525,14 +1531,16 @@ fn jsx_attribute_name<'a>(name: &'a JSXAttributeName<'_>) -> Option<&'a str> {
     }
 }
 
-struct ScaffoldReplacer<'a> {
+struct ScaffoldReplacer<'a, 's> {
+    marker_prefix: &'s str,
+    parenthesized_starts: &'s HashMap<u32, u32>,
     ast: AstBuilder<'a>,
     expression_replacements: HashMap<String, Expression<'a>>,
     statement_replacements: HashMap<u32, Expression<'a>>,
     code_block_replacements: HashMap<u32, Expression<'a>>,
 }
 
-impl<'a> ScaffoldReplacer<'a> {
+impl<'a> ScaffoldReplacer<'a, '_> {
     fn take_expression_replacement(
         &mut self,
         expression: &Expression<'a>,
@@ -1552,11 +1560,37 @@ impl<'a> ScaffoldReplacer<'a> {
     }
 }
 
-impl<'a> VisitMut<'a> for ScaffoldReplacer<'a> {
+impl<'a> VisitMut<'a> for ScaffoldReplacer<'a, '_> {
     fn visit_statement(&mut self, statement: &mut Statement<'a>) {
         let anchor = match statement {
             Statement::IfStatement(statement) => Some(statement.test.span()),
-            Statement::ForOfStatement(statement) => Some(statement.right.span()),
+            Statement::ForOfStatement(statement) => {
+                // Annotated headers wrap the authored iterable in a synthetic
+                // H{ordinal}_ call. Its own span is erased during rebasing.
+                let iterable = match &statement.right {
+                    Expression::CallExpression(call)
+                        if call
+                            .callee
+                            .get_identifier_reference()
+                            .is_some_and(|callee| {
+                                callee
+                                    .name
+                                    .as_str()
+                                    .strip_prefix(self.marker_prefix)
+                                    .and_then(|suffix| suffix.strip_prefix('H'))
+                                    .and_then(|suffix| suffix.strip_suffix('_'))
+                                    .is_some_and(|ordinal| {
+                                        !ordinal.is_empty()
+                                            && ordinal.bytes().all(|byte| byte.is_ascii_digit())
+                                    })
+                            }) =>
+                    {
+                        call.arguments.first().and_then(Argument::as_expression)
+                    }
+                    expression => Some(expression),
+                };
+                iterable.map(GetSpan::span)
+            }
             Statement::SwitchStatement(statement) => Some(statement.discriminant.span()),
             Statement::TryStatement(statement) => {
                 statement
@@ -1572,7 +1606,12 @@ impl<'a> VisitMut<'a> for ScaffoldReplacer<'a> {
             }
             _ => None,
         }
-        .map(|span| span.start);
+        .map(|span| {
+            self.parenthesized_starts
+                .get(&span.start)
+                .copied()
+                .unwrap_or(span.start)
+        });
         if let Some(replacement) =
             anchor.and_then(|anchor| remove_near(&mut self.statement_replacements, anchor))
         {
@@ -1728,6 +1767,7 @@ impl<'a> VisitMut<'a> for DynamicElementAnchorer<'_> {
 
 struct FunctionCodeBlockFinalizer<'a, 'c> {
     ast: AstBuilder<'a>,
+    parenthesized_starts: &'c HashMap<u32, u32>,
     code_blocks: &'c mut HashMap<u32, Span>,
 }
 
@@ -1754,6 +1794,11 @@ impl<'a> VisitMut<'a> for FunctionCodeBlockFinalizer<'a, '_> {
             }
             expression => first_authored_start(expression).unwrap_or(expression.span().start),
         };
+        let start = self
+            .parenthesized_starts
+            .get(&start)
+            .copied()
+            .unwrap_or(start);
         let Some(span) = remove_near(self.code_blocks, start) else {
             return;
         };
