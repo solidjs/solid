@@ -301,8 +301,10 @@ export function prune(b: Boundary, pass: boolean): number {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
         // seam, past its park decision, waits for the commit instead. (A
-        // lane's reader reveals with the lane, this round.)
-        if (!pass) continue;
+        // lane's reader reveals with the lane, this round.) A reader born
+        // held, at the output's first pass, is not entered: the fallback
+        // shows now (A29's boundary exemption, #3540).
+        if (!pass || (b._output === null && r._statusFlags & STATUS_UNINITIALIZED)) continue;
         joinFuture(txOf(r));
       }
       b._readers.delete(r);
@@ -773,8 +775,18 @@ export function createErrorBoundary<T, U>(
   return createBoundary<T | U>(STATUS_ERROR, fn, b => fallback(accessor(b._error), () => reset(b)));
 }
 
+/** GlobalQueue._fresh: a first pass whose nearest loading boundary has not
+ * shown content. */
+function fresh(node: Computed<any>): boolean {
+  if (node._statusFlags & STATUS_UNINITIALIZED)
+    for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined)
+      if (b._type === STATUS_PENDING) return !b._initialized;
+  return false;
+}
+
 // Installed at module evaluation — present exactly when something imports a
-// boundary. An app without one pays the three null checks and nothing else.
+// boundary. An app without one pays the null checks and nothing else.
+GlobalQueue._fresh = fresh;
 GlobalQueue._catch = catchStatus;
 GlobalQueue._hidden = hidden;
 GlobalQueue._boundarySeam = boundarySeam;

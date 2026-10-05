@@ -14,7 +14,8 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flush
+  flush,
+  untrack
 } from "../src/index.js";
 
 const tick = async () => {
@@ -76,6 +77,113 @@ describe("#3802: a born-held render effect re-derived by a mainline write", () =
     release();
     await tick();
     expect(log.sort()).toEqual(["div true Updated", "show child"]);
+  });
+});
+
+describe("#3540 in a flush: a fresh Loading mounted over a held value shows its fallback now", () => {
+  /** `<Loading fallback={fallback}>{fn()}</Loading>`, created untracked as
+   * createComponent does. */
+  const Loading = <T>(fn: () => T, fallback: string) =>
+    untrack(() => createLoadingBoundary(fn, () => fallback));
+
+  function setup(content: "memo" | "direct" | "bound") {
+    const [x, setX] = createSignal(0);
+    const [open, setOpen] = createSignal(false);
+    const log: string[] = [];
+    createRoot(() => {
+      createRenderEffect(x, v => {
+        log.push(`x ${v}`);
+      });
+      // <Show when={open()}><Loading fallback="fallback"><Content/></Loading></Show>
+      createRenderEffect(
+        () => {
+          if (!open()) return false;
+          const view = Loading(() => {
+            if (content === "direct") return `content ${x()}`;
+            const m = createMemo(() => `content ${x()}`);
+            if (content === "memo") return m();
+            // <p>{m()}</p>: the content's binding reads the memo, the tree does not.
+            createRenderEffect(m, v => {
+              log.push(`text ${v}`);
+            });
+            return "p";
+          }, "fallback");
+          createRenderEffect(view, v => {
+            log.push(`view ${v}`);
+          });
+          return true;
+        },
+        v => {
+          log.push(`open ${v}`);
+        }
+      );
+    });
+    flush();
+    const release = hold(() => setX(1));
+    log.length = 0;
+    return { setOpen, log, release };
+  }
+
+  for (const content of ["memo", "direct"] as const)
+    it(`content reads the held value ${content === "memo" ? "through a memo" : "directly"}: the mount publishes, the content reveals at the commit`, async () => {
+      const s = setup(content);
+      s.setOpen(true);
+      flush();
+      expect(s.log).toEqual(["view fallback", "open true"]);
+
+      s.release();
+      await tick();
+      expect(s.log).toEqual(["view fallback", "open true", "x 1", "view content 1"]);
+    });
+
+  it("content bound by a render effect under the boundary: the fallback until the commit", async () => {
+    const s = setup("bound");
+    s.setOpen(true);
+    flush();
+    expect(s.log).toEqual(["view fallback", "open true"]);
+
+    s.release();
+    await tick();
+    expect(s.log.slice(2).sort()).toEqual(["text content 1", "view p", "x 1"]);
+  });
+
+  it("a derivation outside the boundary in the same flush still holds the tick (membership is the tick's)", async () => {
+    const [x, setX] = createSignal(0);
+    const [open, setOpen] = createSignal(false);
+    const log: string[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => {
+          if (!open()) return false;
+          const label = createMemo(() => `label ${x()}`);
+          createRenderEffect(label, v => {
+            log.push(v);
+          });
+          const view = Loading(() => `content ${x()}`, "fallback");
+          createRenderEffect(view, v => {
+            log.push(`view ${v}`);
+          });
+          return true;
+        },
+        v => {
+          log.push(`open ${v}`);
+        }
+      );
+    });
+    flush();
+    const release = hold(() => setX(1));
+    log.length = 0;
+
+    setOpen(true);
+    flush();
+    expect(log).not.toContain("open true");
+    expect(log.filter(l => l.startsWith("label"))).toEqual([]);
+
+    release();
+    await tick();
+    expect(log).toContain("open true");
+    expect(log).toContain("label 1");
+    expect(log.at(-1)).toBe("view content 1");
   });
 });
 

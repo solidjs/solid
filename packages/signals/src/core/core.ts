@@ -660,8 +660,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // Born into the future: no committed value until the landing
           // (`commitPendingNode` initializes it) — every reader of it
           // derives from the future (`read`), an untracked one throws
-          // (A19 exc. 1).
+          // (A19 exc. 1). A frame reader born held under a loading boundary
+          // that has not shown content is something not ready under it
+          // (#3540): the boundary collects it and shows its fallback until
+          // the commit.
           el._statusFlags |= STATUS_UNINITIALIZED;
+          if (isEffect === EFFECT_RENDER) GlobalQueue._catch?.(el, STATUS_PENDING, undefined);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -955,7 +959,13 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * reads the committed value instead (`frameRead`). */
 function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
-  if ((c as any)._type !== EFFECT_RENDER) joinPassTx(txOf(el));
+  if ((c as any)._type !== EFFECT_RENDER) joinTx(c, el);
+}
+
+/** The pass joins `el`'s transaction — pass-scoped when it is a first pass
+ * under a fresh loading boundary (`joinPassTx`). */
+function joinTx(c: Computed<any>, el: Signal<any> | Computed<any>): void {
+  joinPassTx(txOf(el), GlobalQueue._fresh?.(c));
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
@@ -1664,7 +1674,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     ) {
       if (owner._statusFlags & STATUS_UNINITIALIZED) {
         (c as Computed<any>)._flags |= REACTIVE_JOINED;
-        joinPassTx(txOf(el));
+        joinTx(c as Computed<any>, el);
       } else if (frameRead(c as Computed<any>, el)) committed = true;
       else joinPass(c as Computed<any>, el);
     }

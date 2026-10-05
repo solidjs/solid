@@ -172,11 +172,14 @@ export let flushTransaction: Transaction | null = null;
  * into it, and nothing else in the tick is — a write made after the mount
  * is a mainline write, a render effect mounted beside it a stale reader.
  * Inside a flush, or in a tick that already has its transaction (an
- * action's body), the frame joins instead (`flushTransaction`). Cleared by
- * the flush the join schedules. */
+ * action's body), the frame joins instead (`flushTransaction`) — except a
+ * first pass under a fresh loading boundary (`own`, A29's boundary
+ * exemption, #3540): it is the boundary's, not the tick's, and a flush that
+ * has joined nothing keeps it pass-scoped as outside one. Cleared by the
+ * flush the join schedules, and at the end of a flush that set it. */
 export let passTx: Transaction | null = null;
-export function joinPassTx(t: Transaction): void {
-  if (globalQueue._running || flushTransaction !== null) return joinFuture(t);
+export function joinPassTx(t: Transaction, own?: unknown): void {
+  if (flushTransaction !== null || (globalQueue._running && !own)) return joinFuture(t);
   if (passTx === null) passTx = resolveTx(t);
   else merge(resolveTx(t), passTx);
   schedule();
@@ -670,6 +673,9 @@ export class GlobalQueue implements IQueue {
   // synchronous first render on creation builds the subtree, attached or
   // not; its updates and the user effects wait.
   declare static _heldRun: ((node: Computed<any>) => boolean) | undefined;
+  // `_fresh` — a first pass under a loading boundary that has not shown
+  // content (A29's boundary exemption in a flush, `joinPassTx`).
+  declare static _fresh: ((node: Computed<any>) => boolean) | undefined;
 
   flush() {
     if (this._running) return;
@@ -708,6 +714,7 @@ export class GlobalQueue implements IQueue {
       if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
       this._running = false;
+      passTx = null;
     }
   }
   /** L2 — the seam: end of the pure phase. Commit this flush's staged nodes,
