@@ -461,6 +461,14 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 9.51 KB.
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 7.33 -> 7.35 KB,
+    // measured at 7,338 B by CI against `next` @ b0bad0267's 7,319
+    // (+19 B; 8 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 7.35 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
@@ -871,7 +879,15 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 16.85 -> 14.53 KB, measured at 14.52 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "14.53 KB",
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 14.53 -> 14.56 KB,
+    // measured at 14,546 B by CI against `next` @ b0bad0267's 14,504
+    // (+42 B; 16 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 14.56 KB.
+    limit: "14.56 KB",
     alias
   },
   {
@@ -1104,7 +1120,15 @@ module.exports = [
     // brotli layout. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-05). The cap is frozen again at
     // 9.47 KB.
-    limit: "9.47 KB",
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 9.47 -> 9.49 KB,
+    // measured at 9,476 B by CI against `next` @ b0bad0267's 9,456
+    // (+20 B; 6 B over the cap; +57 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 9.49 KB.
+    limit: "9.49 KB",
     alias
   },
   {
@@ -1286,6 +1310,14 @@ module.exports = [
     // cap at once, this one the smallest minified. Accepted by the
     // maintainer (2026-10-04). The cap is frozen again at 9.83 KB
     // (measured + 10 B).
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 9.83 -> 9.86 KB,
+    // measured at 9,848 B by CI against `next` @ b0bad0267's 9,811
+    // (+37 B; 18 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 9.86 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     alias
   },
@@ -1599,6 +1631,14 @@ module.exports = [
     // floor note; brotli layout over the larger bundle. Accepted by the
     // maintainer (2026-10-04). The cap is frozen again at 17.66 KB
     // (measured + 10 B).
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 17.66 -> 17.71 KB,
+    // measured at 17,695 B by CI against `next` @ b0bad0267's 17,648
+    // (+47 B; 35 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 17.71 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -2008,7 +2048,15 @@ module.exports = [
     // bundle (before #3791 the same +5 B measured +2 B here). Accepted by
     // the maintainer (2026-10-04). The cap is frozen again at 28.80 KB
     // (measured + 10 B).
-    limit: "28.80 KB",
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 28.80 -> 28.84 KB,
+    // measured at 28,829 B by CI against `next` @ b0bad0267's 28,736
+    // (+93 B; 29 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 28.84 KB.
+    limit: "28.84 KB",
     alias
   },
   {
@@ -2222,7 +2270,15 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 14.94 -> 12.82 KB, measured at 12.81 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "12.82 KB",
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 12.82 -> 12.86 KB,
+    // measured at 12,847 B by CI against `next` @ b0bad0267's 12,815
+    // (+32 B; 27 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 12.86 KB.
+    limit: "12.86 KB",
     alias
   },
   {
@@ -2486,7 +2542,15 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 16.48 -> 14.39 KB, measured at 14.38 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "14.39 KB",
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 14.39 -> 14.46 KB,
+    // measured at 14,446 B by CI against `next` @ b0bad0267's 14,388
+    // (+58 B; 56 B over the cap; +56 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 14.46 KB.
+    limit: "14.46 KB",
     alias: observeAlias
   },
   {
@@ -3336,6 +3400,14 @@ module.exports = [
     // observeFlight first-observer hold +17); brotli layout. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 48.47 KB.
+    // Size-Exception (fuzz Batch A, #3801, 2026-10-05): 48.47 -> 48.51 KB,
+    // measured at 48,495 B by CI against `next` @ b0bad0267's 48,454
+    // (+41 B; 25 B over the cap; +59 B minified) — fuzz Batch A
+    // F3/F4/F9/F10-11/F13 (+56 B minified batch on the core floor: landing
+    // re-judge +11, blockedBy errored tail +16, verdict settle +16, born-held
+    // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
+    // frozen again at 48.51 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
