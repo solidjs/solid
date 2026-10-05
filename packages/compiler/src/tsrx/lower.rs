@@ -16,8 +16,8 @@ use tsrx_syntax::ControlContext;
 use super::{
     leaf::LeafProgram,
     semantic::{
-        AuthoredSpan, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule,
-        TemplateBlock, TemplateSite, Try as SemanticTry,
+        AuthoredSpan, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule, TemplateBlock,
+        TemplateSite, Try as SemanticTry,
     },
     style::ClassMapEntry,
     style_projection::{

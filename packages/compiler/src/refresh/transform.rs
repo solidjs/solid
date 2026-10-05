@@ -526,14 +526,13 @@ impl<'a> RefreshTransform<'a> {
                         Declaration::FunctionDeclaration(function) => {
                             self.collect_candidate_function(function, scoping, root_scope)
                         }
-                        Declaration::VariableDeclaration(declaration) => {
-                            self.collect_candidate_declarators(
+                        Declaration::VariableDeclaration(declaration) => self
+                            .collect_candidate_declarators(
                                 declaration,
                                 scoping,
                                 root_scope,
                                 &registered_symbols,
-                            )
-                        }
+                            ),
                         _ => {}
                     },
                     Statement::ExportDefaultDeclaration(export) => {
@@ -543,14 +542,13 @@ impl<'a> RefreshTransform<'a> {
                             self.collect_candidate_function(function, scoping, root_scope)
                         }
                     }
-                    Statement::VariableDeclaration(declaration) => {
-                        self.collect_candidate_declarators(
+                    Statement::VariableDeclaration(declaration) => self
+                        .collect_candidate_declarators(
                             declaration,
                             scoping,
                             root_scope,
                             &registered_symbols,
-                        )
-                    }
+                        ),
                     _ => {}
                 }
             }
@@ -1719,7 +1717,10 @@ impl<'s> ForeignBindings<'s> {
             // Components are top-level, so "outside the subtree" is exactly
             // "bound in the module scope".
             Some(symbol) => {
-                if self.exclude.is_some_and(|exclude| exclude.contains(&symbol)) {
+                if self
+                    .exclude
+                    .is_some_and(|exclude| exclude.contains(&symbol))
+                {
                     return;
                 }
                 self.scoping.symbol_scope_id(symbol) == self.root_scope
