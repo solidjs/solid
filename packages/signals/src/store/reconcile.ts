@@ -51,7 +51,6 @@ export function reconcileState(
   const t: StoreTarget | undefined = state?.[$TARGET];
   if (t === undefined || t.px !== state)
     throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
-  if (t.ovl) materializePB(t);
   const keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
   // A user's reconcile on an optimistic family (S4): not an adoption of
@@ -92,7 +91,12 @@ export function reconcileState(
  * changed observed key, the structural nodes once — descending into
  * changed child pairs that are proxied below. */
 function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = false): void {
-  const prev = t.pb ?? t.v;
+  // The diff base is the view the nodes were last told (#3296). A nested
+  // overlay draft (`Object.create(v)`, #3044) reads a key the draft deleted
+  // as present through its prototype; materialized first — `adoptPB` does
+  // so anyway, after the base was taken — so a deletion the draft made is
+  // a deletion here (#3743: the presence and value diffs both read `old`).
+  const prev = t.ovl ? materializePB(t) : (t.pb ?? t.v);
   if (incoming === prev && !isOwned(prev)) return;
   const fam = t.fam;
   // Q-D: a landing on an optimistic family is reconciled against the VIEW

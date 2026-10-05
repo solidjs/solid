@@ -3142,6 +3142,15 @@ module.exports = [
     // Twelve equivalent encodings measured; this is the only one over by
     // page base alone. Accepted by the maintainer. The cap is frozen again
     // at 46.25 KB.
+    // Size-Exception (#3743, 2026-10-04): 44.03 -> 44.05 KB, measured at
+    // 44,031 B against `next` @ 1a3f87fd1's 44,029 (+2 B; 1 B over the cap;
+    // -97 B minified). +2 B br / -97 B min — #3743 fold presence diff;
+    // brotli layout on the 150 KB bundle. The store engine reaches this
+    // page through the frames client's container-trace materializer; the
+    // `+ createStore` scenario carries the same change at +5 B / -97 B
+    // minified, the live page at -5 B. Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-04). The cap is
+    // frozen again at 44.05 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
