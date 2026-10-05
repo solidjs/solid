@@ -10,6 +10,8 @@ import { chain } from "./fixtures.js";
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 
+// `lost-fallback-wake` was retired with L2 (#3774): a boundary reset's
+// release is structural there, not a wake (see the fault table in cli.mjs).
 test.each([
   "drop-wake",
   "stale-result",
@@ -17,7 +19,6 @@ test.each([
   "false-ready",
   "false-verdict",
   "lost-disposal-wake",
-  "lost-fallback-wake",
   "entangle-effect",
   "drop-action-hold"
 ])(
@@ -44,7 +45,6 @@ test.each([
         "false-ready": 5,
         "false-verdict": 6,
         "lost-disposal-wake": 7,
-        "lost-fallback-wake": 8,
         "entangle-effect": 9,
         "drop-action-hold": 10
       }[fault]!;
@@ -58,12 +58,10 @@ test.each([
           ? reductions.find(r => r.result.failure?.rule === "R4")
           : JSON.parse(await readFile(join(out, `case-${index}-min.json`), "utf8"));
       expect(reduced, JSON.stringify(reductions.map(r => r.result.failure))).toBeDefined();
-      // The two-source fallback witness is already locally minimal.
       expect(reduced.attempts).toBeGreaterThan(0);
-      if (fault !== "lost-fallback-wake") expect(reduced.accepted).toBeGreaterThan(0);
+      expect(reduced.accepted).toBeGreaterThan(0);
       expect(reduced.result.status).toBe("fail");
-      if (fault.startsWith("lost-") && fault.endsWith("-wake"))
-        expect(reduced.result.failure.rule).toBe("P1");
+      if (fault === "lost-disposal-wake") expect(reduced.result.failure.rule).toBe("P1");
       if (fault === "entangle-effect") {
         expect(reduced.result.failure.rule).toBe("G2");
         expect(reduced.result.failure.expected.relation).toBe("independent");
@@ -151,7 +149,7 @@ test("fresh and reused workers agree on generated cases", async () => {
   }
 }, 20000);
 
-test("a progress allowance survives reporting, shrinking and replay but cannot cover fallback waiting", async () => {
+test("a progress allowance survives reporting, shrinking and replay", async () => {
   const out = await mkdtemp(join(tmpdir(), "solid-fuzz-allowance-"));
   try {
     await exec(process.execPath, [
@@ -207,19 +205,11 @@ test("a progress allowance survives reporting, shrinking and replay but cannot c
       expect(result.result.progress[0].allowance).toBe(strict ? undefined : "legacy-disposal-wait");
       expect(result.result.frames).toEqual(ideal.result.frames);
     }
-    await exec(process.execPath, [
-      cli,
-      "--calibrate",
-      "--fault",
-      "lost-fallback-wake",
-      "--allow",
-      "legacy-disposal-wait",
-      "--out",
-      join(out, "outside")
-    ]);
-    const outside = JSON.parse(await readFile(join(out, "outside", "case-8.json"), "utf8"));
-    expect(outside.result.failure.rule).toBe("P1");
-    expect(outside.result.progress[0].allowance).toBeUndefined();
+    // The allowance never covers fallback waiting: `progress.test.ts` pins the
+    // predicate (a boundary is outside the narrow disposal scope). The runtime
+    // half of that check used the retired `lost-fallback-wake` fault; on L2 a
+    // reset's release is structural and no single mechanism can be removed
+    // to keep a shown fallback beside unpublished writes (cli.mjs).
   } finally {
     await rm(out, { recursive: true, force: true });
   }

@@ -427,7 +427,8 @@ remains an open W1 finding, not an invented obligation or a hang.
 
 Calibration faults `lost-disposal-wake` and `lost-fallback-wake` remove only the
 relevant wakeup in a disposable worker bundle. Each is caught by P1, reduced and
-replayed against unmodified Solid. An integration test also checks opt-in waiver,
+replayed against unmodified Solid. (`lost-fallback-wake` was retired with the L2
+update of 2026-10-05 — see the README's L2 section and the fault table in `cli.mjs`.) An integration test also checks opt-in waiver,
 JSONL retention/replay, strict replay, and rejection of the same waiver for
 fallback waiting. Correct early disposal/release and a second live reader serve
 as positive controls. The harness no longer requires the old disposal delay to

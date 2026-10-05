@@ -277,7 +277,13 @@ test("adjacency to an action with no writes yet can extend a deadline", () => {
   expect(groups.progress(groupFrame(), [])?.rule).toBe("G2");
 });
 
-test("both orderings around the scheduled flush use possible, not proven, batching", async () => {
+// L2 (2026-10-04 ruling; A34 (1)): a batch is the tick — every write before
+// the flush that settles it. A microtask queued BEFORE the write runs ahead of
+// the write's flush microtask and is the same proven batch; one queued AFTER
+// it runs past that flush and is a new tick, which may still entangle with
+// the first through the adjacent-microtask permission. (Pre-L2 both orderings
+// were "possible, not proven" batching.)
+test("the ordering around the scheduled flush decides proven versus possible batching", async () => {
   for (const before of [false, true]) {
     const s = separateUpdates();
     const write = { op: "write" as const, source: -1, value: 1 };
@@ -290,8 +296,13 @@ test("both orderings around the scheduled flush use possible, not proven, batchi
     s.turns.splice(0, 2, { steps: before ? [queued, write] : [write, queued] });
     const r = await runScenario(s);
     expect(r.status, JSON.stringify(r)).toBe("pass");
-    expect(r.groups?.events).toContain("groups 1 and 0 may join: adjacent microtasks");
-    expect(r.groups?.events.some(e => e.includes("joins"))).toBe(false);
+    if (before) {
+      expect(r.groups?.events.filter(e => e.endsWith("starts"))).toEqual(["group 0 starts"]);
+      expect(r.groups?.events.some(e => e.includes("may join"))).toBe(false);
+    } else {
+      expect(r.groups?.events).toContain("groups 1 and 0 may join: adjacent microtasks");
+      expect(r.groups?.events.some(e => e.includes("joins"))).toBe(false);
+    }
   }
 });
 

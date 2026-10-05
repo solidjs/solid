@@ -78,7 +78,7 @@ test("generated boundary regions retain canonical replay", async () => {
   });
 });
 
-test("an inner boundary can load while its outer region keeps showing content", async () => {
+test("a nested region is covered while its outer boundary shows the fallback", async () => {
   const s = disjoint();
   s.readers[1].parent = 0;
   s.turns = [
@@ -94,8 +94,36 @@ test("an inner boundary can load while its outer region keeps showing content", 
   const r = await runScenario(s);
   expect(r.status, JSON.stringify(r)).toBe("pass");
   expect(r.coverage).toContain("nested-content-covered");
-  expect(r.coverage).toContain("inner-fallback-beside-parent-content");
   expect(r.frames.some(f => f.outputs[0] === "loading" && f.outputs[1] === "covered")).toBe(true);
+  // Pre-L2 this shape also published the outer content beside the inner
+  // fallback once node 0 landed. On L2 (#3774) both `on` resets arm in one
+  // flush and the outer boundary collects the inner's reader too, so the outer
+  // fallback stays until node 1 lands. Recorded as a candidate L2 bug in
+  // `tests/fuzz-findings-l2.test.ts`; the inner-fallback-beside-content frame
+  // is exercised below with an outer boundary that is not reset.
+  expect((await runScenario(r.scenario)).frames).toEqual(r.frames);
+});
+
+test("an inner boundary can load while its outer region keeps showing content", async () => {
+  const s = disjoint();
+  s.readers[0].boundary = "retain";
+  s.readers[1].parent = 0;
+  s.turns = [
+    {
+      steps: [
+        { op: "write", source: -1, value: 1 },
+        { op: "write", source: -2, value: 1 }
+      ]
+    },
+    { steps: [{ op: "resolve", node: 0, which: "newest" }] },
+    { steps: [{ op: "resolve", node: 1, which: "newest" }] }
+  ];
+  const r = await runScenario(s);
+  expect(r.status, JSON.stringify(r)).toBe("pass");
+  expect(r.coverage).toContain("inner-fallback-beside-parent-content");
+  expect(
+    r.frames.some(f => JSON.stringify(f.outputs[0]) === "[1]" && f.outputs[1] === "loading")
+  ).toBe(true);
   expect((await runScenario(r.scenario)).frames).toEqual(r.frames);
 });
 

@@ -46,9 +46,14 @@ export function groupScope(s: Scenario, model: Model): string | undefined {
 }
 
 /** Update identity comes from executed input, not runtime transition IDs.
- * One callback is a proven batch; explicit flush closes it synchronously.
- * Activity in the same host task and its microtask drain may entangle, but
- * neither that permission nor possible memo joins ever assert atomicity. */
+ * A proven batch is the tick: every write before the flush that settles it
+ * (L2, 2026-10-04 ruling — "the tick is defined by the flush, not by a
+ * microtask, await or timer boundary"; A34 (1): the batch is one proposal).
+ * The runner closes the batch at `flushEnd`; an explicit flush closes it
+ * synchronously; a host task boundary implies a drain. Pre-L2 a callback
+ * closed the batch and adjacent microtasks were only *permitted* to
+ * entangle — that permission (the `adjacent` window) is kept for possible
+ * memo joins, which still never assert atomicity. */
 export class Groups {
   private groups: Group[] = [];
   private live: number[] = [];

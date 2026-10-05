@@ -44,8 +44,61 @@ experiments; they are not an instruction to implement every old proposal.
 
 The branch was rebased onto `next` at `63560a11` on 2026-09-15. It adds test tooling,
 not the abandoned optimistic-lane runtime prototype from the earlier investigation.
-The executable rule revision is **17** at handoff. Check actual source/issue heads
-before giving a new status report; historical results below are explicitly dated.
+The executable rule revision was **17** at handoff and is **18** since the L2 update
+below (2026-10-05). Check actual source/issue heads before giving a new status
+report; historical results below are explicitly dated.
+
+### L2 update (2026-10-05, `next` @ `203ab1a4`, #3774 "the hold model")
+
+The reactive core was rebuilt after this fuzzer was written; the fuzzer was brought
+onto `next` as the `fuzz/semantic-fuzzer-l2` branch. What changed, and what the
+oracle now holds the engine to:
+
+- **Harness repairs.** The `AttributionHooks` shape gained `flushStart`,
+  `optimisticReverted`, `currentOrigin` (quiet no-ops in `runner.ts`). Six
+  calibration faults were re-anchored to L2 mechanisms (`cli.mjs` names each:
+  `schedule()`'s microtask, `blocked`/`blockedBy`, `_open`, `frameRead`'s stale
+  reader, owner.ts' death-schedules-a-seam). **`lost-fallback-wake` is retired**: a
+  boundary reset's release is structural on L2 (the seam re-judges `blocked` every
+  flush; the fallback swap clears the frame reader's pending), the one arm that
+  states A33 (`onScreen`'s `_hidden`) is unobservable in this harness's reader
+  shape, and no single mechanism can be removed to keep a shown fallback beside
+  unpublished writes. Two harness tests encoded pre-L2 behaviour and were
+  corrected: `algebra-reduce` leaned on the O3 failure fingerprint (fixed
+  2026-09-16); `boundaries` "inner boundary can load while the outer keeps content"
+  asserted a frame L2 no longer produces for nested `on` resets (now candidate F1).
+- **Oracle re-derivation (revision 18).** Every law was re-read against the spec's
+  L2 section; the observational laws (S1–S5, L1, P1, G1/G2, E3–E5, O1/O2, R3, R4,
+  A1) stand unchanged on L2's rulings. Two statements encoded pre-L2 semantics:
+  **R1/R2** compared direct reads of a held optimistic override — and derivations
+  from it — with the published anchors; A17 rules "direct read shows optimistic,
+  effect waits", so those refs are excluded while the override is displayed
+  (`Model.readsOverride`, `overrideDisplayed()` in the runner: from the action's
+  start until the completion probes witness its transaction's commit). **S5**
+  fired when a generation was replaced by its parent's re-pass; ruling A / #3698
+  keep the replaced frame live until its cleanup runs, so S5 now fires on a
+  generation whose disposal actually ran (`retiredGenerations`). **G1/G2**'s proven
+  batch was the callback; L2's 2026-10-04 ruling makes it the tick — every write
+  before the flush that settles it (A34 (1): "the batch is one proposal") — so the
+  runner closes the batch at `flushEnd`, and a microtask that runs ahead of the
+  write's own flush is the same proposal (a G2 "ready group remains unpublished"
+  on seed 91501 was this model error). O2's "correction does not wait for obsolete
+  optimistic requests" is now ruled (A18 body-end corollary), no longer
+  experimental in substance; the catalog text is unchanged.
+- **Run (seed 3289, 2000 cases per cohort, `--shrink`; 500 per equivalence mode;
+  `--corpus`).** `update-groups`, `branches`, `branch-boundaries`, `attachment`,
+  delivery and optimistic equivalence, and the corpus: 0 findings. One shape each in
+  `ordinary`/`multi`/`boundaries`/`reads` (F2), `observation`/`mounts` (F3),
+  `nested` (F4), `optimistic` (F5); `latest` 163 fail + 26 worker errors (F6, F7,
+  F8, F12); `readiness`/`derived-readiness` ~75 fail each (F9, F10, F11, F7b);
+  `optimistic-readiness` 184 → 4 after the R2 re-derivation (the rest is F5).
+  Pre-L2 the same ordinary seed gave 22 semantic candidates and 12 policy findings
+  per 1,000 cases; on L2 it gives 1 and 0.
+- **Candidate L2 bugs** are pinned as standalone `it.fails` primitives in
+  [`../fuzz-findings-l2.test.ts`](../fuzz-findings-l2.test.ts) (F1–F12), each with
+  the rule it violates. They include two engine crashes (`laneRead` → `txOf(null)`
+  TypeError), a livelock, two torn frames, a hold leak, and three verdict/initial
+  load failures around `isPending` probes. Nothing in the engine was changed.
 
 ### A productive first session
 

@@ -53,6 +53,10 @@ export class Model {
   readonly anchorMask: number;
   readonly hasPending: boolean;
   readonly latestMask: number;
+  /** The optimistic override channel (-2 of an `override` scenario): direct
+   * reads of it, and of derivations from it, return the guess while effects
+   * off its lane may still show the committed frame (SPEC A17). */
+  readonly overrideMask: number;
   constructor(s: Scenario) {
     this.sources = sourceIds(s);
     this.anchors = anchorIds(s);
@@ -92,6 +96,7 @@ export class Model {
     }
     this.size = this.slots.size;
     this.latestMask = s.optimistic?.kind === "latest" ? this.sourceMask(-2) : 0;
+    this.overrideMask = s.optimistic && s.optimistic.kind !== "latest" ? this.sourceMask(-2) : 0;
     this.hasPending =
       !s.optimistic &&
       s.readers.some(
@@ -106,6 +111,9 @@ export class Model {
   }
   readsLatest(ref: number): boolean {
     return (this.sourceMask(ref) & this.latestMask) !== 0;
+  }
+  readsOverride(ref: number): boolean {
+    return (this.sourceMask(ref) & this.overrideMask) !== 0;
   }
   witnessed(ref: number, mask = this.anchorMask): boolean {
     const sources = this.sourceMask(ref);

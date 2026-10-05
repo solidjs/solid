@@ -170,7 +170,10 @@ test("format upgrade excludes the legacy disposal allowance scope", async () => 
   expect(c.sources).toEqual([-1]);
   const a = await runScenario(s),
     b = await runScenario(c);
-  expect(fingerprint(a)).toBeDefined();
+  // This shape — a reader gated away from a never-landing flight — used to be
+  // a P1 failure (SPEC O3) and the test leaned on that fingerprint. O3 was
+  // fixed on 2026-09-16; the upgrade must preserve the (now passing) result.
+  expect(a.status).toBe("pass");
   expect(fingerprint(b)).toBe(fingerprint(a));
   for (let i = 0; i < a.frames.length; i++) {
     expect(b.frames[i].input).toBe(a.frames[i].input);

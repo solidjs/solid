@@ -19,7 +19,13 @@ export interface Failure {
 }
 // Bump when the executable contract or completion policy changes. Target source
 // hashes alone cannot explain a replay performed with different oracle rules.
-export const ruleRevision = 17;
+// Revision 18 (2026-10-05, L2 — #3774 "the hold model"): R1/R2 exclude direct
+// reads that derive from a held optimistic override (SPEC A17: "direct read
+// shows optimistic, effect waits"); S5 fires on a generation whose cleanup ran,
+// not on one merely replaced by its parent's re-pass (ruling A, #3698); G1/G2's
+// proven batch is the tick — the writes one flush settles (A34 (1)), closed at
+// `flushEnd`, not at a callback boundary.
+export const ruleRevision = 18;
 export const rules = [
   {
     id: "A1",
@@ -31,7 +37,7 @@ export const rules = [
     id: "G1",
     law: "Proven update groups publish atomically and authoritative action holds prevent early publication.",
     scope:
-      "ordinary initialized flat DAGs, complete anchors, fixed readers; generated batch/action identity and same-source overlap"
+      "ordinary initialized flat DAGs, complete anchors, fixed readers; generated batch/action identity and same-source overlap; a batch is the tick (every write before the flush that settles it, L2 A34 (1))"
   },
   {
     id: "G2",
@@ -55,7 +61,7 @@ export const rules = [
     id: "R2",
     law: "A control publishing ready can read its guarded expression without suspending, consistently with witnessed published inputs.",
     scope:
-      "explicit generated clicks on tracked isPending readers; initialized ordinary or one-parent override graph; no context-free false-implies-readable claim"
+      "explicit generated clicks on tracked isPending readers; initialized ordinary or one-parent override graph; no context-free false-implies-readable claim; a ref deriving from a held override is read display-ahead (A17) and is not compared"
   },
   {
     id: "R3",
@@ -91,7 +97,8 @@ export const rules = [
   {
     id: "S5",
     law: "A disposed reader receives no later publication callback.",
-    scope: "explicit disposal or cleanup of an owned reader generation"
+    scope:
+      "explicit disposal or cleanup of an owned reader generation; a generation replaced by its parent's re-pass is live until its cleanup runs (L2 ruling A, #3698)"
   },
   {
     id: "L1",
@@ -123,7 +130,7 @@ export const rules = [
     id: "R1",
     law: "Ordinary imperative reads describe published state.",
     scope:
-      "explicit event-block reads outside action bodies; published witness; excludes getters and derivations that may read latest"
+      "explicit event-block reads outside action bodies; published witness; excludes getters and derivations that may read latest, and those deriving from a held optimistic override (A17)"
   },
   {
     id: "E4",
@@ -179,7 +186,7 @@ export const ruleContracts = Object.fromEntries(
           : rule.id === "G1" || rule.id === "G2"
             ? "group-controls.test.ts, groups.test.ts, entangle-effect/drop-action-hold calibration"
             : rule.id === "P1"
-              ? "progress.test.ts and lost-disposal-wake/lost-fallback-wake calibration"
+              ? "progress.test.ts and lost-disposal-wake calibration (lost-fallback-wake retired with L2)"
               : rule.id === "R2" || rule.id === "R3" || rule.id === "R4"
                 ? "readiness.test.ts and pending-contract.test.ts"
                 : rule.id === "W1" || rule.id === "L1"

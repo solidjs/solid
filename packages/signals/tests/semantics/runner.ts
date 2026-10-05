@@ -149,6 +149,7 @@ const quietHooks: AttributionHooks = {
   interactionEnd: noop,
   originStart: noop,
   originEnd: noop,
+  flushStart: noop,
   flushEnd: noop,
   recomputeStart: noop,
   recomputeEnd: noop,
@@ -168,7 +169,9 @@ const quietHooks: AttributionHooks = {
   transitionMerged: noop,
   storeReplaced: noop,
   listChurn: noop,
-  boundaryFallback: noop
+  boundaryFallback: noop,
+  optimisticReverted: noop,
+  currentOrigin: () => undefined
 };
 async function afterAwait(fn: () => void) {
   await Promise.resolve();
@@ -251,6 +254,9 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
   const outputs: Record<number, Output> = {};
   const disposers = new Map<number, () => void>();
   const liveGenerations = new Map<number, number>();
+  // Generations whose disposal actually ran (explicit `dispose`, the owned
+  // root's cleanup, or a tree region's teardown): a later publication is S5.
+  const retiredGenerations = new Set<number>();
   const attachedGenerations = new Map<number, number>();
   const preparedOutputs = new Map<number, Output>();
   let readerGeneration = 0;
@@ -275,6 +281,15 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
     s.optimistic?.kind === "latest" && actionStarted && !actionEnded
       ? { ...proposedInputs, [-1]: 0 }
       : proposedInputs;
+  /** A17/A18 (L2): an override is the displayed value for direct reads from
+   * the flush that carries it until its transaction commits — past the body's
+   * end too (a confirmed guess stays on screen until the commit). The
+   * transaction's commit is witnessed by the completion probes of every
+   * generated write; without probes the whole action lifetime is taken. */
+  const overrideDisplayed = () =>
+    model.overrideMask !== 0 &&
+    actionStarted &&
+    !(actionEnded && options.completionProbes !== false && writes.size === completed.size);
   let wantedShow = s.show;
   let shown = 0;
   let shownShow = s.show;
@@ -580,7 +595,12 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
   };
   const hooks: AttributionHooks = {
     ...quietHooks,
-    flushEnd: checkpoint,
+    flushEnd: () => {
+      // The tick ends with the flush that settles it (L2 ruling 1, the
+      // 2026-10-04 "membership in a hold is the tick's" clarification).
+      groups?.closeBatch();
+      checkpoint();
+    },
     asyncStart: node => {
       const mask = flightMasks?.get(node);
       if (mask !== undefined) groups!.landing(mask);
@@ -601,7 +621,16 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
         retireError ??= `Reader ${id} published after disposal during cleanup`;
       return;
     }
-    if (!tree && liveGenerations.get(id) !== generation) {
+    // S5 is about a generation whose cleanup has RUN. A generation merely
+    // replaced by its parent's re-pass is still the displayed frame until
+    // that pass's result reaches the screen (L2 ruling A; A15 lane work and
+    // transaction work, #3698), and its own runs may still fire — display
+    // ahead (a lane's queue runs first) — before the parent's run retires it.
+    // (A replaced generation that is still attached is the displayed frame;
+    // the mounted path below routes it by attachment, not by liveness. A
+    // zombie whose removal a transaction stages is live until that commit,
+    // A15 #3463 — its last run at the very landing that retires it is not S5.)
+    if (!tree && retiredGenerations.has(generation)) {
       fail({ rule: "S5", message: "Disposed reader published", reader: id });
       return;
     }
@@ -712,6 +741,8 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
           break;
         }
         disposers.delete(step.reader);
+        if (liveGenerations.has(step.reader))
+          retiredGenerations.add(liveGenerations.get(step.reader)!);
         liveGenerations.delete(step.reader);
         for (const w of work)
           if (w.state === "waiting")
@@ -864,7 +895,14 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
         // retain samples for paired laziness checks without choosing a slot.
         if (step.mode === "plain" && model.readsLatest(step.ref))
           coverage.add("imperative-latest-contract-provisional");
-        if (step.mode === "plain" && !model.readsLatest(step.ref)) {
+        // A17 (L2): while an action holds a guess, a direct read of the
+        // override — or of anything derived from it — returns the guess, and a
+        // render effect off the lane may still show the committed frame ("direct
+        // read shows optimistic, effect waits"). The published view is not the
+        // witness for such a read.
+        const overrideAhead = overrideDisplayed() && model.readsOverride(step.ref);
+        if (step.mode === "plain" && overrideAhead) coverage.add("imperative-override-read-ahead");
+        if (step.mode === "plain" && !model.readsLatest(step.ref) && !overrideAhead) {
           let expected: number | undefined = anchors.includes(step.ref)
             ? shownInputs[step.ref]
             : undefined;
@@ -919,9 +957,18 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
         coverage.add("ready-control-click");
         if (click.values) {
           const expected = model.evaluate(shown, shownInputs);
+          // A17 (L2): a guarded click is a direct read; over a held guess it
+          // returns the override while the anchors may still show the
+          // committed frame. R2 compares only refs that do not derive from it.
+          const ahead = overrideDisplayed();
+          if (ahead && reader.refs.some(ref => model.readsOverride(ref)))
+            coverage.add("ready-control-read-override-ahead");
           if (
             reader.refs.some(
-              (ref, i) => model.witnessed(ref) && click.values![i] !== expected.get(ref)
+              (ref, i) =>
+                model.witnessed(ref) &&
+                !(ahead && model.readsOverride(ref)) &&
+                click.values![i] !== expected.get(ref)
             )
           )
             fail({
@@ -946,7 +993,10 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
         const run = () => {
           if (!cb.done && !stopped) {
             cb.done = true;
-            groups?.closeBatch();
+            // L2 (2026-10-04 ruling, A34 (1)): a batch is the tick — the writes
+            // one flush settles — not the callback. A microtask that runs before
+            // the write's own flush microtask is the same proposal; the flush
+            // (`flushEnd` → `checkpoint`) is what closes the batch.
             // Report owned callback failures at the next host barrier. Letting
             // these escape would lose the ledger and crash the worker instead.
             try {
@@ -1109,6 +1159,7 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
               return generation;
             },
             gone(reader, generation) {
+              retiredGenerations.add(generation);
               if (liveGenerations.get(reader.id) === generation) {
                 liveGenerations.delete(reader.id);
                 disposers.delete(reader.id);
@@ -1201,6 +1252,7 @@ export async function runScenario(input: Scenario, options: RunOptions = {}): Pr
             return {
               generation,
               dispose: () => {
+                retiredGenerations.add(generation);
                 if (liveGenerations.get(reader.id) === generation) {
                   liveGenerations.delete(reader.id);
                   disposers.delete(reader.id);

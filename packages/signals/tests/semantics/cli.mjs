@@ -11,27 +11,39 @@ const temp = await mkdtemp(join(tmpdir(), "solid-fuzz-build-"));
 const workerFile = join(temp, "worker.mjs");
 const args = process.argv.slice(2).filter(x => x !== "--");
 const fault = args.includes("--fault") ? args[args.indexOf("--fault") + 1] : undefined;
+// Each fault names an L2 mechanism (re-anchored 2026-10-05 for #3774, "the
+// hold model"; the pre-L2 anchors — `_valueTransition`, `transition._actions`,
+// `wokenTransitions`, `wakeParked`, `_asyncReporters` — are gone). Anchors are
+// exact source text and fail loudly when the implementation moves.
 const faults = {
+  // A15 shared-hole corollary: a render effect reading a node another
+  // transaction holds is a stale reader (`frameRead`) and entangles nothing.
+  // The fault makes the writer's tick join that hold anyway.
   "entangle-effect": [
     "core.ts",
-    "let prev: Transition | null = (el as any)._valueTransition;",
-    "let prev: Transition | null = (el as any)._valueTransition; if (prev && !currentTransition(prev)._done) { globalQueue.initTransition(prev); (activeTransition!._contested ??= []).push(el); }"
+    "  staleReader(c, t);\n  return true;\n}",
+    "  staleReader(c, t);\n  joinPassTx(t);\n  return true;\n}"
   ],
-  "drop-action-hold": [
-    "scheduler.ts",
-    "if (transition._actions.length) {",
-    "if (false && transition._actions.length) {"
-  ],
+  // `blocked(t)`: an action still running in `t` holds it open (`_open`).
+  "drop-action-hold": ["scheduler.ts", "    t._open !== 0 ||", "    false && t._open !== 0 ||"],
+  // A death that can unblock the future schedules a seam (owner.ts). Without
+  // it a parked transaction whose last reader died is never re-judged.
   "lost-disposal-wake": [
     "owner.ts",
-    "if (t && n._statusFlags & STATUS_PENDING && !wokenTransitions.includes(t))",
-    "if (false && t && n._statusFlags & STATUS_PENDING && !wokenTransitions.includes(t))"
+    "      flags & REACTIVE_FRAME_READ\n    )\n      schedule();",
+    "      flags & REACTIVE_FRAME_READ\n    )\n      void 0;"
   ],
-  "lost-fallback-wake": [
-    "scheduler.ts",
-    "export function wakeParked(): void {",
-    "export function wakeParked(): void { return;"
-  ],
+  // `lost-fallback-wake` (pre-L2: `wakeParked` returning early) is retired.
+  // L2 has no fallback "wake" to lose: the seam re-judges `blocked` every
+  // flush, and a boundary's swap to its fallback clears its frame reader's
+  // pending, so the hold dissolves structurally (A33). The one L2 arm that
+  // states A33 — `onScreen`'s `_hidden` check — is unobservable in this
+  // harness's reader shape (the reader is a render effect of the boundary's
+  // output, never a render effect inside the content), and faulting it
+  // together with the blocker predicate holds the swap itself rather than
+  // keeping a shown fallback beside unpublished writes. P1's fallback
+  // release is pinned on the unmodified runtime by `--calibrate` case 8 and
+  // `progress.test.ts`; the allowance's scope by `progress.test.ts`.
   "false-verdict": [
     "verdict.ts",
     "export function isPending(fn: () => any): boolean {",
@@ -42,20 +54,19 @@ const faults = {
     "export function isPending(fn: () => any): boolean {",
     "export function isPending(fn: () => any): boolean { return false;"
   ],
-  "drop-wake": [
-    "scheduler.ts",
-    "if (!syncDepth && !globalQueue._running && !projectionWriteActive) queueMicrotask(flush);",
-    "if (!syncDepth && !globalQueue._running && !projectionWriteActive) void 0;"
-  ],
+  // `schedule()`: the flush a write queues.
+  "drop-wake": ["scheduler.ts", "    queueMicrotask(flush);", "    void 0;"],
   "stale-result": [
     "async.ts",
     "const asyncWrite = (value: T, then?: () => void) => {\n    if (el._x?._inFlight !== result) return;",
     "const asyncWrite = (value: T, then?: () => void) => {"
   ],
+  // `blockedBy`: the frame readers observing a held flight are what holds a
+  // transaction. The fault never finds one, so every park lands at once.
   "lost-blocker": [
     "scheduler.ts",
-    "if (!reporters) activeTransition._asyncReporters.set(source, (reporters = new Set()));",
-    "if (!reporters) reporters = new Set();"
+    "function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boolean {",
+    "function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boolean {\n  return false;"
   ]
 };
 const sources = new Map();
@@ -68,9 +79,15 @@ const adapter = {
       sources.set(sourceLabel(path, dirname(dirname(dir))), contents);
       if (fault && calibrationTarget(path, faults[fault][0])) {
         const [, before, after] = faults[fault];
-        if (contents.split(before).length !== 2)
-          throw new Error(`Calibration anchor drift: ${fault}`);
-        contents = contents.replace(before, after);
+        // One anchor, or several applied together (a mechanism spread over
+        // two sites); every anchor must match exactly once.
+        const befores = Array.isArray(before) ? before : [before];
+        const afters = Array.isArray(after) ? after : [after];
+        for (let i = 0; i < befores.length; i++) {
+          if (contents.split(befores[i]).length !== 2)
+            throw new Error(`Calibration anchor drift: ${fault}`);
+          contents = contents.replace(befores[i], afters[i]);
+        }
         mutated = true;
       }
       return { contents, loader: path.endsWith(".ts") ? "ts" : "js" };
