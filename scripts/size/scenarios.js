@@ -3275,8 +3275,10 @@ module.exports = [
     // through the wrappers' hydration seam (`withStoreHydration`) and that
     // seam lives in solid's flat main module; the store symbols the lazy
     // chunk shares with the eager one (`store/types`, hoisted); and the
-    // seam's own bytes in the frames client (its note). Lowered in the
-    // follow-up commit to measured + 10 B.
+    // seam's own bytes in the frames client (its note).
+    // Lowered (S1, 2026-10-05): 44.84 -> 38.45 KB (floor-caps.json), measured
+    // + 10 B rounded up to 0.01 KB. Lowering is the ratchet; raise only with
+    // a Size-Exception.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3381,8 +3383,10 @@ module.exports = [
     // (-6,352 B; -22,998 B minified, 157,345 -> 134,347). The same split as
     // the base page (its note): the store engine and the materializer leave
     // for `container-trace.js` (lazy, not counted, 7.88 KB brotli); the
-    // store hydration adapters stay. Lowered in the follow-up commit to
-    // measured + 10 B.
+    // store hydration adapters stay.
+    // Lowered (S1, 2026-10-05): 48.47 -> 42.12 KB (floor-caps.json), measured
+    // + 10 B rounded up to 0.01 KB. Lowering is the ratchet; raise only with
+    // a Size-Exception.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
