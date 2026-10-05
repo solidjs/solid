@@ -2415,8 +2415,12 @@ export function renderToStream(code, options = {}) {
   // END of the response (serializer flush → complete); shell and fragment
   // flushing proceed normally around them.
   let holds = 0;
+  // Pending root holes gate the end too: a fragment settling while the shell
+  // is suspended empties the registry before the holes re-pull, and a flush
+  // then would drop everything they serialize and complete the render with
+  // no shell. Both consumers' flush loops call this again once they resolve.
   const flushEnd = () => {
-    if (!registry.size && !holds) {
+    if (!registry.size && !holds && !rootHoles) {
       serializeRootAssets();
       queue(() =>
         queue(() => {
@@ -2637,6 +2641,16 @@ export function renderToStream(code, options = {}) {
   }
   let rootHoles = null;
   let nextHoleId = 0;
+  // Markup of fragments that settled pre-flush while their placeholder was
+  // still inside a pending root hole — an <Errored> holding its children
+  // over a shell suspension keeps the boundary's placeholder in its own
+  // retry state, out of `html`. Spliced in when a root-hole re-pull lands it.
+  let parkedInlines = null;
+  function inlineFragment(key, value) {
+    if (rootHoles && !html.includes(`<template id="pl-${key}">`)) {
+      (parkedInlines ||= new Map()).set(key, value);
+    } else html = replacePlaceholder(html, key, value);
+  }
   let buffer = {
     write(payload) {
       tmp += payload;
@@ -2876,7 +2890,7 @@ export function renderToStream(code, options = {}) {
               // Head registrations stay pending: a boundary that inlines into
               // the shell commits with the shell flush (its key is no longer
               // a pending fragment, so renderShellHead picks them up).
-              queue(() => (html = replacePlaceholder(html, key, value !== undefined ? value : "")));
+              queue(() => inlineFragment(key, value !== undefined ? value : ""));
               serializeFragmentAssets(key, tracking.boundaryModules, context);
               item.resolve(error);
             } else {
@@ -3006,6 +3020,13 @@ export function renderToStream(code, options = {}) {
         }
         html = html.replace(marker, out);
         for (const p of res.p) blockingPromises.add(p);
+      }
+    }
+    if (parkedInlines) {
+      for (const [key, value] of parkedInlines) {
+        if (!html.includes(`<template id="pl-${key}">`)) continue;
+        html = replacePlaceholder(html, key, value);
+        parkedInlines.delete(key);
       }
     }
     if (pending.length) {

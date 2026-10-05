@@ -41,7 +41,7 @@ function deferred<T = void>() {
 }
 
 function board(read: (drag: () => string | undefined, cards: Card[]) => unknown) {
-  const gates = new Map<string, ReturnType<typeof deferred>>();
+  const gates = new Map<string, ReturnType<typeof deferred<void>>>();
   let move!: (id: string, column: number) => Promise<void>;
   let setDrag!: (v: string) => void;
   let drag!: () => string | undefined;

@@ -1684,7 +1684,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (passLane !== null) committed = true;
     else if (c !== null && c._config & CONFIG_VERDICT) {
       committed = true;
-      GlobalQueue._observeFlight!(c as Computed<any>);
+      GlobalQueue._observeFlight!(c as Computed<any>, owner);
     }
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {

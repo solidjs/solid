@@ -755,7 +755,7 @@ describe("interaction — a router that awaited before writing hands the click b
     const [location, setLocation] = createSignal("/a", { name: "location" });
     createRoot(() => createEffect(location, () => {}, { name: "reader" }));
     flush();
-    let first: ReturnType<typeof OBSERVE.attribution.currentOrigin>;
+    let first: ReturnType<NonNullable<typeof OBSERVE>["attribution"]["currentOrigin"]>;
     OBSERVE!.attribution.withInteraction({ type: "click", target: "a.first" }, () => {
       first = OBSERVE!.attribution.currentOrigin();
     });

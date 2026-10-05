@@ -38,7 +38,7 @@ it("the flush right after disposing a projection with a held refetch passes the 
     [s] = createStore<{ n: number }>(
       () => {
         const v = q();
-        return new Promise(r => fetches.push(() => r({ n: v * 10 })));
+        return new Promise<{ n: number }>(r => fetches.push(() => r({ n: v * 10 })));
       },
       { n: -1 }
     );

@@ -620,20 +620,40 @@ export function ssrScope<T>(fn: () => T): () => unknown {
   while (parent._transparent && parent._parent) parent = parent._parent;
   const prefix = parent._scopeSlot >= 0 ? materializeId(parent)! : parent.id!;
   const slot = parent._childCount++;
+  // An accessor the unwrap below reached that suspended, with the scope's
+  // counter at its call: the retry pull resumes there. Re-running `fn`
+  // re-reads the hole's expression, and a `props.children` getter creates
+  // its components afresh — the client reads it once and unwraps in an
+  // inner effect.
+  let resume: (() => unknown) | undefined;
+  let resumeCount = 0;
   return () => {
     const prevId = parent.id;
     const prevSlot = parent._scopeSlot;
     const prevCount = parent._childCount;
     parent.id = prefix;
     parent._scopeSlot = slot;
-    parent._childCount = 0;
+    parent._childCount = resume ? resumeCount : 0;
     try {
-      let v: unknown = fn();
+      let v: unknown = resume || fn();
+      resume = undefined;
       // Unwrap accessor chains in-scope: reading a memo / component thunk can
       // create owners and allocate ids, which must land under the hole scope
       // just like the client's inner unwrapping effect (transparent, so it
       // shares the outer insert effect's scope).
-      while (typeof v === "function") v = (v as () => unknown)();
+      while (typeof v === "function") {
+        const next = v as () => unknown;
+        const count = parent._childCount;
+        try {
+          v = next();
+        } catch (err) {
+          if (err instanceof NotReadyError) {
+            resume = next;
+            resumeCount = count;
+          }
+          throw err;
+        }
+      }
       return v;
     } finally {
       parent.id = prevId;

@@ -274,13 +274,25 @@ fn first_diagnostic_error(source: &str, result: &TsrxParseResult) -> CompileErro
 /// convention, matching the Babel frontend's error suffix).
 fn line_column(source: &str, offset: u32) -> (u32, u32) {
     let offset = (offset as usize).min(source.len());
-    let before = &source.as_bytes()[..offset];
-    let line = 1 + before.iter().filter(|byte| **byte == b'\n').count() as u32;
-    let line_start = before
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map(|position| position + 1)
-        .unwrap_or(0);
+    let mut line = 1;
+    let mut line_start = 0;
+    let mut chars = source[..offset].char_indices().peekable();
+    while let Some((position, ch)) = chars.next() {
+        let next = match ch {
+            '\r' => {
+                if chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                    let (next_position, next) = chars.next().expect("peeked line feed");
+                    next_position + next.len_utf8()
+                } else {
+                    position + ch.len_utf8()
+                }
+            }
+            '\n' | '\u{2028}' | '\u{2029}' => position + ch.len_utf8(),
+            _ => continue,
+        };
+        line += 1;
+        line_start = next;
+    }
     let column = source[line_start..offset].encode_utf16().count() as u32;
     (line, column)
 }
@@ -294,4 +306,42 @@ fn line_column_utf16(source: &str, offset_units: u32) -> (u32, u32) {
         units += ch.len_utf16() as u32;
     }
     line_column(source, source.len() as u32)
+}
+
+#[cfg(test)]
+mod diagnostic_position_tests {
+    use super::{line_column, line_column_utf16};
+
+    #[test]
+    fn diagnostic_offsets_match_at_character_boundaries() {
+        for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+            let source = format!("é🚀{terminator}a🚀z");
+            let next_line = "é🚀".len() + terminator.len();
+            for (byte, expected) in [
+                (0, (1, 0)),
+                (2, (1, 1)),
+                (6, (1, 3)),
+                (next_line, (2, 0)),
+                (next_line + 1, (2, 1)),
+                (next_line + 5, (2, 3)),
+                (source.len(), (2, 4)),
+            ] {
+                assert!(source.is_char_boundary(byte));
+                let units = source[..byte].encode_utf16().count() as u32;
+                assert_eq!(
+                    line_column(&source, byte as u32),
+                    expected,
+                    "byte {byte}, {terminator:?}"
+                );
+                assert_eq!(
+                    line_column_utf16(&source, units),
+                    expected,
+                    "UTF-16 {units}, {terminator:?}"
+                );
+            }
+        }
+        assert_eq!(line_column("a\r\nb", 2), (2, 0));
+        assert_eq!(line_column_utf16("a\r\nb", 2), (2, 0));
+        assert_eq!(line_column("", 0), (1, 0));
+    }
 }

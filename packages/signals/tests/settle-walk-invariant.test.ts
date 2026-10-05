@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OBSERVE } from "../src/index.js";
 import { settlePendingSource } from "../src/core/async.js";
 import { CONFIG_OVERRIDE, NOT_PENDING, STATUS_UNINITIALIZED } from "../src/core/constants.js";
-import type { Computed } from "../src/core/core.js";
+import type { Computed } from "../src/core/types.js";
 
 /**
  * The SETTLE_WALK_UNINITIALIZED_SOURCE tripwire has no reachable trigger

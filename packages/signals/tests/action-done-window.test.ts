@@ -1,17 +1,6 @@
-/**
- * The post-action done() window (#2916 shape): an async-generator action's
- * done() runs from an iterator-result microtask, restoring activeTransition
- * with no synchronous flush after it. Until the scheduled flush runs,
- * globalQueue._batch was a detached ambient batch — so anything registered in
- * that window (ordinary writes held by a merged transition, optimistic
- * overrides, affects() marks) landed in a batch that nothing ever finalized.
- * done() now re-adopts the batch through initTransition, the same path every
- * other transition-resumption site uses.
- *
- * Each test polls microtasks until it observes the restored transition
- * (scheduler.activeTransition !== null) and injects its work exactly there.
- */
-import { describe, expect, it } from "vitest";
+// #2916: inject work after an async action completes but before a pending
+// flush. Assert both the ordering and the eventual write/revert/release.
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   action,
   affects,
@@ -23,9 +12,39 @@ import {
   flush,
   isPending
 } from "../src/index.js";
-import * as scheduler from "../src/core/scheduler.js";
 
 const tick = () => Promise.resolve();
+
+afterEach(() => vi.restoreAllMocks());
+
+// Hold scheduler flushes while Promise callbacks complete the action.
+// Await its result, inject the operation, then release the held callbacks.
+// The callbacks can come from joining or completing a transaction.
+async function inDoneWindow(done: Promise<void>, complete: () => void, operation: () => void) {
+  const queued: VoidFunction[] = [];
+  const events: string[] = [];
+  const microtask = vi.spyOn(globalThis, "queueMicrotask").mockImplementation(callback => {
+    queued.push(() => {
+      events.push("flush");
+      callback();
+    });
+  });
+  try {
+    complete();
+    await done;
+    events.push("done");
+    expect(queued.length).toBeGreaterThan(0);
+    expect(events).toEqual(["done"]);
+    operation();
+    events.push("operation");
+    expect(events).toEqual(["done", "operation"]);
+    while (queued.length) queued.shift()!();
+    expect(events[2]).toBe("flush");
+  } finally {
+    microtask.mockRestore();
+    while (queued.length) queued.shift()!();
+  }
+}
 
 describe("post-action done() window", () => {
   it("a completed action's write survives another action resuming in its done-window", async () => {
@@ -55,23 +74,19 @@ describe("post-action done() window", () => {
     const aDone = A();
     flush(); // stash T_A
     await tick();
-    const bDone = B(); // fresh transition T_B (T_A stashed, activeTransition null)
+    const bDone = B(); // B remains open until its controlled thenable resumes.
     flush(); // stash T_B
 
-    resolveA();
-
-    // Land in A's done-window and resume B there, so initTransition(T_B)
-    // merges the restored T_A into T_B. T_A's held write must survive the
-    // merge and commit when T_B settles.
-    let resumed = false;
-    for (let i = 0; i < 16; i++) {
-      await tick();
-      if (!resumed && scheduler.activeTransition !== null && hasResumeB) {
-        resumed = true;
-        resumeB(undefined);
-      }
-    }
-    expect(resumed).toBe(true);
+    await tick(); // drain the initial scheduled flushes
+    let bCompleted = false;
+    void bDone.then(() => {
+      bCompleted = true;
+    });
+    await inDoneWindow(aDone, resolveA, () => {
+      expect(hasResumeB).toBe(true);
+      expect(bCompleted).toBe(false);
+      resumeB(undefined);
+    });
 
     await Promise.all([aDone, bDone]);
     await new Promise(r => setTimeout(r, 0));
@@ -103,17 +118,10 @@ describe("post-action done() window", () => {
     const aDone = A();
     flush();
 
-    resolveA();
-
-    let wrote = false;
-    for (let i = 0; i < 16; i++) {
-      await tick();
-      if (!wrote && scheduler.activeTransition !== null) {
-        wrote = true;
-        setOpt(5);
-      }
-    }
-    expect(wrote).toBe(true);
+    await tick(); // drain the initial scheduled flush
+    await inDoneWindow(aDone, resolveA, () => {
+      setOpt(5);
+    });
 
     await aDone;
     await new Promise(r => setTimeout(r, 0));
@@ -143,25 +151,18 @@ describe("post-action done() window", () => {
     const aDone = A();
     flush();
 
-    resolveA();
-
-    let marked = false;
-    for (let i = 0; i < 16; i++) {
-      await tick();
-      if (!marked && scheduler.activeTransition !== null) {
-        marked = true;
-        affects(count);
-      }
-    }
-    expect(marked).toBe(true);
+    await tick(); // drain the initial scheduled flush
+    await inDoneWindow(aDone, resolveA, () => {
+      affects(count);
+    });
 
     await aDone;
     await new Promise(r => setTimeout(r, 0));
     flush();
     flush();
 
-    // The mark now belongs to the restored transaction and releases at its
-    // settle; before the fix it landed in the detached ambient batch, where
+    // The mark must release at settle; before the fix it landed in a
+    // detached ambient batch, where
     // (in combination with other pending work) it could leak forever
     // (isPending stuck true, INV-10 on the next quiescent flush).
     expect(isPending(() => count())).toBe(false);

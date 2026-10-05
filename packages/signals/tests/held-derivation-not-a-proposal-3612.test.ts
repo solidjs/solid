@@ -53,7 +53,7 @@ async function settle() {
 function setup(opts: { holds?: (a: number) => boolean } = {}) {
   const holds = opts.holds ?? (a => a !== 1);
   const views: string[] = [];
-  const gates: ReturnType<typeof deferred>[] = [];
+  const gates: ReturnType<typeof deferred<void>>[] = [];
   let dispose!: () => void;
   const h = createRoot(d => {
     dispose = d;
@@ -142,7 +142,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
 
   it("a prev-reading derivation folds the write: max(prev=5, a=2) = 5", async () => {
     const views: string[] = [];
-    const gates: ReturnType<typeof deferred>[] = [];
+    const gates: ReturnType<typeof deferred<void>>[] = [];
     let setA!: (v: number) => void;
     let setHi!: (v: number | ((p: number) => number)) => void;
     let hi!: () => number;
@@ -337,7 +337,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
 
     it("compute-phase ownedWrite under T (b=201), then mainline b=101 → a=2 b=101", async () => {
       const views: string[] = [];
-      const gates: ReturnType<typeof deferred>[] = [];
+      const gates: ReturnType<typeof deferred<void>>[] = [];
       let setA!: (v: number) => void;
       let setB!: (v: number) => void;
       let dispose!: () => void;
@@ -386,7 +386,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
 
   it("an unrelated hold (T holds k; a unchanged; b unstamped): the mainline write commits at once, as today", async () => {
     const views: string[] = [];
-    let gate: ReturnType<typeof deferred> | null = null;
+    let gate: ReturnType<typeof deferred<void>> | null = null;
     let setK!: (v: number) => void;
     let setB!: (v: number) => void;
     let b!: () => number;
@@ -431,7 +431,7 @@ describe("A34 amendment — a held derivation is not a proposal (#3612)", () => 
     function setupStore(opts: { holds?: (a: number) => boolean } = {}) {
       const holds = opts.holds ?? (a => a !== 1);
       const views: string[] = [];
-      const gates: ReturnType<typeof deferred>[] = [];
+      const gates: ReturnType<typeof deferred<void>>[] = [];
       let dispose!: () => void;
       const h = createRoot(d => {
         dispose = d;

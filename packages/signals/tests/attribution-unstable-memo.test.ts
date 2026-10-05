@@ -101,6 +101,30 @@ describe("UNSTABLE_MEMO_OUTPUT", () => {
     expect(events).toHaveLength(0);
   });
 
+  it("compares symbol-keyed properties", () => {
+    const BOX = Symbol("box");
+    const [n, setN] = createSignal(1, { name: "n" });
+    const shared = {};
+    createRoot(() => {
+      const varying = createMemo(() => ({ [BOX]: { run: n() } }), { name: "varying-symbol" });
+      const same = createMemo(() => (n(), { [BOX]: shared }), { name: "same-symbol" });
+      createEffect(
+        () => (varying(), same()),
+        () => {},
+        { name: "consumer" }
+      );
+    });
+    flush();
+
+    const events = captureUnstable();
+    for (let i = 2; i <= 8; i++) {
+      setN(i);
+      flush();
+    }
+
+    expect(events.map(e => e.nodeName)).toEqual(["same-symbol"]);
+  });
+
   it("stays quiet for stable references, primitives, and non-plain shapes", () => {
     const [n, setN] = createSignal(1, { name: "n" });
     const stable = { fixed: true };

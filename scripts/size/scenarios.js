@@ -1097,7 +1097,14 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 12.16 -> 9.45 KB, measured at 9.44 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "9.45 KB",
+    // Size-Exception (fuzzer F7/F12 fixes, 2026-10-05): 9.45 -> 9.47 KB,
+    // measured at 9,456 B against `next` @ 6f77b1bde's 9,446 (+10 B; 6 B
+    // over the cap) — fuzzer F7/F12 fixes, +33 B minified in signals
+    // (holdFrame lane gate +16, observeFlight first-observer hold +17);
+    // brotli layout. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-05). The cap is frozen again at
+    // 9.47 KB.
+    limit: "9.47 KB",
     alias
   },
   {
@@ -1266,6 +1273,19 @@ module.exports = [
     // -3 B minified). The same parking-gate change as the `+ isPending/latest`
     // note; brotli layout turns the -3 B minified into a saving here. Not
     // lowered (frozen caps only fall on a deliberate ratchet).
+    // Size-Exception (settle fast path, 2026-10-04): 9.81 -> 9.83 KB, measured
+    // at 9,812 B against `next` @ 924d909d9's 9,801 (+11 B; 2 B over the cap;
+    // +5 B minified). The seam's effect-queue merge is skipped on the plain
+    // flush — nothing parked, no lane reveal, no landing — and the per-flush
+    // list resets run only on a non-empty list: ~100 ns less fixed cost per
+    // flush (one signal + one render effect + flush: 240 -> 133 ns; a 20k-key
+    // store commit: 844 -> 748 ns). Brotli layout: the same +5 B minified
+    // measures -16 B on `+ createStore`, 0 B on the CSR app, +28 B on
+    // `+ every store primitive family` and +17/+21 B on the two pages (both
+    // within their caps); 44 equivalent encodings measured, none under every
+    // cap at once, this one the smallest minified. Accepted by the
+    // maintainer (2026-10-04). The cap is frozen again at 9.83 KB
+    // (measured + 10 B).
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     alias
   },
@@ -1573,6 +1593,12 @@ module.exports = [
     // above is gone (no heap refusal, no `_manualWriteTime`, no
     // `deleteFromHeap` in the setter). Reverts the #3740 raise. The cap is
     // frozen again at 19.69 KB.
+    // Size-Exception (settle fast path, 2026-10-04): 17.64 -> 17.66 KB,
+    // measured at 17,650 B against `next` @ 924d909d9's 17,632 (+18 B; 10 B
+    // over the cap; +4 B minified). The same seam change as the simple-app
+    // floor note; brotli layout over the larger bundle. Accepted by the
+    // maintainer (2026-10-04). The cap is frozen again at 17.66 KB
+    // (measured + 10 B).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
@@ -1975,7 +2001,14 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 30.82 -> 28.78 KB, measured at 28.77 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "28.78 KB",
+    // Size-Exception (settle fast path, 2026-10-04): 28.78 -> 28.80 KB,
+    // measured at 28,785 B against `next` @ 924d909d9's 28,757 (+28 B; 5 B
+    // over the cap; +5 B minified, all of it the signals core). The same
+    // seam change as the simple-app floor note; brotli layout over this
+    // bundle (before #3791 the same +5 B measured +2 B here). Accepted by
+    // the maintainer (2026-10-04). The cap is frozen again at 28.80 KB
+    // (measured + 10 B).
+    limit: "28.80 KB",
     alias
   },
   {
@@ -2828,7 +2861,16 @@ module.exports = [
     // Lowered (#3774, 2026-10-04): 30.71 -> 28.61 KB, measured at 28.60 KB by CI
     // at 22c3d3e14 — the hold model (L2): the signals core rebuilt from its
     // rulings. Lowering is the ratchet; raise only with a Size-Exception.
-    limit: "28.61 KB",
+    // Size-Exception (#3777, 2026-10-05): 28.61 -> 28.62 KB, measured at
+    // 28,612 B against `next` @ 6be6c5174's 28,592 (+20 B; +11 B minified).
+    // GRAPH_GROWTH keeps the initial route declaration (`initial: true`) out
+    // of a route's visit history: it settles before route content mounts, so
+    // it is not a completed visit to compare against (#3735). One gate in
+    // trackGraph, read by truthiness; the record is still emitted. The +20 B
+    // is brotli layout (the same change measured -10 B against 203ab1a43).
+    // Engine-only: every prod scenario byte-identical, the observe tier
+    // scenario above did not move.
+    limit: "28.62 KB",
     alias: observeAlias
   },
   {
@@ -3009,7 +3051,34 @@ module.exports = [
     // the live call (`call-driven-lifecycle`). The gate signal takes
     // `ownedWrite`; the bytes are the two `bound` locals and the option.
     // Accepted by the maintainer. The cap is frozen again at 13.00 KB.
-    limit: "13.00 KB",
+    // Size-Exception (#3759, 2026-10-04): 13.00 ->
+    // 13.78 KB, measured at 13,770 B against `next` @ bde429992's 12,997
+    // (+773 B; 770 B over the cap; +2,262 B minified, 41,048 -> 43,310:
+    // frames client +2,255, sf client slice +7). A refetch or single-flight
+    // region for a call a mount is showing is staged instead of written, so
+    // it lands in the commit of the transaction that read it: the handler's
+    // staged entries (chunks, deferred `onStream`, a content token per
+    // version, single-flight regions routed by root), the staged data tables
+    // (`stageTables`), and the two halves of the mount's follow effect
+    // (`followAddress`) — `FrameImpl.preview` pushing the staged slot args
+    // into live fills from the compute half (held with the transaction, so
+    // optimistic intent never reads the old args: the lane's guesses
+    // dissolve at the landing, and an effect-run write would land a flush
+    // behind), `stagedContent.commit` replaying the rest from the effect
+    // half. On L2 the switch's rebind moves to the effect half too (the
+    // switch is display, one reveal — ruling 2026-10-04) and a frameless
+    // waiter registered on the host settles the gate on the new address's
+    // first write, so a second switch mid-flight still binds. First measured
+    // pre-L2 at 13,726 B against `next` @ 9338c00c5's 12,977 (+749; a 12.98
+    // -> 13.73 KB raise); the L2 port adds the waiter and shares the follow
+    // effect (-21 B minified against the PR; brotli layout +24 B). Dropping
+    // either half was weighed and rejected: without the preview the
+    // one-flush optimistic gap returns (verified on L2: `false/false` in all
+    // three multi-flight specs), without staged tables the shown content
+    // reads the new response's refs before the commit. Accepted by the
+    // maintainer (2026-10-04). The cap is frozen again at 13.78 KB (head +
+    // 10 B).
+    limit: "13.78 KB",
     alias: framesAlias,
     external: framesExternal
   },
@@ -3142,6 +3211,32 @@ module.exports = [
     // Twelve equivalent encodings measured; this is the only one over by
     // page base alone. Accepted by the maintainer. The cap is frozen again
     // at 46.25 KB.
+    // Lowered (#3774, 2026-10-04): 46.25 -> 44.03 KB (floor-caps.json; the
+    // hold model, measured by CI at 22c3d3e14).
+    // Size-Exception (#3743, 2026-10-04): 44.03 -> 44.05 KB, measured at
+    // 44,031 B against `next` @ 1a3f87fd1's 44,029 (+2 B; 1 B over the cap;
+    // -97 B minified). +2 B br / -97 B min — #3743 fold presence diff;
+    // brotli layout on the 150 KB bundle. The store engine reaches this
+    // page through the frames client's container-trace materializer; the
+    // `+ createStore` scenario carries the same change at +5 B / -97 B
+    // minified, the live page at -5 B. Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer (2026-10-04). The cap is
+    // frozen again at 44.05 KB.
+    // Size-Exception (#3759, 2026-10-04): 44.05 -> 44.78 KB, measured at
+    // 44,762 B against `next` @ bde429992's 44,048 (+714 B; 712 B over the
+    // cap; +2,265 B minified, frames client +2,055). The frames client's
+    // staging and two-phase landing (the frames note); the frames client
+    // imports nothing new, so the remaining ~210 B minified across signals,
+    // solid, web and the sf client is attribution drift. Accepted by the
+    // maintainer (2026-10-04). The cap is frozen again at 44.78 KB (head +
+    // 10 B).
+    // Size-Exception (fuzzer F7/F12 fixes, 2026-10-05): 44.78 -> 44.84 KB
+    // (floor-caps.json), measured at 44,829 B against `next` @ 6f77b1bde's
+    // 44,762 (+67 B; 49 B over the cap; +16 B minified on this page) —
+    // fuzzer F7/F12 fixes, +33 B minified in signals (holdFrame lane gate
+    // +16, observeFlight first-observer hold +17); brotli layout. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 44.84 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3227,6 +3322,20 @@ module.exports = [
     // at 50,346 B against #3713 @ 73640f5cd's 50,150 (a 50.15 -> 50.35 KB
     // raise); the base moved under the PR (the fake-`Promise` cap above).
     // Size vetted by the maintainer. The cap is frozen again at 50.45 KB.
+    // Lowered (#3774, 2026-10-04): 50.45 -> 47.67 KB (floor-caps.json; the
+    // hold model, measured by CI at 22c3d3e14).
+    // Size-Exception (#3759, 2026-10-04): 47.67 -> 48.45 KB, measured at
+    // 48,436 B against `next` @ bde429992's 47,670 (+766 B; 766 B over the
+    // cap; +2,265 B minified, frames client +2,044). The same staging bytes
+    // as the base page. Accepted by the maintainer (2026-10-04). The cap is
+    // frozen again at 48.45 KB (head + 10 B).
+    // Size-Exception (fuzzer F7/F12 fixes, 2026-10-05): 48.45 -> 48.47 KB
+    // (floor-caps.json), measured at 48,454 B against `next` @ 6f77b1bde's
+    // 48,436 (+18 B; 4 B over the cap; +33 B minified) — fuzzer F7/F12
+    // fixes, +33 B minified in signals (holdFrame lane gate +16,
+    // observeFlight first-observer hold +17); brotli layout. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 48.47 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },

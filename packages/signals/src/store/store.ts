@@ -1259,9 +1259,11 @@ function notifyWrites(t: StoreTarget): void {
       }
   }
   // The container: structural readers hear membership/arrangement changes
-  // only (R9) — the compare is the store's, against the committed frame.
+  // only (R9) — the compare is the store's, against the committed frame. A
+  // container carrying an arrangement guess is told whether or not anyone
+  // subscribes: the write is a landing on the guess (`notifyContainer`).
   const k = t.k;
-  if (k !== null && k._subs !== null) {
+  if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
     let changed: boolean;
     if (t.ovl) {
       changed = t.del !== null && t.del.size !== 0;
@@ -1368,7 +1370,25 @@ export function notifyKeyValue(
 }
 
 /** The structural half of an adoption's notifications (reconcile does the
- * leaves itself): presence by `in`, the container by membership. */
+ * leaves itself): presence by `in`, the container by membership. Presence
+ * is DIFFED `old` → `neu` like the leaves (#3743): a presence node is
+ * written only where `in` changed between the view it was last told
+ * (#3296) and the adoption — `setSignal` joins a held node's transaction
+ * before its equality gate (A34 (1)), so repeating an unchanged absence to
+ * a node an action holds would make the whole tick the action's (an
+ * unrelated `a.value` stayed stale until the action settled). A real
+ * change still writes, and on a held node still proposes. A live chained
+ * `old` (a store proxy, §7b) reflects the inner store, not what the node
+ * was last told — written unconditionally, as before.
+ *
+ * The container is told of an arrangement change when it has structural
+ * subscribers OR carries an arrangement guess (S4): for a guessed
+ * container the write is the landing that judges the guess (Q-D, plan
+ * sec. 39 — confirm, supersede, or hold beneath), not a subscriber
+ * notification, and a landing whose truth changed no guessed key's value
+ * or presence (a newer question's rows beneath an optimistic push) still
+ * answers the arrangement — before, only the presence write reached the
+ * lane, by accident of being unconditional. */
 export function notifyFoldTail(
   t: StoreTarget,
   old: Record<PropertyKey, any>,
@@ -1376,10 +1396,12 @@ export function notifyFoldTail(
 ): void {
   const has = t.h;
   if (has !== null) {
-    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in neu);
+    const live: StoreTarget | undefined = (old as any)[$TARGET];
+    for (const key of Reflect.ownKeys(has))
+      if (live || key in old !== key in neu) setSignal(has[key as any], key in neu);
   }
   const k = t.k;
-  if (k !== null && k._subs !== null) {
+  if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
     const changed =
       Array.isArray(neu) && Array.isArray(old)
         ? arrayStructureChanged(old as any[], neu as any[])
@@ -1401,18 +1423,7 @@ export function notifyFold(
   if (nodes !== null) {
     for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);
   }
-  const has = t.h;
-  if (has !== null) {
-    for (const key of Reflect.ownKeys(has)) setSignal(has[key as any], key in neu);
-  }
-  const k = t.k;
-  if (k !== null && k._subs !== null) {
-    const changed =
-      Array.isArray(neu) && Array.isArray(old)
-        ? arrayStructureChanged(old as any[], neu as any[])
-        : membershipChanged(old, neu);
-    if (changed) notifyContainer(k, neu);
-  }
+  notifyFoldTail(t, old, neu);
 }
 
 // ---------------------------------------------------------------------------

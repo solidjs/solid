@@ -123,38 +123,36 @@ function tabs() {
         createRenderEffect(
           () => ((tick = getOwner()!), counter()),
           c => void log.push(`tab1:tick:${c}`),
-          undefined,
           { name: "tick" }
         );
         return "tab1";
       }
       const upper = createMemo(
         () => ((owners[t] = getOwner()!), runs.upper++, label().toUpperCase()),
-        undefined,
         { name: `upper${t}` }
       );
-      createEffect(upper, u => void log.push(`tab${t}:effect:${u}`), undefined, {
+      createEffect(upper, u => void log.push(`tab${t}:effect:${u}`), {
         name: `effect${t}`
       });
       // Tab 3 is only ever entered from a parked tab 2 — its pass is born
       // into a future already known to be pending, so a render effect
       // created BEFORE the async read must stay cold until the swap (O2/A).
       if (t === 3)
-        createRenderEffect(label, l => void log.push(`tab3:shell:${l}`), undefined, {
+        createRenderEffect(label, l => void log.push(`tab3:shell:${l}`), {
           name: "shell3"
         });
-      const data = createMemo(() => new Promise<string>(r => (resolvers[t] = r)), undefined, {
+      const data = createMemo(() => new Promise<string>(r => (resolvers[t] = r)), {
         name: `data${t}`
       });
-      createRenderEffect(data, v => void log.push(`tab${t}:data:${v}`), undefined, {
+      createRenderEffect(data, v => void log.push(`tab${t}:data:${v}`), {
         name: `dataEffect${t}`
       });
       return `tab${t}`;
     });
-    createRenderEffect(viewMemo, v => void log.push(`render:${v}`), undefined, { name: "render" });
+    createRenderEffect(viewMemo, v => void log.push(`render:${v}`), { name: "render" });
     // A derivation of the route: a write that reaches it reaches the future.
-    const header = createMemo(() => `${theme()}/${tab()}`, undefined, { name: "header" });
-    createRenderEffect(header, v => void log.push(`header:${v}`), undefined, {
+    const header = createMemo(() => `${theme()}/${tab()}`, { name: "header" });
+    createRenderEffect(header, v => void log.push(`header:${v}`), {
       name: "headerEffect"
     });
     // The frame itself, in the compiled shape: one render effect over the
@@ -162,7 +160,6 @@ function tabs() {
     createRenderEffect(
       () => (show() ? `panel:${tab()}/${counter()}` : "panel:hidden"),
       v => void log.push(v),
-      undefined,
       { name: "panel" }
     );
     return d;

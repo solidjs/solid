@@ -394,9 +394,19 @@ export function list(n: Signal<any>, t: Transaction): void {
 /** Hold the (uncommitted) frame under a held pass: every computed in the
  * live child chain, recursively. Plain owners are walked through, not held
  * — nothing reads or re-passes them. Once per park, over the parked frames
- * only; recomputes pay nothing for it. */
+ * only; recomputes pay nothing for it. A lane's node in the frame (listed on
+ * a lane: a verdict reader broken out of this very hold — display-ahead — or
+ * a derivation of a guess, CONFIG_OVERRIDE; a lane pass's effect) is the
+ * lane's, as the seam's own loop has it: "lane work never makes its node
+ * transaction work" (A15, #3698). Re-listed here it would carry the lane's
+ * value on the transaction's list, where the landing nulls its transaction
+ * and `dissolveLane` no longer finds it — a lane node with no lane, which the
+ * next read of it trips over (`laneRead` → `txOf`). Its frame is the lane's
+ * too (ruling A: a lane pass's children are the lane's), revealed and
+ * retired at the lane's seam. */
 function holdFrame(owner: Owner, t: Transaction): void {
   for (let c = owner._firstChild; c !== null; c = c._nextSibling) {
+    if ((c as Computed<any>)._x?._transaction?._lane) continue;
     if ((c as Computed<any>)._fn !== undefined && !(c._config & CONFIG_HELD))
       holdNode(c as unknown as Signal<any>, t);
     holdFrame(c, t);
@@ -619,7 +629,7 @@ export class GlobalQueue implements IQueue {
   declare static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
-  declare static _observeFlight: ((c: Computed<any>) => void) | undefined;
+  declare static _observeFlight: ((c: Computed<any>, el: Computed<any>) => void) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
   declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
   /** Store (store/store.ts): fold the pending backings whose container
@@ -786,8 +796,7 @@ export class GlobalQueue implements IQueue {
         )
           recompute(zombies[i]);
       // The unchanged passes' tails stay linked (A30, #3469): their inputs
-      // are held, and the committed frame still derives from them.
-      heldTrims.length = 0;
+      // are held, and the committed frame still derives from them — no trim.
     } else {
       commitPendingNodes();
       // The flush committed: an unchanged pass's stale tail goes now. Not
@@ -799,8 +808,12 @@ export class GlobalQueue implements IQueue {
         const t = heldTrims[i];
         if (t._x?._error == null && !(t as any)._modified) trimStaleDeps(t);
       }
-      heldTrims.length = 0;
     }
+    // The list is the flush's either way. Reset only when there is something
+    // to reset (`stagedReaders` below likewise): `length = 0` is a runtime
+    // call even on an empty array, and the plain flush — no unchanged pass,
+    // no lane work — has nothing in either.
+    if (heldTrims.length) heldTrims.length = 0;
     // Lanes: a blocked one parks its frame (its own flight is up); an
     // unblocked one reveals this round's work. Then land every transaction
     // no frame is waiting on — its lanes end with it. Backwards: a landing
@@ -813,7 +826,7 @@ export class GlobalQueue implements IQueue {
     // writes if it parked: the lane seam re-derives them on the committed
     // world (a lane's runs wait this round).
     GlobalQueue._laneSeams?.(t !== null ? stagedReaders : null);
-    stagedReaders.length = 0;
+    if (stagedReaders.length) stagedReaders.length = 0;
     this._queues = [[], []];
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
@@ -848,8 +861,15 @@ export class GlobalQueue implements IQueue {
       holding = true;
     }
     for (let i = 0; i < 2; i++) {
-      if (parked) u!._queues[i] = u!._queues[i].concat(own[i]);
-      this._queues[i] = lanes[i].concat(parked ? [] : own[i], this._queues[i]);
+      if (parked) append(u!._queues[i], own[i]);
+      // The plain flush — no reveal, no landing, not parked — has nothing to
+      // order around its own runs: they are the queue as they stand (the
+      // same array, not a copy; `run` takes it whole). Every other seam
+      // builds the ordered queue above.
+      this._queues[i] =
+        parked || lanes[i].length || this._queues[i].length
+          ? lanes[i].concat(parked ? [] : own[i], this._queues[i])
+          : own[i];
     }
     if (deferredZombies.length !== 0) {
       // Survivors are the displayed frame of a held pass: they rerun for the
@@ -864,8 +884,8 @@ export class GlobalQueue implements IQueue {
     GlobalQueue._boundarySeam?.();
   }
   run(type: number) {
-    if (this._queues[type - 1].length) {
-      const effects = this._queues[type - 1];
+    const effects = this._queues[type - 1];
+    if (effects.length) {
       this._queues[type - 1] = [];
       runQueue(effects, type);
     }

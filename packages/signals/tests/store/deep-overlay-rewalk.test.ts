@@ -12,7 +12,7 @@ import {
   deep,
   flush,
   untrack
-} from "../../src/index.ts";
+} from "../../src/index.js";
 
 for (const editParent of [false, true]) {
   it(`deep remains subscribed to descendants after ${editParent ? "parent" : "child"} edit`, () => {

@@ -29,7 +29,8 @@ import {
   createSignal,
   flush,
   isPending,
-  refresh
+  refresh,
+  type SourceAccessor
 } from "../src/index.js";
 
 const tick = () => new Promise<void>(r => setTimeout(r, 0));
@@ -46,7 +47,7 @@ function deferred<T = void>() {
 
 test("sync source: resolves with the re-executed value", async () => {
   let runs = 0;
-  let m!: () => number;
+  let m!: SourceAccessor<number>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
@@ -65,7 +66,7 @@ test("sync source: resolves with the re-executed value", async () => {
 
 test("async source: resolves with the landed value; the window stays quiet", async () => {
   const gates: ReturnType<typeof deferred<string>>[] = [];
-  let m!: () => string;
+  let m!: SourceAccessor<string>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
@@ -103,7 +104,7 @@ test("async source: resolves with the landed value; the window stays quiet", asy
 test("equal-value landing (silent to the graph) still settles the promise", async () => {
   const gates: ReturnType<typeof deferred<string>>[] = [];
   const effectRuns: string[] = [];
-  let m!: () => string;
+  let m!: SourceAccessor<string>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
@@ -134,7 +135,7 @@ test("equal-value landing (silent to the graph) still settles the promise", asyn
 
 test("failed re-ask rejects with the error", async () => {
   const gates: ReturnType<typeof deferred<string>>[] = [];
-  let m!: () => string;
+  let m!: SourceAccessor<string>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
@@ -162,7 +163,7 @@ test("failed re-ask rejects with the error", async () => {
 
 test("fire-and-forget refresh with a failing re-ask surfaces no unhandled rejection", async () => {
   const gates: ReturnType<typeof deferred<string>>[] = [];
-  let m!: () => string;
+  let m!: SourceAccessor<string>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
@@ -192,7 +193,7 @@ test("fire-and-forget refresh with a failing re-ask surfaces no unhandled reject
 
 test("supersession: waiters from both refreshes deliver the final landing", async () => {
   const gates: ReturnType<typeof deferred<string>>[] = [];
-  let m!: () => string;
+  let m!: SourceAccessor<string>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
@@ -264,7 +265,7 @@ test("store target resolves with the node passed (root and nested)", async () =>
 
 test("yield refresh in an action: staged landing delivers, the override does not", async () => {
   let server = "v1";
-  let m!: () => string;
+  let m!: SourceAccessor<string>;
   let opt!: () => string;
   let setOpt!: (v: string) => void;
   const views: string[] = [];
@@ -315,7 +316,7 @@ test("yield refresh in an action: staged landing delivers, the override does not
 });
 
 test("disposed target: already quiescent — resolves immediately with the last value", async () => {
-  let m!: () => number;
+  let m!: SourceAccessor<number>;
   const d = createRoot(dispose => {
     m = createMemo(() => 42);
     createEffect(m, () => {});
@@ -361,7 +362,7 @@ test("iterable-backed source: resolves at the fresh iteration's first yield", as
 
   const streams = [pump<number>(), pump<number>()];
   let run = 0;
-  let m!: () => number;
+  let m!: SourceAccessor<number>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;

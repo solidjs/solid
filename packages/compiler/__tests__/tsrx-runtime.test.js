@@ -168,6 +168,33 @@ afterAll(() => {
 });
 
 describe.each(["babel", "oxc"])("%s TSRX runtime behavior", compiler => {
+  test.each(["dom", "ssr"])("executes semicolonless setup once in %s", async generate => {
+    const source = `
+      import { ${generate === "dom" ? "render" : "renderToString"} } from "@solidjs/web";
+      export let calls = 0;
+      function View() @{
+        const label = "café 🚀"
+        calls++
+        const a = () => label // keep the following element separate
+        <div>{a()}</div>
+      }
+      export function run(root) {
+        return ${generate === "dom" ? "render(() => <View />, root)" : "renderToString(() => <View />)"};
+      }
+    `.replaceAll("\n", "\r\n");
+    const runtime = await loadRuntimeModule(compileRuntime(source, compiler, generate), generate);
+    if (generate === "dom") {
+      const root = document.createElement("div");
+      const dispose = runtime.run(root);
+      expect(root.textContent).toBe("café 🚀");
+      expect(runtime.calls).toBe(1);
+      dispose();
+    } else {
+      expect(runtime.run()).toBe("<div>café 🚀</div>");
+      expect(runtime.calls).toBe(1);
+    }
+  });
+
   test("executes statement containers in expression positions", async () => {
     const source = `
       import { render } from "@solidjs/web";

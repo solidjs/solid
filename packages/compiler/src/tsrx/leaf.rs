@@ -49,7 +49,7 @@ impl<'a> LeafProgram<'a> {
         if let Some(error) = crate::shared::parser::first_parser_error(parsed.diagnostics) {
             return Err(CompileError::parse(error));
         }
-        let map = LeafMap::new(projection.view().segments);
+        let map = LeafMap::new(projection.view().segments, projected);
         let mut program = parsed.program;
         let mut parentheses = ParenthesesNormalizer {
             allocator,
@@ -171,11 +171,28 @@ struct LeafSegment {
 
 pub(super) struct LeafMap {
     segments: Vec<LeafSegment>,
+    synthetic_statement_ends: Vec<u32>,
 }
 
 impl LeafMap {
-    fn new(segments: &[ProjectionSegment]) -> Self {
+    fn new(segments: &[ProjectionSegment], projected: &str) -> Self {
         Self {
+            // The parser inserts a separator before line-leading markup. Only
+            // recognize an unmapped semicolon between contiguous authored bytes.
+            synthetic_statement_ends: segments
+                .windows(2)
+                .filter_map(|pair| {
+                    let left = &pair[0];
+                    let right = &pair[1];
+                    (left.original_start + left.projected.end - left.projected.start
+                        == right.original_start
+                        && projected
+                            .get(left.projected.end as usize..right.projected.start as usize)
+                            == Some(";")
+                        && projected.as_bytes().get(right.projected.start as usize) == Some(&b'<'))
+                    .then_some(right.projected.start)
+                })
+                .collect(),
             segments: segments
                 .iter()
                 .map(|segment| LeafSegment {
@@ -187,6 +204,7 @@ impl LeafMap {
     }
 
     fn authored_span(&self, projected: Span) -> Option<AuthoredSpan> {
+        let projected = self.without_synthetic_terminator(projected);
         let mut index = self
             .segments
             .partition_point(|segment| segment.projected.start <= projected.start)
@@ -219,9 +237,23 @@ impl LeafMap {
     }
 
     pub(super) fn authored_extent(&self, projected: Span) -> Option<AuthoredSpan> {
+        let projected = self.without_synthetic_terminator(projected);
         let start = self.authored_endpoint(projected.start, true)?;
         let end = self.authored_endpoint(projected.end, false)?;
         (start <= end).then_some(AuthoredSpan { start, end })
+    }
+
+    fn without_synthetic_terminator(&self, span: Span) -> Span {
+        if span.start < span.end
+            && self
+                .synthetic_statement_ends
+                .binary_search(&span.end)
+                .is_ok()
+        {
+            Span::new(span.start, span.end - 1)
+        } else {
+            span
+        }
     }
 
     pub(super) fn authored_start(&self, projected: Span) -> Option<u32> {
@@ -532,6 +564,7 @@ mod tests {
                 projected: Span::new(1, 6),
                 authored_start: 10,
             }],
+            synthetic_statement_ends: Vec::new(),
         };
         let mut normalizer = ParenthesesNormalizer {
             allocator: &allocator,
@@ -571,5 +604,92 @@ mod tests {
                 "missing {authored}"
             );
         }
+    }
+
+    #[test]
+    fn does_not_map_unrelated_generated_semicolons() {
+        for (projected, next_authored_start) in [("a;<b/>", 3), ("a;b", 1)] {
+            let segments = [
+                ProjectionSegment {
+                    projected: tsrx_syntax::ByteSpan { start: 0, end: 1 },
+                    original_start: 0,
+                    fixable: true,
+                },
+                ProjectionSegment {
+                    projected: tsrx_syntax::ByteSpan {
+                        start: 2,
+                        end: projected.len() as u32,
+                    },
+                    original_start: next_authored_start,
+                    fixable: true,
+                },
+            ];
+            let map = LeafMap::new(&segments, projected);
+            let statement = Span::new(0, 2);
+            assert!(map.authored_span(statement).is_none(), "{projected}");
+            assert!(map.authored_extent(statement).is_none(), "{projected}");
+        }
+    }
+
+    #[test]
+    fn loads_only_the_complete_statement_at_a_synthetic_boundary() {
+        for suffix in ["\n", " // café 🚀\r\n", " /* comment */\n"] {
+            let source =
+                format!("export function F() @{{ const a = () => 1{suffix}<div>{{a()}}</div> }}");
+            let allocator = Allocator::default();
+            let leaves = LeafProgram::parse(&allocator, &source).expect("parser scaffold");
+            let start = source.find("const a").unwrap() as u32;
+            let end = source.find("<div>").unwrap() as u32;
+            let statement = leaves
+                .statement(&allocator, AuthoredSpan { start, end })
+                .expect("statement ending at synthetic separator");
+            assert_eq!(statement.span(), Span::new(start, end));
+            assert!(
+                leaves
+                    .statement(
+                        &allocator,
+                        AuthoredSpan {
+                            start,
+                            end: end - 1
+                        }
+                    )
+                    .is_none()
+            );
+            assert!(
+                leaves
+                    .statement(
+                        &allocator,
+                        AuthoredSpan {
+                            start: start + 1,
+                            end
+                        }
+                    )
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn authored_semicolons_keep_their_original_extent() {
+        let source = "export function F() @{ const a = () => 1;\n<div>{a()}</div> }";
+        let allocator = Allocator::default();
+        let leaves = LeafProgram::parse(&allocator, source).expect("parser scaffold");
+        let start = source.find("const a").unwrap() as u32;
+        let end = source.find(';').unwrap() as u32 + 1;
+        let statement = leaves
+            .statement(&allocator, AuthoredSpan { start, end })
+            .unwrap();
+        assert_eq!(statement.span(), Span::new(start, end));
+        assert!(
+            leaves
+                .statement(
+                    &allocator,
+                    AuthoredSpan {
+                        start,
+                        end: end - 1
+                    }
+                )
+                .is_none()
+        );
     }
 }

@@ -98,10 +98,10 @@ fn document_shell(html: &str, tag: &str) -> String {
 
     fn find_element(node: &Handle, tag: &str) -> Option<Handle> {
         node.children.borrow().iter().find_map(|child| {
-            if let NodeData::Element { name, .. } = &child.data {
-                if name.local.as_ref() == tag {
-                    return Some(child.clone());
-                }
+            if let NodeData::Element { name, .. } = &child.data
+                && name.local.as_ref() == tag
+            {
+                return Some(child.clone());
             }
             None
         })

@@ -36,11 +36,11 @@ describe("ASYNC_STORE_SETTER: store setter callbacks are synchronous", () => {
   it("createStore: an async setter callback throws, after its sync writes committed", () => {
     const [store, setStore] = createStore({ n: 0 });
     expect(() =>
-      setStore(async d => {
+      setStore((async (d: { n: number }) => {
         d.n = 1;
         await sleep();
         d.n = 2;
-      })
+      }) as unknown as Parameters<typeof setStore>[0])
     ).toThrow(ASYNC);
     // The writes before the first await were real — the transaction closed
     // at the callback's return with them in it, like an effect's side effects
@@ -68,9 +68,9 @@ describe("ASYNC_STORE_SETTER: store setter callbacks are synchronous", () => {
     const [base] = createStore({ n: 0 });
     const [, setView] = createOptimisticStore(base);
     expect(() =>
-      setView(async d => {
+      setView((async (d: { n: number }) => {
         d.n = 1;
-      })
+      }) as unknown as Parameters<typeof setView>[0])
     ).toThrow(ASYNC);
   });
 
@@ -85,16 +85,18 @@ describe("ASYNC_STORE_SETTER: store setter callbacks are synchronous", () => {
       )
     );
     expect(() =>
-      setDerived(async d => {
+      setDerived((async (d: { n: number }) => {
         d.n = 5;
-      })
+      }) as unknown as Parameters<typeof setDerived>[0])
     ).toThrow(ASYNC);
   });
 
   it("the throw goes through the diagnostics channel first", () => {
     const capture = OBSERVE!.diagnostics.capture();
     const [, setStore] = createStore({ n: 0 });
-    expect(() => setStore(async () => {})).toThrow(ASYNC);
+    expect(() => setStore((async () => {}) as unknown as Parameters<typeof setStore>[0])).toThrow(
+      ASYNC
+    );
     const events = capture.stop();
     expect(events).toHaveLength(1);
     expect(events[0].code).toBe("ASYNC_STORE_SETTER");

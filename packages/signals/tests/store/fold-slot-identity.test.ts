@@ -12,7 +12,7 @@ import {
   flush,
   snapshot,
   untrack
-} from "../../src/index.ts";
+} from "../../src/index.js";
 
 for (const operation of ["unshift", "reverse", "splice"] as const) {
   for (const observed of [false, true]) {
