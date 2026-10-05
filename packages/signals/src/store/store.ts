@@ -1812,7 +1812,7 @@ function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
  * at this key, is served as the inner store's wrapper — never a fresh
  * raw-keyed one — so the chained targets are the same objects across
  * settled and pending views. */
-function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: object): any {
+export function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: object): any {
   const innerT: StoreTarget = (target.v as any)[$TARGET];
   if (innerT.ch) {
     const iv = resolveChainedRaw(innerT, key, v);
