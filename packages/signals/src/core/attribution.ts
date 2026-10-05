@@ -1726,10 +1726,15 @@ function shallowEquivalent(a: object, b: object): boolean {
     for (let i = 0; i < arrA.length; i++) if (arrA[i] !== arrB[i]) return false;
     return true;
   }
-  const keys = Object.keys(a);
-  if (keys.length > UNSTABLE_KEY_CAP || keys.length !== Object.keys(b).length) return false;
+  // Every own key, symbols included: a symbol-keyed box holding a fresh value
+  // each run (web's `dynamic` boxes its in-flight promise) is not equivalent.
+  const keys = Reflect.ownKeys(a);
+  if (keys.length > UNSTABLE_KEY_CAP || keys.length !== Reflect.ownKeys(b).length) return false;
   for (const key of keys) {
-    if (!(key in b) || (a as Record<string, unknown>)[key] !== (b as Record<string, unknown>)[key])
+    if (
+      !(key in b) ||
+      (a as Record<PropertyKey, unknown>)[key] !== (b as Record<PropertyKey, unknown>)[key]
+    )
       return false;
   }
   return true;
