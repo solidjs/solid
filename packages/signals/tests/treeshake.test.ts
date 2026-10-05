@@ -73,6 +73,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
         "boundaries.ts",
         "map.ts",
         "affects.ts",
+        "deferred.ts",
         "core/verdict.ts",
         "core/lanes.ts",
         "core/action.ts",
@@ -478,6 +479,42 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       `export { createSignal, createEffect, createRoot, flush, createOptimistic } from "sigsrc";`
     );
     expect(retainedFrom(retained, ["core/lanes.ts"])).toEqual(["core/lanes.ts"]);
+  });
+
+  it("createDeferred loads the deferred module and the mark channel, and nothing else new", async () => {
+    const { retained } = await bundleFixture(
+      `export { createSignal, createEffect, createRoot, flush, createDeferred } from "sigsrc";`
+    );
+    // The clamp is deferred.ts's; its verdict is a mark on the node
+    // (affects.ts — the `affects()` channel, A24), so the mark module comes
+    // with it. The verdict layer that READS the mark does not: a program
+    // that never asks `isPending` pays nothing for the answer.
+    expect(retainedFrom(retained, ["deferred.ts", "affects.ts"])).toEqual([
+      "deferred.ts",
+      "affects.ts"
+    ]);
+    expect(
+      retainedFrom(retained, [
+        "store/store.ts",
+        "store/projection.ts",
+        "boundaries.ts",
+        "map.ts",
+        "core/verdict.ts",
+        "core/lanes.ts",
+        "core/action.ts"
+      ])
+    ).toEqual([]);
+  });
+
+  it("refresh/until carry only the deferred module's authoritative walk, not its clamp or the mark channel", async () => {
+    const { retained } = await bundleFixture(
+      `export { createSignal, createMemo, createEffect, createRoot, flush, refresh, until } from "sigsrc";`
+    );
+    // D9's check (`unansweredFlight`) lives in deferred.ts and is one
+    // `Set.size` compare when nothing is deferred; the wrapper, the mark
+    // registration and affects.ts shed with `createDeferred`.
+    expect(retainedFrom(retained, ["deferred.ts"])).toEqual(["deferred.ts"]);
+    expect(retainedFrom(retained, ["affects.ts"])).toEqual([]);
   });
 
   it("isPending/latest load the verdict layer and nothing else new", async () => {

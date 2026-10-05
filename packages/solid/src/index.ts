@@ -99,6 +99,7 @@ export {
   enableHydration,
   createRoot,
   createMemo,
+  createDeferred,
   createSignal,
   createStore,
   createProjection,
@@ -265,7 +266,7 @@ export {
   batch, // flush
   catchError, // old version handled by createErrorBoundary. new version is different helper.
   createComputed, // nope
-  createDeferred, // take it outside
+  createDeferred, // 1.x's idle-callback memo is gone; the 2.0 export of this name is the async memo that may lag but never leads
   createResource, // all computations
   createSelector, // createProjection
   DevHooks,

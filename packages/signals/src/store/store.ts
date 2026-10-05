@@ -941,6 +941,11 @@ GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
   const fam = ((n as any)._host as StoreTarget | undefined)?.fam;
   return fam != null && fam.node !== null && (fam.node._statusFlags & STATUS_PENDING) !== 0;
 };
+/** Core asks (deferred.ts): the derive a slot node's reads pull — the
+ * `until` predicate's authoritative walk hops it to find a `createDeferred`
+ * flight the derive reads. */
+GlobalQueue._slotDerive = (n: Signal<any>): Computed<any> | null =>
+  ((n as any)._host as StoreTarget | undefined)?.fam?.node ?? null;
 /** Core asks (lanes.ts `covered`): the value a slot node's guess covered.
  * A chained link's committed value is the inner store's at the last
  * read-through — refreshed here, since a guess served the reads since

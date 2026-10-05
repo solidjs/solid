@@ -6,6 +6,7 @@ import {
   TimeoutError,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_DEFERRED,
   CONFIG_FRESH_READ,
   createRoot,
   dispose,
@@ -39,6 +40,7 @@ import {
 import { REACTIVE_JOINED } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
 import { optimisticWrite } from "./core/lanes.js";
+import { deferredCompute, installDeferred, unansweredFlight } from "./deferred.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when
@@ -489,6 +491,68 @@ export function createMemo<T>(
 }
 
 /**
+ * Creates an async memo that **may lag the global clock, but never leads it**.
+ *
+ * ```typescript
+ * const value = createDeferred<T>(compute, options?: MemoOptions<T>);
+ * ```
+ *
+ * A plain async memo holds: while a refetch is in flight, everything that
+ * reads it suspends, and the write that caused the refetch is held with it
+ * until the fetch lands — one atomic commit, gated on the slowest fetch in
+ * the tick. `createDeferred` opts one node out of that coordination. Once it
+ * has a committed value, a refetch is invisible to the graph: readers keep
+ * getting the previous answer, the input's write commits immediately, and
+ * the landing commits on its own schedule. The flight is still visible to
+ * `isPending`, which is what drives the panel's "refreshing" indicator.
+ *
+ * - **First load is unchanged.** Before the first answer there is nothing to
+ *   serve, so reads suspend to the nearest `<Loading>` like any async memo.
+ *   `loadingValue` composes: a node born committed has no first-load window.
+ * - **It never leads.** Reads never return a value the rest of the graph has
+ *   not committed. A flight asked against a write that a sibling is holding
+ *   reveals with that write, not ahead of it.
+ * - **Errors propagate.** A rejected refetch throws to the nearest
+ *   `<Errored>`; the stale value never masks it.
+ * - **`refresh(d)` / `until(() => d())`** wait for the landed truth.
+ *
+ * Use it for **independent widgets** where showing the previous answer with
+ * a refreshing indicator is fine (dashboards, feeds, search-as-you-type).
+ * Keep the default `createMemo` for **coherent views** whose parts must agree.
+ *
+ * @param compute a function that receives its previous value and returns a value, Promise, or AsyncIterable
+ * @param options `MemoOptions` -- id, name, equals, unobserved, lazy, transparent, loadingValue
+ *
+ * @example
+ * ```tsx
+ * const rows = createDeferred(() => fetchPanelRows(store.period));
+ *
+ * <section class={{ stale: isPending(rows) }}>
+ *   <For each={rows()}>{row => <Row row={row} />}</For>
+ * </section>
+ * ```
+ */
+export function createDeferred<T>(
+  compute: ComputeFunction<NoInfer<T>, T>,
+  options: MemoOptions<T> & { loadingValue: T }
+): SourceAccessor<T>;
+export function createDeferred<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): SourceAccessor<T>;
+export function createDeferred<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): SourceAccessor<T> {
+  installDeferred();
+  const node = computed<T>(deferredCompute(compute as any), options);
+  // The brand core reads (`recompute`'s T4 arm): a held deferred node's
+  // re-pass joins nothing — a lagging question is not an answer.
+  node._config |= CONFIG_DEFERRED;
+  return accessor<T>(node);
+}
+
+/**
  * Creates a reactive effect with **separate compute and effect phases**.
  *
  * - `compute(prev)` runs reactively — *put all reactive reads here*. The
@@ -917,7 +981,12 @@ export function refresh<T>(
         watch(
           () => {
             if (waiter === null) waiter = getOwner() as Computed<unknown>;
-            return read(node);
+            const value = read(node);
+            // D9 (deferred.ts): a `createDeferred` re-ask is served the
+            // committed value; the waiter parks on the flight instead, and
+            // the flight's close re-runs it.
+            if (unansweredFlight(node, null)) throw new NotReadyError(node);
+            return value;
           },
           value => {
             res(typeof target === "function" ? value : target);
@@ -1025,7 +1094,16 @@ export function until<T>(fn: () => T, options?: UntilOptions): Promise<Truthy<T>
       // optimistic guess — a guess cannot satisfy the wait for its own
       // confirmation.
       watch(
-        fn,
+        () => {
+          const value = fn();
+          // D9 (deferred.ts): a `createDeferred` flight the predicate reaches
+          // — directly or through a derivation — is served the committed
+          // value; the predicate parks on the flight instead of confirming
+          // against the previous answer. A staged answer is answered.
+          const flight = unansweredFlight(getObserver() as Computed<any>);
+          if (flight) throw new NotReadyError(flight);
+          return value;
+        },
         value => {
           // Falsy is "not yet": keep the subscription live and wait for the
           // next evaluation. Only a truthy settled value resolves.

@@ -1379,6 +1379,26 @@ export function createMemo<T>(
   return read;
 }
 
+// Server identity (docs/create-deferred.md D7): the clamp is a client
+// scheduling property — a refetch served the previous answer. A server render
+// has one pass and no previous answer, so a deferred node renders exactly as
+// the memo it wraps: its first load suspends to the nearest boundary, its
+// value serializes for the client to adopt as commit #0.
+export function createDeferred<T>(
+  compute: ComputeFunction<NoInfer<T>, T>,
+  options: ServerMemoOptions<T> & { loadingValue: T }
+): SourceAccessor<T>;
+export function createDeferred<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerMemoOptions<T>
+): SourceAccessor<T>;
+export function createDeferred<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerMemoOptions<T>
+): SourceAccessor<T | undefined> {
+  return createMemo<T>(compute, options as any);
+}
+
 /**
  * Lean SSR memo for computes statically guaranteed to return synchronously
  * (no Promise / AsyncIterable result).

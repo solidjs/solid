@@ -597,6 +597,15 @@ export class GlobalQueue implements IQueue {
   declare static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
+  /** A slot node's family derive (store/store.ts): the node a read through
+   * the family pulls without linking — `createDeferred`'s authoritative
+   * walk hops it (deferred.ts). */
+  declare static _slotDerive: ((n: Signal<any>) => Computed<any> | null) | undefined;
+  /** `createDeferred` (deferred.ts): the node's flight landed (`asyncWrite`,
+   * ahead of the landing's write, as `landStatus` is): its mark releases,
+   * the readers parked on it wake. (Its seam sweep rides affects.ts's
+   * `_releaseAmbientMarks` — `onSeam`.) */
+  declare static _deferredLanded: ((el: Computed<any>) => void) | undefined;
   /** The value a slot node's guess covered: its committed value — a chained
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
@@ -1112,6 +1121,12 @@ export function commitPendingNode(n: Signal<any>): void {
     // the reveal. (The sweep of a node still in flight is not a landing.)
     // The A28 stash goes with it.
     if (c._x != null) ((c._x._reask = false), (c._x._flushed = NOT_PENDING));
+    // The committed value is the first observable answer for a loading-window
+    // node — the window closes here, not at compute time (#2990). Gated like
+    // the re-ask clear: a window with nothing staged is still in flight — a
+    // `createDeferred` flight queued for the seam's hold decision (D2) and
+    // committed by a sweep, or held and landed without it (deferred.ts).
+    c._loading = false;
     // An effect with a staged value was born held (L2): its first run is
     // this commit's, not its creation's (A29) — queue it now.
     if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) {
@@ -1122,10 +1137,6 @@ export function commitPendingNode(n: Signal<any>): void {
       );
     }
   }
-  // The committed value is the first observable answer for a loading-window
-  // node — the window closes here, not at compute time (#2990). Unconditional
-  // store to an always-present computed slot.
-  c._loading = false;
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   // The dependencies of the pass that produced the value are the frame's now:
   // the previous frame's tail goes (A30, #3410; `recompute` left it for a
