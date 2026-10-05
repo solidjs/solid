@@ -538,3 +538,34 @@ fn parse_errors_carry_authored_line_and_column() {
     .expect_err("unterminated element must fail");
     assert_eq!(error.kind(), CompileErrorKind::Parse);
 }
+
+#[test]
+fn parse_diagnostics_count_unicode_line_terminators() {
+    for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+        for prefix in ["const face = 0; ", r#"const face = "🚀"; "#] {
+            let source = [
+                "const header = 0;",
+                "export function C() @{",
+                &format!("{prefix}const broken = ;"),
+                "<div/>",
+                "}",
+            ]
+            .join(terminator);
+            let error = compile(
+                &source,
+                &CompileOptions {
+                    filename: Some("broken.tsrx".into()),
+                    ..fixture_options(Generate::Dom)
+                },
+            )
+            .expect_err("missing initializer must fail");
+            assert_eq!(error.kind(), CompileErrorKind::Parse);
+            let column = prefix.encode_utf16().count() + "const broken = ".len();
+            assert!(
+                error.message().ends_with(&format!("(3:{column})")),
+                "terminator {terminator:?}, prefix {prefix:?}: {}",
+                error.message()
+            );
+        }
+    }
+}
