@@ -2167,15 +2167,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
 
         let is_dynamic_value =
             !plan.marker_static && self.classify().is_dynamic(None, &expression, true);
-        // Server components (principles §9.2.3): a dynamic `class`/`style`
-        // is the one attribute shape the plain SSR output serializes INSIDE
-        // template quotes (`class="${ssrClassName(x)}"`), where an attribute-slot
-        // value read at that position — the whole value, or a name's
-        // condition in object form — would be stringified instead of
-        // bound. Under the option the whole attribute is a runtime hole,
-        // `ssrElementAttribute("class", x)`, whose helper emits the same
-        // bytes for a plain value and the position marker for a stand-in.
-        // Object literals stay objects (no inlining) for the same reason.
+        // Server components (principles §9.2.3) need a whole-attribute
+        // serializer that can emit a position marker for a binding-slot
+        // value. The ordinary class/style serializers cannot bind slots.
+        // Object literals stay objects (no inlining) so a slot used as a
+        // property's value can also emit its marker.
         if self.server_components && (key == "class" || key == "style") {
             self.uses_ssr_element_attribute = true;
             let key_literal =
@@ -2183,6 +2179,21 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     .expression_string_literal(span, self.ast().str(&key), None);
             let attr =
                 self.helper_call(span, "_$ssrElementAttribute", vec![key_literal, expression]);
+            let hole = if is_dynamic_value {
+                let arrow = self.arrow_return_expression(span, attr);
+                self.hoist_expression(template, span, arrow, true, false)
+            } else {
+                attr
+            };
+            template.push_expr(hole);
+            return Ok(());
+        }
+        if (key == "class" || key == "style")
+            && !matches!(expression, Expression::ObjectExpression(_))
+        {
+            // Omit the whole nullish attribute, but retain the ordinary
+            // serializers' binding-slot behavior without serverComponents.
+            let attr = self.ssr_nullable_attribute(span, &key, expression);
             let hole = if is_dynamic_value {
                 let arrow = self.arrow_return_expression(span, attr);
                 self.hoist_expression(template, span, arrow, true, false)
@@ -2243,6 +2254,72 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         self.set_attr(tag_name, span, template, &key, value, is_dynamic_value);
         Ok(())
+    }
+
+    /// Capture a nullable class/style once, guarding the complete attribute
+    /// rather than only the serialized value inside static template quotes.
+    fn ssr_nullable_attribute(
+        &mut self,
+        span: Span,
+        key: &str,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
+        let name = self.next_value_id();
+        let ast = self.ast();
+        let id = || ast.expression_identifier(span, ast.ident(&name));
+        self.uses_ssr_attribute = true;
+        let serializer = if key == "class" {
+            self.uses_ssr_class_name = true;
+            "_$ssrClassName"
+        } else {
+            self.uses_ssr_style = true;
+            "_$ssrStyle"
+        };
+        let serialized = self.helper_call(span, serializer, vec![id()]);
+        let key = ast.expression_string_literal(span, ast.str(key), None);
+        let attr = self.helper_call(span, "_$ssrAttribute", vec![key, serialized]);
+        let test = ast.expression_binary(
+            span,
+            id(),
+            oxc_ast::ast::BinaryOperator::Equality,
+            ast.expression_null_literal(span),
+        );
+        let body = ast.expression_conditional(
+            span,
+            test,
+            ast.expression_string_literal(span, ast.str(""), None),
+            attr,
+        );
+        let param = ast.formal_parameter(
+            span,
+            ast.vec(),
+            ast.binding_pattern_binding_identifier(span, ast.ident(&name)),
+            None,
+            None,
+            false,
+            None,
+            false,
+            false,
+        );
+        let params = ast.formal_parameters(
+            span,
+            oxc_ast::ast::FormalParameterKind::ArrowFormalParameters,
+            ast.vec1(param),
+            None,
+        );
+        let body = ast.function_body(
+            span,
+            ast.vec(),
+            ast.vec1(ast.statement_expression(span, body)),
+        );
+        let arrow = ast.expression_arrow_function(span, true, false, None, params, None, body);
+        ast.expression_call(
+            span,
+            arrow,
+            None,
+            ast.vec1(expression_to_argument(value)),
+            false,
+        )
     }
 
     /// Babel's SSR `setAttr`: `_$ssrAttribute(name, value)`, hoisted behind an

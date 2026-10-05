@@ -629,15 +629,11 @@ function transformAttributes(
           checkMember: true,
           checkTags: true
         });
-        // Server components (principles §9.2.3): a dynamic `class`/`style`
-        // is the one attribute shape the plain SSR output serializes INSIDE
-        // template quotes (`class="${ssrClassName(x)}"`), where an attribute-slot
-        // value read at that position — the whole value, or a name's
-        // condition in object form — would be stringified instead of
-        // bound. Under the option the whole attribute is a runtime hole,
-        // `ssrElementAttribute("class", x)`, whose helper emits the same
-        // bytes for a plain value and the position marker for a stand-in.
-        // Object literals stay objects (no inlining) for the same reason.
+        // Server components (principles §9.2.3) need a whole-attribute
+        // serializer that can emit a position marker for a binding-slot
+        // value. The ordinary class/style serializers cannot bind slots.
+        // Object literals stay objects (no inlining) so a slot used as a
+        // property's value can also emit its marker.
         if (info.serverComponents && (key === "class" || key === "style")) {
           const attr = t.callExpression(registerImportMethod(path, "ssrElementAttribute"), [
             t.stringLiteral(key),
@@ -649,6 +645,36 @@ function transformAttributes(
               ? hoistExpression(path, results, t.arrowFunctionExpression([], attr), {
                   group: true
                 })
+              : attr
+          );
+          return;
+        }
+        if ((key === "class" || key === "style") && !t.isObjectExpression(value.expression)) {
+          // The whole attribute must be absent for nullish values. Keep the
+          // ordinary serializers: ssrElementAttribute would also bind slots
+          // without serverComponents. Capture the value once before testing it.
+          const id = path.scope.generateUidIdentifier("v$");
+          const attr = t.callExpression(
+            t.arrowFunctionExpression(
+              [id],
+              t.conditionalExpression(
+                t.binaryExpression("==", t.cloneNode(id), t.nullLiteral()),
+                t.stringLiteral(""),
+                t.callExpression(registerImportMethod(path, "ssrAttribute"), [
+                  t.stringLiteral(key),
+                  t.callExpression(
+                    registerImportMethod(path, key === "class" ? "ssrClassName" : "ssrStyle"),
+                    [t.cloneNode(id)]
+                  )
+                ])
+              )
+            ),
+            [value.expression as babelTypes.Expression]
+          );
+          results.template.push("");
+          results.templateValues.push(
+            isDynamicValue
+              ? hoistExpression(path, results, t.arrowFunctionExpression([], attr), { group: true })
               : attr
           );
           return;

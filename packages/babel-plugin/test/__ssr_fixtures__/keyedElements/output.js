@@ -5,7 +5,7 @@ import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 var _tmpl$ = '<ul><li _key="a">Apple</li></ul>',
-  _tmpl$2 = ["<ul><li", ' class="', '">', "</li></ul>"],
+  _tmpl$2 = ["<ul><li", "", ">", "</li></ul>"],
   _tmpl$3 = ["<ul>", "</ul>"];
 // `$key` on an intrinsic element compiles to the `_key` attribute the
 // frame morph matches keyed elements by. Static keys inline into the
@@ -14,11 +14,14 @@ var _tmpl$ = '<ul><li _key="a">Apple</li></ul>',
 // so it must pass through unrenamed.
 const staticKey = _$ssr(_tmpl$);
 var _g$ = _$ssrGroup(
-    () => [_$ssrAttribute("_key", _$escape(item.id, true)), _$ssrClassName(item.cls)],
+    () => [
+      _$ssrAttribute("_key", _$escape(item.id, true)),
+      (_v$2 => (_v$2 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$2))))(item.cls)
+    ],
     2
   ),
-  _v$3 = () => _$escape(item.text);
-const dynamicKey = _$ssr(_tmpl$2, _g$, _g$, _v$3);
+  _v$4 = () => _$escape(item.text);
+const dynamicKey = _$ssr(_tmpl$2, _g$, _g$, _v$4);
 const componentKey = Row({
   get $key() {
     return item.id;
@@ -31,7 +34,7 @@ const componentKey = Row({
 // On a spread element the same rule applies to the spread path: the key
 // joins the element's sources (renamed for SSR, dropped for DOM) rather than
 // the template.
-var _v$4 = _$ssrElement(
+var _v$5 = _$ssrElement(
   "li",
   [
     {
@@ -45,4 +48,4 @@ var _v$4 = _$ssrElement(
   () => _$escape(item.text),
   false
 );
-const spreadKey = _$ssr(_tmpl$3, _v$4);
+const spreadKey = _$ssr(_tmpl$3, _v$5);

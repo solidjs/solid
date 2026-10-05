@@ -7,8 +7,8 @@ import { ssrElement as _$ssrElement } from "r-server";
 var _tmpl$ = "<ul><li _key=\"a\">Apple</li></ul>";
 var _tmpl$2 = [
 	"<ul><li",
-	" class=\"",
-	"\">",
+	"",
+	">",
 	"</li></ul>"
 ];
 var _tmpl$3 = ["<ul>", "</ul>"];
@@ -19,11 +19,11 @@ var _tmpl$3 = ["<ul>", "</ul>"];
 // so it must pass through unrenamed.
 const staticKey = _$ssr(_tmpl$);
 var _g$ = _$ssrGroup(() => {
-	return [_$ssrAttribute("_key", _$escape(item.id, true)), _$ssrClassName(item.cls)];
-}, 2), _v$3 = () => {
+	return [_$ssrAttribute("_key", _$escape(item.id, true)), ((_v$2) => _v$2 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$2)))(item.cls)];
+}, 2), _v$4 = () => {
 	return _$escape(item.text);
 };
-const dynamicKey = _$ssr(_tmpl$2, _g$, _g$, _v$3);
+const dynamicKey = _$ssr(_tmpl$2, _g$, _g$, _v$4);
 const componentKey = Row({
 	get $key() {
 		return item.id;
@@ -32,7 +32,7 @@ const componentKey = Row({
 		return item.text;
 	}
 });
-var _v$4 = _$ssrElement("li", [{
+var _v$5 = _$ssrElement("li", [{
 	get _key() {
 		return item.id;
 	},
@@ -45,4 +45,4 @@ var _v$4 = _$ssrElement("li", [{
 // On a spread element the same rule applies to the spread path: the key
 // joins the element's sources (renamed for SSR, dropped for DOM) rather than
 // the template.
-const spreadKey = _$ssr(_tmpl$3, _v$4);
+const spreadKey = _$ssr(_tmpl$3, _v$5);

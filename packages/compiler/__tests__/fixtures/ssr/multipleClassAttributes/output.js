@@ -1,7 +1,8 @@
 import { ssr as _$ssr } from "r-server";
+import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
 var _tmpl$ = "<div class=\"b\">static static</div>";
-var _tmpl$2 = ["<div class=\"", "\">static + dynamic</div>"];
+var _tmpl$2 = ["<div", ">static + dynamic</div>"];
 var _tmpl$3 = "<div class=\"on\">two dynamic</div>";
 var _tmpl$4 = ["<div class=\"", "\">string + object</div>"];
 var _tmpl$5 = "<div class=\"c\">three statics</div>";
@@ -12,10 +13,10 @@ var _tmpl$5 = "<div class=\"c\">three statics</div>";
 const dynamicClass = () => "dyn";
 const flag = true;
 const t1 = _$ssr(_tmpl$);
-var _v$ = () => {
-	return _$ssrClassName(dynamicClass());
+var _v$2 = () => {
+	return ((_v$) => _v$ == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$)))(dynamicClass());
 };
-const t2 = _$ssr(_tmpl$2, _v$);
+const t2 = _$ssr(_tmpl$2, _v$2);
 const t3 = _$ssr(_tmpl$3);
 const t4 = _$ssr(_tmpl$4, "active ");
 const t5 = _$ssr(_tmpl$5);
