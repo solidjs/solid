@@ -27,6 +27,12 @@ import { observeInvocation } from "../../src/server-observe.js";
 import { emitFinding, errorText } from "../../src/diagnostics.js";
 import { encodeFlashCookie, setFlashSecret } from "./flash.js";
 import {
+  argumentDecodeCodec,
+  namesRefusedType,
+  refusedArgument,
+  refusedArgumentError
+} from "./argument-codec.js";
+import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
@@ -39,7 +45,7 @@ import {
   assertFlightSource,
   configureServerFunctionsCodec,
   decodeResponse,
-  deserializeString,
+  deserializeStream,
   encodeErrorHeaderValue,
   extractBody,
   getHeadersAndBody,
@@ -415,7 +421,11 @@ export interface ServerFunctionsServerConfig {
   /**
    * Codec options (extra plugins etc.) for decoding arguments and encoding
    * results — must match the client's. Stored in the shared layer, so
-   * `decodeResponse` sees them too. When `serializeErrorStacks` is omitted,
+   * `decodeResponse` sees them too. One asymmetry is fixed: arguments are
+   * client input and never decode `Response` or `Request` values, whatever
+   * plugins are configured — a call carrying one is refused with `400`.
+   * Results keep the full set. Every plugin added here is a type a client
+   * can make the server construct. When `serializeErrorStacks` is omitted,
    * the server-function boundary defaults it from this module's compiled
    * development variant.
    */
@@ -1850,7 +1860,60 @@ function unknownFormatError(tag) {
   return error;
 }
 
-async function parseArguments(request, url, scripted, codec) {
+// Decodes one argument payload to its value. A payload already wholly in
+// memory — the `?args=` query, a POST body the size bound buffered — is
+// decoded to its LAST frame before dispatch: a refused value inside a
+// promise or stream (see argument-codec.js) arrives in a later frame than
+// the head the call would be dispatched on, and only reading to the end
+// answers that refusal with the same 400 a top-level one gets. The wait
+// rides the decoder's connection slot (the one a live loop uses), which
+// hands the stream's end back instead of sweeping it; the sweep then runs
+// here exactly as the decoder would have run it. A refused type fails the
+// decode (see argument-codec.js); whether a failure WAS a refusal is read
+// off the payload, and only on failure — at the head, or at a later frame,
+// which is when deferreds are left open at the stream's end. Any other
+// failure keeps its existing answer: a 400 at the head, a failed promise or
+// stream past it. A body that streams in (`bodySizeLimit: Infinity`, so no
+// `payload`) cannot be waited on: there a refusal fails the promise or
+// stream that would have carried the value.
+async function decodeArguments(decode, payload) {
+  if (payload === null) return await decode(undefined);
+  const refuseNamed = () => {
+    const text = typeof payload === "string" ? payload : new TextDecoder().decode(payload);
+    if (namesRefusedType(text)) throw refusedArgumentError();
+  };
+  const connection = {};
+  let value;
+  try {
+    value = await decode({ connection });
+  } catch (error) {
+    if (connection.ended) connection.ended.then(end => end.sweep());
+    refuseNamed();
+    throw error;
+  }
+  if (connection.ended) {
+    const { open, sweep } = await connection.ended;
+    sweep();
+    if (open) refuseNamed();
+  }
+  return value;
+}
+
+// The decode module carries the default plugin set the argument list is
+// filtered from; loaded on the first codec-framed argument payload only, as
+// the decoder itself is.
+// Synchronous once loaded: the argument road already awaits enough.
+let decodeModule;
+async function loadArgumentCodec(codec) {
+  decodeModule = await import("../../serialization/src/serializer-decode.js");
+  return argumentDecodeCodec(codec, decodeModule.DEFAULT_WEB_PLUGINS);
+}
+const argumentCodecFor = codec =>
+  decodeModule
+    ? argumentDecodeCodec(codec, decodeModule.DEFAULT_WEB_PLUGINS)
+    : loadArgumentCodec(codec);
+
+async function parseArguments(request, url, scripted, codec, buffered) {
   const parsed = [];
   // Bound arguments arrive on the url for GET calls, no-JS form posts, and
   // scripted POSTs whose body is a natural HTTP encoding (FormData,
@@ -1867,7 +1930,12 @@ async function parseArguments(request, url, scripted, codec) {
     // reserves `args`, so a caller that sends it sent an encoding.
     let result;
     if (args.startsWith(";0x")) {
-      result = await deserializeString(args, codec);
+      let argumentCodec = argumentCodecFor(codec);
+      if (argumentCodec instanceof Promise) argumentCodec = await argumentCodec;
+      result = await decodeArguments(
+        wire => deserializeStream(new Response(args), argumentCodec, wire),
+        args
+      );
     } else {
       // The framed codec enforces its own depth cap; bare JSON must not be
       // the uncapped alternative (#3119).
@@ -1913,7 +1981,14 @@ async function parseArguments(request, url, scripted, codec) {
     // a matched decode consumes it, and the fall-through hands it to the
     // empty-body inspection instead of minting a second clone.
     const body = request.clone();
-    const decoded = await extractBody(body, codec);
+    let decoded;
+    if (bodyFormat === BodyFormat.Serialized) {
+      let argumentCodec = argumentCodecFor(codec);
+      if (argumentCodec instanceof Promise) argumentCodec = await argumentCodec;
+      decoded = await decodeArguments(wire => extractBody(body, argumentCodec, wire), buffered);
+    } else {
+      decoded = await extractBody(body, codec);
+    }
     // Both argument-array encodings: codec-framed and plain JSON. The
     // framed codec enforces its own depth cap during decode; bare JSON
     // must not be the uncapped alternative (#3119). Either way the payload
@@ -4072,6 +4147,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
     );
     return finish(protectsRequest ? withCSRFVary(response) : response);
   }
+  let argumentBytes = null;
   if (method === "POST" && request.body !== null && bodySizeLimit !== Infinity) {
     // The one thing a declaration is good for: a CONFORMING one — digits,
     // per RFC 9110 §8.6 (the bare Number() parse lost that: Number("-1")
@@ -4120,6 +4196,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
       return finish(protectsRequest ? withCSRFVary(response) : response);
     }
     request = withBufferedBody(request, buffered);
+    argumentBytes = buffered;
   }
 
   // An async createEvent is out of contract (the type is synchronous), but
@@ -4250,16 +4327,20 @@ export async function handleServerFunctionRequest(request, options = {}) {
 
   let parsed;
   try {
-    parsed = await parseArguments(request, url, scripted, codec);
+    parsed = await parseArguments(request, url, scripted, codec, argumentBytes);
   } catch (error) {
     // A query that is not the encoding it claims to be is a malformed
     // request, not a failing call: 400 keeps it out of the function's error
     // channel, and answers the same way for every caller of that url. The
     // unknown-tag refusal carries its own development message: version skew
-    // has a recovery (redeploy, reload) worth naming (#3245).
-    const skewed = error !== null && typeof error === "object" && error[FORMAT_SKEW] === true;
+    // has a recovery (redeploy, reload) worth naming (#3245). So does a
+    // refused argument type: the fix is at the call site.
+    const named =
+      error !== null && typeof error === "object" && error[FORMAT_SKEW] === true
+        ? error
+        : refusedArgument(error);
     const response = new Response(
-      DEV ? (skewed ? error.message : "Malformed server function arguments") : null,
+      DEV ? (named ? named.message : "Malformed server function arguments") : null,
       { status: 400 }
     );
     return refuseCommitted(response);
@@ -4608,6 +4689,9 @@ function ownResponse(response) {
  * - HEAD responses drop their body, as HTTP requires — the function still
  *   ran (HEAD is gated identically to GET), so status and headers are those
  *   of the equivalent GET (#3069).
+ * - `X-Content-Type-Options: nosniff` unless the function set its own: a
+ *   body is read as the type its `Content-Type` names, and one without a
+ *   type (bytes, an untyped Blob) is never content-sniffed into a document.
  */
 function finalizeTransportResponse(response, method) {
   const stripBody = method === "HEAD" && response.body !== null;
@@ -4622,10 +4706,14 @@ function finalizeTransportResponse(response, method) {
   // minimal correct 304 the dev warning's own advice leads to. 204/205 are
   // ordinary answers, not cache updates, and keep the default.
   const defaultsCache = !response.headers.has("Cache-Control") && response.status !== 304;
-  if (stripBody || defaultsCache) {
+  const defaultsSniff = !response.headers.has("X-Content-Type-Options");
+  if (stripBody || defaultsCache || defaultsSniff) {
     try {
       if (defaultsCache) {
         response.headers.set("Cache-Control", "no-store");
+      }
+      if (defaultsSniff) {
+        response.headers.set("X-Content-Type-Options", "nosniff");
       }
       if (!stripBody) return response;
       // discard, don't leak: the encoded body may be a live codec stream
@@ -4639,6 +4727,9 @@ function finalizeTransportResponse(response, method) {
       // immutable headers (e.g. a raw fetch() Response passed through)
       const headers = new Headers(response.headers);
       if (defaultsCache && !headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+      if (defaultsSniff && !headers.has("X-Content-Type-Options")) {
+        headers.set("X-Content-Type-Options", "nosniff");
+      }
       if (stripBody) response.body.cancel().catch(() => {});
       return new Response(stripBody ? null : response.body, {
         status: response.status,
