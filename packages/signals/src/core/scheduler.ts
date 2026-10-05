@@ -629,7 +629,7 @@ export class GlobalQueue implements IQueue {
   declare static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
-  declare static _observeFlight: ((c: Computed<any>) => void) | undefined;
+  declare static _observeFlight: ((c: Computed<any>, el: Computed<any>) => void) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
   declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
   /** Store (store/store.ts): fold the pending backings whose container

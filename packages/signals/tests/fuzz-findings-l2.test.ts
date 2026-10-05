@@ -762,46 +762,94 @@ describe("fuzz findings on L2 — crashes", () => {
     expect(captured.errors.map(String)).toEqual([]);
   });
 
-  // F12. Livelock: "Potential Infinite Loop Detected" from the scheduler's
-  // guard — every flush opens and lands a transaction holding nothing. Shape:
-  // an action whose body ends with a write; a gate flipped true in the tick
-  // the action started (adopted by it, O1); a reader of `latest(source)` and
-  // an async memo of `source`. (The pre-carve record names this pattern: "a
-  // verdict reader of the pending, un-held derive opened a holding-nothing
-  // transaction per flush".)
-  it.fails(
-    "F12: an action adopting a same-tick reveal of a latest() reader does not livelock at its end (A26, O1)",
-    async () => {
-      const captured = captureErrors();
-      const [source, setSource] = createSignal(0);
-      const [show, setShow] = createSignal(false);
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const node = createMemo(() => Promise.resolve(latest(source)));
-        createRenderEffect(
-          () => (show() ? [latest(source), node()] : "hidden"),
-          () => {}
-        );
-        run = action(function* () {
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setSource(1);
+  // F12. A15 first observer (#3458): "when the transaction has NO entry for
+  // the flight — it was in flight but nothing displayed it, and this reveal
+  // is its first observer — the observation registers it, and the
+  // transaction waits on the flight it now shows a reader of." The cycle:
+  // the action's end lands its transaction while the async memo's flight —
+  // asked as the verdict lane's work (`latest(source)` = the proposal) — is
+  // still up; `dissolveLane` commits the memo beneath the flight, which is
+  // now nobody's. The landing's `_reruns` re-derive the reader (a stale
+  // reader of `show`, held with the action by O1): `show` is true now, the
+  // memo is pending and unheld, and the reader — a verdict reader — is served
+  // the committed value and `observeFlight`s it: a transaction opens for the
+  // frame to hold, but the flight is on no list, so it holds nothing, lands
+  // at this very seam, and its `_reruns` re-derive the reader into the same
+  // observation — every flush ("Potential Infinite Loop"). `observeFlight`
+  // now holds the flight's node in the frame's transaction when nobody holds
+  // it: the transaction has an entry for what it shows a reader of, waits
+  // for the landing, and re-derives the reader once.
+  it("F12: a verdict reader revealing a flight nobody holds registers it with the frame — an action adopting a same-tick reveal of a latest() reader lands once at its end (A15 #3458, A26, O1)", async () => {
+    const captured = captureErrors();
+    const [source, setSource] = createSignal(0);
+    const [show, setShow] = createSignal(false);
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const node = createMemo(() => Promise.resolve(latest(source)));
+      createRenderEffect(
+        () => (show() ? [latest(source), node()] : "hidden"),
+        () => {}
+      );
+      run = action(function* () {
+        yield new Promise<void>(r => {
+          resume = r;
         });
+        setSource(1);
       });
-      await drain();
-      const p = run();
-      setShow(true); // same tick as the action's start: adopted by it (O1)
-      for (let i = 0; i < 4; i++) await tick();
-      resume();
-      for (let i = 0; i < 8; i++) await tick();
-      await Promise.race([p.catch(e => captured.errors.push(e)), tick()]);
-      captured.stop();
-      dispose();
-      expect(captured.errors.map(String)).toEqual([]);
-    }
-  );
+    });
+    await drain();
+    const p = run();
+    setShow(true); // same tick as the action's start: adopted by it (O1)
+    for (let i = 0; i < 4; i++) await tick();
+    resume();
+    for (let i = 0; i < 8; i++) await tick();
+    await Promise.race([p.catch(e => captured.errors.push(e)), tick()]);
+    captured.stop();
+    dispose();
+    expect(captured.errors.map(String)).toEqual([]);
+  });
+
+  // F12, reduced: the action and its lane only manufactured the orphan
+  // flight. Any flight nobody holds — here a memo re-asked by a write whose
+  // only reader is gated away (its inputs commit, #3305) — revealed to a
+  // verdict reader livelocked the same way, and now holds the frame on the
+  // flight until it lands.
+  it("F12 (reduced): a verdict reader revealing an orphan flight holds the frame on it until it lands (A15 #3458, #3305)", async () => {
+    const captured = captureErrors();
+    const gates = new Map<string, () => void>();
+    const [src, setSrc] = createSignal(0);
+    const [show, setShow] = createSignal(false);
+    const frames: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => gated(gates, `m:${src()}`, src()));
+      createRenderEffect(
+        () => (show() ? [latest(src), m()] : "hidden"),
+        v => {
+          frames.push(JSON.stringify(v));
+        }
+      );
+    });
+    flush();
+    gates.get("m:0")!();
+    await drain();
+    setSrc(1); // m flies unobserved: src=1 commits, the flight is nobody's
+    await drain();
+    setShow(true); // the verdict reader is the flight's first observer
+    await drain();
+    gates.get("m:1")!();
+    await drain();
+    captured.stop();
+    dispose();
+    expect(captured.errors.map(String)).toEqual([]);
+    // The reveal read `show`'s staging, so the reader is the frame's (L2
+    // rule 3) and the reveal waits with the flight it discovered — whose
+    // inputs are visible (A15 reveal corollary, #3305): one frame, at the
+    // landing.
+    expect(frames).toEqual(['"hidden"', "[1,1]"]);
+  });
 });
