@@ -96,6 +96,7 @@ import {
   isOwned,
   lookupTarget,
   markDescendants,
+  setLookup,
   storeLookup,
   storeOwners,
   type StoreFamily,
@@ -242,7 +243,7 @@ function createTarget(
   t.ovl = false;
   t.del = null;
   t.px = new Proxy(t, traps);
-  (fam?.map ?? storeLookup).set(value, t);
+  setLookup(value, t);
   if (__TEST__ && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
   return t;
 }
@@ -836,7 +837,7 @@ export function adoptPB(
   target.wk = null; // adoption supersedes staged trap writes
   const owner: StoreTarget | undefined = (incoming as any)[$OWNER];
   if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
-  else (target.fam?.map ?? storeLookup).set(incoming, target);
+  else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
 }

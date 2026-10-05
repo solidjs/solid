@@ -33,7 +33,7 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
-import { storeLookup, type StoreFamily, type StoreTarget } from "./target.js";
+import { setLookup, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   markRawIngest,
@@ -120,7 +120,7 @@ function wrapDraft(
   // The wrapper stands for its store proxy wherever the derive's result
   // carries it (`wrap`, `unwrapValue`, reconcile's slot matching).
   const t: StoreTarget | undefined = inner[$TARGET];
-  if (t) (t.fam ? t.fam.map : storeLookup).set(px, t);
+  if (t !== undefined) setLookup(px, t);
   return px;
 }
 
