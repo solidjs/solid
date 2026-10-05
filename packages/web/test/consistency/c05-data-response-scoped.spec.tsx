@@ -62,7 +62,10 @@ afterEach(() => {
 async function sharedHost() {
   installServerComponents();
   const host = getFrameHost();
-  await host.prepareData();
+  // `prepareData` takes the chunk about to decode on branches where the
+  // materializer loads lazily (S1); a trace-less probe chunk warms the codec
+  // alone on every branch.
+  await host.prepareData({ type: "data", id: "", version: 0, node: null } as any);
   return host;
 }
 
