@@ -46,6 +46,7 @@ import {
   REACTIVE_FRAME_READ,
   REACTIVE_IN_HEAP,
   REACTIVE_JOINED,
+  REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_SCREEN_READ,
@@ -305,7 +306,12 @@ export function laneStage(
 ): boolean {
   if (!create && !(el._flags & REACTIVE_LANE_READ) && !(el._config & CONFIG_GUESS)) {
     if (el._x !== null) {
-      if (el._x._transaction?._lane) el._x._transaction = null;
+      const t = el._x._transaction;
+      if (t?._lane) {
+        el._x._transaction = null;
+        // A held node the lane took over goes back to the lane's holder.
+        if (el._config & CONFIG_HELD) list(el, resolveTx(t._parent!));
+      }
       el._x._lane = NOT_PENDING;
     }
     el._config &= ~CONFIG_OVERRIDE;
@@ -325,6 +331,8 @@ export function laneStage(
     // leaves the guess.
     if (!errored) el._config &= ~CONFIG_GUESS;
   }
+  // A leaf has no lane value to seat it: its next pass is the lane's (#3766).
+  else if (errored && !create) el._flags |= REACTIVE_LANE_DIRTY;
   list(el, l);
   return true;
 }

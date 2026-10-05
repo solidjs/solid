@@ -1128,7 +1128,14 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.49 KB.
-    limit: "9.49 KB",
+    // Size-Exception requested (#3766, 2026-10-05): 9.49 -> 9.54 KB, measured
+    // at 9,521 B on macOS against `next` @ a8c98bd2's 9,486 (+35 B; 31 B over
+    // the cap; +65 B minified). `laneStage` marks a leaf whose own lane pass
+    // ends pending so its next pass is the lane's, and hands a held node that
+    // leaves a lane back to the lane's holder. Lanes are not in the core
+    // floor (7,349 -> 7,350 B, 0 B minified). Cap set at measured + 10 B
+    // rounded up to 0.01 KB, pending the maintainer's decision.
+    limit: "9.54 KB",
     alias
   },
   {

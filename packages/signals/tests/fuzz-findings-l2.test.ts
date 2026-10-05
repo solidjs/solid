@@ -324,58 +324,55 @@ describe("fuzz findings on L2 — lanes", () => {
   // has shown re-asks the derivation chain; the lane should hold its readers
   // on the shown frame until the new derivation lands. Instead the reader
   // publishes the new guess beside the previous guess's derivation.
-  it.fails(
-    "F5: a second guess on a shown lane does not tear against the first guess's derivation (A17)",
-    async () => {
-      const [source, setSource] = createSignal(0);
-      const frames: string[] = [];
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const [view, setView] = createOptimistic(() => source());
-        const d0 = createMemo(() => Promise.resolve(view()));
-        const d1 = createMemo(() => {
-          const v = d0();
-          return Promise.resolve(v);
-        });
-        createRenderEffect(
-          () => [view(), d1()],
-          t => {
-            frames.push(t.join(","));
-          }
-        );
-        run = action(function* () {
-          setView(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setView(2);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setSource(0);
-        });
+  it("F5: a second guess on a shown lane does not tear against the first guess's derivation (A17)", async () => {
+    const [source, setSource] = createSignal(0);
+    const frames: string[] = [];
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const [view, setView] = createOptimistic(() => source());
+      const d0 = createMemo(() => Promise.resolve(view()));
+      const d1 = createMemo(() => {
+        const v = d0();
+        return Promise.resolve(v);
       });
-      await drain();
-      expect(frames).toEqual(["0,0"]);
-      const p = run();
-      await drain(6);
-      expect(frames).toEqual(["0,0", "1,1"]);
-      resume(); // second guess: 2
-      await drain(6);
-      // Every delivered frame is coherent: d1 derived from the view beside it.
-      for (const f of frames) {
-        const [v, d] = f.split(",");
-        expect(d, `frame ${f}`).toBe(v);
-      }
-      resume();
-      await p;
-      await drain(6);
-      dispose();
+      createRenderEffect(
+        () => [view(), d1()],
+        t => {
+          frames.push(t.join(","));
+        }
+      );
+      run = action(function* () {
+        setView(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setView(2);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(0);
+      });
+    });
+    await drain();
+    expect(frames).toEqual(["0,0"]);
+    const p = run();
+    await drain(6);
+    expect(frames).toEqual(["0,0", "1,1"]);
+    resume(); // second guess: 2
+    await drain(6);
+    // Every delivered frame is coherent: d1 derived from the view beside it.
+    for (const f of frames) {
+      const [v, d] = f.split(",");
+      expect(d, `frame ${f}`).toBe(v);
     }
-  );
+    resume();
+    await p;
+    await drain(6);
+    dispose();
+  });
 
   // F6. A17 (L2): "a derivation of a guess with a flight up holds the lane
   // (`lanesBlocked`); `laneSeam` parks a blocked lane's runs". Without a
