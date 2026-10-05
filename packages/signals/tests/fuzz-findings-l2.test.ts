@@ -18,6 +18,7 @@
  *   F4  nested         case 112  (S1 tear)  F10 readiness cases 1320, 594 (L1, click)
  *   F5  optimistic     case 1590 (S1 tear)  F11 readiness cases 1366, 10 (L1, S1)
  *   F6  latest         cases 330, 1216 (S1) F12 derived-readiness case 1793 (error)
+ *   F13 latest         cases 788, 930 (L1; the 2026-10-05 1000-case re-run)
  */
 import { describe, expect, it, afterEach } from "vitest";
 import {
@@ -517,6 +518,72 @@ describe("fuzz findings on L2 — lanes", () => {
       resume();
       await p;
       await drain();
+      dispose();
+    }
+  );
+
+  // F13. A29 (creation-time form): a reader born held is "staged into [the
+  // transaction], committed with it" — `recompute`'s own note: "An effect
+  // still carrying an uncommitted staged value re-stages: the commit applies
+  // the latest pass, not the born-held one"; A28: a write is visible at flush
+  // to every channel. A `latest(source)` reader whose mount is withdrawn in
+  // the action's tick (adopted, O1) and restored in the next (A34 (1)) is
+  // born held with its creation value (`_pendingValue` 0); the action's
+  // final write re-runs it as the verdict lane's work (`_value` = 1), and
+  // the lane's seam then commits the node (`commitPendingNode`), applying
+  // the stale born-held staging (0) over the lane's run: the committed truth
+  // never shows. (A plain `source()` read, or a toggle one tick later, is
+  // fine.)
+  it.fails(
+    "F13: a born-held latest() reader re-mounted during the hold shows the action's final write (A29, A28)",
+    async () => {
+      const [source, setSource] = createSignal(0);
+      const [mounted, setMounted] = createSignal(true);
+      let resume!: () => void;
+      let run!: () => Promise<void>;
+      let child: unknown = "absent";
+      let dispose!: () => void;
+      createRoot(d => {
+        dispose = d;
+        createRenderEffect(mounted, () => {});
+        createRenderEffect(
+          () =>
+            mounted()
+              ? createRoot(dd => {
+                  createRenderEffect(
+                    () => latest(source),
+                    v => {
+                      child = v;
+                    }
+                  );
+                  onCleanup(() => {
+                    child = "absent";
+                  });
+                  return dd;
+                })
+              : undefined,
+          dd => {
+            if (dd) onCleanup(dd);
+          }
+        );
+        run = action(function* () {
+          yield new Promise<void>(r => {
+            resume = r;
+          });
+          setSource(1);
+        });
+      });
+      flush();
+      expect(child).toBe(0);
+      const p = run();
+      setMounted(false); // the action's tick: the unmount rides with it (O1)
+      await drain();
+      setMounted(true); // a write to a held node: joins the hold (A34 (1))
+      await drain();
+      resume(); // the body ends with the truth: source = 1
+      await p;
+      await drain(4);
+      expect(child).toBe(1);
       dispose();
     }
   );
