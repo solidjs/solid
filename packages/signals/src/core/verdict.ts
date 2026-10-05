@@ -49,6 +49,7 @@ import {
   GlobalQueue,
   joinFuture,
   passLane,
+  queuePendingNode,
   setPassLane,
   stagedReaders,
   staleReader,
@@ -85,10 +86,21 @@ function route(c: Computed<any>, t: Transaction): void {
  * none has, as the throw would have had it), the reader is that
  * transaction's verdict lane's (shown now, with the flight's verdict), and
  * re-derives at the landing (REACTIVE_FRAME_READ — which is also what makes
- * it a blocker of the hold, `blockedBy`; a probe alone is neither). */
-function observeFlight(c: Computed<any>): void {
+ * it a blocker of the hold, `blockedBy`; a probe alone is neither). The
+ * hold is on the flight: a reader served committed never goes pending, so
+ * the transaction waits on it only through the flight's node — one that
+ * went pending this flush is queued for the seam to hold; one in the air
+ * from before, held by nobody (a lane's derivation whose lane dissolved at
+ * its parent's landing with the flight still up; a flight nothing displayed,
+ * #3305), is registered by this, its first observer (A15, #3458): queued for
+ * the seam as if it had gone pending here, so the transaction has an entry
+ * for what it now shows a reader of. Held by nothing, it landed at this very
+ * seam and its `_reruns` re-derived the reader into the same observation,
+ * every flush (fuzzer F12). */
+function observeFlight(c: Computed<any>, el: Computed<any>): void {
   if (!globalQueue._running) return;
   joinFuture(null);
+  if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
   verdictRead(c, flushTransaction!, true);
 }
 

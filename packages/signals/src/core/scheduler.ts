@@ -394,9 +394,19 @@ export function list(n: Signal<any>, t: Transaction): void {
 /** Hold the (uncommitted) frame under a held pass: every computed in the
  * live child chain, recursively. Plain owners are walked through, not held
  * — nothing reads or re-passes them. Once per park, over the parked frames
- * only; recomputes pay nothing for it. */
+ * only; recomputes pay nothing for it. A lane's node in the frame (listed on
+ * a lane: a verdict reader broken out of this very hold — display-ahead — or
+ * a derivation of a guess, CONFIG_OVERRIDE; a lane pass's effect) is the
+ * lane's, as the seam's own loop has it: "lane work never makes its node
+ * transaction work" (A15, #3698). Re-listed here it would carry the lane's
+ * value on the transaction's list, where the landing nulls its transaction
+ * and `dissolveLane` no longer finds it — a lane node with no lane, which the
+ * next read of it trips over (`laneRead` → `txOf`). Its frame is the lane's
+ * too (ruling A: a lane pass's children are the lane's), revealed and
+ * retired at the lane's seam. */
 function holdFrame(owner: Owner, t: Transaction): void {
   for (let c = owner._firstChild; c !== null; c = c._nextSibling) {
+    if ((c as Computed<any>)._x?._transaction?._lane) continue;
     if ((c as Computed<any>)._fn !== undefined && !(c._config & CONFIG_HELD))
       holdNode(c as unknown as Signal<any>, t);
     holdFrame(c, t);
@@ -619,7 +629,7 @@ export class GlobalQueue implements IQueue {
   declare static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
-  declare static _observeFlight: ((c: Computed<any>) => void) | undefined;
+  declare static _observeFlight: ((c: Computed<any>, el: Computed<any>) => void) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
   declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
   /** Store (store/store.ts): fold the pending backings whose container
