@@ -104,7 +104,7 @@ describe("ownership stamp (#3360)", () => {
   });
 
   it("the first commit onto an unowned backing does not report a membership change", () => {
-    const [s, set] = createStore({ a: 1, b: 2 });
+    const [s, set] = createStore<{ a: number; b: number; c?: number }>({ a: 1, b: 2 });
     let keyRuns = 0;
     createRoot(() => {
       createEffect(

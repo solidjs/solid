@@ -408,7 +408,9 @@ describe("A15 (was B3): overlapping transitions settle as one unit", () => {
         } else {
           const [c, setC] = createSignal(0);
           get = c;
-          write = v => setC(v);
+          write = v => {
+            setC(v);
+          };
         }
         const details = createMemo(() => fetcher.fetch(get()));
         createRenderEffect(
