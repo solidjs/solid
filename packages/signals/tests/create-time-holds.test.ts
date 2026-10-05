@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   action,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -17,8 +18,7 @@ import {
 } from "../src/index.js";
 
 const tick = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 6; i++) await Promise.resolve();
   flush();
 };
 
@@ -76,5 +76,160 @@ describe("#3802: a born-held render effect re-derived by a mainline write", () =
     release();
     await tick();
     expect(log.sort()).toEqual(["div true Updated", "show child"]);
+  });
+});
+
+describe("#3800: a node created over a hold waits for it; the hold never waits for the node", () => {
+  // `slow` holds count = 2 while its flight is out; `parent` shows both.
+  function setup() {
+    const [count, setCount] = createSignal(1);
+    const slowGates: Array<() => void> = [];
+    const log: string[] = [];
+    createRoot(() => {
+      const slow = createMemo(async () => {
+        const c = count();
+        await new Promise<void>(resolve => slowGates.push(resolve));
+        return c;
+      });
+      createRenderEffect(
+        () => [count(), slow()] as const,
+        ([c, s]) => {
+          log.push(`parent ${c} ${s}`);
+        },
+        undefined,
+        { schedule: true }
+      );
+    });
+    flush();
+    return { count, setCount, slowGates, log };
+  }
+
+  async function holdCount(s: ReturnType<typeof setup>) {
+    s.slowGates.shift()!();
+    await tick();
+    s.setCount(2);
+    flush();
+    expect(s.log).toEqual(["parent 1 1"]);
+  }
+
+  it("a first load that reads the held value lands into the hold (the report)", async () => {
+    const s = setup();
+    await holdCount(s);
+    createRoot(() => {
+      const child = createMemo(() => Promise.resolve(s.count()));
+      createRenderEffect(
+        child,
+        v => {
+          s.log.push(`child ${v}`);
+        },
+        undefined,
+        { schedule: true }
+      );
+    });
+    flush();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1"]);
+
+    s.slowGates.shift()!();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "parent 2 2", "child 2"]);
+  });
+
+  it("under a fresh boundary: the fallback shows until the hold commits the content", async () => {
+    const s = setup();
+    await holdCount(s);
+    createRoot(() => {
+      const child = createMemo(() => Promise.resolve(s.count()));
+      const view = createLoadingBoundary(
+        () => `content ${child()}`,
+        () => "fallback"
+      );
+      createRenderEffect(
+        view,
+        v => {
+          s.log.push(`view ${v}`);
+        },
+        undefined,
+        { schedule: true }
+      );
+    });
+    flush();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "view fallback"]);
+
+    s.slowGates.shift()!();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "view fallback", "parent 2 2", "view content 2"]);
+  });
+
+  it("the hold commits without a slower first load; the load lands after as its own commit", async () => {
+    const s = setup();
+    await holdCount(s);
+    const childGates: Array<() => void> = [];
+    createRoot(() => {
+      const child = createMemo(async () => {
+        const c = s.count();
+        await new Promise<void>(resolve => childGates.push(resolve));
+        return c;
+      });
+      createRenderEffect(
+        child,
+        v => {
+          s.log.push(`child ${v}`);
+        },
+        undefined,
+        { schedule: true }
+      );
+    });
+    flush();
+
+    s.slowGates.shift()!();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "parent 2 2"]);
+
+    childGates.shift()!();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "parent 2 2", "child 2"]);
+  });
+
+  it("an action's hold: the first load waits for the action, never the reverse", async () => {
+    const [user, setUser] = createSignal("ann");
+    const log: string[] = [];
+    createRoot(() => {
+      createRenderEffect(user, u => {
+        log.push(`header ${u}`);
+      });
+    });
+    flush();
+    const release = hold(() => setUser("bob"));
+
+    const pageGates: Array<() => void> = [];
+    const mount = (name: string) =>
+      createRoot(() => {
+        const page = createMemo(async () => {
+          const u = user();
+          await new Promise<void>(resolve => pageGates.push(resolve));
+          return `${name}-${u}`;
+        });
+        createRenderEffect(page, v => {
+          log.push(`page ${v}`);
+        });
+      });
+    mount("fast");
+    flush();
+    mount("slow");
+    flush();
+
+    pageGates.shift()!();
+    await tick();
+    expect(log).toEqual(["header ann"]);
+
+    release();
+    await tick();
+    expect(log).toEqual(["header ann", "header bob", "page fast-bob"]);
+
+    pageGates.shift()!();
+    await tick();
+    expect(log).toEqual(["header ann", "header bob", "page fast-bob", "page slow-bob"]);
   });
 });

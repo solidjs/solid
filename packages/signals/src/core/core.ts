@@ -509,6 +509,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (GlobalQueue._laneStage!(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
   }
+  // The transaction a first pass derives from (A29, creation-time form): the
+  // flush has joined one and the pass read a held node, or a pass created it
+  // (ruling A). Lane work is the lane's.
+  const bornIn =
+    create && lane === null && (joined || (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
+      ? (flushTransaction ?? passTx)
+      : null;
 
   if (!el._x?._error) {
     // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
@@ -631,14 +638,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         if (isEffect && el._pendingValue === NOT_PENDING) el._value = value;
         else if (isEffect || lane._shown) el._pendingValue = value;
         else el._x!._lane = value;
-      } else if (
-        create
-          ? !(
-              (flushTransaction !== null || passTx !== null) &&
-              (joined || (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
-            )
-          : isEffect && el._pendingValue === NOT_PENDING
-      ) {
+      } else if (create ? bornIn === null : isEffect && el._pendingValue === NOT_PENDING) {
         // A first pass publishes directly. So does an effect: its value slot
         // is private (only its own run reads it), and the staging round-trip
         // (queuePendingNode + commitPendingNodes) paid per effect on the
@@ -656,7 +656,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // tick is a read of its world (the mount-during-a-hold case), not
         // only after the seam parks it.
         if (create) {
-          holdNode(el, (flushTransaction ?? passTx)!);
+          holdNode(el, bornIn!);
           // Born into the future: no committed value until the landing
           // (`commitPendingNode` initializes it) — every reader of it
           // derives from the future (`read`), an untracked one throws
@@ -697,6 +697,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
       settlePendingSource(el);
   }
+  // A first pass born pending into a transaction is not held by it — the
+  // hold does not wait for its first load (plan sec. 15.2) — but its answer
+  // is that world's: the landing joins the transaction if it is still live.
+  if (bornIn !== null && el._statusFlags & STATUS_PENDING) ext(el)._bornIn = bornIn;
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
   // `commitPendingNode` to trim, so a write to a dependency the committed
@@ -932,6 +936,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _pendingFirstChild: null,
     _pendingDisposal: null,
     _transaction: null,
+    _bornIn: null,
     _reask: false,
     _flushed: NOT_PENDING,
     _flushedAt: -1,

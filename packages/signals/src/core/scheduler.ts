@@ -186,6 +186,12 @@ export function joinPassTx(t: Transaction): void {
 export function txOf(n: Signal<any> | Computed<any>): Transaction {
   return (n._x!._transaction = resolveTx(n._x!._transaction!));
 }
+/** `t` resolved through merges while it is still parked or open; null once
+ * it has landed. */
+export function liveTx(t: Transaction): Transaction | null {
+  t = resolveTx(t);
+  return transactions.indexOf(t) !== -1 ? t : null;
+}
 export function resolveTx(t: Transaction): Transaction {
   while (t._into !== null) t = t._into;
   return t;

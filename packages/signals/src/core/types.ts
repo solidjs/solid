@@ -81,6 +81,11 @@ export interface NodeExtension {
   /** L2 — the transaction holding this node while CONFIG_HELD is set
    * (`holdNode`); resolved through merges by `txOf`. */
   _transaction: Transaction | null;
+  /** L2 — the transaction a first pass that went pending derived from (it
+   * read a held node, or its creator did): its first answer lands into it
+   * while it is live, so the node waits for that hold; the hold never waits
+   * for the node's first load (A29, 2026-10-05). Consumed at the landing. */
+  _bornIn: Transaction | null;
   /** The node's current flight re-asks the same question (a `refresh()`,
    * A19 exc. 2 / A24): verdict-quiet — `isPending` reads false for it —
    * through its landing until the commit. */
