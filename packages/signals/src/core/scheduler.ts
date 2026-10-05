@@ -229,7 +229,9 @@ export function merge(t: Transaction, f: Transaction): void {
  * one hop of `_subs` is the chain. Reads of the reader's LAST pass only (the
  * link's generation is the pass's): a tail kept for A30 — the committed
  * frame's dependency, awaiting the run that retires it — is not a read of
- * the flight, and a reader that stopped reading releases it (O3, #3494). A
+ * the flight, and a reader that stopped reading releases it (O3, #3494).
+ * An errored pass (NotReady included) did not stop: it never got there, and
+ * its full list stands (A30) — the reads it did not reach still observe. A
  * flight nobody renders holds nothing (A29). Only the nodes `t` still owns
  * count: one a lane took over since is the lane's to wait on. A guess whose
  * own truth is in flight blocks the lane's parent, not the lane — it stands
@@ -314,7 +316,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       // over a held window, V5/A17). A probe alone does not hold.
       if (
         ((r as any)._type === EFFECT_RENDER || r._flags & REACTIVE_FRAME_READ) &&
-        s._gen === r._depGen &&
+        (s._gen === r._depGen || r._x?._error != null) &&
         !(r._flags & REACTIVE_DISPOSED) &&
         onScreen(r, judge ?? owner)
       )
@@ -834,6 +836,10 @@ export class GlobalQueue implements IQueue {
       transactions.splice(k, 1);
       GlobalQueue._endLanes?.(u);
       land(u);
+      // A landing's commits can dispose a zombie a transaction judged above
+      // was blocked on (#3463: live "until the commit that disposes it") —
+      // judge them again.
+      k = transactions.length;
     }
     // The store folds the pending backings whose container nodes committed
     // — this flush's, or a landing's (store/store.ts installs it).

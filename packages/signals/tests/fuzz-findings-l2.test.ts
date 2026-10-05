@@ -18,6 +18,7 @@
  *   F4  nested         case 112  (S1 tear)  F10 readiness cases 1320, 594 (L1, click)
  *   F5  optimistic     case 1590 (S1 tear)  F11 readiness cases 1366, 10 (L1, S1)
  *   F6  latest         cases 330, 1216 (S1) F12 derived-readiness case 1793 (error)
+ *   F13 latest         cases 788, 930 (L1; the 2026-10-05 1000-case re-run)
  */
 import { describe, expect, it, afterEach } from "vitest";
 import {
@@ -195,127 +196,124 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // is "live for every hold until the commit that disposes it". A reader
   // mounted while a flight is up is born held (its mount control stays
   // unpublished); unmounting it in the same hold stages its removal; that
-  // hold lands (mount nets to committed) — and the reader survives it as a
-  // zombie no longer owned by any transaction, keeping an unrelated write
-  // (`src=0`, held only because the zombie observes its flight) unpublished
-  // although nothing on screen waits on anything (fuzzer P1).
-  it.fails(
-    "F3: a born-held reader dies with the commit that withdraws its mount, releasing an unrelated write (A29 ruling A, A15 #3463)",
-    async () => {
-      const gates = new Map<string, () => void>();
-      const [src, setSrc] = createSignal(0);
-      const [mounted, setMounted] = createSignal(false);
-      let shownSrc = -1,
-        shownMounted: boolean | undefined,
-        panel: unknown = "absent";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const a = createMemo(() => gated(gates, `a:${src()}`, src()));
-        const b = createMemo(() => {
-          const v = a();
-          return gated(gates, `b:${v}`, v);
-        });
-        createRenderEffect(src, v => {
-          shownSrc = v;
-        });
-        createRenderEffect(mounted, v => {
-          shownMounted = v;
-        });
-        createRenderEffect(
-          () =>
-            mounted()
-              ? createRoot(d2 => {
-                  createRenderEffect(b, v => {
-                    panel = v;
-                  });
-                  onCleanup(() => {
-                    panel = "absent";
-                  });
-                  return d2;
-                })
-              : undefined,
-          d2 => {
-            if (d2) onCleanup(d2);
-          }
-        );
+  // hold lands (mount nets to committed) and its commits dispose the zombie.
+  // The seam judged the newer transaction (`src=0`, held only because the
+  // zombie observes its flight) first, blocked, and never again: a
+  // `schedule()` from the disposal inside the landing is overwritten by the
+  // flush's own `scheduled` recompute. The seam now re-judges the parked
+  // transactions after every landing (fuzzer P1).
+  it("F3: a write held only by a zombie lands with the commit that disposes it (A29 ruling A, A15 #3463)", async () => {
+    const gates = new Map<string, () => void>();
+    const [src, setSrc] = createSignal(0);
+    const [mounted, setMounted] = createSignal(false);
+    let shownSrc = -1,
+      shownMounted: boolean | undefined,
+      panel: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const a = createMemo(() => gated(gates, `a:${src()}`, src()));
+      const b = createMemo(() => {
+        const v = a();
+        return gated(gates, `b:${v}`, v);
       });
-      flush();
-      gates.get("a:0")!();
-      await drain();
-      gates.get("b:0")!();
-      await drain();
-      expect([shownSrc, shownMounted, panel]).toEqual([0, false, "absent"]);
-      setSrc(1); // a:1 flies unobserved → commits
-      await drain();
-      expect(shownSrc).toBe(1);
-      gates.get("a:1")!(); // b:1 starts, unobserved
-      await drain();
-      setMounted(true); // the reader is born held on b:1; the mount is held with it
-      await drain();
-      expect([shownMounted, panel]).toEqual([false, "absent"]);
-      setSrc(0); // a:0 — held while the (unshown) reader waits
-      await drain();
-      expect(shownSrc).toBe(1);
-      setMounted(false); // the mount request is withdrawn: nets to committed, lands
-      await drain();
-      expect([shownMounted, panel]).toEqual([false, "absent"]);
-      // Nothing visible observes any flight: the write publishes.
-      expect(shownSrc).toBe(0);
-      dispose();
-      for (const g of gates.values()) g();
-      await drain();
-    }
-  );
+      createRenderEffect(src, v => {
+        shownSrc = v;
+      });
+      createRenderEffect(mounted, v => {
+        shownMounted = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(d2 => {
+                createRenderEffect(b, v => {
+                  panel = v;
+                });
+                onCleanup(() => {
+                  panel = "absent";
+                });
+                return d2;
+              })
+            : undefined,
+        d2 => {
+          if (d2) onCleanup(d2);
+        }
+      );
+    });
+    flush();
+    gates.get("a:0")!();
+    await drain();
+    gates.get("b:0")!();
+    await drain();
+    expect([shownSrc, shownMounted, panel]).toEqual([0, false, "absent"]);
+    setSrc(1); // a:1 flies unobserved → commits
+    await drain();
+    expect(shownSrc).toBe(1);
+    gates.get("a:1")!(); // b:1 starts, unobserved
+    await drain();
+    setMounted(true); // the reader is born held on b:1; the mount is held with it
+    await drain();
+    expect([shownMounted, panel]).toEqual([false, "absent"]);
+    setSrc(0); // a:0 — held while the (unshown) reader waits
+    await drain();
+    expect(shownSrc).toBe(1);
+    setMounted(false); // the mount request is withdrawn: nets to committed, lands
+    await drain();
+    expect([shownMounted, panel]).toEqual([false, "absent"]);
+    // Nothing visible observes any flight: the write publishes.
+    expect(shownSrc).toBe(0);
+    dispose();
+    for (const g of gates.values()) g();
+    await drain();
+  });
 
   // F4. A15: "writes whose async work is observed by a shared reader settle
   // as one unit (no tearing — nothing commits until all entangled async
   // resolves)"; A30: "an errored pass (a throw, NotReady included) keeps its
   // full list". The tuple reader observed m0's flight for `a=1`; a later
   // `b=1` re-runs it and the pass throws NotReady at `m1` before reaching
-  // `m0`. `blockedBy` reads only the pass's reads up to `_depsTail` (the O3
-  // "stopped reading" rule), so the unreached `m0` counts as dropped, the
-  // hold on `a=1` lands, and `A=1` shows beside a tuple still derived from
-  // `a=0` while m0's flight is in the air.
-  it.fails(
-    "F4: a NotReady-interrupted pass still observes the flights it did not reach (A15, A30)",
-    async () => {
-      const gates = new Map<string, () => void>();
-      const [a, setA] = createSignal(0);
-      const [b, setB] = createSignal(0);
-      let shownA = -1;
-      let tuple: number[] = [];
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m0 = createMemo(() => gated(gates, `a:${a()}`, a()));
-        const m1 = createMemo(() => Promise.resolve(b()));
-        createRenderEffect(a, v => {
-          shownA = v;
-        });
-        createRenderEffect(
-          () => [b(), m1(), m0()],
-          t => {
-            tuple = t;
-          }
-        );
+  // `m0`. `blockedBy` read only the pass's reads up to `_depsTail` (the O3
+  // "stopped reading" rule), so the unreached `m0` counted as dropped, the
+  // hold on `a=1` landed, and `A=1` showed beside a tuple still derived
+  // from `a=0` while m0's flight was in the air. An errored pass did not
+  // stop reading: its whole list now observes.
+  it("F4: a NotReady-interrupted pass still observes the flights it did not reach (A15, A30)", async () => {
+    const gates = new Map<string, () => void>();
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    let shownA = -1;
+    let tuple: number[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m0 = createMemo(() => gated(gates, `a:${a()}`, a()));
+      const m1 = createMemo(() => Promise.resolve(b()));
+      createRenderEffect(a, v => {
+        shownA = v;
       });
-      flush();
-      gates.get("a:0")!();
-      await drain();
-      expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
-      setA(1); // m0 flies for a=1, observed by the tuple reader → a=1 held
-      await drain();
-      expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
-      setB(1); // the reader re-runs and throws at m1, before reading m0
-      await drain(4);
-      // a=1 must not show beside a tuple whose m0 still answers a=0.
-      expect(shownA === 1 ? tuple[2] : 0).toBe(shownA === 1 ? 1 : 0);
-      dispose();
-      gates.get("a:1")?.();
-      await drain();
-    }
-  );
+      createRenderEffect(
+        () => [b(), m1(), m0()],
+        t => {
+          tuple = t;
+        }
+      );
+    });
+    flush();
+    gates.get("a:0")!();
+    await drain();
+    expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
+    setA(1); // m0 flies for a=1, observed by the tuple reader → a=1 held
+    await drain();
+    expect([shownA, tuple]).toEqual([0, [0, 0, 0]]);
+    setB(1); // the reader re-runs and throws at m1, before reading m0
+    await drain(4);
+    // a=1 must not show beside a tuple whose m0 still answers a=0.
+    expect(shownA === 1 ? tuple[2] : 0).toBe(shownA === 1 ? 1 : 0);
+    dispose();
+    gates.get("a:1")?.();
+    await drain();
+  });
 });
 
 describe("fuzz findings on L2 — lanes", () => {
@@ -520,128 +518,229 @@ describe("fuzz findings on L2 — lanes", () => {
       dispose();
     }
   );
+
+  // F13. A29 (creation-time form): a reader born held is "staged into [the
+  // transaction], committed with it" — `recompute`'s own note: "An effect
+  // still carrying an uncommitted staged value re-stages: the commit applies
+  // the latest pass, not the born-held one"; A28: a write is visible at flush
+  // to every channel. A `latest(source)` reader whose mount is withdrawn in
+  // the action's tick (adopted, O1) and restored in the next (A34 (1)) is
+  // born held with its creation value (`_pendingValue` 0); the action's
+  // final write re-runs it as the verdict lane's work. The lane arm wrote an
+  // effect's run into its private `_value` (1) beside the born-held staging,
+  // and the lane's seam then committed the node (`commitPendingNode`),
+  // applying the stale staging (0) and queuing the run with it: the
+  // committed truth never showed. A lane pass of an effect still carrying a
+  // staging now re-stages it, as the frame's own pass does.
+  it("F13: a born-held latest() reader re-mounted during the hold shows the action's final write (A29, A28)", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(true);
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let child: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      createRenderEffect(mounted, () => {});
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(
+                  () => latest(source),
+                  v => {
+                    child = v;
+                  }
+                );
+                onCleanup(() => {
+                  child = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(1);
+      });
+    });
+    flush();
+    expect(child).toBe(0);
+    const p = run();
+    setMounted(false); // the action's tick: the unmount rides with it (O1)
+    await drain();
+    setMounted(true); // a write to a held node: joins the hold (A34 (1))
+    await drain();
+    resume(); // the body ends with the truth: source = 1
+    await p;
+    await drain(4);
+    expect(child).toBe(1);
+    dispose();
+  });
 });
 
 describe("fuzz findings on L2 — verdicts", () => {
   // F9. A19: "`isPending(x)` ≡ the observable value is not final … final the
   // moment [no cause] holds it"; A34 (2): a tick whose writes net to the
   // committed value "pends nothing: `isPending` stays false". `setSrc(1);
-  // setSrc(0)` re-asks the async memo for the committed input; the quiet
-  // re-ask lands and nothing is held — yet a probe-only reader of the memo
-  // reads `true` forever. (With a plain data reader beside it the verdict
-  // settles; the probe alone is stranded.)
-  it.fails(
-    "F9: a probe-only isPending settles after a coalesced toggle's re-ask lands (A19, A34 (2))",
-    async () => {
-      const [src, setSrc] = createSignal(0);
-      let verdict: unknown = "unpublished";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m = createMemo(() => Promise.resolve(src()));
-        createRenderEffect(
-          () => isPending(m),
-          v => {
-            verdict = v;
-          }
-        );
-      });
-      await drain();
-      expect(verdict).toBe(false);
-      setSrc(1);
-      setSrc(0); // nets to the committed value: no proposal
-      await drain(5);
-      expect(verdict).toBe(false);
-      dispose();
-    }
-  );
+  // setSrc(0)` re-asks the async memo for the committed input; the probe
+  // reader was re-derived when the memo went pending (`propagateStatus`'s
+  // verdict arm) and read `true`. The re-ask landed equal to the committed
+  // value: `setSignal` notified nobody, and the settle walk skipped the
+  // reader — a verdict reader holds no pending source of its own — so it
+  // read `true` forever. (A plain data reader beside it re-ran on its own
+  // settle and took the probe with it.) The settle walk now re-derives a
+  // verdict reader it reaches: the source settling is its verdict changing.
+  it("F9: a probe-only isPending settles when a coalesced toggle's re-ask lands silently (A19, A34 (2))", async () => {
+    const [src, setSrc] = createSignal(0);
+    let verdict: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => Promise.resolve(src()));
+      createRenderEffect(
+        () => isPending(m),
+        v => {
+          verdict = v;
+        }
+      );
+    });
+    await drain();
+    expect(verdict).toBe(false);
+    setSrc(1);
+    setSrc(0); // nets to the committed value: no proposal
+    await drain(5);
+    expect(verdict).toBe(false);
+    dispose();
+  });
 
-  // F10. A28: "a write becomes visible at flush — to every channel". A gated
-  // `isPending` reader revealed in the same tick as a write to the probed
-  // memo's source (`setShow(true); setSrc(1)`, memo between) leaves the
-  // memo's plain reader on the old value for good: no flight exists, the
-  // verdict reads `false`, and the write is never published. (Writing first,
-  // or probing the signal directly, is fine.)
-  it.fails(
-    "F10: a sync write beside a same-tick reveal of a gated isPending reader publishes (A28)",
-    async () => {
-      const [src, setSrc] = createSignal(0);
-      const [show, setShow] = createSignal(false);
-      let data: unknown = "unpublished";
-      let verdict: unknown = "unpublished";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m = createMemo(() => src());
-        createRenderEffect(m, v => {
-          data = v;
-        });
-        createRenderEffect(
-          () => (show() ? isPending(() => m()) : "hidden"),
-          v => {
-            verdict = v;
-          }
-        );
+  // F10. A31: "A memo computes under its own lane posture, never its
+  // puller's"; A28: "a write becomes visible at flush — to every channel". A
+  // gated `isPending` reader revealed in the same tick as a write to the
+  // probed memo's source (`setShow(true); setSrc(1)`, memo between) pulled
+  // the memo from inside its window: `verdictValue` → `pullComputed(m)` →
+  // `m`'s pass read `src` with the window's dispatch still installed, and
+  // the unheld-staged arm served it the committed `0`. `m` cached the
+  // committed input, its plain reader stayed on the old value for good, and
+  // the write never published. The pulled pass now reads outside the window
+  // (the probe's own read of `m` answers the verdict afterwards), and a
+  // window restores the dispatch it found, so a window inside that pass
+  // closes back to none.
+  it("F10: a memo an isPending probe pulls computes from the flushed write, which publishes (A31, A28)", async () => {
+    const [src, setSrc] = createSignal(0);
+    const [show, setShow] = createSignal(false);
+    let data: unknown = "unpublished";
+    let verdict: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => src());
+      createRenderEffect(m, v => {
+        data = v;
       });
-      flush();
-      expect([data, verdict]).toEqual([0, "hidden"]);
-      setShow(true);
-      setSrc(1);
-      await drain();
-      expect([data, verdict]).toEqual([1, false]);
-      dispose();
-    }
-  );
+      createRenderEffect(
+        () => (show() ? isPending(() => m()) : "hidden"),
+        v => {
+          verdict = v;
+        }
+      );
+    });
+    flush();
+    expect([data, verdict]).toEqual([0, "hidden"]);
+    setShow(true);
+    setSrc(1);
+    await drain();
+    expect([data, verdict]).toEqual([1, false]);
+    dispose();
+  });
+
+  // F10, nested: the pulled memo's own window (an `isPending` inside its
+  // body) closes back to no window, not to the puller's — the rest of the
+  // memo's pass is still its own.
+  it("F10 (nested window): a memo an isPending probe pulls keeps its own reads outside the probe after its own window closes (A31)", async () => {
+    const [src, setSrc] = createSignal(0);
+    const [show, setShow] = createSignal(false);
+    let data: unknown = "unpublished";
+    let verdict: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => {
+        isPending(() => 0);
+        return src();
+      });
+      createRenderEffect(m, v => {
+        data = v;
+      });
+      createRenderEffect(
+        () => (show() ? isPending(() => m()) : "hidden"),
+        v => {
+          verdict = v;
+        }
+      );
+    });
+    flush();
+    setShow(true);
+    setSrc(1);
+    await drain();
+    expect([data, verdict]).toEqual([1, false]);
+    dispose();
+  });
 
   // F11. A31: "A memo computes under its own lane posture, never its
   // puller's" (#3442: the probe's pull of `copy` made it read the in-flight
   // `slow` as its committed value); A19 exc. 1 / A7: an uninitialized source
   // throws, a value is never fabricated. A sibling `isPending(() => [a(),
   // c()])` probe pulls `c` (async over a sync memo over async `a`) during
-  // the initial load; `c`'s pass reads `b` as `undefined` instead of
-  // suspending, and the plain data reader never publishes at all.
-  it.fails(
-    "F11: a memo pulled by an isPending probe suspends on its uninitialized input (A31, A19 exc. 1)",
-    async () => {
-      const [src] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      const inputsSeen: unknown[] = [];
-      let data: unknown = "unpublished";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const a = createMemo(() => gated(gates, `a:${src()}`, src()));
-        const b = createMemo(() => a() + 1);
-        const c = createMemo(() => {
-          const v = b();
-          inputsSeen.push(v);
-          return gated(gates, `c:${v}`, v * 10);
-        });
-        createRenderEffect(
-          () => isPending(() => [a(), c()]),
-          () => {}
-        );
-        createRenderEffect(
-          () => [a(), c()],
-          v => {
-            data = v;
-          }
-        );
+  // the initial load; `c`'s pass — run inside the probe's window — read the
+  // uninitialized `b`'s staging through the unheld-staged arm as
+  // `undefined` instead of suspending, and the plain data reader never
+  // published at all. F10's change: the pulled pass reads outside the
+  // window, as a plain pass, and suspends.
+  it("F11: a memo an isPending probe pulls suspends on its uninitialized input (A31, A19 exc. 1)", async () => {
+    const [src] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    const inputsSeen: unknown[] = [];
+    let data: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const a = createMemo(() => gated(gates, `a:${src()}`, src()));
+      const b = createMemo(() => a() + 1);
+      const c = createMemo(() => {
+        const v = b();
+        inputsSeen.push(v);
+        return gated(gates, `c:${v}`, v * 10);
       });
+      createRenderEffect(
+        () => isPending(() => [a(), c()]),
+        () => {}
+      );
+      createRenderEffect(
+        () => [a(), c()],
+        v => {
+          data = v;
+        }
+      );
+    });
+    await drain();
+    for (const g of [...gates.values()]) {
+      g();
       await drain();
-      for (const g of [...gates.values()]) {
-        g();
-        await drain();
-      }
-      for (const g of [...gates.values()]) {
-        g();
-        await drain();
-      }
-      expect(inputsSeen.every(v => Number.isFinite(v))).toBe(true);
-      expect(data).toEqual([0, 10]);
-      dispose();
     }
-  );
+    for (const g of [...gates.values()]) {
+      g();
+      await drain();
+    }
+    expect(inputsSeen.every(v => Number.isFinite(v))).toBe(true);
+    expect(data).toEqual([0, 10]);
+    dispose();
+  });
 });
 
 describe("fuzz findings on L2 — crashes", () => {

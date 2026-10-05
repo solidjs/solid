@@ -249,15 +249,22 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   let released: Computed<any>[] | undefined;
   const visited = new Set<Computed<any>>();
   const settle = (node: Computed<any>) => {
-    if (visited.has(node)) return;
-    // A conditional dropped this source, but another dependency can still
-    // carry it. Only retire pending state inherited through the recovered
-    // branch. Deliberately NOT marked visited on this early return: the
-    // carrying dependency may itself be a later branch of this same walk
-    // (two unchanged memos converging), and its visit must be free to
-    // re-examine this node once that branch has retired the source.
-    if (source !== el && retryReaches(node, source)) return;
-    if (!removePendingSource(node, source)) return;
+    if (
+      visited.has(node) ||
+      // A conditional dropped this source, but another dependency can still
+      // carry it. Only retire pending state inherited through the recovered
+      // branch. Deliberately NOT marked visited on this early return: the
+      // carrying dependency may itself be a later branch of this same walk
+      // (two unchanged memos converging), and its visit must be free to
+      // re-examine this node once that branch has retired the source.
+      (source !== el && retryReaches(node, source)) ||
+      !removePendingSource(node, source)
+    )
+      // A19: a verdict reader holds no pending of its own (it was re-derived
+      // when the source went pending, `propagateStatus`), and a landing
+      // equal to the committed value notifies nobody — the source settling
+      // is its verdict changing: it runs again.
+      return node._config & CONFIG_VERDICT && enqueueSub(node);
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;

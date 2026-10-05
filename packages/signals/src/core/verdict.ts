@@ -36,7 +36,8 @@ import {
   spectating,
   strictRead,
   tracking,
-  unflushedValue
+  unflushedValue,
+  verdict
 } from "./core.js";
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
@@ -113,10 +114,6 @@ function observeFlight(c: Computed<any>, el: Computed<any>): void {
 let latestActive = false;
 let probing = false;
 let probeFound = false;
-/** `read` dispatches here while a window is open. */
-function setWindows(): void {
-  setVerdict(latestActive || probing ? verdictValue : null);
-}
 
 /** A verdict read of a node a transaction (or lane) holds: the reading pass
  * is the holder's verdict lane's and re-derives at the holder's landing
@@ -228,17 +225,20 @@ function markVerdictReader(window: number): void {
   }
 }
 
-/** The windows. */
+/** The windows. `read` dispatches to `verdictValue` while one is open; each
+ * restores the dispatch it found — none inside a memo's pass a window
+ * pulled (`verdictValue`). */
 export function latest<T>(fn: () => T): T {
   markVerdictReader(2);
-  const prev = latestActive;
+  const prev = latestActive,
+    prevVerdict = verdict;
   latestActive = true;
-  setWindows();
+  setVerdict(verdictValue);
   try {
     return fn();
   } finally {
     latestActive = prev;
-    setWindows();
+    setVerdict(prevVerdict);
   }
 }
 
@@ -246,9 +246,10 @@ export function isPending(fn: () => any): boolean {
   markVerdictReader(1);
   const prevProbing = probing;
   const prevFound = probeFound;
+  const prevVerdict = verdict;
   probing = true;
   probeFound = false;
-  setWindows();
+  setVerdict(verdictValue);
   try {
     fn();
     return probeFound;
@@ -264,7 +265,7 @@ export function isPending(fn: () => any): boolean {
   } finally {
     probing = prevProbing;
     probeFound = prevFound;
-    setWindows();
+    setVerdict(prevVerdict);
   }
 }
 
@@ -303,7 +304,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   const tracked = c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
   if (c !== null && tracking) {
     link(el, c);
-    if (owner._fn !== undefined) pullComputed(owner, c);
+    if (owner._fn !== undefined) {
+      // A31: the pulled memo's pass is its own, not the probe's — it reads
+      // outside the window, and the probe's read below answers for what
+      // the pass produced.
+      setVerdict(null);
+      pullComputed(owner, c);
+      setVerdict(verdictValue);
+    }
   }
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
