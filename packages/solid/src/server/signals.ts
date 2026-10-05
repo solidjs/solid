@@ -1615,6 +1615,15 @@ function processResult<T>(
   // from `currentOwner`, because a stream arriving through a promise is
   // classified in a continuation where no owner is current.
   const scopeOwner = owner as unknown as SSROwner;
+  const recordSlot = (s: 0 | 1 | 2, v: any, d?: DeferredPromise<any>) => {
+    if (!id || !ctx) return;
+    const store = ((ctx as any)[SLOTS] ||= Object.create(null));
+    const prev: SlotRecord | undefined = store[id];
+    if (prev) {
+      prev.s = s;
+      prev.v = v;
+    } else store[id] = { s, v, d };
+  };
 
   // Async-iterable takes precedence over thenable, mirroring the client
   // runtime's detection order (`handleAsync` in @solidjs/signals core/async.ts).
@@ -1680,15 +1689,6 @@ function processResult<T>(
       }
       return;
     }
-    const recordSlot = (s: 0 | 1 | 2, v: any, d?: DeferredPromise<any>) => {
-      if (!id || !ctx) return;
-      const store = ((ctx as any)[SLOTS] ||= Object.create(null));
-      const prev: SlotRecord | undefined = store[id];
-      if (prev) {
-        prev.s = s;
-        prev.v = v;
-      } else store[id] = { s, v, d };
-    };
     const deferred: DeferredPromise<T> = slot ? slot.d! : createDeferredPromise<T>();
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
     if (!slot) {
@@ -1849,6 +1849,42 @@ function processResult<T>(
   const iterator = result?.[Symbol.asyncIterator];
   if (typeof iterator === "function") {
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
+    // Slot memory, as for thenables (#3734): a retry pass re-creates the
+    // node, and the source may hand back a fresh iterable per call (a
+    // subscriber, `liveQuery()`). The slot's first consumption stays its one
+    // consumer and serialized channel: a re-creation adopts its answer, or
+    // joins its flight, without opening this pass's iterable. Not a
+    // server-owned pump (a frame render's binding ledger), whose later
+    // yields drive the creating node.
+    const slotted = !!(id && ctx) && (serializes || !pumpsInScope(ctx, scopeOwner));
+    const slot: SlotRecord | undefined = slotted ? (ctx as any)[SLOTS]?.[id!] : undefined;
+    if (slot) {
+      const adopt = () => {
+        if (slot.s === 1) {
+          comp.value = slot.v;
+          comp.error = undefined;
+          comp.errored = false;
+        } else {
+          comp.error = slot.v;
+          comp.errored = true;
+        }
+      };
+      if (slot.s) return adopt();
+      // A known answer lands in this node too; under a served loading value
+      // the markup stays at commit #0 (the first-value lock).
+      const settle = () => {
+        if (slot.s !== 1 || !(loadingState?.served && serializes)) adopt();
+      };
+      slot.d!.promise.then(settle, settle);
+      if (loadingState) {
+        loadingState.served = true;
+        comp.value = loadingState.value;
+      } else {
+        comp.error = new NotReadyError(slot.d!.promise);
+        comp.errored = true;
+      }
+      return;
+    }
     // Same effective-mode rule as the thenable flatten above: the live
     // brand selects hybrid under server mode, except in a server-owned
     // frame render where the pump keeps the standing answer connected.
@@ -1860,6 +1896,7 @@ function processResult<T>(
       let currentResult = result;
       let iter: AsyncIterator<T>;
       const deferred = createDeferredPromise<T>();
+      if (slotted) recordSlot(0, undefined, deferred);
       const runFirst = () => {
         const source = currentResult ?? (rerun ? rerun() : result);
         currentResult = undefined;
@@ -1880,6 +1917,7 @@ function processResult<T>(
         runFirst,
         deferred,
         (value: T) => {
+          if (slotted) recordSlot(1, value);
           // First-value lock for commit #0 (see thenable branch).
           if (!(loadingState?.served && serializes)) {
             comp.value = value;
@@ -1890,6 +1928,7 @@ function processResult<T>(
           return value;
         },
         (error: any) => {
+          if (slotted) recordSlot(2, error);
           comp.error = error;
           comp.errored = true;
           ctx?.commit?.();
@@ -1911,6 +1950,7 @@ function processResult<T>(
       let iter: AsyncIterator<T>;
       let firstResult: IteratorResult<T> | undefined;
       const deferred = createDeferredPromise<void>();
+      if (slotted) recordSlot(0, undefined, deferred);
       const runFirst = () => {
         const source = currentResult ?? (rerun ? rerun() : result);
         currentResult = undefined;
@@ -1933,6 +1973,7 @@ function processResult<T>(
         deferred,
         () => {
           const resolved = firstResult;
+          if (slotted) recordSlot(1, resolved && !resolved.done ? resolved.value : undefined);
           // First-value lock for commit #0: with a loading value on a
           // serialized stream, HTML stays at commit #0 and the first yield
           // (like every later one) is the client's to apply.
@@ -1947,6 +1988,7 @@ function processResult<T>(
           return undefined;
         },
         (error: any) => {
+          if (slotted) recordSlot(2, error);
           comp.error = error;
           comp.errored = true;
           ctx?.commit?.();
