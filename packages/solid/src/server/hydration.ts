@@ -12,7 +12,8 @@ import {
   RevealGroupContext,
   reportServerError,
   throwerOf,
-  ownerId
+  ownerId,
+  onCleanup
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -72,6 +73,13 @@ export function createLoadingBoundary<T, U>(
     options?.on !== undefined
   ) as unknown as Accessor<T | U>;
 }
+
+// Which registration owns a fragment id (#3750). An `<Errored>` retry, or a
+// hole re-pull, disposes the pass that created a pending boundary and
+// re-creates it under the same id; the stream's registry entry for that id
+// is shared, so only the latest registration may settle it. Keyed by the
+// render's `registerFragment`, which every context clone of a render shares.
+const fragmentOwners = /* @__PURE__ */ new WeakMap<Function, Record<string, Function>>();
 
 function ssrLoadingBoundary(
   currentCtx: HydrationContext,
@@ -551,6 +559,22 @@ function ssrLoadingBoundary(
   if (ctx.async) {
     const regOpts = revealGroup ? { revealGroup: revealGroup.id } : undefined;
     done = ctx.registerFragment(id, regOpts);
+    let owners = fragmentOwners.get(ctx.registerFragment);
+    if (!owners) fragmentOwners.set(ctx.registerFragment, (owners = {}));
+    owners[id] = done;
+    // Armed on the creation owner: `o` is reset on every discovery pass.
+    // Once the creating pass is disposed this instance stops retrying; with
+    // no successor at its id it releases the entry (its placeholder left the
+    // document with the pass), so the response can end. A successor
+    // registered in the same re-run owns the entry and its reveal slot.
+    let disposed = false;
+    let superseded = false;
+    onCleanup(() => (disposed = true));
+    const abandon = () => {
+      if (owners![id] !== done) return (superseded = true);
+      delete owners![id];
+      done!();
+    };
     // A final hole surfacing only now: an earlier real async read masked it
     // during the initial discovery, or the hole was reached through a
     // derived async computation, whose FINAL classification lands a
@@ -599,6 +623,7 @@ function ssrLoadingBoundary(
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
           await retryPromise.catch(() => {});
+          if (disposed) return abandon();
           ret = runDiscovery();
         }
         commitBoundaryState();
@@ -607,6 +632,7 @@ function ssrLoadingBoundary(
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
           await Promise.all(pending.p).catch(() => {});
+          if (disposed) return abandon();
           passes++;
           ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }
@@ -622,7 +648,7 @@ function ssrLoadingBoundary(
         // template write. Skipping release on error parks a sequential
         // frontier on this boundary forever, so resolved later siblings never
         // get their activation script (#2776).
-        if (revealGroup) revealGroup.onResolved(id);
+        if (revealGroup && !superseded) revealGroup.onResolved(id);
       }
     })();
     return skipLive(() => fallbackResult);
