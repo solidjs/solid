@@ -620,9 +620,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // revealed (its reveal shows it), as its staging once it has (the
         // next reveal promotes it; the screen keeps the revealed value). An
         // effect's value slot is private: the run the lane holds is what
-        // shows it.
-        if (isEffect) el._value = value;
-        else if (lane._shown) el._pendingValue = value;
+        // shows it — unless the effect was born held, whose first run is the
+        // commit's (A29): it re-stages, as below.
+        if (isEffect && el._pendingValue === NOT_PENDING) el._value = value;
+        else if (isEffect || lane._shown) el._pendingValue = value;
         else el._x!._lane = value;
       } else if (
         create
