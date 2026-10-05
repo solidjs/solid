@@ -487,8 +487,9 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * — and is no lane's; an untracked read sees the lane's latest value (A17:
  * "direct read shows optimistic"; A28); a children-forbidden reader sees
  * the frame (A32). A render effect in the frame's seat reading a lane the
- * seam found blocked and that has not shown sees the screen — the committed
- * value, re-derived at the reveal (#3460's stale reader) — or, the node a
+ * seam found blocked, or a member whose own flight is up (held or not — the
+ * lane-membership ruling, 2026-10-05), sees the screen, re-derived at the
+ * reveal (#3460's stale reader) — or, the node a
  * flight that has never shown (nothing to show), waits on it: its own frame
  * holds (A15, #3334), not the lane's parent. Any other tracked reader is
  * the lane's work from this read — a derivation; a leaf reading a lane that
@@ -531,7 +532,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       )
         return el._pendingValue;
     }
-    if (l._held) {
+    if (l._held || (!guess && status & STATUS_PENDING)) {
       if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
       // Re-derived at the reveal; once per pass (the pass may also be a stale
       // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
