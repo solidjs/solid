@@ -445,79 +445,155 @@ describe("fuzz findings on L2 — lanes", () => {
 
   // F8. A15 lanes corollary (#3460): "a render effect OFF the lane that reads
   // what the lane is revealing … shows the committed value, publishes now,
-  // entangles nothing — and re-derives at the release"; ruling 1: a flush
-  // parks as a whole. A mainline mount whose child reads a lane-held pending
-  // derivation publishes the mount control (`mounted=true`) while the child
-  // never attaches until the action ends — neither the committed value now
-  // nor a held frame: a torn mount (fuzzer S2 "mount control").
-  it.fails(
-    "F8: a mainline mount reading a lane-held pending derivation shows with its mount control (A15 lanes corollary)",
-    async () => {
-      const [source, setSource] = createSignal(0);
-      const [mounted, setMounted] = createSignal(false);
-      const gates = new Map<string, () => void>();
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let shownMounted: unknown;
-      let child: unknown = "absent";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const derived = createMemo(() => {
-          const v = latest(source);
-          return gated(gates, `d:${v}`, v);
+  // entangles nothing — and re-derives at the release"; the lane-membership
+  // ruling (2026-10-05, reading A): a stale reader of the lane "whether or
+  // not the lane is held at that moment". A mainline mount whose child reads
+  // a lane derivation whose re-ask nobody had observed (the seam left the
+  // lane unheld) published the mount control while the child entered the
+  // lane and waited on the flight — a torn mount (fuzzer S2 "mount
+  // control"). `laneRead`'s stale-reader arm was gated on `_held`; it now
+  // also takes a leaf reading a lane member whose own flight is up: the
+  // child shows the screen (the lane's revealed derivation) beside its
+  // control, and re-derives at the reveal. Through a memo the mount is born
+  // held instead (A29, #3761): the next pin.
+  it("F8: a mainline mount over a lane derivation in flight shows its child as a stale reader beside its mount control (A15 lanes corollary)", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(false);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let shownMounted: unknown;
+    let child: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const derived = createMemo(() => {
+        const v = latest(source);
+        return gated(gates, `d:${v}`, v);
+      });
+      createRenderEffect(mounted, v => {
+        shownMounted = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(derived, v => {
+                  child = v;
+                });
+                onCleanup(() => {
+                  child = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        setSource(1);
+        yield new Promise<void>(r => {
+          resume = r;
         });
-        createRenderEffect(mounted, v => {
-          shownMounted = v;
-        });
-        createRenderEffect(
-          () =>
-            mounted()
-              ? createRoot(dd => {
-                  createRenderEffect(derived, v => {
-                    child = v;
-                  });
-                  onCleanup(() => {
-                    child = "absent";
-                  });
-                  return dd;
-                })
-              : undefined,
-          dd => {
-            if (dd) onCleanup(dd);
-          }
-        );
-        run = action(function* () {
-          setSource(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setSource(2);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
+        setSource(2);
+        yield new Promise<void>(r => {
+          resume = r;
         });
       });
-      flush();
-      gates.get("d:0")!();
-      await drain();
-      const p = run();
-      await drain();
-      gates.get("d:1")!(); // the lane's first derivation lands
-      await drain();
-      resume(); // source=2: the derivation re-asks, the lane is held again
-      await drain();
-      setMounted(true); // a mainline mount over the held derivation
-      await drain();
-      // The mount control and its child are one frame: both show, or neither.
-      expect(shownMounted === true).toBe(child !== "absent");
-      gates.get("d:2")!();
-      resume();
-      await p;
-      await drain();
-      dispose();
-    }
-  );
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    const p = run();
+    await drain();
+    gates.get("d:1")!(); // the lane's first derivation lands
+    await drain();
+    resume(); // source=2: the derivation re-asks, the lane is held again
+    await drain();
+    setMounted(true); // a mainline mount over the held derivation
+    await drain();
+    // The control publishes; the child shows the lane's screen beside it.
+    expect([shownMounted, child]).toEqual([true, 1]);
+    gates.get("d:2")!();
+    await drain();
+    expect([shownMounted, child]).toEqual([true, 2]); // re-derived at the reveal
+    resume();
+    await p;
+    await drain();
+    dispose();
+  });
+
+  it("F8 (memo between): a mainline mount deriving from a lane derivation in flight is born held, control and child together (A29, #3761)", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(false);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let shownMounted: unknown;
+    let child: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const derived = createMemo(() => {
+        const v = latest(source);
+        return gated(gates, `d:${v}`, v);
+      });
+      createRenderEffect(mounted, v => {
+        shownMounted = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(
+                  createMemo(() => derived()),
+                  v => {
+                    child = v;
+                  }
+                );
+                onCleanup(() => {
+                  child = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        setSource(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(2);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+      });
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    const p = run();
+    await drain();
+    gates.get("d:1")!(); // the lane's first derivation lands
+    await drain();
+    resume(); // source=2: the derivation re-asks, the lane is held again
+    await drain();
+    setMounted(true); // a mainline mount over the held derivation
+    await drain();
+    // A derivation carries the future: the whole mount waits for it.
+    expect([shownMounted, child]).toEqual([false, "absent"]);
+    gates.get("d:2")!();
+    await drain();
+    expect([shownMounted, child]).toEqual([true, 2]); // revealed together
+    resume();
+    await p;
+    await drain();
+    dispose();
+  });
 
   // F13. A29 (creation-time form): a reader born held is "staged into [the
   // transaction], committed with it" — `recompute`'s own note: "An effect
