@@ -623,92 +623,128 @@ describe("fuzz findings on L2 — verdicts", () => {
     }
   );
 
-  // F10. A28: "a write becomes visible at flush — to every channel". A gated
-  // `isPending` reader revealed in the same tick as a write to the probed
-  // memo's source (`setShow(true); setSrc(1)`, memo between) leaves the
-  // memo's plain reader on the old value for good: no flight exists, the
-  // verdict reads `false`, and the write is never published. (Writing first,
-  // or probing the signal directly, is fine.)
-  it.fails(
-    "F10: a sync write beside a same-tick reveal of a gated isPending reader publishes (A28)",
-    async () => {
-      const [src, setSrc] = createSignal(0);
-      const [show, setShow] = createSignal(false);
-      let data: unknown = "unpublished";
-      let verdict: unknown = "unpublished";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m = createMemo(() => src());
-        createRenderEffect(m, v => {
-          data = v;
-        });
-        createRenderEffect(
-          () => (show() ? isPending(() => m()) : "hidden"),
-          v => {
-            verdict = v;
-          }
-        );
+  // F10. A31: "A memo computes under its own lane posture, never its
+  // puller's"; A28: "a write becomes visible at flush — to every channel". A
+  // gated `isPending` reader revealed in the same tick as a write to the
+  // probed memo's source (`setShow(true); setSrc(1)`, memo between) pulled
+  // the memo from inside its window: `verdictValue` → `pullComputed(m)` →
+  // `m`'s pass read `src` with the window's dispatch still installed, and
+  // the unheld-staged arm served it the committed `0`. `m` cached the
+  // committed input, its plain reader stayed on the old value for good, and
+  // the write never published. The pulled pass now reads outside the window
+  // (the probe's own read of `m` answers the verdict afterwards), and a
+  // window restores the dispatch it found, so a window inside that pass
+  // closes back to none.
+  it("F10: a memo an isPending probe pulls computes from the flushed write, which publishes (A31, A28)", async () => {
+    const [src, setSrc] = createSignal(0);
+    const [show, setShow] = createSignal(false);
+    let data: unknown = "unpublished";
+    let verdict: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => src());
+      createRenderEffect(m, v => {
+        data = v;
       });
-      flush();
-      expect([data, verdict]).toEqual([0, "hidden"]);
-      setShow(true);
-      setSrc(1);
-      await drain();
-      expect([data, verdict]).toEqual([1, false]);
-      dispose();
-    }
-  );
+      createRenderEffect(
+        () => (show() ? isPending(() => m()) : "hidden"),
+        v => {
+          verdict = v;
+        }
+      );
+    });
+    flush();
+    expect([data, verdict]).toEqual([0, "hidden"]);
+    setShow(true);
+    setSrc(1);
+    await drain();
+    expect([data, verdict]).toEqual([1, false]);
+    dispose();
+  });
+
+  // F10, nested: the pulled memo's own window (an `isPending` inside its
+  // body) closes back to no window, not to the puller's — the rest of the
+  // memo's pass is still its own.
+  it("F10 (nested window): a memo an isPending probe pulls keeps its own reads outside the probe after its own window closes (A31)", async () => {
+    const [src, setSrc] = createSignal(0);
+    const [show, setShow] = createSignal(false);
+    let data: unknown = "unpublished";
+    let verdict: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => {
+        isPending(() => 0);
+        return src();
+      });
+      createRenderEffect(m, v => {
+        data = v;
+      });
+      createRenderEffect(
+        () => (show() ? isPending(() => m()) : "hidden"),
+        v => {
+          verdict = v;
+        }
+      );
+    });
+    flush();
+    setShow(true);
+    setSrc(1);
+    await drain();
+    expect([data, verdict]).toEqual([1, false]);
+    dispose();
+  });
 
   // F11. A31: "A memo computes under its own lane posture, never its
   // puller's" (#3442: the probe's pull of `copy` made it read the in-flight
   // `slow` as its committed value); A19 exc. 1 / A7: an uninitialized source
   // throws, a value is never fabricated. A sibling `isPending(() => [a(),
   // c()])` probe pulls `c` (async over a sync memo over async `a`) during
-  // the initial load; `c`'s pass reads `b` as `undefined` instead of
-  // suspending, and the plain data reader never publishes at all.
-  it.fails(
-    "F11: a memo pulled by an isPending probe suspends on its uninitialized input (A31, A19 exc. 1)",
-    async () => {
-      const [src] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      const inputsSeen: unknown[] = [];
-      let data: unknown = "unpublished";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const a = createMemo(() => gated(gates, `a:${src()}`, src()));
-        const b = createMemo(() => a() + 1);
-        const c = createMemo(() => {
-          const v = b();
-          inputsSeen.push(v);
-          return gated(gates, `c:${v}`, v * 10);
-        });
-        createRenderEffect(
-          () => isPending(() => [a(), c()]),
-          () => {}
-        );
-        createRenderEffect(
-          () => [a(), c()],
-          v => {
-            data = v;
-          }
-        );
+  // the initial load; `c`'s pass — run inside the probe's window — read the
+  // uninitialized `b`'s staging through the unheld-staged arm as
+  // `undefined` instead of suspending, and the plain data reader never
+  // published at all. F10's change: the pulled pass reads outside the
+  // window, as a plain pass, and suspends.
+  it("F11: a memo an isPending probe pulls suspends on its uninitialized input (A31, A19 exc. 1)", async () => {
+    const [src] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    const inputsSeen: unknown[] = [];
+    let data: unknown = "unpublished";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const a = createMemo(() => gated(gates, `a:${src()}`, src()));
+      const b = createMemo(() => a() + 1);
+      const c = createMemo(() => {
+        const v = b();
+        inputsSeen.push(v);
+        return gated(gates, `c:${v}`, v * 10);
       });
+      createRenderEffect(
+        () => isPending(() => [a(), c()]),
+        () => {}
+      );
+      createRenderEffect(
+        () => [a(), c()],
+        v => {
+          data = v;
+        }
+      );
+    });
+    await drain();
+    for (const g of [...gates.values()]) {
+      g();
       await drain();
-      for (const g of [...gates.values()]) {
-        g();
-        await drain();
-      }
-      for (const g of [...gates.values()]) {
-        g();
-        await drain();
-      }
-      expect(inputsSeen.every(v => Number.isFinite(v))).toBe(true);
-      expect(data).toEqual([0, 10]);
-      dispose();
     }
-  );
+    for (const g of [...gates.values()]) {
+      g();
+      await drain();
+    }
+    expect(inputsSeen.every(v => Number.isFinite(v))).toBe(true);
+    expect(data).toEqual([0, 10]);
+    dispose();
+  });
 });
 
 describe("fuzz findings on L2 — crashes", () => {
