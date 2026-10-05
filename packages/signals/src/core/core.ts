@@ -577,8 +577,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // `_modified`, so re-enqueueing the same function is harmless.
       // Lane work's run is the lane's (released at its reveal) — a first
       // pass under a lane too: `effect()` skips the synchronous first run of
-      // a lane's node.
-      if (!create || lane !== null)
+      // a lane's node. An effect born held (uninitialized, staged) owes no
+      // run either: it re-stages below, and its first run is the commit's
+      // (A29) — run now, it would apply a value it never committed (#3802).
+      if (
+        (!create &&
+          !(el._statusFlags & STATUS_UNINITIALIZED && el._pendingValue !== NOT_PENDING)) ||
+        lane !== null
+      )
         globalQueue.enqueue(
           isEffect,
           ((el as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, el)),
