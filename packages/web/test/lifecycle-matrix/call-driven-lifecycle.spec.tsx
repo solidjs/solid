@@ -9,7 +9,7 @@
 // have their own spec files. See MATRIX.md for the full cell table.
 import { afterEach, describe, expect, test } from "vitest";
 import { vi } from "vitest";
-import { createRoot, createSignal, Errored, flush, isPending, Loading } from "solid-js";
+import { createMemo, createRoot, createSignal, Errored, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
@@ -26,6 +26,8 @@ const getErrRecover = createServerReference("matrix/lc/err-recover");
 const getTruncated = createServerReference("matrix/lc/truncated");
 const getAborted = createServerReference("matrix/lc/aborted");
 const getReveal = createServerReference("matrix/lc/reveal");
+const getNested = createServerReference("matrix/lc/nested");
+const getNestedHeld = createServerReference("matrix/lc/nested-held");
 const getFallbackGate = createServerReference("matrix/lc/fallback-gate");
 const getShellGate = createServerReference("matrix/lc/shell-gate");
 const getShellErr = createServerReference("matrix/lc/shell-err");
@@ -460,6 +462,117 @@ describe("call-driven/fragment-reveal-gating", () => {
     expect(m.div.querySelector("template#pl-a")).toBe(null);
     expect(m.div.querySelector("template#pl-b")).toBe(null);
 
+    m.cleanup();
+  });
+
+  // A reveal is an apply (frames-rulings 2.3, A3): a revealed segment's
+  // content is applied against the store as it is revealed — its fills
+  // mount and the segments whose placeholders it carries reveal, in the
+  // same flush, with no pass over the frame retrying for a placeholder a
+  // reveal just inserted. Here `b`'s content and gate arrived first (its
+  // placeholder was nowhere yet), then `a`'s — the one flush that reveals
+  // `a` reveals `b` inside it. Nothing else arrives.
+  test("a segment nested in another's content reveals in the flush that reveals its parent (a reveal applies its range)", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = openFrameResponse("srv");
+    vi.stubGlobal("fetch", async () => held.response);
+    const reveals: string[] = [];
+    const Page = dynamic(() => getNested() as any);
+    const m = mountUnderLoading(Page, {});
+    await pump();
+    held.send({ type: "start", id: "srv", version: 1 });
+    held.send({
+      type: "html",
+      id: "srv",
+      version: 1,
+      html: '<article><template id="pl-a"><span>loading-a</span></template><!--pl-a--></article>'
+    });
+    // `b` first: content + gate, placeholder not in the DOM (it rides `a`).
+    held.send({ type: "fragment", id: "srv", version: 1, key: "b", html: "<p>frag-b</p>" });
+    held.send({ type: "reveal", id: "srv", version: 1, keys: ["b"], waitForStyles: false });
+    await pump();
+    expect(m.div.textContent).not.toContain("frag-b");
+    // `a` carries `b`'s placeholder: one flush, both reveal.
+    held.send({
+      type: "fragment",
+      id: "srv",
+      version: 1,
+      key: "a",
+      html: '<section>frag-a<template id="pl-b"><span>loading-b</span></template><!--pl-b--></section>'
+    });
+    const frame: any = host.get("matrix/lc/nested");
+    const el = m.div.querySelector("solid-frame")!;
+    el.addEventListener("frame:applied", (e: any) => reveals.push(e.detail.reason));
+    held.send({ type: "reveal", id: "srv", version: 1, keys: ["a"], waitForStyles: false });
+    await pump(1);
+    expect(m.div.textContent).toContain("frag-a");
+    expect(m.div.textContent).toContain("frag-b");
+    expect(m.div.textContent).not.toContain("loading-");
+    expect(m.div.querySelector("template")).toBeNull();
+    expect(reveals.filter(r => r === "reveal").length).toBe(2);
+    expect(frame.store["seg:b"]).toBeDefined();
+    held.send({ type: "complete", id: "srv", version: 1 });
+    held.close();
+    await pump();
+    m.cleanup();
+  });
+
+  // The same, under a reconstructed boundary that HOLDS: `a` carries a
+  // client fill that is async (no <Loading> of its own) and `b`'s
+  // placeholder. `a`'s reveal renders inside the segment boundary, which
+  // shows `a`'s fallback while the fill pends; `b` revealed into the
+  // detached content meanwhile, so when the fill settles the content lands
+  // with `b` already swapped — no later chunk is needed.
+  test("a segment nested in content a pending fill holds is revealed inside the detached content, before the boundary commits it", async () => {
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = openFrameResponse("srv");
+    vi.stubGlobal("fetch", async () => held.response);
+    let resolveFill!: (v: string) => void;
+    const fillReady = new Promise<string>(r => (resolveFill = r));
+    const Page = dynamic(() => getNestedHeld() as any);
+    const m = mountUnderLoading(Page, {
+      comment: () => {
+        const text = createMemo(() => fillReady);
+        return <b>{text()}</b>;
+      }
+    });
+    await pump();
+    held.send({ type: "start", id: "srv", version: 1 });
+    held.send({ type: "slot", id: "srv", version: 1, key: "comment#0", args: {} });
+    held.send({
+      type: "html",
+      id: "srv",
+      version: 1,
+      html: '<article><template id="pl-a"><span>loading-a</span></template><!--pl-a--></article>'
+    });
+    held.send({ type: "fragment", id: "srv", version: 1, key: "b", html: "<p>frag-b</p>" });
+    held.send({ type: "reveal", id: "srv", version: 1, keys: ["b"], waitForStyles: false });
+    held.send({
+      type: "fragment",
+      id: "srv",
+      version: 1,
+      key: "a",
+      html:
+        "<section><!--slot:comment#0:start--><!--slot:comment#0:end-->" +
+        '<template id="pl-b"><span>loading-b</span></template><!--pl-b--></section>'
+    });
+    held.send({ type: "reveal", id: "srv", version: 1, keys: ["a"], waitForStyles: false });
+    held.send({ type: "complete", id: "srv", version: 1 });
+    held.close();
+    await pump();
+    // The segment boundary holds `a`'s fallback while the fill pends.
+    expect(m.div.textContent).toContain("loading-a");
+    expect(m.div.textContent).not.toContain("frag-b");
+    expect(m.div.querySelector("b")).toBeNull();
+    // The fill settles: the content lands with `b` already revealed in it.
+    resolveFill("hello");
+    await pump();
+    expect(m.div.textContent).not.toContain("loading-");
+    expect(m.div.querySelector("b")!.textContent).toBe("hello");
+    expect(m.div.textContent).toContain("frag-b");
+    expect(m.div.querySelector("template")).toBeNull();
     m.cleanup();
   });
 

@@ -181,8 +181,6 @@ export interface Frame {
   readonly store: Readonly<Record<string, unknown>>;
   /** The stream's error record, if an `error` chunk arrived. */
   readonly error: unknown;
-  /** Whether the named fragment has been revealed into the boundary. */
-  isRevealed(segment: string): boolean;
   /**
    * Re-key this live frame to a different boundary id (the mount-preserving
    * half of a call-site handoff): nothing tears down — the element, store,
@@ -1040,12 +1038,15 @@ class FrameImpl {
   #appliedRoot;
   #appliedError;
   #hasContent = false;
-  #revealed = new Set();
-  #fallbackShown = new Set();
-  // Live-hole apply dedupe: store key -> the record this MOUNT applied
-  // (range morphs, attr patches, and error diagnostics share it). Per
-  // mount, not per store — a fresh mount seeding from a warm resident
-  // store must replay hole records over the re-materialized shell.
+  // The rest of the applied state, one map: store key -> the record this
+  // MOUNT applied under it — a segment's content record at its reveal, a
+  // fallback gate at its materialization, a live hole's range morph, an
+  // attr patch, a hole error's diagnostic. Per mount, not per store — a
+  // fresh mount seeding from a warm resident store must replay hole
+  // records over the re-materialized shell and reveal the segments the
+  // store already holds. Whether a segment is SHOWN is otherwise the DOM's
+  // to say (frames-rulings 2.4: its placeholder is gone once it swapped),
+  // so no second ledger of revealed names exists beside this.
   #appliedHoles = new Map();
   // The have-list (RFC 11 §9.5): what this mount currently shows, by the
   // server's own digests. Reset by a root apply (the root IS the content;
@@ -1162,10 +1163,6 @@ class FrameImpl {
     return this.#store;
   }
 
-  isRevealed(segment) {
-    return this.#revealed.has(segment);
-  }
-
   /** The stream's error record, if an `error` chunk arrived (else undefined). */
   get error() {
     return this.#store[":error"];
@@ -1267,16 +1264,14 @@ class FrameImpl {
    * bump and the rebind replace it wholesale — the store (every record of
    * the previous response), the root the morph applied (so a byte-identical
    * root under the new version applies as the new version's — 2.2), the
-   * error it notified, the reveal and fallback sets, the hole dedupe, the
-   * assets. Nothing applied under the previous version is consulted under
-   * the next; the DOM keeps showing what it showed until the new version's
-   * writes morph it.
+   * error it notified, the applied map (segments revealed, fallbacks shown,
+   * holes), the assets. Nothing applied under the previous version is
+   * consulted under the next; the DOM keeps showing what it showed until
+   * the new version's writes morph it.
    */
   #resetStreamState() {
     this.#store = Object.create(null);
     this.#appliedRoot = this.#appliedError = undefined;
-    this.#revealed.clear();
-    this.#fallbackShown.clear();
     this.#appliedHoles.clear();
     this.#processedAssets = new WeakSet();
   }
@@ -1306,39 +1301,11 @@ class FrameImpl {
       this.#applied(version, "error");
     }
 
-    // Re-evaluate every segment on each flush. Because readiness is checked
-    // against the store + DOM (not arrival order), reveal/content/placeholder
-    // may arrive in any order. Passes repeat until one makes no progress:
-    // revealing a segment (or materializing a fallback) can insert another
-    // segment's placeholder into the DOM — the store-model analogue of the
-    // document runtime's $dfd retry drain. Terminates because every step
-    // moves a name into #revealed/#fallbackShown, bounded by the store.
-    let progressed = true;
-    while (progressed) {
-      progressed = false;
-      for (const key in this.#store) {
-        const name = segmentName(key);
-        if (name === null || this.#revealed.has(name)) continue;
-        if (this.#segmentReady(name)) {
-          this.#revealSegment(name);
-          this.#applied(version, "reveal");
-          progressed = true;
-        }
-      }
-      // Fallback gates materialize placeholder-template content into the
-      // range ($dfl semantics) while the segment itself stays pending.
-      for (const key in this.#store) {
-        const m = /^seg:([^:]+):fallback$/.exec(key);
-        if (!m) continue;
-        const name = m[1];
-        if (this.#revealed.has(name) || this.#fallbackShown.has(name)) continue;
-        if (this.#showFallback(name)) {
-          this.#fallbackShown.add(name);
-          this.#applied(version, "reveal");
-          progressed = true;
-        }
-      }
-    }
+    // Segments: every content record the store holds whose placeholder is
+    // in the frame's range reveals; a revealed segment's own range is
+    // applied as it is revealed (nested segments included — see
+    // #revealSegments), so one pass over the frame suffices.
+    this.#revealSegments();
 
     // Live-hole records, one pass: range morphs (`hole:`), element attr
     // patches (`attr:`), and hole-keyed error diagnostics. After the
@@ -1901,8 +1868,13 @@ class FrameImpl {
 
   /** Find a fragment placeholder `<template id="pl-NAME">` bounded to this
    *  frame's content, or null. */
-  #findPlaceholder(name) {
-    return findPlaceholder(this.#firstContent(), this.#end, placeholderId(name));
+  /** The `pl-<name>` template in `root` (a segment's content being
+   *  revealed) or, without one, in the frame's range; null when absent —
+   *  not in the range yet, or already swapped out. */
+  #findPlaceholder(name, root) {
+    return root
+      ? findPlaceholder(root.firstChild, null, placeholderId(name))
+      : findPlaceholder(this.#firstContent(), this.#end, placeholderId(name));
   }
 
   /**
@@ -2132,7 +2104,45 @@ class FrameImpl {
     }
   }
 
-  #segmentReady(name) {
+  /**
+   * Apply the store's segment records against a range: reveal every
+   * segment whose content and reveal gate the store holds and whose
+   * placeholder is in `root` — the frame's whole range (a flush), or the
+   * content of a segment being revealed (a reveal is an apply,
+   * frames-rulings 2.3: the revealed range is applied as content that
+   * arrived, nested placeholders included, so the pass over the frame never
+   * has to retry for a placeholder a reveal just inserted). Then
+   * materialize every fallback gate whose segment has not revealed ($dfl
+   * semantics: the placeholder's template content shows while the segment
+   * stays pending). Readiness is read off the store + DOM, not arrival
+   * order, so content, reveal and placeholder may arrive in any order; the
+   * applied state is the record applied, by identity (2.1), so a segment
+   * reveals once per content record and a mount seeding from a warm store
+   * reveals what the store already holds.
+   */
+  #revealSegments(root) {
+    const version = this.#version;
+    for (const key in this.#store) {
+      const record = this.#store[key];
+      const name = segmentName(key);
+      if (name === null || !record || this.#appliedHoles.get(key) === record) continue;
+      if (this.#segmentReady(name, root)) {
+        this.#appliedHoles.set(key, record);
+        this.#revealSegment(name, root);
+        this.#applied(version, "reveal");
+      }
+    }
+    for (const key in this.#store) {
+      const m = /^seg:([^:]+):fallback$/.exec(key);
+      if (!m || this.#appliedHoles.has(key) || this.#appliedHoles.has(`seg:${m[1]}`)) continue;
+      if (this.#showFallback(m[1], root)) {
+        this.#appliedHoles.set(key, this.#store[key]);
+        this.#applied(version, "reveal");
+      }
+    }
+  }
+
+  #segmentReady(name, root) {
     const content = this.#store[`seg:${name}`];
     if (!content || content.kind !== "html") return false;
     // Reveal gate must be present and truthy.
@@ -2148,9 +2158,8 @@ class FrameImpl {
       for (const entry of assets.styles) ready = ensureStylesheet(entry, this.#styleFlush) && ready;
       if (!ready) return false;
     }
-    // Structural prerequisite: the placeholder must exist in this frame's range.
-    if (!this.#findPlaceholder(name)) return false;
-    return true;
+    // Structural prerequisite: the placeholder must exist in the range.
+    return !!this.#findPlaceholder(name, root);
   }
 
   /**
@@ -2158,8 +2167,8 @@ class FrameImpl {
    * materialized fallback between the `pl-` template and its closing comment,
    * insert the content there, and remove both markers.
    */
-  #revealSegment(name) {
-    const tpl = this.#findPlaceholder(name);
+  #revealSegment(name, root) {
+    const tpl = this.#findPlaceholder(name, root);
     if (!tpl) return;
     // Inline styles ride the segment's assets record and apply just before
     // its content shows (document order: <style> precedes the template).
@@ -2192,7 +2201,11 @@ class FrameImpl {
       // boundary contains itself. Cost is one boundary per revealed segment —
       // and segments are `<Loading>` boundaries (few, author-placed), so this
       // is React's granularity, not a per-chunk tax. `closing` stays as the
-      // boundary's insertion anchor; only the template is removed.
+      // boundary's insertion anchor; only the template is removed. The
+      // content is applied as it is revealed (2.3): its fills mount and its
+      // nested segments reveal INSIDE the still-detached fragment, so a
+      // placeholder the boundary commits later (a pending fill holds it)
+      // is already swapped when it lands.
       const fallbackFrag = tpl.content.cloneNode(true);
       this.#claimTree(fallbackFrag);
       this.#options.reveal({
@@ -2202,21 +2215,21 @@ class FrameImpl {
           const materialized = this.#materialize(content);
           this.#syncSlots(materialized);
           this.#claimTree(materialized);
+          this.#revealSegments(materialized);
           return materialized;
         }
       });
       tpl.remove();
-      this.#revealed.add(name);
       this.#recordHave(name, content);
       return;
     }
 
     const materialized = this.#materialize(content);
     this.#claimTree(materialized);
+    this.#revealSegments(materialized);
     parent.insertBefore(materialized, closing);
     tpl.remove();
     closing && closing.remove();
-    this.#revealed.add(name);
     this.#recordHave(name, content);
   }
 
@@ -2225,8 +2238,8 @@ class FrameImpl {
    * ($dfl semantics) without resolving the segment. Returns whether the
    * fallback was shown.
    */
-  #showFallback(name) {
-    const tpl = this.#findPlaceholder(name);
+  #showFallback(name, root) {
+    const tpl = this.#findPlaceholder(name, root);
     if (!tpl) return false;
     const closing = rangeClose(tpl, placeholderId(name));
     if (!closing) return false;
