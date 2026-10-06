@@ -8,16 +8,16 @@
     "minified": 27687
   },
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": {
-    "cap": "17.71 KB",
-    "minified": 52567
+    "cap": "17.73 KB",
+    "minified": 52626
   },
   "page: base server components (hydrating + dynamic + frames + sf reference)": {
-    "cap": "44.84 KB",
-    "minified": 145599
+    "cap": "44.89 KB",
+    "minified": 145757
   },
   "page: live server components (base + live/GET + action + isPending/latest)": {
-    "cap": "48.51 KB",
-    "minified": 157562
+    "cap": "48.60 KB",
+    "minified": 157720
   },
   "server: floor (getRequestEvent + isServer)": {
     "cap": "1.34 KB",

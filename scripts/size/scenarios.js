@@ -1686,6 +1686,15 @@ module.exports = [
     // unchanged at 17.71 KB, recorded minified 52,567 B (first record);
     // CI-measured at 17,672 B (52,567 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 17.71 -> 17.73 KB
+    // (floor-caps.json), measured at 17,728 B against `next` @ 49a8dca84's
+    // 17,672 (+56 B; 18 B over the cap; +59 B minified, 52,567 -> 52,626) —
+    // the C3 hold (frames-rulings 3.1, ruled: hydration-done counts the
+    // frames client's holds): `sharedConfig.holdBoundary` in solid-js, one
+    // assignment wrapping initBoundaryResume + checkHydrationComplete. Cap set
+    // at the 0.01 KB step at or below measured + 10 B; recorded minified
+    // 52,626 B. Accepted by the maintainer (2026-10-06, "pay the cost for
+    // correctness"). The cap is frozen again at 17.73 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2115,8 +2124,16 @@ module.exports = [
     // unchanged at 28.87 KB, recorded minified 91,625 B (first record);
     // CI-measured at 28,888 B (91,625 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "28.87 KB",
-    capMinified: 91625,
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 28.87 -> 28.93 KB,
+    // measured at 28,924 B against `next` @ 49a8dca84's 28,888 (+36 B; 54 B
+    // over the cap; +59 B minified, 91,625 -> 91,684) — the C3 hold
+    // (frames-rulings 3.1): `sharedConfig.holdBoundary` in solid-js (the
+    // hydrating floor's note). Cap set at the 0.01 KB step at or below
+    // measured + 10 B; recorded minified 91,684 B. Accepted by the maintainer
+    // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
+    // at 28.93 KB.
+    limit: "28.93 KB",
+    capMinified: 91684,
     alias
   },
   {
@@ -3130,8 +3147,16 @@ module.exports = [
     // unchanged at 30.93 KB, recorded minified 99,198 B (first record);
     // CI-measured at 30,957 B (99,198 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "30.93 KB",
-    capMinified: 99198,
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 30.93 -> 31.03 KB,
+    // measured at 31,023 B against `next` @ 49a8dca84's 30,957 (+66 B; 93 B
+    // over the cap; +59 B minified, 99,198 -> 99,257) — the C3 hold
+    // (frames-rulings 3.1): `sharedConfig.holdBoundary` in solid-js (the
+    // hydrating floor's note). Cap set at the 0.01 KB step at or below
+    // measured + 10 B; recorded minified 99,257 B. Accepted by the maintainer
+    // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
+    // at 31.03 KB.
+    limit: "31.03 KB",
+    capMinified: 99257,
     alias
   },
   {
@@ -3343,8 +3368,22 @@ module.exports = [
     // unchanged at 13.78 KB, recorded minified 43,310 B (first record);
     // CI-measured at 13,770 B (43,310 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "13.78 KB",
-    capMinified: 43310,
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 13.78 -> 13.79 KB,
+    // measured at 13,787 B against `next` @ 49a8dca84's 13,770 (+17 B; 7 B
+    // over the cap; +104 B minified, 43,310 -> 43,414). The pass's net on the
+    // frames client: S-flush −187 B min (the address is an async source —
+    // `FrameHost.landing`; the store is one response's; `boundaryComponent`'s
+    // and `adoptBoundary`'s hand-rolled gates, `followAddress`'s re-arm +
+    // frameless waiter, `argsEquivalent` and `clearStreamRecords` deleted),
+    // the C3 hold and C5's data guard +291 together (`FrameOptions.hold`,
+    // `#syncSlots`' waiting flag, `adoptBoundary`'s `sharedConfig.holdBoundary`
+    // wiring — frames-rulings 3.1, ruled; `chunk.version < store.version` on
+    // the data path). Cap set at the 0.01 KB step at or below measured +
+    // 10 B; recorded minified 43,414 B. Accepted by the maintainer
+    // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
+    // at 13.79 KB.
+    limit: "13.79 KB",
+    capMinified: 43414,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3507,6 +3546,15 @@ module.exports = [
     // unchanged at 44.84 KB, recorded minified 145,599 B (first record);
     // CI-measured at 44,864 B (145,599 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 44.84 -> 44.89 KB
+    // (floor-caps.json), measured at 44,882 B against `next` @ 49a8dca84's
+    // 44,864 (+18 B; 42 B over the cap; +158 B minified, 145,599 -> 145,757)
+    // — the frames client's net +104 (the frames note: S-flush −187, the C3
+    // hold and C5 +291) and the C3 hold's `sharedConfig.holdBoundary` in
+    // solid-js (+59, the hydrating floor's note). Cap set at the 0.01 KB step
+    // at or below measured + 10 B; recorded minified 145,757 B. Accepted by
+    // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
+    // frozen again at 44.89 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3620,6 +3668,14 @@ module.exports = [
     // unchanged at 48.51 KB, recorded minified 157,562 B (first record);
     // CI-measured at 48,527 B (157,562 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 48.51 -> 48.60 KB
+    // (floor-caps.json), measured at 48,595 B against `next` @ 49a8dca84's
+    // 48,527 (+68 B; 85 B over the cap; +158 B minified, 157,562 -> 157,720)
+    // — the same bytes as the base page (the frames client's net +104, the
+    // C3 hold's `sharedConfig.holdBoundary` +59). Cap set at the 0.01 KB step
+    // at or below measured + 10 B; recorded minified 157,720 B. Accepted by
+    // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
+    // frozen again at 48.60 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
