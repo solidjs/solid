@@ -1155,7 +1155,7 @@ let boundaryIndex: Map<string, Element> | null = null;
 // than one per nested region (a large comment thread carries hundreds).
 const isBoundaryId = (id: string) => !id.includes(".");
 function indexBoundaries(root: ParentNode) {
-  root.querySelectorAll(`[${FRAME_ID_ATTR}]`).forEach(el => {
+  root.querySelectorAll(FRAME_SELECTOR).forEach(el => {
     const key = el.getAttribute(FRAME_ID_ATTR);
     if (key && isBoundaryId(key) && !boundaryIndex!.has(key)) boundaryIndex!.set(key, el);
   });
@@ -1168,19 +1168,27 @@ function findBoundaryElement(id: string): Element | undefined {
   return boundaryIndex.get(id);
 }
 
-// Boundaries whose element has not been delivered yet, waiting on the reveal
-// that carries it. One waiter per id: a second mount while the first is still
-// waiting takes the fresh-frame path, since only one frame may adopt an
-// element.
-const boundaryWaiters = new Map<string, (el?: Element) => void>();
-
-// Calls answered "not yet" by the intercept: a boundary the page may still
-// deliver (see boundaryMayArrive) is a LOCAL answer that has not landed, not
-// a miss — a fetch now would render on the wire what the document is
-// already streaming. One promise per id, shared by every caller asking
-// while it is outstanding; it settles at the reveal that carries the element
-// (true) or once the page has no reveal left to deliver it (false).
+// The one deferred answer for "the page may still deliver this boundary":
+// a boundary not in the document yet while the document can still deliver
+// it (see boundaryMayArrive) is a LOCAL answer that has not landed, not a
+// miss — a fetch now would render on the wire what the document is already
+// streaming, and a fresh mount now would orphan the markup when it lands.
+// One promise per id, shared by every asker while it is outstanding — the
+// intercept answering a call, and a placeholder mount pending on its
+// element (frames A5′, G9: the two waiters this used to be asked one
+// question); it settles at the reveal that carries the element (true) or
+// once the page has no reveal left to deliver it (false).
 const arrivals = new Map<string, { promise: Promise<boolean>; resolve: (v: boolean) => void }>();
+
+// Frame elements — adopted boundaries and the region elements inside them —
+// whose mount has been disposed (see installRevealHook's ownership
+// predicate): a placeholder under one is no longer anyone's content. The
+// regions are marked with their boundary so the predicate's nearest-frame
+// lookup is the whole check (a placeholder in a nested region sees the
+// region first). Weak — an element that leaves the document is forgotten
+// with it.
+const FRAME_SELECTOR = `[${FRAME_ID_ATTR}]`;
+const disposedFrames = new WeakSet<Element>();
 function awaitBoundary(id: string) {
   let arrival = arrivals.get(id);
   if (!arrival) {
@@ -1215,41 +1223,60 @@ function boundaryMayArrive() {
 }
 
 /**
- * Subscribe to the fragment ledger to learn when a late boundary lands.
+ * Install the frames client's two hooks on the hydration runtime's fragment
+ * ledger (idempotent — `_$HY.$sc`):
  *
- * The ledger notifies on every fragment reveal — the only moment a boundary
- * element can enter the page after the initial parse — with the revealed
- * fragment's parent, and on truncation (no parent) so waiters the page can
- * no longer answer re-evaluate. Scoping the rescan to the revealed
- * fragment's parent (rather than the document) keeps this proportional to
- * what just arrived.
+ * - Ownership by rendering (`_$HY.fa`, frames A5′ / rulings 3.3): a `pl-*`
+ *   placeholder inside a server component's element is the component's
+ *   content — the server rendered that `<Loading>` inside the component, so
+ *   no client boundary will ever register as its claimant. The ledger asks
+ *   this predicate before holding a post-done swap; an owned swap proceeds
+ *   whether or not a client has adopted the element yet (an adoption that
+ *   follows finds the settled markup in place and drains its records).
+ *   Disposal is mostly geometry — a disposed boundary's element normally
+ *   leaves the document, so the placeholder the ledger looks up is gone
+ *   and the swap is held like any other — but an adopted element whose
+ *   mount is disposed IN PLACE (the element is the component's return
+ *   value; a root disposed without detaching it leaves it standing) is
+ *   dead markup nobody drives, and a swap into it would be exactly the
+ *   inert content #2964 holds against (contract C14: a reveal after
+ *   disposal touches nothing). `disposedFrames` records those elements
+ *   (the boundary and the region elements inside it, since a placeholder
+ *   in a nested region sees the region's `data-fid` first); the predicate
+ *   disowns a placeholder whose nearest frame element is one of them.
+ *
+ * - The reveal subscription, to learn when a late boundary lands. The
+ *   ledger notifies on every fragment reveal — the only moment a boundary
+ *   element can enter the page after the initial parse — with the revealed
+ *   fragment's parent, and on truncation (no parent) so waiters the page
+ *   can no longer answer re-evaluate. Scoping the rescan to the revealed
+ *   fragment's parent (rather than the document) keeps this proportional
+ *   to what just arrived.
  */
 function installRevealHook() {
   const hy = (globalThis as any)._$HY;
   if (!hy || hy.$sc || !hy.fr) return;
   hy.$sc = true;
+  hy.fa = (pl: Element) => {
+    const el = pl.closest(FRAME_SELECTOR);
+    return !!el && !disposedFrames.has(el);
+  };
   hy.fr.subscribe((_id: string, parent?: ParentNode) => {
     // Nothing has looked a boundary up yet, so there is nothing to keep
     // current — the first lookup scans the document as it stands then.
     if (!boundaryIndex) return;
     const root = parent || (typeof document !== "undefined" ? document.body : null);
     if (root) indexBoundaries(root);
-    if (!boundaryWaiters.size && !arrivals.size) return;
+    if (!arrivals.size) return;
     // A waiter the page can no longer answer must not wait forever: once the
     // document is done and no fragment is left outstanding (truncated ones
     // included), nothing else can deliver this element, so release the
-    // waiter to mount fresh (the client-only shape) instead of holding the
-    // fallback on screen.
+    // waiter — the caller mounts fresh (the client-only shape) or goes to
+    // the wire — instead of holding the fallback on screen. (The ledger
+    // reads the revealing fragment as delivered from its swap, so the LAST
+    // reveal of a page is the exhaustion it looks like: the `_fr` stamp the
+    // same batch executes after this notification is not what it waits on.)
     const exhausted = hy.done && !hy.fr.pending();
-    for (const [id, notify] of boundaryWaiters) {
-      const el = boundaryIndex && boundaryIndex.get(id);
-      if (!el && !exhausted) continue;
-      boundaryWaiters.delete(id);
-      notify(el);
-    }
-    // Deferred local answers settle the same way: the element landed (the
-    // caller's mount adopts it), or nothing is left to deliver it (the
-    // caller goes to the wire).
     for (const [id, arrival] of arrivals) {
       const el = boundaryIndex && boundaryIndex.get(id);
       if (!el && !exhausted) continue;
@@ -1282,19 +1309,29 @@ function documentBoundary(
   // updates again. Suspend instead and adopt on delivery; the enclosing
   // <Loading> goes on showing the server's fallback, which is exactly what the
   // document is displaying.
-  if (!claimed && !boundaryWaiters.has(id) && boundaryMayArrive()) {
+  //
+  // The wait is the intercept's deferred answer (`awaitBoundary`): one
+  // promise per id, settled by the reveal hook when the element lands or
+  // when the page has nothing left to deliver it. Every mount asking during
+  // the wait shares it; at the answer the first to resume adopts and any
+  // other finds the id claimed and mounts fresh (only one frame may adopt an
+  // element). A mount disposed during the wait resumes nothing.
+  if (!claimed && boundaryMayArrive()) {
     const owner = getOwner();
-    const arrival = new Promise<Element | undefined>(resolve => boundaryWaiters.set(id, resolve));
-    onCleanup(() => boundaryWaiters.delete(id));
+    let live = true;
+    onCleanup(() => (live = false));
     return createMemo(() =>
-      arrival.then(node =>
-        runWithOwner(owner, () =>
-          // No element after all (the page ran out of reveals): mount fresh,
-          // exactly as an unwaited miss would have.
-          node
-            ? adoptBoundary(host, id, node, props, binding)
-            : boundaryComponent(host, id)(props, binding)
-        )
+      awaitBoundary(id).then(
+        () =>
+          live &&
+          runWithOwner(owner, () => {
+            const node = claimedBoundaries.has(id) ? undefined : findBoundaryElement(id);
+            // No element after all (the page ran out of reveals, or another
+            // mount took it): mount fresh, exactly as an unwaited miss would.
+            return node
+              ? adoptBoundary(host, id, node, props, binding)
+              : boundaryComponent(host, id)(props, binding);
+          })
       )
     ) as unknown as SolidElement;
   }
@@ -1348,46 +1385,42 @@ function adoptBoundary(
   // Deferred fragments in the adopted markup (#2978): a <Loading> that
   // suspended inside the server component during document SSR left a `pl-*`
   // placeholder here, but its producer ran on the SERVER — no client
-  // boundary will ever register as the fragment's claimant. Post-done, the
-  // held-swap policy (#2964) would hold its $df forever: the fallback stays
-  // frozen on screen and `fr.pending()` never flips false, deadlocking the
-  // very classification gate that waits on it. The adoption owns this markup
-  // wholesale, so it goes on record as the claimant for every placeholder in
-  // its region — at adopt time, and again for content revealed into the
-  // region later (an outer fragment's payload can carry a nested pending
-  // one). Claims retire with the frame: a swap arriving after disposal must
-  // be held, not landed in a range nobody owns.
-  const claimedFragments = new Set<string>();
-  const claimRegionFragments = (root: ParentNode) => {
+  // boundary will ever register as the fragment's claimant. The ledger
+  // settles these by OWNERSHIP BY RENDERING (`_$HY.fa`, installRevealHook):
+  // a placeholder inside a `data-fid` element is the component's content,
+  // so its swap proceeds post-done whether or not this adoption has
+  // happened yet — nothing here to claim, nothing to release at disposal.
+  //
+  // What remains of the region sweep is dev-only diagnosis. A server
+  // `<Loading>` inside a server component is the SERVER's boundary (A0,
+  // corollary 4 — inward): its outcome arrives as markup, and the client
+  // shows whatever the server rendered for it — never a client-invented
+  // error state. A rejected one has no client twin to surface its `<key>_fr`
+  // rejection (hydratedCreateLoadingBoundary's `s === 2` arm runs only for a
+  // boundary registered against it), so dev names it here — at adopt time
+  // and for content revealed into the region later (an outer fragment's
+  // payload can carry a nested pending one); the server's error path writes
+  // a BLANK template for it today (web/src/server.ts, the `done` closure's
+  // `" "`), which is the server half's gap, not a client state to invent.
+  // (Every call site is `IS_DEV &&`-guarded so the sweep is 0 bytes in prod.)
+  const reportedFragments = new Set<string>();
+  const reportRegionFragments = (root: ParentNode) => {
     const hy = (globalThis as any)._$HY;
-    const fr = hy?.fr;
-    if (!fr || !fr.claim) return;
+    if (!hy || !hy.r) return;
     root.querySelectorAll('template[id^="pl-"]').forEach(tpl => {
       const fragId = tpl.id.slice(3);
-      if (claimedFragments.has(fragId)) return;
-      claimedFragments.add(fragId);
-      fr.claim(fragId);
-      // A server `<Loading>` inside a server component is the SERVER's
-      // boundary (A0, corollary 4 — inward): its outcome arrives as markup,
-      // and the client shows whatever the server rendered for it — never a
-      // client-invented error state. A rejected one has no client twin to
-      // surface its `<key>_fr` rejection (hydratedCreateLoadingBoundary's
-      // `s === 2` arm runs only for a boundary registered against it), so
-      // dev names it here; the server's error path writes a BLANK template
-      // for it today (web/src/server.ts, the `done` closure's `" "`), which
-      // is the server half's gap, not a client state to invent.
-      if (IS_DEV) {
-        const ref = hy.r && hy.r[fragId + "_fr"];
-        ref &&
-          typeof ref.then === "function" &&
-          ref.then(undefined, (error: unknown) =>
-            console.error(
-              `Server <Loading> fragment "${fragId}" inside server component "${id}" rejected on ` +
-                `the server; the frame shows what the server rendered for that outcome.`,
-              error
-            )
-          );
-      }
+      if (reportedFragments.has(fragId)) return;
+      reportedFragments.add(fragId);
+      const ref = hy.r[fragId + "_fr"];
+      ref &&
+        typeof ref.then === "function" &&
+        ref.then(undefined, (error: unknown) =>
+          console.error(
+            `Server <Loading> fragment "${fragId}" inside server component "${id}" rejected on ` +
+              `the server; the frame shows what the server rendered for that outcome.`,
+            error
+          )
+        );
     });
   };
   const drainRecords = () => {
@@ -1439,7 +1472,7 @@ function adoptBoundary(
       }
     }
   };
-  claimRegionFragments(el);
+  IS_DEV && reportRegionFragments(el);
   const fr = (globalThis as any)._$HY?.fr;
   // The adopting frame, bound below; the reveal cascade syncs it.
   let frame: ReturnType<typeof createFrame> | undefined;
@@ -1449,7 +1482,7 @@ function adoptBoundary(
         // (nested server async). Scoped to the revealed parent, so each
         // sweep is proportional to what just landed.
         const inside = !!parent && el.contains(parent as Node);
-        if (fr.claim && inside) claimRegionFragments(parent!);
+        IS_DEV && inside && reportRegionFragments(parent!);
         // A revealed fragment also brings its occurrences' ARGS RECORDS: a
         // slot invoked inside a server `<Loading>` ships its `sc:slot:`
         // declaration with the fragment, ~the async's own delay after this
@@ -1489,7 +1522,6 @@ function adoptBoundary(
   onCleanup(() => {
     liveAppliers.delete(applyLiveOp);
     unsubscribe && unsubscribe();
-    if (fr && fr.release) for (const fragId of claimedFragments) fr.release(fragId);
   });
   drainRecords();
   // Catch-up: ops that arrived before this boundary adopted (the pump may
@@ -1570,7 +1602,15 @@ function adoptBoundary(
       () => {}
     );
   }
-  onCleanup(() => frame.dispose());
+  onCleanup(() => {
+    frame.dispose();
+    // Disown the element's placeholders (ownership by rendering, see
+    // installRevealHook): the boundary and every region element inside it
+    // — nothing can be revealed into a disposed element later, so what is
+    // inside it now is all there will be.
+    disposedFrames.add(el);
+    el.querySelectorAll(FRAME_SELECTOR).forEach(e => disposedFrames.add(e));
+  });
   // The boundary IS the element — hand hydration the single SSR'd node so it
   // claims it in place rather than re-rendering.
   return el as unknown as SolidElement;
