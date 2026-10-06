@@ -10,6 +10,9 @@
 // `live` re-invokes each one from its own hydration scope — the shell's
 // sources (presence, transcript, directory) as soon as the root pass ends,
 // without waiting for the slow <Loading> boundaries lower on the page (D8).
+// Exception (#3764): a shell source read only inside <Loading> whose first
+// value is still streaming when the shell flushes waits for the whole page
+// to hydrate, Archive included; per-scope takeover for it is #3819.
 import {
   action,
   createMemo,
@@ -396,8 +399,10 @@ function SummaryText(props: { room: string; attempt: number }) {
 
 // ---------------------------------------------------------------------------
 // archive — a slow plain read in its own boundary. Its four seconds are
-// what the presence pill up top does NOT wait for: the shell's live sources
-// take over when the root pass ends, this boundary lands whenever it lands.
+// what the presence pill up top is not meant to wait for: the shell's live
+// sources take over when the root pass ends, this boundary lands whenever it
+// lands (except while a source's first value is still streaming; see the
+// note at the top and #3819).
 // `on={room}` makes a room switch the same story: a different room is
 // different content, so the boundary shows its fallback for the new room at
 // once instead of holding the whole navigation for the count. (A refetch of

@@ -109,7 +109,11 @@ asyncGenerator })))`, a **nested-async answer**. `live` claims the _whole
   the wire and killable.
 - **Archive** — a slow plain `GET`. Its four seconds are what the presence
   pill up top does _not_ wait for: the shell's live sources take over when the
-  root pass ends, this boundary lands whenever it lands (D8).
+  root pass ends, this boundary lands whenever it lands (D8). Exception: a
+  shell source whose first value is still streaming when the shell flushes
+  takes over only when the whole page has hydrated, so the Archive can delay
+  it ([#3764](https://github.com/solidjs/solid/issues/3764); per-scope
+  takeover for that case is [#3819](https://github.com/solidjs/solid/issues/3819)).
 
 ## The chaos switch
 
