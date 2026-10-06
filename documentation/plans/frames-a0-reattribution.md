@@ -58,7 +58,7 @@ residue re-attributed).
 - **F — feature.** A capability above the minimal transport: live/GET
   re-emission (E.a), binding/attribute slots (E.c, Stage 7), container
   traces (N), staging/preview at commit (#3759 — the *capability*; its
-  *carrier* is R, see §1.3), document-face duality beyond the t = 0 claim,
+  *carrier* is R, see §1.2), document-face duality beyond the t = 0 claim,
   regions/nested frames, asset loading, element claims and the
   `frame:applied` event (the router contract), dev/diagnostics in prod.
 - **D — dead/incidental.** Unreachable, duplicated seams (the audit's §4
@@ -102,7 +102,7 @@ Frames eager-client scenario (43,310 B min):
 | --- | --: | --: | --: | --: | --: | --: |
 | **T — transport** | 26,879 | 62.1 % | 21,479 | 49.6 % | **7,227** (the floor, `L8`) | 52.5 % |
 | **R — restates core** | 5,080 | 11.7 % | 6,655 | 15.4 % | **1,863** (`noD` − `TF`, every feature kept; 1,701 when removed last, `L7` → `L8`) | 13.5 % |
-| **F — feature** | 10,615 | 24.5 % | 13,035 | 30.1 % | **4,362** (`TF` − `L8`; 5,000-odd when removed first, §2.1) | 31.7 % |
+| **F — feature** | 10,615 | 24.5 % | 13,035 | 30.1 % | **4,362** (`TF` − `L8`; 4,540 when removed first, `L1`–`L6`) | 31.7 % |
 | **D — dead / incidental** | 736 | 1.7 % | 2,141 | 4.9 % | **318** (`L0` − `noD`) | 2.3 % |
 | total | 43,310 | | 43,310 | | 13,770 | |
 
@@ -400,7 +400,7 @@ And the holes the T-only client has that the full client does not — the
 
 | gap | severity | what closes it |
 | --- | --- | --- |
-| **G2/G3 — a late record never wakes its fill; the hold is not a boundary resume.** Without the `#2968` defer, a `prop#n` occurrence whose record script runs after the adopt-time sync is classified recordless and evaluated argless (the C18 `TypeError`); with a "mount and pend" in its place the resumed fill runs outside `claimRender`'s window and renders fresh clones over server DOM (C1/C9 regress). | **page-halting / wrong content** | the bounded `prop#n` poll (+323 min / +105 br, measured as `Tglue`) until S-hold + S-record exist (§5) |
+| **G2/G3 — a late record never wakes its fill; the hold is not a boundary resume.** Without the `#2968` defer, a `prop#n` occurrence whose record script runs after the adopt-time sync is classified recordless and evaluated argless (the C18 `TypeError`); with a "mount and pend" in its place the resumed fill runs outside `claimRender`'s window and renders fresh clones over server DOM (C1/C9 regress). | **page-halting / wrong content** | the bounded `prop#n` poll (+265 min / +82 br, measured: `Tglue` − `Tglue-reveal`) until S-hold + S-record exist (§5) |
 | **G4 — post-done inner reveals held.** `fragmentPolicy` holds an unclaimed swap after hydration-done; `claimRegionFragments` was the claimant for server-only `<Loading>`s. | wrong content (frozen fallback) | the solid seam S-adopted (+80 B solid) or the 6-line claim (+153) |
 | **G6 — a document reveal does not sync the frame** (ruling 2.3): a fill revealed by a `$df` into adopted content mounts only when some later flush happens. | wrong content (inert) | the `fr.subscribe` → `frame.sync(parent)` one-liner (+58 min / +23 br, measured as `Tglue-reveal`) |
 | **G7 — a refetch inside an action tears** (C15): the first flush is held by the transaction through the memo, later chunks morph outside the graph. | wrong content (transient) | S-flush (the address source; the Transaction then stages the landing) |
@@ -413,6 +413,17 @@ under the budget — with G4, G7, G1 and C5 as the seams §5 names. The
 version of the floor with every seam built and every R residue gone
 (R.claim ≈ 470, R.refwait ≈ 145, the sf slice's live arm ≈ 150) lands near
 **≈ 20,800 min / ≈ 7,000 br** (estimated).
+
+A second, independent build of the same spec (a subagent's, kept as
+`tmp-tools/floor-alt.mjs` / `dist/alt-L8`) read **20,086 / 6,806** — it
+also dropped the `reveal`-record gate (a `fragment` chunk reveals without
+its `reveal` record), the fallback pass (`seg:<k>:fallback` never
+materializes), the retry loop, the error notify and `#refsUnresolved`.
+That is a bound **below** transport: the reveal gate and the fallback
+materialization carry the server's `<Loading>` outcome on the wire
+(corollary 4's "the client renders them"), and dropping them is not an A0
+deletion. The ≈ 420 B br between the two builds is what the stream face's
+per-flush reveal model costs; the floor this document reports keeps it.
 
 ### 2.4 The contract's reds under T-only
 
@@ -438,11 +449,12 @@ on the named seam; **still red**; **feature gone** = vacuous.
 | **C18 ×2** a live op before the drain, the pump's catch-up | **feature gone** | live removed (and the per-record drain is gone regardless). |
 | **C19 ×2** a patch lands before the claim | **feature gone** | traces removed; no other arg kind moves between SSR and claim (`s`/`v` stamps carry the rendered value). |
 
-Counts: **7 unrepresentable** (C4 d, C5 ×3 conditional on the cell, C6 b2,
-C7 c, C18 ×1), **8 hold by core** — every one gated on a seam that does not
-exist today (C2 ×3 on the one-liner + S-record, C3 ×2 on S-hold, C6 a1 on
-S-ref, C17 a unconditional, C17 c a pin change), **1 still red** (C12 c,
-the server half), **6 feature gone** (C13 ×2, C18 ×2, C19 ×2). The green
+Counts: **8 unrepresentable** (C4 d, C5 ×3 conditional on the per-response
+cell, C6 b2, C7 c, C17 a, C18 ×1), **6 hold by core** — every one gated on
+a seam that does not exist today (C2 ×3 on the one-liner + S-record, C3 ×2
+on S-hold, C6 a1 on S-ref), **1 pin change** (C17 c, ruling 1.6 (ii) as
+display), **1 still red** (C12 c, the server half), **6 feature gone**
+(C13 ×2, C18 ×2, C19 ×2). The green
 set (C1, C8, C9, C10, C14, C16) stays green with two conditions: C1/C9/C10
 need the adopt-time hold to stay a *deferred mount* with hydration re-entry
 (S-hold, not a bare counter), and C8/C14 (c) need the per-flush segment
