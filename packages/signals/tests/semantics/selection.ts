@@ -2,6 +2,7 @@ import { compareComplexity } from "./complexity.js";
 import { isSemanticFailure } from "./admission.js";
 import type { RunResult } from "./runner.js";
 import type { Scenario } from "./scenario.js";
+import { isMountCase, mountComplexity, mountShape } from "./mount-cases.js";
 
 export interface Candidate {
   index: number;
@@ -14,6 +15,7 @@ export interface Candidate {
 // A scheduling heuristic, never a bug identity. Keep a little structural variety
 // without keeping every graph (or its full trace) in memory.
 function shape(s: Scenario): number {
+  if (isMountCase(s)) return mountShape(s);
   let bits = s.optimistic ? 1 : 0;
   if (s.actions?.length) bits |= 2;
   for (const n of s.nodes) {
@@ -33,9 +35,11 @@ function priority(c: Candidate): number {
   return isSemanticFailure(c.result) ? 0 : c.result.waiting || c.result.progress?.length ? 1 : 2;
 }
 function compare(a: Candidate, b: Candidate): number {
-  return (
-    priority(a) - priority(b) || compareComplexity(a.scenario, b.scenario) || a.index - b.index
-  );
+  const complexity =
+    isMountCase(a.scenario) && isMountCase(b.scenario)
+      ? mountComplexity(a.scenario) - mountComplexity(b.scenario)
+      : compareComplexity(a.scenario, b.scenario);
+  return priority(a) - priority(b) || complexity || a.index - b.index;
 }
 
 export class CandidateQueue {

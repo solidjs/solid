@@ -227,6 +227,7 @@ the current failures; a large overnight campaign often produces mostly duplicate
 | `latest`                                                 | An action's staged source exposed through latest and downstream derivations.    |
 | `optimistic`                                             | One-parent optimistic proposals and authoritative correction.                   |
 | `readiness`, `derived-readiness`, `optimistic-readiness` | Tracked pending verdicts, guarded reads and derived verdict propagation.        |
+| `mount-under-hold`                                       | New and re-armed `Loading` boundaries mounted while a hold is live (below).     |
 
 ```sh
 pnpm --filter @solidjs/signals fuzz --cohort branches --seed 91501 --cases 150 --shrink --out /tmp/solid-fuzz-branches-1
@@ -241,6 +242,43 @@ sync versus async data delivery; early versus lazy latest creation without new
 work/observation; and an optimistic proposal versus an ordinary update while its
 parent remains held. Read the preconditions in `equivalence.ts`. An unsupported
 comparison should be inapplicable, not forced into a false equivalence.
+
+### `mount-under-hold` (rule revision 20, MH1–MH7)
+
+This cohort does not use the scenario language. Each case is a small
+`MountCase` record ([mount-cases.ts](mount-cases.ts)) that
+[mount-hold.ts](mount-hold.ts) builds with the real primitives: a hold (an
+action, or an async memo in flight), then a mount or re-arm while it is live,
+then the release. The screen is sampled at five checkpoints: S0 setup, S1 after
+the hold, S2 after the trigger, S3 after the release, and S4 after every load
+settles. Families:
+
+- `fresh`: a Show mounts a new `Loading` whose content is a memo, a direct read,
+  a binding or a nested `Loading`. The Show uses either an effect or a memo, and
+  the content can have its own first load.
+- `rearm-mount` and `rearm-committed`: `on` re-arms a boundary.
+- `revealed`, `none`, `revealed-under-pending` and `revealed-under-rearmed`: a
+  nearer revealed boundary, or no boundary.
+- `held-cond`: the hold itself mounts a boundary.
+- `verdict`: a `latest()` condition mounts a boundary.
+- `lane`: an optimistic mount whose binding reads the held source, the guess, or
+  a memo of the held source (#3835).
+
+The oracle encodes only ruled behavior: A29 and its boundary exemption, the
+2026-10-06 scope ruling (an unshown or re-armed boundary shows its own
+fallback, and no hold waits for it), the direction rule (a hold never waits on
+never-committed work), the lane rule (a lane sees the screen plus its own
+guesses, and a verdict lane's mounts stay mainline), and no tearing.
+`unruled()` lists the shapes it does not judge beyond tearing and final
+convergence:
+
+- same-tick mounts (the SPEC's "not yet one-way" item);
+- a revealed boundary under an `on`-re-armed ancestor;
+- an own first load under a revealed boundary or no boundary;
+- an own first load in a held-cond mount with no boundary.
+
+Paired mode is not supported. Shrinking simplifies one field at a time. Pure
+judge tests are in `mount-hold.test.ts`.
 
 ## The scenario language and its execution
 
@@ -472,9 +510,14 @@ Generator/reducer improvements should not quietly change the oracle.
 
 ## Testing a different branch or commit
 
-There is deliberately no new multi-revision command in this handoff. The CLI tests
-the source it imports from its checkout; it has **no `--ref` or `--runtime-dir` flag**.
-Create a small helper if needed. Two approaches have been useful:
+By default the CLI tests the source it imports from its checkout; it has **no
+`--ref` or `--runtime-dir` flag**. `cli.mjs` does honor two environment variables:
+`SOLID_FUZZ_TARGET_SRC` (an archived `packages/signals/src`) and
+`SOLID_FUZZ_TARGET_SHA`. With them set, it redirects every import into this
+checkout's signals source to the same path in the archive, mapping `.js` to `.ts`.
+It fails the build if the archive lacks a file, or if any source from this
+checkout still loads. The SHA and source path are recorded as `metadata.runtime`.
+This is approach 2 below, built into the CLI. Two approaches have been useful:
 
 1. Put the fuzzer on a disposable checkout of the target. Copy/cherry-pick only the
    tooling, install its development dependency if absent, and run from that root.

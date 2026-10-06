@@ -32,6 +32,7 @@ import {
 } from "./policy.js";
 import { ruleRevision, ruleContracts } from "./rules.js";
 import { corpus } from "./corpus.js";
+import { generateMountCases, isMountCase, mountCaseKey, shrinkMountCase } from "./mount-cases.js";
 
 interface Context {
   args: string[];
@@ -71,7 +72,7 @@ export async function main(context: Context) {
   });
   if (v.help) {
     console.log(
-      "Solid semantic fuzzer\n  --seed N --cases N [--out DIR] [--fresh] [--shrink] [--budget N] (actual search executions per selected case)\n  --replay FILE [--index N for findings.jsonl] [--shrink]\n  --shrink-mode discovery|focused (default discovery)\n  --corpus\n  --cohort attachment|update-groups|ordinary|multi|optimistic|reads|mounts|latest|observation|branches|readiness|boundaries|nested|derived-readiness|optimistic-readiness|branch-boundaries\n  --waiting-policy review|required-only|retain-disposed (default review)\n  --allow legacy-disposal-wait|none (optional historical exception; default none)\n  --equivalence --seed N --cases N [--shrink]\n  --latest-equivalence --seed N --cases N [--shrink]\n  --optimistic-equivalence --seed N --cases N [--shrink]\n  --calibrate [--fault drop-wake|stale-result|lost-blocker|false-ready|false-verdict|lost-disposal-wake|entangle-effect|drop-action-hold]\n  --timeout MS (per-case worker watchdog; default 5000)\nArtifacts contain target hashes, canonical schedules, traces and work ledgers."
+      "Solid semantic fuzzer\n  --seed N --cases N [--out DIR] [--fresh] [--shrink] [--budget N] (actual search executions per selected case)\n  --replay FILE [--index N for findings.jsonl] [--shrink]\n  --shrink-mode discovery|focused (default discovery)\n  --corpus\n  --cohort attachment|update-groups|ordinary|multi|optimistic|reads|mounts|latest|observation|branches|readiness|boundaries|nested|derived-readiness|optimistic-readiness|branch-boundaries|mount-under-hold\n  --waiting-policy review|required-only|retain-disposed (default review)\n  --allow legacy-disposal-wait|none (optional historical exception; default none)\n  --equivalence --seed N --cases N [--shrink]\n  --latest-equivalence --seed N --cases N [--shrink]\n  --optimistic-equivalence --seed N --cases N [--shrink]\n  --calibrate [--fault drop-wake|stale-result|lost-blocker|false-ready|false-verdict|lost-disposal-wake|entangle-effect|drop-action-hold]\n  --timeout MS (per-case worker watchdog; default 5000)\nArtifacts contain target hashes, canonical schedules, traces and work ledgers."
     );
     return;
   }
@@ -121,10 +122,13 @@ export async function main(context: Context) {
       "nested",
       "derived-readiness",
       "optimistic-readiness",
-      "branch-boundaries"
+      "branch-boundaries",
+      "mount-under-hold"
     ].includes(cohort)
   )
     throw new Error("Invalid --cohort");
+  if (cohort === "mount-under-hold" && paired)
+    throw new Error("The mount-under-hold cohort has no equivalence comparison");
   if (cohort === "optimistic" && v.equivalence)
     throw new Error("Ordinary delivery equivalence does not cover action lifetimes");
   const out = resolve(v.out ?? join(tmpdir(), `solid-semantic-fuzz-${Date.now()}-${seed}`));
@@ -227,7 +231,30 @@ export async function main(context: Context) {
     };
     // Later, simpler candidates get full artifacts too. Originals remain in JSONL.
     await save(`case-${index}`, { metadata, index, scenario: canonical, result, pair });
-    if (!paired) {
+    if (isMountCase(canonical)) {
+      const target = fingerprint(result);
+      const reduced = await shrinkMountCase(result, run, budget, r =>
+        shrinkMode === "discovery" ? isSemanticFailure(r) : fingerprint(r) === target
+      );
+      const replay = await verify(reduced.result.scenario);
+      const signature = fingerprint(reduced.result)!;
+      if (fingerprint(replay) !== signature)
+        throw new Error("Reduced failure did not replay cleanly");
+      const reproKey = `${signature}\n${mountCaseKey(reduced.result.scenario as never)}`;
+      reducedReports.push({ index, signature, reproKey, exhausted: reduced.exhausted });
+      await save(`case-${index}-min`, {
+        metadata,
+        index,
+        originalSignature: target,
+        shrinkMode,
+        scenario: reduced.result.scenario,
+        result: reduced.result,
+        reproKey,
+        attempts: reduced.attempts,
+        exhausted: reduced.exhausted,
+        executionCounts: { initial: 0, search: reduced.attempts, verification: 1 }
+      });
+    } else if (!paired) {
       const reduced = await shrink(result, run, budget, { mode: shrinkMode });
       const replay = await verify(reduced.result.scenario);
       const signature = fingerprint(reduced.result)!;
@@ -363,6 +390,8 @@ export async function main(context: Context) {
         obsoleteInFlight()
       ];
     else if (v.corpus) scenarios = corpus.map(c => c.scenario);
+    else if (cohort === "mount-under-hold")
+      scenarios = generateMountCases(seed, count) as unknown as Scenario[];
     else scenarios = generate(seed, count, cohort as import("./generate.js").Cohort);
     generationMs = performance.now() - generationStart;
     const campaignStart = performance.now(),

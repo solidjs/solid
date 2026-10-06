@@ -35,7 +35,12 @@ export interface Failure {
 // lane, SPEC "A lane's readers are placed by the screen"); it must agree once
 // that flight lands. A derivation in between (a sync node) is not exempt, and
 // neither is an answer that landed for a superseded question.
-export const ruleRevision = 19;
+// Revision 20 (2026-10-06, the RC exit gate): adds MH1–MH7 for the
+// `mount-under-hold` cohort only (A29; the 2026-10-06 boundary-scope and
+// direction rulings; the lane rule, #3835). No law or scope of another cohort
+// changed: a revision-19 run and a revision-20 run of any other cohort judge
+// identically.
+export const ruleRevision = 20;
 export const rules = [
   {
     id: "A1",
@@ -146,6 +151,45 @@ export const rules = [
     id: "E4",
     law: "Warming latest without adding an observer does not change later observations.",
     scope: "paired identical schedules and readers; only companion creation differs"
+  },
+  {
+    id: "MH1",
+    law: "A loading boundary that has not shown content, or that an `on` change re-armed, owns its subtree: content waiting for a hold or its own first load shows that boundary's fallback; the boundary is not born held.",
+    scope:
+      "mount-under-hold cohort: a new Loading mounted by a flip or a mainline root, a re-armed revealed Loading, a verdict-lane mount, or a boundary that appeared at a hold's commit; same-tick flips excluded"
+  },
+  {
+    id: "MH2",
+    law: "Content that waited for a hold reveals at the hold's commit; a boundary mounted as part of a hold appears at that hold's commit.",
+    scope: "mount-under-hold cohort; content without a first load of its own"
+  },
+  {
+    id: "MH3",
+    law: "A hold never waits on never-committed work a boundary owns, nor on a loading source created before it.",
+    scope:
+      "mount-under-hold cohort: content with its own first load under a boundary that owns it; a revealed boundary under an outer one pending on a pre-hold first load. In-flush mounts with no catcher are excluded (SPEC 'Not yet one-way', recorded, not ruled)"
+  },
+  {
+    id: "MH4",
+    law: "Never-committed work with no catcher stays hidden with the hold it read; a mount that is part of a hold does not appear before the hold's commit.",
+    scope:
+      "mount-under-hold cohort: a Show mount under no boundary or a revealed one, and a Show whose condition reads the held value; a render effect reading the held value directly is a stale reader (A15) and excluded"
+  },
+  {
+    id: "MH5",
+    law: "No tearing: a control and its content, and an element and its bindings, are never observed in different worlds; visible content agrees with the screen (a lane's: the screen plus its own guesses).",
+    scope: "mount-under-hold cohort; every checkpoint, every shape"
+  },
+  {
+    id: "MH6",
+    law: "An optimistic mount's children and runs are the lane's: the element and its bindings land together now, seeing the screen plus the lane's own guesses, and re-derive at the landing.",
+    scope:
+      "mount-under-hold cohort, lane family (#3835): createOptimistic + Show over an action's held write"
+  },
+  {
+    id: "MH7",
+    law: "Once every hold and first load settles, the mount shows the final value.",
+    scope: "mount-under-hold cohort; every shape"
   }
 ] as const;
 
@@ -171,9 +215,11 @@ export const ruleContracts = Object.fromEntries(
                       ? "scoped timing investigation; P1 independently checks proven release, legacy disposal permission requires an explicit allowance"
                       : rule.id === "S3"
                         ? "ordinary scoped completion; experimental extension includes observed optimistic correction"
-                        : rule.id.startsWith("O") || rule.id === "E5"
-                          ? "experimental optimistic contract; upstream conformance not presumed"
-                          : "semantic-fuzzing.md scoped law",
+                        : rule.id.startsWith("MH")
+                          ? "maintainer rulings: SPEC A29, the 2026-10-06 boundary-scope ruling (#3540), the 2026-10-06 direction rule, the lane rule (#3835); shapes they do not decide are listed by mount-hold.ts unruled()"
+                          : rule.id.startsWith("O") || rule.id === "E5"
+                            ? "experimental optimistic contract; upstream conformance not presumed"
+                            : "semantic-fuzzing.md scoped law",
       checkpoints:
         rule.id === "A1"
           ? "completed flush and host drain; detached preparation and intermediate mutations within a flush are private"
@@ -211,7 +257,9 @@ export const ruleContracts = Object.fromEntries(
                           ? "settled-writes.test.ts and optimistic.test.ts"
                           : rule.id === "S2" || rule.id === "S5"
                             ? "runner.test.ts and mounts.test.ts"
-                            : "runner.test.ts and calibration.test.ts"
+                            : rule.id.startsWith("MH")
+                              ? "mount-hold.test.ts"
+                              : "runner.test.ts and calibration.test.ts"
     }
   ])
 );
