@@ -5,9 +5,10 @@
 // PatchOp batches — and materializes into a live local projection: reads
 // are not-ready until the snapshot lands, then a read-only store the
 // batches keep updating, latched when the trace ends.
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
+import { createOwner } from "@solidjs/signals";
 import { createRoot, createRenderEffect, flush } from "../src/index.js";
-import { materializeContainerTrace } from "../src/index.js";
+import { enableHydration, materializeContainerTrace, sharedConfig } from "../src/index.js";
 
 /**
  * A hand-cranked RAW seroval stream (the wire shape since the stream-mint
@@ -181,5 +182,111 @@ describe("materializeContainerTrace", () => {
     const store: any = materializeContainerTrace({ $tr: stream, $ta: 1 } as any);
     expect(Array.isArray(store) ? store.length : -1).toBe(2);
     expect(store[1]).toBe("b");
+  });
+});
+
+// The materializer's root is DETACHED (frames-rulings 3.6, S1's "id
+// determinism" fix): materialization runs at a fill's arg-read, under
+// whatever owner is reading — during hydration an id-carrying one — and a
+// root created there would inherit the next child id, shifting every key
+// the reader mints after it. The store belongs to no reader's id space.
+describe("materializeContainerTrace — id neutrality", () => {
+  test("materializing under an id-carrying owner consumes no child id", () => {
+    const stream = makeStream();
+    stream.next({ name: "Ada" });
+    const ids: (string | undefined)[] = [];
+    createRoot(
+      () => {
+        ids.push(createOwner().id);
+        materializeContainerTrace({ $tr: stream, $ta: 0 } as any);
+        ids.push(createOwner().id);
+      },
+      { id: "p" }
+    );
+    const control: (string | undefined)[] = [];
+    createRoot(
+      () => {
+        control.push(createOwner().id);
+        control.push(createOwner().id);
+      },
+      { id: "p" }
+    );
+    expect(ids).toEqual(control);
+  });
+});
+
+// The park (frames-rulings 3.6 (iii), "the consumer parks"): a replayed
+// backlog beyond the snapshot applies after hydration ends — the first reads
+// see the snapshot, what the server's markup was rendered from — so a claim
+// pass over that markup reads the state it shows, and the backlog lands
+// after the claim as the update it is.
+describe("materializeContainerTrace — the parked backlog", () => {
+  afterEach(() => {
+    sharedConfig.hydrating = false;
+    delete (globalThis as any)._$HY;
+  });
+
+  const ahead = () => {
+    const stream = makeStream();
+    stream.next({ name: "Ada", edits: 0 });
+    stream.next([[["edits"], 1]]);
+    stream.next([
+      [["name"], "Ada (edited)"],
+      [["edits"], 2]
+    ]);
+    return stream;
+  };
+
+  test("during hydration the snapshot serves; the backlog lands at hydration end, as one update", () => {
+    enableHydration();
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
+    sharedConfig.hydrating = true;
+    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any);
+    const reads: string[] = [];
+    createRoot(() => {
+      createRenderEffect(
+        () => `${store.name}/${store.edits}`,
+        (v: string) => void reads.push(v)
+      );
+    });
+    flush();
+    expect(reads).toEqual(["Ada/0"]);
+    expect(sharedConfig.isHydrationInProgress!()).toBe(true);
+    // The root pass ends with nothing pending: hydration is done, the park
+    // releases, the compute drains the whole backlog in one pass.
+    sharedConfig.hydrating = false;
+    flush();
+    expect(reads).toEqual(["Ada/0", "Ada (edited)/2"]);
+  });
+
+  test("with no hydration in progress the backlog lands on the next microtask", async () => {
+    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any);
+    expect(store.name).toBe("Ada");
+    expect(store.edits).toBe(0);
+    await Promise.resolve();
+    flush();
+    expect(store.name).toBe("Ada (edited)");
+    expect(store.edits).toBe(2);
+  });
+
+  test("a snapshot alone is not a backlog: live emissions apply as they land", () => {
+    const stream = makeStream();
+    stream.next({ name: "Ada" });
+    const store: any = materializeContainerTrace({ $tr: stream, $ta: 0 } as any);
+    expect(store.name).toBe("Ada");
+    stream.next([[["name"], "Grace"]]);
+    flush();
+    expect(store.name).toBe("Grace");
+  });
+
+  test("a failure in the backlog applies in order, after the parked patches", async () => {
+    const stream = ahead();
+    stream.throw(new Error("boom"));
+    const store: any = materializeContainerTrace({ $tr: stream, $ta: 0 } as any);
+    // Parked: the snapshot reads, the failure has not surfaced.
+    expect(store.name).toBe("Ada");
+    await Promise.resolve();
+    flush();
+    expect(() => store.name).toThrow("boom");
   });
 });
