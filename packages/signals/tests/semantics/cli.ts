@@ -39,6 +39,8 @@ interface Context {
   workerHash: string;
   sourceHash: string;
   fault?: string;
+  /** Set when the worker was built against another revision's signals source. */
+  runtime?: { src: string; sha: string | null };
 }
 
 export async function main(context: Context) {
@@ -133,6 +135,7 @@ export async function main(context: Context) {
   } catch {}
   const metadata = {
     target,
+    runtime: context.runtime ?? null,
     sourceHash: context.sourceHash,
     workerHash: context.workerHash,
     workerLimits,
