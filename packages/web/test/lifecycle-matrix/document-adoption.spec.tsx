@@ -400,6 +400,7 @@ describe("t=0/adopted-switch-gate", () => {
         "<article><h1>SwitchedOne</h1>" +
         "<ul><!--slot:comment#c1:start--><!--slot:comment#c1:end--></ul></article>"
     });
+    held.send({ type: "complete", id: "srv", version: 1 });
     held.close();
     await pump();
     expect(ssrEl.querySelector("h1")!.textContent).toBe("SwitchedOne");

@@ -243,13 +243,20 @@ export interface FrameHost {
   get(id: string): Frame | undefined;
   /**
    * The address as an async source: its first landing is the first flush of
-   * the first response for it — the root content, the stream's error, or
-   * its completion. A promise resolved at the write that lands it while
-   * that response is in flight; `undefined` once the address has a landing
-   * to show (a later response in flight then morphs over it — the
-   * committed value holds), or when nothing has begun for the address. A
-   * mount's covering `<Loading>` pends on this — and on nothing inside the
-   * frame — exactly as it pends on any async source's first landing.
+   * the first response for it — the root content or its completion; the
+   * stream's error is the source ERRORING (frames-rulings 3.3, A0
+   * corollary 4 outward: the frame is one async value, and its `:error`
+   * is that value rejecting, exactly as any `createAsync` that rejects). A
+   * promise resolved at the write that lands it while that response is in
+   * flight and REJECTED with the error record at an `:error` write;
+   * `undefined` once the address has a landing to show (a later response
+   * in flight then morphs over it — the committed value holds), or when
+   * nothing has begun for the address. An errored address has no landing
+   * to show: a read of it is a promise for the NEXT flight's landing — an
+   * errored landing is not a landing for a fresh consumer, and the
+   * consumer that reads it re-asks (the integration's `reset`). A mount's
+   * covering `<Loading>` pends on this — and on nothing inside the frame —
+   * exactly as it pends on any async source's first landing.
    */
   landing(id: string): Promise<void> | undefined;
   serialize(value: unknown): { $ref: string };
@@ -692,7 +699,10 @@ export function createFrameHost(options = {}) {
   // stream's error, or its completion; `shown` is the record set of the
   // latest version that landed — the source's committed value, what a mount
   // opened mid-flight seeds from (holds-latest) — and the same object as
-  // `records` once the version in flight has landed.
+  // `records` once the version in flight has landed. A `shown` holding the
+  // `:error` record is the value REJECTED (frames-rulings 3.3): the landing
+  // that carried it rejected its awaiters, and `landing` answers a fresh
+  // consumer with the next flight's promise instead of a value.
   //
   // A `{$ref}` wait is the response's too (frames-rulings 1.1, 1.3): a slot
   // record's data refs resolve AT THE WRITE, through the integration's table
@@ -921,16 +931,22 @@ export function createFrameHost(options = {}) {
       // committed value and has none of this version's earlier writes (a
       // frame already at the version re-receives the same records — a
       // no-op). A document-adopted store never opens: its content is page
-      // markup, written by no `start`.
+      // markup, written by no `start`. An `:error` write is the source
+      // REJECTING (frames-rulings 3.3): whoever awaited the landing sees the
+      // error — the mount's content node throws it to the nearest client
+      // `<Errored>` — and the address shows no landing until a later flight
+      // lands one (`landing` below). The `complete` that follows an errored
+      // response's `error` settles nothing: the error already did, and a
+      // promise minted since is the next flight's.
       if (chunk.type === "start") store.open = true;
       else if (lands(records)) {
         store.open = false;
         store.shown = r = store.records;
         store.shownVersion = chunk.version;
         const landed = landings.get(chunk.id);
-        if (landed) {
+        if (landed && !(":complete" in records && ":error" in r)) {
           landings.delete(chunk.id);
-          landed.r();
+          ":error" in records ? landed.j(records[":error"]) : landed.r();
         }
       }
       const set = frames.get(chunk.id);
@@ -951,14 +967,18 @@ export function createFrameHost(options = {}) {
     },
     landing(id) {
       const store = stores.get(id);
-      // Nothing to wait for: no response in flight, or the address has a
+      // Nothing to wait for: nothing has begun for the address, or it has a
       // landing to show already — the committed value a mount reads
-      // (holds-latest) while a later response is in flight.
-      if (!store || !store.open || store.shown) return undefined;
+      // (holds-latest) while a later response is in flight. An ERRORED
+      // landing is not one (frames-rulings 3.3): the value rejected, and a
+      // fresh consumer of it awaits the next flight's landing instead — the
+      // promise is minted here, for the flight the consumer's re-ask opens.
+      if (!store || (!store.open && !store.shown)) return undefined;
+      if (store.shown && !(":error" in store.shown)) return undefined;
       let wait = landings.get(id);
       if (!wait) {
         landings.set(id, (wait = {}));
-        wait.p = new Promise(r => (wait.r = r));
+        wait.p = new Promise((r, j) => ((wait.r = r), (wait.j = j)));
       }
       return wait.p;
     },
