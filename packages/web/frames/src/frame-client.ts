@@ -94,6 +94,22 @@ export type FrameChunk =
       preloads?: { href?: string; attrs: Record<string, string> }[];
     }
   | { type: "slot"; id: string; version: number; key: string; args: Record<string, unknown> }
+  | {
+      /**
+       * One server sweep's re-emissions as one unit (RFC 11 addendum, C13):
+       * the `hole` / `attr` members a sweep produced, unaddressed (the
+       * envelope addresses them), applied as one write — one flush, one
+       * `frame:applied`. A sweep that changed one binding is emitted as
+       * that member alone.
+       */
+      type: "ops";
+      id: string;
+      version: number;
+      ops: (
+        | { type: "hole"; key: string; html: string; digest?: string }
+        | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
+      )[];
+    }
   | { type: "complete"; id: string; version: number }
   | { type: "error"; id: string; version: number; key?: string; error: unknown };
 
@@ -639,6 +655,13 @@ export function chunkToRecords(chunk) {
           digest: chunk.digest
         }
       };
+    case "ops": {
+      // One sweep's members as one write: the records merge into one map
+      // and the frame flushes once over all of them (C13).
+      const records = {};
+      for (const op of chunk.ops) Object.assign(records, chunkToRecords(op));
+      return records;
+    }
     case "complete":
       return { ":complete": true };
     case "error":
@@ -1233,7 +1256,12 @@ class FrameImpl {
     // mount's empty map replays the warm store). A hole error is terminal
     // server-side — the range latched at its last markup, and unlike a
     // rejected arg ref there is no client read to throw into, so it
-    // surfaces as a one-time diagnostic.
+    // surfaces as a one-time diagnostic. The pass is announced ONCE after
+    // every applicable record landed (C13: one write is one frame — a
+    // sweep's `ops` unit arrives as one write, and a listener on
+    // `frame:applied` must never read the DOM with one of its holes moved
+    // and a sibling still showing the previous value).
+    let morphed = false;
     for (const key in this.#store) {
       const record = this.#store[key];
       if (!record || this.#appliedHoles.get(key) === record) continue;
@@ -1245,16 +1273,17 @@ class FrameImpl {
         } else if (this.#applyHole(key.slice(5), record.value)) {
           this.#appliedHoles.set(key, record);
           this.#recordHave(key.slice(5), record);
-          this.#applied(version, "morph");
+          morphed = true;
         }
       } else if (key.startsWith("attr:")) {
         if (this.#applyAttrs(key.slice(5), record.value, record.removed)) {
           this.#appliedHoles.set(key, record);
           this.#recordHave("lha:" + key.slice(5), record);
-          this.#applied(version, "morph");
+          morphed = true;
         }
       }
     }
+    if (morphed) this.#applied(version, "morph");
 
     // Root asset records reuse a store key, so consume them by identity.
     // Styles remain owned by the reveal gate.

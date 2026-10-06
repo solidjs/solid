@@ -1051,7 +1051,11 @@ function pumpLiveChannel() {
     reader.read().then((r: { done: boolean; value: any }) => {
       if (r.done) return;
       const op = r.value;
-      liveOps.set(`${op.type}:${op.fid || ""}:${op.key || ""}`, op);
+      // A sweep's `ops` unit is applied whole (one write per boundary) but
+      // logged by its members: the log is last-value-wins per target, and
+      // a member's target is the key, not the unit it rode in.
+      for (const m of op.type === "ops" ? op.ops : [op])
+        liveOps.set(`${m.type}:${m.fid || ""}:${m.key || ""}`, m);
       for (const apply of liveAppliers) apply(op);
       return pump();
     });
