@@ -94,7 +94,7 @@ describe("plain-response bound — the client", () => {
     await pump();
     const frame: any = host.get(frameAddress("frames-bound/settled"));
     expect(frame.store[":complete"]).toBe(true);
-    expect(":bound" in frame.store).toBe(false);
+    expect(frame.store[":bound"]).toBeUndefined();
     expect(warn.mock.calls.filter(c => String(c[0]).includes("bound"))).toHaveLength(0);
     m.cleanup();
   });
