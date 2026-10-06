@@ -572,10 +572,7 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
     () => {
       const traced = subFetch(compute, prev);
       if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
-        armLiveTakeover(
-          o,
-          !hasLoadingWindow(options) && !initP?.s && typeof initP?.then === "function"
-        );
+        armLiveTakeover(o, !hasLoadingWindow(options) && initP?.then && !initP.s);
       return traced;
     },
     options
