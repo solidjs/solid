@@ -796,8 +796,17 @@ export function createFrameHost(options = {}) {
       }
     },
     apply(chunk) {
-      // Data payloads are response-scoped; apply immediately, no store needed.
+      // Data payloads are response-scoped: they go to the data hook, not
+      // the store — but under the store's version guard like every other
+      // chunk (frames-rulings 1.2): a `data` chunk of a response the
+      // address has moved past lands nowhere, never in the table that is
+      // now the current response's (the transport restamps every chunk
+      // with its response's version; the integration rotates the table at
+      // the header and creates it at first use, so the first use must be
+      // the current response's).
       if (chunk.type === "data") {
+        const store = stores.get(chunk.id);
+        if (store && store.version !== undefined && chunk.version < store.version) return;
         options.applyData && options.applyData(chunk);
         return;
       }
