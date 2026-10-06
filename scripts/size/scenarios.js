@@ -11,6 +11,13 @@
 // tree-shaking regressed (or a deliberate feature landed — bump the limit in
 // the same PR and say why).
 //
+// Minified allowance (2026-10-05): a PR fails a scenario only when it is over
+// its brotli limit AND grew more than gate.mjs's MINIFIED_ALLOWANCE (20 B)
+// minified over its base; over the limit within the allowance is brotli
+// layout noise and passes with a warning. An optional `minifiedAllowance`
+// overrides it per scenario. Limits are lowered (never raised) per RC by
+// ratchet.mjs, which writes a dated `Ratchet` line above each one it moves.
+//
 // Bundler switch (2026-09-26): the harness measured with esbuild through
 // size-limit until this date; it now measures with Rolldown, the bundler Vite
 // ships, pinned exactly in package.json. Every cap was re-based on that day
