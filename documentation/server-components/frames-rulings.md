@@ -653,6 +653,14 @@ consumer API.
   claim, the opposite assertion on the order. The contract's C3 pins — (a)
   the record defer, and S1's (b) `prepareArgs` — become the expected
   behaviour and flip with 3a.
+- **Cost, accepted.** As landed (3.2 via `sharedConfig.holdBoundary`,
+  #3831) the hold is ≈ +59 B min on every hydrating page and ≈ +290 B min
+  on the frames client — over the size gate's 20 B minified allowance on
+  the hydrating scenarios and over the frames-eager and page caps. The
+  maintainer accepted it, 2026-10-06: *"pay the cost for correctness."*
+  The caps are raised to CI-measured + 10 B in the landing PR under a
+  `Size-Exception:`; the ratchet lowers them again as the 1b deletion
+  (`preview` / `stage`'s client half) pays the bytes back.
 - **Restates:** corollary 3 — `hydration.ts`'s own rule: done is
   `!hydrating && _pendingBoundaries === 0`, and a pending boundary is
   anything registered through `initBoundaryResume`. Not frames-specific; the
@@ -1061,10 +1069,12 @@ the sink emits records ahead of markup, C6 (a1) assumes the reverse is
 legal). Everything else above is decided by the principle pending the nod.
 
 **Decided by default in the overnight correctness pass (2026-10-06;
-#3830–#3833) — each the reading A0 implies, with the alternative written,
-pending the maintainer's nod.** The pass was run unattended under the
-instruction "when something needs a decision, make the conservative
-choice, write it down, and move on"; these are those choices.
+#3830–#3833) — each the reading A0 implies, with the alternative written.**
+The pass was run unattended under the instruction "when something needs a
+decision, make the conservative choice, write it down, and move on"; these
+are those choices. **Accepted by the maintainer, 2026-10-06** (*"I trust
+you, nothing super flagged"*): every default below stands as made; the
+alternatives stay written as the record of what was weighed.
 
 1. **The gate releases at the new address's first FLUSH, not its `start`
    (1.5; C17 a re-pinned).** The pin as first written had B's `start`
@@ -1128,7 +1138,10 @@ choice, write it down, and move on"; these are those choices.
    fragment bookkeeping (≈ +150 B min on hydrating pages, the first cut).
    The cost as landed is ≈ +59 B min on every hydrating page — more than
    the ≈ 25 estimated here — and over the size gate's 20 B minified
-   allowance; the maintainer decides.
+   allowance. **Accepted by the maintainer, 2026-10-06** (*"pay the cost
+   for correctness"*): the hydrating, hydrating + stores, compiled
+   hydrating, frames eager and both page caps are raised to CI-measured
+   + 10 B under a `Size-Exception:` in the landing PR.
 7. **3.3's client half is a dev `console.error`, not a diagnostic code
    (#3833; C12 c re-pinned as c1 green / c2 red).** The frame's existing
    dev reports for server-side outcomes (a hole that failed on the server)
@@ -1347,9 +1360,9 @@ lands outside its band is the finding, not a failure to hide.
 
 | step (plan)                                                         | PR                                                        | pins flipped (`test.fails` → `test`)                                             | frames eager (min / br, local, vs `next` 43,310 / 13,770) | note                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 / 3d — C18 (A0)                                                   | #3827 (another agent)                                     | C18 ×3 (there, by the predicate; in #3830 by `#` deciding the class)             | —                                                         | the two meet at the pins; both are right                                                                                                                                                                                                                                                                                          |
+| 1 / 3d — C18 (A0)                                                   | #3827 (another agent) — **closed 2026-10-06, superseded**  | C18 ×3 (there, by the predicate; in #3830 by `#` deciding the class)             | —                                                         | the two meet at the pins; both are right. Closed per the maintainer: under S-flush the occurrence name decides the class on every sync, so C18 is unrepresentable and the predicate's third term has nothing left to guard; 3.5's diagnosis (delivered is not drained) stands as the record.                                      |
 | 4+6+3 / A1 — S-flush (1.5, 1.6 (i), 1.4 full, 2.1/2.2, 2.3 interim) | #3830 `fix/frames-s-flush-address-source`                 | C2 (b), C4 (d), C6 (a1, b2), C7 (c), C17 (a re-pinned, c), harness C2 ×1, C18 ×3 | **43,123 / 13,642 (−187 / −128)**                         | `FrameHost.landing(address)`; the store is one response's; `argsEquivalent`, `clearStreamRecords`, both hand-rolled gates, the re-arm/waiter deleted. **1b not done:** `preview` / `stage`'s client half / `#refArgsUnchanged` (≈ 1,300 B min) — the pull form is written in the PR; it needs the fills' props to read the token. |
-| 2 / A2 — C3 (3.1 ruled, 3.2)                                        | #3831 `fix/frames-c3-hold-is-pending-boundary` (on #3830) | C3 (a), harness C3 ×1; campaign C3 280 → 0 / 268 → 0                             | 43,411 / 13,768 (+288 / +126 vs #3830)                    | `sharedConfig.holdBoundary` (solid, ≈ +59 B min on hydrating pages — over the 20 B allowance; maintainer's call), `FrameOptions.hold`. Not done: `hydrateWindow` / R.claim's deletion, the 3e port (C19 ×2 stay red).                                                                                                             |
+| 2 / A2 — C3 (3.1 ruled, 3.2)                                        | #3831 `fix/frames-c3-hold-is-pending-boundary` (on #3830) | C3 (a), harness C3 ×1; campaign C3 280 → 0 / 268 → 0                             | 43,411 / 13,768 (+288 / +126 vs #3830)                    | `sharedConfig.holdBoundary` (solid, ≈ +59 B min on hydrating pages — over the 20 B allowance; **accepted by the maintainer 2026-10-06**, caps raised), `FrameOptions.hold`. Not done: `hydrateWindow` / R.claim's deletion, the 3e port (C19 ×2 stay red).                                                                                                             |
 | 7 / A3 — C2 / C4 (2.3, 2.4)                                         | in #3830                                                  | C2 (b), C4 (d), harness C2 ×1                                                    | (in #3830's figure)                                       | the interim form (an empty write at the frame's version from the reveal cascade). Not done: R.reveal's readiness/retry deletion; DR-4 (2c). C2 (a2) is S-record's.                                                                                                                                                                |
 | 4 / A4 — C5 (1.2)                                                   | #3832 `fix/frames-c5-data-response-scoped` (on #3830)     | C5 (a, b, e)                                                                     | 43,194 / 13,659 (+71 / +17 vs #3830)                      | the data path under the store's version guard. Not done: the per-response cell, S-ref (the pending `{$ref}` read), S-record.                                                                                                                                                                                                      |
 | 9 / A5 — C12 (c) client half                                        | #3833 `fix/frames-c12-server-outcome` (on #3830)          | C12 (c) → c1 green (dev report), c2 red (server half)                            | 43,123 / 13,642 (±0)                                      | S-adopted documented, not built (+80 B solid).                                                                                                                                                                                                                                                                                    |
