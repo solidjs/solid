@@ -27,7 +27,7 @@ is only a transport", so the maintainer can decide whether the gap is a
 **second-model problem** (fixable by deletion) or a **scope problem** (a
 product decision about feature tiers).
 
-_Status: in progress — sections are committed as they land._
+_Status: complete (2026-10-06). Every number marked measured was read from an edited dist copy through the harness's own bundler; estimates are marked._
 
 ---
 
@@ -98,22 +98,23 @@ narrowed a claim the narrower reading is the one used, and §1.2 says so.
 
 Frames eager-client scenario (43,310 B min):
 
-| class | by whole unit | share | residue re-attributed | share | br (measured, §2–§3) |
-| --- | --: | --: | --: | --: | --- |
-| **T — transport** | 26,879 | 62.1 % | 21,479 | 49.6 % | the floor, §2 |
-| **R — restates core** | 5,080 | 11.7 % | 6,655 | 15.4 % | §2 (the L8 step) |
-| **F — feature** | 10,615 | 24.5 % | 13,035 | 30.1 % | §3 per tier |
-| **D — dead / incidental** | 736 | 1.7 % | 2,141 | 4.9 % | §2 (the L7 step) |
+| class | by whole unit | share | residue re-attributed | share | **br, measured** (§2: each class removed from an edited dist copy) | share of br |
+| --- | --: | --: | --: | --: | --: | --: |
+| **T — transport** | 26,879 | 62.1 % | 21,479 | 49.6 % | **7,227** (the floor, `L8`) | 52.5 % |
+| **R — restates core** | 5,080 | 11.7 % | 6,655 | 15.4 % | **1,863** (`noD` − `TF`, every feature kept; 1,701 when removed last, `L7` → `L8`) | 13.5 % |
+| **F — feature** | 10,615 | 24.5 % | 13,035 | 30.1 % | **4,362** (`TF` − `L8`; 5,000-odd when removed first, §2.1) | 31.7 % |
+| **D — dead / incidental** | 736 | 1.7 % | 2,141 | 4.9 % | **318** (`L0` − `noD`) | 2.3 % |
+| total | 43,310 | | 43,310 | | 13,770 | |
 
 "By whole unit" assigns each function to one class; "residue re-attributed"
 moves the bytes a unit carries for another class (the live arms of
 `chunkToRecords`, the `_s:` branch of `collectSlots`, the gate half of
 `adoptBoundary`, the `#2968` arm of `#syncSlots`, …) to that class. The
 second column is the honest one; the first is the one a reader can check
-against a function name. Brotli is measured, not estimated, by removing
-each class from an edited dist copy (§2, §3); where only an estimate is
-possible the frames layer's observed ratio (0.318 on this scenario) is used
-and marked.
+against a function name. The minified deltas §2 measures by actually
+deleting a class run ≈ 10–15 % above the residue-adjusted attribution (a
+deleted function takes its call sites and its share of the minifier's name
+table with it); brotli is measured, never estimated, except where marked.
 
 Page base, frames + sf modules only (51,566 B min; the sf client is whole
 here — `dispatchServerFunction`, `createRequest`, `GET`, the encoding
@@ -271,19 +272,301 @@ page base — is in Appendix A with its class and group.
 
 ## 2. The transport floor
 
-_(pending)_
+### 2.1 Method
+
+The floor is an **edited dist copy**, not a rewrite: `tmp-tools/floor.py`
+applies group-tagged cuts to a copy of `packages/web/frames/dist/client.js`
+(the readable Rollup output, 2,605 lines), each cut an exact-string
+replacement that asserts its anchor matches once, and `tmp-tools/measure.mjs`
+bundles the scenario with the copy in place of the dist (`--dist frames=…`).
+A group's cut deletes its functions **and** their call sites, and where the
+group restates the core it is replaced by the minimal call into the core,
+not by nothing. Every variant parses (`node --check`) and carries no
+dangling identifier (verified by grep over every removed name); the
+resulting T-only file is 1,245 lines and reads as the client it describes.
+The variants are cumulative layers (`L1`–`L8`), the full client minus one
+group, and the floor plus one group (§3). The baseline `L0` reproduces the
+harness to the byte (43,310 / 13,770).
+
+| layer | removes | min B | br B | Δ min | Δ br |
+| --- | --- | --: | --: | --: | --: |
+| L0 | — (as shipped) | 43,310 | 13,770 | | |
+| L1 | F.live | 39,781 | 12,729 | −3,529 | −1,041 |
+| L2 | F.bind | 34,606 | 11,191 | −5,175 | −1,538 |
+| L3 | F.trace | 33,485 | 10,868 | −1,121 | −323 |
+| L4 | F.regions | 31,162 | 10,244 | −2,323 | −624 |
+| L5 | F.assets | 28,750 | 9,571 | −2,412 | −673 |
+| L6 | F.claims + F.event | 27,817 | 9,230 | −933 | −341 |
+| L7 | D | 26,609 | 8,928 | −1,208 | −302 |
+| **L8** | **R → T-only** | **21,297** | **7,227** | **−5,312** | **−1,701** |
+
+The measured deltas run ≈ 10–15 % above §1's per-unit attribution for the
+same group (F.bind 5,175 measured vs 4,508 attributed; F.live 3,529 vs
+3,522; F.regions 2,323 vs 1,393 + the thread-up protocol's inlining; R
+5,312 vs §1.2's "deletable now" ≈ 4,700): deleting a function also deletes
+the call sites §1 charged to its callers, and the minifier's name table
+shrinks. §1 is the attribution; §2 is the cost.
+
+### 2.2 What the T-only client is
+
+**21,297 B minified / 7,227 B brotli** on the frames eager-client scenario —
+**573 B under the §6 budget read as brotli** (7,800), and ≈ 7,950 B min+gzip
+against §6's own unit. Composition (`fnmap` over the floor): the frames
+client 17,261, the retained sf slice 3,765 (unchanged — `ChunkReader`,
+`stableString`, `deserializeStream`, `deliverFlightData`, `createChunk`,
+`errorFromTrailer`, …), import statements 271; 178 units. The largest:
+`reconcileChildren` 829, `stableString` 601, `ChunkReader#next` 558,
+`slotsFor.get` 513, `chunkToRecords` 506, `#syncSlots` 466, `#flush` 463,
+`applyFrames.drain` 461, `deserializeStream` 446, `installServerComponents`
+397, `claimRender` 364, `applyFlightResponse` 357.
+
+It still imports `getOwner, onCleanup, createMemo, runWithOwner,
+createSignal, createRenderEffect, createOwner, untrack` from `solid-js`,
+`insert` from `@solidjs/web`, `createLoadingBoundary, sharedConfig` from
+`solid-js/internal`, and ten names from the sf client; it exports
+`FRAME_STREAM_HEADER, applyFrameResponse, asyncArg, createFrame,
+createFrameElement, createFrameHost, createServerComponentHandler,
+getFrameHost, installServerComponents, isFrameStreamResponse`
+(`FRAME_APPLIED_EVENT`, `FRAME_HAVE_HEADER`, `FRAME_HAVE_BUDGET` leave with
+their features — **public surface**, flagged).
+
+What it does, and how the core carries the async half:
+
+- **Fetch → address → binding.** `handle` resolves a frame-tagged response
+  to `bindingFor(frameAddress(id, args), id)` at the header and streams the
+  body into the address's store under one client-stamped version per
+  response (`bump`); a single-flight response decodes its envelope and
+  writes its regions' frames the same way. No staging: a refetch's chunks
+  land as they arrive (the Transaction's staging of the whole landing is
+  the address-source seam, §5 S-flush).
+- **Store → frame.** `createFrameHost.write` is the one version guard, in
+  the 1.4-full form (a newer version replaces the address's records
+  wholesale); `FrameImpl#apply` is `Object.assign(store, write.r); flush()`
+  — no frame-side version, no `rebase`, no reset site, no dedupe. The root
+  applies when its **record** changes (not its value), so a byte-identical
+  root under a new version applies (C7 (c) unrepresentable).
+- **The first flush is one async value.** `boundaryComponent` returns
+  `createMemo(() => first.then(() => element))` where `first` is a promise
+  resolved by the frame's first `onApply` (content or error) — the enclosing
+  `<Loading>` pends on it through the core (`handleAsync`), nothing else
+  gates. A warm store (no stream begun) returns the element directly. A
+  switch is `createRenderEffect(() => binding(), address =>
+  frame.rebind(address))` — the site → address pull in the effect half, no
+  re-arm, no frameless waiter: the display is holds-latest (ruling 1.6
+  (ii)); (i) needs the per-address half of S-flush.
+- **Segments.** `#flush` re-asks every flush: a `seg:<k>` with its
+  `seg:<k>:reveal` record and its placeholder in range reveals — through
+  the reveal seam's `createLoadingBoundary` (the fills' own async is
+  covered) — and the swap removes the template, so the DOM is the state
+  (no `#revealed`); a `seg:<k>:fallback` materializes the template's
+  content once (`tpl._$fl`, as `$dfl` marks it). The retry loop stays (a
+  reveal can insert another segment's placeholder); the style gate is gone
+  with assets.
+- **Fills.** `#syncSlots` discovers `slot:<id>` marker pairs, mounts each
+  occurrence once through `slotsFor` — `evaluate` under `claimRender` when
+  adopted, then **always** `insert(end.parentNode, value, end,
+  [...existing])`: the core's own fill, claim pass under hydration, no
+  static path — and on a re-sent record pushes `#resolveArgs(record.args)`
+  into the live fill (`liveSlotProps` → `slotArgsProxy`); the fill's props
+  carry the equality. A `{$ref}` not yet delivered still skips the apply
+  (`#refsUnresolved` kept — the pending-ref read is seam S-ref).
+- **Document face.** `installServerComponents` installs `_$SC.impl` (the
+  document bootstrap is the one copy), `intercept` answers a call locally
+  when the page has the unclaimed element and defers through `arrivals`
+  when a fragment may still deliver it; `adoptBoundary` drains the page's
+  `sc:slot:<fid>:*` records into the address's store as **one write** at
+  adoption and on every ledger reveal, binds an adopting frame over the
+  element and hands hydration the node. No `#2968` defer, no
+  `claimRegionFragments`, no switch gate.
+- **Morph.** `reconcileChildren` and its helpers unchanged (A7,
+  identity-first), minus the claim thread and the text-pair arm.
+
+### 2.3 What it cannot do
+
+Every F capability is gone — the user-visible loss per tier (§3 adds each
+back):
+
+| gone | what the user loses |
+| --- | --- |
+| F.live | no live/GET re-emission: holes and attr holes never update after the first flush; no reconnect with a have-list (every reconnect is a full snapshot — today's post-adoption connect already is); the document live channel (`sc:live`) is not pumped. A page that uses `live()` gets the loop's reconnects but each lands as a full morph. |
+| F.bind | no binding/attribute slots: `_s:` positions in server markup never bind — attributes, class/style and text positions stay at the server's values, inert. |
+| F.trace | no container traces: a live store passed as a slot arg arrives as an inert marker object (the fill reads `{$tr: …}`); on a page this also drops the 31 KB store engine + adapters the eager install pulls (page base −13.9 KB br). |
+| F.regions | no `{$frame}` regions: server content as a prop to a client fill cannot be rendered (the fill receives the raw `{$frame}` ref); occluded regions cannot mount from the store. |
+| F.assets | **no CSS for streamed segments**: a segment whose `assets` record names stylesheets reveals without loading them (not FOUC — the sheet never loads; the document face keeps the core's `$dfs`, the stream face has no carrier); no typed preloads, no module preloads, inline styles not applied. |
+| F.claims / F.event | router link-state claims (`a[href]`, `form[action]`) on server markup do not run; no `frame:applied` (scroll restoration, affordance reflection). |
+
+And the holes the T-only client has that the full client does not — the
+**new gaps** the contract analysis found (G1–G9), with what closes each:
+
+| gap | severity | what closes it |
+| --- | --- | --- |
+| **G2/G3 — a late record never wakes its fill; the hold is not a boundary resume.** Without the `#2968` defer, a `prop#n` occurrence whose record script runs after the adopt-time sync is classified recordless and evaluated argless (the C18 `TypeError`); with a "mount and pend" in its place the resumed fill runs outside `claimRender`'s window and renders fresh clones over server DOM (C1/C9 regress). | **page-halting / wrong content** | the bounded `prop#n` poll (+323 min / +105 br, measured as `Tglue`) until S-hold + S-record exist (§5) |
+| **G4 — post-done inner reveals held.** `fragmentPolicy` holds an unclaimed swap after hydration-done; `claimRegionFragments` was the claimant for server-only `<Loading>`s. | wrong content (frozen fallback) | the solid seam S-adopted (+80 B solid) or the 6-line claim (+153) |
+| **G6 — a document reveal does not sync the frame** (ruling 2.3): a fill revealed by a `$df` into adopted content mounts only when some later flush happens. | wrong content (inert) | the `fr.subscribe` → `frame.sync(parent)` one-liner (+58 min / +23 br, measured as `Tglue-reveal`) |
+| **G7 — a refetch inside an action tears** (C15): the first flush is held by the transaction through the memo, later chunks morph outside the graph. | wrong content (transient) | S-flush (the address source; the Transaction then stages the landing) |
+| **G1 — no re-pend on a switch**: the enclosing `<Loading>` does not re-pend when the address switches; the site shows the previous content until the new address's first morph (holds-latest, 1.6 (ii)). | flash-class (display rule change, not a bug) | the per-address half of S-flush for 1.6 (i) |
+| C5 — `data` chunks bypass the version guard (`host.apply`'s data arm), so a superseded response's late `data` still lands in the current table. | wrong values under a refetch race | the per-response data cell (frames-rulings 1.2, ≈ 140 B, shared with S-ref) |
+
+The **honest floor** is therefore `Tglue`: T-only + the reveal→sync
+one-liner + the bounded `prop#n` hold — **21,620 B min / 7,332 B br**, 468 B
+under the budget — with G4, G7, G1 and C5 as the seams §5 names. The
+version of the floor with every seam built and every R residue gone
+(R.claim ≈ 470, R.refwait ≈ 145, the sf slice's live arm ≈ 150) lands near
+**≈ 20,800 min / ≈ 7,000 br** (estimated).
+
+### 2.4 The contract's reds under T-only
+
+For each of the twenty-two `test.fails` on `next` (and the green set):
+**unrepresentable** = the mechanism that produced the red is gone and the
+core's rule decides; **holds by core** = carried by a core primitive, gated
+on the named seam; **still red**; **feature gone** = vacuous.
+
+| red | T-only verdict | why |
+| --- | --- | --- |
+| **C2 (a2)** record after reveal; **C2 (b)** direct-insert revealed; **C2 replay** | holds by core — with the one-liner (`Tglue-reveal`) and S-record | the reveal syncs the revealed range; a bare `children` mounts there (b); a `#`-named occurrence found recordless waits for its record (a2) — today through the bounded poll, under S-record through a pending read. Without the one-liner: still red (inert). |
+| **C3 (a)** done while a record is deferred; **C3 replay** | holds by core — with S-hold | the hold registers through `initBoundaryResume` and `checkHydrationComplete` waits (corollary 3). In `Tglue` as built the poll registers nothing: **still red** until S-hold. |
+| **C4 (d)** drain before reveal | **unrepresentable** | no `appliedRecords`-consumed-then-never-applied path: the record is in the store, and the reveal's sync (one-liner) finds the marker pair; the ledger is the store (corollary 2). |
+| **C5 (a, b, e)** a superseded response's late `data` | **unrepresentable — conditional** | L2 ruling 5: a landing asking an older question is dropped. Holds once `data` goes through the per-response cell (1.2, ≈ 140 B); in the floor as built the data arm still bypasses the guard, so these three are **still red** until the cell. |
+| **C6 (a1)** switch during a `{$ref}` wait | holds by core — with S-ref | no `clearStreamRecords` keep-`slot:*`, no `#refsUnresolved` re-route: the rebind seeds B's store wholesale and the fill's args re-derive at B's record; a read pinned to A's table pends (S-ref). Without the pin: reads B's table — the C6 shape — **still red**. |
+| **C6 (b2)** refetch during the wait | **unrepresentable** | no staged commit installs v2's tables under v1's held read; v2 replaces wholesale (1.4 full). |
+| **C7 (c)** byte-identical v2 root never re-applies | **unrepresentable** | the root applies by record identity; every landing applies (A30). |
+| **C12 (c)** rejected server `<Loading>` blanks | **still red — server half** | A0 withdraws the pin's expectation (frames-rulings 3.3): the client shows what the server rendered (the blank `" "`); the fix is the sink's error markup. Post-done the swap is held (G4) rather than blank until S-adopted. |
+| **C13 (a, b)** one sweep, two frames | **feature gone** | the live channel and hole chunks are removed; if live returns the red returns, and it is the server half's (a wire delimiter). |
+| **C17 (a)** A's late html after the switch | **unrepresentable** | no gate to answer wrongly: A's chunks land in A's warm store after the rebind and reach no frame; the site shows A until B's first morph (holds-latest). |
+| **C17 (c)** A's html while B's header pends | **pin changes** | A was the bound address when its html landed, so the frame shows A, then B morphs in — `waiting → A → B`, ruling 1.6 (ii) as display behaviour. (i) (`waiting → B`) needs the per-address half of S-flush. |
+| **C18 ×1** two records after the parser's end | **unrepresentable** | no per-record drain to lag the ledger (one write per drain), and `#` decides the class: a `prop#n` found recordless is a pending read, never direct-insert. |
+| **C18 ×2** a live op before the drain, the pump's catch-up | **feature gone** | live removed (and the per-record drain is gone regardless). |
+| **C19 ×2** a patch lands before the claim | **feature gone** | traces removed; no other arg kind moves between SSR and claim (`s`/`v` stamps carry the rendered value). |
+
+Counts: **7 unrepresentable** (C4 d, C5 ×3 conditional on the cell, C6 b2,
+C7 c, C18 ×1), **8 hold by core** — every one gated on a seam that does not
+exist today (C2 ×3 on the one-liner + S-record, C3 ×2 on S-hold, C6 a1 on
+S-ref, C17 a unconditional, C17 c a pin change), **1 still red** (C12 c,
+the server half), **6 feature gone** (C13 ×2, C18 ×2, C19 ×2). The green
+set (C1, C8, C9, C10, C14, C16) stays green with two conditions: C1/C9/C10
+need the adopt-time hold to stay a *deferred mount* with hydration re-entry
+(S-hold, not a bare counter), and C8/C14 (c) need the per-flush segment
+check the floor keeps. C6 (b1)'s pin asserts the opposite of A0 (it expects
+v1's late data to show after v2's header) and inverts. C11 and C15 go
+vacuous with their features.
 
 ---
 
 ## 3. Tiers
 
-_(pending)_
+Each F group's cost two ways: **eager** = added back onto the T-only floor
+(measured; the honest number for "what does the default build cost if it
+ships this"), and **in the full client** = the full client minus the group
+(measured; what today's bundle pays for it). The two differ by the
+minifier's context (≈ 5 %). Lazy-on-use = the group as its own chunk plus
+the seam that detects the key and holds (the S1 shape: seam D's
+server-recorded "this document needs X" + a pending-boundary registration
+at the claim), estimated from S1's measured seam (≈ 100–300 B min) and the
+rulings' 3a (+125 min / +35 br).
+
+| tier | eager, on T (Δ min / Δ br) | in the full client (Δ min / Δ br) | lazy on use: chunk (min / ≈ br) + eager seam | server-known key | behaviour change when lazy (§5.2) |
+| --- | --: | --: | --- | --- | --- |
+| **E.a live** (F.live) | +3,500 / **+1,064** | −3,529 / −1,041 | ≈ 3,400 / ≈ 1,000 + ≈ 150 / 45 | the response or document carries holes, attr holes or `sc:live` | none on screen: holes buffer in the store until the tier's flush; the pump starts after the load |
+| **E.c binding slots** (F.bind) | +5,064 / **+1,546** | −5,139 / −1,539 | ≈ 4,900 / ≈ 1,450 + ≈ 200 / 60 | `_s:` markers in the document or response | a post-load stream's first binding waits one chunk load (audit §7 Q5, accepted for B.3); the adopt-time sync holds on it (S1 class) |
+| **assets** (F.assets) | +2,376 / **+684** | −2,417 / −665 | ≈ 2,300 / ≈ 650 + ≈ 100 / 30 | an `assets` chunk / a style-gated fragment | a segment with stylesheets is not ready until the tier loads (one term in `#segmentReady`) — or route the group through `web`'s own loader via `client.ts`'s import edge (audit S10) and the mirror's ≈ 750 B of untested code goes instead |
+| **regions** (F.regions) | +1,873 / **+489** | −2,344 / −627 | ≈ 1,800 / ≈ 470 + ≈ 150 / 45 | `{$frame}` refs in a record / `data-fid` region elements | an occurrence whose record names a region holds until the chunk loads (S1 class, adopt path) |
+| **N container traces** (F.trace) | +1,023 / **+289** (+ on a page the 31 KB engine, B.2) | −1,121 / −317 | S1 built it: the materializer behind `prepareArgs` ≈ 700 eager → ≈ 150 + the engine lazy | a serialized trace in the document | S1's hold (`#heldRecords`, pinned) |
+| **claims + event** (F.claims, F.event) | +922 / **+331** | −921 / −346 | not worth a seam (≈ 0.9 KB); ship with the router's tier if one exists | the router installed `CLAIM_SEAM` | a sweep before the tier loads misses the first morph's anchors; the router re-sweeps on install |
+| **staging** (the #3759 capability) | — (R; its carrier is deleted; the capability returns through S-flush: ≈ +120 buffer + ≈ 80 node, ≈ +200 / +60) | the carrier was ≈ 2,072 attributed | n/a — it is the Transaction's staging once the node exists | — | none: the capability is restored, not tiered |
+
+Compositions the maintainer may want as a default build (all measured,
+frames eager, min / br; budget 7,800 br):
+
+| build | min | br | vs budget |
+| --- | --: | --: | --: |
+| T-only (`L8`) | 21,297 | 7,227 | −573 |
+| T + reveal one-liner + bounded hold (`Tglue`, the honest floor) | 21,620 | 7,332 | −468 |
+| T + assets | 23,673 | 7,911 | +111 |
+| T + regions | 23,170 | 7,716 | −84 |
+| T + assets + regions | 25,546 | 8,394 | +594 |
+| T + assets + regions + claims | 26,468 | 8,727 | +927 |
+| T + assets + regions + claims + trace | 27,478 | 9,020 | +1,220 |
+| T + assets + regions + claims + live | 29,976 | 9,797 | +1,997 |
+| T + live + bind | 29,821 | 9,822 | +2,022 |
+| T + live + bind + assets | 32,197 | 10,470 | +2,670 |
+| T + live + bind + assets + regions | 34,089 | 10,976 | +3,176 |
+| **T + every feature, R and D deleted** (`TF`) | **36,004** | **11,589** | **+3,789** |
+| as shipped (`L0`) | 43,310 | 13,770 | +5,970 |
+
+Page base (the whole page, lazy `decode.js` 22,986 / 6,074 not counted):
+`L0` 145,569 / 44,823 → `TF` 138,240 / 42,776 (−2,047 br: R and D off the
+page with every feature kept) → `Tglue` 96,276 / 30,968 → `L8` 95,953 /
+**30,901** (−13,922 br: the T-only client **and** the store engine +
+adapters the trace tier pulled — the SC audit's B.2 falls out of the trace
+tier rather than needing its own seam).
 
 ---
 
 ## 4. Verdict
 
-_(pending)_
+**How the 3× splits.** Of the 13,770 B br shipped, measured in the frames
+eager-client scenario by removing each class from the bundle: **T 7,227
+(52 %)**, **F 4,362 (32 %)**, **R 1,863 (13.5 %)**, **D 318 (2.3 %)**. Of
+the **5,970 B over the 7,800 budget**: R + D are **2,181 (37 %)** —
+deletable under A0 with no product decision, and every feature kept; F is
+**3,789 (63 %)** — a product decision about which capabilities ship eager.
+(The ratio itself: 13,770 br is 1.77× the §6 figure read as brotli, ≈ 2×
+read as §6's own min+gzip; the "almost 3×" is against a target this
+document could not locate — the arithmetic here is against §6.)
+
+**Second-model problem or scope problem?** Both, in that order of size
+reversed from what the audit assumed. The second model is real and worth
+**≈ 1.9 KB br / ≈ 6.1 KB min** (measured, every feature kept: `noD` − `TF`)
+— plus ≈ 0.3 KB br of dead code — and deleting it alone lands the
+full-featured client at **11,589 B br, 1.49× budget, 3,789 B over**. So
+**deletion does not close the gap**; it closes 37 % of it. The rest is
+scope: the frames client ships five capabilities eagerly — live/GET
+re-emission (1.06 KB br), binding slots (1.55), the asset mirror (0.68),
+regions (0.49), container traces (0.29), the router contract (0.33) — none
+of which the transport needs and each of which has a server-known key to
+load it on use. **A T-only frames is 7.2 KB br, under the budget**; T plus
+the two features closest to the transport (regions and stylesheets for
+streamed segments) is **8.4 KB, 594 B over**; T plus everything but live
+and binding slots is 9.0 KB; T plus everything is 11.6 KB.
+
+**Plainly:** if the maintainer wants binding slots and live eager, the
+default build **cannot** meet 7.8 KB br even with every A0 deletion made —
+T + live + bind alone is 9,822 B (+2,022), and with assets and regions
+10,976 (+3,176). The budget is reachable only by a tiered default: T (plus
+the two small glue seams) eager at ≈ 7.3 KB, regions and assets eager if
+wanted (≈ 8.4 KB — the budget would need to move to ≈ 8.5 KB, or assets
+routed through `web`'s loader instead of mirrored), and live, binding slots
+and traces loaded on their server-known keys. The audit's §7 Q7 ("replace
+the §6 budget with per-tier budgets") is the question this measurement
+answers in numbers.
+
+**Against the SC audit's §6.1 floors** (frames eager, br): P packaging only
+≈ 12.3 KB; C carve only ≈ 11.5; P + C′ ≈ 10.5. Those were the right answers
+to a different question — they kept every feature eager (P tiers only
+E.a/E.b/E.c, and only estimated) and classified by "does a frames ruling
+require it". A0 changes three things: (1) the staging carrier (≈ 2.1 KB
+min), the shell gate (0.7), the static fill path (0.6), the two dedupes
+(0.9), the frame's version space (0.5), the range-scoped claim registry
+(0.5) and the reveal-readiness model (0.5) move from *structural* to
+*restates core* — the audit's C′ deleted ≈ 1.8 KB br of incidental seams;
+A0's R is ≈ 1.9 KB br and overlaps C′ only in the dedupes, the gate twin
+and the version space; (2) the full-featured A0-cleaned client is **11.6 KB
+measured**, close to the audit's C-only estimate (11.5) but by deletion
+rather than rewrite — no engine change, no wire change; (3) the audit's
+P + C′ floor (10.5) is reached and passed by **tiering**, not packaging:
+T + live + bind + assets is 10.5 KB measured, and T + assets + regions is
+8.4. The audit's B.2 (the store engine off the page, −7.7 KB br on page
+base) is a consequence of the trace tier, not a separate seam.
+
+**What this costs elsewhere.** The R deletions need core seams the brief
+asked to be named (§5): ≈ 150–200 B in `solid-js` (S-hold's
+`hydrateWindow` + the `initBoundaryResume` reach ≈ 40–65, S-adopted ≈ 80,
+`whenRevealed` ≈ 15, `readHydratedValue` ≈ 10) paid by every hydrating
+page (≈ +50 br), ≈ 60 B in the lazy decode chunk (S-ref), and two server-half
+items (a declared slot record, a fragment key on the SC reference, each ≈
++30 B of output). S-flush — the one that makes staging the Transaction's
+and 1.6 (i) by construction — is ≈ 110–190 B in frames and 0 in signals.
+Nothing in §2 or §3 changes the wire.
 
 ---
 
@@ -405,10 +688,16 @@ All measurement tooling lives outside the tracked tree under
   [--top n] [--md] [--all]` — the class map (every unit: class, group,
   justification, core primitive for R, residue re-attribution) and the join
   that produces §1.1's totals, §1.5 and Appendix A.
-- `tmp-tools/floor-spec.md` + `tmp-tools/floor.mjs` — the layered cuts
-  (L1–L8 and the add-back variants) as ordered, anchor-asserting
-  replacements over a copy of the dist; `tmp-tools/floor-results.{json,txt}`
-  the measurements §2–§3 quote.
+- `tmp-tools/floor-spec.md` + `tmp-tools/floor.py` — the group-tagged cuts
+  (`live bind trace regions assets claims dead` and the R groups `gate
+  stage version dedupe insert reveal drain claimant error`, plus the two
+  `glue-*` additions) as exact-string replacements over
+  `tmp-tools/dist/L0/client.js` (a verbatim copy of the built dist), each
+  asserting its anchor matches once; `python3 tmp-tools/floor.py
+  'name:group+group'` writes `tmp-tools/dist/<name>/client.js`, e.g.
+  `L8:F+dead+R`, `TF:R+dead`, `T+live:bind+trace+regions+assets+claims+dead+R`,
+  `Tglue:F+dead+R+glue-reveal+glue-hold`. `tmp-tools/floor-results.txt`
+  holds every measurement §2–§3 quote.
 - JSON: `tmp-tools/fn-frames.json`, `tmp-tools/fn-base.json`.
 
 ---
