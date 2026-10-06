@@ -1195,13 +1195,40 @@ export function createChunk(data: string): Uint8Array;
 // streams frame their chunks identically — see frame-transport.js) so there
 // is exactly one framing implementation.
 export function createChunk(data) {
-  const encoder = new TextEncoder();
-  const encodeData = encoder.encode(data);
+  const encodeData = CHUNK_ENCODER.encode(data);
   const bytes = encodeData.length;
+  // The header carries exactly 8 hex digits. A longer length would widen it
+  // past 12 bytes and every reader would misframe the rest of the stream.
+  if (bytes > MAX_CHUNK_BYTES) {
+    throw new RangeError("Server function chunk is too large to frame.");
+  }
   const chunk = new Uint8Array(12 + bytes);
-  chunk.set(encoder.encode(`;0x${bytes.toString(16).padStart(8, "0")};`)); // 32-bit
+  chunk.set(CHUNK_ENCODER.encode(`;0x${bytes.toString(16).padStart(8, "0")};`)); // 32-bit
   chunk.set(encodeData, 12);
   return chunk;
+}
+
+const CHUNK_ENCODER = /* @__PURE__ */ new TextEncoder();
+// Fatal, so a payload that is not valid UTF-8 is refused instead of being
+// decoded with U+FFFD substituted. `createChunk` always writes valid UTF-8,
+// so only a corrupted or hand-built stream can trip it. Stateless use only:
+// every call decodes one whole payload, so one instance serves every reader.
+const CHUNK_DECODER = /* @__PURE__ */ new TextDecoder("utf-8", { fatal: true });
+const MAX_CHUNK_BYTES = 0xffffffff;
+// A store this large is released once the reader holds no unread bytes,
+// unless the frames it is serving are big enough to need it again.
+const RETAINED_STORE_BYTES = 64 * 1024;
+
+function malformedStream() {
+  return new Error("Malformed server function stream.");
+}
+
+/** The value of one ASCII hex digit, or -1. */
+function hexDigit(byte) {
+  if (byte >= 0x30 && byte <= 0x39) return byte - 0x30;
+  if (byte >= 0x61 && byte <= 0x66) return byte - 0x57;
+  if (byte >= 0x41 && byte <= 0x46) return byte - 0x37;
+  return -1;
 }
 
 export class ChunkReader {
@@ -1212,6 +1239,9 @@ export class ChunkReader {
     this.store = new Uint8Array(0);
     this.buffer = this.store;
     this.done = false;
+    // Set by `cancel()`. A cancelled read ends cleanly even when it stops
+    // partway through a frame.
+    this.cancelled = false;
   }
 
   async readChunk() {
@@ -1253,6 +1283,10 @@ export class ChunkReader {
   }
 
   async next() {
+    // A cancelled read is over. Frames still buffered are not delivered:
+    // the caller asked to stop, and frames cancels a superseded response
+    // precisely so its later chunks are not applied.
+    if (this.cancelled) return { done: true, value: undefined };
     // A network read boundary can land anywhere — inside the 12-byte header
     // just as easily as inside a payload — so buffer until the whole header
     // is present before parsing it. Parsing a truncated header used to
@@ -1260,41 +1294,82 @@ export class ChunkReader {
     // frame, which no localhost test ever produces.
     while (this.buffer.length < 12) {
       if (this.done) {
-        if (this.buffer.length === 0) return { done: true, value: undefined };
-        throw new Error("Malformed server function stream.");
+        // A partial frame is truncation, unless `cancel()` is why the body
+        // ended. Then it is the clean end the caller asked for.
+        if (this.buffer.length === 0 || this.cancelled) return { done: true, value: undefined };
+        throw malformedStream();
       }
       await this.readChunk();
     }
-    // `;0x00000000;` — the hex length names how many payload bytes to wait for
-    const decoder = new TextDecoder();
-    const bytes = Number.parseInt(decoder.decode(this.buffer.subarray(1, 11)), 16);
-    if (Number.isNaN(bytes)) {
-      throw new Error("Malformed server function stream.");
+    // `;0x00000000;`, exactly: the delimiters, the `0x`, then 8 hex digits
+    // naming how many payload bytes to wait for. `parseInt` used to accept
+    // any 10 bytes it could read a number from, so a header with the wrong
+    // delimiters or trailing junk (`;0x5zzzzzzz;`) decoded as a real frame.
+    const header = this.buffer;
+    if (header[0] !== 0x3b || header[1] !== 0x30 || header[2] !== 0x78 || header[11] !== 0x3b) {
+      throw malformedStream();
+    }
+    let bytes = 0;
+    for (let i = 3; i < 11; i++) {
+      const digit = hexDigit(header[i]);
+      if (digit < 0) throw malformedStream();
+      bytes = bytes * 16 + digit;
     }
     while (bytes > this.buffer.length - 12) {
       if (this.done) {
-        throw new Error("Malformed server function stream.");
+        if (this.cancelled) return { done: true, value: undefined };
+        throw malformedStream();
       }
       await this.readChunk();
     }
-    const partial = decoder.decode(this.buffer.subarray(12, 12 + bytes));
+    let partial;
+    try {
+      partial = CHUNK_DECODER.decode(this.buffer.subarray(12, 12 + bytes));
+    } catch {
+      throw malformedStream();
+    }
     this.buffer = this.buffer.subarray(12 + bytes);
+    this.releaseStore(bytes);
     return { done: false, value: partial };
   }
 
+  /**
+   * Drops an oversized store once nothing in it is unread. Without this, the
+   * doubled allocation from one large frame was kept until the stream ended.
+   * For a live source or a frames connection, that can be as long as the page
+   * is open. The store is kept while frames of the size just read still need
+   * it, so a steady stream of large frames does not reallocate per frame.
+   */
+  releaseStore(frameBytes) {
+    if (this.buffer.length !== 0) return;
+    const keep = Math.max(RETAINED_STORE_BYTES, (12 + frameBytes) * 4);
+    if (this.store.length <= keep) return;
+    this.store = new Uint8Array(0);
+    this.buffer = this.store;
+  }
+
   async drain(interpret) {
-    while (true) {
-      const result = await this.next();
-      if (result.done) {
-        break;
+    try {
+      while (true) {
+        const result = await this.next();
+        if (result.done) {
+          break;
+        }
+        interpret(result.value);
       }
-      interpret(result.value);
+    } catch (error) {
+      // Nothing will read the rest of the body, so release it instead of
+      // leaving it locked and unread until it is collected.
+      this.cancel(error).catch(() => {});
+      throw error;
     }
   }
 
   /** End the read: the body is cancelled through the lock this reader
-   *  holds, and a pending `next()` resolves done. */
+   *  holds, and a pending `next()` resolves done, even partway through a
+   *  frame. */
   cancel(reason) {
+    this.cancelled = true;
     return this.reader.cancel(reason);
   }
 }
@@ -1323,7 +1398,7 @@ export function createEventChunk(data, id) {
   // end of its line, and the payload's lines were split above it.
   let event = id !== undefined && !id.includes("\0") ? `id: ${id}\n` : "";
   for (const line of data.split(/\r\n|\r|\n/)) event += `data: ${line}\n`;
-  return new TextEncoder().encode(event + "\n");
+  return CHUNK_ENCODER.encode(event + "\n");
 }
 
 /**
@@ -1625,14 +1700,31 @@ export async function deserializeStream(source, codecOptions, wire) {
   }
   const reader =
     wire && isEventStream(source) ? wire.open(source.body) : new ChunkReader(source.body);
-  const result = await reader.next();
+  // When the first frame fails, nothing will read the rest of the body, so
+  // it is cancelled rather than left locked and unread. Once the drain below
+  // is running, the same cancel also ends it.
+  const abandon = error => {
+    try {
+      const cancelled = reader.cancel(error);
+      if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
+    } catch {}
+  };
+  let result;
+  try {
+    result = await reader.next();
+  } catch (error) {
+    abandon(error);
+    throw error;
+  }
   if (!result.done) {
     // An error trailer as the FIRST frame is the whole answer: encoding
     // failed before any value was delivered, and the failure is the result
     // (#3117). Thrown here so the caller sees a failed call, never a void
     // success.
     if (result.value.startsWith(ERROR_TRAILER_PREFIX)) {
-      throw errorFromTrailer(result.value);
+      const error = errorFromTrailer(result.value);
+      abandon(error);
+      throw error;
     }
     // The codec's decode half loads here — when a Serialized body has
     // actually arrived — so a client whose responses all ride the JSON fast
@@ -1688,7 +1780,12 @@ export async function deserializeStream(source, codecOptions, wire) {
       error => end(error)
     );
 
-    return interpretChunk(result.value);
+    try {
+      return interpretChunk(result.value);
+    } catch (error) {
+      abandon(error);
+      throw error;
+    }
   }
   return undefined;
 } /**
