@@ -473,8 +473,9 @@ what the settled DOM shows is still the value the fill read, patched.
 - **Mechanism:** `web/src/client.ts:insertExpression` (a hydrating render is
   a claim pass, not a mutation pass — by design), `materializeContainerTrace`
   (replays snapshot + patches synchronously at revive and parks the patches
-  beyond the snapshot until hydration ends — 3.6 (iii), the 3e port),
-  `claimRender`.
+  beyond the snapshot until hydration ends — 3.6 (iii), the 3e port; the
+  park is unconditional until S1's `claiming` hint lands at C3, 3.6
+  "Landed"), `claimRender`.
 - **Pin:** `harness/replay.spec.tsx` C19 ×2 + control;
   `c19-claim-reads-snapshot.spec.tsx` — arms: (a) the t=0 claim with a trace
   past the markup, (b) the deferred claim under the frame's hold, (c) the
@@ -762,10 +763,16 @@ materializer, told it is read for a claim, serves the snapshot and PARKS the
 backlog until hydration ends; the DOM catches up after the claim. S1 is
 evidence for frames-rulings 3.6 (iii), the consumer parks — not for (i), the
 claim pass reconciling. **Fixed** by the 3e port (A2b on
-`wip/frames-pass-integration`): `materializeContainerTrace` parks every
+`wip/frames-pass-integration`, #3840): `materializeContainerTrace` parks every
 replayed backlog beyond the snapshot until `onHydrationEnd` (a microtask
-when none is in progress — the port carries no `claiming` hint, so a fresh
-mount pays one beat instead), and roots its projection detached.
+when none is in progress), and roots its projection detached. The park is
+**unconditional** (maintainer, 2026-10-06 — frames-rulings 3.6 "Landed"):
+keying it on hydration being in progress at materialize time left post-done
+claims (a fragment revealed after done, a record owed past done — corollary
+4) red, because no hydration state says "claim" at that moment; the port
+carries no `claiming` hint, so a fresh mount pays one beat instead. S1's
+`revive(value, claiming?)` hint arrives at plan step C3 and keys the park on
+the claim again then.
 **Severity:** stale value shown after hydration with no diagnostic;
 self-heals on the next distinct patch (medium). **Should have been caught
 by:** `c11-trace-equals-oracle` (d) — it patches only after the claim; no
