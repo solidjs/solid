@@ -39,6 +39,20 @@ const capFor = br => Math.ceil((br + HEADROOM) / 10) * 10;
 const formatCap = bytes => `${(bytes / 1000).toFixed(2)} KB`;
 const fmt = n => n.toLocaleString("en-US");
 
+/** `text` as `//` comment lines of at most 80 columns at `indent`. */
+const comment = (text, indent) => {
+  const lines = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line && indent.length + 3 + line.length + 1 + word.length > 80) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  lines.push(line);
+  return lines.map(l => `${indent}// ${l}\n`).join("");
+};
+
 const args = process.argv.slice(2);
 const flag = name => {
   const i = args.indexOf(name);
@@ -139,10 +153,12 @@ for (const scenario of scenarios) {
     newCap !== cap
       ? `${row.from} -> ${row.to}, ${recordedText}`
       : `cap unchanged at ${row.from}, ${recordedText}`;
-  const ledger =
-    `${indent}// Ratchet (${date}${note ? `, ${note}` : ""}): ${what}; ${origin} at\n` +
-    `${indent}// ${fmt(m.size)} B (${fmt(m.minified)} B minified). Lower only: cap at measured\n` +
-    `${indent}// + ${HEADROOM} B rounded up to 0.01 KB; recorded minified never raised.\n`;
+  const ledger = comment(
+    `Ratchet (${date}${note ? `, ${note}` : ""}): ${what}; ${origin} at ${fmt(m.size)} B ` +
+      `(${fmt(m.minified)} B minified). Lower only: cap at measured + ${HEADROOM} B rounded up ` +
+      `to 0.01 KB; recorded minified never raised.`,
+    indent
+  );
 
   let limitLine = block.slice(lineStart, lineEnd);
   let after = block.slice(lineEnd);
