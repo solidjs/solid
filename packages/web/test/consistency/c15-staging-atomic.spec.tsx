@@ -163,7 +163,7 @@ describe("C15 — a staged refetch lands at the commit, whole", () => {
     // Held: nothing of v2 is visible, applied, or pushed.
     expect(s.view()).toBe("a0|v1|one");
     expect(s.applied).toEqual([]);
-    expect(s.host.get(s.id).version).toBe(1);
+    expect(s.host.get(s.id)?.version).toBe(1);
     s.sibling.release();
     await pump(3);
     s.sample();
