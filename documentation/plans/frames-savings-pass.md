@@ -518,7 +518,8 @@ Each a yes/no with a recommendation.
    needed. The cost is deferring the −6.4 KB page saving until Phases A and
    B are in.
    **Ruled 2026-10-06: yes** — S1 merges re-based at C3, after Phases A
-   and B.
+   and B. **Accepted for now; review after the first size pass**
+   (maintainer, 2026-10-06).
 6. **The adopt-path holds (traces, regions, bind) register as pending
    boundaries through `initBoundaryResume` (3.1 participants), with the
    solid-side reach (`sharedConfig.resumeBoundary`, `hydrateWindow`) paid by
