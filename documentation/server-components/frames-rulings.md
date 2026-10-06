@@ -742,6 +742,19 @@ through the existing registration, not a new seam.**
   invoke → revive → materialize → claim), the frame's hold releases after that
   sync, done after the hold, the backlog after done. No deadlock; pin the
   order.
+- **Cost as landed (maintainer, 2026-10-06).** The registration landed in
+  two parts — #3837 (`sharedConfig.holdBoundary`, the reach into
+  `initBoundaryResume`) and #3840 (`hydrateWindow` factored out of
+  `resumeBoundaryHydration`, the claim window `claimRender` enters through
+  it, R.claim deleted). Measured: frames eager −109 br; **every hydrating
+  page ≈ +120 min / +105 br** (the estimate was ≈ +40 br). The excess is the
+  window's scope capture — `markSnapshotScope`/`openLiveScope` and the
+  snapshot capture a claim after hydration-done needs so a late fragment's
+  claim reads under the producer's keys (C1); it is kept for that fidelity.
+  **Accepted.** The hydrating caps it crosses (app hydrating +103 B,
+  hydrating + stores +15, compiled hydrating +69, page live +31) are raised
+  under a maintainer Size-Exception at the next integration PR, not on
+  #3840.
 
 ### 3.3 A claim is a promise to account for the outcome
 
@@ -955,13 +968,24 @@ update it is. The claim pass never rewrites a hole.**
 - **Ruled (iii) — the consumer parks** (maintainer, 2026-10-06, with the
   recommendations). The materializer, read for a claim, serves the snapshot
   and parks the backlog until hydration ends; the backlog applies as
-  ordinary updates. **C19 ×2 flip when the park is ported** — in progress
-  on `fix/frames-a2b-park-and-window` (the plan's A2 "3e port": the
+  ordinary updates. **C19 ×2 flipped with the park's port** on
+  `fix/frames-a2b-park-and-window` (#3840 — the plan's A2 "3e port": the
   detached root and the parked backlog beyond the snapshot, without S1's
   `claiming` plumbing). **C11** is read as "every observable point outside a
   claim's park". **Correction to the contract:** its R10 read S1 as evidence
   for (i); S1 is evidence for (iii) — `9927ddddd`'s mechanism is the park,
   and its own comment says a text hole is never rewritten during a claim.
+- **Landed (maintainer, 2026-10-06): the park is unconditional.** The port
+  parks every replayed backlog beyond the snapshot, not only one
+  materialized while hydration is in progress — the plan's key
+  (`isHydrationInProgress()` at materialize time) left post-done claims red:
+  under corollary 4 a fragment revealed after done, or a record owed past
+  done, claims legitimately, and at that moment no hydration state says
+  "claim". A fresh (non-claiming) mount therefore pays one beat — the
+  backlog lands a microtask later. Accepted as the shape until S1: the
+  `claiming` hint (S1's `revive(value, claiming?)`, threaded from the
+  adopt-time mount) arrives at plan step C3 with S1 and converts the park
+  back to keyed-on-claim then.
 
 - **Mechanism today.** `web/src/client.ts:insertExpression` under hydration is
   a claim pass, not a mutation pass (C1/C9: nothing moves);
