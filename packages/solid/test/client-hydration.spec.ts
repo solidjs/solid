@@ -2666,6 +2666,50 @@ describe("live-branded sources — automatic takeover", () => {
     uninstall();
   });
 
+  test("a live node with a loadingValue reconnects when the root pass ends, though its value still streams", async () => {
+    // commit #0 is what every claim reads, so the streamed value has no
+    // claim to wait for: the node keeps its per-scope takeover
+    const slow = makeLoadingPromise();
+    const value = makeLoadingPromise();
+    const uninstall = installHY({ t0: value.promise, t1: slow.promise });
+    startHydration({ t0: value.promise, t1: slow.promise });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => makeLiveSource("live-current", connections) as any, {
+          loadingValue: "commit-0"
+        });
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "content" as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("commit-0");
+
+    sharedConfig.hydrating = false;
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(sharedConfig.done).toBe(false);
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(1);
+
+    value.resolve();
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    expect(connections.count).toBe(1); // no second takeover at hydration end
+    uninstall();
+  });
+
   test("a live node under a boundary reconnects when that boundary hydrates, not when the page does", async () => {
     const boundary = makeLoadingPromise();
     const other = makeLoadingPromise(); // never resolved: the page stays un-done

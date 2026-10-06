@@ -572,7 +572,10 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
     () => {
       const traced = subFetch(compute, prev);
       if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
-        armLiveTakeover(o, !initP?.s && initP?.then);
+        armLiveTakeover(
+          o,
+          !hasLoadingWindow(options) && !initP?.s && typeof initP?.then === "function"
+        );
       return traced;
     },
     options
@@ -653,7 +656,9 @@ const LIVE_LOCAL = Symbol.for("solid.LiveLocal");
 // the shell takes over when the root pass ends, not when the last boundary
 // lands, and a node under a boundary takes over when THAT boundary
 // hydrates (D8). A node armed with no scope open (re-entered between
-// streamed chunks) falls back to a gate hydration's end flips. An entry is
+// streamed chunks) falls back to a gate hydration's end flips, and so does
+// one whose serialized value is still in flight unless it serves a loading
+// value (#3764: a boundary claims against that value). An entry is
 // discarded on flip so a later hydration pass (islands) arms a fresh one;
 // `nodeGate` outlives it so a taken-over node keeps computing.
 const openScopes = new Set<Owner>();
