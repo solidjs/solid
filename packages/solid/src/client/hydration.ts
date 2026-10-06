@@ -566,12 +566,13 @@ function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options
       armLiveTakeover(o);
     }
   } else latchedOnce.add(o);
+  const initP = sharedConfig.load!(o.id!);
   return readHydratedValue(
-    sharedConfig.load!(o.id!),
+    initP,
     () => {
       const traced = subFetch(compute, prev);
       if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
-        armLiveTakeover(o);
+        armLiveTakeover(o, !initP?.s && initP?.then);
       return traced;
     },
     options
@@ -668,10 +669,12 @@ function liveScopeOf(o: Owner): Owner | null {
   }
   return null;
 }
-function armLiveTakeover(o: Owner) {
+function armLiveTakeover(o: Owner, streaming?: boolean) {
   let gate = nodeGate.get(o);
   if (!gate) {
-    const scope = liveScopeOf(o);
+    // a still-streaming value is what some pending boundary will claim
+    // against, wherever it sits: wait for hydration's end (#3764)
+    const scope = streaming ? null : liveScopeOf(o);
     let entry = liveGates.get(scope);
     if (!entry) {
       entry = coreSignal(false);

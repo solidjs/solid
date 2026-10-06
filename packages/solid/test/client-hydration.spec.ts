@@ -2625,6 +2625,47 @@ describe("live-branded sources — automatic takeover", () => {
     uninstall();
   });
 
+  test("a live node whose server value is still streaming waits for hydration's end", async () => {
+    // #3764: the streamed value is what a pending boundary will claim
+    // against, so the root pass ending must not replace it
+    const slow = makeLoadingPromise();
+    const value = makeLoadingPromise();
+    const uninstall = installHY({ t0: value.promise, t1: slow.promise });
+    startHydration({ t0: value.promise, t1: slow.promise });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => makeLiveSource("live-current", connections) as any);
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return (() => result()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    sharedConfig.hydrating = false;
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(connections.count).toBe(0);
+
+    value.resolve();
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(1);
+    uninstall();
+  });
+
   test("a live node under a boundary reconnects when that boundary hydrates, not when the page does", async () => {
     const boundary = makeLoadingPromise();
     const other = makeLoadingPromise(); // never resolved: the page stays un-done
