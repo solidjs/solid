@@ -13,10 +13,9 @@
  * Mechanism meant to carry it: frames/src/frame-client.ts
  * `FrameImpl.#syncSlots` (range discovery over the frame's content) driven
  * by frames/src/client.ts `adoptBoundary`'s `fr.subscribe` cascade
- * (`claimRegionFragments` + `drainRecords`). A re-sync after a reveal
- * happens only when the reveal brings a NEW record (`drainRecords` →
- * `host.apply` → `#flush` → `#syncSlots`); nothing re-syncs on the reveal
- * itself.
+ * (`drainRecords` + the reveal-is-an-apply write). A swap into the region
+ * needs no claim from the adoption: a placeholder inside a `data-fid`
+ * element is the frame's content by rendering (`_$HY.fa`, frames A5′).
  *
  * Liveness is the assertion: a fill is "mounted" when a client signal it
  * reads drives the DOM. Every fill here reads `tick()` in a text hole
@@ -283,11 +282,13 @@ describe("C2 — no inert server content", () => {
 
   // Arm (c2): reveal BEFORE hydrate, post-done. Global hydration has already
   // completed in this worker (forced here with a throwaway pass, so the arm
-  // does not depend on its position in the file), so the pre-hydrate `$df`
-  // is HELD by the ledger's policy (returns 0) and replayed when the
-  // adoption claims the placeholder (`claimRegionFragments` → `fr.claim` →
-  // `replayHeldFragment`). The final page must equal (c1)'s and (a1)'s.
-  test("(c2) reveal-before-hydrate, post-done held swap replayed by the adoption's claim: same final page", async () => {
+  // does not depend on its position in the file). The placeholder sits
+  // inside a `data-fid` element, so the pre-hydrate `$df` is the frame's
+  // content BY RENDERING (frames A5′, `_$HY.fa`): the ledger swaps it at
+  // once (returns 1) with no adoption on record — no hold, no replay — and
+  // the adoption that follows finds the markup in place and reads the
+  // record synchronously. The final page must equal (c1)'s and (a1)'s.
+  test("(c2) reveal-before-hydrate, post-done swap owned by rendering lands before the adoption: same final page", async () => {
     const fid = freshFid("c2c2");
     const frag = "c2c2";
     page = bootPage(pendingShell(fid, frag));
@@ -298,8 +299,9 @@ describe("C2 — no inert server content", () => {
       frag,
       slotRange("item#0", liveFillHtml(fid, "item#0", "one"))
     );
-    expect(swapped).toBe(0);
-    expect(page.container.textContent).toBe("loading");
+    expect(swapped).toBe(1);
+    expect(page.container.textContent).toBe("one0");
+    const serverLi = page.container.querySelector("li")!;
     const Comp = (globalThis as any)._$SC.r(fid);
     const [tick, setTick] = createSignal(0);
     const invocations: number[] = [];
@@ -323,6 +325,7 @@ describe("C2 — no inert server content", () => {
     await quiesce();
     expect(page.container.textContent).toBe("one0");
     expect(invocations.length).toBe(1);
+    expect(page.container.querySelector("li")).toBe(serverLi);
     setTick(1);
     flush();
     expect(page.container.textContent).toBe("one1");

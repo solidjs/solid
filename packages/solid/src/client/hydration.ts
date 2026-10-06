@@ -1994,16 +1994,12 @@ export function enableHydration() {
   const hy = (globalThis as any)._$HY;
   if (hy && !hy.fr) {
     if (!hy.f) hy.f = fragmentPolicy;
-    // claim/release: the same claimant contract Loading boundaries use, for
-    // integrations that own server-rendered markup wholesale (#2978 — the
-    // frames document adoption claims the placeholders inside its region,
-    // whose <Loading> producers ran on the server and have no client
-    // boundary to ever register).
+    // Integrations that own server-rendered markup wholesale (the frames
+    // document adoption) answer for their fragments through `_$HY.fa`
+    // (ownership by rendering, see the ledger) — no per-fragment claim API.
     hy.fr = {
       pending: anyFragmentPending,
-      subscribe: subscribeFragments,
-      claim: claimFragment,
-      release: releaseFragment
+      subscribe: subscribeFragments
     };
     // Every $dfr announces its swap through `_$HY.fe`; fanning it out here
     // gives ledger subscribers one channel for "content just landed".
@@ -2811,9 +2807,9 @@ function initBoundaryResume(
 // enableHydration() installs `_$HY.f` — from that moment every `$df(id)`
 // the stream emits routes here (the same one-owner handoff the head-patch
 // runtime uses via `_$HY.h`) — and publishes the ledger as `_$HY.fr`
-// ({ pending, subscribe, claim, release }) so integrations (the frames
-// client's document adoption) share this one answer instead of scanning for
-// `pl-*` templates or patching `_$HY.fe` themselves.
+// ({ pending, subscribe }) so integrations (the frames client's document
+// adoption) share this one answer instead of scanning for `pl-*` templates
+// or patching `_$HY.fe` themselves.
 //
 // Policy: while global hydration is still in progress, swaps proceed —
 // boundaries are coming to claim them. Once hydration completes, a swap only
@@ -2824,6 +2820,17 @@ function initBoundaryResume(
 // leave inert nodes in a range the client may re-render (#2964). Unclaimed
 // late swaps are HELD (placeholder, fallback, and template all stay in
 // place) and replayed when their claimant registers.
+//
+// The one other post-done claimant is OWNERSHIP BY RENDERING (frames A5′,
+// ruled 2026-10-06): a `<Loading>` the server rendered inside a server
+// component's element has no client boundary at all — its producer ran on
+// the server — and its fragment is the component's content whether or not
+// a client has adopted the element yet. An integration that owns ranges of
+// server markup wholesale installs `_$HY.fa(placeholder)`, a predicate over
+// the fragment's `pl-*` template; a post-done swap it owns proceeds. Nothing
+// is ever held inside an owned range, so there is no claim to retire and no
+// replay: disposal is geometry — a disposed range leaves the document, its
+// placeholder with it, and a swap aimed at it is held like any other.
 const _fragments = new Map<string, { claimed?: boolean; held?: boolean }>();
 const _truncated = new Set<string>();
 const _revealSubs = new Set<(id: string, parent?: ParentNode) => void>();
@@ -2837,9 +2844,19 @@ function fragmentState(id: string) {
 
 function fragmentPolicy(id: string) {
   const f = fragmentState(id);
-  if (!_hydrationDone || f.claimed) return (globalThis as any).$dfr(id);
+  if (!_hydrationDone || f.claimed || ownedFragment(id)) return (globalThis as any).$dfr(id);
   f.held = true;
   return 0;
+}
+
+// Ownership by rendering (see the ledger's policy above): the fragment's
+// placeholder is in the document and the integration's predicate owns it.
+// A placeholder GONE from the document (its range morphed away, or the
+// owning range disposed) is nobody's: the swap holds.
+function ownedFragment(id: string) {
+  const hy = (globalThis as any)._$HY;
+  const pl = document.getElementById("pl-" + id);
+  return !!(pl && hy.fa && hy.fa(pl));
 }
 
 // A held swap replays the moment its boundary shows up — BEFORE any of the
@@ -2857,18 +2874,11 @@ function replayHeldFragment(id: string) {
 
 // A boundary registering against a still-pending `<id>_fr` goes on record as
 // the fragment's claimant, so a late swap lands for its resume to claim. The
-// claim is cleared by release() when the boundary resumes or is disposed.
+// claim is cleared by initBoundaryResume's release() when the boundary
+// resumes or is disposed.
 function claimFragment(id: string) {
   fragmentState(id).claimed = true;
   replayHeldFragment(id);
-}
-
-// Retire a claim (the disposal half of the ledger's claim/release seam):
-// after the claimant is gone, a late swap must be held rather than landing
-// in a range nobody will claim.
-function releaseFragment(id: string) {
-  const f = _fragments.get(id);
-  if (f) f.claimed = false;
 }
 
 /**
@@ -2881,6 +2891,14 @@ function releaseFragment(id: string) {
  * streamed, nothing is coming. (getElementById is an id-table lookup, not
  * the tree scan this ledger replaces.)
  *
+ * A REVEALED fragment is read from its swap (`_$HY.v`), not from its `_fr`
+ * stamp: the producer emits the swap script and then the `_fr` settle in
+ * the same task batch, so a reader inside the reveal notification
+ * (`_$HY.fe` → a ledger subscriber asking "is anything still pending?") sees
+ * the revealing fragment's declaration unstamped. Read by the stamp alone,
+ * the last reveal of a page never flipped `pending()` false, and a waiter
+ * released on exhaustion waited forever.
+ *
  * Content whose `pl-*` placeholder range is GONE can never swap either
  * (#2978, secondary defect): a frame refetch that morphs over the region
  * removes the placeholder, and the swap has nowhere to land — the stale
@@ -2889,7 +2907,7 @@ function releaseFragment(id: string) {
  * content, so with the template present its absence can only mean removal.
  */
 function fragmentPending(hy: any, id: string): boolean {
-  if (_truncated.has(id)) return false;
+  if (_truncated.has(id) || (hy.v && hy.v[id])) return false;
   const ref = hy.r[id + "_fr"];
   if (!ref || typeof ref !== "object") return false;
   return !ref.s || fragmentParked(id);

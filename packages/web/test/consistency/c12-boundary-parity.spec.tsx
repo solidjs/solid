@@ -12,9 +12,12 @@
  *
  * Mechanism meant to carry it: solid/src/client/hydration.ts
  * `hydratedCreateLoadingBoundary` (`_fr` states), `fragmentPolicy` (held
- * swaps), frames/src/client.ts `adoptBoundary.claimRegionFragments` (#2978:
- * the adoption goes on record as claimant of the server-produced `pl-*`
- * placeholders in its region so a late swap lands).
+ * swaps) with its ownership-by-rendering term (`_$HY.fa`, installed by
+ * frames/src/client.ts `installRevealHook`: a server-produced `pl-*`
+ * placeholder inside a `data-fid` element is the frame's content, so a late
+ * swap lands with or without an adoption on record — #2978, frames A5′),
+ * and `adoptBoundary`'s dev-only region sweep that names a rejected server
+ * fragment.
  *
  * Shape: a SERVER `<Loading>` inside the adopted frame — its producer ran
  * on the server, so there is no client boundary at this position; the
@@ -174,6 +177,57 @@ describe("C12 — boundary parity at claim", () => {
     expect(page.warnings).toEqual([]);
     // No client error state at the position: what the server wrote stands.
     expect(page.container.querySelector("li")).toBeNull();
+    dispose();
+  });
+
+  // Arm (c3): the client half, post-done. Global hydration has completed
+  // before the fragment settles — the #2978 shape: the server `<Loading>`'s
+  // producer ran on the server, no client boundary ever registers for the
+  // fragment, and a held-swap policy (#2964) with no other claimant would
+  // freeze the fallback on screen forever. The placeholder is inside the
+  // adopted frame's element, so it is the frame's content BY RENDERING
+  // (frames A5′, `_$HY.fa`): the swap proceeds, the adopted face shows what
+  // the server rendered for the outcome, the ledger resolves.
+  test("(c3) settled post-done: the swap proceeds, the adopted face shows what the server rendered, no frozen fallback", async () => {
+    const fid = freshFid("c12c3");
+    const frag = "c12c3-frag";
+    page = bootPage(shell(fid, frag));
+    const fetches = countFetches();
+    const fr = page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const frames = watchFrames(page.container);
+    const invocations: number[] = [];
+    const dispose = hydrate(
+      () => (
+        <Comp
+          item={(p: { text: string }) => {
+            invocations.push(1);
+            return <li>{p.text}</li>;
+          }}
+        />
+      ),
+      page.container
+    );
+    await quiesce();
+    await quiesce();
+    expect(page.hy.done).toBe(true);
+    expect(frames.frames).toEqual(["loading"]);
+
+    page.slotRecord(fid, "item#0", { text: "one" });
+    const swapped = page.revealFragment(frag, slotRange("item#0", fillHtml(fid, "item#0", "one")));
+    expect(swapped).toBe(1);
+    await quiesce();
+    await quiesce();
+    frames.sample();
+    expect(fr.promise.s).toBe(1);
+    expect(frames.frames).toEqual(["loading", "one"]);
+    expect(page.container.querySelector(`template#pl-${frag}`)).toBeNull();
+    expect(invocations.length).toBe(1);
+    expect(fetches).toEqual([]);
+    expect(page.hy.fr.pending()).toBe(false);
+    expect(page.warnings).toEqual([]);
+    expect(page.errors).toEqual([]);
+    frames.stop();
     dispose();
   });
 
