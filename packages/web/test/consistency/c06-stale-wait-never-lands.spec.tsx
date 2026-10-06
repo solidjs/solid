@@ -9,12 +9,14 @@
  * after an address switch, a refetch that supersedes it, or disposal during
  * the wait, it never mounts or updates a fill."
  *
- * Mechanism meant to carry it: frames/src/frame-client.ts
- * `FrameImpl.#syncSlots` (the `#refsUnresolved` skip — "the stream's own
- * next flush retries"), `FrameImpl.rebind` (`#resetStreamState(true)` →
- * `clearStreamRecords` drops seg/hole/attr/:error and the root but KEEPS
- * `slot:*`; `#resolveRef` then routes by the frame's NEW id),
- * `FrameImpl.dispose`, client.ts `followAddress.drop`.
+ * Mechanism (frames A4, S-ref): `createFrameHost.apply` settles a record's
+ * `{$ref}`s AT THE WRITE through its own response's table — an undelivered
+ * key becomes a pending read of that response (settled by its `data`
+ * chunk, rejected at its end), so the record is never re-resolved later
+ * through another response's data; a fresh mount waits for the record's
+ * reads to settle (`record.pending`, `FrameImpl.#syncSlots`), and a version
+ * bump or rebind replaces the store wholesale (1.4 full), so a superseded
+ * response's record and its waits leave with it.
  *
  * The production shared host is under test (`installServerComponents()`):
  * the pin is about which response's data answers a held record, and only
@@ -109,11 +111,12 @@ describe("C6 — a held record never lands on content it no longer belongs to", 
   // fill MOUNTED with "jB/kB" — A's record `{k:$ref"1", j:$ref"2"}` resolved
   // against B's table — because `FrameImpl.rebind` kept every `slot:*`
   // record across the move and `#resolveRef` routed by the frame's NEW id.
-  // Green under frames-rulings 1.4 (full): the store is one response's —
-  // the rebind (like a version bump) replaces it wholesale, so A's held
-  // record leaves with A, and the called occurrence found recordless
-  // under B WAITS for B's own record rather than mounting (its name,
-  // `comment#0`, says it has one).
+  // Green under frames-rulings 1.3 / 1.4 (full): A's refs were settled at
+  // A's write into pending reads of A's own response, which B's data can
+  // never answer; the store is one response's — the rebind (like a version
+  // bump) replaces it wholesale, so A's record leaves with A, and the
+  // called occurrence found recordless under B WAITS for B's own record
+  // rather than mounting (its name, `comment#0`, says it has one).
   test("(a1) switch during the wait, new stream orders data → html → slot: the stale record never mounts with the new data", async () => {
     const fid = freshFid("c6a1");
     const getX = createServerReference(fid);
@@ -248,9 +251,10 @@ describe("C6 — a held record never lands on content it no longer belongs to", 
   // replayed chunk (`start`) bumped the version and flushed with v1's
   // record still in the store (slot records survived the bump by design)
   // and the staged tables already installed. Green under frames-rulings
-  // 1.4 (full): the bump replaces the store wholesale, v1's held record
-  // leaves with v1, and the occurrence waits for v2's own record (replayed
-  // right after) — one mount, with v2's values.
+  // 1.3 / 1.4 (full): v1's refs are v1's pending reads, the bump replaces
+  // the store wholesale (v1's record and its waits leave with v1), and the
+  // occurrence waits for v2's own record (replayed right after) — one
+  // mount, with v2's values.
   test("(b2) refetch during the wait, v1's data never before the commit: the held v1 record never mounts with v2's data", async () => {
     const { site, sendLateV1, commitV2 } = await refetchDuringWait(freshFid("c6b2"));
     await commitV2();

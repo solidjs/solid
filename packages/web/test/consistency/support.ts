@@ -33,10 +33,7 @@ import { vi } from "vitest";
 import { enableHydration, flush } from "solid-js";
 import { sharedConfig } from "solid-js/internal";
 import { installServerComponents, createFrameHost, getFrameHost } from "../../frames/src/client.js";
-import {
-  reviveContainerTraces,
-  isMaterializedContainer
-} from "../../frames/src/frame-container-plugin.js";
+import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { createChunk } from "../../server-functions/src/shared.js";
 
@@ -357,7 +354,6 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
       applyData: (c: any) => table.apply(c),
       resolve: (r: any) => table.resolve(r),
       revive: reviveContainerTraces,
-      isContainer: isMaterializedContainer,
       ...options.hostOptions
     });
     installServerComponents(host);
@@ -554,7 +550,6 @@ export function makeHost(hostOptions: Record<string, any> = {}) {
     applyData: (c: any) => table.apply(c),
     resolve: (ref: any) => table.resolve(ref),
     revive: reviveContainerTraces,
-    isContainer: isMaterializedContainer,
     ...hostOptions
   });
   return { host, table };

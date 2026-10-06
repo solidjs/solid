@@ -9,12 +9,13 @@
  * response never answers it, in any arrival order of the two responses'
  * chunks."
  *
- * Mechanism meant to carry it: frames/src/client.ts `beginStream`/`tableFor`
- * (the shared host rotates one table per response at the handler's
- * `onStream`), frame-transport.ts `createServerComponentHandler.handle`
- * (`bump` + `onStream` at header time), frame-client.ts
- * `createFrameHost.apply` — a `data` chunk goes straight to `applyData` and
- * bypasses the store's version guard.
+ * Mechanism: frames/src/client.ts `tableFor(id, version)` (the shared host
+ * keeps one table per RESPONSE — keyed by the frame id, stamped with the
+ * response's version; a newer version opens a fresh table), frame-client.ts
+ * `createFrameHost.apply` — a `data` chunk below the store's version lands
+ * nowhere (frames-rulings 1.2), and a `slot` chunk's `{$ref}`s are settled
+ * AT THE WRITE through its own response's table (1.3), an undelivered key
+ * becoming a pending read that response's data settles (A4, S-ref).
  *
  * The PRODUCTION shared host is under test (`installServerComponents()` with
  * no host): `makeHost()` has one table per test and cannot rotate. Data
@@ -30,7 +31,6 @@ import { createMemo, createRoot, createSignal, Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { getFrameHost, installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
-import { frameAddress } from "../../server-functions/src/shared.js";
 import { createDataSource, freshFid, pump, stubHeldFetch } from "./support.js";
 
 const WIRE = "srv";
@@ -143,21 +143,23 @@ describe("C5 — data is response-scoped", () => {
     expect(container.querySelector("li")!.textContent).toBe("new");
   });
 
-  // Arm (b): the table rotation observed directly through the host's
-  // resolver (what `#refsUnresolved`/`#resolveArgs` call with the frame's
-  // address) — does v1's late data land in the table v2's refs resolve
-  // from, and does it overwrite v2's own value once that has landed?
+  // Arm (b): the table rotation observed through a record that resolves
+  // AFTER both responses' chunks interleaved — v1's late data after v2's
+  // header, v2's record, v2's data, then a second v1 straggler after v2's
+  // value — through the mounted fill (the host's resolver is not a
+  // surface: a record's refs settle at its write, through the table of
+  // the response that carried it).
   //
   // Was red on `next`: after v2's header, `resolve({$ref:"1"}, A)` read
   // "old" from v1's late chunk, and a second late v1 chunk overwrote v2's
   // "new" — one table per ADDRESS at a time, keyed by nothing that named
   // the response, every `initial` record setting its key. Green: a stale
-  // response's data chunks are dropped at the host (see a).
+  // response's data chunks are dropped at the host (see a), and the table
+  // is the response's (keyed by its version).
   test("(b) table rotation: a superseded response's late data never lands in the current table", async () => {
     const fid = freshFid("c5b");
     const getX = createServerReference(fid);
-    const host = await sharedHost();
-    const A = frameAddress(fid, [1]);
+    await sharedHost();
     const { held } = stubHeldFetch([WIRE, WIRE]);
     const [v1, v2] = held;
     const p1 = getX(1);
@@ -167,22 +169,29 @@ describe("C5 — data is response-scoped", () => {
     v1.send(start(1));
     v2.send(start(1));
     await pump(1);
-    expect(host.resolve({ $ref: "1" }, A)).toBeUndefined();
     // v1's late data after v2's header.
-    const v1Data = createDataSource();
-    for (const c of v1Data.chunks(WIRE, 1, { "1": "old" })) v1.send(c);
-    await pump(1);
-    const afterStaleData = host.resolve({ $ref: "1" }, A);
-    // v2's data lands.
-    for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) v2.send(c);
-    await pump(1);
-    expect(host.resolve({ $ref: "1" }, A)).toBe("new");
-    // Another straggler from v1 (a re-serialized key) after v2's value.
     for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
     await pump(1);
-    const afterSecondStale = host.resolve({ $ref: "1" }, A);
-    expect(afterStaleData).toBeUndefined();
-    expect(afterSecondStale).toBe("new");
+    v2.send(slot(1, "1"));
+    v2.send(html(1));
+    await pump(1);
+    const { container, seen } = mountSite(p1);
+    await pump();
+    // v2's record, settled at its write through v2's table: "1" is
+    // undelivered there (v1's chunk never entered it) — a pending read.
+    expect(seen).toEqual([]);
+    // v2's data lands.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) v2.send(c);
+    await pump();
+    expect(container.querySelector("li")!.textContent).toBe("new");
+    // Another straggler from v1 (a re-serialized key) after v2's value.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
+    v2.send(complete(1));
+    v2.close();
+    v1.close();
+    await pump();
+    expect(seen).toEqual(["new"]);
+    expect(container.querySelector("li")!.textContent).toBe("new");
   });
 
   // Arm (c) (control): the normal order — v1 is complete before v2's header.
@@ -191,8 +200,7 @@ describe("C5 — data is response-scoped", () => {
   test("(c) control: v1 completes before v2's header — v2's {$ref} resolves only to v2's data", async () => {
     const fid = freshFid("c5c");
     const getX = createServerReference(fid);
-    const host = await sharedHost();
-    const A = frameAddress(fid, [1]);
+    await sharedHost();
     const { held } = stubHeldFetch([WIRE, WIRE]);
     const [v1, v2] = held;
     const p1 = getX(1);
@@ -204,13 +212,12 @@ describe("C5 — data is response-scoped", () => {
     v1.send(complete(1));
     v1.close();
     await pump();
-    expect(host.resolve({ $ref: "1" }, A)).toBe("old");
-    // v2's header: the table rotates; nothing of v1 is reachable.
+    // v2's header: the version moves on, and with it the table; nothing of
+    // v1 is reachable from v2's record.
     const p2 = getX(1);
     expect(await p2).toBe(await p1);
     v2.send(start(1));
     await pump(1);
-    expect(host.resolve({ $ref: "1" }, A)).toBeUndefined();
     v2.send(slot(1, "1"));
     v2.send(html(1));
     await pump(1);
