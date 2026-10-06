@@ -256,17 +256,26 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // boundary reset, a frame rerun — so its children and its result are the
   // lane's; so does a member the lane's own re-staging dirtied
   // (REACTIVE_LANE_DIRTY, lanes.ts — a leaf the lane owns). A written guess's
-  // own pass is its truth arriving (A18), the frame's. A tracked read of a
-  // lane's value moves a derivation's pass into the lane (`read`); a leaf's
-  // never moves. Restored at the end, after this pass's staging and runs
-  // have been routed.
+  // own pass is its truth arriving (A18), the frame's. A first pass is its
+  // creator's (ruling A: a lane pass's children are the lane's frame), and
+  // under a guess's lane it reads as the lane's too — a binding the lane
+  // mounts sees the screen, like the pass that mounted it (#3835). Not
+  // under a verdict lane: verdict work reads the staged world, and a mount
+  // it makes is a mainline mount (A29's boundary exemption). A tracked read
+  // of a lane's value moves a derivation's pass into the lane (`read`); a
+  // leaf's never moves. Restored at the end, after this pass's staging and
+  // runs have been routed.
   const prevLane = passLane;
+  const creatorLane =
+    create && (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS ? prevLane : null;
   setPassLane(
     (el._flags & REACTIVE_LANE_DIRTY ||
       (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
       el._x?._transaction?._lane
       ? el._x._transaction
-      : null
+      : creatorLane?._parent!._verdict !== creatorLane
+        ? creatorLane
+        : null
   );
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -492,16 +501,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     return;
   }
   // The lane this pass is work of, if any: its seat (the node's, or the one
-  // a lane read moved it into), or — a first pass — its creator's (ruling A:
-  // a lane pass's children are the lane's frame). A pass in a lane's seat
-  // that read none of the lane's world has left it: its result is the
-  // frame's (a derivation whose branch no longer reaches the guess). A
-  // guess is written, not derived — it never leaves this way.
-  let lane =
-    passLane ??
-    (create && (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS
-      ? prevLane
-      : null);
+  // a lane read moved it into), or — a first pass — its creator's. A pass in
+  // a lane's seat that read none of the lane's world has left it: its result
+  // is the frame's (a derivation whose branch no longer reaches the guess).
+  // A guess is written, not derived — it never leaves this way.
+  let lane = passLane ?? creatorLane;
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error;
