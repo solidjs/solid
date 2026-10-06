@@ -213,14 +213,16 @@ describe("store twins of the lane-authority fixes (#3335/#3334/#3330/#3331)", ()
     await settle();
     expect(flights.map(f => f.n)).toEqual([3, 2]); // graph moves to 2 NOW
     expect(latest(() => state.d)).toBe(2);
-    expect(state.d).toBe(3);
+    // The guess never showed (held on its downstream flight through the
+    // boundary): void at the correction (A18 amendment, 2026-10-05).
+    expect(state.d).toBe(0);
     expect(isPending(() => state.d)).toBe(true);
     expect(log).toEqual([]);
 
     flights.shift()!.resolve(); // superseded 3-flight: nothing
     await settle();
     expect(log).toEqual([]);
-    expect(state.d).toBe(3);
+    expect(state.d).toBe(0);
 
     flights.shift()!.resolve();
     await settle();

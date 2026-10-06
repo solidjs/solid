@@ -53,6 +53,7 @@ import {
   installOptHooks,
   LaneView,
   nameStore,
+  resolveChainedRaw,
   sameKey,
   storeSetter,
   targetsEqual,
@@ -115,7 +116,11 @@ export function notifyOptimisticWrites(
   let structural = false;
   for (const key of Reflect.ownKeys(pb)) {
     if ((isArr && key === "length") || key === $OWNER) continue;
-    const nv = unwrapValue(pb[key as any]);
+    // A chained draft holds the inner store's raws; a raw is the inner slot it
+    // resolves to (as a read of it serves) — the row a held write staged is
+    // the same row, not a guess over the slot (#3796).
+    const raw = pb[key as any];
+    const nv = unwrapValue(inner && raw ? resolveChainedRaw(t, key, raw) : raw);
     if (!(key in old)) {
       guess(getNode(t, key), key, false, nv);
       guess(getHasNode(t, key), key, true, true);

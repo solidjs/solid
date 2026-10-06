@@ -322,28 +322,143 @@ describe("fuzz findings on L2 — lanes", () => {
   // state as a unit)"; lanes stage (#3479): "the lane's readers … see the
   // optimistic frame … and neither is torn". A second guess on a lane that
   // has shown re-asks the derivation chain; the lane should hold its readers
-  // on the shown frame until the new derivation lands. Instead the reader
-  // publishes the new guess beside the previous guess's derivation.
+  // on the shown frame until the new derivation lands. The reader's first
+  // pass after the guess was the lane's (the guess dirtied it) and went
+  // pending on `d1`; the landing of `d0`'s re-ask woke it with no lane seat
+  // (a leaf carries no lane value), so it ran as a stale reader and
+  // published the new guess beside the previous guess's derivation. A leaf
+  // left waiting on the lane's flight now runs its next pass as the lane's
+  // (A31: "a member the lane's re-staging dirtied runs as the lane's") —
+  // brenelz's #3794 mark — and a pass interrupted before it reached the
+  // lane's world does not count as leaving it (A30).
+  it("F5: a second guess on a shown lane does not tear against the first guess's derivation (A17)", async () => {
+    const [source, setSource] = createSignal(0);
+    const frames: string[] = [];
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const [view, setView] = createOptimistic(() => source());
+      const d0 = createMemo(() => Promise.resolve(view()));
+      const d1 = createMemo(() => {
+        const v = d0();
+        return Promise.resolve(v);
+      });
+      createRenderEffect(
+        () => [view(), d1()],
+        t => {
+          frames.push(t.join(","));
+        }
+      );
+      run = action(function* () {
+        setView(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setView(2);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(0);
+      });
+    });
+    await drain();
+    expect(frames).toEqual(["0,0"]);
+    const p = run();
+    await drain(6);
+    expect(frames).toEqual(["0,0", "1,1"]);
+    resume(); // second guess: 2
+    await drain(6);
+    // Every delivered frame is coherent: d1 derived from the view beside it.
+    for (const f of frames) {
+      const [v, d] = f.split(",");
+      expect(d, `frame ${f}`).toBe(v);
+    }
+    resume();
+    await p;
+    await drain(6);
+    dispose();
+  });
+
+  // F5 (held reader leaves): the reader the lane took over above was born
+  // held by the mount's transaction; a lane pass of it that reads none of
+  // the lane's world leaves the lane, and with it the hold the lane took over
+  // (#3698: lane work never makes its node transaction work). Before, the
+  // hold flag outlived the lane stamp and the next pass resolved a null
+  // transaction (`txOf` → `resolveTx(null)`; fuzzer optimistic-readiness
+  // seed 3289 case 112 under the first version of the mark).
+  it("F5 (held reader leaves): a born-held reader the lane took over leaves it whole (A17, #3698)", async () => {
+    let out: unknown = "absent";
+    let release!: () => void;
+    let setOn!: (v: boolean) => void;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const [s] = createSignal(0);
+      const [on, set] = createSignal(true);
+      setOn = set;
+      const slow = createMemo(() => {
+        const v = s();
+        return new Promise<number>(r => (release = () => r(v)));
+      });
+      const fast = createMemo(() => Promise.resolve(s()));
+      const late = createMemo(() => Promise.resolve(slow()));
+      const verdict = createMemo(() => isPending(() => [fast(), late()]));
+      createRenderEffect(
+        () => (on() ? `${verdict()}:${late()}` : "off"),
+        v => {
+          out = v;
+        }
+      );
+    });
+    await drain(4);
+    setOn(false);
+    await drain(4);
+    expect(out).toBe("off");
+    release();
+    await drain(4);
+    setOn(true);
+    await drain(4);
+    expect(out).toBe("false:0");
+    dispose();
+  });
+
+  // F5b. The same rule seen from a reader the guess does not hold: a render
+  // effect on a shown lane re-run by an unrelated write while the lane is
+  // held on a re-guess's derivation is a stale reader (#3460) and should show
+  // the screen — the guess the lane revealed — not the re-guess the lane has
+  // not revealed yet, which no other reader shows. `display()` serves a
+  // guess's lane slot once the lane has shown, and a re-guess writes that
+  // slot directly (a derivation of a shown lane stages instead).
   it.fails(
-    "F5: a second guess on a shown lane does not tear against the first guess's derivation (A17)",
+    "F5b: a stale reader of a held re-guess shows the revealed guess (A17 #3460)",
     async () => {
       const [source, setSource] = createSignal(0);
-      const frames: string[] = [];
+      const [t, setT] = createSignal(0);
+      const gates: (() => void)[] = [];
+      let a = "",
+        b = "";
       let resume!: () => void;
       let run!: () => Promise<void>;
       let dispose!: () => void;
       createRoot(d => {
         dispose = d;
         const [view, setView] = createOptimistic(() => source());
-        const d0 = createMemo(() => Promise.resolve(view()));
-        const d1 = createMemo(() => {
-          const v = d0();
-          return Promise.resolve(v);
+        const d0 = createMemo(() => {
+          const v = view();
+          return new Promise<number>(r => gates.push(() => r(v)));
         });
         createRenderEffect(
-          () => [view(), d1()],
-          t => {
-            frames.push(t.join(","));
+          () => [t(), view()],
+          v => {
+            a = v.join(",");
+          }
+        );
+        createRenderEffect(
+          () => [view(), d0()],
+          v => {
+            b = v.join(",");
           }
         );
         run = action(function* () {
@@ -358,21 +473,26 @@ describe("fuzz findings on L2 — lanes", () => {
           setSource(0);
         });
       });
+      flush();
+      gates.shift()!();
       await drain();
-      expect(frames).toEqual(["0,0"]);
       const p = run();
-      await drain(6);
-      expect(frames).toEqual(["0,0", "1,1"]);
-      resume(); // second guess: 2
-      await drain(6);
-      // Every delivered frame is coherent: d1 derived from the view beside it.
-      for (const f of frames) {
-        const [v, d] = f.split(",");
-        expect(d, `frame ${f}`).toBe(v);
-      }
+      await drain();
+      gates.shift()!();
+      await drain();
+      expect([a, b]).toEqual(["0,1", "1,1"]);
+      resume(); // re-guess 2: the lane holds on d0's re-ask
+      await drain();
+      setT(1); // an unrelated write re-runs the first reader
+      await drain();
+      expect([a, b]).toEqual(["1,1", "1,1"]);
+      gates.shift()!();
+      await drain();
+      expect([a, b]).toEqual(["1,2", "2,2"]);
       resume();
       await p;
-      await drain(6);
+      for (const g of gates) g();
+      await drain();
       dispose();
     }
   );
@@ -385,63 +505,65 @@ describe("fuzz findings on L2 — lanes", () => {
   // boundary's tree is the subscriber and the blocker predicate sees no frame
   // reader: the lane is judged unblocked, `latest=1` shows beside
   // `details=0`, and when `details(1)` lands it never displays — the stale
-  // frame stays until the action ends.
-  it.fails(
-    "F6: a retaining boundary between a lane's derivation and its reader does not unblock the lane (A17)",
-    async () => {
-      const [$id, setId] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let L = 0;
-      let D: unknown = "?";
-      const frames: string[] = [];
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const details = createMemo(() => {
-          const id = latest($id);
-          return gated(gates, `d:${id}`, id);
-        });
-        createRenderEffect(
-          () => latest($id),
-          v => {
-            L = v;
-            frames.push(`L=${L} D=${D}`);
-          }
-        );
-        const view = createLoadingBoundary(details, () => "loading" as const);
-        createRenderEffect(view, v => {
-          D = v;
-          frames.push(`L=${L} D=${D}`);
-        });
-        run = action(function* () {
-          setId(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setId(2);
-        });
+  // frame stays until the action ends. A33/B5 and the lane-membership ruling
+  // (2026-10-05, reading A): a boundary showing content is transparent — the
+  // lane holds through it. A boundary output forwarding its tree's pending
+  // (CONFIG_REDERIVE, itself pending) now counts as a frame reader in
+  // `blockedBy`'s one hop over the pending tree; one showing its fallback is
+  // not pending and still holds nothing.
+  it("F6: a lane holds through a Loading boundary showing content, revealing with the derivation under it (A17, A33)", async () => {
+    const [$id, setId] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let L = 0;
+    let D: unknown = "?";
+    const frames: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const details = createMemo(() => {
+        const id = latest($id);
+        return gated(gates, `d:${id}`, id);
       });
-      flush();
-      gates.get("d:0")!();
-      await drain();
-      expect([L, D]).toEqual([0, 0]);
-      const p = run();
-      await drain();
-      // The lane is held by details' flight: no frame shows latest=1 alone.
-      expect([L, D]).toEqual([0, 0]);
-      gates.get("d:1")!();
-      await drain();
-      // The derivation landed: the lane reveals both.
-      expect([L, D]).toEqual([1, 1]);
-      resume();
-      gates.get("d:2")?.();
-      await p;
-      await drain();
-      dispose();
-    }
-  );
+      createRenderEffect(
+        () => latest($id),
+        v => {
+          L = v;
+          frames.push(`L=${L} D=${D}`);
+        }
+      );
+      const view = createLoadingBoundary(details, () => "loading" as const);
+      createRenderEffect(view, v => {
+        D = v;
+        frames.push(`L=${L} D=${D}`);
+      });
+      run = action(function* () {
+        setId(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setId(2);
+      });
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    expect([L, D]).toEqual([0, 0]);
+    const p = run();
+    await drain();
+    // The lane is held by details' flight: no frame shows latest=1 alone.
+    expect([L, D]).toEqual([0, 0]);
+    gates.get("d:1")!();
+    await drain();
+    // The derivation landed: the lane reveals both.
+    expect([L, D]).toEqual([1, 1]);
+    resume();
+    gates.get("d:2")?.();
+    await p;
+    await drain();
+    dispose();
+  });
 
   // F8. A15 lanes corollary (#3460): "a render effect OFF the lane that reads
   // what the lane is revealing … shows the committed value, publishes now,
