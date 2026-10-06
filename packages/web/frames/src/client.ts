@@ -1521,7 +1521,7 @@ function adoptBoundary(
   // failure that escaped the server component (its `:error`, the outward
   // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
-    if (op.fid !== undefined && op.fid !== id) return;
+    if (op.fid && op.fid !== id) return;
     host.apply({ ...op, id: address, version: 0 });
   };
   liveAppliers.add(applyLiveOp);

@@ -651,18 +651,16 @@ export function chunkToRecords(chunk) {
           digest: chunk.digest
         }
       };
-    case "ops": {
+    case "ops":
       // One sweep's members as one write: the records merge into one map
       // and the frame flushes once over all of them (C13).
-      const records = {};
-      for (const op of chunk.ops) Object.assign(records, chunkToRecords(op));
-      return records;
-    }
+      return Object.assign({}, ...chunk.ops.map(chunkToRecords));
     case "complete":
-      // `:bound` beside `:complete` when the producer cut the response at
-      // its streaming bound: a consumer can tell a cut-off from a settled
-      // value (the frame landed either way).
-      return chunk.bound ? { ":complete": true, ":bound": chunk.bound } : { ":complete": true };
+      // `:bound` beside `:complete` — the producer's streaming bound when
+      // it cut the response there (`undefined` for a settled one, as
+      // `holes` is for a root without them): a consumer can tell a cut-off
+      // from a settled value; the frame landed either way.
+      return { ":complete": true, ":bound": chunk.bound };
     case "error":
       // Keyed errors scope to what the key names: a hole key (`lh:N`) is a
       // failed live-hole sweep — terminal for the hole, whose range latched
