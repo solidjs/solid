@@ -505,63 +505,65 @@ describe("fuzz findings on L2 — lanes", () => {
   // boundary's tree is the subscriber and the blocker predicate sees no frame
   // reader: the lane is judged unblocked, `latest=1` shows beside
   // `details=0`, and when `details(1)` lands it never displays — the stale
-  // frame stays until the action ends.
-  it.fails(
-    "F6: a retaining boundary between a lane's derivation and its reader does not unblock the lane (A17)",
-    async () => {
-      const [$id, setId] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let L = 0;
-      let D: unknown = "?";
-      const frames: string[] = [];
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const details = createMemo(() => {
-          const id = latest($id);
-          return gated(gates, `d:${id}`, id);
-        });
-        createRenderEffect(
-          () => latest($id),
-          v => {
-            L = v;
-            frames.push(`L=${L} D=${D}`);
-          }
-        );
-        const view = createLoadingBoundary(details, () => "loading" as const);
-        createRenderEffect(view, v => {
-          D = v;
-          frames.push(`L=${L} D=${D}`);
-        });
-        run = action(function* () {
-          setId(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setId(2);
-        });
+  // frame stays until the action ends. A33/B5 and the lane-membership ruling
+  // (2026-10-05, reading A): a boundary showing content is transparent — the
+  // lane holds through it. A boundary output forwarding its tree's pending
+  // (CONFIG_REDERIVE, itself pending) now counts as a frame reader in
+  // `blockedBy`'s one hop over the pending tree; one showing its fallback is
+  // not pending and still holds nothing.
+  it("F6: a lane holds through a Loading boundary showing content, revealing with the derivation under it (A17, A33)", async () => {
+    const [$id, setId] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let L = 0;
+    let D: unknown = "?";
+    const frames: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const details = createMemo(() => {
+        const id = latest($id);
+        return gated(gates, `d:${id}`, id);
       });
-      flush();
-      gates.get("d:0")!();
-      await drain();
-      expect([L, D]).toEqual([0, 0]);
-      const p = run();
-      await drain();
-      // The lane is held by details' flight: no frame shows latest=1 alone.
-      expect([L, D]).toEqual([0, 0]);
-      gates.get("d:1")!();
-      await drain();
-      // The derivation landed: the lane reveals both.
-      expect([L, D]).toEqual([1, 1]);
-      resume();
-      gates.get("d:2")?.();
-      await p;
-      await drain();
-      dispose();
-    }
-  );
+      createRenderEffect(
+        () => latest($id),
+        v => {
+          L = v;
+          frames.push(`L=${L} D=${D}`);
+        }
+      );
+      const view = createLoadingBoundary(details, () => "loading" as const);
+      createRenderEffect(view, v => {
+        D = v;
+        frames.push(`L=${L} D=${D}`);
+      });
+      run = action(function* () {
+        setId(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setId(2);
+      });
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    expect([L, D]).toEqual([0, 0]);
+    const p = run();
+    await drain();
+    // The lane is held by details' flight: no frame shows latest=1 alone.
+    expect([L, D]).toEqual([0, 0]);
+    gates.get("d:1")!();
+    await drain();
+    // The derivation landed: the lane reveals both.
+    expect([L, D]).toEqual([1, 1]);
+    resume();
+    gates.get("d:2")?.();
+    await p;
+    await drain();
+    dispose();
+  });
 
   // F8. A15 lanes corollary (#3460): "a render effect OFF the lane that reads
   // what the lane is revealing … shows the committed value, publishes now,
