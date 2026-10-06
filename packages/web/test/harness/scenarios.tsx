@@ -28,6 +28,8 @@ import {
   onSettled,
   createProjection,
   createStore,
+  merge,
+  omit,
   Show,
   Switch,
   Match,
@@ -38,6 +40,7 @@ import {
 } from "solid-js";
 import {
   Portal,
+  Dynamic,
   dynamic,
   httpStatus,
   httpHeader,
@@ -2213,6 +2216,37 @@ function DynamicChildrenKeyBeforePropMemo() {
   return <Comp children={<i>icon</i>} aria-label={n() ? `a ${n()}` : `b ${n()}`} />;
 }
 
+// #3797: a conditional prop on <Dynamic> must not shift the child's
+// hydration key between server rendering and client hydration.
+let setDynamicConditionalLabel!: (v: boolean) => void;
+function ForwardDynamic(props: Record<string, any>) {
+  const rest = omit(props, "as");
+  return <Dynamic component={props.as} {...rest} />;
+}
+function ConditionalButton(props: Record<string, any>) {
+  const merged = merge({ type: "button" }, props);
+  return <ForwardDynamic as="button" {...merged} />;
+}
+function ConditionalTrigger(props: Record<string, any>) {
+  const rest = omit(props, "onClick");
+  return <ConditionalButton {...rest} />;
+}
+function DynamicConditionalPropBeforeChild() {
+  const [active, set] = createSignal(false);
+  setDynamicConditionalLabel = set;
+  const activeLabel = () => "active";
+  const idleLabel = () => "idle";
+  return (
+    <ConditionalTrigger
+      aria-label={active() && active() ? activeLabel() : idleLabel()}
+      title={active() && active() ? activeLabel() : idleLabel()}
+      data-state={active() && active() ? activeLabel() : idleLabel()}
+    >
+      <span>{active() ? "active" : "idle"}</span>
+    </ConditionalTrigger>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -3067,6 +3101,15 @@ export const scenarios: Scenario[] = [
     expectedText: "icon",
     update: () => setDynamicLabelCountFirst(1),
     stableSelector: "button, i",
+    adoptAll: true
+  },
+  {
+    name: "dynamic-conditional-prop-before-child",
+    App: DynamicConditionalPropBeforeChild,
+    expectedText: "idle",
+    update: () => setDynamicConditionalLabel(true),
+    expectedTextAfterUpdate: "active",
+    stableSelector: "button, span",
     adoptAll: true
   }
 ];

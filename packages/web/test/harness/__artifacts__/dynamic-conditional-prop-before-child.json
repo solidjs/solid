@@ -1,0 +1,5 @@
+{
+  "name": "dynamic-conditional-prop-before-child",
+  "shell": "<button _hk=20 type=\"button\" aria-label=\"idle\" title=\"idle\" data-state=\"idle\"><span _hk=24>idle</span></button>",
+  "rest": ""
+}
