@@ -144,7 +144,11 @@ describe("attribution engine: lean gate", () => {
   it("the checks run without a record: a hot scope still warns", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { setN } = chain();
-    attribution.enable({ log: false, hotRuns: { count: 3, windowMs: 10_000 } });
+    attribution.enable({
+      log: false,
+      hotRuns: { count: 3, windowMs: 10_000 },
+      hotTime: false
+    });
     for (let i = 1; i <= 4; i++) {
       setN(i);
       flush();
