@@ -94,12 +94,6 @@ export interface ServerComponentHandlerOptions<C = unknown> {
    */
   component(fnId: string): C;
   /**
-   * A new response is about to stream into an address: rotate
-   * response-scoped state (codec data tables) here. `version` is the
-   * client-owned stream counter the chunks will be stamped with.
-   */
-  onStream?(address: string, version: number, response: Response): void;
-  /**
    * Answer a call before any request is made (t = 0 local answers — a
    * boundary the document already carries). Returning `undefined` is a
    * miss; any other value is a hit, SYNCHRONOUS, resolving the call with
@@ -387,7 +381,11 @@ export const COMPONENT_BINDING = /*#__PURE__*/ Symbol.for("solid.component-bindi
 // separator, the response's version. Mounts receive tokens through their
 // address accessor (dynamic treats addresses as opaque, so a new token is
 // delivered like an address switch — inside the transition that read it).
-// NUL never occurs in a function id.
+// The token is how a refetch of the address a mount SHOWS enters the
+// reactive graph at all: `dynamic` delivers a kept resolution only when its
+// address differs, so a refetch resolving to the bare address would be a
+// write nothing observes, and its content could not be held by the
+// transaction that asked for it (C15). NUL never occurs in a function id.
 const CONTENT_TOKEN = "\u0000";
 
 /**
@@ -405,9 +403,11 @@ export function contentAddress(token) {
  * by token; a plain address, or a token already committed or superseded,
  * is a no-op. Mounts call both halves from the render effect that follows
  * their address accessor: `preview` from its compute half — under the
- * transition that delivered the token, so the slot args it pushes into the
- * live fills (see `FrameHost.preview`) are held with it — and `commit`
- * from its effect half, replaying the rest of the response in the commit.
+ * transaction that delivered the token, so the slot args it pushes into the
+ * live fills (see `FrameHost.preview`) are staged with it and a fill's
+ * derivation over an arg re-derives in that pass, never one flush behind
+ * the intent it held (principles §9.2.2) — and `commit` from its effect
+ * half, landing the buffered response as the store's writes in the commit.
  * Installed by the handler (one active handler at a time, as for
  * `resolveServerComponent` below).
  * @internal
@@ -416,16 +416,6 @@ export const stagedContent: {
   preview(token: string): void;
   commit(token: string): void;
 } = { preview() {}, commit() {} };
-
-/**
- * The handler option (internal) through which an integration that routes
- * `data` chunks to per-stream tables stages a response's data: a factory
- * for `{ begin(id), apply(chunk), resolve(ref, id), commit() }` — `begin`
- * where the integration's `onStream` would rotate, `commit` installing the
- * staged tables in its place.
- * @internal
- */
-export const STAGED_DATA = Symbol("solid.StagedData");
 
 // The live transport registry's resolver, installed by
 // createServerComponentHandler. Module state on the config pattern (one
@@ -646,13 +636,7 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
  * updates on delivery; calling the binding directly (a non-gated mount)
  * passes the binding's own constant address.
  */
-export function createServerComponentHandler({
-  host,
-  component,
-  onStream,
-  intercept,
-  [STAGED_DATA]: openData
-}) {
+export function createServerComponentHandler({ host, component, intercept }) {
   // Mount components, one per FUNCTION (the equals-gate identity).
   const byFn = new Map();
   const componentFor = fnId => {
@@ -681,22 +665,27 @@ export function createServerComponentHandler({
     return binding;
   };
   // Content for a call a mount is SHOWING is staged, not written: the
-  // response's chunks buffer under the address, and the call resolves a
-  // binding to a content token naming that version. The mount's address
-  // accessor delivers the token inside the transition that read the call;
-  // the follow effect's compute half previews the slot args into the live
-  // fills (held with the transition) and its effect half commits the rest —
-  // so new content lands in that transition's commit, alongside everything
-  // else it holds, and not when the body happens to finish arriving. One
-  // entry per address:
-  // the newest response is the only one worth committing (versions are
-  // bumped as responses arrive, so a later stage always supersedes).
+  // response's chunks buffer under the address until the body ends, and
+  // the call resolves a binding to a content token naming that version. The
+  // mount's address accessor delivers the token inside the transition that
+  // read the call; the follow effect's compute half previews the slot args
+  // into the live fills (staged with the transition) and its effect half
+  // commits the rest as one run of writes — so new content lands in that
+  // transition's commit, alongside everything else it holds, and not when
+  // the body happens to finish arriving. The response's DATA is the one
+  // part that writes through as it arrives: tables are per response
+  // (frames-rulings 1.2 — the host's data path keys them by the chunk's
+  // version), so the staged response decodes into its own table while the
+  // shown response's stays in place, and the preview resolves the staged
+  // args through it. One entry per address: the newest response is the
+  // only one worth committing (versions are bumped as responses arrive, so
+  // a later stage always supersedes).
   const staged = new Map();
   // The binding a reference to an address resolves: its newest token once
   // content was staged for it, so a flight reference in a mutation's
   // envelope names the version the same response carried.
   const latest = new Map();
-  const stage = (address, base, version, response) => {
+  const stage = (address, base, version) => {
     // Content is staged under a token of the address's binding; an address
     // no binding was minted for has no reader a token could reach.
     if (!base) return undefined;
@@ -705,37 +694,20 @@ export function createServerComponentHandler({
     // through: it is now what the mount shows.
     let committed = false;
     const chunks = [];
-    const streams = [];
-    // The response's data decodes as it arrives, into tables of its own when
-    // the integration routes data per stream (STAGED_DATA): the preview
-    // resolves the staged args through them while the shown response's
-    // tables stay in place, and the commit installs them. A host without
-    // per-stream tables takes data at once, as it would unstaged.
-    const data = openData && openData();
     const token = address + CONTENT_TOKEN + version;
     const entry = {
       token,
       prepareData: host.prepareData,
-      stream(id, v) {
-        if (committed) onStream && onStream(id, v, response);
-        else if (data) data.begin(id);
-        else streams.push([id, v]);
-      },
       apply(chunk) {
-        if (committed) host.apply(chunk);
-        else if (chunk.type !== "data") chunks.push(chunk);
-        else if (data) data.apply(chunk);
-        else host.apply(chunk);
+        if (committed || chunk.type === "data") host.apply(chunk);
+        else chunks.push(chunk);
       },
       preview() {
-        if (host.preview)
-          for (const chunk of chunks) host.preview(chunk, data ? data.resolve : undefined);
+        if (host.preview) for (const chunk of chunks) host.preview(chunk);
       },
       commit() {
         committed = true;
         staged.delete(address);
-        if (data) data.commit();
-        else if (onStream) for (const [id, v] of streams) onStream(id, v, response);
         for (const chunk of chunks) host.apply(chunk);
       }
     };
@@ -748,6 +720,8 @@ export function createServerComponentHandler({
   };
   /** The binding a settled call resolves to: its staged version's token. */
   const settled = (address, binding) => latest.get(address) || binding;
+  /** Run a half of the staged entry a token names, while it is still the
+   *  address's (committing removes it). */
   /** Run a half of the staged entry a token names, while it is still the
    *  address's (committing removes it). */
   const named = (token, half) => {
@@ -798,17 +772,16 @@ export function createServerComponentHandler({
   };
   /**
    * An unstaged response has begun for an address — at its header, before
-   * its body is read. The integration rotates its response-scoped state,
-   * and the address's store moves to the response's version NOW: the
-   * address is a source (`host.landing`), and from here until the body's
-   * first flush it reads "in flight" — a mount opened in between pends on
-   * that landing instead of materializing the superseded one. The body's
-   * own `start` chunk then writes the same version and nothing.
+   * its body is read. The address's store moves to the response's version
+   * NOW: the address is a source (`host.landing`), and from here until the
+   * body's first flush it reads "in flight" — a mount opened in between
+   * pends on that landing instead of materializing the superseded one. The
+   * body's own `start` chunk then writes the same version and nothing. The
+   * version is the response's identity for its data too (the integration's
+   * table rotates on it — frames-rulings 1.2), so nothing else announces
+   * the response.
    */
-  const begin = (address, version, response) => {
-    if (onStream) onStream(address, version, response);
-    host.apply({ type: "start", id: address, version });
-  };
+  const begin = (address, version) => host.apply({ type: "start", id: address, version });
   return {
     intercept:
       intercept &&
@@ -880,7 +853,7 @@ export function createServerComponentHandler({
           return binding;
         }
         const version = bump(address);
-        begin(address, version, response);
+        begin(address, version);
         // The end is judged by the loop from `connection.ended` (set
         // synchronously by applyFrames); a rejected read is a death it
         // already sees, not an error record — the loop decides what the
@@ -906,9 +879,8 @@ export function createServerComponentHandler({
       // needs the binding to place the boundary and the shell gate is its
       // hold — settling those late would block progressive streaming
       // behind a completed body.
-      const entry = host.get(address) ? stage(address, binding, version, response) : undefined;
-      if (entry) entry.stream(address, version);
-      else begin(address, version, response);
+      const entry = host.get(address) ? stage(address, binding, version) : undefined;
+      if (!entry) begin(address, version);
       const target = entry || host;
       const applied = applyFrameResponse(response, target, { as: address, version }).catch(err =>
         target.apply({
@@ -1011,16 +983,9 @@ export function createServerComponentHandler({
         const version = bump(frameId);
         let entry = regionOf(frameId);
         if (!entry && host.get(frameId)) {
-          entry = stage(
-            frameId,
-            frameId === as ? binding : byAddress.get(frameId),
-            version,
-            response
-          );
+          entry = stage(frameId, frameId === as ? binding : byAddress.get(frameId), version);
           if (entry) regions.set(frameId, entry);
         }
-        if (entry) entry.stream(frameId, version);
-        else if (onStream) onStream(frameId, version, response);
         return version;
       },
       onOutcome: text => {

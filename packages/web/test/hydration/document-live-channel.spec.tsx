@@ -19,10 +19,7 @@ import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
-import {
-  reviveContainerTraces,
-  isMaterializedContainer
-} from "../../frames/src/frame-container-plugin.js";
+import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { FID, YIELDS } from "../harness/document-live-channel.jsx";
 import { applyChunk, loadArtifact } from "./frame-live-document-helpers.js";
 
@@ -58,8 +55,7 @@ describe("document live channel — hydration (streamed)", () => {
       createFrameHost({
         applyData: (c: any) => table.apply(c),
         resolve: (r: any) => table.resolve(r),
-        revive: reviveContainerTraces,
-        isContainer: isMaterializedContainer
+        revive: reviveContainerTraces
       })
     );
     const warnings: string[] = [];

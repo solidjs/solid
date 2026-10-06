@@ -38,7 +38,6 @@ import { insert, assign } from "@solidjs/web";
 import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
 import {
   COMPONENT_BINDING,
-  STAGED_DATA,
   contentAddress,
   createServerComponentHandler,
   stagedContent,
@@ -119,17 +118,24 @@ export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
 }
 
 // One host per app is the norm: one chunk router, with codec data tables
-// rotated PER RESPONSE — the deserializer's cross-reference space is
+// kept PER RESPONSE — the deserializer's cross-reference space is
 // stream-scoped by contract, so each stream into a boundary gets a fresh
-// table (routed by root frame id; nested region ids prefix-match to their
-// root's table). Apps needing isolation pass their own host.
+// table. A response is one version of one root frame id (the transport
+// stamps every chunk of it), so tables are keyed by the id and the
+// version: a chunk or a record of a response reads and writes its own
+// response's table and no other's (frames-rulings 1.2, 1.3) — the shown
+// response's and a staged refetch's coexist, each its own — and a version
+// the address has moved past (`current`, the host's store version) has no
+// reader left, so its table is dropped at the next use. Data and slot
+// chunks both carry the ROOT id (a nested region's records live on the
+// root sink), so no prefix routing is needed. Apps needing isolation pass
+// their own host.
 //
-// Tables materialize lazily: `beginStream` only REGISTERS the stream (the
-// prefix routing needs the root id), and the table itself is created at
-// first use once the codec module is resident — `prepareData` guarantees
-// that before any `data` chunk delivers. A `resolve` ahead of the codec
-// (a record's `$ref` sighted before its data) returns undefined, which is
-// already the "not delivered yet" state the held-record contract covers.
+// Tables materialize lazily, at first use once the codec module is
+// resident — `prepareData` guarantees that before any `data` chunk
+// delivers. A `resolve` ahead of the codec (a record's `$ref` sighted
+// before its data) answers undefined — "not delivered" — and the host hands
+// the fill a pending read the data chunk settles (see `createFrameHost`).
 let sharedHost: any;
 let codec: any;
 let codecLoading: Promise<unknown> | undefined;
@@ -140,33 +146,14 @@ function loadCodec() {
     codec = m;
   }));
 }
-const tables = new Map<string, any>();
-function ensureTable(root: string, map = tables) {
-  let table = map.get(root);
-  if (!table && codec) map.set(root, (table = codec.createJSONDataTable()));
-  return table;
-}
-function tableFor(id: string, map = tables) {
-  if (map.has(id)) return ensureTable(id, map);
-  for (const root of map.keys()) if (id.startsWith(root + ".")) return ensureTable(root, map);
-  return undefined;
-}
-/** Rotate in a fresh response-scoped data table for a boundary's stream. */
-function beginStream(frameId: string) {
-  tables.set(frameId, undefined);
-}
-/**
- * A staged response's tables (STAGED_DATA): routed like `tables`, decoded
- * as the response arrives, installed over the shown response's at commit.
- */
-function stageTables() {
-  const staged = new Map<string, any>();
-  return {
-    begin: (id: string) => staged.set(id, undefined),
-    apply: (c: any) => tableFor(c.id, staged)?.apply(c),
-    resolve: (ref: any, id: string) => tableFor(id, staged)?.resolve(ref),
-    commit: () => staged.forEach((table, id) => tables.set(id, table))
-  };
+const tables = new Map<string, Map<number, any>>();
+function tableFor(id: string, version: number, current: number | undefined) {
+  let byVersion = tables.get(id);
+  if (!byVersion) tables.set(id, (byVersion = new Map()));
+  else for (const v of byVersion.keys()) if (v < current!) byVersion.delete(v);
+  let t = byVersion.get(version);
+  if (!t && codec) byVersion.set(version, (t = codec.createJSONDataTable()));
+  return t;
 }
 /**
  * The render effect that follows a mount's address accessor. `dynamic`
@@ -177,16 +164,20 @@ function stageTables() {
  *
  * The compute half is plumbing: a content TOKEN (a refetch of the address
  * shown, see createServerComponentHandler) has its slot args previewed into
- * the live fills (`stagedContent.preview`) — held with the transaction, so
- * a fill deriving optimistic intent over an arg never reads the old arg
- * once the intent ends.
+ * the live fills (`stagedContent.preview`) — staged with the transaction,
+ * so a fill deriving optimistic intent over an arg re-derives from the new
+ * arg in the pass that dissolves the intent, never from the old one a
+ * flush behind it (principles §9.2.2, `frames-optimistic-hold`). This is
+ * the one write the token carries that the landing node (`landing` below)
+ * does not: the landing is per address and reads warm for a refetch; the
+ * fills' args are the record's, and the record is the token's.
  *
  * The effect half is display. It commits the token's content
  * (`stagedContent.commit`: the markup, the store, the mounts) and re-binds
  * the frame to the address — a warm store re-materializes at once; the same
  * address under a new version is not a switch and `rebind` no-ops. Both
  * wait for the commit so the region's answer never lands beside siblings
- * the transaction still holds (`frames-morph-in-transition`).
+ * the transaction still holds (`frames-morph-in-transition`, C15).
  *
  * Ruling (maintainer, 2026-10-04, #3759 on L2): the switch IS display —
  * one reveal. The rebind morphs the DOM, so it runs in the effect half at
@@ -244,14 +235,12 @@ export function getFrameHost() {
   if (!sharedHost) {
     sharedHost = createFrameHost({
       prepareData: loadCodec,
-      applyData: (c: any) => tableFor(c.id)?.apply(c),
-      resolve: (ref: any, id: string) => tableFor(id)?.resolve(ref),
+      applyData: (c: any, current?: number) => tableFor(c.id, c.version, current)?.apply(c),
+      resolve: (ref: any, id: string, version: number, current?: number) =>
+        tableFor(id, version, current)?.resolve(ref),
       // Document-face container traces ride slot records as inline literals
       // (never `{$ref}`s); this revives them into live stores at arg-read.
-      revive: reviveContainerTraces,
-      // Lets the record-dedupe compare identity-test containers instead of
-      // probing them (a pending container's property reads throw not-ready).
-      isContainer: isMaterializedContainer
+      revive: reviveContainerTraces
     });
   }
   return sharedHost;
@@ -329,8 +318,10 @@ function claimRender(prefix: string, existing: Node[], render: () => any, scope?
  * into the same instance" semantic compiled components already have.
  */
 function liveSlotProps(initial: Record<string, any>, ctx: any) {
-  // `ownedWrite`: a staged response's args arrive from the mount's compute
-  // half (see followAddress), under the transition that delivered them.
+  // `ownedWrite`: the record's writes arrive from wherever the frame flushes
+  // — a chunk microtask, the commit of the transaction that delivered a
+  // refetch (see followAddress), the document's reveal cascade — none of
+  // them a read of this occurrence's.
   const [args, setArgs] = createSignal(initial, { ownedWrite: true });
   ctx.onUpdate((next: Record<string, any>) => setArgs(() => next));
   return slotArgsProxy(args);
@@ -350,31 +341,65 @@ function isAsyncValue(v: any): boolean {
 }
 
 /**
- * The props object handed to a render-prop occurrence. Plain values read
- * straight through (and stay reactive over `args` for live updates); an
- * async value reads through a lazily-created async memo, so the prop read
- * follows the normal async read path — it suspends into the reading
- * component's nearest `Loading` (the reveal seam's reconstructed boundary
- * when the fill has none of its own) and settles to the value when the
- * server's data chunk lands. Memos are created under the occurrence's owner
- * (not the reader's), so they live as long as the occurrence: a read from a
- * later effect or event handler reuses the same source.
+ * Whether two values of one slot arg are the same value — the per-prop
+ * memo's equality, and so the whole dedupe of a re-sent record (a record
+ * whose refs decode to equal values churns no reader; one with a changed
+ * arg moves exactly that arg's readers). Identity first; then structural
+ * for the plain data the codec decodes (every prop of a record is a fresh
+ * decode, so two equal records are never `===`). A live container (DR-2's
+ * container tier) compares by identity ONLY — its reads carry the async
+ * semantics and a pending one throws not-ready on any property probe, so
+ * the container test comes before the async probe — and so does an async
+ * value (two pending promises stringify alike and are different values)
+ * and a DOM node (a region element; the frame caches those per arg, so an
+ * unchanged one IS identical).
+ */
+function sameArg(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (a instanceof Boxed || b instanceof Boxed)
+    return a instanceof Boxed && b instanceof Boxed && a.c === b.c;
+  if (isAsyncValue(a) || isAsyncValue(b) || a instanceof Node || b instanceof Node) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A live container as a prop memo's value. The core probes a memo's result
+ * for `.then`, and a pending container's property trap answers any read
+ * with not-ready — so the memo holds the container boxed (identity is its
+ * equality) and the prop read unboxes it.
+ */
+class Boxed {
+  constructor(public c: unknown) {}
+}
+
+/**
+ * The props object handed to a render-prop occurrence. Every prop reads
+ * through a lazily-created memo over the record's value for it, so a read
+ * is reactive over `args` (a re-sent record updates the live occurrence)
+ * and deduped by the memo's equality (`sameArg`: an equal value, however
+ * it was decoded, moves nothing — the dedupe a frame-side compare used to
+ * do, now where a memo already does it). An async value makes the memo an
+ * async one, so the prop read follows the normal async read path — it
+ * suspends into the reading component's nearest `Loading` (the reveal
+ * seam's reconstructed boundary when the fill has none of its own) and
+ * settles to the value when the server's data chunk lands. Memos are
+ * created under the occurrence's owner (not the reader's), so they live as
+ * long as the occurrence: a read from a later effect or event handler
+ * reuses the same source.
  */
 function slotArgsProxy(args: () => Record<string, any>) {
   const owner = getOwner();
-  const asyncReads = new Map<PropertyKey, () => any>();
+  const reads = new Map<PropertyKey, () => any>();
   return new Proxy(
     {},
     {
       get: (_, key) => {
-        const v = (args() as any)[key];
-        // Containers first (DR-2's container tier): the store IS the live
-        // value — its own reads carry the async semantics — and the async
-        // probe below would detonate a pending one (property reads throw
-        // not-ready). Mirrors the server sink's classification order.
-        if (isMaterializedContainer(v)) return v;
-        if (!isAsyncValue(v)) return v;
-        let read = asyncReads.get(key);
+        let read = reads.get(key);
         if (!read) {
           // TRANSPARENT: an adopted fill invokes during the hydrate window
           // under the occurrence's claim owner, and a plain memo minted
@@ -396,22 +421,31 @@ function slotArgsProxy(args: () => Record<string, any>) {
           // claim walk is synchronous: without the sync adopt the fill
           // renders its fallback branch over a page whose markup settled
           // before flush — branch mismatch, key misses, dead range.
+          //
+          // Containers first (DR-2's container tier): the store IS the live
+          // value — its own reads carry the async semantics — and the
+          // `.then` probe would detonate a pending one (property reads
+          // throw not-ready), so it is classified before the probe and
+          // held BOXED (see `Boxed`). Mirrors the server sink's
+          // classification order.
           const make = () =>
             createMemo(
               () => {
                 const raw = (args() as any)[key];
+                if (isMaterializedContainer(raw)) return new Boxed(raw);
                 if (raw != null && typeof raw.then === "function") {
                   if (raw.s === 1) return raw.v;
                   if (raw.s === 2) throw raw.v;
                 }
                 return raw;
               },
-              { transparent: true } as any
+              { transparent: true, equals: sameArg } as any
             );
           read = owner ? runWithOwner(owner, make)! : make();
-          asyncReads.set(key, read);
+          reads.set(key, read);
         }
-        return read();
+        const v = read();
+        return v instanceof Boxed ? v.c : v;
       },
       has: (_, key) => key in args(),
       ownKeys: () => Reflect.ownKeys(args()),
@@ -1535,10 +1569,6 @@ export function installServerComponents(host: any = getFrameHost()) {
     // boundary while one is unclaimed and mount fresh after — always bound
     // to the delivered call address.
     component: (fnId: string) => g._$SC.r(fnId),
-    onStream: (address: string) => beginStream(address),
-    // Only the shared host routes data through the per-stream `tables`; a
-    // host of the app's own takes a staged response's data as it arrives.
-    [STAGED_DATA]: host === sharedHost ? stageTables : undefined,
     // The page IS the t=0 record: a call whose function has an unclaimed
     // SSR'd boundary in the document is answered locally — the source
     // re-runs during hydration per dynamic's contract, but no request
@@ -1561,7 +1591,6 @@ export function installServerComponents(host: any = getFrameHost()) {
     // bundle resolves the transport's wire-layer imports to that external
     // entry (externalizeSharedTransport in rollup.config.js), so no getter
     // overrides are needed.
-    // (Asserted: STAGED_DATA is internal, not part of the options type.)
   } as ServerComponentHandlerOptions<any>);
   // Which calls the document is showing: hydration references carry their
   // call's address (`_$SC.r(id, address)`), and those records — never seen
