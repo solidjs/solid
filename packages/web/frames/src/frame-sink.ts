@@ -2001,6 +2001,13 @@ function armDocumentLiveHoles(ctx) {
     },
     commit: scheduleSweep
   };
+  // A failure that escaped a server component on the document face
+  // (frames-rulings 3.3; web's fragment resolver): the frame as one async
+  // value errored — an unkeyed error op addressed to its frame, which only
+  // the owning adopted boundary applies (`:error`).
+  live.error = (fid, error) => {
+    push({ type: "error", fid, error });
+  };
   live.end = () => {
     if (closed) return;
     if (bindings.size) sweep();
@@ -2053,6 +2060,9 @@ export function frameTransformDirectResult(value, { id, args }) {
       // outside the component barrier — neither marks nor warns.
       const ctx = Object.create(page);
       ctx.claims = CLAIMS_DOCUMENT;
+      // The frame this scope renders: a failure escaping a boundary inside
+      // it is addressed to this frame on the live channel (`live.error`).
+      ctx.frameId = id;
       sharedConfig.context = ctx;
       try {
         const slotProps = createDocumentSlotProps(props, id);

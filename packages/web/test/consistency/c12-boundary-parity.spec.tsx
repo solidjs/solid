@@ -180,7 +180,101 @@ describe("C12 — boundary parity at claim", () => {
     dispose();
   });
 
-  // Arm (c3): the client half, post-done. Global hydration has completed
+  // The server half (frames-rulings §"The server half" (iii), built): the
+  // document face's error path renders the boundary's error outcome into the
+  // fragment template — the nearest SERVER `<Errored>`'s fallback at the
+  // `<Loading>`'s position (test/server/frame-fragment-error-outcome.spec.tsx
+  // pins the sink on both faces) — and `_fr` rejects as the diagnostic. The
+  // page below carries that output: the template is the Errored's fallback,
+  // not the `" "` the server used to write. The client shows it and invents
+  // nothing (c1).
+  test("(c2) rejected after adopt: the position shows the server's rendered outcome — the server <Errored>'s fallback — never a blank", async () => {
+    const fid = freshFid("c12c");
+    const frag = "c12c-frag";
+    page = bootPage(shell(fid, frag));
+    const fetches = countFetches();
+    const fr = page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const frames = watchFrames(page.container);
+    const dispose = hydrate(
+      () => <Comp item={(p: { text: string }) => <li>{p.text}</li>} />,
+      page.container
+    );
+    await quiesce();
+    expect(frames.frames).toEqual(["loading"]);
+
+    // The rejected fragment's chunk as the server now writes it: the
+    // Errored's fallback as the template + `$df`, then the `_fr` rejection.
+    const swapped = page.revealFragment(frag, '<em class="fail">failed: boom</em>', false);
+    fr.reject(new Error("boom"));
+    await quiesce();
+    await quiesce();
+    frames.sample();
+    expect(swapped).toBe(1);
+    expect(fr.promise.s).toBe(2);
+    expect(page.hy.fr.pending()).toBe(false);
+    expect(fetches).toEqual([]);
+    // The server's outcome at the position, in one visible transition.
+    expect(frames.frames).toEqual(["loading", "failed: boom"]);
+    expect(page.container.querySelector("em.fail")).not.toBeNull();
+    expect(page.container.querySelector("i")).toBeNull();
+    // Reported once in dev (c1); no client error state.
+    expect(page.errors.length).toBe(1);
+    expect(page.errors[0]).toContain(`fragment "${frag}"`);
+    expect(page.container.querySelector("li")).toBeNull();
+    frames.stop();
+    dispose();
+  });
+
+  // The escape arm: no server `<Errored>` encloses the boundary. The server
+  // keeps the boundary's own markup at the position (its fallback — never a
+  // blank) and the error escapes the component: the frame as one async
+  // value errored, carried on the document face as an `sc:live` error op
+  // addressed to the frame (`fid`), which only the owning boundary applies
+  // — the frame's `:error` (the outward face; what the client does with it
+  // beyond recording it is the client's — today `frame.error`).
+  test("(c3) rejected after adopt, no server <Errored>: the position keeps the fallback and the frame records the escaped error", async () => {
+    const fid = freshFid("c12c3");
+    const other = freshFid("c12c3-other");
+    const frag = "c12c3-frag";
+    page = bootPage(shell(fid, frag) + frameHtml(other, "<p>other</p>"));
+    const fetches = countFetches();
+    const fr = page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const Other = (globalThis as any)._$SC.r(other);
+    const frames = watchFrames(page.container);
+    const dispose = hydrate(
+      () => (
+        <>
+          <Comp item={(p: { text: string }) => <li>{p.text}</li>} />
+          <Other />
+        </>
+      ),
+      page.container
+    );
+    await quiesce();
+    expect(frames.frames).toEqual(["loadingother"]);
+
+    const swapped = page.revealFragment(frag, "<i>loading</i>", false);
+    fr.reject(new Error("boom"));
+    page.live.push({ type: "error", fid, error: "boom" });
+    await quiesce();
+    await quiesce();
+    frames.sample();
+    expect(swapped).toBe(1);
+    expect(fr.promise.s).toBe(2);
+    expect(fetches).toEqual([]);
+    // The position never blanked: the fallback stands.
+    expect(frames.frames).toEqual(["loadingother"]);
+    // The escaped error is the frame's — this frame's, not its neighbour's.
+    expect((page.host.get(fid) as any).error).toBe("boom");
+    expect((page.host.get(other) as any).error).toBeUndefined();
+    expect(page.errors.length).toBe(1);
+    frames.stop();
+    dispose();
+  });
+
+  // Arm (c4): the client half, post-done. Global hydration has completed
   // before the fragment settles — the #2978 shape: the server `<Loading>`'s
   // producer ran on the server, no client boundary ever registers for the
   // fragment, and a held-swap policy (#2964) with no other claimant would
@@ -188,7 +282,7 @@ describe("C12 — boundary parity at claim", () => {
   // adopted frame's element, so it is the frame's content BY RENDERING
   // (frames A5′, `_$HY.fa`): the swap proceeds, the adopted face shows what
   // the server rendered for the outcome, the ledger resolves.
-  test("(c3) settled post-done: the swap proceeds, the adopted face shows what the server rendered, no frozen fallback", async () => {
+  test("(c4) settled post-done: the swap proceeds, the adopted face shows what the server rendered, no frozen fallback", async () => {
     const fid = freshFid("c12c3");
     const frag = "c12c3-frag";
     page = bootPage(shell(fid, frag));
@@ -230,48 +324,4 @@ describe("C12 — boundary parity at claim", () => {
     frames.stop();
     dispose();
   });
-
-  test.fails(
-    "(c2) rejected after adopt: the position shows the server's rendered outcome, never a blank (server half)",
-    async () => {
-      const fid = freshFid("c12c");
-      const frag = "c12c-frag";
-      page = bootPage(shell(fid, frag));
-      const fetches = countFetches();
-      const fr = page.declareFragment(frag);
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const frames = watchFrames(page.container);
-      const dispose = hydrate(
-        () => <Comp item={(p: { text: string }) => <li>{p.text}</li>} />,
-        page.container
-      );
-      await quiesce();
-      expect(frames.frames).toEqual(["loading"]);
-
-      // The rejected fragment's chunk: blank template + `$df`, then the
-      // `_fr` rejection.
-      const swapped = page.revealFragment(frag, " ", false);
-      fr.reject(new Error("boom"));
-      await quiesce();
-      await quiesce();
-      frames.sample();
-      expect(swapped).toBe(1);
-      expect(fr.promise.s).toBe(2);
-      expect(page.hy.fr.pending()).toBe(false);
-      expect(fetches).toEqual([]);
-      // Observed: the swap lands the blank template the server wrote — the
-      // frame's text goes "loading" → " " (the fallback is gone, the
-      // position is empty). Expected: the server's rendered outcome for the
-      // failure at the position — the nearest server `<Errored>`'s
-      // fallback; with none, the error escapes the server component and
-      // the whole response is the frame's `:error`. The gap is the server
-      // half's: `server.ts`'s error path hands `sink.fragment` a `" "`
-      // template (the client twin, when there is one, renders over it; a
-      // server component's boundary has none). The client correctly
-      // invents nothing here (see c1).
-      expect(page.container.textContent.trim()).not.toBe("");
-      frames.stop();
-      dispose();
-    }
-  );
 });
