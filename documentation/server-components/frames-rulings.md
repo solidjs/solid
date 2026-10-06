@@ -769,22 +769,69 @@ through the existing registration, not a new seam.**
 
 ### 3.3 A claim is a promise to account for the outcome
 
-**The adoption that claims a fragment's placeholder — so its swap may land —
-owns what the swap delivers: settled content syncs (2.3); a rejection shows an
-error at the position and surfaces; a claimed fragment never swaps to a blank,
-and `fr.pending()` reading false never means "the page converged" while a
-claimed position shows nothing.**
+**The frame whose rendering a fragment's placeholder sits inside — so its
+swap may land — owns what the swap delivers: settled content syncs (2.3); a
+rejection shows what the server rendered for it and surfaces; an owned
+fragment never swaps to a blank, and `fr.pending()` reading false never means
+"the page converged" while an owned position shows nothing.**
 
-- **Mechanism today.** `adoptBoundary.claimRegionFragments` → `fr.claim(fragId)`
-  for every `pl-*` in the region (#2978 — so the held-swap policy does not hold
-  them forever); the ledger's `fragmentPolicy` swaps whatever template the
-  document wrote. The server's error path for a post-flush fragment writes a
-  blank content template (`sink.fragment(key, " ")`), activates it, and rejects
-  `<key>_fr`. `hydratedCreateLoadingBoundary`'s `s === 2` branch (resume fresh,
-  error to the nearest `<Errored>`) runs only for a boundary registered against
-  `_fr` — a client twin; a server-only `<Loading>` has none, and the adoption
-  claimed the placeholder without consuming the rejection (R6). The serializer's
-  thenable swallows it. The page converges on an empty range, nothing logged.
+**Ruled 2026-10-06 (12:55), A5′:** _a placeholder inside a server component's
+element is the frame's content **by rendering, not by adoption**._ The
+server rendered that `<Loading>` inside the component; whether a client has
+adopted the element yet is irrelevant to whose content it is. The ledger
+therefore asks a geometric predicate (`_$HY.fa(placeholder)`, installed once
+by the frames client: "is this `pl-*` inside a `data-fid` element that is not
+disposed?") before holding a post-done swap — no per-fragment claim, no hold,
+no replay. An adoption that follows the swap finds the settled markup in
+place and reads its declared records synchronously (#3844).
+
+- **Mechanism (as landed, A5′).** `hydration.ts:fragmentPolicy` swaps post-done
+  when the fragment is claimed (a client `<Loading>` registered against its
+  `_fr`) **or owned** (`ownedFragment`: `getElementById("pl-"+id)` exists and
+  `_$HY.fa(pl)`); `client.ts:installRevealHook` installs `fa` as
+  `pl.closest("[data-fid]")` not in `disposedFrames` (the C14 guard — a
+  boundary disposed _in place_ leaves its element standing, and a swap into it
+  would be the inert content #2964 holds against; the set holds the boundary
+  and the region elements inside it, so a placeholder in a nested region is
+  disowned too). `claimRegionFragments`, `claimedFragments`, the cascade's
+  claim half and the release loop are deleted; `_$HY.fr.claim`/`release` are
+  gone from the ledger's published surface. What remains of the region sweep
+  is dev-only: the (c1) rejection report (`console.error` naming the fragment
+  and the frame) over the `pl-*` templates at adopt time and at each reveal
+  into the region — 0 prod bytes. The server's error path for a post-flush
+  fragment still writes a blank content template (`sink.fragment(key, " ")`),
+  activates it, and rejects `<key>_fr` — the server-half gap (c2) is
+  unchanged by A5′. `hydratedCreateLoadingBoundary`'s `s === 2` branch runs
+  only for a boundary registered against `_fr` — a client twin; a server-only
+  `<Loading>` has none (R6's symptom was the blank, not the absence).
+- **Measured before written (re-attribution §7 method; Δ min B on `app:
+  hydrating (no stores)` vs base `d9d217959`, edited dist copies).** The
+  plan's A5 as specified — S-adopted (`_adoptedRoots`, `fr.adopt`/`unadopt`,
+  held-swap replay) plus S-key (`whenRevealed` published, the covering
+  fragment key on the SC reference) — came in at **+504** solid-side (S-adopted
+  +221 with `claim`/`release` dropped, +290 kept; S-key +283), against a
+  budget of ≈ +80. Alternatives measured: (a) adopted-roots set without
+  replay +167, (b) +170, (c) +100, (d) +260, (e) +16 (semantically unusable),
+  (f) +149, (g) the exhaustion fix alone +13, **(h) ownership predicate +37**
+  (+106 with `claim`/`release` kept). A5′ = (h) + (g) + G9: **built: +50 min /
+  +5 br** on hydrating (no stores), frames eager **−204 / −51**, page base
+  **−156 / −81**. S-key was not built: hydrating flow never reaches the
+  late-boundary wait (a client `<Loading>` twin's resume gates it), the
+  intercept has no key to collapse onto, and the covering-chain semantics a
+  nested splice needs (ids are prefix-closed, so a key must name the
+  outermost pending ancestor) make its frames half a wash (−18 min) for a
+  +283 solid cost — a reachability finding, recorded in the plan's A5 row.
+- **Finding (the exhaustion bug, fixed with (g)).** The producer emits the
+  swap script, then the `_fr` settle, in the same task batch; `$dfr` marks
+  `_$HY.v[id]` and fans `_$HY.fe` out synchronously in between. A ledger
+  subscriber asking `fr.pending()` inside that notification saw the revealing
+  fragment's declaration unstamped, so a page's LAST reveal never read as
+  exhaustion and a waiter released on exhaustion (the late-boundary wait, the
+  intercept's deferred answer) waited forever. `fragmentPending` now reads a
+  revealed fragment from its swap (`hy.v[id]`) first. The late-boundary
+  spec's `swapIn` had the two steps in the wrong order and hid this; it now
+  stamps after `fe`, and `boundary-arrival.spec` (b) pins the real order
+  through the shipped `$df`.
 - **Lives twice in.** The two reveal engines again: the frame's engine has an
   error arm (`seg:<k>:error`, the reveal seam's boundary throwing to the nearest
   `<Errored>`); the document engine has none for a server-only boundary.
@@ -823,17 +870,19 @@ claimed position shows nothing.**
 - **Code sites corollary 4 says to change or re-read** — places where an
   inner server boundary is treated as client state:
   - `client.ts:adoptBoundary.claimRegionFragments` → `fr.claim(fragId)` →
-    `hydration.ts:claimFragment` (#2978): the adoption goes on record in the
-    fragment ledger as the _claimant_ of every `pl-*` in its region so the
-    post-done held-swap policy (`fragmentPolicy`, #2964) lets the swap land.
-    That is client claimant state for a server boundary. The principle's
-    shape: the ledger knows a fragment inside an adopted frame's range is
-    the **frame's content** (the frame is the claimant of everything in its
-    range by adoption, not fragment by fragment) — S9/DR-4's "the fragment
-    ledger not knowing adopted regions own their placeholders" is this same
-    finding from the size side. Change, under DR-4; the cascade is a
-    compensation until then. (Not `claimedBoundaries` — that set is one
-    adopter per _frame element_, the outward face, and is right.)
+    `hydration.ts:claimFragment` (#2978) — **changed (A5′, ruled
+    2026-10-06).** The adoption went on record in the fragment ledger as the
+    _claimant_ of every `pl-*` in its region so the post-done held-swap
+    policy (`fragmentPolicy`, #2964) would let the swap land — client
+    claimant state for a server boundary. The principle's shape, as ruled: a
+    fragment inside a server component's element is the **frame's content by
+    rendering, not by adoption** — the ledger asks `_$HY.fa(pl)` (geometry:
+    inside a live `data-fid` element) instead of a claim, and the adoption
+    claims nothing fragment by fragment. S9/DR-4's "the fragment ledger not
+    knowing adopted regions own their placeholders" was this same finding
+    from the size side; `claimRegionFragments` and `fr.claim`/`release` are
+    deleted. (Not `claimedBoundaries` — that set is one adopter per _frame
+    element_, the outward face, and is right.)
   - `client.ts:revealSeam` — the stream face wraps each revealed segment's
     content in a reconstructed client `createLoadingBoundary`. Its stated
     job is to cover the **fills'** own async ("an unboundaried async fill's
@@ -1235,7 +1284,14 @@ alternatives stay written as the record of what was weighed.
    (the blank template) is drafted below, not coded.
 8. **S-adopted (`claimRegionFragments → fr.adopt`) documented, not built**
    (3.3's code-sites list): ≈ +80 B in solid on every hydrating page, on
-   top of 6's +59 — the maintainer's call.
+   top of 6's +59 — the maintainer's call. **Superseded 2026-10-06
+   (12:55): built as A5′** — not the `fr.adopt`/`unadopt` shape (measured
+   +221 min solid, +504 with S-key) but the ownership predicate
+   `_$HY.fa(placeholder)` (3.3: "by rendering, not by adoption"; +50 min on
+   hydrating pages including the exhaustion fix), with `claimRegionFragments`
+   and `fr.claim`/`release` deleted and `documentBoundary` collapsed onto the
+   intercept's one arrival answer (G9). S-key stays unbuilt (3.3's
+   reachability finding).
 9. **The harness's C3 law exempts a done that fired at or after the
    mount's disposal** (a disposed holder owes no claim; its release is what
    lets done fire — `initBoundaryResume`'s own rule). An oracle correction,
