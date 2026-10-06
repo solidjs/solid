@@ -289,19 +289,127 @@ _(pending)_
 
 ## 5. Open questions
 
-_(pending)_
+### 5.1 R units whose removal needs a core seam that does not exist yet
+
+Each names the seam, where it lives, and its likely cost. "Frames" means
+the glue lives in the frames client and costs the frames scenario; "solid"
+/ "signals" means every hydrating page pays it.
+
+| seam | removes (frames, min) | what it is | where, cost (est.) |
+| --- | --: | --- | --- |
+| **S-flush — the address source.** One reactive node per bound address written at the response's landing (`content = createMemo(() => host.landing(binding()))`); the enclosing `<Loading>` pends on it, a switch is a new flight on it (supersession by `_inFlight !== result`), a refetch's landing is staged by the transaction that read it. | R.gate ≈ 550 of 674; R.stage ≈ 1,300 of 2,072 (the `preview` half, the token/table machinery) | The core has the node shape (`core/async.ts:handleAsync`'s thenable and async-iterable branches, `_inFlight` supersession; `scheduler.ts` staging) and `dynamic`'s value memo is already "the ordinary async memo the boundary waits on" with provenance (`token === latest`, `web/src/index.ts:452`). What is missing is the **resolution point**: the handler returns the binding at the response **header** (`frame-transport.ts:882–908`); nothing resolves the call at the version's first root/error write. The floor's glue (§2) is the mount-time half of this seam (a promise resolved at first apply, ≈ 110 B); the per-address half (re-pend on a switch, the staged landing of a refetch) is the seam proper. | **frames**, ≈ 110–190 B (the host's `firstWrite`/`landing` + the memo); **0 in signals**. Changes C17 (c) to ruling 1.6 (i) by construction, and makes C15's atomic refetch the Transaction's own staging (G7 closes). |
+| **S-hold — the frame's hold is a boundary resume.** A recordless `prop#n` occurrence at adoption defers its mount (as today) but registers through `initBoundaryResume` and resumes through `resumeBoundaryHydration`'s window, so hydration-done counts it (3.1, ruled) and the resumed fill still claims under the producer's keys. | R.drain ≈ 270; R.claim ≈ 470 | `initBoundaryResume` (`hydration.ts:2574`) is not exported and is keyed by a hydration id with an `_fr`/serialized record; `resumeBoundaryHydration` (2487) carries `captureBoundaryScope` so a late resume re-enters hydration with the captured registry. "Mount and pend at the read" instead of "defer the mount" would run the fill's re-run **outside** `claimRender`'s synchronous window and render fresh clones over server DOM (C1/C9 regress) — the counter alone is not the seam; the window is. | **solid**: an internal `hydrateWindow(id, fn, roots?)` factored out of `resumeBoundaryHydration` + `initBoundaryResume` reachable from the adopter (`sharedConfig.resumeBoundary` or an `internal` export) ≈ +40–65 B (≈ +12–20 br on hydrating pages — frames-rulings 3a estimated +25); **frames** ≈ +100 for the registration at the sync's end. |
+| **S-record — a late record wakes its reader.** `_$HY.r[k] = …` is a plain write (`server.ts:2242`); the only wake-up today is `#recordRefresh`'s `setTimeout` poll. | R.drain's poll ≈ 120 (the part S-hold alone does not remove) | Two shapes: (a) **server half** — the document sink writes `sc:slot:<fid>:<occ>` as a **declared** pending ref at the marker (as `registerFragment` writes `<id>_fr`, `server.ts:2850`) and settles it with the args, so `readHydratedValue`'s `.then` path (`hydration.ts:484–485`) carries the wait; (b) **solid** — a write hook on `_$HY.r` in the document runtime. (a) is the A5 shape and costs ≈ +30 B of sink output per record; (b) ≈ +40 B in solid. Without either the client keeps a bounded poll. | **server** ≈ +30 B/record or **solid** ≈ +40 B |
+| **S-ref — a pending ref read.** The codec table answers an undelivered `{$ref}` with a pending promise, rejected at `complete`/`:error` (L1), and a record's refs resolve through the table object current at the record's apply (frames-rulings 1.2's per-response cell). | R.refwait 145; part of R.stage (`stageTables` 183 → a cell ≈ 140) | `tableFor(id)?.resolve(ref)` returns `undefined` for an undelivered key (`client.ts:149–153`), and `tables` is rotated in place by address (`beginStream`), so a lookup re-run after a rotation reads the next response's table (the C6 shape). | **decode chunk (lazy)** ≈ +60 B for pending-on-missing + **frames** ≈ +40 B reject-at-complete + the cell ≈ 140 (replacing `stageTables`). Fixes an L1 hole (a ref whose data never comes is silent today). |
+| **S-reveal — a document reveal syncs the frame.** The document face's reveal is the hydration ledger's `$df`, not a store write; `#flush` never sees it (frames-rulings 2.3, DR-4). | — (the `fr.subscribe` one-liner stays in the floor) | Interim: `fr.subscribe((_, parent) => el.contains(parent) && frame.sync(parent))` ≈ 70 B (the rulings' 2b). Structural (DR-4, 2c): the document fragment as a write into frame `""`'s store — its own plan, ≈ 1.3 KB on whichever side goes, **and** A0 reverses DR-4's direction (the document runtime's inline `$dfr` cannot be the engine for a CSR-booted page that streams a frame; a module copy in solid is ≈ 500 B min on every hydrating page). | **frames** ≈ +70 B interim |
+| **S-adopted — the ledger knows an adopted frame owns its range.** `fragmentPolicy` holds unclaimed swaps after `_hydrationDone` (`hydration.ts:2663`); `claimRegionFragments` is the per-`pl-*` workaround. | R.claimant 153 | `_adoptedRoots: Set<Element>`; `fragmentPolicy` swaps when `getElementById("pl-" + id)` is inside an adopted root; `fr.adopt(el)`/`fr.unadopt(el)` ≈ 30 B in frames. | **solid** ≈ +80 B (≈ 0 cost while the set is empty) |
+| **S-key — the fragment that delivers a boundary element.** `installRevealHook` rescans the revealed parent on every reveal because the ledger cannot name which fragment carries a given `<solid-frame>`. | T.doc ≈ 250 of `installRevealHook` 354 + `indexBoundaries` | The SC reference / placeholder carries its covering fragment key (≈ +30 B server), and `whenRevealed` (`hydration.ts:2747`, **not exposed** on `_$HY.fr`) is published (≈ +15 B solid); both waiters become `whenRevealed(key).then(...)` ≈ 100 B. | **server** ≈ +30 B, **solid** ≈ +15 B |
+| **S-swap — a module `$dfr`/`$dfl`.** Only if the maintainer wants one reveal engine with the document runtime as the owner (A0's direction, the inverse of DR-4's). | R.reveal ≈ 270 (the retry loop and the rest of `#segmentReady`), the DOM half of the swap ≈ 400 (T today) | `hydration.ts` carries the swap mechanics exposed as `_$HY.fr.swap(id, root?)`/`fallback(id, root?)` with a range scope (fragment keys collide across frames under the default `renderId` — or the server half prefixes frame-stream keys, ≈ +20 B). | **solid** ≈ +500 B min / ≈ +150 br on every hydrating page — a bad trade for the non-SC page; not recommended |
+| `readHydratedValue` exported from `solid-js/internal` | R.error ≈ 50 | the frames copy lacks the #2997 rejection-observe | **solid** ≈ +10 B |
+
+### 5.2 F groups whose lazy load would change behaviour (the S1 hold class)
+
+| group | lazy key (server-known) | what changes when loaded on use |
+| --- | --- | --- |
+| **F.bind** (E.c) | the document or response carries `_s:` markers | a page whose first binding-slot markers arrive in a **post-load stream** (not the document) takes a chunk load before the fill binds — the fill's positions sit at the server's values meanwhile; the same accepted change B.3 makes for CSR `dynamic` (audit §7 Q5). A document-face page preloads it through seam D and sees no change. A hold (the S1 class): the adopt-time sync must **wait** for the chunk before classifying a `_s:` occurrence, and that wait registers as a pending boundary (3.2) — the `prepareArgs` shape S1 built for traces. |
+| **F.live** (E.a) | the server emitted holes, attr holes, or `sc:live` for this document/response | a hole or attr chunk that arrives before the chunk loads must **buffer** (the store already does — records stay pending until a flush can apply them, so the load seam is "await the tier, then flush"); the document channel's pump starts after the load — ops before it are in the stream's buffer, not lost. No hold on hydration-done is needed (holes are post-first-flush updates, not the frame's first value). The tier key cannot be `live()` (the document channel is reachable without it — audit §7 Q4). |
+| **F.trace** (N) | the document serialized a container trace | the S1 class exactly: a fill whose arg is a trace marker holds until the materializer (and the store engine behind it) loads; S1 (`size/s1-lazy-store-materializer`) built the hold (`prepareArgs`, `#heldRecords`) and pinned "the mount claims before done" under 3.1. Already designed; ≈ 100–300 B seam. |
+| **F.regions** | the document or response carries `{$frame}` refs / `data-fid` region elements | an occurrence whose record names a `{$frame}` must wait for the chunk before `#resolveArgs` can hand the fill a region element — a hold of the S1 class on the adopt path (register as a pending boundary); on a stream, the record stays pending in the store until the load's flush. |
+| **F.assets** | the response carries an `assets` chunk / the document a stylesheet-gated fragment | a segment whose `assets` record names stylesheets must not reveal before the loader is resident — the reveal's readiness test must treat "tier not loaded" as not ready (one term in `#segmentReady`). No behaviour change beyond the extra latency; the stylesheet's own load dominates. |
+| **F.claims / F.event** | the router is installed (`CLAIM_SEAM` present) | a claim sweep that runs before the tier loads misses the first morph's anchors — the router would re-sweep on install, as it does for CSR content. Small enough (≈ 0.7 KB) that a tier is not worth its seam. |
+
+### 5.3 For the maintainer
+
+1. **The `{$ref}` wait is an L1 hole today** (§1.2, R.refwait): a record whose
+   data never arrives is never applied and nothing reports it. The A0 form
+   (S-ref) fixes it; confirm that is wanted before it is counted as a byte
+   saving.
+2. **The `#2968` defer over-applies** (§1.2, R.drain): the sink names every
+   called occurrence `prop#n`; a bare `prop` is direct-insert by design.
+   Scoping the defer to `#`-named occurrences removes the ambiguity C18
+   turns on and the latency the defer imposes on direct-insert content —
+   independent of A0, and worth doing before S-hold.
+3. **C6 (b1)'s pin asserts the opposite of A0**: it expects v1's late `data`
+   to *show* after v2's header; L2 ruling 5 forbids it. The invariant is
+   green under A0 and the pin is red — re-pin with the step that builds
+   S-ref.
+4. **C12 (c)'s expectation is withdrawn by A0** (frames-rulings 3.3) and its
+   fix is the server half's; no client class carries it.
+5. **The static fill path's public surface**: routing every fill through
+   `insert` (R.insert) removes the marker-less `createFrame` consumer path
+   (`client.ts:911–913`, a consumer-constructed frame without markers) —
+   `createFrame`/`createFrameElement` are `@experimental` public API; the
+   path needs an anchor or a documented removal.
+6. **`FrameHost.preview` / `Frame.preview` / `STAGED_DATA` /
+   `ServerComponentHandlerOptions.onStream` / `FrameHostOptions.resolve`**
+   — the public surface the R.stage and R.refwait deletions touch, already
+   listed by frames-rulings §"Public surface"; nothing new here.
 
 ---
 
 ## 6. Sources
 
-_(pending)_
+- `documentation/server-components/server-components-principles.md`
+  (`spec/frames-rulings` @ `757aba41c`): §2 A0 and the A1–A7/L1 annotations,
+  §4's 2026-10-05 note, §6 (the ≤ 7,800 B min+gzip budget), DR-4's Stage 3
+  refinement ("frame segments keep `#revealSegment`").
+- `documentation/server-components/frames-rulings.md` (same branch): the
+  Principle and its four corollaries; rulings 1.1–1.6, 2.1–2.4, 3.1–3.6 with
+  their `Restates:`/`Frames-specific:` lines; the fix-shape tables; §"Public
+  surface these fixes touch".
+- `documentation/plans/sc-layer-audit.md` (`size/sc-audit` @ `0bb67ff38`):
+  §1 baselines, §2 attribution (the method and Appendix A's 234 units), §3's
+  75 statements, §4 structural vs incidental, §5 packaging floors, §6.1
+  options and floors, §6.5 S1–S10, §7 Q1–Q10.
+- `documentation/server-components/frames-consistency-contract.md` (merged,
+  #3813) and `packages/web/test/consistency/` (`c01`–`c17`,
+  `harness/replay.spec.tsx`): C1–C19, R1–R10, the 22 `test.fails`.
+- `packages/signals/docs/SPEC-ASYNC-SEMANTICS.md` "The hold model — L2":
+  rulings 1–9; A15, A17, A18, A19, A27, A28, A29, A30, A33.
+- Code on `next` @ `23176235d`: `packages/web/frames/src/{frame-client,
+  client, frame-transport, frame-container-plugin}.ts`,
+  `packages/web/server-functions/src/{client,shared}.ts`,
+  `packages/web/serialization/src/`, `packages/signals/src/{boundaries.ts,
+  signals.ts, core/scheduler.ts, core/core.ts, core/async.ts, core/lanes.ts}`,
+  `packages/solid/src/client/hydration.ts`, `packages/web/src/{client,
+  server, index}.ts` (`insert`, `REPLACE_SCRIPT`, `dynamic`).
+- `scripts/size/` on this head: `scenarios.js` (the `frames: eager client
+  consumer` and `page: base` scenarios), `bundle.mjs`, `size.mjs`,
+  `floor-caps.json`.
 
 ---
 
 ## 7. Reproducing
 
-_(pending)_
+All measurement tooling lives outside the tracked tree under
+`tmp-tools/` in the worktree (git-excluded; rebuildable from this section):
+
+- `tmp-tools/fnmap.mjs <scenario> [--json f] [--dist name=path]` — the
+  source-map function-size tool: bundles the scenario exactly as
+  `scripts/size/bundle.mjs` does (Rolldown from `scripts/size/node_modules`,
+  `minify: true`) with `sourcemap: true`, decodes the entry chunk's map
+  (`@jridgewell/trace-mapping`), and charges each mapped segment's bytes to
+  the innermost named function in the dist source (acorn: declarations,
+  `const f = () =>`, class members as `Class#m`/`Class##p`, object methods,
+  assignment targets, class fields; anonymous closures roll up to the
+  nearest named ancestor; module-level code to `<module>`; the import
+  statements have no origin and are reported as `<unmapped>`). Two views:
+  `units` (innermost) and `rollup` (outermost module-level function). On
+  this head: frames eager 43,310 (0 B unattributed beyond the 314 B of
+  imports), page base 145,569; the 13 reference figures from the SC audit's
+  Appendix A match to the byte on page base.
+- `tmp-tools/measure.mjs <scenario> --dist frames=<edited copy>` — min/br of
+  the entry chunk with a dist override (edited copies measured in place of
+  `packages/web/frames/dist/client.js`; the repo dists are untouched).
+- `tmp-tools/classes.mjs` + `tmp-tools/join.mjs <fn.json> [--source …]
+  [--top n] [--md] [--all]` — the class map (every unit: class, group,
+  justification, core primitive for R, residue re-attribution) and the join
+  that produces §1.1's totals, §1.5 and Appendix A.
+- `tmp-tools/floor-spec.md` + `tmp-tools/floor.mjs` — the layered cuts
+  (L1–L8 and the add-back variants) as ordered, anchor-asserting
+  replacements over a copy of the dist; `tmp-tools/floor-results.{json,txt}`
+  the measurements §2–§3 quote.
+- JSON: `tmp-tools/fn-frames.json`, `tmp-tools/fn-base.json`.
 
 ---
 
