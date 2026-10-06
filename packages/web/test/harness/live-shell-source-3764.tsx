@@ -46,7 +46,7 @@ export function B(props: { liveMs: number }) {
   const [rows] = createOptimisticStore(() => source(props.liveMs), [] as { id: number }[], {
     key: "id"
   });
-  createMemo(() => rows.map(r => r.id).join(","));
+  createMemo(() => rows.map((r: { id: number }) => r.id).join(","));
   return (
     <Errored fallback={e => <p class="err">{String(e())}</p>}>
       <Loading fallback={null}>
