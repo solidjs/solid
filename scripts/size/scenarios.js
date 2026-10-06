@@ -3626,6 +3626,53 @@ module.exports = [
     alias: pageAlias
   },
   {
+    name: "page: base + router (base page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
+    // The base page as an application ships it: with a router. The two page
+    // floors above carry no router, so the "base case" they gate is a page
+    // nobody deploys; this scenario is the same composition plus
+    // `@solidjs/router` 2.0 (`2.0.0-next.35`, pinned exactly in this
+    // directory's package.json — the Solid 2 line; a router upgrade is a
+    // re-base recorded like a Rolldown upgrade) with `createRouter`, two
+    // routes (one `preload`, one lazy), the instance as the hydrated root
+    // and `useNavigate` in a route component. Not a floor: an inline cap,
+    // and the router's growth is the router's — this scenario attributes it
+    // (the `other` package in the report is the router).
+    // Landing (2026-10-06, next @ 49a8dca84): measured locally at 57,001 B
+    // (184,378 B minified) against the base page's 44,864 (145,599) — the
+    // router's contribution +12,137 B br / +38,779 B minified: the router's
+    // own 28,008 minified (`createRouterContext`, `setupNativeEvents` incl.
+    // the form-action path, `query`'s preload cache, `setupLinkClaims`,
+    // scroll restoration, `browserHistory`) plus what it retains of ours —
+    // signals +8,583 (`action` and the optimistic lanes: `verdictValue`,
+    // `dissolveLane`, `laneRead`, `isPending`/`latest`, `createEffect`,
+    // `onSettled`), sf +1,188 (`subscribeFlightData`, `decodeResponsePayload`,
+    // the redirect header, `parseServerFunctionAddress`), web +1,137
+    // (`takeHydrationValue`, `registerElementClaim`), solid +364
+    // (`createContext`, `children`). The router standalone, with solid-js /
+    // @solidjs/web external, is 32,430 / 11,216 B. Cap at local measured +
+    // 10 B rounded up to 0.01 KB; to be confirmed against CI's measurement
+    // (Node 24) + 10 B.
+    path: "sc-router-app.js",
+    limit: "57.02 KB",
+    capMinified: 184378,
+    alias: pageAlias
+  },
+  {
+    name: "page: live + router (live page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
+    // The live page with the same router (see the base + router note).
+    // Landing (2026-10-06, next @ 49a8dca84): measured locally at 58,243 B
+    // (188,800 B minified) against the live page's 48,527 (157,562) — the
+    // router's contribution +9,716 B br / +31,238 B minified, less than on
+    // the base page because the live page already carries `action` and
+    // `isPending`/`latest`, which the router retains on every page. Cap at
+    // local measured + 10 B rounded up to 0.01 KB; to be confirmed against
+    // CI's measurement (Node 24) + 10 B.
+    path: "sc-live-router-app.js",
+    limit: "58.26 KB",
+    capMinified: 188800,
+    alias: pageAlias
+  },
+  {
     name: "server: floor (getRequestEvent + isServer)",
     // What a server module that only asks "am I on the server / which
     // request is this" retains of the server entry — the import an
