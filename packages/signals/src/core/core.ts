@@ -571,7 +571,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         !(el as any)._modified &&
         Object.is((el as any)._prevValue, value)
       ) &&
-      // A re-staging pass owes no run: the commit queues it (#3802).
+      // A re-staging pass owes no run: the commit replays the effect (#3802).
       el._pendingValue === NOT_PENDING
     ) {
       (el as any)._modified = !el._x?._error;
