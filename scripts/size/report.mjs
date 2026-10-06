@@ -1,7 +1,7 @@
 // Renders the PR size comment: head vs base per scenario, from two size.mjs
 // --json files, with gate.mjs's verdict for each. Base entries may be missing
 // (a new scenario, or a base checkout the head's scenarios cannot bundle);
-// those rows show "—" and their cap is absolute.
+// those rows show "—".
 //
 // Usage: node report.mjs <head.json> [base.json] > comment.md
 
@@ -31,23 +31,33 @@ const rows = head.map((h, i) => {
   const comparable = !h.error && b && !b.error;
   const change = comparable ? delta(h.size, b.size) : "—";
   const minChange = comparable ? signed(h.minified - b.minified) : "—";
+  const minRecorded =
+    !h.error && typeof h.capMinified === "number" ? signed(h.minified - h.capMinified) : "—";
   const cap = toKB(h.limit);
   const status = h.error
     ? "❌ error"
     : v.verdict === "pass"
       ? "✅"
       : v.verdict === "warn"
-        ? `⚠️ over by ${v.overBy} B, noise`
+        ? `⚠️ over by ${v.overBy} B, ${v.headroom} B minified headroom`
         : `❌ over by ${v.overBy} B`;
   const lazy = h.lazy?.length ? h.lazy.map(c => `${c.name} ${toKB(c.br)}`).join(", ") : "";
-  return `| ${h.name} | ${size} | ${change} | ${minChange} | ${cap} | ${status} | ${lazy} |`;
+  return `| ${h.name} | ${size} | ${change} | ${minChange} | ${minRecorded} | ${cap} | ${status} | ${lazy} |`;
 });
 
 console.log("<!-- size-report -->");
 console.log("## Size (brotli, eager entry chunk)\n");
-console.log("| scenario | head | vs base | minified vs base | cap | | lazy chunks (not counted) |");
-console.log("| --- | ---: | ---: | ---: | ---: | --- | --- |");
+console.log(
+  "| scenario | head | vs base | minified vs base | minified vs recorded | cap | | lazy chunks (not counted) |"
+);
+console.log("| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |");
 console.log(rows.join("\n"));
+
+const fallback = verdicts.filter(v => v.against === "base" || v.against === "none");
+if (fallback.length)
+  console.log(
+    `\n> **Fail-safe:** ${fallback.length} over-cap scenario(s) have no minified recorded with the cap and were judged against this PR's base instead: ${fallback.map(v => v.name).join("; ")}.`
+  );
 
 const warned = verdicts.filter(v => v.verdict === "warn");
 const failed = verdicts.filter(v => v.verdict === "fail");
@@ -60,5 +70,5 @@ if (failed.length) {
   for (const v of failed) console.log(`- **${v.name}**: ${v.message}`);
 }
 console.log(
-  `\n<sub>Bundled with Rolldown (what Vite ships), brotli q11, decimal KB. A scenario fails only when it is over its brotli cap **and** grew more than ${MINIFIED_ALLOWANCE} B minified over the base; over the cap within that allowance is brotli layout noise and passes with a warning. Caps in \`scripts/size/scenarios.js\`; the floor and page caps in \`floor-caps.json\` are frozen (lower only, or \`Size-Exception:\` in the PR body). Caps are re-based downward by \`npm run ratchet\` (scripts/size/README.md).</sub>`
+  `\n<sub>Bundled with Rolldown (what Vite ships), brotli q11, decimal KB. A scenario fails only when it is over its brotli cap **and** its minified size is more than ${MINIFIED_ALLOWANCE} B over the minified recorded with the cap; over the cap within that allowance is brotli layout noise and passes with a warning. Caps and their recorded minified in \`scripts/size/scenarios.js\`; the floor and page caps in \`floor-caps.json\` are frozen (lower only, or \`Size-Exception:\` in the PR body). \`npm run ratchet\` lowers caps per RC; it never raises one (scripts/size/README.md).</sub>`
 );
