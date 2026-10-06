@@ -931,3 +931,104 @@ describe("#3540: the boundary scope — committed content, held mounts, no catch
         ]);
       });
 });
+
+describe("#3540: the boundary scope — semantic fuzzer findings (rev 19, seed 91501)", () => {
+  const drain = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+
+  // branch-boundaries #870, reduced. An `on` re-arm leaves the tree held by
+  // an earlier hold, the content it staged there stale: the output's read
+  // of it is a read of content the boundary owns, so the tree leaves the
+  // transaction and re-derives (pending under the boundary) rather than
+  // being recorded as a settled reader — which redrew the boundary forever.
+  it("a held tree under a re-armed boundary re-derives — no redraw loop", async () => {
+    const [s1, setS1] = createSignal(0);
+    const [s2, setS2] = createSignal(0);
+    const [visible, setShow] = createSignal(true);
+    const flights: (() => void)[] = [];
+    const log: unknown[] = [];
+    createRoot(() => {
+      const node = createMemo(async () => {
+        const v = s2();
+        await new Promise<void>(r => flights.push(r));
+        return v;
+      });
+      const view = Loading(() => (visible() ? `${s1()} ${s2()}` : "hidden"), "loading", s1);
+      createRenderEffect(view, v => {
+        log.push(`view ${v}`);
+      });
+      createRenderEffect(node, v => {
+        log.push(`node ${v}`);
+      });
+    });
+    flush();
+    while (flights.length) flights.shift()!();
+    await drain();
+    flush();
+    log.length = 0;
+    setS1(1);
+    flush();
+    setS2(1);
+    setShow(false);
+    flush();
+    setS1(0);
+    flush();
+    expect(log).toEqual(["view 1 0", "view loading"]);
+    setS2(0);
+    flush();
+    await drain();
+    expect(log).toEqual(["view 1 0", "view loading"]);
+  });
+
+  // boundaries #1078, reduced. OPEN: the re-arm's flush judges the tree
+  // owned and it leaves the earlier hold; later in the same flush an async
+  // memo the hold has joins the flush to it, and from then on the output
+  // is not owned (`flushTransaction === t`) — it keeps its staging there.
+  // The hold lands after the hide and publishes that stale content, which
+  // sticks. Membership decided mid-flush is not revisited when the flush
+  // joins a hold; the fix is to decide that clause at the seam.
+  it.fails(
+    "hidden after a re-arm over a held mount: the boundary does not publish stale content",
+    async () => {
+      const [s1, setS1] = createSignal(0);
+      const [visible, setShow] = createSignal(false);
+      const flights: (() => void)[] = [];
+      let shown: unknown;
+      createRoot(() => {
+        const n0 = createMemo(() => s1());
+        const n1 = createMemo(async () => {
+          const v = n0();
+          await new Promise<void>(r => flights.push(r));
+          return v;
+        });
+        const view = Loading(() => (visible() ? `content ${s1()}` : "hidden"), "loading", s1);
+        createRenderEffect(view, v => {
+          shown = v;
+        });
+        createRenderEffect(
+          () => (visible() ? n1() : "hidden"),
+          () => {}
+        );
+      });
+      const turn = async (fn: () => void) => {
+        fn();
+        flush();
+        await drain();
+        flush();
+      };
+      await turn(() => {});
+      while (flights.length) flights.shift()!();
+      await turn(() => {});
+      await turn(() => setS1(1));
+      await turn(() => setShow(true));
+      await turn(() => setS1(0));
+      await turn(() => setShow(false));
+      for (let i = 0; i < 4; i++) {
+        while (flights.length) flights.shift()!();
+        await turn(() => {});
+      }
+      expect(shown).toBe("hidden");
+    }
+  );
+});

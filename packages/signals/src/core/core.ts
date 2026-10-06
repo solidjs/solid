@@ -107,7 +107,8 @@ import {
   joinPassTx,
   stagedReaders,
   staleReader,
-  laneDirty
+  laneDirty,
+  type Transaction
 } from "./scheduler.js";
 import type {
   Computed,
@@ -305,14 +306,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       } else if (GlobalQueue._owns?.(el, tx)) {
         // Under a loading boundary that owns it now (re-armed since it
         // joined — A29's boundary scope) it is the boundary's, not the
-        // hold's: it leaves the transaction, its staging there void, and a
-        // read of the hold makes this pass pending under the boundary
+        // hold's: a read of the hold makes this pass pending there
         // (`scopedRead`).
-        el._pendingValue = NOT_PENDING;
-        el._config &= ~CONFIG_HELD;
-        el._x!._transaction = null;
-        const i = tx._nodes.indexOf(el);
-        if (i >= 0) tx._nodes.splice(i, 1);
+        leaveHold(el, tx);
       } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT)) joinPassTx(tx);
       else if (tx !== flushTransaction && !(el._statusFlags & STATUS_UNINITIALIZED)) {
         // Published mainline, it is not held: the frame this pass builds is
@@ -967,19 +963,40 @@ function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
  * the landing as the hold's stale reader (`_reruns`: re-derived on the
  * committed world). Ahead of every hold read (`joinPass`, `frameRead`, a
  * derive's draft). Not lane work or a verdict reader: they read the
- * screen, not the hold (`frameRead`). */
-export function scopedRead(c: Owner | null, el: Signal<any> | Computed<any>): void {
+ * screen, not the hold (`frameRead`). A held computation the same scope
+ * owns is content, not a hold: it leaves the transaction and re-derives
+ * here (true — the read goes on as a plain one, pending if it is). */
+export function scopedRead(c: Owner | null, el: Signal<any> | Computed<any>): boolean {
   if (
     GlobalQueue._owns === undefined ||
     c === null ||
     passLane !== null ||
     (c as Computed<any>)._config & CONFIG_VERDICT
   )
-    return;
+    return false;
   const t = txOf(el);
-  if (t._lane || !GlobalQueue._owns(c as Computed<any>, t)) return;
+  if (t._lane || !GlobalQueue._owns(c as Computed<any>, t)) return false;
+  if (
+    typeof (el as Computed<any>)._fn === "function" &&
+    GlobalQueue._owns(el as Computed<any>, t)
+  ) {
+    leaveHold(el as Computed<any>, t);
+    recompute(el as Computed<any>);
+    return true;
+  }
   staleReader(c as Computed<any>, t);
   throw new NotReadyError(el);
+}
+
+/** A held node a loading boundary owns now leaves its transaction: its
+ * staging there is void, and its next pass derives on the committed world
+ * (A29's boundary scope). */
+function leaveHold(el: Computed<any>, t: Transaction): void {
+  el._pendingValue = NOT_PENDING;
+  el._config &= ~CONFIG_HELD;
+  el._x!._transaction = null;
+  const i = t._nodes.indexOf(el);
+  if (i >= 0) t._nodes.splice(i, 1);
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
@@ -1687,8 +1704,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !(el._config & CONFIG_OVERRIDE) &&
       !(c._config & CONFIG_CHILDREN_FORBIDDEN)
     ) {
-      scopedRead(c, el);
-      if (owner._statusFlags & STATUS_UNINITIALIZED) {
+      if (scopedRead(c, el)) {
+      } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
         (c as Computed<any>)._flags |= REACTIVE_JOINED;
         joinPassTx(txOf(el));
       } else if (frameRead(c as Computed<any>, el)) committed = true;
