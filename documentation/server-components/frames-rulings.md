@@ -581,6 +581,23 @@ event seen from two sides, and either one completes the pair.**
   face. **Recommended-by-principle: yes.** The document face's reveal engine
   (`$df`) not knowing the frame is a transport fact (DR-4), not a reason the
   rule differs.
+- **Landed (2026-10-06, A3 — `fix/frames-a7-a3-error-throws-reveal-deletion`),
+  the stream face's own half.** A revealed segment's content is applied
+  against the store as it is revealed: its fills mount (as before) and the
+  segments whose placeholders it carries reveal INSIDE it
+  (`#revealSegments(root)`), in the same flush and before a reconstructed
+  boundary commits the content — a segment nested in content a pending fill
+  holds used to wait for a chunk that never came. So `#flush` makes one
+  pass over the frame's segments instead of retrying until no pass
+  progressed (the `$dfd` analogue, R.reveal), and the second ledger
+  (`#revealed` / `#fallbackShown` / `isRevealed`) is gone: a reveal's
+  applied state is the content record it applied, a fallback's the gate it
+  materialized, by identity (2.1), in the one applied map; whether a
+  segment is shown is the DOM's to say (2.4). Kept: the segment swap's DOM
+  half (T.morph), the style gate (F.assets), the per-flush content + gate
+  - placeholder test. Measured −45 B min on the frames eager client — the
+    estimate (≈ −140 br) counted the fallback pass and the style gate, both
+    kept. `Frame.isRevealed` removed (public, `@experimental`, no caller).
 
 ### 2.4 Applied means shown
 
@@ -854,7 +871,103 @@ claimed position shows nothing.**
     none — **correct** under corollary 4, and the reason no client fallback
     exists to render; the contract's R6 read the absence as the bug.
   - The frame's `:error` → gate release → enclosing `<Errored>` (outward):
-    consistent; this is the only client error state a frame has.
+    consistent; this is the only client error state a frame has. _As
+    written here before A7 this was a belief, not the code: the gate
+    released and the error sat in `frame.error`; nothing threw it. Landed
+    below._
+
+**Landed (2026-10-06, A7 — `fix/frames-a7-a3-error-throws-reveal-deletion`):
+the outward face, as corollary 4 states it.** The maintainer's ruling: _the
+enclosing client `<Errored>` sees one errored async value_ — exactly as any
+`createAsync` that rejects. Three rules, each the frames form of a core
+rule:
+
+- **The landing rejects on `:error`.** `createFrameHost.landing(address)`
+  rejects with the error record at the response's `:error` write (it
+  resolved before — default #1's "the root, the stream's error, or its
+  completion" read the error as a landing); the mount's content node
+  (`client.ts:landing`) throws it, so the covering `<Loading>` never
+  releases over an empty `<solid-frame>` and the nearest client `<Errored>`
+  catches. The `:complete` that follows an errored response's `:error`
+  settles nothing. `frame.error` still records the error (the diagnostic;
+  the store is the truth). _Restates:_ `handleAsync`'s rejection → the
+  node is errored, readers throw (`async.ts:handleError`).
+- **An error after the landing errors the value — the L2 "errored flight
+  after a landing" case.** A later yield failing, a stream cut off before
+  its `complete` (D1's undeclared death), a refetch's response erroring:
+  the node errors as an async iterable that yielded and then threw does
+  (`consumeIterator`'s rejection → `STATUS_ERROR`), and the shown value is
+  **not kept beside the error** — the `<Errored>`'s fallback replaces the
+  content; the mount stands behind it, not torn down (the frame keeps its
+  store, element and occurrences, so a later landing shows at `reset`).
+  Carried by the mount: the frame's `onApply` ticks a signal once per error
+  record (`client.ts:failing`), the node reads the record off the frame
+  bound to the address and surfaces each record once (applied by record
+  identity, 2.1 — a re-read of an error the node already surfaced is a
+  re-ask, below). _Chosen over_ "the content stays, the error is recorded"
+  (the pre-A7 reading, and RFC 11 D1's sentence "the content already
+  applied stays"): the core keeps no landed value beside an error on the
+  same node; a holds-latest read exists only while a flight is _pending_
+  (A19 cause ii), never for a rejection. The RFC sentence re-reads as:
+  the content stays in the mount, which is what a `reset` or a refetch
+  recovers into. _With no client `<Errored>`_ the error propagates as any
+  uncaught async error: `REACTIVITY_HALTED`, the cause through
+  `reportError` (`scheduler.ts:haltReactivity`) — the core's rule, pinned.
+- **`reset` re-asks: an errored landing is not a landing for a fresh
+  consumer.** The core's `reset` recomputes the node that threw
+  (`boundaries.ts:reset` → `recompute(source)`; it does not re-create the
+  children) — for a `createAsync` that IS the re-ask. The frames node
+  re-reads `host.landing(address)`, and an errored address answers a fresh
+  consumer with a promise for the **next** flight (minted at the read,
+  settled by that flight's landing); the node opens the flight itself,
+  since the call lives in `dynamic`'s hoisted factory memo (computed once;
+  a reset re-runs nothing above the node — a plain `dynamic` over a
+  rejecting promise never re-asks on `reset` either). The address is a
+  one-way hash of the call, so the handler records the call behind every
+  address it handles or the document answered (`frame-transport.ts:calls`,
+  `callFor` — `@internal`) and `installServerComponents` re-invokes it
+  through the server-function registry's RPC seam (`getServerFunctionRPC`,
+  whose client half now carries `createServerReference(id)`; a
+  `GET`-declared read stays a GET, declared metadata rides along, no
+  per-call options). A response for an address whose mounts show an error
+  **writes through** instead of being staged (`showing`): an errored
+  landing is not content a Transaction could hold. A re-ask whose call
+  fails on the wire rejects the node with that failure; a further `reset`
+  re-asks again. _Divergence, recorded:_ a same-address refetch driven by
+  `dynamic`'s source (not by `reset`) lands into the mount behind the
+  fallback and shows at the next `reset` (which finds a landing and asks
+  nothing) — the core's dependency-driven recovery needs the node to be a
+  dependent of the factory, which the token path is not for an errored
+  address; accepted as the price of the hoist.
+- **Controls.** A failure the SERVER's `<Errored>` caught is a successful
+  frame (its fallback is content); a keyed error chunk (`seg:<k>:error`, a
+  hole's) stays the diagnostic it was. The adopted face carries the same
+  rules through its bound-address reader (`adoptBoundary`'s `source`
+  effect, the switch's pending reader, now also the error's): the escaped
+  server error A6's `sc:live` error op delivers lands as the frame's
+  `:error` and throws there; a mount placed **without a binding** (the
+  bare `_$SC.r(id)` placeholder as a component) has no reader and keeps
+  the record only — the direct-placeholder gap, open.
+- **Pins:** `packages/web/test/frames-errored-reset-refetch.spec.tsx` (A6's
+  `.fails` pin made `test`, nine arms: the catch and re-ask, `<Errored>`
+  inside the `<Loading>`, the GET re-ask, the failing re-ask, the uncaught
+  halt, the later error, the cut-off, the errored refetch, the two
+  controls); the lifecycle matrix's error arms, truncated/aborted arms,
+  shell-gate error arm and switch-errored arm re-pinned; C17 (b) and
+  `frames-live`'s error arms re-pinned. Four switch pins now send
+  `complete` before closing — a close before `complete` is a death, which
+  now errors the frame. **Integration note (A6, C12 (c3)):** the escape arm
+  mounts the placeholder without a binding, so it keeps asserting
+  `frame.error` and nothing re-pins at this integration; when it moves to a
+  `dynamic` mount (the real page shape), it wraps in `<Errored>` and
+  asserts the fallback.
+- **Reach gap, not ruled:** a fill (a slot occurrence's client content)
+  cannot name the address it renders under — `SlotContext` carries `key`,
+  `existing`, `range`, `adopted`, `invoked`, but no address — so a fill
+  cannot re-ask its own frame nor read its error record; the frame's error
+  reaches it only as the enclosing `<Errored>` reaches every descendant.
+  `SlotContext.address` was proposed and is **not** added here (the
+  maintainer has not ruled).
 
 ### 3.4 The client consumes what the server consumed
 
@@ -1560,6 +1673,26 @@ current?)` gains the same `current`. `FrameHost.preview(chunk)` /
   (applied state keys on record identity); a `{$ref}` the response never
   delivers rejects the fill's read at the stream's end (L1) instead of
   leaving the record unapplied.
+
+**Touched by A7 + A3 (`fix/frames-a7-a3-error-throws-reveal-deletion`),
+each flagged in its PR — all `@experimental`/`@internal`, none wire:**
+
+- **Removed:** `Frame.isRevealed(segment)` (A3; no caller).
+- **New:** `callFor(address)` (`@internal`, `frame-transport.ts`): the call
+  recorded for an address. The server-function registry's RPC slot
+  (`getServerFunctionRPC()`, `@internal`) gains `createServerReference(id)`
+  on the client half.
+- **Changed contract, same signature:** `FrameHost.landing(address)` —
+  rejects with the error record at an `:error` write; for an errored
+  address with no flight open returns a promise for the next flight
+  (minted at the read) instead of `undefined`.
+- **Behaviour:** a frame's `:error` throws to the nearest client
+  `<Errored>` (before or after its landing; with none, the core halts);
+  `reset` re-asks the server; a response for an address whose mounts show
+  an error writes through instead of staging; a stream that ends before
+  `complete` errors the frame (it only recorded before); a segment nested
+  in a revealed segment's content reveals in the same flush (and inside a
+  pending boundary's detached content).
 
 ---
 
