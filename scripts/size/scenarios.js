@@ -3009,9 +3009,15 @@ module.exports = [
     // spread alone retains 9.6 KB minified when nothing else uses merge,
     // because it reads sources through the merge/omit view records). Cap at
     // CI-measured + 10 B rounded up to 0.01 KB.
+    // Bumped 2026-10-05: #3807 (a retained projection draft row resolves to
+    // its store proxy) moved signals bytes between the PR's measurement and
+    // its merge (signals 62,632 -> 62,699 minified; +61 B minified and
+    // +44 B brotli on the bundle); CI-measured on next @ a52615c53: 25,114 B
+    // (78,868 B minified; signals=62,699 web=12,164 app=2,574 solid=1,431).
+    // Cap at CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/csr.jsx",
     compile: { hydratable: false },
-    limit: "25.08 KB",
+    limit: "25.13 KB",
     alias
   },
   {
@@ -3035,9 +3041,14 @@ module.exports = [
     // app +483 (the compiled output's own growth). (Locally 30,898 / 99,064
     // on next @ b07fed550, before #3806.) Cap at CI-measured + 10 B rounded
     // up to 0.01 KB.
+    // Bumped 2026-10-05: #3807 moved signals bytes between the PR's
+    // measurement and its merge (signals 62,815 -> 62,880 minified; +61 B
+    // minified and +19 B brotli on the bundle); CI-measured on next @
+    // a52615c53: 30,918 B (99,129 B minified; signals=62,880 solid=16,597
+    // web=16,591 app=3,058). Cap at CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/hydrating.jsx",
     compile: { hydratable: true },
-    limit: "30.91 KB",
+    limit: "30.93 KB",
     alias
   },
   {
