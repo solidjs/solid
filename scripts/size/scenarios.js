@@ -18,6 +18,14 @@
 // overrides it per scenario. Limits are lowered (never raised) per RC by
 // ratchet.mjs, which writes a dated `Ratchet` line above each one it moves.
 //
+// Recorded minified (2026-10-06): `capMinified` (floor-caps.json's
+// `minified` for the floors) is the minified size measured when the limit
+// was set; the allowance is measured against it rather than per PR, so
+// growth cannot creep across PRs. Set it with the limit, from the same CI
+// measurement. Seeded for every scenario from CI on next @ fff1615ee (Size run
+// 37443080193), limits unchanged; the base comparison is the fail-safe for a
+// limit without one.
+//
 // Bundler switch (2026-09-26): the harness measured with esbuild through
 // size-limit until this date; it now measures with Rolldown, the bundler Vite
 // ships, pinned exactly in package.json. Every cap was re-based on that day
@@ -44,7 +52,15 @@ const alias = {
 // without a `Size-Exception:` line in its body. Lowering is always allowed.
 // The dated notes on each scenario below remain the ledger of how the
 // floor got here.
-const floorCaps = require("./floor-caps.json");
+// Each entry is { cap, minified }: the brotli cap and the minified size
+// measured when it was set (the gate measures minified growth against it).
+const floorFile = require("./floor-caps.json");
+const floorCaps = Object.fromEntries(
+  Object.entries(floorFile).map(([name, e]) => [name, typeof e === "string" ? e : e.cap])
+);
+const floorMinified = Object.fromEntries(
+  Object.entries(floorFile).map(([name, e]) => [name, e.minified])
+);
 
 // Server-component PAGES (audit §1): everything such a page ships eagerly,
 // nothing external — the frames client and the server-function transport
@@ -476,7 +492,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 7.35 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 7.35 KB, recorded minified 20,133 B (first record);
+    // CI-measured at 7,361 B (20,133 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
+    capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
   {
@@ -894,7 +915,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 14.56 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 14.56 KB, recorded minified 44,396 B (first record);
+    // CI-measured at 14,540 B (44,396 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "14.56 KB",
+    capMinified: 44396,
     alias
   },
   {
@@ -1135,7 +1161,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.49 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 9.49 KB, recorded minified 26,828 B (first record);
+    // CI-measured at 9,513 B (26,828 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "9.49 KB",
+    capMinified: 26828,
     alias
   },
   {
@@ -1325,7 +1356,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.86 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 9.86 KB, recorded minified 27,687 B (first record);
+    // CI-measured at 9,856 B (27,687 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
+    capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
   },
   {
@@ -1646,7 +1682,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 17.71 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 17.71 KB, recorded minified 52,567 B (first record);
+    // CI-measured at 17,672 B (52,567 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
+    capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
   {
@@ -2070,7 +2111,12 @@ module.exports = [
     // render-effect mark in laneDirty (+4). Cap set at measured + 10 B
     // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-05). The
     // cap is frozen again at 28.87 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 28.87 KB, recorded minified 91,625 B (first record);
+    // CI-measured at 28,888 B (91,625 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "28.87 KB",
+    capMinified: 91625,
     alias
   },
   {
@@ -2292,7 +2338,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 12.86 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 12.86 KB, recorded minified 36,568 B (first record);
+    // CI-measured at 12,905 B (36,568 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "12.86 KB",
+    capMinified: 36568,
     alias
   },
   {
@@ -2564,7 +2615,12 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 14.46 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 14.46 KB, recorded minified 41,091 B (first record);
+    // CI-measured at 14,449 B (41,091 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "14.46 KB",
+    capMinified: 41091,
     alias: observeAlias
   },
   {
@@ -2955,7 +3011,12 @@ module.exports = [
     // core only; brotli layout over the engine's bundle. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 28.66 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 28.66 KB, recorded minified 86,419 B (first record);
+    // CI-measured at 28,639 B (86,419 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "28.66 KB",
+    capMinified: 86419,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -2988,7 +3049,12 @@ module.exports = [
     // CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/floor.jsx",
     compile: { hydratable: false },
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 10.05 KB, recorded minified 28,218 B (first record);
+    // CI-measured at 10,031 B (28,218 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "10.05 KB",
+    capMinified: 28218,
     alias
   },
   {
@@ -3024,7 +3090,12 @@ module.exports = [
     // Cap at CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/csr.jsx",
     compile: { hydratable: false },
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 25.13 KB, recorded minified 78,898 B (first record);
+    // CI-measured at 25,129 B (78,898 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "25.13 KB",
+    capMinified: 78898,
     alias
   },
   {
@@ -3055,7 +3126,12 @@ module.exports = [
     // web=16,591 app=3,058). Cap at CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/hydrating.jsx",
     compile: { hydratable: true },
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 30.93 KB, recorded minified 99,198 B (first record);
+    // CI-measured at 30,957 B (99,198 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "30.93 KB",
+    capMinified: 99198,
     alias
   },
   {
@@ -3263,7 +3339,12 @@ module.exports = [
     // reads the new response's refs before the commit. Accepted by the
     // maintainer (2026-10-04). The cap is frozen again at 13.78 KB (head +
     // 10 B).
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 13.78 KB, recorded minified 43,310 B (first record);
+    // CI-measured at 13,770 B (43,310 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: "13.78 KB",
+    capMinified: 43310,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3422,7 +3503,13 @@ module.exports = [
     // +16, observeFlight first-observer hold +17); brotli layout. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 44.84 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 44.84 KB, recorded minified 145,599 B (first record);
+    // CI-measured at 44,864 B (145,599 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
+    capMinified:
+      floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
   {
@@ -3529,7 +3616,13 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 48.51 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 48.51 KB, recorded minified 157,562 B (first record);
+    // CI-measured at 48,527 B (157,562 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
+    capMinified:
+      floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
   {
@@ -3552,7 +3645,12 @@ module.exports = [
     // shaking.
     path: "../../packages/web/dist/server.js",
     import: "{ getRequestEvent, isServer }",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 1.34 KB, recorded minified 3,324 B (first record);
+    // CI-measured at 1,331 B (3,324 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: floor (getRequestEvent + isServer)"],
+    capMinified: floorMinified["server: floor (getRequestEvent + isServer)"],
     alias: serverAlias,
     platform: "node",
     conditions: serverConditions
@@ -3584,7 +3682,12 @@ module.exports = [
     // maintainer. The cap is frozen again at 20.42 KB.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
+    // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: renderToString (the server-render floor)"],
+    capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
     platform: "node",
     conditions: serverConditions
