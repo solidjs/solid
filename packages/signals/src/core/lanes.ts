@@ -38,6 +38,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
+  CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_CHECK,
@@ -773,10 +774,16 @@ GlobalQueue._laneSeams = leaks => {
       const l = r._x?._transaction;
       // A verdict reader a later read of the same pass routed into a verdict
       // lane answered for itself: it re-derives at the holder's landing, not
-      // now (one run — #3322, #3540).
+      // now (one run — #3322, #3540). Other verdict-lane work re-derives only
+      // if the frame stays parked: a transaction landing at this seam makes
+      // what it read the screen (one run).
       if (
         r._flags & REACTIVE_DISPOSED ||
-        (l != null && l._parent?._verdict === l && !(r._flags & REACTIVE_PROBE_UNANSWERED))
+        (l != null &&
+          l._parent?._verdict === l &&
+          (r._config & CONFIG_VERDICT
+            ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
+            : !blocked(l._parent)))
       )
         continue;
       enqueueSub(r);

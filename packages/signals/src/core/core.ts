@@ -260,22 +260,25 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // creator's (ruling A: a lane pass's children are the lane's frame), and
   // under a guess's lane it reads as the lane's too — a binding the lane
   // mounts sees the screen, like the pass that mounted it (#3835). Not
-  // under a verdict lane: verdict work reads the staged world, and a mount
-  // it makes is a mainline mount (A29's boundary exemption). A tracked read
-  // of a lane's value moves a derivation's pass into the lane (`read`); a
-  // leaf's never moves. Restored at the end, after this pass's staging and
-  // runs have been routed.
+  // under a verdict lane, for its reads or its result: a verdict lane holds
+  // verdicts, and a mount it makes is a mainline mount (A29's boundary
+  // exemption, #3851). A tracked read of a lane's value moves a
+  // derivation's pass into the lane (`read`); a leaf's never moves.
+  // Restored at the end, after this pass's staging and runs have been
+  // routed.
   const prevLane = passLane;
   const creatorLane =
-    create && (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS ? prevLane : null;
+    create &&
+    (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS &&
+    prevLane?._parent!._verdict !== prevLane
+      ? prevLane
+      : null;
   setPassLane(
     (el._flags & REACTIVE_LANE_DIRTY ||
       (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
       el._x?._transaction?._lane
       ? el._x._transaction
-      : creatorLane?._parent!._verdict !== creatorLane
-        ? creatorLane
-        : null
+      : creatorLane
   );
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -614,8 +617,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // skips the synchronous first run on a staged value) — when the flush
       // has joined a transaction and either the pass read a held node (it
       // derives from that world — the join merged the node's transaction
-      // into the flush's) or a pass created it (ruling A: a held pass's
-      // children are the transaction's). A node created outside any pass
+      // into the flush's), or read a staging of this flush (the same world
+      // before the seam parks it — a verdict lane's mount, mainline, is not
+      // shown ahead of it: #3851), or a pass created it (ruling A: a held
+      // pass's children are the transaction's). The staged read counts only
+      // inside a flush: an action body's read of an unflushed write is
+      // served committed (A28). A node created outside any pass
       // that read only the committed world (root setup, a mount, an effect
       // callback) is nobody's frame and publishes directly, as does a first
       // pass that runs before anything joins: the pass's input, not a verdict
@@ -635,7 +642,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         create
           ? !(
               (flushTransaction !== null || passTx !== null) &&
-              (joined || (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
+              (joined ||
+                (globalQueue._running && el._flags & REACTIVE_STAGED_READ) ||
+                (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
             )
           : isEffect && el._pendingValue === NOT_PENDING
       ) {
@@ -1827,11 +1836,12 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * the frame commits — one pass, the common case — and a held write if it
  * parks, which the seam repairs (`stagedReaders`): the pass re-derives on
  * the committed world and its lane's runs wait that round, so the held
- * write never shows through the lane. A verdict lane's work reads the
- * frame's proposal like a frame reader (verdict.ts). */
+ * write never shows through the lane. A verdict lane's work likewise: the
+ * lane holds verdicts, not the frame's other stagings (#3851) — except a
+ * verdict reader, which answered for itself (the lane seam, lanes.ts). */
 export function stagedRead(c: Computed<any>): void {
   c._flags |= REACTIVE_STAGED_READ;
-  if (passLane !== null && passLane._parent?._verdict !== passLane) stagedReaders.push(c);
+  if (passLane !== null) stagedReaders.push(c);
 }
 
 /** A10 for a staged node: a verdict reader (the pass entered a window) that
