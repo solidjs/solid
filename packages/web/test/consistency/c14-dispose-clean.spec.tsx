@@ -90,16 +90,17 @@ function mountSite(getX: () => unknown, log: ReturnType<typeof freshLog>) {
 }
 
 describe("C14 — disposal leaves nothing", () => {
-  // Arm (a): document face, disposed during the #2968 record defer. The
-  // parser is "still running" (readyState loading) and the occurrence's
-  // record has not executed; the frame armed its `#recordRefresh` timer.
-  // Dispose before it fires; then the record lands.
-  test("(a) dispose during the record defer: the late record never invokes the fill", async () => {
+  // Arm (a): document face, disposed during the record wait. The parser is
+  // "still running" (readyState loading); the occurrence's record is
+  // DECLARED at its marker (S-record) but its settle has not executed, so
+  // the frame waits on it. Dispose before the settle; then the record lands.
+  test("(a) dispose during the record wait: the late record never invokes the fill", async () => {
     const fid = freshFid("c14a");
     vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
     page = bootPage(
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
     );
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const log = freshLog();
     const li = page.container.querySelector("li")!;
@@ -110,9 +111,9 @@ describe("C14 — disposal leaves nothing", () => {
     await microtasks(2);
     expect(log.invocations).toBe(0);
     dispose();
-    // The record script the parser was owed, then every beat the defer
-    // loop would have used.
-    page.slotRecord(fid, "item#0", { text: "one" });
+    // The record's settle script the parser was owed, then every beat a
+    // re-sync would have used.
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(log.invocations).toBe(0);
@@ -122,8 +123,10 @@ describe("C14 — disposal leaves nothing", () => {
   });
 
   // Arm (b): stream face, disposed during a `{$ref}` wait. The slot record
-  // references data that has not arrived (the mount is held); dispose; then
-  // the data, a `complete`, and the body's end.
+  // references data that has not arrived: the host settled the ref into a
+  // pending read at the write (frames A4, S-ref) and the fresh mount waits
+  // for it to settle; dispose; then the data, a `complete`, and the body's
+  // end — the settle re-applies the record to no frame.
   test("(b) dispose during a {$ref} wait: the data's arrival never invokes the fill", async () => {
     const id = freshFid("c14b");
     const { host } = makeHost();

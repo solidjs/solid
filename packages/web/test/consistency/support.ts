@@ -287,8 +287,24 @@ export interface Page {
   errors: string[];
   /** `_$HY.r[key] = value` — a data script executing. */
   record(key: string, value: unknown): void;
-  /** The slot record for an occurrence (`sc:slot:<fid>:<occurrence>`). */
+  /**
+   * The slot record for an occurrence (`sc:slot:<fid>:<occurrence>`) as the
+   * producer writes it when the args are known at the marker: declared
+   * and settled in one script (a promise stamped `s = 1`, `v = args` — the
+   * shape the hydration serializer emits for a promise resolved in the
+   * same span, see frame-sink's `createDocumentSlotProps`).
+   */
   slotRecord(fid: string, occurrence: string, args: Record<string, unknown>): void;
+  /**
+   * The slot record DECLARED at its marker and settled later (frames A4,
+   * S-record): `_$HY.r[key]` is a pending promise from this call on;
+   * `settle(args)` is the producer's data script resolving it (the client
+   * awaits it through `.then`, the way it awaits a fragment's `<key>_fr`).
+   */
+  declareSlotRecord(
+    fid: string,
+    occurrence: string
+  ): ReturnType<typeof serovalPromise<Record<string, unknown>>>;
   /** The region record for a nested region (`sc:region:<childId>`). */
   regionRecord(childId: string, html: string | Promise<string>): void;
   /** Declare a deferred fragment: `K_fr` pending until `settle`/`reject`. */
@@ -395,7 +411,12 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
       hy.r[key] = value;
     },
     slotRecord(fid, occurrence, args) {
-      hy.r[`sc:slot:${fid}:${occurrence}`] = args;
+      page.declareSlotRecord(fid, occurrence).settle(args);
+    },
+    declareSlotRecord(fid, occurrence) {
+      const record = serovalPromise<Record<string, unknown>>();
+      hy.r[`sc:slot:${fid}:${occurrence}`] = record.promise;
+      return record;
     },
     regionRecord(childId, html) {
       hy.r[`sc:region:${childId}`] = html;

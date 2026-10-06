@@ -171,64 +171,65 @@ describe("C2 — no inert server content", () => {
     dispose();
   });
 
-  // Arm (a2): the record lands AFTER the reveal.
-  test.fails(
-    "(a2) render-prop occurrence revealed after adoption, record after the reveal: mounted and live",
-    async () => {
-      const fid = freshFid("c2a2");
-      const frag = "c2a2";
-      page = bootPage(pendingShell(fid, frag));
-      page.declareFragment(frag);
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const [tick, setTick] = createSignal(0);
-      const invocations: number[] = [];
-      const dispose = hydrate(
-        () => (
-          <Comp
-            item={(p: { text: string }) => {
-              invocations.push(1);
-              return (
-                <li>
-                  {p.text}
-                  {tick()}
-                </li>
-              );
-            }}
-          />
-        ),
-        page.container
-      );
-      await quiesce();
-      expect(invocations.length).toBe(0);
+  // Arm (a2): the record lands AFTER the reveal. Under the declared-record
+  // protocol (frames A4, S-record) the producer writes the record at the
+  // occurrence's marker as a PENDING value — with the fragment, ahead of
+  // its swap — and settles it with the args when they are known; here the
+  // settle trails the reveal by two quiescences, with the parser done and
+  // no fragment pending (the shape no poll could cover).
+  //
+  // Was red on `next`: the record was a plain property write to `_$HY.r`
+  // observed by nothing — the reveal's drain ran before it, and the
+  // `#recordRefresh` poll armed only while `recordsPending()`. Green: the
+  // reveal's drain finds the declaration and awaits it (`.then`); the
+  // settle is a write the frame sees, re-syncs on, and the deferred mount
+  // claims the revealed markup.
+  test("(a2) render-prop occurrence revealed after adoption, record settled after the reveal: mounted and live", async () => {
+    const fid = freshFid("c2a2");
+    const frag = "c2a2";
+    page = bootPage(pendingShell(fid, frag));
+    page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const [tick, setTick] = createSignal(0);
+    const invocations: number[] = [];
+    const dispose = hydrate(
+      () => (
+        <Comp
+          item={(p: { text: string }) => {
+            invocations.push(1);
+            return (
+              <li>
+                {p.text}
+                {tick()}
+              </li>
+            );
+          }}
+        />
+      ),
+      page.container
+    );
+    await quiesce();
+    expect(invocations.length).toBe(0);
 
-      page.revealFragment(frag, slotRange("item#0", liveFillHtml(fid, "item#0", "one")));
-      await quiesce();
-      page.slotRecord(fid, "item#0", { text: "one" });
-      await quiesce();
-      await quiesce();
-      // Observed on next: the server <li> is in the page (text "one0") but
-      // the fill was never invoked (invocations 0) and the bump below leaves
-      // the DOM at "one0"; nothing is logged. Expected: one invocation, the
-      // hole follows the signal. Where it goes wrong: client.ts
-      // adoptBoundary — the only post-adopt drains are the `fr.subscribe`
-      // callback (runs AT the reveal, finds no `sc:slot:` key yet) and
-      // frame-client.ts #syncSlots' `#recordRefresh` timer, which arms only
-      // when a sync discovers a recordless occurrence while
-      // `recordsPending()`; no sync ever runs over the revealed range (the
-      // reveal applied nothing, so no `#flush`), so the record's later
-      // arrival — a plain property write to `_$HY.r` — is observed by
-      // nothing and the range stays inert.
-      expect(page.container.textContent).toBe("one0");
-      expect(invocations.length).toBe(1);
+    // The fragment carries the declaration (pending), then the swap.
+    const record = page.declareSlotRecord(fid, "item#0");
+    page.revealFragment(frag, slotRange("item#0", liveFillHtml(fid, "item#0", "one")));
+    await quiesce();
+    expect(invocations.length).toBe(0);
+    expect(page.container.textContent).toBe("one0");
+    record.settle({ text: "one" });
+    await quiesce();
+    await quiesce();
+    expect(page.container.textContent).toBe("one0");
+    expect(invocations.length).toBe(1);
 
-      setTick(1);
-      flush();
-      expect(page.container.textContent).toBe("one1");
-      expect(page.warnings).toEqual([]);
-      expect(page.errors).toEqual([]);
-      dispose();
-    }
-  );
+    setTick(1);
+    flush();
+    expect(page.container.textContent).toBe("one1");
+    expect(page.warnings).toEqual([]);
+    expect(page.errors).toEqual([]);
+    dispose();
+  });
 
   // Arm (b): a direct-insert occurrence (`children`) is recordless by design.
   // Revealed into the adopted region, it must mount all the same. Was red
