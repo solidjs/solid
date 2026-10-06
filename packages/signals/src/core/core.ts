@@ -21,6 +21,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
+  CONFIG_WIDE,
   CONFIG_SLOT_NODE,
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
@@ -1132,6 +1133,9 @@ export function createEffectNode<T>(
   // +23% effect creation, caught by the creation benches). Only genuinely
   // per-node channels (boundaries) live on _x.
   if (options?.unobserved) ext(self)._unobserved = options.unobserved;
+  // Dev only: the observe artifact mangles `_` option names, so no other
+  // tier could be handed the option (see CONFIG_WIDE).
+  if (__DEV__ && options?._wide) self._config |= CONFIG_WIDE;
   setupComputedNode(self, lazyOptions);
   return self;
 }
