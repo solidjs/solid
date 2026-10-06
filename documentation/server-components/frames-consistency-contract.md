@@ -69,16 +69,22 @@ range) or removed by a deliberate replacement — never claimed by two passes,
 never left in the document beside a fresh clone of itself; a boundary element
 is adopted by at most one frame.
 
-- **Mechanism:** `frames/src/client.ts:claimRender` (a range-scoped registry
-  handed over from the root registry), `client.ts:slotsFor.settle` (the
-  in-place check that turns a render into a claim), `frame-client.ts:FrameImpl.#replaceRange`,
-  `client.ts:adoptBoundary` + `claimedBoundaries` (one adopter per element),
-  `client.ts:documentBoundary` (a second mount goes fresh).
+- **Mechanism:** `frames/src/client.ts:claimRender` (the claim window —
+  `sharedConfig.hydrateWindow`, the re-entry a streamed boundary's resume
+  takes: the range's keys gathered by the producer prefix into the registry
+  of the root the frame adopted under; A2b replaced the range-scoped
+  registry handed over from the root registry), `client.ts:slotsFor.settle`
+  (the in-place check that turns a render into a claim),
+  `frame-client.ts:FrameImpl.#replaceRange`, `client.ts:adoptBoundary` +
+  `claimedBoundaries` (one adopter per element), `client.ts:documentBoundary`
+  (a second mount goes fresh).
 - **Pin:** `c01-claim-once.spec.tsx` — arms: (a) two occurrences claim once
   each with no key miss and node identity preserved; (b) a fill that returns
   fresh nodes replaces, leaving no server node of the range behind; (c) a
   second mount of the same function while the first adopted mounts fresh and
-  the adopted element is untouched.
+  the adopted element is untouched. `c01-claim-window-roots.spec.tsx` (A2b):
+  a claim the frame makes after another `hydrate()` root replaced the live
+  registry/gather pair gathers against the root it adopted under (#2917).
 - **Verdict:** **holds on `next`** (3/3); the harness's C1 laws (key miss,
   unclaimed, duplicate, node identity) fired in none of 1000 cases.
 
