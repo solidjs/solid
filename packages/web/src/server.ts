@@ -2850,7 +2850,7 @@ export function renderToStream(code, options = {}) {
           (stubBatch ||= new Map()).set(key + "_fr", p);
         else serializer.write(key + "_fr", p);
       }
-      return (value, error) => {
+      return (value, error, escaped) => {
         if (registry.has(key)) {
           const item = registry.get(key);
           registry.delete(key);
@@ -2860,6 +2860,19 @@ export function renderToStream(code, options = {}) {
           // `<key>_fr` rejection, a transport sink's error chunk — gets what
           // the wire policy allows (#3468).
           if (error) abandonSubtree(key, error);
+          // A failure that ESCAPED a server component (frames-rulings 3.3:
+          // no server <Errored> rendered an outcome for it; `value` is the
+          // boundary's own markup) is the frame's — one async value errored,
+          // the outward face: the frame sink's unkeyed error chunk
+          // (`:error`), or the document face's `sc:live` error op addressed
+          // to the component's frame. The fragment still settles below (its
+          // position never blanks; `_fr` still rejects — the diagnostic).
+          if (error && escaped) {
+            const wire = ssrSanitizeError(error, null);
+            const message = wire instanceof Error ? wire.message : String(wire);
+            if (sink.error) sink.error("", message);
+            else if (context.live && context.live.error) context.live.error(escaped.frame, message);
+          }
 
           // A settled nested fragment parked its markup here to be spliced
           // into this fragment's content. On the error path there is no
@@ -2907,7 +2920,12 @@ export function renderToStream(code, options = {}) {
               // (its protocol rejects `<key>_fr` via item.resolve below), but
               // transport sinks with no resume protocol need the signal.
               // Post-flush: the boundary told the hook before settling, so
-              // the verdict the chunk carries is the decided one.
+              // the verdict the chunk carries is the decided one. On the
+              // error path `value` is what the boundary rendered for the
+              // outcome — a server <Errored>'s fallback or the boundary's own
+              // markup inside a server component (frames-rulings 3.3) — and
+              // nothing outside one, where the client twin renders fresh over
+              // the blank.
               sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
                 styles,
                 revealGroup,

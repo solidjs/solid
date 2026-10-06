@@ -1391,9 +1391,11 @@ function adoptBoundary(
   // store-keyed — two boundaries can share an occurrence name — so they
   // carry the producing frame's id and only the owning boundary applies
   // (the stray `fid` field rides into the apply; records are built from
-  // key/args, so it is ignored).
+  // key/args, so it is ignored). So does a frame-addressed ERROR op — a
+  // failure that escaped the server component (its `:error`, the outward
+  // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
-    if (op.type === "slot" && op.fid !== id) return;
+    if (op.fid !== undefined && op.fid !== id) return;
     host.apply({ ...op, id: address, version: 0 });
   };
   liveAppliers.add(applyLiveOp);
