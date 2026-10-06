@@ -33,7 +33,7 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // experimental preview, excluded from the 2.0 stability guarantee: API
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
-import { FrameChunk, FrameHost } from "./frame-client.js";
+import { FrameChunk, FrameHost, prepareTier } from "./frame-client.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
@@ -112,6 +112,20 @@ export interface ServerComponentHandlerOptions<C = unknown> {
  * value.
  */
 export const FRAME_STREAM_HEADER = "X-Frame-Stream";
+
+/**
+ * The tiers a frame stream needs (frames savings pass §2, the
+ * server-announced tier mechanism): the names, comma-separated, of the
+ * frames-client tiers the render had minted when the response head left
+ * — `bind,regions,assets,trace,wire` — so the client starts their loads
+ * before it reads the body. Omitted when nothing was minted. A tier first
+ * needed after the head rides in-band instead: `tiers` on the next chunk
+ * (`FrameChunk.tiers`). Additive wire: an old client ignores both; a new
+ * client without them falls back to detection at the readiness check and
+ * holds (frames-rulings 3.1) — the same DOM, later.
+ * @experimental
+ */
+export const FRAME_TIERS_HEADER = "X-Frame-Tiers";
 
 /**
  * The resume request's have-list (RFC 11 §9.5, Resume request): the
@@ -247,6 +261,11 @@ async function observedApplyFrameResponse(response, host, options = {}) {
  */
 function applyFrames(response, host, options = {}, observation) {
   const rootId = response.headers.get(FRAME_STREAM_HEADER) ?? "";
+  // The announced tiers (see FRAME_TIERS_HEADER): their loads start here,
+  // before the body is read, so a tier downloads in parallel with the
+  // stream and is resident by the time a frame's sync needs it. Idempotent
+  // and a no-op for a tier with no loader (eager).
+  response.headers.get(FRAME_TIERS_HEADER)?.split(",").forEach(prepareTier);
   const as = options.as;
   const version = options.version;
   const perFrame = typeof version === "function" ? new Map() : null;
@@ -311,13 +330,22 @@ function applyFrames(response, host, options = {}, observation) {
         // The observe tier's chunk census (see `observedApplyFrameResponse`);
         // folds with the literal.
         if (IS_OBSERVE && observation) observation.chunk(chunk, wireId);
+        // In-band tier announcement (`chunk.tiers`, see FRAME_TIERS_HEADER):
+        // a tier the render first needed after the head left names itself
+        // on the next chunk out; its load starts here. A `data` chunk that
+        // carries the name is one whose node tree NEEDS the tier to decode
+        // (the serializer minted the feature on this very record — a
+        // container trace's plugin node materializes into a live container
+        // only with the tier resident), so it awaits the load, as it awaits
+        // the codec below.
+        const needs = chunk.tiers?.map(prepareTier) || [];
         // Codec-free until a `data` chunk actually arrives: a host whose
         // deserializer loads lazily (`prepareData`) gets awaited here, and
         // because the loop is sequential every later chunk — the records
         // referencing this data included — queues behind the load. Chunk
         // ORDER is the only contract downstream (network jitter already
         // stretches time between chunks), so nothing else observes the wait.
-        if (chunk.type === "data" && host.prepareData) await host.prepareData();
+        if (chunk.type === "data") await Promise.all([host.prepareData?.(), ...needs]);
         host.apply(chunk);
       }
       result = await reader.next();

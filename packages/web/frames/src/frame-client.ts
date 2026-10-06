@@ -23,10 +23,11 @@
 import { DEV, OBSERVE } from "solid-js";
 
 /**
- * One transport chunk of a frame stream, addressed by frame `id`.
+ * One transport chunk of a frame stream, addressed by frame `id`. Any
+ * chunk may carry `tiers` (see `TierAnnouncement`).
  * @experimental
  */
-export type FrameChunk =
+export type FrameChunk = (
   | { type: "start"; id: string; version: number }
   | {
       type: "html";
@@ -124,7 +125,25 @@ export type FrameChunk =
        */
       bound?: "yields" | "time";
     }
-  | { type: "error"; id: string; version: number; key?: string; error: unknown };
+  | { type: "error"; id: string; version: number; key?: string; error: unknown }
+) &
+  TierAnnouncement;
+
+/**
+ * The in-band tier announcement (frames savings pass §2; additive — RFC 11
+ * addendum): the frames-client tiers the render first needed since the
+ * last chunk left — `"bind"`, `"regions"`, `"assets"`, `"trace"`,
+ * `"wire"` — on whichever chunk leaves next. The response head carries the
+ * tiers minted before it (`X-Frame-Tiers`); a tier minted later rides
+ * here. The client starts each named tier's load before applying the
+ * chunk; a `data` chunk additionally AWAITS them (its node tree needs the
+ * tier to decode). Absent on every chunk of a response that minted nothing
+ * after its head, and ignored by a client that predates it.
+ * @experimental
+ */
+export interface TierAnnouncement {
+  tiers?: string[];
+}
 
 /**
  * One store write applied to a frame: `r` maps record keys to values
@@ -377,8 +396,9 @@ export interface FrameOptions {
   reveal?(seam: { before: Node; fallback: Node[]; content: () => Node | DocumentFragment }): void;
   /**
    * Adopt path only. Called when a sync leaves an adopted occurrence
-   * waiting for its args record while none was before; returns the release,
-   * called when a sync leaves none waiting or the frame disposes. The
+   * waiting — for its args record, for a read of it to settle, or for the
+   * tier its mount needs to load — while none was before; returns the
+   * release, called when a sync leaves none waiting or the frame disposes. The
    * integration registers the hold with whatever counts its page as not
    * yet settled (hydration-done counts it as a pending boundary —
    * frames-rulings 3.1): a claim the frame has not made yet is page work
@@ -1067,6 +1087,71 @@ export function createFrameHost(options = {}) {
  */
 export const FRAME_APPLIED_EVENT = "frame:applied";
 
+// === Tiers (frames savings pass §2: the server-announced tier mechanism) ===
+//
+// A TIER is a named slice of the frames client's capability that may live
+// in its own chunk and load on demand: `bind` (binding-slot positions),
+// `regions` (nested server-content regions), `assets`, `trace` (container
+// traces), `wire` (the live loop). The server knows at render time which
+// of them a response or a document needs — it mints the feature — and
+// ANNOUNCES the names (`X-Frame-Tiers` on a stream, `_$HY.r["sc:tiers"]`
+// plus `modulepreload` links on a document, `chunk.tiers` in-band), so the
+// client starts the import in parallel with the content instead of at the
+// first use. The announcement is a warm start, never a dependency: a
+// readiness check that finds a tier absent starts the load itself and
+// holds, so an un-announced response converges to the same DOM.
+//
+// Nothing is tiered in this step — every capability is eager, so no name
+// has a loader and every tier is resident by definition. `tierLoaders` is
+// the seam a tier plugs into (`installServerComponents({ tiers })`, or the
+// built-in table once a tier's chunk exists): `name -> () => import(...)`,
+// the module exporting an `install()` that registers its appliers into
+// this runtime's dispatch.
+/** @type {Record<string, () => Promise<{ install?(): void }>>} */
+export const tierLoaders = {};
+// `name -> the load`, a promise stamped `r` (resident) once the module has
+// installed. One per name for the page's lifetime: tiers never uninstall.
+const tierLoads = {};
+// Every live frame, so an install can wake them all: a frame whose sync
+// held an occurrence on the tier re-syncs and mounts it; the rest see a
+// no-op flush.
+const liveFrames = new Set();
+
+/**
+ * Start (or join) a tier's load. Idempotent per name; a name with no loader
+ * is resident already and resolves at once. Resolves once the module has
+ * installed and every live frame has been flushed.
+ * @internal The frames client's own seam (the announcement reads call it).
+ */
+export function prepareTier(name: string): Promise<void>;
+
+export function prepareTier(name) {
+  let load = tierLoads[name];
+  if (!load) {
+    const loader = tierLoaders[name];
+    tierLoads[name] = load = loader
+      ? loader().then(module => {
+          // The install: the module registers its appliers, then one flush
+          // per live frame — the write is empty, so a frame re-walks what
+          // it holds and applies what the tier now makes applicable (the
+          // held occurrence mounts and its hold releases; a buffered
+          // record applies). A frame with no version yet keeps none.
+          load.r = true;
+          module.install?.();
+          for (const frame of liveFrames) frame.apply({ version: frame.version, r: {} });
+        })
+      : Promise.resolve();
+  }
+  return load;
+}
+
+/**
+ * Whether a tier's code is resident — eager (no loader), or installed. A
+ * tier that is neither has its load started here (the un-announced
+ * fallback: detection at the readiness check), and the caller holds.
+ */
+const tierReady = name => !tierLoaders[name] || prepareTier(name).r;
+
 class FrameImpl {
   // A frame renders either into an element (element boundary: #start/#end
   // null) or between two comment markers within some parent (range boundary).
@@ -1153,6 +1238,8 @@ class FrameImpl {
     this.#end = end;
     this.#options = options;
     this.#slots = options.slots;
+    // Enumerable for a tier's install (see `prepareTier`), until disposal.
+    liveFrames.add(this);
     // Adopt: the boundary already holds server-rendered content, so the first
     // root apply morphs against it rather than materializing from scratch.
     // That content never ran compiled creation code, so sweep its claimable
@@ -1553,7 +1640,24 @@ class FrameImpl {
       // boundary (which would hold the frame's own address follow behind
       // the fallback). A read the response never answers settles rejected
       // at its end: the mount runs then and the read throws (L1).
-      if (!mounted && record && record.pending) {
+      //
+      // A fresh mount also waits for the TIER its occurrence needs (frames
+      // savings pass §2 — the server-announced tier mechanism): a data
+      // occurrence needs `bind` (its positions), a called occurrence whose
+      // record names a region needs `regions`. Resident tiers (every tier,
+      // until one is cut) cost one test; an absent one has its load started
+      // by the check (`tierReady`) and the occurrence stays as the server
+      // left it — its interior on screen, its positions at the server's
+      // values — until the install's flush re-syncs. On the adopt path this
+      // wait is one more reason in the frame's registered hold (3.1): the
+      // delegated-event replay window stays open, hydration-done waits.
+      // (A trace in the args is the trace tier's reason — it lands with the
+      // tier's cut, where the marker scan is.)
+      if (
+        !mounted &&
+        ((record && record.pending) ||
+          (consumers ? !tierReady("bind") : record && record.regions && !tierReady("regions")))
+      ) {
         waiting = true;
         continue;
       }
@@ -1669,10 +1773,11 @@ class FrameImpl {
       }
       // The frame's hold (frames-rulings 3.2): ONE registration with the
       // integration while a sync leaves an occurrence waiting to mount —
-      // for its record, or for the record's reads to settle — released by
-      // the first sync that leaves none, or by disposal. The waits are
-      // bounded as a `<Loading>` resume's is: the record by its declared
-      // value settling, the read by the stream's `complete`/`:error`.
+      // for its record, for the record's reads to settle, or for its tier
+      // — released by the first sync that leaves none, or by disposal. The
+      // waits are bounded as a `<Loading>` resume's is: the record by its
+      // declared value settling, the read by the stream's
+      // `complete`/`:error`, the tier by its load settling.
       if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
       else if (!waiting && this.#hold) this.#releaseHold();
     }
@@ -2014,6 +2119,7 @@ class FrameImpl {
     const { host, id } = this.#options;
     if (host && id !== undefined) host.unregister(id, this);
     this.#disposed = true;
+    liveFrames.delete(this);
     this.#releaseHold();
     for (const key of [...this.#slotCleanups.keys()]) this.#runSlotCleanups(key);
     // Release this frame's occurrences' records from the store that owns them

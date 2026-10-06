@@ -35,7 +35,14 @@ import type { Element as SolidElement } from "solid-js";
 // already has). Kept external in rollup.config.js for the same reason the
 // server-functions/client import below is.
 import { insert, assign } from "@solidjs/web";
-import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
+import {
+  createFrame,
+  createFrameElement,
+  createFrameHost,
+  FRAME_ID_ATTR,
+  prepareTier,
+  tierLoaders
+} from "./frame-client.js";
 import {
   COMPONENT_BINDING,
   callFor,
@@ -1623,6 +1630,21 @@ function adoptBoundary(
 }
 
 /**
+ * Options for `installServerComponents`.
+ * @experimental
+ */
+export interface InstallOptions {
+  /**
+   * Frames-client tiers by name → loader. A tier's module exports
+   * `install()`, called once the import resolves; every live frame is then
+   * flushed so what the tier makes applicable applies (a held occurrence
+   * mounts). A name with no loader is resident (eager). See
+   * `installServerComponents`.
+   */
+  tiers?: Record<string, () => Promise<{ install?(): void }>>;
+}
+
+/**
  * Installs the server-component transport policy on the server-function
  * client — the identity split (DR-1): CONTENT is keyed by the call's
  * intrinsic (function, arguments) address — per-args, exactly like the
@@ -1637,13 +1659,26 @@ function adoptBoundary(
  * Call once in the client entry (an explicit call — the package is
  * `sideEffects: false`, so a bare import would be tree-shaken away);
  * call again to rebind to a custom host.
+ *
+ * `options.tiers` maps a frames-client tier's name to its loader (`() =>
+ * import(...)`, the module exporting `install()`): the client resolves
+ * tier chunks itself, so the server announces NAMES only
+ * (`_$HY.r["sc:tiers"]`, `X-Frame-Tiers`) and the loads start here from
+ * the document's record — the `modulepreload` the document may also carry
+ * made the fetch warm. Nothing is tiered yet; the map is the seam a tier
+ * plugs into.
  * @experimental
  */
-export function installServerComponents(host: any = getFrameHost()) {
+export function installServerComponents(host: any = getFrameHost(), options?: InstallOptions) {
+  const g = globalThis as any;
+  // The tier seam (frames savings pass §2): the loaders, then the tiers
+  // the document announced with its first server component's records —
+  // their imports start now, ahead of the adopt-time syncs that need them.
+  Object.assign(tierLoaders, options?.tiers);
+  g._$HY?.r?.["sc:tiers"]?.forEach(prepareTier);
   // Upgrade the document shell's placeholder bootstrap (if present): the
   // hydration data scripts resolved server-component references to stable
   // per-id placeholders; installing `impl` makes them mount-adopting.
-  const g = globalThis as any;
   if (!g._$SC) {
     // Mirror of the document bootstrap (frame-sink's
     // SERVER_COMPONENT_BOOTSTRAP_EXPR), for a page whose data scripts carried
