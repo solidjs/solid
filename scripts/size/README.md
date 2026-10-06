@@ -8,9 +8,67 @@ compiled-template scenarios — a compiled floor and a JSX todo app in CSR and
 hydrating form — the frames client as a package, two server-component PAGES:
 base and live, and two server-entry floors: `getRequestEvent`/`isServer` and
 `renderToString`) with hard brotli limits on the eager entry chunk. CI fails
-when a scenario exceeds its limit — that means tree-shaking regressed, or a
-deliberate feature landed and the limit should be bumped in the same PR with
-a reason.
+when a scenario exceeds its limit and grew more than a small minified
+allowance over its base (see [The gate](#the-gate)) — that means tree-shaking regressed, or a deliberate
+feature landed and the limit should be bumped in the same PR with a reason.
+
+## The gate
+
+Caps are **brotli** bytes on the eager entry chunk — brotli is what ships —
+set at measured + 10 B rounded up to 0.01 KB. But brotli's layout is not
+monotonic in the input: a change of a few minified bytes moves a scenario's
+brotli by ±50–90 B, so a brotli-only gate failed PRs for noise and every
+"fix" either raised a cap (permanently) or golfed the code until the layout
+came out lucky. Minified bytes are deterministic, so the gate (`gate.mjs`)
+uses them to tell noise from growth. Per scenario:
+
+| brotli vs cap | minified vs base                      | verdict                        |
+| ------------- | ------------------------------------- | ------------------------------ |
+| at or under   | anything                              | **pass**                       |
+| over          | grew by ≤ `MINIFIED_ALLOWANCE` (20 B) | **pass with a warning**        |
+| over          | grew by more                          | **fail**                       |
+| over          | no base measurement                   | **fail** (the cap is absolute) |
+
+"Base" is the PR's base commit (`pull_request.base.sha`, the first parent
+of the merge commit CI measures as the head), measured in the same run
+with the head's harness; on a push to `next` it is the commit before the
+push. The warning — in the job summary, the PR size comment and as an
+annotation — reads _over brotli cap by N B, minified +M B — layout noise;
+cap will be re-based at the next ratchet_. The allowance is one constant,
+`MINIFIED_ALLOWANCE` in `gate.mjs`; a scenario may set its own with
+`minifiedAllowance` in `scenarios.js` (none does).
+
+Real growth is still a decision made in the PR: lower the bytes, or raise
+the scenario's cap in the same PR with a dated reason in its ledger. Raising
+a frozen floor cap (below) additionally needs a `Size-Exception:` line in
+the PR body — the override for growth the maintainer has accepted.
+
+Locally, `npm run size` is the absolute gate (any scenario over its cap
+fails); `node gate.mjs head.json base.json` applies the PR rule to two
+`size.mjs --json` files, and `npm test` runs the decision's tests.
+
+## The ratchet
+
+Noise that passed with a warning leaves a scenario over its cap; savings
+leave caps loose. `npm run ratchet` re-bases every cap on what the tree
+measures now — measured + 10 B rounded up to 0.01 KB — and **only ever
+lowers** a cap. It rewrites the inline caps in `scenarios.js` and the frozen
+floors in `floor-caps.json`, adds a dated ledger line above each lowered
+cap, and prints the lowered inline caps and the lowered **frozen floors** as
+separate tables, so a floor change is seen as one. A scenario still over its
+cap is listed and left alone: the ratchet does not raise.
+
+Run it once per RC, on `next`, from CI's numbers — local and CI artifacts
+differ by tens of brotli bytes:
+
+```sh
+gh run download <run-id> -n size-head   # the Size run of the push to next
+node ratchet.mjs --from size-head.json --note "RC.7, next @ abc1234" --dry-run
+node ratchet.mjs --from size-head.json --note "RC.7, next @ abc1234"
+```
+
+Without `--from` it measures this checkout (build it first). Land the
+result as its own PR.
 
 ## Bundler
 
@@ -62,10 +120,12 @@ the two server-entry floors have their caps in `floor-caps.json`, not in
 **frozen**: a PR may lower them, never raise them. `check-floor-caps.mjs`
 diffs the file against the PR's base branch in CI and fails on a raise unless
 the PR body contains a line starting with `Size-Exception:` naming why the
-maintainer accepted the cost. Ten weeks of individually justified 10–300 B
+maintainer accepted the cost (read from the PR body when the run starts —
+edit the body, then re-run). Ten weeks of individually justified 10–300 B
 bumps took the signals floor from 7.1 to 9.9 KB; the freeze makes the next
 one a decision, not a paragraph. See
-`documentation/plans/size-reduction-audit.md`.
+`documentation/plans/size-reduction-audit.md`. The ratchet may lower a
+frozen floor like any cap.
 
 ## Attribution
 
@@ -75,7 +135,18 @@ the lazy chunks and the minified bytes each package contributed (`signals`,
 attributed in the log that reports it. Minified bytes are the attributable
 unit; brotli compresses across module boundaries. `node attribute.mjs [name]
 [--min bytes]` lists the individual dist modules of matching scenarios.
-`node size.mjs --json out.json` writes the results for the PR comment.
+`node size.mjs --json out.json` writes the results for the gate and the PR
+comment.
+
+## CI
+
+`.github/workflows/size.yml` runs three jobs. `head` builds the commit under
+test and measures it; `base` builds the base (above) and measures it with
+the head's harness (`SIZE_PACKAGES_ROOT`); the two run in parallel. `check`
+— the required status — waits for both, renders the summary and the PR
+comment (`report.mjs`), decides (`gate.mjs`) and checks the floor freeze
+(`check-floor-caps.mjs`). A base that cannot be built or measured leaves the
+caps absolute rather than blocking.
 
 ## Layout
 
@@ -91,3 +162,17 @@ first). `SIZE_PACKAGES_ROOT=<checkout>` measures another checkout's built
 The retained-module-graph test in `packages/signals/tests/treeshake.test.ts`
 is the companion diagnostic that names the re-coupled module when shaking
 breaks.
+
+## Ledger
+
+- **2026-10-05 — minified allowance and ratchet.** The gate stopped failing
+  on brotli alone: over the cap with ≤ 20 B minified growth over the base
+  passes with a warning; caps stay brotli and are re-based downward per RC
+  by `npm run ratchet`. Prompted by one day of noise: #3807 +63 B minified
+  went +36 then +97 B brotli after `next` moved (a +61 B variant measured
+  +3 / −54); #3814 +10 B minified went +50 / +56 B; #3811 +20 B minified
+  went +55 / +89 B; #3817 reordered a condition for −20 B minified and
+  moved one scenario −90 B brotli. The base measurement moved out of the informational
+  `compare` job (which ran after `check`) into a parallel `base` job that
+  `check` waits on, and pushes to `next` now compare against the previous
+  commit instead of the absolute cap. No cap changed.

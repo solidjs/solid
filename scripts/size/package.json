@@ -6,6 +6,9 @@
     "size": "node size.mjs",
     "attribute": "node attribute.mjs",
     "check-floor-caps": "node check-floor-caps.mjs",
+    "gate": "node gate.mjs",
+    "ratchet": "node ratchet.mjs",
+    "test": "node --test gate.test.mjs",
     "build": "cd ../.. && pnpm install --frozen-lockfile && pnpm build"
   },
   "devDependencies": {
