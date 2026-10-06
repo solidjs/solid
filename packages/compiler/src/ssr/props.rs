@@ -434,6 +434,12 @@ impl<'a> BodyScan<'_, '_, 'a> {
 }
 
 impl<'a> Visit<'a> for BodyScan<'_, '_, 'a> {
+    // Type positions are erased from the output; a name used only there must
+    // not be captured as a value.
+    fn visit_ts_type(&mut self, _: &TSType<'a>) {}
+
+    fn visit_ts_type_annotation(&mut self, _: &TSTypeAnnotation<'a>) {}
+
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
         if self.fallback {
             return;

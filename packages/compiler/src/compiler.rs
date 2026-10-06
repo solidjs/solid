@@ -543,6 +543,36 @@ mod tests {
     }
 
     #[test]
+    fn ssr_hoisted_props_do_not_capture_type_only_references() {
+        let forms = [
+            "keyed={(row: Row) => props.key(row)}",
+            "keyed={props.v as Row}",
+            "keyed={props.v satisfies Row}",
+            "keyed={id<Row>(props.v)}",
+        ];
+        for attr in forms {
+            let source = format!(
+                "export const C = <Row,>(props: any) => (<List><For each={{props.rows}} {attr}>{{(row) => <b>{{row()}}</b>}}</For></List>);"
+            );
+            let output = compile(
+                &source,
+                &CompileOptions {
+                    filename: Some("x.tsx".into()),
+                    generate: Generate::Ssr,
+                    hydratable: true,
+                    ..CompileOptions::default()
+                },
+            )
+            .expect("compile SSR");
+            assert!(
+                !output.code.contains(", Row)"),
+                "type-only `Row` captured as a value for `{attr}`:\n{}",
+                output.code
+            );
+        }
+    }
+
+    #[test]
     fn classifies_parse_and_configuration_errors() {
         let parse = compile("const view = <", &CompileOptions::default()).unwrap_err();
         assert_eq!(parse.kind(), crate::CompileErrorKind::Parse);
