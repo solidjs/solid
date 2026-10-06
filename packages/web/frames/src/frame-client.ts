@@ -365,6 +365,16 @@ export interface FrameOptions {
   recordsPending?(): boolean;
   /** Re-absorb the document's arrived-by-now records (idempotent per key). */
   drainRecords?(): void;
+  /**
+   * Adopt path only. Called when a sync leaves an adopted occurrence
+   * waiting — for its args record, for a `{$ref}`'s data — while none was
+   * before; returns the release, called when a sync leaves none waiting or
+   * the frame disposes. The integration registers the hold with whatever
+   * counts its page as not yet settled (hydration-done counts it as a
+   * pending boundary — frames-rulings 3.1): a claim the frame has not made
+   * yet is page work still pending.
+   */
+  hold?(): () => void;
 }
 /**
  * Client frame runtime — the consumer side of the frame stream (port of the
@@ -927,6 +937,9 @@ class FrameImpl {
   // The pending re-check for adopt-time occurrences deferred on a
   // still-arriving args record (#2968 — see #syncSlots).
   #recordRefresh = null;
+  // The release of the frame's hold with the integration while a sync
+  // leaves an occurrence waiting to mount (see #syncSlots' end).
+  #hold;
   #disposed = false;
   // Stable identity so a pending stylesheet holds at most one waiter per
   // frame across repeated readiness checks.
@@ -1314,6 +1327,10 @@ class FrameImpl {
     const found = new Map();
     if (root) collectSlots(root.firstChild, null, found, found);
     else this.#collectSlots(found, found);
+    // Whether this sync leaves an occurrence WAITING to mount — for its
+    // record, for a `{$ref}`'s data: a claim the frame owes the page and has
+    // not made yet (see the hold at the end).
+    let waiting = false;
 
     for (const [occurrence, start] of found) {
       const callback = this.#resolveSlot(propOf(occurrence));
@@ -1341,7 +1358,10 @@ class FrameImpl {
       // real args (an async one then suspends and holds, as the value tier
       // intends). A fresh mount is skipped for the same reason — mounting
       // with a fabricated `undefined` is what makes it visible.
-      if (record && record.kind === "slot" && this.#refsUnresolved(record.args)) continue;
+      if (record && record.kind === "slot" && this.#refsUnresolved(record.args)) {
+        waiting ||= !this.#mountedSlots.has(occurrence);
+        continue;
+      }
       // A mount whose output the morph destroyed (its range was recreated
       // inside a different server parent — ranges only relocate among
       // siblings) is a zombie: remount fresh so content stays correct, even
@@ -1386,6 +1406,7 @@ class FrameImpl {
       // (a record dropped, or marker and record minted under different
       // ids), never something the fill can fix; dev names it.
       if (record === undefined && isCalled(occurrence)) {
+        waiting ||= !this.#mountedSlots.has(occurrence);
         if (this.#options.adopt && this.#options.recordsPending?.()) {
           this.#recordRefresh ??= setTimeout(() => {
             this.#recordRefresh = null;
@@ -1514,7 +1535,22 @@ class FrameImpl {
       for (const occurrence of [...this.#mountedSlots]) {
         if (!found.has(occurrence)) this.#unmountSlot(occurrence);
       }
+      // The frame's hold (frames-rulings 3.2): ONE registration with the
+      // integration while a sync leaves an occurrence waiting to mount —
+      // whatever it waits for (the record, the `{$ref}` data, a hold added
+      // later) — released by the first sync that leaves none, or by
+      // disposal. The waits are bounded as a `<Loading>` resume's is: the
+      // record by the document's records running out (`recordsPending`),
+      // the ref by the stream's `complete`/`:error`.
+      if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
+      else if (!waiting && this.#hold) this.#releaseHold();
     }
+  }
+
+  #releaseHold() {
+    const release = this.#hold;
+    this.#hold = undefined;
+    release && release();
   }
 
   /**
@@ -1968,6 +2004,7 @@ class FrameImpl {
       clearTimeout(this.#recordRefresh);
       this.#recordRefresh = null;
     }
+    this.#releaseHold();
     for (const key of [...this.#slotCleanups.keys()]) this.#runSlotCleanups(key);
     // Release this frame's occurrences' records from the store that owns them
     // (an ancestor's, for a region frame's nested occurrences) so a torn-down

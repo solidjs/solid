@@ -1416,6 +1416,25 @@ function adoptBoundary(
         return !!(hy && hy.fr && hy.fr.pending());
       },
       drainRecords,
+      // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
+      // an adopted occurrence the frame has not claimed yet — waiting for
+      // its record, for a `{$ref}`'s data — is a pending boundary in
+      // everything but a resume, and registers as one through the same
+      // registration a streamed `<Loading>` takes (`sharedConfig.
+      // holdBoundary`), under this component's owner so disposal releases
+      // it, keyed where no fragment is. No parallel accounting, no second
+      // "done": `onHydrationEnd` and `isHydrationInProgress()` mean the
+      // same thing with or without server components. Only while hydration
+      // is in progress: a hold taken on a page that never hydrated (a
+      // client render adopting server markup) or after it settled is the
+      // frame's business, not the page's. Untracked: the registration reads
+      // its trigger once, which is not a read of this component's.
+      hold: () => {
+        const sc: any = sharedConfig;
+        return sc.holdBoundary && sc.isHydrationInProgress()
+          ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
+          : () => {};
+      },
       // The identity split binds the frame to the call ADDRESS (id + args
       // hash), but the document producer stamped `_hk` keys and region fids
       // under the wire name — the bare function id. Hydration-claim prefixes

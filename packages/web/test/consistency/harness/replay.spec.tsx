@@ -149,17 +149,15 @@ describe("harness replay — reduced counterexamples", () => {
     ).toEqual([]);
   });
 
-  // C3 (R1, rediscovered): hydration-end fires while the deferred
-  // occurrence is still unclaimed. Observed: end at step 0 with item#0
-  // mounted and uninvoked. Expected: none.
-  test.fails(
-    "C3 done-counts-holds: hydration-end fires before the deferred record claim (R1)",
-    async () => {
-      expect(
-        await findings({ ...base, occurrences: [render(0)], events: [H, R(0)] }, "C3")
-      ).toEqual([]);
-    }
-  );
+  // C3 (R1, rediscovered): hydration-end fired while the deferred
+  // occurrence was still unclaimed. Was: end at step 0 with item#0 mounted
+  // and uninvoked. Green under frames-rulings 3.1/3.2 (the frame's hold is
+  // a pending boundary): none.
+  test("C3 done-counts-holds: hydration-end fires before the deferred record claim (R1)", async () => {
+    expect(await findings({ ...base, occurrences: [render(0)], events: [H, R(0)] }, "C3")).toEqual(
+      []
+    );
+  });
 
   // Smoke: the canonical order — records, hydrate — holds every law.
   test("smoke: records before hydrate, no fragments: no finding", async () => {
