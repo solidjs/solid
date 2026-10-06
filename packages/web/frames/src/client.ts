@@ -1279,13 +1279,35 @@ function adoptBoundary(
   // be held, not landed in a range nobody owns.
   const claimedFragments = new Set<string>();
   const claimRegionFragments = (root: ParentNode) => {
-    const fr = (globalThis as any)._$HY?.fr;
+    const hy = (globalThis as any)._$HY;
+    const fr = hy?.fr;
     if (!fr || !fr.claim) return;
     root.querySelectorAll('template[id^="pl-"]').forEach(tpl => {
       const fragId = tpl.id.slice(3);
       if (claimedFragments.has(fragId)) return;
       claimedFragments.add(fragId);
       fr.claim(fragId);
+      // A server `<Loading>` inside a server component is the SERVER's
+      // boundary (A0, corollary 4 — inward): its outcome arrives as markup,
+      // and the client shows whatever the server rendered for it — never a
+      // client-invented error state. A rejected one has no client twin to
+      // surface its `<key>_fr` rejection (hydratedCreateLoadingBoundary's
+      // `s === 2` arm runs only for a boundary registered against it), so
+      // dev names it here; the server's error path writes a BLANK template
+      // for it today (web/src/server.ts, the `done` closure's `" "`), which
+      // is the server half's gap, not a client state to invent.
+      if (IS_DEV) {
+        const ref = hy.r && hy.r[fragId + "_fr"];
+        ref &&
+          typeof ref.then === "function" &&
+          ref.then(undefined, (error: unknown) =>
+            console.error(
+              `Server <Loading> fragment "${fragId}" inside server component "${id}" rejected on ` +
+                `the server; the frame shows what the server rendered for that outcome.`,
+              error
+            )
+          );
+      }
     });
   };
   const drainRecords = () => {
