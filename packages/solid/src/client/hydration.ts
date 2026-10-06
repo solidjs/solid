@@ -1237,12 +1237,33 @@ function hydrateStoreFromAsyncIterable(
  * the server value did: not-ready until the snapshot lands, then a
  * read-only store the batches keep updating, done when the trace ends.
  *
- * Created DETACHED (`runWithOwner(null)`): revival can run inside a render
- * effect's owner, and the store is memoized per trace (see the plugin's
- * WeakMap) — a store owned by its first reader would be disposed by that
- * reader's re-render while other readers still hold it. Consumption is
- * pull-driven and the trace is response-bounded, so the projection settles
- * on its own; GC collects the pair with the trace.
+ * Created under a DETACHED root (see `detachedRoot`): revival can run inside
+ * a render effect's owner, and the store is memoized per trace (see the
+ * plugin's WeakMap) — a store owned by its first reader would be disposed by
+ * that reader's re-render while other readers still hold it, and one rooted
+ * under it would take a hydration id from it. Consumption is pull-driven and
+ * the trace is response-bounded, so the projection settles on its own; GC
+ * collects the pair with the trace.
+ *
+ * A replayed backlog beyond the snapshot is PARKED until hydration ends
+ * (frames-rulings 3.6 (iii), "the consumer parks"): the first reads see the
+ * snapshot alone. A trace is materialized at a fill's arg-read, and when
+ * that fill CLAIMS adopted markup — the document's pass, a frame's deferred
+ * claim under its hold (3.1 / 3.2), a claim at a fragment's reveal or by a
+ * frame adopted after done — the snapshot is the state the server rendered
+ * that markup from; the claim renders against it and trusts it — a text
+ * hole is never rewritten during a claim — so a store already past the
+ * markup left the DOM diverged from it for good (the trace had nothing
+ * further to emit). Applied after the claim, the backlog re-runs the fill's
+ * reads outside hydration and the DOM catches up: the same parking
+ * `hydrateStoreFromAsyncIterable` gives a buffered backlog. The release
+ * order is the one 3.2 pins: claim, the frame's hold release, done, then
+ * the backlog — and the next microtask when no hydration is in progress,
+ * which is what a claim made after hydration-done gets, and what a FRESH
+ * mount pays for not being told apart: its backlog lands one beat after
+ * its snapshot, before any paint. Live emissions land after the claim by
+ * construction. A failure applies in order, after everything queued before
+ * it, so it, too, waits on a parked backlog.
  *
  * @internal — consumed by the serialization layer (@solidjs/web).
  */
@@ -1264,11 +1285,15 @@ export function materializeContainerTrace(marker: {
     let failed: { error: any } | undefined;
     let cursor = 0;
     let first = true;
+    // How far into the queue a compute may apply: everything, except a
+    // claim's replayed backlog beyond the snapshot, parked until hydration
+    // ends (see above).
+    let limit = Infinity;
     // Everything lives under the detached root (see the block comment
     // below): materialization runs at arg-read inside a reader's render
     // scope, and a version signal owned by that reader would be disposed by
     // its re-render while the memoized store lives on.
-    return coreRoot(() => {
+    return detachedRoot(() => {
       const [version, setVersion] = coreSignal(0);
       // Subscribe before creating the projection: the buffered replay runs
       // synchronously inside on(), filling the queue the first compute
@@ -1292,10 +1317,27 @@ export function materializeContainerTrace(marker: {
         }
       });
       live = true;
+      // The park (see above). Decided here, unconditionally: the
+      // projection's first compute runs at creation, so the decision cannot
+      // wait for the first read, and materialization runs at arg-read —
+      // before the frame opens its claim window and, for a claim made after
+      // hydration-done (an occurrence inside a server `<Loading>` whose
+      // fragment reveals after done; a frame adopted late), with no
+      // hydration state that says "claim" at all. Serving the snapshot
+      // first costs a fresh mount one beat (the next microtask, before any
+      // paint) and nothing else. Released at hydration end with a version
+      // bump, so the compute drains the backlog as one ordinary update.
+      if (queue.length > 1) {
+        limit = 1;
+        onHydrationEnd(() => {
+          limit = Infinity;
+          bump();
+        });
+      }
       return createProjection(
         (draft: any) => {
           version();
-          while (cursor < queue.length) {
+          while (cursor < queue.length && cursor < limit) {
             const value = queue[cursor++];
             if (first) {
               first = false;
@@ -1311,7 +1353,8 @@ export function materializeContainerTrace(marker: {
               applyPatches(draft, value);
             }
           }
-          if (failed) throw failed.error;
+          // In order: after everything queued before it has applied.
+          if (failed && cursor === queue.length) throw failed.error;
           // Nothing buffered yet (revival raced ahead of the record's data
           // script): pending until the snapshot lands, marked on the
           // projection's own node — the version bump reruns this compute.
@@ -1319,7 +1362,7 @@ export function materializeContainerTrace(marker: {
         },
         (marker.$ta ? [] : {}) as any
       );
-    })!;
+    });
   }
   // A root, not a bare null owner: the projection's async machinery routes
   // its pending/error states through the owner's queue, and with no owner
@@ -1327,7 +1370,7 @@ export function materializeContainerTrace(marker: {
   // surfaces as an unhandled error in dev. The root is never disposed —
   // the projection settles itself when the trace ends and is collected
   // with the store.
-  return coreRoot(() =>
+  return detachedRoot(() =>
     createProjection(
       (draft: any) => ({
         [Symbol.asyncIterator]() {
@@ -1361,7 +1404,21 @@ export function materializeContainerTrace(marker: {
       }),
       (marker.$ta ? [] : {}) as any
     )
-  )!;
+  );
+}
+
+/**
+ * A root with NO parent, for the container-trace materializer. It runs at
+ * arg-read, under whatever owner is reading — during hydration an
+ * id-carrying one — and a root created there inherits the next child id,
+ * shifting every key the reader mints after it: a trace revived at t=0
+ * consumed one root id while one revived by a late claim (no ambient owner)
+ * consumed none, and a keyed sibling after the frame hydrated under
+ * different keys in the two runs. The store is shared and memoized per
+ * trace; it belongs to no reader's id space.
+ */
+function detachedRoot<T>(init: () => T): T {
+  return runWithOwner(null, () => coreRoot(init))!;
 }
 
 // --- Hydration-aware implementations ---

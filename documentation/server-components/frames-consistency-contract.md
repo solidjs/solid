@@ -254,16 +254,25 @@ or after a fragment reveal.
 
 ### C11 — a trace materializes to one value, equal to its oracle
 
-A materialized container trace reads, at every observable point, as the
-direct materialization of the same snapshot and patch prefix would —
-not-ready before the snapshot, then the snapshot with every patch applied so
-far — and its value is independent of how the data was split and timed; one
-trace materializes to one store however many readers revive it.
+A materialized container trace reads, at every observable point **outside a
+claim's park**, as the direct materialization of the same snapshot and patch
+prefix would — not-ready before the snapshot, then the snapshot with every
+patch applied so far — and its value is independent of how the data was
+split and timed; one trace materializes to one store however many readers
+revive it. _Outside a claim's park_ (frames-rulings 3.6 (iii), amended with
+the 3e port): a backlog replayed at materialization — patches delivered
+before the fill that reads the store claimed its markup — is parked beyond
+the snapshot until hydration ends (the next microtask when no hydration is
+in progress), so while the park holds the store reads the snapshot although
+its oracle has the patch; the park releases after the frame's hold (3.2), so
+a settle point under another occurrence's hold can fall inside it. Every
+settle point after hydration-done is outside it.
 
 - **Mechanism:** `solid/hydration.ts:materializeContainerTrace` (sync `.on()`
   replay into a queue the projection drains; version bump per live
-  emission), `frame-container-plugin.ts:materialize` (WeakMap memo per
-  stream), `reviveContainerTraces`, `ContainerTracePlugin.deserialize`.
+  emission; the backlog beyond the snapshot parked under `limit` until
+  `onHydrationEnd`), `frame-container-plugin.ts:materialize` (WeakMap memo
+  per stream), `reviveContainerTraces`, `ContainerTracePlugin.deserialize`.
 - **Pin:** `c11-trace-equals-oracle.spec.tsx` — arms: (a) snapshot before
   revival, patches after; (b) revival before the snapshot (not-ready, then
   equal); (c) 1 batch vs N batches vs random partitions give equal prefixes
@@ -450,13 +459,25 @@ read — may evaluate a render prop as a zero-arg accessor.
 A fill claiming server-rendered text shows, after the claim, the value its
 first read produced: when a container trace's patches landed before the
 claim, the DOM shows the patched value, not the snapshot the server rendered.
+Under frames-rulings 3.6 (iii) the sentence is carried the other way round —
+the first read IS the snapshot (what the markup was rendered from), the claim
+keeps it, and the patches land after the claim as the update they are — so
+what the settled DOM shows is still the value the fill read, patched.
 
 - **Mechanism:** `web/src/client.ts:insertExpression` (a hydrating render is
   a claim pass, not a mutation pass — by design), `materializeContainerTrace`
-  (replays snapshot + patches synchronously at revive, so the first read is
-  already the patched value), `claimRender`.
-- **Pin:** `harness/replay.spec.tsx` C19 ×2 (`test.fails`) + control.
-- **Verdict:** **red on `next`**, **green on S1** (§S1 delta). See §Red R10.
+  (replays snapshot + patches synchronously at revive and parks the patches
+  beyond the snapshot until hydration ends — 3.6 (iii), the 3e port),
+  `claimRender`.
+- **Pin:** `harness/replay.spec.tsx` C19 ×2 + control;
+  `c19-claim-reads-snapshot.spec.tsx` — arms: (a) the t=0 claim with a trace
+  past the markup, (b) the deferred claim under the frame's hold, (c) the
+  release order (claim → hold release → done → backlog, rulings 3.2),
+  (d) a claim after hydration-done (a fragment's reveal), (e) the C11
+  consequence (the store reads the snapshot inside the park), (f) id
+  determinism (the materializer's detached root).
+- **Verdict:** was **red on `next`** (§Red R10); **green with the 3e port**
+  (`wip/frames-pass-integration`, A2b) — the harness clean on both seeds.
 
 ## Red on `next`
 
@@ -728,13 +749,21 @@ the claimed text equals the value read. **Where it goes wrong.** A hydrating
 `insertExpression` is a claim pass — "not a mutation pass" — by design; the
 trace model assumes the server text IS the store's first value, which holds
 only if no patch precedes the claim. On S1 (`9927ddddd`, "a held
-container-trace fill hydrates like a resident one") the shape is green: the
-held fill's claim runs under a path that reconciles the text with the live
-value (the same path that produces C3(b)'s red there). **Severity:** stale
-value shown after hydration with no diagnostic; self-heals on the next
-distinct patch (medium). **Should have been caught by:** `c11-trace-equals-
-oracle` (d) — it patches only after the claim; no hydration test lets a
-container trace move between SSR and claim.
+container-trace fill hydrates like a resident one") the shape is green — not
+because the claim reconciles the text (it never does; `9927ddddd`'s own
+comment: "a text hole is never rewritten during a claim") but because the
+materializer, told it is read for a claim, serves the snapshot and PARKS the
+backlog until hydration ends; the DOM catches up after the claim. S1 is
+evidence for frames-rulings 3.6 (iii), the consumer parks — not for (i), the
+claim pass reconciling. **Fixed** by the 3e port (A2b on
+`wip/frames-pass-integration`): `materializeContainerTrace` parks every
+replayed backlog beyond the snapshot until `onHydrationEnd` (a microtask
+when none is in progress — the port carries no `claiming` hint, so a fresh
+mount pays one beat instead), and roots its projection detached.
+**Severity:** stale value shown after hydration with no diagnostic;
+self-heals on the next distinct patch (medium). **Should have been caught
+by:** `c11-trace-equals-oracle` (d) — it patches only after the claim; no
+hydration test lets a container trace move between SSR and claim.
 
 ## Harness
 
@@ -762,6 +791,17 @@ Campaigns on `next` (`1f8b2caf4`):
 | 3289  | 500   | —                | 323                 | C3 280 (R1), C19 71 (R10, new), C18 49 (R9, new), C2 16+11 (R3), C11 0, C4 0, C12 0, C14 0 |
 | 91501 | 500   | —                | 327                 | C3 268, C19 68, C18 55, C2 26+25                                                           |
 | 91501 | 500   | C3, C18, C19, C2 | **0**               | nothing else surfaces                                                                      |
+
+On `wip/frames-pass-integration` with the A2b port (S-flush, the C3 hold,
+C5, C12 (c), the 3e park): seeds 3289 and 91501, 500 cases, **0 with
+findings**, every law un-ignored. The oracle's one amendment for it: the
+settled trace law (C11 / C19) exempts a settle point INSIDE a claim's park —
+a fill that claimed with patches already delivered, hydration still in
+progress (another occurrence's hold), the text at the snapshot — per C11's
+"outside a claim's park"; the end is always outside it (hydration done) and
+strict. Checked against the branch WITHOUT the park: the amendment hides 2
+(3289) / 3 (91501) of the 83 / 79 C19 cases — those a later distinct patch
+heals before the end — and leaves the rest (81 / 76) red.
 
 Shrink mode (seed 3289, ignore C3) reduces to
 `[item#0 item#1 children] :: H R1 R0` → C18 on the first failing case.
@@ -797,9 +837,10 @@ campaign). Versus `next` (61 passed, 22 expected-fail, 1 skipped):
   R1 (a hold hydration does not count).
 - **Newly green:** C19 ×2 — the `test.fails` pins pass on S1: a trace patch
   before the claim IS shown (`R0 T H` runs with no finding at all, node
-  identity included; `H T R0` shows the oracle and only C3 fires). The held
-  container-trace fill of `9927ddddd` claims through a path that reconciles
-  the text with the live value.
+  identity included; `H T R0` shows the oracle and only C3 fires). The
+  mechanism is `9927ddddd`'s park (the materializer serves the snapshot to
+  the claim and applies the backlog at hydration end), not a reconciling
+  claim — see R10's correction.
 - Everything else identical to `next` (every other pin and expected-fail
   agrees; the codec warm-up probe chunk keeps C5/C6 portable).
 
@@ -812,10 +853,13 @@ Hydration-core (`packages/solid/src/client/hydration.ts`, `web/src/client.ts`):
    newly-red C3(b).
 2. **R6/C12** — give a rejected server `<Loading>` fragment a consumer
    (error fallback + surfaced rejection) instead of the blank swap.
-3. **R10/C19** — decide: either the claim pass reconciles a text hole whose
-   value already differs (narrow, trace-only), or the trace model forbids
-   patches before the claim (the producer holds them until the record's
-   claim) — S1's held-fill path shows the former is reachable.
+3. **R10/C19** — decided (frames-rulings 3.6 (iii), the consumer parks): the
+   materializer serves the snapshot to the claim and parks the backlog until
+   hydration ends; the claim pass stays non-mutating. (The alternatives were
+   (i) the claim pass reconciling a text hole whose value already differs,
+   and (ii) the producer holding patches until the record's claim; S1's
+   held-fill path is the park, (iii), not evidence for (i).) Landed as the
+   3e port on `wip/frames-pass-integration`.
 
 Frames-client (`packages/web/frames/src/`):
 
