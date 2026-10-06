@@ -383,6 +383,7 @@ export interface Resource<T> {
 type SuspenseContextType = {
   resources: Map<string, { _loading: boolean; error: any }>;
   completed: () => void;
+  done?: (html?: string, error?: any) => boolean;
 };
 
 export type ResourceActions<T> = { mutate: Setter<T>; refetch: (info?: unknown) => void };
@@ -673,25 +674,20 @@ export function SuspenseList(props: {
 }
 
 export function Suspense(props: { fallback?: string; children: string }) {
-  let done: undefined | ((html?: string, error?: any) => boolean);
   const ctx = sharedConfig.context!;
   const id = sharedConfig.getContextId();
   const o = createOwner();
+  // A parent boundary can re-render this one while it is pending. The state is shared across
+  // those renders, so it must always complete from the latest render's children.
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
       resources: new Map<string, { _loading: boolean; error: any }>(),
       completed: () => {}
     });
-  value.completed = () => {
-    const res = runSuspense();
-    if (suspenseComplete(value)) {
-      done!(resolveSSRNode(escape(res)));
-    }
-  };
 
   function suspenseError(err: Error) {
-    if (!done || !done(undefined, err)) {
+    if (!value.done || !value.done(undefined, err)) {
       runWithOwner(o.owner!, () => {
         throw err;
       });
@@ -715,10 +711,20 @@ export function Suspense(props: { fallback?: string; children: string }) {
   // never suspended
   if (suspenseComplete(value)) {
     delete ctx.suspense[id];
+    value.completed = () => {};
+    // an earlier render of this boundary may have left its fragment pending
+    if (value.done) value.done(resolveSSRNode(escape(res)));
     return res;
   }
 
-  done = ctx.async ? ctx.registerFragment(id) : undefined;
+  value.completed = () => {
+    const res = runSuspense();
+    if (suspenseComplete(value)) {
+      value.completed = () => {};
+      value.done!(resolveSSRNode(escape(res)));
+    }
+  };
+  if (ctx.async) value.done = ctx.registerFragment(id);
   return catchError(() => {
     if (ctx.async) {
       setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0F", noHydrate: true });
