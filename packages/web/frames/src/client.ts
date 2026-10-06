@@ -1431,7 +1431,7 @@ function adoptBoundary(
       // its trigger once, which is not a read of this component's.
       hold: () => {
         const sc: any = sharedConfig;
-        return sc.holdBoundary && sc.isHydrationInProgress()
+        return sc.isHydrationInProgress?.()
           ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
           : () => {};
       },

@@ -1358,25 +1358,25 @@ class FrameImpl {
       // real args (an async one then suspends and holds, as the value tier
       // intends). A fresh mount is skipped for the same reason — mounting
       // with a fabricated `undefined` is what makes it visible.
-      if (record && record.kind === "slot" && this.#refsUnresolved(record.args)) {
-        waiting ||= !this.#mountedSlots.has(occurrence);
-        continue;
-      }
       // A mount whose output the morph destroyed (its range was recreated
       // inside a different server parent — ranges only relocate among
       // siblings) is a zombie: remount fresh so content stays correct, even
       // though state can't survive a destroyed node.
       const prev = this.#slotNodes.get(occurrence);
       const prevFirst = Array.isArray(prev) ? prev[0] : prev;
+      let mounted = this.#mountedSlots.has(occurrence);
       // A data occurrence is never a zombie: its nodes are the server's
       // consumers, not the fill's output — a replaced element is a consumer
       // change (rebind, below), and an occurrence no element reads any more
       // is simply not found (unmounted at the end).
-      const zombie =
-        !consumers && this.#mountedSlots.has(occurrence) && prevFirst && !prevFirst.parentNode;
-      if (zombie) {
+      if (!consumers && mounted && prevFirst && !prevFirst.parentNode) {
         this.#mountedSlots.delete(occurrence);
         this.#runSlotCleanups(occurrence);
+        mounted = false;
+      }
+      if (record && record.kind === "slot" && this.#refsUnresolved(record.args)) {
+        waiting ||= !mounted;
+        continue;
       }
       // The occurrence's name decides its class: the producer mints every
       // CALLED occurrence as `prop#n` and emits its record at the call,
@@ -1406,7 +1406,7 @@ class FrameImpl {
       // (a record dropped, or marker and record minted under different
       // ids), never something the fill can fix; dev names it.
       if (record === undefined && isCalled(occurrence)) {
-        waiting ||= !this.#mountedSlots.has(occurrence);
+        waiting ||= !mounted;
         if (this.#options.adopt && this.#options.recordsPending?.()) {
           this.#recordRefresh ??= setTimeout(() => {
             this.#recordRefresh = null;
@@ -1414,11 +1414,11 @@ class FrameImpl {
             this.#options.drainRecords?.();
             this.#syncSlots();
           });
-        } else if ("_SOLID_DEV_" && consumers && !this.#mountedSlots.has(occurrence))
+        } else if ("_SOLID_DEV_" && consumers && !mounted)
           devSlotOrphan(this, occurrence, consumers, "record");
         continue;
       }
-      if (!this.#mountedSlots.has(occurrence)) {
+      if (!mounted) {
         // Direct-insert occurrences have no `slot:<id>` record and mount with
         // empty props; render-function occurrences mount with resolved props.
         // Mounting replaces the range interior: on a fresh stream it is
