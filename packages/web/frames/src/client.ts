@@ -38,6 +38,7 @@ import { insert, assign } from "@solidjs/web";
 import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
 import {
   COMPONENT_BINDING,
+  callFor,
   contentAddress,
   createServerComponentHandler,
   stagedContent,
@@ -73,7 +74,13 @@ const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // imports are resolved to the same external entry there
 // (externalizeSharedTransport), so the codec/flight config its defaults
 // read is this instance by construction.
-import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
+import {
+  configureServerFunctionsClient,
+  createServerReference,
+  GET,
+  invoke,
+  withMeta
+} from "@solidjs/web/server-functions/client";
 // The seroval codec is the frames client's heaviest dependency (~6 kB gz
 // with the web plugin set) and the common frames traffic never needs it:
 // HTML chunks, scalar slot args and document records (the hydration
@@ -202,11 +209,31 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
 /**
  * The frame as one async value outward (A0, corollary 4): to its
  * surroundings a mount is one async source whose first landing is the
- * bound address's first flush — content or error — and whose inside is the
- * server's. The enclosing `<Loading>` pends on that landing exactly as it
- * pends on any async source's first landing (`host.landing`: a promise
- * while the response is in flight), and on nothing inside the frame — a
- * server-rendered `<Loading>` fallback in the shell IS content.
+ * bound address's first flush, whose error is that value REJECTING, and
+ * whose inside is the server's. The enclosing `<Loading>` pends on that
+ * landing exactly as it pends on any async source's first landing
+ * (`host.landing`: a promise while the response is in flight), and on
+ * nothing inside the frame — a server-rendered `<Loading>` fallback in the
+ * shell IS content. The enclosing `<Errored>` sees the frame's `:error`
+ * exactly as it sees any `createAsync` that rejects (frames-rulings 3.3):
+ * the landing promise rejects with the error record and this node throws
+ * it; an error AFTER the landing — a later yield failing, a stream cut
+ * off, a refetch's response erroring — is the L2 "errored flight after a
+ * landing" case and errors the node the same way (what an async iterable
+ * that yielded and then threw does: the shown value is not kept beside the
+ * error). The error is announced to this node by the mount's frame
+ * (`failed`, a tick written from its `onApply`); the node reads the record
+ * off the frame bound to the address and surfaces each record once — the
+ * applied state of 2.1, keyed by record identity, so a re-read of an error
+ * this node already surfaced is not a re-throw but a RE-ASK.
+ *
+ * `reset` re-asks: the `<Errored>`'s `reset` recomputes the node that
+ * threw — this one — and an errored landing is not a landing for a fresh
+ * consumer: the re-read is a promise for the NEXT flight (`host.landing`),
+ * and the flight is opened here (`reask`: the call behind the address,
+ * re-invoked — `dynamic`'s factory is hoisted and never re-runs for a
+ * `reset`, so the mount asks for itself). A re-ask whose call fails on the
+ * wire (no response to land) rejects the node with that failure.
  *
  * Per bound address (frames-rulings 1.5, 1.6 (i)): a switch is a new
  * question on the source, read here through a FRESH node with no value, so
@@ -222,10 +249,31 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * `value`: no pending beat, no fallback flicker, and a hydrating consumer
  * never sees the node go async.
  */
-function landing<T>(host: any, address: string, value: T): T | (() => T) {
-  const wait = host.landing(address);
-  return wait ? createMemo(() => wait.then(() => value)) : value;
+function landing<T>(host: any, address: string, value: T, failed: () => unknown): () => T {
+  // What the address's store holds at creation is applied: a fresh
+  // consumer of an errored address re-asks, it does not re-throw.
+  let thrown = host.get(address)?.error;
+  return createMemo(() => {
+    failed();
+    const error = host.get(address)?.error;
+    if (error !== undefined && error !== thrown) {
+      thrown = error;
+      throw error;
+    }
+    const wait = host.landing(address);
+    if (!wait) return value;
+    // An errored address with no flight open (a flight's `start` clears
+    // the mounts' error): this read is the re-ask.
+    const asked = error !== undefined && reask ? reask(address) : undefined;
+    return (asked ? asked.then(() => wait) : wait).then(() => value);
+  });
 }
+
+// The re-ask (see `landing`): installed with the handler, it re-invokes the
+// call behind an address and resolves when the call's response has been
+// handled (the flight is open and will land through the host). Undefined
+// until `installServerComponents` ran.
+let reask: ((address: string) => Promise<unknown> | undefined) | undefined;
 /**
  * The app-wide shared frame host (created lazily): one chunk router with
  * per-response codec data tables.
@@ -981,6 +1029,11 @@ function boundaryComponent(host: any, fnId: string) {
     // of their own — still claim with the right lifetime.
     const owner = getOwner();
     const id = binding ? contentAddress(binding()) : fnId;
+    // The frame's error, announced to the mount's content node (see
+    // `landing`): one tick per error record the frame applies. `ownedWrite`:
+    // the first apply may run inside this very render (a warm store seeds
+    // at registration), the rest from chunk microtasks and commits.
+    const [failed, setFailed] = createSignal(0, { ownedWrite: true });
     // The boundary is a DOM element (`<solid-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it.
@@ -992,18 +1045,20 @@ function boundaryComponent(host: any, fnId: string) {
       id,
       slots: slotsFor(props),
       ownerScope: boundaryScope(owner),
-      reveal: revealSeam(owner)
+      reveal: revealSeam(owner),
+      onApply: info => info.reason === "error" && setFailed(n => n + 1)
     });
     onCleanup(dispose);
     // The shell: the covering <Loading> pends on the bound address's first
-    // flush (`landing`). The binding resolves at response-header time while
-    // content streams in behind it — read ungated, the boundary would
-    // resolve over an empty <solid-frame> (a flash) and have LATCHED by the
-    // time the shell's fills run, orphaning any pending async slot-arg read
-    // (with no reveal seam to reconstruct, the mount's own boundary is the
-    // covering one). A warm direct mount has its content before we return
-    // and IS the element: no memo, no pending beat.
-    if (!binding) return landing(host, id, element) as unknown as SolidElement;
+    // flush (`landing`), the enclosing <Errored> catches its error. The
+    // binding resolves at response-header time while content streams in
+    // behind it — read ungated, the boundary would resolve over an empty
+    // <solid-frame> (a flash) and have LATCHED by the time the shell's
+    // fills run, orphaning any pending async slot-arg read (with no reveal
+    // seam to reconstruct, the mount's own boundary is the covering one). A
+    // warm direct mount has its content before we return and IS the
+    // element: the node reads it synchronously, no pending beat.
+    if (!binding) return landing(host, id, element, failed) as unknown as SolidElement;
     // Follow the live address binding (the identity split's delivery
     // path): a `dynamic` site whose call switched arguments keeps this
     // instance and pushes the new address through the accessor — the frame
@@ -1014,7 +1069,7 @@ function boundaryComponent(host: any, fnId: string) {
     // reads warm, and the refetch's pending is the transaction's).
     followAddress(host, frame, binding);
     return createMemo(() =>
-      landing(host, contentAddress(binding()), element)
+      landing(host, contentAddress(binding()), element, failed)
     ) as unknown as SolidElement;
   };
 }
@@ -1440,6 +1495,9 @@ function adoptBoundary(
   // The root this boundary adopts under (see ClaimScope): its occurrences
   // claim against this pair however late they mount.
   const sc: any = sharedConfig;
+  // The frame's error, announced to the address source below (see
+  // `landing` and boundaryComponent's twin).
+  const [failed, setFailed] = createSignal(0, { ownedWrite: true });
   frame = createFrame(el, {
     adopt: true,
     host,
@@ -1447,6 +1505,7 @@ function adoptBoundary(
     slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
+    onApply: info => info.reason === "error" && setFailed(n => n + 1),
     // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
     // an adopted occurrence the frame has not claimed yet — waiting for
     // its record — is a pending boundary in everything but a resume, and
@@ -1483,18 +1542,20 @@ function adoptBoundary(
   // search param changes the call). Unlike the call-driven mount, this
   // component's return value is the raw SSR'd element (hydration must
   // claim it in place), so no reader in the render graph would ever see
-  // the source pend — the effect below exists to BE that reader: while its
-  // compute pends on the new address's landing, the transition that
-  // delivered the switch stays open (no-op effect half: the pend IS the
-  // point).
+  // the source pend or ERROR — the effect below exists to BE that reader:
+  // while its compute pends on the new address's landing, the transition
+  // that delivered the switch stays open (no-op effect half: the pend IS
+  // the point); when the source errors — the switch's response, or the
+  // adopted frame's own `:error` later (the document face's escaped
+  // server error, frames-rulings 3.3) — the throw reaches the enclosing
+  // client `<Errored>` from here, and its `reset` re-asks through the
+  // same node (`landing`). A mount placed without a binding has no such
+  // reader: its frame's error stays a record (`frame.error`).
   if (binding) {
     followAddress(host, frame, binding);
-    const source = createMemo(() => landing(host, contentAddress(binding()), true));
+    const source = createMemo(() => landing(host, contentAddress(binding()), true, failed));
     createRenderEffect(
-      () => {
-        const landed = source();
-        typeof landed === "function" && landed();
-      },
+      () => source()(),
       () => {}
     );
   }
@@ -1597,5 +1658,25 @@ export function installServerComponents(host: any = getFrameHost()) {
   const records = g._$SC.a || (g._$SC.a = {});
   for (const address in records) showing(address, records[address]);
   g._$SC.reg = showing;
+  // The re-ask (see `landing`): the call behind the address, as the
+  // handler recorded it, invoked again — through the same declaration
+  // shape it was made with (a `GET`-declared read stays a GET; declared
+  // metadata rides along), with no per-call options (those were the
+  // original caller's; this call is the boundary's own). Its response is
+  // handled like any other and lands through the host.
+  reask = address => {
+    const call = callFor(address);
+    if (!call) {
+      if (IS_DEV)
+        console.error(
+          `Server component boundary "${address}" errored, but no call is recorded for it; ` +
+            `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
+        );
+      return undefined;
+    }
+    const meta: any = call.meta || {};
+    const ref = createServerReference(call.id);
+    return invoke(withMeta(meta.method === "GET" ? GET(ref) : ref, meta), {}, ...call.args);
+  };
   configureServerFunctionsClient({ responseHandler: handler });
 }

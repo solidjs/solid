@@ -9,7 +9,7 @@
 // have their own spec files. See MATRIX.md for the full cell table.
 import { afterEach, describe, expect, test } from "vitest";
 import { vi } from "vitest";
-import { createRoot, createSignal, flush, isPending, Loading } from "solid-js";
+import { createRoot, createSignal, Errored, flush, isPending, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
@@ -43,16 +43,31 @@ function articleHtml(title: string) {
   );
 }
 
-/** Mount `<Loading fallback=…><Comp {...props}/></Loading>` into the body. */
+/**
+ * Mount `<Errored><Loading fallback=…><Comp {...props}/></Loading></Errored>`
+ * into the body. The `<Errored>` is the frame's (frames-rulings 3.3): a
+ * frame is one async value outward, and its `:error` throws to the nearest
+ * client `<Errored>` as any rejected `createAsync` does — without one the
+ * core halts the reactive system (`frames-errored-reset-refetch.spec` (d)).
+ * Its fallback renders the error record's message as `.err`.
+ */
 function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let div!: HTMLDivElement;
+  let reset: (() => void) | undefined;
   const dispose = createRoot(d => {
     <div ref={div}>
-      <Loading fallback={<span>shell-fallback</span>}>
-        <Comp {...props} />
-      </Loading>
+      <Errored
+        fallback={(err, r) => {
+          reset = r;
+          return <span class="err">{String((err() as any)?.message)}</span>;
+        }}
+      >
+        <Loading fallback={<span>shell-fallback</span>}>
+          <Comp {...props} />
+        </Loading>
+      </Errored>
     </div>;
     container.appendChild(div);
     return d;
@@ -60,6 +75,9 @@ function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
   return {
     div,
     dispose,
+    /** The <Errored> fallback's text, or null while the content shows. */
+    error: () => div.querySelector(".err")?.textContent ?? null,
+    reset: () => reset!(),
     cleanup() {
       dispose();
       container.remove();
@@ -182,12 +200,24 @@ describe("call-driven/second-response-newer-version", () => {
     expect(h1.textContent).toBe("Story 1");
     expect(mounts).toBe(1);
     li.dataset.keep = "yes";
-    // Seed a stale per-response error record; the version bump must clear it.
+    // Seed a stale per-response error record. The frame is one async value
+    // (frames-rulings 3.3): an error after its landing errors it, and the
+    // enclosing <Errored> shows the record while the mount stays alive
+    // behind the fallback; the version bump below must clear the record.
     host.apply({ type: "error", id: "matrix/lc/refetch", version: 1, error: { message: "old" } });
+    await pump(1);
     expect((host.get("matrix/lc/refetch") as any).error).toEqual({ message: "old" });
+    expect(m.error()).toBe("old");
 
     setTick(1);
     await pump();
+    // Per-response records reset on the version bump; the refetch landed
+    // into the live mount. `reset` re-reads the landing — it finds one (no
+    // re-ask) and the boundary shows the mount again.
+    expect((host.get("matrix/lc/refetch") as any).error).toBeUndefined();
+    m.reset();
+    await pump(1);
+    expect(m.error()).toBeNull();
 
     // Morph, not remount: same nodes, new server text, occurrence not re-called.
     expect(m.div.querySelector("h1")).toBe(h1);
@@ -195,17 +225,20 @@ describe("call-driven/second-response-newer-version", () => {
     expect(m.div.querySelector("ul li")).toBe(li);
     expect(li.dataset.keep).toBe("yes");
     expect(mounts).toBe(1);
-    // Per-response records reset on the version bump; slot records survived.
-    expect((host.get("matrix/lc/refetch") as any).error).toBeUndefined();
+    expect(call).toBe(2);
 
     m.cleanup();
   });
 });
 
 describe("call-driven/error-record", () => {
-  // Relies on the runtime's error-apply notification (an :error record fires
-  // onApply so the shell gate releases and the empty frame mounts).
-  test("error/before-html: the record surfaces through frame.error; the boundary mounts empty, not stuck on fallback", async () => {
+  // A frame is one async value outward (frames-rulings 3.3, A0 corollary
+  // 4): its `:error` is that value REJECTING. The landing rejects, the
+  // mount's content node throws, the nearest client <Errored> shows the
+  // record — never an empty `<solid-frame>` released by the covering
+  // <Loading> — and the record stays the frame's diagnostic (`frame.error`).
+  // Re-pinned 2026-10-06 (A7) from "the boundary mounts empty".
+  test("error/before-html: the landing REJECTS — the client <Errored> shows the record, no empty frame is revealed; frame.error keeps it", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     vi.stubGlobal("fetch", async () =>
@@ -221,16 +254,21 @@ describe("call-driven/error-record", () => {
 
     const frame: any = host.get("matrix/lc/err-early");
     expect(frame.error).toEqual({ message: "boom" });
-    // No content ever streamed; the boundary element is present and empty.
-    const el = m.div.querySelector("solid-frame")!;
-    expect(el.textContent).toBe("");
+    // No content ever streamed, and nothing was invented at the position:
+    // the <Errored> shows the error, the boundary element is not on screen.
+    expect(m.error()).toBe("boom");
+    expect(m.div.querySelector("solid-frame")).toBeNull();
     // The covering Loading is not stuck on its fallback.
     expect(m.div.textContent).not.toContain("shell-fallback");
 
     m.cleanup();
   });
 
-  test("error/after-html: applied content stays; the error is recorded, not a teardown", async () => {
+  // The L2 "errored flight after a landing" case: what `createAsync` does
+  // when an async iterable yields and then throws — the node errors, the
+  // shown value is not kept beside the error. The content is still in the
+  // mount (behind the <Errored>'s fallback), and the record is the frame's.
+  test("error/after-html: the frame errors (an errored flight after a landing) — the <Errored> replaces the content; the record is kept, not a teardown", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     vi.stubGlobal("fetch", async () =>
@@ -245,13 +283,14 @@ describe("call-driven/error-record", () => {
     const m = mountUnderLoading(Page, {});
     await pump();
 
-    expect(m.div.querySelector("h1")!.textContent).toBe("Kept");
+    expect(m.error()).toBe("late-boom");
+    expect(m.div.querySelector("h1")).toBeNull();
     expect((host.get("matrix/lc/err-late") as any).error).toEqual({ message: "late-boom" });
 
     m.cleanup();
   });
 
-  test("error-then-recovery: a refetch's newer version clears the error record and morphs content in", async () => {
+  test("error-then-recovery: a refetch's newer version clears the error record and lands content into the mount; reset() shows it (no re-ask: the landing is there)", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     let call = 0;
@@ -275,11 +314,19 @@ describe("call-driven/error-record", () => {
     const m = mountUnderLoading(Page, {});
     await pump();
     expect((host.get("matrix/lc/err-recover") as any).error).toEqual({ message: "boom" });
+    expect(m.error()).toBe("boom");
 
     setTick(1);
     await pump();
-    expect(m.div.querySelector("h1")!.textContent).toBe("Recovered");
     expect((host.get("matrix/lc/err-recover") as any).error).toBeUndefined();
+    // The content landed in the mount behind the fallback; the boundary
+    // shows it again at `reset` (the node re-reads a landing that is now
+    // there — a refetch answered the question, so nothing is re-asked).
+    m.reset();
+    await pump(1);
+    expect(call).toBe(2);
+    expect(m.error()).toBeNull();
+    expect(m.div.querySelector("h1")!.textContent).toBe("Recovered");
 
     m.cleanup();
   });
@@ -289,8 +336,10 @@ describe("call-driven/truncated-stream", () => {
   // Undeclared death is an error (RFC 11 §9.5, D1 / Client face 5): a
   // bounded server component's body ending before its `complete` was cut
   // off mid-render, and nothing resumes it on its own — the frame records
-  // the death, the content already applied stays, and a refetch recovers.
-  test("a stream that ends without complete records the death as the frame's error, keeps its applied content and stays refetchable", async () => {
+  // the death and, as one async value (frames-rulings 3.3), ERRORS: the
+  // enclosing <Errored> shows it (the applied content stays in the mount
+  // behind the fallback, not a teardown), and a refetch recovers.
+  test("a stream that ends without complete records the death as the frame's error, errors the mount and stays refetchable", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     let call = 0;
@@ -315,20 +364,26 @@ describe("call-driven/truncated-stream", () => {
     held.close();
     await pump();
 
-    expect(m.div.querySelector("h1")!.textContent).toBe("Partial");
     const frame: any = host.get("matrix/lc/truncated");
     expect(frame.store[":complete"]).toBeUndefined();
     // A clean close before `complete` is a death, and an undeclared one is
-    // an error: the frame the server never declared done was cut off.
+    // an error: the frame the server never declared done was cut off. The
+    // frame errored — the <Errored> shows it; the partial content stays in
+    // the mount behind the fallback.
     expect(frame.error).toBeTruthy();
     expect(String(frame.error.message)).toContain("before the frame completed");
+    expect(m.error()).toContain("before the frame completed");
+    expect(m.div.querySelector("h1")).toBeNull();
 
     // The boundary is not poisoned: a refetch morphs normally and its newer
-    // version clears the per-response error record.
+    // version clears the per-response error record; `reset` shows it.
     setTick(1);
     await pump();
-    expect(m.div.querySelector("h1")!.textContent).toBe("After");
     expect(frame.error).toBeUndefined();
+    m.reset();
+    await pump(1);
+    expect(m.error()).toBeNull();
+    expect(m.div.querySelector("h1")!.textContent).toBe("After");
 
     m.cleanup();
   });
@@ -350,10 +405,12 @@ describe("call-driven/truncated-stream", () => {
     held.abort(new Error("connection reset"));
     await pump();
 
-    expect(m.div.querySelector("h1")!.textContent).toBe("Partial");
     const frame: any = host.get("matrix/lc/aborted");
     expect(frame.error).toBeTruthy();
     expect(String(frame.error.message)).toContain("connection reset");
+    // The frame errored: the <Errored> shows the record (3.3).
+    expect(m.error()).toContain("connection reset");
+    expect(m.div.querySelector("h1")).toBeNull();
 
     m.cleanup();
   });
@@ -478,9 +535,10 @@ describe("call-driven/shell-gate", () => {
     m.cleanup();
   });
 
-  // Relies on the runtime's error-apply notification (an :error record fires
-  // onApply so the gate releases on a failed stream).
-  test("the shell gate releases on an ERROR record too (an errored stream must not hold the fallback forever)", async () => {
+  // The landing REJECTS on an error record (frames-rulings 3.3): the
+  // covering <Loading> moves off its fallback because the nearest <Errored>
+  // caught the frame's error — never because an empty frame was revealed.
+  test("the shell gate settles on an ERROR record too — by rejecting: the <Errored> shows it, the fallback is not held forever", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     const held = openFrameResponse("srv");
@@ -490,13 +548,16 @@ describe("call-driven/shell-gate", () => {
     const m = mountUnderLoading(Page, {});
     await pump();
     held.send({ type: "start", id: "srv", version: 1 });
+    await pump();
+    expect(m.div.textContent).toContain("shell-fallback");
     held.send({ type: "error", id: "srv", version: 1, error: { message: "boom" } });
     held.close();
     await pump();
 
-    // Whatever the error surface looks like, the page must move off the
-    // fallback: the wait is over, the stream said so.
+    // The wait is over, the stream said so — with an error.
     expect(m.div.textContent).not.toContain("shell-fallback");
+    expect(m.error()).toBe("boom");
+    expect(m.div.querySelector("solid-frame")).toBeNull();
     expect((host.get("matrix/lc/shell-err") as any).error).toEqual({ message: "boom" });
 
     m.cleanup();
@@ -521,9 +582,11 @@ describe("call-driven/args-switch-gate", () => {
     const dispose = createRoot(d => {
       <div ref={div}>
         <span data-probe>{isPending(source) ? "pending" : "idle"}</span>
-        <Loading fallback={<span>shell-fallback</span>}>
-          <Comp {...props} />
-        </Loading>
+        <Errored fallback={err => <span class="err">{String((err() as any)?.message)}</span>}>
+          <Loading fallback={<span>shell-fallback</span>}>
+            <Comp {...props} />
+          </Loading>
+        </Errored>
       </div>;
       container.appendChild(div);
       return d;
@@ -531,6 +594,7 @@ describe("call-driven/args-switch-gate", () => {
     return {
       div,
       probe: () => div.querySelector("[data-probe]")!.textContent,
+      error: () => div.querySelector(".err")?.textContent ?? null,
       cleanup() {
         dispose();
         container.remove();
@@ -576,6 +640,7 @@ describe("call-driven/args-switch-gate", () => {
     // First content for the new address is the answer: morph in, settle.
     held[1].send({ type: "start", id: "srv", version: 1 });
     held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("One") });
+    held[1].send({ type: "complete", id: "srv", version: 1 });
     held[1].close();
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("One");
@@ -628,6 +693,7 @@ describe("call-driven/args-switch-gate", () => {
       html: "<span>seg-content</span>"
     });
     held[1].send({ type: "reveal", id: "srv", version: 1, keys: ["a"], waitForStyles: false });
+    held[1].send({ type: "complete", id: "srv", version: 1 });
     held[1].close();
     await pump();
     expect(m.div.textContent).toContain("seg-content");
@@ -636,7 +702,13 @@ describe("call-driven/args-switch-gate", () => {
     m.cleanup();
   });
 
-  test("an ERRORED stream is an answer too: the switch's pending state must not outlive the response", async () => {
+  // The new address's response erroring is the new question REJECTING
+  // (frames-rulings 3.3): the transition settles (pending drops) and the
+  // nearest <Errored> shows the error in place of the content — what a
+  // `createAsync` whose re-asked flight rejects does; the previous call's
+  // content is not kept beside the error. Re-pinned 2026-10-06 (A7) from
+  // "the previous call's content stays on screen".
+  test("an ERRORED stream is an answer too: the switch's pending state must not outlive the response — the <Errored> shows it", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     const held = heldPerArg();
@@ -660,9 +732,11 @@ describe("call-driven/args-switch-gate", () => {
     held[1].close();
     await pump();
     expect(m.probe()).toBe("idle");
-    // The error is recorded, not a teardown: the previous call's content
-    // stays on screen (same policy as error/after-html).
-    expect(m.div.querySelector("h1")!.textContent).toBe("Zero");
+    // The frame errored: the <Errored> shows the record; the mount (still
+    // showing the previous call's content) stands behind the fallback, not
+    // torn down (same policy as error/after-html).
+    expect(m.error()).toBe("boom");
+    expect(m.div.querySelector("h1")).toBeNull();
 
     m.cleanup();
   });
@@ -697,6 +771,7 @@ describe("call-driven/args-switch-gate", () => {
     held[1].send({ type: "start", id: "srv", version: 1 });
     held[1].send({ type: "slot", id: "srv", version: 1, key: "comment#0", args: { text: "one" } });
     held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("Same") });
+    held[1].send({ type: "complete", id: "srv", version: 1 });
     held[1].close();
     await pump();
     expect(m.probe()).toBe("idle");
@@ -735,6 +810,7 @@ describe("call-driven/args-switch-gate", () => {
     // Only the LIVE call's answer settles the gate.
     held[2].send({ type: "start", id: "srv", version: 1 });
     held[2].send({ type: "html", id: "srv", version: 1, html: articleHtml("Two") });
+    held[2].send({ type: "complete", id: "srv", version: 1 });
     held[2].close();
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("Two");
@@ -744,6 +820,7 @@ describe("call-driven/args-switch-gate", () => {
     // store (a warm), never the boundary that moved on.
     held[1].send({ type: "start", id: "srv", version: 1 });
     held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("One") });
+    held[1].send({ type: "complete", id: "srv", version: 1 });
     held[1].close();
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("Two");

@@ -22,7 +22,7 @@
  * every distinct text the site showed is recorded (`watchFrames`).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, Loading } from "solid-js";
+import { createRoot, createSignal, Errored, Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
@@ -47,15 +47,22 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+// The `<Errored>` is the frame's (frames-rulings 3.3): the frame as one
+// async value outward REJECTS on its `:error`, and the error throws to the
+// nearest client `<Errored>` as any rejected `createAsync` does — without
+// one, the core halts the reactive system. Its fallback is an `<em>`, so
+// `pending` (the `<span>` fallback) still reads the <Loading> alone.
 function mountSite(getX: (...args: any[]) => unknown) {
   const [n, setN] = createSignal(1);
   const Site = dynamic(() => getX(n()) as any);
   let div!: HTMLDivElement;
   const dispose = createRoot(d => {
     <div ref={div}>
-      <Loading fallback={<span>{FALLBACK}</span>}>
-        <Site />
-      </Loading>
+      <Errored fallback={err => <em>{String((err() as any)?.message)}</em>}>
+        <Loading fallback={<span>{FALLBACK}</span>}>
+          <Site />
+        </Loading>
+      </Errored>
     </div>;
     document.body.appendChild(div);
     return d;
@@ -64,7 +71,8 @@ function mountSite(getX: (...args: any[]) => unknown) {
   const watch = watchFrames(div);
   const pending = () => !!div.querySelector("span");
   const h1 = () => div.querySelector("h1")?.textContent;
-  return { div, frames: watch.frames, pending, h1, setN };
+  const error = () => div.querySelector("em")?.textContent;
+  return { div, frames: watch.frames, pending, h1, error, setN };
 }
 
 describe("C17 — the shell gate answers only to the bound address", () => {
@@ -127,12 +135,15 @@ describe("C17 — the shell gate answers only to the bound address", () => {
     expect(site.frames.some(f => f.includes("A"))).toBe(false);
   });
 
-  // Arm (b): an `error` record on B is an apply — it releases the gate
-  // (the frame's error state surfaces instead of a fallback held forever).
-  // A stays silent so the error is the only candidate release, and the
-  // error is B's FIRST chunk (a `start` would already count as B's first
-  // write and release the gate on its own — see arm (a)).
-  test("(b) switch while A is open and silent: an error record as B's first chunk releases the gate", async () => {
+  // Arm (b): an `error` record on B is the new question REJECTING
+  // (frames-rulings 3.3, A7): B's landing rejects, the mount's content node
+  // throws, the nearest client `<Errored>` shows the record — the gate is
+  // released by the error, never by an empty frame revealed for it. A stays
+  // silent so the error is the only candidate release, and the error is
+  // B's FIRST chunk (a `start` would already count as B's first write and
+  // release the gate on its own — see arm (a)). Re-pinned 2026-10-06 from
+  // "releases the gate (the frame's error state surfaces)".
+  test("(b) switch while A is open and silent: an error record as B's first chunk rejects the landing — the <Errored> shows it", async () => {
     const fid = freshFid("c17b");
     const getX = createServerReference(fid);
     installServerComponents(makeHost().host);
@@ -148,7 +159,9 @@ describe("C17 — the shell gate answers only to the bound address", () => {
     b.send({ type: "error", id: WIRE, version: 1, error: { message: "boom" } });
     await pump();
     expect(site.pending()).toBe(false);
+    expect(site.error()).toBe("boom");
     expect(site.h1()).toBeUndefined();
+    expect(site.div.querySelector("solid-frame")).toBeNull();
     expect(site.frames.some(f => f.includes("A"))).toBe(false);
     b.close();
     a.close();

@@ -425,6 +425,31 @@ export const stagedContent: {
 // seam never needs a global.
 let resolveServerComponent;
 
+// The call behind an address, as the transport saw it — `{ id, meta, args }`
+// — recorded when a response for it is handled (or the document answered
+// it). An address is a one-way hash of the call, so this is the only way
+// back from "this address errored" to "ask the server again": a frame's
+// `:error` is its one async value rejecting (frames-rulings 3.3), and the
+// enclosing `<Errored>`'s `reset` re-reads the landing — an errored landing
+// is not a landing for a fresh consumer, so the re-read is a new flight for
+// the same address, re-invoked from this record (`client.ts`, `reask`).
+// Same module-state pattern as `resolveServerComponent`; one entry per
+// address, the newest call wins (same call, same hash).
+const calls = new Map();
+
+/**
+ * The call recorded for an address (`{ id, meta, args }`), or `undefined`
+ * for an address no response or document answer named.
+ * @internal
+ */
+export function callFor(
+  address: string
+): { id: string; meta: unknown; args: unknown[] } | undefined;
+
+export function callFor(address) {
+  return calls.get(address);
+}
+
 // The registry bootstrap ships with the FIRST reference each script
 // serializes (see `serialize` below) — but the bootstrap text and its
 // first-use tracking are server-only weight, so the document-SSR module
@@ -720,6 +745,12 @@ export function createServerComponentHandler({ host, component, intercept }) {
   };
   /** The binding a settled call resolves to: its staged version's token. */
   const settled = (address, binding) => latest.get(address) || binding;
+  /** Whether a mount SHOWS the address — content a refetch stages against.
+   *  A mount showing the address's error shows no landing (3.3). */
+  const showing = address => {
+    const frame = host.get(address);
+    return frame !== undefined && frame.error === undefined;
+  };
   /** Run a half of the staged entry a token names, while it is still the
    *  address's (committing removes it). */
   /** Run a half of the staged entry a token names, while it is still the
@@ -795,7 +826,11 @@ export function createServerComponentHandler({ host, component, intercept }) {
         // binding when it lands, or `undefined` — a miss after all — when
         // the page has nothing left to deliver it; the caller fetches then.
         if (hit === undefined) return undefined;
-        const binding = () => bindingFor(frameAddress(info.id, info.args), info.id);
+        const address = frameAddress(info.id, info.args);
+        // The document's answer is a call too (see `calls`): a later
+        // `reset` of the adopted frame re-asks it over the wire.
+        if (!info.meta?.live) calls.set(address, info);
+        const binding = () => bindingFor(address, info.id);
         if (typeof hit.then === "function")
           return hit.then(landed => (landed ? binding() : undefined));
         return binding();
@@ -865,6 +900,9 @@ export function createServerComponentHandler({ host, component, intercept }) {
         hold(address, connection);
         return binding;
       }
+      // The call behind the address, for a re-ask (see `calls`): a plain
+      // response's — a `live` loop owns its own reconnects.
+      calls.set(address, ctx);
       const version = bump(address);
       // A refetch of a call a boundary is SHOWING is staged (see `stage`)
       // and settles when its whole body is buffered, not at the header. The
@@ -878,8 +916,11 @@ export function createServerComponentHandler({ host, component, intercept }) {
       // nothing shows writes through with header-time resolution: the mount
       // needs the binding to place the boundary and the shell gate is its
       // hold — settling those late would block progressive streaming
-      // behind a completed body.
-      const entry = host.get(address) ? stage(address, binding, version) : undefined;
+      // behind a completed body. So does a response for an address whose
+      // mounts show an ERROR (frames-rulings 3.3): an errored landing is
+      // not content a transaction could hold, and the re-ask that asked
+      // for this response awaits its landing through the host, not a token.
+      const entry = showing(address) ? stage(address, binding, version) : undefined;
       if (!entry) begin(address, version);
       const target = entry || host;
       const applied = applyFrameResponse(response, target, { as: address, version }).catch(err =>
@@ -982,7 +1023,7 @@ export function createServerComponentHandler({ host, component, intercept }) {
       version: frameId => {
         const version = bump(frameId);
         let entry = regionOf(frameId);
-        if (!entry && host.get(frameId)) {
+        if (!entry && showing(frameId)) {
           entry = stage(frameId, frameId === as ? binding : byAddress.get(frameId), version);
           if (entry) regions.set(frameId, entry);
         }
