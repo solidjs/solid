@@ -2,8 +2,8 @@
   "signals: core floor (createSignal/Memo/Effect/Root/flush)": "7.35 KB",
   "app: render + one signal (the simple-app floor)": "9.86 KB",
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": "17.71 KB",
-  "page: base server components (hydrating + dynamic + frames + sf reference)": "44.84 KB",
-  "page: live server components (base + live/GET + action + isPending/latest)": "48.51 KB",
+  "page: base server components (hydrating + dynamic + frames + sf reference)": "44.90 KB",
+  "page: live server components (base + live/GET + action + isPending/latest)": "48.53 KB",
   "server: floor (getRequestEvent + isServer)": "1.34 KB",
   "server: renderToString (the server-render floor)": "20.42 KB"
 }

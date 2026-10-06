@@ -2070,7 +2070,17 @@ module.exports = [
     // render-effect mark in laneDirty (+4). Cap set at measured + 10 B
     // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-05). The
     // cap is frozen again at 28.87 KB.
-    limit: "28.87 KB",
+    // Size-Exception (#3824, 2026-10-06): 28.87 -> 28.90 KB,
+    // measured at 28,881 B by CI against `next` @ 7acc0390e's 28,903
+    // (-22 B; 11 B over the cap; +27 B minified) — A29's boundary
+    // exemption restored under L2 (#3540): a fresh `Loading` over a held
+    // value shows its fallback in a flush, and catches content bound under it; only the nearest loading boundary that has not shown
+    // content catches a first pass (+17 B minified in the core: joinPass,
+    // the pass-scoped join, the flush-end passTx clear; +10-11 B in
+    // boundaries: the catch's nearest-boundary stop); brotli layout.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-06). The cap is frozen again at 28.90 KB.
+    limit: "28.90 KB",
     alias
   },
   {
@@ -3024,7 +3034,17 @@ module.exports = [
     // Cap at CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/csr.jsx",
     compile: { hydratable: false },
-    limit: "25.13 KB",
+    // Size-Exception (#3824, 2026-10-06): 25.13 -> 25.22 KB,
+    // measured at 25,204 B by CI against `next` @ 7acc0390e's 25,073
+    // (+131 B; 74 B over the cap; +28 B minified) — A29's boundary
+    // exemption restored under L2 (#3540): a fresh `Loading` over a held
+    // value shows its fallback in a flush, and catches content bound under it; only the nearest loading boundary that has not shown
+    // content catches a first pass (+17 B minified in the core: joinPass,
+    // the pass-scoped join, the flush-end passTx clear; +10-11 B in
+    // boundaries: the catch's nearest-boundary stop); brotli layout.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-06). The cap is frozen again at 25.22 KB.
+    limit: "25.22 KB",
     alias
   },
   {
@@ -3055,7 +3075,17 @@ module.exports = [
     // web=16,591 app=3,058). Cap at CI-measured + 10 B rounded up to 0.01 KB.
     path: "fixtures/compiled/hydrating.jsx",
     compile: { hydratable: true },
-    limit: "30.93 KB",
+    // Size-Exception (#3824, 2026-10-06): 30.93 -> 30.97 KB,
+    // measured at 30,956 B by CI against `next` @ 7acc0390e's 30,962
+    // (-6 B; 26 B over the cap; +28 B minified) — A29's boundary
+    // exemption restored under L2 (#3540): a fresh `Loading` over a held
+    // value shows its fallback in a flush, and catches content bound under it; only the nearest loading boundary that has not shown
+    // content catches a first pass (+17 B minified in the core: joinPass,
+    // the pass-scoped join, the flush-end passTx clear; +10-11 B in
+    // boundaries: the catch's nearest-boundary stop); brotli layout.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-06). The cap is frozen again at 30.97 KB.
+    limit: "30.97 KB",
     alias
   },
   {
@@ -3422,6 +3452,16 @@ module.exports = [
     // +16, observeFlight first-observer hold +17); brotli layout. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 44.84 KB.
+    // Size-Exception (#3824, 2026-10-06): 44.84 -> 44.90 KB (floor-caps.json),
+    // measured at 44,883 B by CI against `next` @ 7acc0390e's 44,820
+    // (+63 B; 43 B over the cap; +28 B minified) — A29's boundary
+    // exemption restored under L2 (#3540): a fresh `Loading` over a held
+    // value shows its fallback in a flush, and catches content bound under it; only the nearest loading boundary that has not shown
+    // content catches a first pass (+17 B minified in the core: joinPass,
+    // the pass-scoped join, the flush-end passTx clear; +10-11 B in
+    // boundaries: the catch's nearest-boundary stop); brotli layout.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-06). The cap is frozen again at 44.90 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
@@ -3529,6 +3569,16 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 48.51 KB.
+    // Size-Exception (#3824, 2026-10-06): 48.51 -> 48.53 KB (floor-caps.json),
+    // measured at 48,513 B by CI against `next` @ 7acc0390e's 48,542
+    // (-29 B; 3 B over the cap; +27 B minified) — A29's boundary
+    // exemption restored under L2 (#3540): a fresh `Loading` over a held
+    // value shows its fallback in a flush, and catches content bound under it; only the nearest loading boundary that has not shown
+    // content catches a first pass (+17 B minified in the core: joinPass,
+    // the pass-scoped join, the flush-end passTx clear; +10-11 B in
+    // boundaries: the catch's nearest-boundary stop); brotli layout.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-06). The cap is frozen again at 48.53 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
