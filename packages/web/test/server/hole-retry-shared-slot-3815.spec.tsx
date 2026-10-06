@@ -51,7 +51,7 @@ describe("#3815 a re-created memo joining a pending slot", () => {
       });
       return <Profile user={user()} info={info()} />;
     }
-    const out = await render(() => <main>{() => <Page />}</main>);
+    const out = await render(() => <main>{(() => <Page />) as any}</main>);
     expect(out.error).toBeUndefined();
     expect(runs).toBeLessThan(10);
     expect(out.html).toContain("Jon</h1>");
