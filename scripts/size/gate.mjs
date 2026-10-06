@@ -3,14 +3,19 @@
 //
 // Caps are brotli bytes, and brotli is what ships, so a scenario under its
 // cap passes whatever its minified size did. Over the cap is not enough to
-// fail: brotli's layout moves ±50–90 B on minified changes of a few bytes, so
-// a PR fails a scenario only when it is over its brotli cap AND its minified
-// growth over the PR's base exceeds MINIFIED_ALLOWANCE (or the scenario's
-// `minifiedAllowance`). Over the cap within the allowance passes with a
-// warning — layout noise, left for the next ratchet (ratchet.mjs) to re-base.
-// The base is the PR's base commit, or on a push to next the commit before
-// it. Without a base measurement (a new scenario, a base the head's harness
-// could not measure, a local run) the cap is absolute, as it always was.
+// fail: brotli's layout moves ±50–90 B on minified changes of a few bytes.
+// Each cap records the minified size measured when it was set
+// (`capMinified`), and a scenario fails only when it is over its brotli cap
+// AND its minified size exceeds that recorded size by more than
+// MINIFIED_ALLOWANCE (or the scenario's `minifiedAllowance`). Over the cap
+// within the allowance passes with a warning stating the headroom left.
+// Measuring against the recorded size, not the PR's base, bounds growth
+// across PRs: two +15 B PRs on an over-cap scenario cannot both pass.
+//
+// Fail-safe: a cap with no recorded minified falls back to the minified
+// growth over the PR's base (the PR's base commit, or on a push to next the
+// commit before it). Without that either (a new scenario, a base the head's
+// harness could not measure, a local run) the cap is absolute.
 //
 // Usage: node gate.mjs <head.json> [base.json]
 //   Exits non-zero when any scenario fails. In GitHub Actions each warning
@@ -23,10 +28,17 @@ import { fileURLToPath } from "node:url";
 // counts as real. Minified is the deterministic unit; brotli is not.
 export const MINIFIED_ALLOWANCE = 20;
 
+const signed = d => `${d >= 0 ? "+" : "−"}${Math.abs(d)} B`;
+const bytes = n => `${n.toLocaleString("en-US")} B`;
+const REAL_GROWTH =
+  "real growth: reduce it, or raise the cap and its recorded minified in this PR with a reason (frozen floors need `Size-Exception:`)";
+
 /**
- * One scenario's verdict.
- * @returns {{ name: string, verdict: "pass" | "warn" | "fail", overBy?: number,
- *   minDelta?: number, allowance?: number, message: string }}
+ * One scenario's verdict. `against` says what the minified size was judged
+ * against: the minified recorded with the cap, or (fail-safe) the base.
+ * @returns {{ name: string, verdict: "pass" | "warn" | "fail",
+ *   against?: "recorded" | "base" | "none", overBy?: number, minDelta?: number,
+ *   baseDelta?: number, headroom?: number, allowance?: number, message: string }}
  */
 export function decide(head, base) {
   const { name } = head;
@@ -34,32 +46,58 @@ export function decide(head, base) {
   if (head.size <= head.limit) return { name, verdict: "pass", message: "within its cap" };
   const overBy = head.size - head.limit;
   const allowance = head.minifiedAllowance ?? MINIFIED_ALLOWANCE;
-  if (!base || base.error || typeof base.minified !== "number")
+  const hasBase = base && !base.error && typeof base.minified === "number";
+  const baseDelta = hasBase ? head.minified - base.minified : undefined;
+  const thisPR = hasBase ? `; ${signed(baseDelta)} minified over this PR's base` : "";
+
+  if (typeof head.capMinified === "number") {
+    const minDelta = head.minified - head.capMinified;
+    const headroom = allowance - minDelta;
+    const vs = `minified ${bytes(head.minified)} vs ${bytes(head.capMinified)} recorded with the cap (${signed(minDelta)})`;
+    const common = { name, against: "recorded", overBy, minDelta, baseDelta, headroom, allowance };
+    if (headroom >= 0)
+      return {
+        ...common,
+        verdict: "warn",
+        message: `over brotli cap by ${overBy} B; ${vs} — ${headroom} B of the ${allowance} B minified allowance left${thisPR}`
+      };
+    return {
+      ...common,
+      verdict: "fail",
+      message: `over brotli cap by ${overBy} B; ${vs} — ${-headroom} B past the ${allowance} B minified allowance${thisPR}. ${REAL_GROWTH}`
+    };
+  }
+
+  if (!hasBase)
     return {
       name,
       verdict: "fail",
+      against: "none",
       overBy,
       allowance,
-      message: `over brotli cap by ${overBy} B, no base measurement to compare minified growth against`
+      message: `over brotli cap by ${overBy} B; no minified recorded with the cap and no base measurement to compare against`
     };
-  const minDelta = head.minified - base.minified;
-  const signed = `${minDelta >= 0 ? "+" : "−"}${Math.abs(minDelta)} B`;
-  if (minDelta <= allowance)
+  const headroom = allowance - baseDelta;
+  const common = {
+    name,
+    against: "base",
+    overBy,
+    minDelta: baseDelta,
+    baseDelta,
+    headroom,
+    allowance
+  };
+  const vs = `no minified recorded with the cap, so judged against this PR's base: minified ${signed(baseDelta)}`;
+  if (headroom >= 0)
     return {
-      name,
+      ...common,
       verdict: "warn",
-      overBy,
-      minDelta,
-      allowance,
-      message: `over brotli cap by ${overBy} B, minified ${signed} — layout noise; cap will be re-based at the next ratchet`
+      message: `over brotli cap by ${overBy} B; ${vs} — ${headroom} B of the ${allowance} B minified allowance left`
     };
   return {
-    name,
+    ...common,
     verdict: "fail",
-    overBy,
-    minDelta,
-    allowance,
-    message: `over brotli cap by ${overBy} B, minified ${signed} (allowance ${allowance} B) — real growth: reduce it, or raise the cap in this PR with a reason (frozen floors need \`Size-Exception:\`)`
+    message: `over brotli cap by ${overBy} B; ${vs} — ${-headroom} B past the ${allowance} B minified allowance. ${REAL_GROWTH}`
   };
 }
 
@@ -101,6 +139,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         `::${v.verdict === "warn" ? "warning" : "error"} title=${prop(`size: ${v.name}`)}::${data(v.message)}`
       );
   }
+  const fallback = verdicts.filter(v => v.against === "base" || v.against === "none");
+  if (fallback.length)
+    console.log(
+      `\ngate: ${fallback.length} over-cap scenario(s) have no minified recorded with the cap; ` +
+        "judged against the base instead (fail-safe)."
+    );
   const failed = verdicts.some(v => v.verdict === "fail");
   const warned = verdicts.filter(v => v.verdict === "warn").length;
   console.log(
