@@ -20,28 +20,43 @@ monotonic in the input: a change of a few minified bytes moves a scenario's
 brotli by ±50–90 B, so a brotli-only gate failed PRs for noise and every
 "fix" either raised a cap (permanently) or golfed the code until the layout
 came out lucky. Minified bytes are deterministic, so the gate (`gate.mjs`)
-uses them to tell noise from growth. Per scenario:
+uses them to tell noise from growth.
 
-| brotli vs cap | minified vs base                      | verdict                        |
-| ------------- | ------------------------------------- | ------------------------------ |
-| at or under   | anything                              | **pass**                       |
-| over          | grew by ≤ `MINIFIED_ALLOWANCE` (20 B) | **pass with a warning**        |
-| over          | grew by more                          | **fail**                       |
-| over          | no base measurement                   | **fail** (the cap is absolute) |
+Every cap records the **minified size measured when it was set**:
+`capMinified` beside an inline `limit` in `scenarios.js`, and
+`{ "cap", "minified" }` entries in `floor-caps.json`. Per scenario:
 
-"Base" is the PR's base commit (`pull_request.base.sha`, the first parent
-of the merge commit CI measures as the head), measured in the same run
-with the head's harness; on a push to `next` it is the commit before the
-push. The warning — in the job summary, the PR size comment and as an
-annotation — reads _over brotli cap by N B, minified +M B — layout noise;
-cap will be re-based at the next ratchet_. The allowance is one constant,
-`MINIFIED_ALLOWANCE` in `gate.mjs`; a scenario may set its own with
-`minifiedAllowance` in `scenarios.js` (none does).
+| brotli vs cap | head minified                                        | verdict                 |
+| ------------- | ---------------------------------------------------- | ----------------------- |
+| at or under   | anything                                             | **pass**                |
+| over          | ≤ recorded minified + `MINIFIED_ALLOWANCE` (20 B)    | **pass with a warning** |
+| over          | more                                                 | **fail**                |
+| over          | no recorded minified: grew ≤ 20 B over the PR's base | pass with a warning     |
+| over          | no recorded minified: grew more, or no base          | **fail**                |
+
+The allowance is measured against the recorded size, not per PR, so growth
+cannot creep across PRs: on an over-cap scenario, two successive +15 B PRs
+do not both pass — the second is +30 B over the recorded size. The warning
+(job summary, PR size comment, annotation) states the headroom left:
+_over brotli cap by N B; minified M B vs R B recorded with the cap (+D B) —
+H B of the 20 B minified allowance left; +P B minified over this PR's base_.
+A failure carries the same numbers, so a PR whose own change is small can
+see that earlier growth used the allowance up.
+
+The last two rows are the fail-safe for a cap without a recorded minified (a
+new scenario that did not record one): the gate compares with the PR's base
+(`pull_request.base.sha`, the first parent of the merge commit CI measures
+as the head; on a push to `next`, the commit before the push), measured in
+the same run with the head's harness, and the summary says so. The
+allowance is one constant, `MINIFIED_ALLOWANCE` in `gate.mjs`; a scenario
+may set its own with `minifiedAllowance` in `scenarios.js` (none does).
 
 Real growth is still a decision made in the PR: lower the bytes, or raise
-the scenario's cap in the same PR with a dated reason in its ledger. Raising
-a frozen floor cap (below) additionally needs a `Size-Exception:` line in
-the PR body — the override for growth the maintainer has accepted.
+the scenario's cap **and its recorded minified** in the same PR, measured
+together by CI, with a dated reason in its ledger. A new scenario records
+both. Raising a frozen floor's cap or its recorded minified (below)
+additionally needs a `Size-Exception:` line in the PR body — the override
+for growth the maintainer has accepted.
 
 Locally, `npm run size` is the absolute gate (any scenario over its cap
 fails); `node gate.mjs head.json base.json` applies the PR rule to two
@@ -49,14 +64,22 @@ fails); `node gate.mjs head.json base.json` applies the PR rule to two
 
 ## The ratchet
 
-Noise that passed with a warning leaves a scenario over its cap; savings
-leave caps loose. `npm run ratchet` re-bases every cap on what the tree
-measures now — measured + 10 B rounded up to 0.01 KB — and **only ever
-lowers** a cap. It rewrites the inline caps in `scenarios.js` and the frozen
-floors in `floor-caps.json`, adds a dated ledger line above each lowered
-cap, and prints the lowered inline caps and the lowered **frozen floors** as
-separate tables, so a floor change is seen as one. A scenario still over its
-cap is listed and left alone: the ratchet does not raise.
+Savings leave caps loose. `npm run ratchet` re-bases every cap on what the
+tree measures now — measured + 10 B rounded up to 0.01 KB — and **only ever
+lowers** a cap. A lowered cap records the minified measured with it (one
+measurement; if that minified is higher, brotli still shrank, and the
+ratchet lists it). A cap it does not lower only ever has its recorded
+minified **lowered**, or recorded for the first time; it is never raised —
+that loosens the gate like a cap raise, so it takes a PR (and, on a floor,
+a `Size-Exception:`). The ratchet rewrites `scenarios.js` and
+`floor-caps.json`, adds a dated ledger line above each cap it changes, and
+prints the inline caps and the **frozen floors** as separate tables, so a
+floor change is seen as one. Scenarios still over their cap, or above their
+recorded minified, are listed and left alone: the ratchet does not raise,
+so a scenario that landed over its cap on noise stays over it, held to its
+recorded minified + 20 B, until code shrinks or a PR re-bases it.
+`--minified-only` leaves every cap alone and only records or lowers
+minified sizes.
 
 Run it once per RC, on `next`, from CI's numbers — local and CI artifacts
 differ by tens of brotli bytes:
@@ -124,8 +147,9 @@ maintainer accepted the cost (read from the PR body when the run starts —
 edit the body, then re-run). Ten weeks of individually justified 10–300 B
 bumps took the signals floor from 7.1 to 9.9 KB; the freeze makes the next
 one a decision, not a paragraph. See
-`documentation/plans/size-reduction-audit.md`. The ratchet may lower a
-frozen floor like any cap.
+`documentation/plans/size-reduction-audit.md`. Each floor's recorded
+minified is frozen the same way (raising it, or removing it, needs the
+exception). The ratchet may lower a frozen floor like any cap.
 
 ## Attribution
 
@@ -176,3 +200,12 @@ breaks.
   `compare` job (which ran after `check`) into a parallel `base` job that
   `check` waits on, and pushes to `next` now compare against the previous
   commit instead of the absolute cap. No cap changed.
+- **2026-10-05 — recorded minified (#SEED_PR).** Measured per PR, the
+  allowance let an over-cap scenario creep: each +15 B PR passed against its
+  own base. Every cap now records the minified size measured when it was
+  set, and the allowance is measured against that. The warning states the
+  headroom left instead of promising a re-base (the lower-only ratchet
+  cannot re-base an over-cap scenario). Seeded by the ratchet's
+  `--minified-only` mode from CI's measurement of `next` @ SEED_SHA (Size
+  run SEED_RUN); every cap unchanged. The base comparison remains the fail-safe
+  for a cap without a recorded minified.

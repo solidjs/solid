@@ -65,6 +65,7 @@ for (const scenario of scenarios) {
     minified: r.min,
     limit: cap,
     passed: !over,
+    ...(typeof scenario.capMinified === "number" && { capMinified: scenario.capMinified }),
     ...(scenario.minifiedAllowance !== undefined && {
       minifiedAllowance: scenario.minifiedAllowance
     }),

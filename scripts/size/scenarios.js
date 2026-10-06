@@ -18,6 +18,14 @@
 // overrides it per scenario. Limits are lowered (never raised) per RC by
 // ratchet.mjs, which writes a dated `Ratchet` line above each one it moves.
 //
+// Recorded minified (2026-10-05): `capMinified` (floor-caps.json's
+// `minified` for the floors) is the minified size measured when the limit
+// was set; the allowance is measured against it rather than per PR, so
+// growth cannot creep across PRs. Set it with the limit, from the same CI
+// measurement. Seeded for every scenario from CI on next @ SEED_SHA (Size run
+// SEED_RUN), limits unchanged; the base comparison is the fail-safe for a
+// limit without one.
+//
 // Bundler switch (2026-09-26): the harness measured with esbuild through
 // size-limit until this date; it now measures with Rolldown, the bundler Vite
 // ships, pinned exactly in package.json. Every cap was re-based on that day
@@ -44,7 +52,15 @@ const alias = {
 // without a `Size-Exception:` line in its body. Lowering is always allowed.
 // The dated notes on each scenario below remain the ledger of how the
 // floor got here.
-const floorCaps = require("./floor-caps.json");
+// Each entry is { cap, minified }: the brotli cap and the minified size
+// measured when it was set (the gate measures minified growth against it).
+const floorFile = require("./floor-caps.json");
+const floorCaps = Object.fromEntries(
+  Object.entries(floorFile).map(([name, e]) => [name, typeof e === "string" ? e : e.cap])
+);
+const floorMinified = Object.fromEntries(
+  Object.entries(floorFile).map(([name, e]) => [name, e.minified])
+);
 
 // Server-component PAGES (audit §1): everything such a page ships eagerly,
 // nothing external — the frames client and the server-function transport
@@ -477,6 +493,7 @@ module.exports = [
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 7.35 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
+    capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
   {
@@ -1326,6 +1343,7 @@ module.exports = [
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.86 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
+    capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
   },
   {
@@ -1647,6 +1665,7 @@ module.exports = [
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 17.71 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
+    capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
   {
@@ -3423,6 +3442,8 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 44.84 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
+    capMinified:
+      floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
   {
@@ -3530,6 +3551,8 @@ module.exports = [
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 48.51 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
+    capMinified:
+      floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
   },
   {
@@ -3553,6 +3576,7 @@ module.exports = [
     path: "../../packages/web/dist/server.js",
     import: "{ getRequestEvent, isServer }",
     limit: floorCaps["server: floor (getRequestEvent + isServer)"],
+    capMinified: floorMinified["server: floor (getRequestEvent + isServer)"],
     alias: serverAlias,
     platform: "node",
     conditions: serverConditions
@@ -3585,6 +3609,7 @@ module.exports = [
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     limit: floorCaps["server: renderToString (the server-render floor)"],
+    capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
     platform: "node",
     conditions: serverConditions
