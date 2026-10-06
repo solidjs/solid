@@ -374,6 +374,77 @@ describe("3. an outside hold on the SAME source: the frame waits, the fallback c
   });
 });
 
+// The same source read outside, but its flight comes from an earlier write
+// the `on` change is not part of: nothing holds the change's frame, the
+// re-armed boundary owns its content (A29's boundary scope, 2026-10-06), so
+// the fallback shows now — and nothing is reported.
+describe("3b. an outside reader of a flight the `on` change did not start: the fallback shows now, not reported", () => {
+  for (const outside of ["effect", "loading"])
+    test(`outside ${outside === "effect" ? "render effect" : "revealed Loading"}`, async () => {
+      const d = captureWarnings();
+      const [x, setX] = createSignal(0);
+      const [key, setKey] = createSignal(0);
+      const pending: (() => void)[] = [];
+      const log: string[] = [];
+      let dispose!: () => void;
+      createRoot(dispose_ => {
+        dispose = dispose_;
+        const data = createMemo(
+          async () => {
+            const v = x();
+            await new Promise<void>(r => pending.push(r));
+            return v;
+          },
+          { name: "data" }
+        );
+        const read =
+          outside === "effect"
+            ? data
+            : untrack(() =>
+                createLoadingBoundary(
+                  () => `holder ${data()}`,
+                  () => "holder fallback"
+                )
+              );
+        createRenderEffect(read, v => {
+          log.push(`outside ${v}`);
+        });
+        const view = untrack(() =>
+          createLoadingBoundary(
+            () => `c${key()} ${data()}`,
+            () => "fallback",
+            { on: key }
+          )
+        );
+        createRenderEffect(view, v => {
+          log.push(`view ${v}`);
+        });
+      });
+      flush();
+      const settle = async () => {
+        while (pending.length) pending.shift()!();
+        for (let i = 0; i < 8; i++) await microtask();
+        flush();
+      };
+      await settle();
+      log.length = 0;
+      setX(1);
+      flush();
+      expect(log).toEqual([]);
+      setKey(1);
+      flush();
+      expect(log).toEqual(["view fallback"]);
+      await settle();
+      expect(log.slice(1).sort()).toEqual([
+        outside === "effect" ? "outside 1" : "outside holder 1",
+        "view c1 1"
+      ]);
+      expect(d.codes()).toEqual([]);
+      d.stop();
+      dispose();
+    });
+});
+
 describe("4. `on: () => latest(id)`: the display-ahead read shows the fallback now, beside the held frame", () => {
   for (const write of ["plain", "action"] as Write[]) {
     test(`${write} write, shell lands first: [A] → [A + spinner] → [B + spinner] → [B + comments]`, async () => {

@@ -53,6 +53,7 @@ import {
   ownedScopeWriteMessage,
   read as readNode,
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
+  scopedRead,
   setSignal,
   slotSignal,
   stagedRead,
@@ -1535,16 +1536,20 @@ function readSource(
     if (writeOverride && !userWrite) {
       const leaf = key !== undefined ? target.n?.[key as any] : undefined;
       if (leaf !== undefined) {
-        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
+        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD) {
+          scopedRead(context, leaf);
           joinPassTx(txOf(leaf));
+        }
       } else {
         const k = target.k;
         if (
           k !== null &&
           (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
           (key === undefined || heldKeyChanged(target, key))
-        )
+        ) {
+          scopedRead(context, k);
           joinPassTx(txOf(k));
+        }
       }
     }
     return pb;

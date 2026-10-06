@@ -302,6 +302,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // a sync write (#3460). The pass is the lane's if it reads the lane's
       // world (`read`), and has left it otherwise.
       if (tx._lane) {
+      } else if (GlobalQueue._owns?.(el, tx)) {
+        // Under a loading boundary that owns it now (re-armed since it
+        // joined — A29's boundary scope) it is the boundary's, not the
+        // hold's: it leaves the transaction, its staging there void, and a
+        // read of the hold makes this pass pending under the boundary
+        // (`scopedRead`).
+        el._pendingValue = NOT_PENDING;
+        el._config &= ~CONFIG_HELD;
+        el._x!._transaction = null;
+        const i = tx._nodes.indexOf(el);
+        if (i >= 0) tx._nodes.splice(i, 1);
       } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT)) joinPassTx(tx);
       else if (tx !== flushTransaction && !(el._statusFlags & STATUS_UNINITIALIZED)) {
         // Published mainline, it is not held: the frame this pass builds is
@@ -943,18 +954,32 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * reader is a render effect. A render effect is the frame, not a derivation
  * (rule 3): in that transaction's own flush, or born into it (uninitialized,
  * A29), it reads the staged value and holds nothing of its own; otherwise it
- * reads the committed value instead (`frameRead`). A node born into the
- * future has no committed value: every reader joins it. A first pass is
- * something not ready under a loading boundary that has not shown content:
- * the boundary collects it and shows its fallback, and the pass is the
- * boundary's, not the tick's (A29's boundary exemption, #3540). */
+ * reads the committed value instead (`frameRead`). */
 function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
+  if ((c as any)._type !== EFFECT_RENDER) joinPassTx(txOf(el));
+}
+
+/** A29's boundary scope (2026-10-06): a read of a held node from under a
+ * loading boundary that owns its subtree (`GlobalQueue._owns`) — whichever
+ * pass reads it — joins nothing and serves nothing: the content is pending
+ * there, the boundary catches it and shows its fallback, and it waits for
+ * the landing as the hold's stale reader (`_reruns`: re-derived on the
+ * committed world). Ahead of every hold read (`joinPass`, `frameRead`, a
+ * derive's draft). Not lane work or a verdict reader: they read the
+ * screen, not the hold (`frameRead`). */
+export function scopedRead(c: Owner | null, el: Signal<any> | Computed<any>): void {
   if (
-    (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
-    (c as any)._type !== EFFECT_RENDER
+    GlobalQueue._owns === undefined ||
+    c === null ||
+    passLane !== null ||
+    (c as Computed<any>)._config & CONFIG_VERDICT
   )
-    joinPassTx(txOf(el), GlobalQueue._catch?.(c, STATUS_PENDING | STATUS_UNINITIALIZED));
+    return;
+  const t = txOf(el);
+  if (t._lane || !GlobalQueue._owns(c as Computed<any>, t)) return;
+  staleReader(c as Computed<any>, t);
+  throw new NotReadyError(el);
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
@@ -1624,6 +1649,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       // future (REACTIVE_JOINED): a first pass that did is born held (A29),
       // wherever it was created. Lane work sees the screen (`frameRead`).
       if (el._config & CONFIG_HELD && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) {
+        scopedRead(c, el);
         if (frameRead(c as Computed<any>, el)) return el._value as T;
         joinPass(c as Computed<any>, el);
       }
@@ -1661,9 +1687,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !(el._config & CONFIG_OVERRIDE) &&
       !(c._config & CONFIG_CHILDREN_FORBIDDEN)
     ) {
-      if (owner._statusFlags & STATUS_UNINITIALIZED || !frameRead(c as Computed<any>, el))
-        joinPass(c as Computed<any>, el);
-      else committed = true;
+      scopedRead(c, el);
+      if (owner._statusFlags & STATUS_UNINITIALIZED) {
+        (c as Computed<any>)._flags |= REACTIVE_JOINED;
+        joinPassTx(txOf(el));
+      } else if (frameRead(c as Computed<any>, el)) committed = true;
+      else joinPass(c as Computed<any>, el);
     }
   }
   // Lanes: a lane's node (after the pull — the node is current). NOT_PENDING

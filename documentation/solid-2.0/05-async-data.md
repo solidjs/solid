@@ -81,6 +81,8 @@ The shell keeps showing A until `product(2)` lands; the spinner arrives with B, 
 
 One shape shows no fallback at all: when the data the boundary is waiting on is also read outside it (a sibling `<Loading>` over the same `comments(id)`, an `isPending` on it in the header), or the write's `action` stays open until the data lands. The frame waits on that read, so by the time it commits the content is ready and the fallback was never needed. The first of these is structural — no ordering of the flights can show that fallback — and in development the `LOADING_ON_OUTSIDE_HOLD` diagnostic names the source; the fix is to move the outside read under the boundary so one hold owns the data. The second is a race the fallback may still win (an action that ends first shows it with the commit), and is not reported: during an `action`, show the wait with `isPending()` or an optimistic value, which is what a hold's stale content is for. The old content is on screen and valid the whole time; a `Loading` fallback says it is not.
 
+Both shapes are about data the change itself starts loading. The re-armed boundary owns its content, so data still loading from an earlier change (a flight another write started, or an earlier `action`'s held write) does not hold this one: the fallback shows now, even where that data is also read outside the boundary, and nothing is reported.
+
 It is possible to show the fallback beside the still-held frame anyway: a display-ahead read in `on` — `latest(id)`, `isPending()`, an optimistic signal — says the change is already on screen, so the fallback lands there too:
 
 ```

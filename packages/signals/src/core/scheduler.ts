@@ -173,15 +173,11 @@ export let flushTransaction: Transaction | null = null;
  * into it, and nothing else in the tick is — a write made after the mount
  * is a mainline write, a render effect mounted beside it a stale reader.
  * Inside a flush, or in a tick that already has its transaction (an
- * action's body), the frame joins instead (`flushTransaction`) — except a
- * first pass a loading boundary that has not shown content catches (`own`,
- * A29's boundary exemption, #3540): it is the boundary's, not the tick's,
- * and a flush that has joined nothing keeps it pass-scoped as outside one.
- * Cleared by the flush the join schedules, and at the end of a flush that
- * set it. */
+ * action's body), the frame joins instead (`flushTransaction`). Cleared by
+ * the flush the join schedules. */
 export let passTx: Transaction | null = null;
-export function joinPassTx(t: Transaction, own?: unknown): void {
-  if ((globalQueue._running && !own) || flushTransaction !== null) return joinFuture(t);
+export function joinPassTx(t: Transaction): void {
+  if (globalQueue._running || flushTransaction !== null) return joinFuture(t);
   if (passTx === null) passTx = resolveTx(t);
   else merge(resolveTx(t), passTx);
   schedule();
@@ -662,15 +658,16 @@ export class GlobalQueue implements IQueue {
   // Boundaries (boundaries.ts): the display consumers between an observer
   // and the root. `_catch` — status from a frame reader, nearest boundary
   // first (true: caught, the root never hears of it; a clear — flags 0 —
-  // settles the reader there; a pass that read a hold — STATUS_UNINITIALIZED
-  // in flags, `joinPass` — is caught only as a first pass, by the nearest
-  // loading boundary if it has not shown content); `_hidden` — a frame
-  // reader behind a fallback is not on screen and holds nothing;
-  // `_boundarySeam` — the seam's sweep (readers gone or settled without a
-  // pass reveal; an `on` re-arm resolves).
+  // settles the reader there); `_hidden` — a frame reader behind a fallback
+  // is not on screen and holds nothing; `_boundarySeam` — the seam's sweep
+  // (readers gone or settled without a pass reveal; an `on` re-arm
+  // resolves).
   declare static _catch:
-    | ((node: Computed<any>, flags: number, error?: unknown) => boolean)
+    | ((node: Computed<any>, flags: number, error: unknown) => boolean)
     | undefined;
+  /** `_owns` — a pass reading a node `t` holds is under a loading boundary
+   * that owns it (A29's boundary scope): pending there, not `t`'s. */
+  declare static _owns: ((c: Computed<any>, t: Transaction) => boolean) | undefined;
   declare static _hidden: ((r: Computed<any>) => boolean) | undefined;
   declare static _boundarySeam: (() => void) | undefined;
   // `_heldRun` — a queued run under a fallback-showing boundary waits for
@@ -716,7 +713,6 @@ export class GlobalQueue implements IQueue {
       if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
       this._running = false;
-      passTx = null;
     }
   }
   /** L2 — the seam: end of the pure phase. Commit this flush's staged nodes,

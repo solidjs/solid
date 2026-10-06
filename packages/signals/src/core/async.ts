@@ -896,7 +896,8 @@ export function propagateStatus(
       if (
         passLane === null &&
         (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-        globalQueue._running
+        globalQueue._running &&
+        !GlobalQueue._owns?.(sub, txOf(sub))
       )
         joinFuture(txOf(sub));
       return;
@@ -918,11 +919,14 @@ export function propagateStatus(
           // recomputing it, and the propagation itself enters the memo's
           // transaction — the flight flows into a memo that transaction
           // holds, so the write that started it is held with it. A render
-          // effect's membership is its pass's (`notify`), never sticky.
+          // effect's membership is its pass's (`notify`), never sticky. A
+          // memo a loading boundary owns now is that boundary's (A29's
+          // boundary scope): its pending is caught there, held by nothing.
           if (
             status === STATUS_PENDING &&
             (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-            !(sub as any)._type
+            !(sub as any)._type &&
+            !GlobalQueue._owns?.(sub, txOf(sub))
           )
             joinFuture(txOf(sub));
         }

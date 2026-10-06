@@ -49,6 +49,7 @@ import {
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DISPOSED,
+  REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -77,7 +78,7 @@ import {
   type Transaction
 } from "./core/scheduler.js";
 import { attrHooks } from "./core/attribution-hooks.js";
-import type { Computed, Owner, Signal } from "./core/types.js";
+import type { Computed, Owner, Root, Signal } from "./core/types.js";
 import { flatten } from "./flatten.js";
 import { accessor, type Accessor } from "./signals.js";
 
@@ -121,6 +122,11 @@ interface Boundary {
   _error: Signal<unknown> | null;
   _show: (b: Boundary) => unknown;
 }
+
+/** The output is created beside the boundary, not under it; it is the
+ * boundary's own render all the same (`owns`): `_scope` is the owner whose
+ * context names the boundary. */
+type BoundaryOutput = Computed<any> & { _scope?: Owner };
 
 /** Context key: the nearest boundary of a node, inherited at creation. */
 const BOUNDARY = Symbol(__DEV__ ? "boundary" : "");
@@ -200,16 +206,45 @@ export function redraw(b: Boundary): void {
   }
 }
 
+/** The boundary a status from `node` stops at — the nearest of its type that
+ * is collecting — or none (the root hears of it). Side-effect free;
+ * `catchStatus` catches there. */
+function catcherOf(node: Owner, flags: number): Boundary | undefined {
+  let b = boundaryOf(node);
+  while (b !== undefined && !(b._type & flags && isCollecting(b))) b = b._parent ?? undefined;
+  return b;
+}
+
+/** GlobalQueue._owns — A29's boundary scope (2026-10-06): a loading boundary
+ * that has not shown content, or that `on` re-armed, owns its subtree. A
+ * pass under it reading a node `t` holds does not join `t`: the content is
+ * pending under that boundary — it is the boundary that would catch it —
+ * and no hold waits for it. Not when the boundary's display is `t`'s
+ * anyway — then its fallback is never seen, and the content enters `t` to
+ * appear with its commit: the flush is `t`'s (everything it stages lands
+ * with `t`, the swap included); the output is held by `t` showing its
+ * fallback or never committed (the boundary was mounted, or re-armed, as
+ * part of the hold); or, mid-mount, the pass creating the boundary read
+ * `t`. */
+function owns(c: Computed<any>, t: Transaction): boolean {
+  const b = catcherOf((c as BoundaryOutput)._scope ?? c, STATUS_PENDING);
+  if (b === undefined) return false;
+  if (flushTransaction !== null && resolveTx(flushTransaction) === t) return false;
+  const o = b._output;
+  if (o !== null)
+    return !(
+      o._config & CONFIG_HELD &&
+      (b._fallback || o._statusFlags & STATUS_UNINITIALIZED) &&
+      txOf(o) === t
+    );
+  const p = (b._owner as Root)._parentComputed as Computed<any> | null;
+  return !(p !== null && p._flags & REACTIVE_JOINED && passTx !== null && resolveTx(passTx) === t);
+}
+
 /** GlobalQueue._catch: status from a frame reader, nearest boundary first.
  * A loading boundary on the way records a pending reader whether or not it
- * catches it (its `on` may collect it later). A pass that read a hold
- * (`joinPass`: STATUS_UNINITIALIZED in `flags`) is asked too. A first pass
- * is not pending — it has never committed — and only A29's boundary
- * exemption catches it (#3540): the nearest loading boundary, if it has not
- * shown content. One that has, re-armed by `on` or not, neither catches nor
- * records it (it joins the hold like any reader of committed content), no
- * boundary past the nearest is asked, and a committed pass is not caught. */
-function catchStatus(node: Computed<any>, flags: number, error?: unknown): boolean {
+ * catches it (its `on` may collect it later). */
+function catchStatus(node: Computed<any>, flags: number, error: unknown): boolean {
   if (flags === 0) {
     // A status cleared. Judged by the node's status now, against each
     // boundary's own rule (`unsettled`) — the error path clears pending
@@ -232,13 +267,6 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
   }
   for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined) {
     if (!(b._type & flags)) continue;
-    // A pass that read a hold: the nearest loading boundary only, and only
-    // a first pass before it has shown content (then it is collecting).
-    if (
-      flags & STATUS_UNINITIALIZED &&
-      (b._initialized || !(node._statusFlags & STATUS_UNINITIALIZED))
-    )
-      break;
     if (isCollecting(b)) {
       caught(b, node, error);
       return true;
@@ -352,7 +380,8 @@ function boundarySeam(): void {
     // A parked frame's boundary (zombie) keeps its state for its revival.
     if (flags & REACTIVE_ZOMBIE) continue;
     prune(b, false);
-    if (__DEV__ && b._armed && !b._initialized && !b._ahead) reportOutsideHold(b);
+    if (__DEV__ && b._armed && !b._initialized && !b._ahead && b._output!._config & CONFIG_HELD)
+      reportOutsideHold(b);
     b._armed = false;
     if (b._readers.size === 0) {
       collecting.delete(b);
@@ -362,9 +391,11 @@ function boundarySeam(): void {
   }
 }
 
-/** DEV, at the re-arm that flipped a boundary to its fallback: a source it
- * now waits on is also read by a frame reader outside it — the frame waits
- * on the very source, and the fallback can never be seen. Structural, so
+/** DEV, at the re-arm that flipped a boundary to its fallback, its swap held:
+ * a source it now waits on is also read by a frame reader outside it — the
+ * frame waits on the very source, and the fallback can never be seen. (A
+ * swap nothing holds shows now: the boundary owns its content, A29's
+ * boundary scope, whatever else reads the source.) Structural, so
  * reported once, at the change, naming the source; a display-ahead arm
  * (`latest()` in `on`) is the user's choice and not reported. */
 function reportOutsideHold(b: Boundary): void {
@@ -607,29 +638,11 @@ function createBoundary<T>(
         // one; a loading boundary showing content forwards its pending.
         throw tree._x!._error;
       }
-      if (isCollecting(b)) {
-        // A29's boundary exemption (#3540): a boundary MOUNTED over a held
-        // value (its first pass; a first pass under it that read a hold was
-        // collected, `joinPass` — the tree's own, or a render effect's that
-        // binds the content) shows its fallback now and the content at the
-        // commit — entering the transaction would make the output itself
-        // born held, and nothing would show until the commit. The seam
-        // keeps a held reader until it is committed, then re-derives this
-        // pass. A boundary with a committed value reads a held tree and
-        // enters: the outside sees its committed value until the landing,
-        // which reveals the content — a fallback staged earlier is replaced
-        // ahead of the commit and never shown.
-        const self = getOwner() as Computed<any>;
-        if (
-          b._readers.size !== 0 &&
-          self._statusFlags & STATUS_UNINITIALIZED &&
-          !(self._config & CONFIG_HELD)
-        )
-          return fallback(b);
-        // Readers under it still unready: the fallback, the tree untouched.
-        // The seam re-derives this pass when they settle.
-        if (prune(b, true) !== 0) return fallback(b);
-      }
+      // Readers under it still unready: the fallback, the tree untouched.
+      // The seam re-derives this pass when they settle. (A tree it owns
+      // that read a hold is pending, `owns`; one that is held is part of
+      // the hold that mounted the boundary, and the output enters it.)
+      if (isCollecting(b) && prune(b, true) !== 0) return fallback(b);
       let value: T;
       try {
         value = read(tree);
@@ -672,6 +685,7 @@ function createBoundary<T>(
     __OBSERVE__ ? { name: "value", _noSnapshot: true } : { _noSnapshot: true }
   );
   output._config |= CONFIG_REDERIVE;
+  (output as BoundaryOutput)._scope = owner;
   b._output = output;
   return accessor<T>(output);
 }
@@ -723,9 +737,13 @@ const ERROR_SIGNAL = { ownedWrite: true, _noSnapshot: true } as const;
  *   if nothing is pending, the notification is a no-op. The fallback lands
  *   with the same frame as the change that caused it — now, when nothing
  *   else holds that frame; together with the rest of the new page during a
- *   held navigation, not before it. If the same data is also read outside
- *   the boundary, the frame waits on it and the fallback can never be seen
- *   (DEV warns `LOADING_ON_OUTSIDE_HOLD`); the fix is structural — move the
+ *   held navigation, not before it. The re-armed boundary owns its content:
+ *   data the change did not start loading (a flight or a held write from an
+ *   earlier change) shows the fallback now rather than holding the change,
+ *   even where it is also read outside the boundary. If the change itself
+ *   starts the data loading and the data is also read outside the boundary,
+ *   the frame waits on it and the fallback can never be seen (DEV warns
+ *   `LOADING_ON_OUTSIDE_HOLD`); the fix is structural — move the
  *   outside read under the boundary so one hold owns the data. A frame held
  *   past the content's landing by something else (the write's action, other
  *   pending data) also shows no fallback; that is a race the fallback may
@@ -787,6 +805,7 @@ export function createErrorBoundary<T, U>(
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
+GlobalQueue._owns = owns;
 GlobalQueue._hidden = hidden;
 GlobalQueue._boundarySeam = boundarySeam;
 GlobalQueue._heldRun = heldRun;
