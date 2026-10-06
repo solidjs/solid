@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.9.16
+
+### Patch Changes
+
+- e341da9: Fix a nested `<Suspense>` on the server resolving with children from a render its parent `<Suspense>` had already discarded. The boundary now always completes from its latest render, and a fragment left pending by an earlier render is settled when a re-render resolves inline, so `renderToStringAsync`/`renderToStream` no longer hang or stream stale content.
+- 37a9d35: Update DOM Expressions to 0.40.11 and seroval to 1.6.8. This picks up the seroval security fixes (CVE-2026-104846, CVE-2026-104845), streamed hydration roots keeping ownership of their container, SSR serialization of camelCase boolean properties like `readOnly`, releasing delegated events so Chromium doesn't retain detached DOM trees, universal renderer placeholder replacement, and raw-text `<style>`/`<script>` children in DOM templates.
+
 ## 1.9.15
 
 ### Patch Changes
