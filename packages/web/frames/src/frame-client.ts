@@ -806,7 +806,9 @@ export function createFrameHost(options = {}) {
       // the current response's).
       if (chunk.type === "data") {
         const store = stores.get(chunk.id);
-        if (store && store.version !== undefined && chunk.version < store.version) return;
+        // (`n < undefined` is false: a store with no version yet, or a chunk
+        // with none, guards nothing.)
+        if (store && chunk.version < store.version) return;
         options.applyData && options.applyData(chunk);
         return;
       }
