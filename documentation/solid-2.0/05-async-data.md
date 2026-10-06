@@ -47,6 +47,8 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 
 Nested `Loading` boundaries can be used to avoid blocking large subtrees and to control where loading UI appears.
 
+A `Loading` that has not shown content yet owns what is under it. Content there that reads a value a still-running change holds (a write inside an `action`, data another change is loading) is not part of that change: the boundary shows its fallback now, and the content appears when the change commits. The change does not wait for it. The exception is a boundary mounted by the change itself, for example a `<Show when={x()}>` where `x` is the held write: it appears with that change's commit, with no fallback. While the fallback shows, `isPending()` of the boundary is `false`, as for any first load. Content that has not rendered yet has no value for `latest()` to return either: `latest()` of a memo created under the boundary throws until the commit, as any not-yet-loaded value does.
+
 #### `Loading` `on` prop: dependencies that show the fallback again
 
 By default, once a `Loading` boundary has rendered content, it keeps that content visible during revalidation: like every reader of a pending value, it holds the write that made it pending until the data lands. The `on` prop is a **dependency list**: a tracked expression whose value is irrelevant — what matters is what it reads. Whenever anything it reads changes, the boundary stops waiting on its current content: if something under it is pending, it shows its fallback again until the new content is ready; if nothing is pending, nothing happens.

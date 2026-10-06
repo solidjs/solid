@@ -69,11 +69,13 @@ import {
   globalQueue,
   haltReactivity,
   joinFuture,
+  merge,
   passLane,
   passTx,
   resolveTx,
   schedule,
   setPassLane,
+  staleReader,
   txOf,
   type Transaction
 } from "./core/scheduler.js";
@@ -215,30 +217,107 @@ function catcherOf(node: Owner, flags: number): Boundary | undefined {
   return b;
 }
 
-/** GlobalQueue._owns — A29's boundary scope (2026-10-06): a loading boundary
- * that has not shown content, or that `on` re-armed, owns its subtree. A
- * pass under it reading a node `t` holds does not join `t`: the content is
- * pending under that boundary — it is the boundary that would catch it —
- * and no hold waits for it. Not when the boundary's display is `t`'s
- * anyway — then its fallback is never seen, and the content enters `t` to
- * appear with its commit: the flush is `t`'s (everything it stages lands
- * with `t`, the swap included); the output is held by `t` showing its
+/** A29's boundary scope (2026-10-06): a loading boundary that has not shown
+ * content, or that `on` re-armed, owns its subtree. A pass under it reading
+ * a node `t` holds does not join `t`: the content is pending under that
+ * boundary — it is the boundary that would catch it — and no hold waits for
+ * it. Not when the boundary's display is `t`'s anyway — then its fallback
+ * is never seen, and the content enters `t` to appear with its commit: the
+ * flush is `t`'s (everything it stages lands with `t`, the swap included —
+ * final at the seam, `boundaryPark`); the output is held by `t` showing its
  * fallback or never committed (the boundary was mounted, or re-armed, as
  * part of the hold); or, mid-mount, the pass creating the boundary read
- * `t`. */
-function owns(c: Computed<any>, t: Transaction): boolean {
+ * `t`. The boundary that owns `c`'s read of `t`, if one does. */
+function owner(c: Computed<any>, t: Transaction): Boundary | undefined {
   const b = catcherOf((c as BoundaryOutput)._scope ?? c, STATUS_PENDING);
-  if (b === undefined) return false;
-  if (flushTransaction !== null && resolveTx(flushTransaction) === t) return false;
+  if (b === undefined) return undefined;
+  if (flushTransaction !== null && resolveTx(flushTransaction) === t) return undefined;
   const o = b._output;
   if (o !== null)
-    return !(
-      o._config & CONFIG_HELD &&
+    return o._config & CONFIG_HELD &&
       (b._fallback || o._statusFlags & STATUS_UNINITIALIZED) &&
       txOf(o) === t
-    );
+      ? undefined
+      : b;
   const p = (b._owner as Root)._parentComputed as Computed<any> | null;
-  return !(p !== null && p._flags & REACTIVE_JOINED && passTx !== null && resolveTx(passTx) === t);
+  return p !== null && p._flags & REACTIVE_JOINED && passTx !== null && resolveTx(passTx) === t
+    ? undefined
+    : b;
+}
+
+/** GlobalQueue._owns — the boundary scope at the hold's doors: a read of a
+ * held node (`read`, a derive's draft), and a held node about to join its
+ * own hold (`c === el`: its pass's head, a pending propagated onto it).
+ *
+ * A held node a boundary owns now leaves its transaction (true: it goes on
+ * as a plain one). A read from under an owning boundary — whichever pass
+ * reads — joins nothing and serves nothing: the content is pending there,
+ * the boundary catches it and shows its fallback, and it waits for the
+ * landing as the hold's stale reader (`_reruns`: re-derived on the
+ * committed world). A held computation the same scope owns is content, not
+ * a hold: it leaves the transaction and re-derives here (true — the read
+ * goes on as a plain one, pending if it is). Not lane work or a verdict
+ * reader: they read the screen, not the hold (`frameRead`). */
+function scopedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): boolean {
+  if (c === null) return false;
+  const t = txOf(el);
+  if (t._lane) return false;
+  if (c === el) return leaveHold(c, t, owner(c, t));
+  if (passLane !== null || c._config & CONFIG_VERDICT) return false;
+  const b = owner(c, t);
+  if (b === undefined) return false;
+  if (
+    typeof (el as Computed<any>)._fn === "function" &&
+    leaveHold(el as Computed<any>, t, owner(el as Computed<any>, t))
+  ) {
+    recompute(el as Computed<any>);
+    return true;
+  }
+  staleReader(c, t);
+  if (globalQueue._running) scoped.push([c, t, b, true]);
+  throw new NotReadyError(el);
+}
+
+/** What the scope decided this flush, mid-pass: a node that left a hold,
+ * or a read made pending (`read`), with the hold and the boundary that
+ * owns it. Revisited when the flush parks (`boundaryPark`), dropped at the
+ * seam's end. */
+const scoped: [node: Computed<any>, hold: Transaction, owner: Boundary, read: boolean][] = [];
+
+/** GlobalQueue._boundaryPark — the flush parked into `t`: its membership is
+ * final, and the reads it made pending under an owning boundary are judged
+ * against it. A boundary's content shows until its swap does, so the hold
+ * its content read cannot land before the swap: a swap parked with `t`
+ * takes that hold into `t` (merged — they land as one, the fallback with
+ * the change that caused it) — whether the content read the hold or left
+ * it. A read whose hold is `t`, or is now, was
+ * `t`'s after all — the flush joined it after the read: the boundary's
+ * swap parked with `t` and its fallback can never be seen, so the reader
+ * re-derives next round as `t`'s — the output is held by `t` showing its
+ * fallback then, which is not an owning display (`owner`) — and the content
+ * enters `t` to appear at its commit. */
+function boundaryPark(t: Transaction): void {
+  for (const [c, u, b, read] of scoped) {
+    if (c._flags & REACTIVE_DISPOSED) continue;
+    const o = b._output;
+    if (resolveTx(u) !== t && o !== null && o._config & CONFIG_HELD && txOf(o) === t) merge(u, t);
+    if (read && resolveTx(u) === t) enqueueSub(c);
+  }
+}
+
+/** A held node the loading boundary `b` owns now leaves its transaction:
+ * its staging there is void, and its next pass derives on the committed
+ * world. (Staged again this flush, it is held again if the flush parks
+ * into `t`.) False when no boundary owns it. */
+function leaveHold(el: Computed<any>, t: Transaction, b: Boundary | undefined): boolean {
+  if (b === undefined) return false;
+  el._pendingValue = NOT_PENDING;
+  el._config &= ~CONFIG_HELD;
+  el._x!._transaction = null;
+  const i = t._nodes.indexOf(el);
+  if (i >= 0) t._nodes.splice(i, 1);
+  if (globalQueue._running) scoped.push([el, t, b, false]);
+  return true;
 }
 
 /** GlobalQueue._catch: status from a frame reader, nearest boundary first.
@@ -369,8 +448,10 @@ export function ready(b: Boundary): boolean {
 
 /** GlobalQueue._boundarySeam, end of the seam: readers that settled, died,
  * or landed and committed are dropped; a fallback with none left reveals
- * next round. An arm resolves: nothing collected, nothing happened. */
+ * next round. An arm resolves: nothing collected, nothing happened. The
+ * flush's scoped reads are done with (`boundaryPark`). */
 function boundarySeam(): void {
+  if (scoped.length !== 0) scoped.length = 0;
   for (const b of collecting) {
     const flags = b._output!._flags;
     if (flags & REACTIVE_DISPOSED) {
@@ -497,6 +578,25 @@ function arm(b: Boundary): void {
       redraw(b);
       return;
     }
+  }
+  if (globalQueue._running) ownHeld(b._owner);
+}
+
+/** The re-armed boundary owns its content (A29's boundary scope): what an
+ * earlier change holds under it — a write staged with no flight, so nothing
+ * under it is pending — leaves that hold and re-derives on the committed
+ * world now, and its read of the hold is pending under the boundary. */
+function ownHeld(o: Owner): void {
+  for (
+    let n = o._firstChild as Computed<any> | null;
+    n !== null;
+    n = n._nextSibling as Computed<any> | null
+  ) {
+    if (n._config & CONFIG_HELD && !(n as any)._type) {
+      const t = txOf(n);
+      if (!t._lane && leaveHold(n, t, owner(n, t))) enqueueSub(n);
+    }
+    ownHeld(n);
   }
 }
 
@@ -805,7 +905,8 @@ export function createErrorBoundary<T, U>(
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
-GlobalQueue._owns = owns;
+GlobalQueue._owns = scopedRead;
 GlobalQueue._hidden = hidden;
 GlobalQueue._boundarySeam = boundarySeam;
+GlobalQueue._boundaryPark = boundaryPark;
 GlobalQueue._heldRun = heldRun;

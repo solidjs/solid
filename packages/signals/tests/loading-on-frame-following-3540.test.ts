@@ -445,6 +445,71 @@ describe("3b. an outside reader of a flight the `on` change did not start: the f
     });
 });
 
+// Content an earlier action holds with no flight (a write it staged): nothing
+// under the boundary is pending, but the re-armed boundary owns its content —
+// it leaves the hold, the fallback shows now, and the content reveals at the
+// action's commit. A re-arm inside the action is the action's frame: no
+// fallback, the content lands with the commit.
+describe("3c. content an earlier action holds by a staged write: the re-arm shows the fallback now", () => {
+  for (const content of ["direct", "memo", "bound"] as const)
+    for (const inside of [false, true])
+      test(`${content} content, re-armed ${inside ? "inside" : "after"} the action`, async () => {
+        const d = captureWarnings();
+        const [x, setX] = createSignal(0);
+        const [key, setKey] = createSignal(0);
+        const log: string[] = [];
+        let done!: () => void;
+        let dispose!: () => void;
+        createRoot(dispose_ => {
+          dispose = dispose_;
+          const view = untrack(() =>
+            createLoadingBoundary(
+              () => {
+                if (content === "direct") return () => `c ${x()}`;
+                const m = createMemo(() => `c ${x()}`);
+                if (content === "memo") return m;
+                createRenderEffect(m, v => {
+                  log.push(`bind ${v}`);
+                });
+                return "<p>";
+              },
+              () => "fallback",
+              { on: key }
+            )
+          );
+          createRenderEffect(view, v => {
+            log.push(`view ${v}`);
+          });
+        });
+        flush();
+        const shows = (v: number) =>
+          content === "bound" ? [`bind c ${v}`, "view <p>"] : [`view c ${v}`];
+        expect(log).toEqual(shows(0));
+        log.length = 0;
+        action(function* () {
+          setX(1);
+          if (inside) setKey(1);
+          yield new Promise<void>(r => (done = r));
+        })();
+        flush();
+        expect(log).toEqual([]);
+        if (!inside) {
+          setKey(1);
+          flush();
+          expect(log).toEqual(["view fallback"]);
+        }
+        done();
+        for (let i = 0; i < 8; i++) await microtask();
+        flush();
+        expect(log).toEqual(
+          inside ? (content === "bound" ? ["bind c 1"] : shows(1)) : ["view fallback", ...shows(1)]
+        );
+        expect(d.codes()).toEqual([]);
+        d.stop();
+        dispose();
+      });
+});
+
 describe("4. `on: () => latest(id)`: the display-ahead read shows the fallback now, beside the held frame", () => {
   for (const write of ["plain", "action"] as Write[]) {
     test(`${write} write, shell lands first: [A] → [A + spinner] → [B + spinner] → [B + comments]`, async () => {

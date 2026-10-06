@@ -897,7 +897,7 @@ export function propagateStatus(
         passLane === null &&
         (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
         globalQueue._running &&
-        !GlobalQueue._owns?.(sub, txOf(sub))
+        !GlobalQueue._owns?.(sub, sub)
       )
         joinFuture(txOf(sub));
       return;
@@ -926,7 +926,7 @@ export function propagateStatus(
             status === STATUS_PENDING &&
             (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
             !(sub as any)._type &&
-            !GlobalQueue._owns?.(sub, txOf(sub))
+            !GlobalQueue._owns?.(sub, sub)
           )
             joinFuture(txOf(sub));
         }

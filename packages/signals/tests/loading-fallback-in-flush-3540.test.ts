@@ -981,54 +981,310 @@ describe("#3540: the boundary scope — semantic fuzzer findings (rev 19, seed 9
     expect(log).toEqual(["view 1 0", "view loading"]);
   });
 
-  // boundaries #1078, reduced. OPEN: the re-arm's flush judges the tree
-  // owned and it leaves the earlier hold; later in the same flush an async
-  // memo the hold has joins the flush to it, and from then on the output
-  // is not owned (`flushTransaction === t`) — it keeps its staging there.
-  // The hold lands after the hide and publishes that stale content, which
-  // sticks. Membership decided mid-flush is not revisited when the flush
-  // joins a hold; the fix is to decide that clause at the seam.
-  it.fails(
-    "hidden after a re-arm over a held mount: the boundary does not publish stale content",
-    async () => {
-      const [s1, setS1] = createSignal(0);
-      const [visible, setShow] = createSignal(false);
-      const flights: (() => void)[] = [];
-      let shown: unknown;
-      createRoot(() => {
-        const n0 = createMemo(() => s1());
-        const n1 = createMemo(async () => {
-          const v = n0();
-          await new Promise<void>(r => flights.push(r));
-          return v;
-        });
-        const view = Loading(() => (visible() ? `content ${s1()}` : "hidden"), "loading", s1);
-        createRenderEffect(view, v => {
-          shown = v;
-        });
-        createRenderEffect(
-          () => (visible() ? n1() : "hidden"),
-          () => {}
-        );
-      });
-      const turn = async (fn: () => void) => {
-        fn();
-        flush();
-        await drain();
-        flush();
-      };
-      await turn(() => {});
+  // boundaries #1078, reduced. The re-arm's flush judges the content owned
+  // and it leaves the earlier hold; later in the same flush an async memo
+  // that hold has (read outside) joins the flush to it — the flush is the
+  // hold's after all. Two defects published the content staged before the
+  // re-arm at the hold's landing, after the hide: the pending propagated
+  // onto the boundary's held tree left it held with that staging (the tree
+  // now leaves the hold there), and the reads made pending before the join
+  // were never revisited (the seam re-derives them).
+  it("hidden after a re-arm over a held mount: the boundary does not publish stale content", async () => {
+    const w = seamWorld((s1, visible) => [
+      Loading(() => (visible() ? `content ${s1()}` : "hidden"), "loading", s1)
+    ]);
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    await w.turn(() => w.setShow(false));
+    await w.settle();
+    expect(w.log).toEqual(["0:hidden"]);
+  });
+});
+
+/** The #1078 world: `n1`, async over `s1`, is read by a render effect
+ * outside the boundaries while `visible`. Mounted with `s1` = 1 committed
+ * and `setShow(true)` held by `n1`'s flight: the boundaries' content
+ * (`content 1`) is staged in that hold, the screen still `hidden`. `s1` is
+ * every boundary's `on`; writing it re-arms them, and re-asks `n1` — the
+ * flush joins the hold after the boundaries' content has read it. `log`:
+ * what each boundary shows, from the hold on. */
+function seamWorld(boundaries: (s1: () => number, visible: () => boolean) => (() => unknown)[]) {
+  const drain = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+  const [s1, setS1] = createSignal(0);
+  const [visible, setShow] = createSignal(false);
+  const flights: (() => void)[] = [];
+  const log: string[] = [];
+  createRoot(() => {
+    const n0 = createMemo(() => s1());
+    const n1 = createMemo(async () => {
+      const v = n0();
+      await new Promise<void>(r => flights.push(r));
+      return v;
+    });
+    boundaries(s1, visible).forEach((view, i) =>
+      createRenderEffect(view, v => {
+        log.push(`${i}:${v}`);
+      })
+    );
+    createRenderEffect(
+      () => (visible() ? n1() : "hidden"),
+      () => {}
+    );
+  });
+  const turn = async (fn: () => void) => {
+    fn();
+    flush();
+    await drain();
+    flush();
+  };
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) {
       while (flights.length) flights.shift()!();
       await turn(() => {});
-      await turn(() => setS1(1));
-      await turn(() => setShow(true));
-      await turn(() => setS1(0));
-      await turn(() => setShow(false));
-      for (let i = 0; i < 4; i++) {
-        while (flights.length) flights.shift()!();
-        await turn(() => {});
-      }
-      expect(shown).toBe("hidden");
     }
-  );
+  };
+  const mount = async () => {
+    await turn(() => {});
+    await settle();
+    await turn(() => setS1(1));
+    await turn(() => setShow(true));
+    log.length = 0;
+  };
+  return { setS1, setShow, log, turn, settle, mount };
+}
+
+// The flush's membership is final at the seam (A29's boundary scope: "the
+// flush is `t`'s"). The re-arm makes the content's reads pending under the
+// boundary; the flush then joins the hold those reads were of — the
+// boundary's swap parks with it, so its fallback can never be seen. The
+// seam re-derives those reads as the hold's: the content enters it and
+// appears at its commit. Before, the fallback the flush had staged was
+// committed with the hold and shown for a round. Pre-L2 and next show the
+// re-armed content at the commit too (no fallback).
+describe("#3540: the boundary scope — a read made pending before the flush joins its hold", () => {
+  it("one boundary: the content appears at the hold's commit, no fallback", async () => {
+    const w = seamWorld((s1, visible) => [
+      Loading(() => (visible() ? `content ${s1()}` : "hidden"), "loading", s1)
+    ]);
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    expect(w.log).toEqual([]);
+    await w.settle();
+    expect(w.log).toEqual(["0:content 0"]);
+  });
+
+  it("two boundaries re-armed by the same change: neither shows its fallback", async () => {
+    const w = seamWorld((s1, visible) => [
+      Loading(() => (visible() ? `a ${s1()}` : "hidden"), "loading", s1),
+      Loading(() => (visible() ? `b ${s1()}` : "hidden"), "loading", s1)
+    ]);
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    expect(w.log).toEqual([]);
+    await w.settle();
+    expect(w.log.sort()).toEqual(["0:a 0", "1:b 0"]);
+  });
+
+  it("two boundaries, then a hide: both land hidden", async () => {
+    const w = seamWorld((s1, visible) => [
+      Loading(() => (visible() ? `a ${s1()}` : "hidden"), "loading", s1),
+      Loading(() => (visible() ? `b ${s1()}` : "hidden"), "loading", s1)
+    ]);
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    await w.turn(() => w.setShow(false));
+    await w.settle();
+    expect(w.log.sort()).toEqual(["0:hidden", "1:hidden"]);
+  });
+
+  it("nested: neither the inner nor the outer fallback shows", async () => {
+    const w = seamWorld((s1, visible) => {
+      const outer = Loading(
+        () => {
+          const inner = Loading(() => (visible() ? `in ${s1()}` : "hidden"), "inner", s1);
+          return () => `out[${inner()}]`;
+        },
+        "outer",
+        s1
+      );
+      return [outer];
+    });
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    expect(w.log).toEqual([]);
+    await w.settle();
+    expect(w.log).toEqual(["0:out[in 0]"]);
+  });
+
+  it("nested, then a hide: lands hidden", async () => {
+    const w = seamWorld((s1, visible) => {
+      const outer = Loading(
+        () => {
+          const inner = Loading(() => (visible() ? `in ${s1()}` : "hidden"), "inner", s1);
+          return () => `out[${inner()}]`;
+        },
+        "outer",
+        s1
+      );
+      return [outer];
+    });
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    await w.turn(() => w.setShow(false));
+    await w.settle();
+    expect(w.log).toEqual(["0:out[hidden]"]);
+  });
+
+  it("re-armed twice under the hold: the last content appears at the commit", async () => {
+    const w = seamWorld((s1, visible) => [
+      Loading(() => (visible() ? `content ${s1()}` : "hidden"), "loading", s1)
+    ]);
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    await w.turn(() => w.setS1(2));
+    expect(w.log).toEqual([]);
+    await w.settle();
+    expect(w.log).toEqual(["0:content 2"]);
+  });
+
+  // boundaries #476/#1674 (rev 19, seed 91501), reduced. `show` is held by
+  // `n1`'s flight, which the boundary's content forwards; `s = 0` re-arms
+  // the boundary — its content leaves that hold — and starts `n2`, which a
+  // reader outside reads, so the change's frame, and the boundary's swap
+  // with it, waits on `n2`. The content stays on screen until the swap, so
+  // the hold it read lands with the swap's frame (merged at the seam):
+  // before, it landed at once — `show` true beside content derived from
+  // `show` false — and the fallback followed a frame later.
+  it("a swap parked with another change takes the hold its content read with it", async () => {
+    const drain = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const [s, setS] = createSignal(0);
+    const [visible, setShow] = createSignal(false);
+    const manual: (() => void)[] = [];
+    const frame: Record<string, unknown> = {};
+    createRoot(() => {
+      const n0 = createMemo(() => s());
+      const n1 = createMemo(() => {
+        const v = n0();
+        return new Promise<number>(r => manual.push(() => r(v)));
+      });
+      const n2 = createMemo(() => Promise.resolve(s()));
+      createRenderEffect(visible, v => {
+        frame.show = v;
+      });
+      const view = Loading(() => (visible() ? `content ${n1()}` : "hidden"), "loading", s);
+      createRenderEffect(view, v => {
+        frame.view = v;
+      });
+      createRenderEffect(
+        () => `outside ${n2()}`,
+        v => {
+          frame.outside = v;
+        }
+      );
+    });
+    const turn = async (fn: () => void) => {
+      fn();
+      flush();
+      const after = { ...frame };
+      await drain();
+      flush();
+      return [after, { ...frame }];
+    };
+    await turn(() => {});
+    manual.shift()!();
+    await turn(() => {});
+    await turn(() => setS(1));
+    await turn(() => setShow(true));
+    expect(frame).toEqual({ show: false, view: "hidden", outside: "outside 1" });
+    expect(await turn(() => setS(0))).toEqual([
+      { show: false, view: "hidden", outside: "outside 1" },
+      { show: true, view: "loading", outside: "outside 0" }
+    ]);
+    while (manual.length) manual.shift()!();
+    await turn(() => {});
+    expect(frame).toEqual({ show: true, view: "content 0", outside: "outside 0" });
+  });
+
+  // boundaries #1674 (rev 19, seed 91501), reduced again after the merge
+  // above. KNOWN, A15's landing (not the scope): `show` is held only by
+  // the content under the boundary; `s = 0` re-arms it, and the hold —
+  // which no frame waits on any more — lands at once (the ruling: the
+  // re-armed boundary owns its content). A reader outside, re-derived at
+  // that landing, goes pending on `n2`, which `s = 0` started — the
+  // change's frame — and keeps showing "hidden" beside the landed `show`.
+  // The same tear without any boundary — a hold landing while a reader of
+  // it re-derived at the landing is pending on another change's flight — is
+  // boundaries #75's reduction, which fails on next too; next passes this
+  // shape only because there `s = 0` re-asks `n1`, joins the hold and lands
+  // with it. The fix is A15's: such a landing waits for the frame its
+  // reader went pending in.
+  it.fails("a hold released by a re-arm lands beside a reader pending on the change", async () => {
+    const drain = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const [s, setS] = createSignal(0);
+    const [visible, setShow] = createSignal(true);
+    const manual: (() => void)[] = [];
+    const frames: Record<string, unknown>[] = [];
+    const frame: Record<string, unknown> = {};
+    createRoot(() => {
+      const n0 = createMemo(() => s());
+      const n1 = createMemo(() => {
+        const v = n0();
+        return new Promise<number>(r => manual.push(() => r(v)));
+      });
+      const n2 = createMemo(() => Promise.resolve(n0()));
+      createRenderEffect(visible, v => {
+        frame.show = v;
+      });
+      createRenderEffect(
+        () => (visible() ? `outside ${s()} ${n2()}` : "hidden"),
+        v => {
+          frame.outside = v;
+        }
+      );
+      const view = Loading(() => (visible() ? `content ${n1()}` : "hidden"), "loading", s);
+      createRenderEffect(view, v => {
+        frame.view = v;
+      });
+    });
+    const turn = async (fn: () => void) => {
+      fn();
+      flush();
+      frames.push({ ...frame });
+      await drain();
+      flush();
+      frames.push({ ...frame });
+    };
+    await turn(() => {});
+    manual.shift()!();
+    await turn(() => {});
+    await turn(() => {
+      setShow(false);
+      setS(1);
+    });
+    await turn(() => setShow(true));
+    await turn(() => setS(0));
+    while (manual.length) {
+      manual.shift()!();
+      await turn(() => {});
+    }
+    expect(frames.filter(f => f.show === true && f.outside === "hidden")).toEqual([]);
+  });
+
+  it("re-armed twice, then a hide: lands hidden", async () => {
+    const w = seamWorld((s1, visible) => [
+      Loading(() => (visible() ? `content ${s1()}` : "hidden"), "loading", s1)
+    ]);
+    await w.mount();
+    await w.turn(() => w.setS1(0));
+    await w.turn(() => w.setS1(2));
+    await w.turn(() => w.setShow(false));
+    await w.settle();
+    expect(w.log).toEqual(["0:hidden"]);
+  });
 });

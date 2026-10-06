@@ -665,11 +665,18 @@ export class GlobalQueue implements IQueue {
   declare static _catch:
     | ((node: Computed<any>, flags: number, error: unknown) => boolean)
     | undefined;
-  /** `_owns` — a pass reading a node `t` holds is under a loading boundary
-   * that owns it (A29's boundary scope): pending there, not `t`'s. */
-  declare static _owns: ((c: Computed<any>, t: Transaction) => boolean) | undefined;
+  /** `_owns(c, el)` — A29's boundary scope: pass `c`, about to read held `el`
+   * (`c === el`: about to join its own hold), is under a loading boundary
+   * that owns it. Throws its pending there; true when the hold was left and
+   * the read or pass goes on as a plain one. */
+  declare static _owns:
+    | ((c: Computed<any>, el: Signal<any> | Computed<any>) => boolean)
+    | undefined;
   declare static _hidden: ((r: Computed<any>) => boolean) | undefined;
   declare static _boundarySeam: (() => void) | undefined;
+  // `_boundaryPark` — the flush parked into `t`, its membership final: the
+  // boundary scope revisits the reads it made pending this flush (A29).
+  declare static _boundaryPark: ((t: Transaction) => void) | undefined;
   // `_heldRun` — a queued run under a fallback-showing boundary waits for
   // the reveal (true: held; the boundary re-queues it by type). The
   // synchronous first render on creation builds the subtree, attached or
@@ -791,6 +798,7 @@ export class GlobalQueue implements IQueue {
       }
       pendingNodes.length = 0;
       GlobalQueue._storePark?.(t);
+      GlobalQueue._boundaryPark?.(t);
 
       // (This flush's runs are stashed with `t` below — after the landings,
       // so a `t` that lands at this very seam runs them first, ahead of
