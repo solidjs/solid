@@ -110,7 +110,20 @@ export type FrameChunk =
         | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
       )[];
     }
-  | { type: "complete"; id: string; version: number }
+  | {
+      type: "complete";
+      id: string;
+      version: number;
+      /**
+       * Present when the producer ended a plain (non-`live`) response at
+       * its streaming bound rather than at its sources' settling (RFC 11
+       * addendum): `"yields"` — the later-yield count; `"time"` — the
+       * wall-clock bound after the first flush, or the request's abort
+       * after it. The content shown is a cut-off, not a settled value;
+       * `live()` is the declared way past the bound.
+       */
+      bound?: "yields" | "time";
+    }
   | { type: "error"; id: string; version: number; key?: string; error: unknown };
 
 /**
@@ -663,7 +676,10 @@ export function chunkToRecords(chunk) {
       return records;
     }
     case "complete":
-      return { ":complete": true };
+      // `:bound` beside `:complete` when the producer cut the response at
+      // its streaming bound: a consumer can tell a cut-off from a settled
+      // value (the frame landed either way).
+      return chunk.bound ? { ":complete": true, ":bound": chunk.bound } : { ":complete": true };
     case "error":
       // Keyed errors scope to what the key names: a hole key (`lh:N`) is a
       // failed live-hole sweep — terminal for the hole, whose range latched
@@ -850,6 +866,18 @@ export function createFrameHost(options = {}) {
       const records = chunkToRecords(chunk);
       const store = storeFor(chunk.id);
       if (!write(store, chunk.version, records)) return;
+      // The producer cut a plain response at its streaming bound: what the
+      // address shows is a cut-off, not a settled value. `live()` is the
+      // declared way past the bound; say so once per response, in dev.
+      if ("_SOLID_DEV_" && chunk.type === "complete" && chunk.bound) {
+        console.warn(
+          `Server component "${chunk.id}" kept streaming past the server's ${chunk.bound} ` +
+            `bound and was cut off (complete.bound: "${chunk.bound}"); its content is the last ` +
+            `value the server sent, not a settled one. A source meant to keep streaming is ` +
+            `declared with live(): wrap the server function (live(fn)) so the client holds a ` +
+            `standing connection instead.`
+        );
+      }
       let r = records;
       // The address as a source: `start` opens a flight; the write that
       // lands it makes the version the one SHOWN and answers whoever awaited

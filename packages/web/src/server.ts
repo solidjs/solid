@@ -2959,7 +2959,13 @@ export function renderToStream(code, options = {}) {
   // registry, the sink and the serializer, all declared above — and disarmed
   // by the render's final dispose, which every ending runs through.
   const signal = options.signal;
-  const onAbort = signal ? () => abandon("signal") : undefined;
+  // A reason carrying `quiet: true` is a teardown the response chose — a
+  // frame stream ending a plain response at its streaming bound (see
+  // frame-sink's `frameStream`) — not a client that left: no abandonment
+  // finding for it.
+  const onAbort = signal
+    ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
+    : undefined;
   let html = root(
     d => {
       dispose = () => {

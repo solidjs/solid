@@ -497,6 +497,45 @@ experimental preview (RFC 11's status note): the member is taken as
 additive on the producer and the consumer ships with it in the same
 release.
 
+**`complete.bound` — the plain response's streaming bound (savings pass §6
+decision 4, ruled 2026-10-06).**
+
+```ts
+| { type: "complete"; id: string; version: number; bound?: "yields" | "time" }
+```
+
+A plain (non-`live`) server component whose content reads a standing source
+— a generator memo, a projection over an async iterable — keeps its
+response open and ships each later commit as holes, with no declaration of
+liveness anywhere; its only end was "the source settles", which for a
+source that never returns is never. The producer now ends such a response
+at a bound and says so: `bound: "yields"` after `maxYields` emitting sweeps
+past the first flush (default 64; a sweep that emits nothing — the source
+repeating a value — is not a yield), `bound: "time"` `maxDurationMs` after
+the first flush (default 30 000) **or when the request's `signal` aborts
+after the first flush** (a platform deadline is a time bound the client can
+tell from a death). The sink's end-of-response latch runs as for any
+completion (the last sweep's values ship before the `complete`), the body
+closes, and the render is torn down quietly (sources returned, holds
+released; no abandonment finding — the response chose to end). Both
+defaults are options on `FrameStreamOptions` (`maxYields`,
+`maxDurationMs`); `0` / `Infinity` disable one. A `live` response is never
+bounded: liveness IS the declaration that there is no bound, and `live()`
+is the documented way past it. A `complete` with no `bound` means what it
+always meant. A body that ends without any `complete` stays what it is: the
+open frame's `:error` (undeclared death).
+
+_Consumer:_ `chunkToRecords` stores `:bound` beside `:complete`; the frame
+lands as on any `complete` (the covering boundary releases, `landing`
+resolves), and a consumer that cares can tell a cut-off from a settled
+value by the key. In dev the host warns once per response, naming `live()`.
+Not surfaced as an error: the content shown is the server's last value,
+which is what the frame says it is.
+
+_Old consumer:_ reads `complete` as before (the extra field is ignored by
+its `chunkToRecords`); it sees a completed frame and never learns it was a
+cut-off. Degrades to today's behaviour minus the (new) distinction.
+
 ### Two identity schemes
 
 The format uses two deliberately distinct identity schemes:
