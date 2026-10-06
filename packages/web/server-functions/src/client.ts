@@ -454,7 +454,12 @@ let rpcProvided = false;
 function provideRPC() {
   if (rpcProvided) return;
   rpcProvided = true;
-  provideServerFunctionRPC({ GET, decodeResponse });
+  // `createServerReference` rides the seam on the client half only: an
+  // integration holding a function's ID (the frames client re-asking an
+  // errored server component — frames-rulings 3.3) mints the callable
+  // through here instead of importing the transport into its eager graph.
+  // The server half has no wire to re-ask on.
+  provideServerFunctionRPC({ GET, decodeResponse, createServerReference });
 }
 
 // A reconstructed callable's base is a rendered PLAIN-HTTP address

@@ -74,13 +74,17 @@ const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // imports are resolved to the same external entry there
 // (externalizeSharedTransport), so the codec/flight config its defaults
 // read is this instance by construction.
-import {
-  configureServerFunctionsClient,
-  createServerReference,
-  GET,
-  invoke,
-  withMeta
-} from "@solidjs/web/server-functions/client";
+import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
+// The server-function registry's two seams, read through their registered
+// symbols rather than imported (the pattern the frame runtime uses for
+// every cross-bundle brand — `CLAIM_SEAM`, `COMPONENT_BINDING`): the
+// late-bound RPC slot (registry.ts `provideServerFunctionRPC` — filled by
+// the time any server function has been referenced, so by the time a
+// response could have erred) and the declaration-metadata brand. Importing
+// either from an entry would retain a registry copy in whichever bundle
+// does not already carry one.
+const SERVER_FUNCTION_RPC = Symbol.for("solid.ServerFunctionRPC");
+const SERVER_FUNCTION_METADATA = Symbol.for("solid.ServerFunctionMetadata");
 // The seroval codec is the frames client's heaviest dependency (~6 kB gz
 // with the web plugin set) and the common frames traffic never needs it:
 // HTML chunks, scalar slot args and document records (the hydration
@@ -274,6 +278,17 @@ function landing<T>(host: any, address: string, value: T, failed: () => unknown)
 // handled (the flight is open and will land through the host). Undefined
 // until `installServerComponents` ran.
 let reask: ((address: string) => Promise<unknown> | undefined) | undefined;
+
+/**
+ * A mount's error tick for `landing`: the read, and the frame `onApply`
+ * that writes it once per error record the frame applies. `ownedWrite`:
+ * the first apply may run inside the mount's own render (a warm store
+ * seeds at registration), the rest from chunk microtasks and commits.
+ */
+function failing(): [() => number, (info: { reason: string }) => void] {
+  const [failed, setFailed] = createSignal(0, { ownedWrite: true });
+  return [failed, info => info.reason === "error" && setFailed(n => n + 1)];
+}
 /**
  * The app-wide shared frame host (created lazily): one chunk router with
  * per-response codec data tables.
@@ -1029,11 +1044,8 @@ function boundaryComponent(host: any, fnId: string) {
     // of their own — still claim with the right lifetime.
     const owner = getOwner();
     const id = binding ? contentAddress(binding()) : fnId;
-    // The frame's error, announced to the mount's content node (see
-    // `landing`): one tick per error record the frame applies. `ownedWrite`:
-    // the first apply may run inside this very render (a warm store seeds
-    // at registration), the rest from chunk microtasks and commits.
-    const [failed, setFailed] = createSignal(0, { ownedWrite: true });
+    // The frame's error, announced to the mount's content node (`landing`).
+    const [failed, onApply] = failing();
     // The boundary is a DOM element (`<solid-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it.
@@ -1046,7 +1058,7 @@ function boundaryComponent(host: any, fnId: string) {
       slots: slotsFor(props),
       ownerScope: boundaryScope(owner),
       reveal: revealSeam(owner),
-      onApply: info => info.reason === "error" && setFailed(n => n + 1)
+      onApply
     });
     onCleanup(dispose);
     // The shell: the covering <Loading> pends on the bound address's first
@@ -1495,9 +1507,8 @@ function adoptBoundary(
   // The root this boundary adopts under (see ClaimScope): its occurrences
   // claim against this pair however late they mount.
   const sc: any = sharedConfig;
-  // The frame's error, announced to the address source below (see
-  // `landing` and boundaryComponent's twin).
-  const [failed, setFailed] = createSignal(0, { ownedWrite: true });
+  // The frame's error, announced to the address source below (`landing`).
+  const [failed, onApply] = failing();
   frame = createFrame(el, {
     adopt: true,
     host,
@@ -1505,7 +1516,7 @@ function adoptBoundary(
     slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
-    onApply: info => info.reason === "error" && setFailed(n => n + 1),
+    onApply,
     // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
     // an adopted occurrence the frame has not claimed yet — waiting for
     // its record — is a pending boundary in everything but a resume, and
@@ -1659,14 +1670,17 @@ export function installServerComponents(host: any = getFrameHost()) {
   for (const address in records) showing(address, records[address]);
   g._$SC.reg = showing;
   // The re-ask (see `landing`): the call behind the address, as the
-  // handler recorded it, invoked again — through the same declaration
-  // shape it was made with (a `GET`-declared read stays a GET; declared
-  // metadata rides along), with no per-call options (those were the
-  // original caller's; this call is the boundary's own). Its response is
-  // handled like any other and lands through the host.
+  // handler recorded it, made again — through the same declaration shape
+  // it was made with (a `GET`-declared read stays a GET; declared metadata
+  // rides along), with no per-call options (those were the original
+  // caller's; this call is the boundary's own). The callable is minted
+  // through the late-bound RPC seam, never by importing the transport:
+  // the seam is filled by the time any response has been handled. Its
+  // response is handled like any other and lands through the host.
   reask = address => {
     const call = callFor(address);
-    if (!call) {
+    const rpc = g[SERVER_FUNCTION_RPC];
+    if (!call || !rpc) {
       if (IS_DEV)
         console.error(
           `Server component boundary "${address}" errored, but no call is recorded for it; ` +
@@ -1675,8 +1689,9 @@ export function installServerComponents(host: any = getFrameHost()) {
       return undefined;
     }
     const meta: any = call.meta || {};
-    const ref = createServerReference(call.id);
-    return invoke(withMeta(meta.method === "GET" ? GET(ref) : ref, meta), {}, ...call.args);
+    const ref = rpc.createServerReference(call.id);
+    Object.assign(ref[SERVER_FUNCTION_METADATA], meta);
+    return (meta.method === "GET" ? rpc.GET(ref) : ref)(...call.args);
   };
   configureServerFunctionsClient({ responseHandler: handler });
 }
