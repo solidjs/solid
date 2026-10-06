@@ -14,7 +14,10 @@ import { bundle, moduleOf, packageOf, scenarios, toKB } from "./bundle.mjs";
 const args = process.argv.slice(2);
 const minAt = args.indexOf("--min");
 const threshold = minAt >= 0 ? parseInt(args[minAt + 1], 10) : 200;
-const filters = args.filter((a, i) => !a.startsWith("--") && i !== minAt + 1);
+// Without `--min`, minAt is -1 and `i !== minAt + 1` would drop the first
+// positional filter (index 0); only exclude the value argument when the flag
+// is present. (The same fix size.mjs carries for `--json`.)
+const filters = args.filter((a, i) => !a.startsWith("--") && (minAt < 0 || i !== minAt + 1));
 
 for (const scenario of scenarios) {
   if (filters.length && !filters.some(f => scenario.name.includes(f))) continue;
