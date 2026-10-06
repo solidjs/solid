@@ -908,9 +908,11 @@ export function propagateStatus(
       // The marked subscriber is queued for the commit sweep so its status
       // bookkeeping (loading window, uninitialized clear) runs with the flush
       // — with the lane, when the pass propagating is the lane's work and
-      // the dependent's pending is the lane's own flight (`lanePending`).
+      // the dependent's pending is the lane's own flight (`laneStage`).
       if (!downstreamBlockStatus) {
-        if (passLane === null || !GlobalQueue._lanePending!(sub, el, passLane)) {
+        // (No answer: a pending propagation leaves a written guess a guess.)
+        if (passLane !== null) GlobalQueue._laneStage!(sub, passLane, true, el);
+        else {
           queuePendingNode(sub);
           // A15 (#3443): pending propagates onto a held memo without
           // recomputing it, and the propagation itself enters the memo's

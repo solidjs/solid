@@ -608,10 +608,12 @@ export class GlobalQueue implements IQueue {
     | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
     | undefined;
   declare static _laneStage:
-    | ((el: Computed<any>, l: Transaction, create: boolean, errored: boolean) => boolean)
-    | undefined;
-  declare static _lanePending:
-    | ((sub: Computed<any>, el: Computed<any>, l: Transaction) => boolean)
+    | ((
+        el: Computed<any>,
+        l: Transaction,
+        create: boolean,
+        errored: boolean | Computed<any>
+      ) => boolean)
     | undefined;
   declare static _laneOutcome:
     | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)

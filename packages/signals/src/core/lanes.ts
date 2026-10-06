@@ -75,6 +75,7 @@ import {
   ownFlights,
   passLane,
   question,
+  queuePendingNode,
   releaseQueues,
   reruns,
   resolveTx,
@@ -302,12 +303,13 @@ export function verdictLane(t: Transaction): Transaction {
  * the lane). A pass interrupted before it got there (pending, errored) did
  * not leave (A30: it never got there). A first pass under a lane is the
  * lane's (ruling A); a guess is written, not derived — it never leaves this
- * way. */
+ * way. `errored`: the pass has no answer — or, a lane pass's pending
+ * propagation (async.ts `propagateStatus`), the node gone pending. */
 export function laneStage(
   el: Computed<any>,
   l: Transaction,
   create: boolean,
-  errored: boolean
+  errored: boolean | Computed<any>
 ): boolean {
   if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
     if (el._x !== null) {
@@ -334,29 +336,27 @@ export function laneStage(
   // A leaf has no lane value to seat it (`recompute`): one left waiting on
   // the lane's flight runs its next pass as the lane's — the landing that
   // wakes it is the lane's re-staging (A31), and the lane holds its render
-  // effects until its derivations land (A17; #3766, F5).
-  else if (errored) el._flags |= REACTIVE_LANE_DIRTY;
+  // effects until its derivations land (A17; #3766, F5). Not a leaf whose
+  // seat is its frame's, reached by a propagation from a node the screen has
+  // a value of: one a transaction holds (born held — its frame waits on it,
+  // A29), or one whose own mainline pass is running (it pulled the node;
+  // `laneRead` decides — its frame holds). Its pending is the frame's: queued
+  // for the commit sweep as mainline's (async.ts). A node born in the lane
+  // has nothing on screen: its leaf waits as the lane's.
+  else if (errored) {
+    if (
+      errored !== true &&
+      !(errored._statusFlags & STATUS_UNINITIALIZED) &&
+      (el._config & CONFIG_HELD || el._flags & REACTIVE_RECOMPUTING_DEPS) &&
+      !el._x?._transaction?._lane
+    ) {
+      queuePendingNode(el);
+      return false;
+    }
+    el._flags |= REACTIVE_LANE_DIRTY;
+  }
   list(el, l);
   return true;
-}
-
-/** A lane pass's pending propagation reaching `sub` (async.ts
- * `propagateStatus`): the dependent's pending is the lane's own flight, and
- * it is listed as the lane's (no answer: a written guess stays a guess) —
- * true. Not a render effect whose seat is its frame's, over a node the
- * screen has a value of: one a transaction holds (born held — its frame
- * waits on it, A29), or one whose own mainline pass is running (it pulled
- * `el`; `laneRead` decides — the frame holds on it). A node born in the lane
- * has nothing on screen: its leaf waits as the lane's. */
-function lanePending(sub: Computed<any>, el: Computed<any>, l: Transaction): boolean {
-  if (
-    (sub as any)._type &&
-    !(el._statusFlags & STATUS_UNINITIALIZED) &&
-    (sub._config & CONFIG_HELD || sub._flags & REACTIVE_RECOMPUTING_DEPS) &&
-    !sub._x?._transaction?._lane
-  )
-    return false;
-  return laneStage(sub, l, true, true);
 }
 
 /** The truth arrived for a written guess (A18): a correction dissolves the
@@ -412,9 +412,6 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
  * land, and the runs it held (showing the void guess) are dropped: the
  * parent's re-derivation makes the runs that show. */
 function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<any>): void {
-  // The runs the lane seam would release now (below) — judged before the
-  // dissolution unlinks the lane and re-homes its nodes.
-  const keep = into === null || (l._shown && !blocked(l));
   const k = lanes.indexOf(l);
   if (k !== -1) lanes.splice(k, 1);
   unlink(l);
@@ -435,6 +432,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     // What the screen shows of it (NOT_PENDING: nothing — a lane pass that
     // errored or pends staged no value), and the lane's latest.
     const shown = l._shown && !effect ? slot : n._value;
+    const latest = laneValueOf(n);
     x._lane = NOT_PENDING;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     if (into === null) {
@@ -458,10 +456,9 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // notification — listed before it), or one still in flight, shows the
       // lane's answer beside inputs that are the truth now: a fresh reader
       // of its flight observes it (#3648, #3651; #3305's commit beneath a
-      // flight). One with no lane value at all commits nothing: no landing
-      // (a node born in the lane stays uninitialized).
+      // flight).
       x._transaction = null;
-      if (!effect && !guess && n._pendingValue === NOT_PENDING) n._pendingValue = slot;
+      if (!effect && !guess) n._pendingValue = latest;
       commitPendingNode(n);
       if (!effect) {
         if (
@@ -517,7 +514,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   // void: nothing of it reached the screen. So are the runs a blocked lane
   // parked: they show a re-guess the seam never revealed, beside derivations
   // that keep what the screen showed.
-  if (keep) releaseQueues(l);
+  if (into === null || (l._shown && !l._held)) releaseQueues(l);
   else l._queues[0].length = l._queues[1].length = 0;
 }
 
@@ -778,7 +775,6 @@ function answered(el: Computed<any>): number {
 
 GlobalQueue._laneRead = laneRead;
 GlobalQueue._laneStage = laneStage;
-GlobalQueue._lanePending = lanePending;
 GlobalQueue._laneOutcome = laneOutcome;
 GlobalQueue._laneWrite = laneWrite;
 /** The lanes alive before this seam's guesses opened theirs (a prefix of
