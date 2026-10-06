@@ -654,15 +654,15 @@ export class GlobalQueue implements IQueue {
   // Boundaries (boundaries.ts): the display consumers between an observer
   // and the root. `_catch` — status from a frame reader, nearest boundary
   // first (true: caught, the root never hears of it; a clear — flags 0 —
-  // settles the reader there); `_fresh` — a pass that read a hold (true: a
-  // first pass the nearest loading boundary, not having shown content,
-  // caught — `joinPass`); `_hidden` — a frame reader behind a fallback is not on
-  // screen and holds nothing; `_boundarySeam` — the seam's sweep (readers
-  // gone or settled without a pass reveal; an `on` re-arm resolves).
+  // settles the reader there; a pass that read a hold — STATUS_UNINITIALIZED
+  // in flags, `joinPass` — is caught only as a first pass, by the nearest
+  // loading boundary if it has not shown content); `_hidden` — a frame
+  // reader behind a fallback is not on screen and holds nothing;
+  // `_boundarySeam` — the seam's sweep (readers gone or settled without a
+  // pass reveal; an `on` re-arm resolves).
   declare static _catch:
-    | ((node: Computed<any>, flags: number, error: unknown) => boolean)
+    | ((node: Computed<any>, flags: number, error?: unknown) => boolean)
     | undefined;
-  declare static _fresh: ((node: Computed<any>) => boolean) | undefined;
   declare static _hidden: ((r: Computed<any>) => boolean) | undefined;
   declare static _boundarySeam: (() => void) | undefined;
   // `_heldRun` — a queued run under a fallback-showing boundary waits for

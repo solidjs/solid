@@ -952,7 +952,7 @@ function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
     (c as any)._type !== EFFECT_RENDER
   )
-    joinPassTx(txOf(el), GlobalQueue._fresh?.(c));
+    joinPassTx(txOf(el), GlobalQueue._catch?.(c, STATUS_PENDING | STATUS_UNINITIALIZED));
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect

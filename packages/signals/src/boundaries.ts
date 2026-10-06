@@ -202,8 +202,14 @@ export function redraw(b: Boundary): void {
 
 /** GlobalQueue._catch: status from a frame reader, nearest boundary first.
  * A loading boundary on the way records a pending reader whether or not it
- * catches it (its `on` may collect it later). */
-function catchStatus(node: Computed<any>, flags: number, error: unknown): boolean {
+ * catches it (its `on` may collect it later). A pass that read a hold
+ * (`joinPass`: STATUS_UNINITIALIZED in `flags`) is asked too. A first pass
+ * is not pending — it has never committed — and only A29's boundary
+ * exemption catches it (#3540): the nearest loading boundary, if it has not
+ * shown content. One that has, re-armed by `on` or not, neither catches nor
+ * records it (it joins the hold like any reader of committed content), no
+ * boundary past the nearest is asked, and a committed pass is not caught. */
+function catchStatus(node: Computed<any>, flags: number, error?: unknown): boolean {
   if (flags === 0) {
     // A status cleared. Judged by the node's status now, against each
     // boundary's own rule (`unsettled`) — the error path clears pending
@@ -226,6 +232,13 @@ function catchStatus(node: Computed<any>, flags: number, error: unknown): boolea
   }
   for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined) {
     if (!(b._type & flags)) continue;
+    // A pass that read a hold: the nearest loading boundary only, and only
+    // a first pass before it has shown content (then it is collecting).
+    if (
+      flags & STATUS_UNINITIALIZED &&
+      (b._initialized || !(node._statusFlags & STATUS_UNINITIALIZED))
+    )
+      break;
     if (isCollecting(b)) {
       caught(b, node, error);
       return true;
@@ -234,20 +247,6 @@ function catchStatus(node: Computed<any>, flags: number, error: unknown): boolea
     collecting.add(b);
   }
   return false;
-}
-
-/** GlobalQueue._fresh: a pass that read a hold. A first pass is not pending,
- * and only A29's boundary exemption catches it (#3540): the nearest loading
- * boundary, if it has not shown content. One that has (re-armed or not)
- * neither catches nor records it — it joins the hold like any reader of
- * committed content — and no boundary past the nearest is asked. */
-function fresh(node: Computed<any>): boolean {
-  if (!(node._statusFlags & STATUS_UNINITIALIZED)) return false;
-  let b = boundaryOf(node);
-  while (b !== undefined && b._type !== STATUS_PENDING) b = b._parent ?? undefined;
-  if (b === undefined || b._initialized) return false;
-  caught(b, node, undefined);
-  return true;
 }
 
 /** The nearest boundary on `r`'s chain showing its fallback, if any. */
@@ -788,7 +787,6 @@ export function createErrorBoundary<T, U>(
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
-GlobalQueue._fresh = fresh;
 GlobalQueue._hidden = hidden;
 GlobalQueue._boundarySeam = boundarySeam;
 GlobalQueue._heldRun = heldRun;
