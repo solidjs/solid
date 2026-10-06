@@ -140,12 +140,16 @@ describe("HN slice — collapse UX", () => {
 
   test("initial document load: adopt + claim, zero data, page source has each text once", async () => {
     // What the document renderer would have produced: server html with the
-    // client wrappers' output already rendered inside the slot ranges.
+    // client wrappers' output already rendered inside the slot ranges. A
+    // zero-data occurrence is a direct-insert position — the BARE prop
+    // (`comment`): the producer mints a called occurrence (`comment#n`)
+    // only with its args record, and a called occurrence without one waits
+    // for it rather than mounting argless.
     const page =
       "<article><h1>One</h1><section>" +
-      '<!--slot:comment#0:start--><div class="comment"><button></button>' +
+      '<!--slot:comment:start--><div class="comment"><button></button>' +
       "<!--frame:srv.0:start--><p>alpha-text</p><!--frame:srv.0:end-->" +
-      "</div><!--slot:comment#0:end-->" +
+      "</div><!--slot:comment:end-->" +
       "</section></article>";
     // The case-2 invariant on the page itself: one occurrence, and there is
     // no hydration payload at all for this content.

@@ -796,6 +796,19 @@ export function createServerComponentHandler({
       if (connections.get(address) === connection) connections.delete(address);
     });
   };
+  /**
+   * An unstaged response has begun for an address — at its header, before
+   * its body is read. The integration rotates its response-scoped state,
+   * and the address's store moves to the response's version NOW: the
+   * address is a source (`host.landing`), and from here until the body's
+   * first flush it reads "in flight" — a mount opened in between pends on
+   * that landing instead of materializing the superseded one. The body's
+   * own `start` chunk then writes the same version and nothing.
+   */
+  const begin = (address, version, response) => {
+    if (onStream) onStream(address, version, response);
+    host.apply({ type: "start", id: address, version });
+  };
   return {
     intercept:
       intercept &&
@@ -867,7 +880,7 @@ export function createServerComponentHandler({
           return binding;
         }
         const version = bump(address);
-        if (onStream) onStream(address, version, response);
+        begin(address, version, response);
         // The end is judged by the loop from `connection.ended` (set
         // synchronously by applyFrames); a rejected read is a death it
         // already sees, not an error record — the loop decides what the
@@ -895,7 +908,7 @@ export function createServerComponentHandler({
       // behind a completed body.
       const entry = host.get(address) ? stage(address, binding, version, response) : undefined;
       if (entry) entry.stream(address, version);
-      else if (onStream) onStream(address, version, response);
+      else begin(address, version, response);
       const target = entry || host;
       const applied = applyFrameResponse(response, target, { as: address, version }).catch(err =>
         target.apply({

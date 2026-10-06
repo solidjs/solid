@@ -249,6 +249,17 @@ export interface FrameHost {
   preview?(chunk: FrameChunk, resolve?: (ref: { $ref: string }, frameId?: string) => unknown): void;
   /** The first registered frame under the id, if any. */
   get(id: string): Frame | undefined;
+  /**
+   * The address as an async source: its first landing is the first flush of
+   * the first response for it — the root content, the stream's error, or
+   * its completion. A promise resolved at the write that lands it while
+   * that response is in flight; `undefined` once the address has a landing
+   * to show (a later response in flight then morphs over it — the
+   * committed value holds), or when nothing has begun for the address. A
+   * mount's covering `<Loading>` pends on this — and on nothing inside the
+   * frame — exactly as it pends on any async source's first landing.
+   */
+  landing(id: string): Promise<void> | undefined;
   serialize(value: unknown): { $ref: string };
   /** `frameId` is the resolving frame's id — route to its stream's table. */
   resolve(ref: { $ref: string }, frameId?: string): unknown;
@@ -341,13 +352,15 @@ export interface FrameOptions {
    */
   reveal?(seam: { before: Node; fallback: Node[]; content: () => Node | DocumentFragment }): void;
   /**
-   * Document-face record-race guard (adopt path only — solidjs/solid#2968).
+   * Document-face record delivery (adopt path only — solidjs/solid#2968).
    * Nothing on the wire formally orders an occurrence's args-record data
-   * script before the event that triggers adoption, so a recordless
-   * occurrence is ambiguous while this returns true: the frame defers its
-   * mount one macrotask (all currently parsed scripts run first), calls
-   * `drainRecords`, and classifies with whatever is then resolvable. Return
-   * false once the document can run no further data scripts.
+   * script before the event that triggers adoption, and a data script is a
+   * plain assignment the frame cannot observe. A called occurrence
+   * (`prop#n`) found without its record WAITS for it; while this returns
+   * true the frame re-drains the document's records a macrotask later
+   * (all currently parsed scripts run first — `drainRecords`) and re-syncs,
+   * until the record lands. Return false once the document can deliver no
+   * further records.
    */
   recordsPending?(): boolean;
   /** Re-absorb the document's arrived-by-now records (idempotent per key). */
@@ -677,21 +690,38 @@ export function createFrameHost(options = {}) {
   // one copy any number of sibling mounts share. Stores live for the
   // session; eviction policy (data-layer coupling + LRU floor, principles
   // §5.1) hangs off the purge form of `unregister`.
+  //
+  // A store is one response's (frames-rulings 1.4, full form; 2.1): its
+  // `records` are the latest version's and every record of the previous
+  // version leaves at the bump — content, segments, slot records, the error
+  // — so nothing a superseded response delivered can land in the frame
+  // that shows the current one (what preserves client state across versions
+  // is the MOUNT's applied state, FrameImpl's `#slotArgs` value compare, not
+  // a merge of two responses in one store). The address is an async SOURCE
+  // over it (`landing` below): a response announces itself with `start`
+  // and is in flight (`open`) until its first flush lands — the root, the
+  // stream's error, or its completion; `shown` is the record set of the
+  // latest version that landed — the source's committed value, what a mount
+  // opened mid-flight seeds from (holds-latest) — and the same object as
+  // `records` once the version in flight has landed.
   const stores = new Map();
   const storeFor = id => {
     let store = stores.get(id);
     if (!store) stores.set(id, (store = { version: undefined, records: {} }));
     return store;
   };
+  // Landings awaited per address (see `landing`): the promise handed out
+  // while the address's first response is in flight, with its resolver.
+  const landings = new Map();
+  const lands = records => "" in records || ":error" in records || ":complete" in records;
   // Mirrors FrameImpl.apply's version policy (policy A): stale writes drop,
-  // a newer version is a morph, not a reset — content and slot records
-  // carry over; per-response segment/error state clears (fragment names
-  // restart each stream).
+  // a newer version replaces the records wholesale, the same version
+  // accumulates.
   const write = (store, version, records) => {
     if (store.version !== undefined && version < store.version) return false;
     if (store.version === undefined || version > store.version) {
       store.version = version;
-      clearStreamRecords(store.records);
+      store.records = {};
     }
     // Root assets reuse one key for the shell and late chunks. Accumulate
     // their arrays so frames registered later receive the full snapshot.
@@ -720,13 +750,13 @@ export function createFrameHost(options = {}) {
         // slots) between records, so the first record would mount every
         // discovered occurrence — the rest record-less — and each later
         // record would look like an args CHANGE, re-calling with incomplete
-        // args and wiping adopted interiors (the #547 boot face).
-        frame.apply({ version: store.version, r: store.records });
-        // The store's version belongs to whatever stream space last wrote it;
-        // everything from here on is this registration's own. Rebase so the
-        // next live write establishes the frame's baseline — the host's own
-        // version guard (above) is what keeps genuinely stale chunks out.
-        frame.rebase && frame.rebase();
+        // args and wiping adopted interiors (the #547 boot face). A mount
+        // opened while a response is in flight seeds the source's committed
+        // value (`shown`, an older version: the in-flight version's writes
+        // then bump it, as they bump every mount of the address) — a cold
+        // address seeds nothing and the mount pends on its landing.
+        if (!store.open) frame.apply({ version: store.version, r: store.records });
+        else if (store.shown) frame.apply({ version: store.shownVersion, r: store.shown });
       }
     },
     /**
@@ -752,11 +782,18 @@ export function createFrameHost(options = {}) {
             if (html != null) {
               store.records[""] = { kind: "html", value: html };
               if (store.version === undefined) store.version = 0;
+              // The capture is the document's landing (version 0): what a
+              // later mount shows, a refetch's flight notwithstanding.
+              store.shown = store.records;
+              store.shownVersion = store.version;
             }
           }
         }
       }
-      if (!frame) stores.delete(id);
+      if (!frame) {
+        stores.delete(id);
+        landings.delete(id);
+      }
     },
     apply(chunk) {
       // Data payloads are response-scoped; apply immediately, no store needed.
@@ -767,11 +804,46 @@ export function createFrameHost(options = {}) {
       // Write through to the resident store first: the store version-guards
       // once for all mounts, and an unmounted address simply warms.
       const records = chunkToRecords(chunk);
-      if (!write(storeFor(chunk.id), chunk.version, records)) return;
+      const store = storeFor(chunk.id);
+      if (!write(store, chunk.version, records)) return;
+      let r = records;
+      // The address as a source: `start` opens a flight; the write that
+      // lands it makes the version the one SHOWN and answers whoever awaited
+      // the landing — before the frames apply, so a mount gating on it reads
+      // the content in the beat its frame shows it. The landing fans out as
+      // the version's WHOLE record set: a mount opened mid-flight seeded the
+      // committed value and has none of this version's earlier writes (a
+      // frame already at the version re-receives the same records — a
+      // no-op). A document-adopted store never opens: its content is page
+      // markup, written by no `start`.
+      if (chunk.type === "start") store.open = true;
+      else if (lands(records)) {
+        store.open = false;
+        store.shown = r = store.records;
+        store.shownVersion = chunk.version;
+        const wait = landings.get(chunk.id);
+        if (wait) {
+          landings.delete(chunk.id);
+          wait.r();
+        }
+      }
       const set = frames.get(chunk.id);
       if (set) {
-        for (const frame of set) frame.apply({ version: chunk.version, r: records });
+        for (const frame of set) frame.apply({ version: chunk.version, r });
       }
+    },
+    landing(id) {
+      const store = stores.get(id);
+      // Nothing to wait for: no response in flight, or the address has a
+      // landing to show already — the committed value a mount reads
+      // (holds-latest) while a later response is in flight.
+      if (!store || !store.open || store.shown) return undefined;
+      let wait = landings.get(id);
+      if (!wait) {
+        landings.set(id, (wait = {}));
+        wait.p = new Promise(r => (wait.r = r));
+      }
+      return wait.p;
     },
     preview(chunk, resolve) {
       if (chunk.type !== "slot") return;
@@ -966,40 +1038,29 @@ class FrameImpl {
       return;
     } else if (v > this.#version) {
       // Policy A: version only guards against stale (older) writes. A newer
-      // version is an in-place update, not a reset — the store, applied-root,
-      // and slot records are kept so the reconciler morphs server content
-      // while client-owned slots/regions and their state survive (e.g. across
-      // a client-side navigation). Stale discard is the `v < version` branch;
-      // a genuine teardown is `dispose()`.
+      // version is an in-place update of the DOM, not a teardown: the
+      // element stays, mounted slots and regions keep their client state
+      // (e.g. across a client-side navigation), and the reconciler morphs
+      // the new content over the old. Stale discard is the `v < version`
+      // branch; a genuine teardown is `dispose()`.
       //
-      // Segment state, though, is per-response: fragment names restart in
-      // every stream (`pl-0`, ...), so a new version's placeholder must not
-      // be skipped because the OLD version's segment of the same name
-      // already revealed — nor revealed instantly with the old version's
-      // content. Reveal bookkeeping and seg/error records reset; slot
-      // records stay (dedupe is what preserves occurrence state).
+      // The STORE, though, is one response's (frames-rulings 1.4, full
+      // form; 2.1): what this frame applied under the previous version —
+      // the root it morphed, the segments it revealed, the slot records it
+      // mounted — is that landing's, and the new version replaces it
+      // wholesale. Fragment names and hole ids restart per stream, so a new
+      // version's placeholder is never skipped for an old reveal of the
+      // same name; a root byte-identical to the old one still applies as
+      // the new version's (its placeholders are the new segments'); and a
+      // slot record the old version held unapplied leaves with it. What
+      // preserves occurrence state is the mount's own applied state
+      // (`#slotArgs` — the sync's value compare adopts an equal re-sent
+      // record without a re-call), never a merge of two responses.
       this.#version = v;
       this.#resetStreamState();
     }
 
-    for (const key in write.r) {
-      const incoming = write.r[key];
-      // Slot-record dedupe: streams re-send their slot chunks, and re-call
-      // triggers on record identity — so an equivalent re-sent record keeps
-      // the existing object (no re-call, occurrence state preserved).
-      if (
-        incoming &&
-        incoming.kind === "slot" &&
-        key.charCodeAt(0) === 115 /* s */ &&
-        key.startsWith("slot:")
-      ) {
-        const existing = this.#store[key];
-        if (existing && existing.kind === "slot" && argsEquivalent(existing.args, incoming.args)) {
-          continue;
-        }
-      }
-      this.#store[key] = incoming;
-    }
+    for (const key in write.r) this.#store[key] = write.r[key];
     this.#flush();
   }
 
@@ -1061,19 +1122,23 @@ class FrameImpl {
   }
 
   /**
-   * Per-stream bookkeeping reset (the version-bump/rebind branch): reveal and
-   * fallback state, the once-per-stream error notification, and the seg/error
-   * records — fragment names restart in every stream. `root` additionally
-   * drops the root record (rebind's case: a flush between the rebind and the
-   * new stream's html must find no stale shell to re-apply).
+   * The applied state is one version's (frames-rulings 2.1): the version
+   * bump and the rebind replace it wholesale — the store (every record of
+   * the previous response), the root the morph applied (so a byte-identical
+   * root under the new version applies as the new version's — 2.2), the
+   * reveal and fallback sets, the hole dedupe, the assets, the
+   * once-per-stream error notification. Nothing applied under the previous
+   * version is consulted under the next; the DOM keeps showing what it
+   * showed until the new version's writes morph it.
    */
-  #resetStreamState(root) {
+  #resetStreamState() {
+    this.#store = Object.create(null);
+    this.#appliedRootValue = undefined;
     this.#revealed.clear();
     this.#fallbackShown.clear();
     this.#appliedHoles.clear();
     this.#processedAssets = new WeakSet();
     this.#errorNotified = false;
-    clearStreamRecords(this.#store, root);
   }
 
   #flush() {
@@ -1293,54 +1358,46 @@ class FrameImpl {
         this.#mountedSlots.delete(occurrence);
         this.#runSlotCleanups(occurrence);
       }
-      if (!this.#mountedSlots.has(occurrence)) {
-        // solidjs/solid#2968 (interim — A5 of the principles doc removes the
-        // skew): an invoked occurrence's args record rides the document as a
-        // data script, and nothing formally orders that script before the
-        // event that triggers adoption. Recordless here is therefore
-        // ambiguous while records may still arrive: a genuine direct-insert
-        // position, or an invoked occurrence whose record the parser hasn't
-        // reached. Guessing "content" evaluates the wrapper's render-prop
-        // callback as a zero-arg accessor — a props read halts the reactive
-        // system. So defer this occurrence, re-drain the document's records
-        // a macrotask later (all currently parsed scripts run first), and
-        // classify only once `recordsPending` says the document can deliver
-        // no more — NOT after a fixed single beat: a streamed document held
-        // open on async content (or slow dev-mode module timing) keeps
-        // records arriving across many macrotasks, and a one-shot defer
-        // classified the tail of them as content (PR #559). The wait is
-        // bounded by the same contract as everything else here:
-        // recordsPending flips false when the document completes with no
-        // fragment left to reveal (truncation included — the ledger rejects
-        // stragglers). Deferral is invisible on screen: an adopted
-        // occurrence's server-rendered interior is already in the DOM; the
-        // mount is the hydration attach. Full syncs only: a scoped segment
-        // fill renders into a detached fragment a later full sync can't
-        // reach — and its records rode the same stream, ahead of its markup.
-        if (
-          record === undefined &&
-          !root &&
-          this.#options.adopt &&
-          this.#options.recordsPending?.()
-        ) {
+      // The occurrence's name decides its class: the producer mints every
+      // CALLED occurrence as `prop#n` and emits its record at the call,
+      // ahead of the markup that reads it; a bare occurrence (the prop
+      // itself) is a direct-insert position and has no record by design.
+      // So a called occurrence found recordless is one whose record has not
+      // been DELIVERED yet — the version in flight has not sent it (the
+      // store is one response's: the previous version's record left at
+      // the bump), or the document's data script for it has not run
+      // (#2968) — never a direct-insert position to classify. It waits: a
+      // fresh mount is not invoked (invoking it argless evaluates a render
+      // prop as a zero-arg accessor — a props read that halts the reactive
+      // system, contract C18), a mounted one keeps its applied args; the
+      // write that delivers the record re-syncs. Waiting is invisible on
+      // screen — an adopted occurrence's server-rendered interior is already
+      // in the DOM, and a mounted one shows what it showed.
+      //
+      // The document face has no write to wait for (a data script is a
+      // plain assignment into `_$HY.r`), so while the document may still
+      // deliver records (`recordsPending` — the parser running, a fragment
+      // held, a record delivered and undrained) the frame re-drains them a
+      // macrotask later (all currently parsed scripts run first) and
+      // re-syncs — repeatedly, not after a fixed single beat: a streamed
+      // document held open on async content keeps records arriving across
+      // many macrotasks (PR #559). A called occurrence still recordless once
+      // nothing can deliver its record is the protocol's invariant broken
+      // (a record dropped, or marker and record minted under different
+      // ids), never something the fill can fix; dev names it.
+      if (record === undefined && isCalled(occurrence)) {
+        if (this.#options.adopt && this.#options.recordsPending?.()) {
           this.#recordRefresh ??= setTimeout(() => {
             this.#recordRefresh = null;
             if (this.#disposed) return;
             this.#options.drainRecords?.();
             this.#syncSlots();
           });
-          continue;
-        }
-        // A CALLED occurrence (`prop#n`) always has a record — the producer
-        // emits it at the call, ahead of the markup that reads it — so
-        // marked positions with none here, once records can no longer
-        // arrive, are the protocol's invariant broken (a record dropped, or
-        // marker and record minted under different ids), never something
-        // the fill can fix. The mount below still runs, as it always has;
-        // dev says why its args are empty. A bare occurrence (the prop
-        // itself) has no record by design.
-        if ("_SOLID_DEV_" && consumers && record === undefined && occurrence.indexOf("#") !== -1)
+        } else if ("_SOLID_DEV_" && consumers && !this.#mountedSlots.has(occurrence))
           devSlotOrphan(this, occurrence, consumers, "record");
+        continue;
+      }
+      if (!this.#mountedSlots.has(occurrence)) {
         // Direct-insert occurrences have no `slot:<id>` record and mount with
         // empty props; render-function occurrences mount with resolved props.
         // Mounting replaces the range interior: on a fresh stream it is
@@ -1857,22 +1914,16 @@ class FrameImpl {
       this.#element.setAttribute(FRAME_ID_ATTR, id);
     }
     this.#version = undefined;
-    // Root affinity is per stream, like the version: the new address's html
-    // may be byte-identical to the old one's (slot-driven content ships its
-    // differences as records, not markup), and the value-skip must not
-    // swallow the new stream's morph — consumers gate on `onApply` to learn
-    // the new call ANSWERED, so an identical shell still has to apply as
-    // this address's. The old root RECORD leaves with it: a flush between
-    // this rebind and the new stream's html (its start chunk, a slot write)
-    // must find no root to re-apply, or the stale shell would morph and
-    // answer the gate with the PREVIOUS call's content. The DOM keeps
-    // showing the old content either way (async-holds-latest owns that);
-    // a warm re-registration re-seeds its own root record and still
-    // answers synchronously. The reset also re-arms the once-per-stream
-    // error notification: the record it fired for left with the old stream,
-    // and the NEW address's error must reach the gate too.
-    this.#appliedRootValue = undefined;
-    this.#resetStreamState(true);
+    // The applied state leaves with the old address (see #resetStreamState):
+    // the new address's html may be byte-identical to the old one's
+    // (slot-driven content ships its differences as records, not markup),
+    // and the value-skip must not swallow the new stream's morph; the old
+    // root RECORD goes too, so a flush between this rebind and the new
+    // stream's html finds no stale shell to re-apply. The DOM keeps showing
+    // the old content either way (async-holds-latest owns that); a warm
+    // re-registration re-seeds its own root record and still answers
+    // synchronously.
+    this.#resetStreamState();
     if (host) host.register(id, this);
   }
 
@@ -2282,6 +2333,12 @@ function propOf(occurrence) {
   return hash === -1 ? occurrence : occurrence.slice(0, hash);
 }
 
+/** Whether an occurrence id names a render-prop CALL (`prop#n`, minted with
+ *  a record) rather than the bare prop (a direct-insert position). */
+function isCalled(occurrence) {
+  return occurrence.indexOf("#") !== -1;
+}
+
 function isDataRef(value) {
   return !!value && typeof value.$ref === "string";
 }
@@ -2578,44 +2635,6 @@ function eachInRange(start, key, cb) {
     n = next;
   }
   return n;
-}
-
-/**
- * Delete the per-stream records from a store: seg/hole/error state is
- * response-scoped (fragment names and hole ids restart in every stream),
- * while slot records persist (dedupe is what preserves occurrence state).
- * `root` also drops the root html record — rebind's case only.
- */
-function clearStreamRecords(records, root) {
-  for (const key in records) {
-    if (/^(seg|hole|attr):/.test(key) || key === ":error" || (root && key === "")) {
-      delete records[key];
-    }
-  }
-}
-
-/**
- * Whether two slot-args objects are equivalent for re-call purposes:
- * primitives by value, `{$frame}` region refs by id (region content updates
- * flow through the region's own chunks — a re-call is never needed for
- * them). `{$ref}` codec refs are response-scoped — the same id can decode
- * to a new value on a later stream — so they conservatively count as
- * changed.
- */
-function argsEquivalent(a, b) {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
-  for (const key of ka) {
-    const va = a[key];
-    const vb = b[key];
-    if (va === vb) continue;
-    if (isFrameRef(va) && va.$frame === vb?.$frame) continue;
-    return false;
-  }
-  return true;
 }
 
 // --- Morph -----------------------------------------------------------------

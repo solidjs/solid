@@ -37,60 +37,53 @@ async function findings(scenario: Scenario, id: string) {
 }
 
 describe("harness replay — reduced counterexamples", () => {
-  // C18 — classification waits for the drain. Observed on `next`: with two
+  // C18 — classification waits for the drain. Was red on `next`: with two
   // records owed after adoption and the parser done before the deferred
-  // drain fires, the drain's FIRST `host.apply` syncs the frame, which
-  // finds the second occurrence recordless with `recordsPending()` false
-  // and classifies it direct-insert — the render prop is evaluated as a
-  // zero-arg accessor (1 zero-arg call). Expected: 0 — a recordless adopted
-  // occurrence is classified only after every record the document holds
-  // has been applied.
-  test.fails(
-    "C18 classify-after-drain: two records drained after the parser finished — the first apply classifies the second",
-    async () => {
-      expect(
-        await findings(
-          { ...base, occurrences: [render(0), render(1)], events: [H, R(0), R(1)] },
-          "C18"
-        )
-      ).toEqual([]);
-    }
-  );
+  // drain fired, the drain's FIRST `host.apply` synced the frame, which
+  // found the second occurrence recordless with `recordsPending()` false
+  // and classified it direct-insert — the render prop was evaluated as a
+  // zero-arg accessor (1 zero-arg call). Green since the occurrence's NAME
+  // decides its class (`item#1` is a call; its record is on its way) and a
+  // called occurrence without its record waits — the ambiguity the
+  // classification turned on no longer exists, whatever `recordsPending()`
+  // answers; the drain's next apply mounts it.
+  test("C18 classify-after-drain: two records drained after the parser finished — the first apply classifies the second", async () => {
+    expect(
+      await findings(
+        { ...base, occurrences: [render(0), render(1)], events: [H, R(0), R(1)] },
+        "C18"
+      )
+    ).toEqual([]);
+  });
 
   // C18, second trigger: a live hole op arriving between the parser's end
   // and the deferred drain syncs the frame; the one record sits undrained
-  // in `_$HY.r`. Observed: 1 zero-arg call. Expected: 0.
-  test.fails(
-    "C18 classify-after-drain: a live op syncs the frame before the deferred drain",
-    async () => {
-      expect(
-        await findings(
-          { ...base, occurrences: [render(0)], liveHole: true, events: [H, R(0), L("ab"), tick] },
-          "C18"
-        )
-      ).toEqual([]);
-    }
-  );
+  // in `_$HY.r`. Was: 1 zero-arg call. Expected: 0.
+  test("C18 classify-after-drain: a live op syncs the frame before the deferred drain", async () => {
+    expect(
+      await findings(
+        { ...base, occurrences: [render(0)], liveHole: true, events: [H, R(0), L("ab"), tick] },
+        "C18"
+      )
+    ).toEqual([]);
+  });
 
   // C18, third trigger: ops logged before adoption replay through the live
   // pump's first async read — after the record landed, before the drain.
-  // Observed: 1 zero-arg call. Expected: 0.
-  test.fails(
-    "C18 classify-after-drain: the live pump's catch-up read syncs before the drain",
-    async () => {
-      expect(
-        await findings(
-          {
-            ...base,
-            occurrences: [render(0)],
-            liveHole: true,
-            events: [L("ab"), L("cd"), H, R(0), tick]
-          },
-          "C18"
-        )
-      ).toEqual([]);
-    }
-  );
+  // Was: 1 zero-arg call. Expected: 0.
+  test("C18 classify-after-drain: the live pump's catch-up read syncs before the drain", async () => {
+    expect(
+      await findings(
+        {
+          ...base,
+          occurrences: [render(0)],
+          liveHole: true,
+          events: [L("ab"), L("cd"), H, R(0), tick]
+        },
+        "C18"
+      )
+    ).toEqual([]);
+  });
 
   // C18 control: a tick between the two records lets the drain run while the
   // parser is still owed the second — each sync finds `recordsPending()` true.
@@ -139,24 +132,22 @@ describe("harness replay — reduced counterexamples", () => {
 
   // C2 (R3, rediscovered): an occurrence inside a server <Loading> whose
   // record is in the page before adoption and whose fragment reveals AFTER
-  // adoption never mounts — the reveal is not a sync trigger. Observed:
-  // invoked 0×, inert after the bump. Expected: invoked once, live.
-  test.fails(
-    "C2 every-range-live: a fragment revealed after adoption leaves its occurrence inert (R3)",
-    async () => {
-      expect(
-        await findings(
-          {
-            ...base,
-            fragments: [{ key: "f0", fallback: "fb0" }],
-            occurrences: [render(0, 0)],
-            events: [R(0), H, tick, V(0)]
-          },
-          "C2"
-        )
-      ).toEqual([]);
-    }
-  );
+  // adoption never mounted — the reveal was not a sync trigger. Was:
+  // invoked 0×, inert after the bump. Green under frames-rulings 2.3 (a
+  // reveal is an apply): invoked once, live.
+  test("C2 every-range-live: a fragment revealed after adoption leaves its occurrence inert (R3)", async () => {
+    expect(
+      await findings(
+        {
+          ...base,
+          fragments: [{ key: "f0", fallback: "fb0" }],
+          occurrences: [render(0, 0)],
+          events: [R(0), H, tick, V(0)]
+        },
+        "C2"
+      )
+    ).toEqual([]);
+  });
 
   // C3 (R1, rediscovered): hydration-end fires while the deferred
   // occurrence is still unclaimed. Observed: end at step 0 with item#0
