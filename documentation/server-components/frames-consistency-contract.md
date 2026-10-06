@@ -897,3 +897,283 @@ Frames-client (`packages/web/frames/src/`):
    gate.
 7. **R7/C13** — needs a wire sweep delimiter (producer + transport), per the
    rulings draft; client-only work cannot carry it.
+
+## Generic hydration — classification and pins (2026-10-06)
+
+Branch `test/hydration-consistency-generic` off `wip/frames-pass-integration`
+@ `00dbc8663` (#3837). The question: are the reds above frames-only, or are
+some of them plain Solid 2 hydration holes that a page with no server
+component would hit? Method: classify each invariant and red, then drive
+the generic twin of every candidate through a **frames-free** page —
+`hydrate()` over a `renderToStream` document with two sibling streamed
+`<Loading>` boundaries (`packages/web/test/harness/generic-hydration.tsx`,
+artifacts rendered by `test/server/generic-hydration.gen.spec.tsx`), by
+hand (`test/consistency/generic/*.spec.tsx`) and under a property harness
+(`test/consistency/generic/{scenario,run,campaign}`, opt-in behind the same
+`CONSISTENCY_FUZZ` knobs as §Harness). **Nothing here changes an engine.**
+
+**Answer: yes — six generic reds, four of them one class.** GH1–GH3 are the
+plain-Solid form of R10/C19 (a claim pass that reads a value the markup was
+not rendered from and does not reconcile the text); GH4 is the plain form
+of the frames pass's "unrevealed boundary with `STATUS_PENDING` shows
+fallback"; GH5/GH6 are the plain form of R1/C3 and C14 for a hold the
+hydration runtime does not count — the root module preload. Everything else
+in C1–C19 is either frames-only or holds on plain pages (1000 harness cases,
+two seeds, no finding outside the six).
+
+### Classification
+
+Key: **SC-only** — needs frames/slots/records to express; **generic-restated**
+— the SC case is an instance of a plain hydration rule (§3 _n_ cites
+`documentation/plans/solid-web-size-audit.md` §3) that could break without
+frames; **generic-suspect** — shared mechanism, nothing in the plain suite
+pinned it before this pass. "Plain verdict" is what the generic pins and
+harness found.
+
+| #   | class            | plain rule (§3) / mechanism                                                                                                  | plain verdict                                                     |
+| --- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| C1  | generic-restated | §3 1–2, 8 — `getNextElement` claim-by-key, the claim pass never mutates (`client.ts:insertExpression`)                       | holds; key misses only as consequences of GH3/GH4                 |
+| C2  | generic-restated | §3 70, 76 — `resumeBoundaryHydration` is driven by the `_fr` settle + `whenRevealed`, not by the DOM reveal                  | holds (every range live and reactive, 1000 cases)                 |
+| C3  | generic-restated | §3 35–37, 69 — `_pendingBoundaries` / `checkHydrationComplete`; the root preload wait (`client.ts:hydrate` `rootMapping`)    | holds for `<Loading>`; **red GH5** (preload hold not counted)     |
+| C4  | SC-only          | document records (`drainRecords`) have no plain twin; the plain "applies once" is C1's no-duplicate                          | —                                                                 |
+| C5  | SC-only          | per-response data tables                                                                                                     | —                                                                 |
+| C6  | SC-only          | held `slot:*` records across rebind                                                                                          | —                                                                 |
+| C7  | SC-only          | frame store / `#flush`                                                                                                       | —                                                                 |
+| C8  | SC-only          | frame fan-out                                                                                                                | —                                                                 |
+| C9  | generic-restated | §3 8, 68, 70 — settled fragment hydrates straight through (`hydratedCreateLoadingBoundary`) into an UNREVEALED core boundary | **red GH4** (fallback committed over settled content)             |
+| C10 | generic-restated | §3 18, 22, 70 — ids from the owner's counter; a resume's `gather(id)`                                                        | holds (both orders claim the server nodes, no miss)               |
+| C11 | SC-only          | container traces                                                                                                             | —                                                                 |
+| C12 | generic-restated | §3 68 — `_fr` states pending / settled / parked / superseded / rejected (the rejected arm has a client twin on plain pages)  | holds at settle points; the transient violation is GH4            |
+| C13 | SC-only          | live holes / sweeps                                                                                                          | —                                                                 |
+| C14 | generic-restated | §3 35, 69 — `initBoundaryResume` disposal release + `cleanupFragment`; the preload path's deferred disposer                  | holds for boundaries; **red GH6** (dispose during preload)        |
+| C15 | SC-only          | staging                                                                                                                      | —                                                                 |
+| C16 | SC-only          | component identity                                                                                                           | —                                                                 |
+| C17 | SC-only          | shell gate / address                                                                                                         | —                                                                 |
+| C18 | SC-only          | occurrence classification                                                                                                    | —                                                                 |
+| C19 | generic-suspect  | §3 6, 38, 71 — `normalize` adopts the text node without a write; the snapshot scope (#3504) is what makes the read match     | **red GH1, GH2, GH3** (three sources the snapshot does not cover) |
+| R1  | generic-restated | a hold registered with nothing hydration counts                                                                              | **GH5** is its plain twin                                         |
+| R2  | SC-only          | `#appliedRootValue`                                                                                                          | —                                                                 |
+| R3  | SC-only          | a plain reveal IS a trigger (C2 row)                                                                                         | holds                                                             |
+| R4  | SC-only          | data path version                                                                                                            | —                                                                 |
+| R5  | SC-only          | rebind                                                                                                                       | —                                                                 |
+| R6  | SC-only          | a server `<Loading>` with no client twin; the plain `s === 2` arm resumes fresh (`hydration/diagnostics`)                    | holds                                                             |
+| R7  | SC-only          | sweep delimiter                                                                                                              | —                                                                 |
+| R8  | SC-only          | gate / address                                                                                                               | —                                                                 |
+| R9  | SC-only          | classification vs drain                                                                                                      | —                                                                 |
+| R10 | generic-suspect  | the claim pass is not a mutation pass; the trace is one source without a snapshot — GH1–GH3 are the others                   | **GH1–GH3**                                                       |
+
+The frames pass's six "smelled generic" findings, placed: (1) `initBoundaryResume`
+ids vs the fragment ledger — SC-only (a plain boundary's id IS its fragment
+key by design; the `sc:` prefix is the frames fix); (2) a hold on a page that
+never ran `hydrate()` — SC-only in that shape (`initBoundaryResume` is
+reached only under `hydrating`), but its generic twin — a hold the runtime
+does not count — is GH5; (3) unrevealed boundary + `STATUS_PENDING` →
+fallback — **generic, GH4** (the `flatten` memo-of-a-promise arm was not
+reproduced on a plain page); (4) `$df` not a sync trigger — plain `<Loading>`
+resumes on the `_fr` settle, holds; (5) R10's class for the plain adapters —
+**generic, GH1–GH3** (the hybrid async-iterable signal path is protected by
+its creation-time snapshot of the first yield; the store path parks its
+backlog past hydration end — both by reasoning, not pinned); (6) events vs a
+hold — **generic**: GH5's second arm (the bootstrap stops capturing once the
+wrong done drained the queue) and GH4's lost click.
+
+### Generic reds
+
+Pins: `packages/web/test/consistency/generic/replay.spec.tsx` (GH1–GH4, over
+the harness's laws) and `preload-hold.spec.tsx` (GH5, GH6). Schedules read
+as `describeScenario` prints them: `H` hydrate, `Cn` the stream's n-th chunk,
+`W` a client write to the module-level signal, `P` a push to the module-level
+store list, `Ea`/`Eb` a click on a boundary's button, `t` a 20ms settle, `m` a
+microtask, `X` dispose.
+
+#### GH1 — C19: a memo created before capture is read live by a resume's claim pass
+
+**Shape.** `const label = createRoot(() => createMemo(() => "label:" + path()))`
+at module level (a global store module), read in the shell and in both
+boundaries; `setPath("/b")` after `hydrate()` and before the fragments land
+(`[ab] :: H W t C0 C1 C2 t`). **Observed:** the shell shows `label:/b`; each
+boundary's resume claims the server text `label:/a` while the memo it read
+says `label:/b` — the `.raw` hole beside it (the plain signal) reads the
+snapshot `/a`, claims, and catches up to `/b`; `.label` never does until the
+memo changes again. **Expected** (the write-before-resume contract, #3504):
+the boundary resumes against the server snapshot, then catches up. **Where
+it goes wrong.** `captureWriteSnapshot` records the pre-write value of a
+plain SIGNAL written during capture (`core.ts:setSignal`), and a computed
+created during capture gets its creation value as snapshot (`core.ts:computed`);
+a computed created BEFORE capture has neither, recomputes live when its
+dependency is written, and the in-scope reader finds no `_snapshotValue` to
+serve. `normalize` then adopts the text node without a write (§3 6) and
+`insertExpression`'s claim arm returns the value (§3 8). **Severity:** stale
+DOM, no diagnostic, until the next distinct change (medium). **Fix direction
+(not applied):** the computed analog of `captureWriteSnapshot` — when a
+computed without a snapshot recomputes while capture is active and it is not
+itself in a snapshot scope, record its pre-recompute value; or make the claim
+pass reconcile a text hole whose read differs from the node (which also
+covers R10).
+
+#### GH2 — C19: a shell async memo adopted pending re-runs before a later boundary resumes
+
+**Shape.** `shared = createMemo(async () => "shared:" + path())` in the shell,
+read only inside the boundaries (pending when the shell flushes, so the
+client adopts it pending: no creation snapshot — `computed()` skips
+`STATUS_PENDING`, and an async landing "reveals" by design). It lands
+`shared:/a` with the first fragment; a write re-runs it (`H C0 C1 t W t C2 t`);
+the second boundary resumes reading `shared:/b` and claims `shared:/a`.
+**Observed:** `b.shared shared:/a ≠ shared:/b` beside `b.raw /b` — one
+boundary internally inconsistent. **Expected:** `shared:/b` once settled.
+**Severity:** stale DOM, no diagnostic (medium). **Fix direction:** same
+as GH1 (the first landed value of a pending-adopted computed is the server's
+value and could seed its snapshot), or reconcile at claim.
+
+#### GH3 — C19 / C1: a store write to a leaf no reader has materialized is not snapshotted
+
+**Shape.** `const [store, setStore] = createStore({ items: ["i0", "i1"] })` at
+module level; `<For each={store.items}>` inside each boundary; a push
+(`setStore(s => s.items.push("i2"))`) after `hydrate()` and before the
+fragments land (`H P C0 C1 C2 t`). **Observed:** at each resume `<For>` reads
+three items against two server rows — `Hydration key miss for "…620"` (a
+detached `<li>` the warning blames on id namespaces) and a list one row
+short until the next structural change. **Expected:** two rows claimed, the
+third inserted at release. **Where it goes wrong.** No shell reader had read
+`items.length`, so the write mutates the raw target with no leaf signal to
+capture; the leaf is created at the resume's first read with the post-write
+value and a snapshot OF that value. Materializing the leaf before the write
+(a shell reader of `items.length`) makes the same schedule green — the hole
+is exactly "unmaterialized leaf". **Severity:** stale DOM + misleading dev
+diagnostic (medium). **Fix direction:** under capture, a store write to an
+unmaterialized leaf materializes it (so `captureWriteSnapshot` sees the
+pre-write value) or records a per-target pre-write snapshot.
+
+#### GH4 — C9 / C12 / events: a boundary resuming while a shell async source is in flight commits its fallback over the settled content
+
+**Shape.** The GH2 page; the write lands BEFORE the first fragment
+(`H W C0 C1 m t`): `shared` is superseded by a client flight (15ms); the
+boundary's fragment reveals and it resumes while the flight is open.
+**Observed:** the resume's content reads `shared` pending; the core boundary
+has never revealed on the client, so it falls back — the fallback is
+rendered in the claim window (`Hydration key miss for "410"`, `<p class="fb a">`,
+a phantom the claim arm keeps out of the DOM), then `releaseSnapshotScope`
+re-runs the insert OUTSIDE the window and commits it: the server `<section>`
+is detached and a fresh client `<p class="fb a">a-loading</p>` stands in
+its place until the flight lands, when the same server nodes are
+re-attached (node identity holds, parity holds at the settle point). A
+click queued on the server section at its reveal (`H W m C0 C1 C2 Eb`)
+replays while the section is detached — the walk from the detached button
+never reaches the delegated container — and is consumed: `b: 1 clicks, 0 handled`.
+**Expected:** the settled server content is the boundary's revealed value
+(async-holds-latest), no fallback, no detach, the click replays. **Where it
+goes wrong.** `hydratedCreateLoadingBoundary`'s settled paths hand the
+server content to `coreLoadingBoundary` as a fresh, UNREVEALED boundary;
+"revealed" is a client-render fact the hydration path never asserts. The
+frames pass's finding (3) is this, with frames. **Severity:** visible
+fallback flash over settled content, focus/selection loss, lost pre-hydration
+input (medium-high). **Fix direction:** a boundary hydrating straight
+through / resuming from a settled fragment starts revealed (the claimed
+content is its value), so a pending read holds.
+
+#### GH5 — C3: hydration-done does not count a root's module preload
+
+**Shape.** Two roots; A's `hydrate()` finds `a_assets` and defers its render
+behind `loadModuleAssets`; B's `hydrate()` runs synchronously meanwhile
+(islands entry-clients start several roots in one tick — the code comment
+in `hydrate` names the shape). **Observed:** B's pass ends → `checkHydrationComplete`
+→ `drainHydrationCallbacks`: `onHydrationEnd` fires, `isHydrationInProgress()`
+reads false, `_$HY.done = true` a macrotask later — while A has claimed
+nothing and cannot until its module lands. Second arm: with a queued click
+to drain, the replay nulls `_$HY.events` at done and the bootstrap stops
+capturing; a click on A's server markup during A's wait is neither queued
+nor handled (`a: 0` where 1 was sent). A third root starting after the
+timeout would degrade to `render()` (§3 33; reasoned from the `_$HY.done`
+guard, not pinned). **Expected:** done waits for the preload. **Where it
+goes wrong.** The wait registers with nothing the completion check counts —
+`_hydratingValue` is a per-root flag the next root's `finally` clears, and
+`_pendingBoundaries` knows only `<Loading>` registrations. R1 with the
+record defer swapped for the preload. **Severity:** wrong done + lost input
+(medium-high in islands setups). **Fix direction:** count the preload wait
+as a pending registration — the same `_pendingBoundaries++` / release pair
+`initBoundaryResume` keeps (what `sharedConfig.holdBoundary` wraps, minus
+its owner requirement: `hydrate`'s preload branch has no owner yet) around
+the `p.then`.
+
+#### GH6 — C14: disposing a root during its module preload does not cancel the deferred render
+
+**Shape.** `const dispose = hydrate(App, el)` with a pending `_assets`
+preload; `dispose()` before the module lands. **Observed:** `hydrate` returns
+`() => disposer && disposer()` with `disposer` unset until the preload's
+`.then`; the call is a no-op, the render runs when the module lands, and
+the root stays live (a write re-renders it) with no handle left — a second
+call to the same function reaches the late disposer. **Expected:** nothing
+renders after dispose. **Severity:** leaked live root (low-medium; HMR and
+test teardown are the realistic callers). **Fix direction:** a `disposed`
+flag in `hydrate`'s preload branch, checked before the deferred `render`
+(and clearing `hydrating` / checking completion when set).
+
+### Generic holds confirmed
+
+On the plain page (hand pins in `replay.spec.tsx` "generic holds", and the
+harness's 1000 cases with `CONSISTENCY_IGNORE=C1,C9,C19,E` → 0 findings):
+
+- **C2 / C10** — both fragment orders, hydrate before / between / after the
+  chunks: every boundary claims its server nodes (node identity, no
+  duplicate, no key miss absent a client write), is invoked once, and
+  reacts after a post-done write.
+- **C3** — hydration-done waits for both streamed `<Loading>` boundaries in
+  either order; `isHydrationInProgress()` stays true until then.
+- **C12** — pending → the server fallback shows; revealed → content, no
+  fallback (at every settle point).
+- **C14** — dispose while both are pending, or between the reveals: the late
+  chunks touch nothing, nothing runs, no error (the placeholder range is
+  removed at disposal; a late `$df` queues a retry that never lands).
+- **Events** — a click queued before `hydrate()` on a settled fragment, or
+  after a reveal before the resume, replays exactly once at the claim
+  (absent GH4's detach).
+- **#3504 snapshot** — the plain signal written during hydration resumes on
+  the snapshot and catches up in every schedule (the control beside GH1).
+- Reasoned, not pinned: the hybrid async-iterable SIGNAL adapter is covered
+  by its creation snapshot (the first yield is delivered synchronously, so
+  the memo is not pending at creation); the STORE adapter parks its backlog
+  past hydration end (§3 60); `lazy()` without `moduleUrl` under a settled
+  boundary takes the async path and cannot claim — the documented
+  degradation of §3 81, not a hole.
+
+### Harness arm
+
+`packages/web/test/consistency/generic/` — same knobs as §Harness
+(`CONSISTENCY_FUZZ=1 CONSISTENCY_SEED=… CONSISTENCY_CASES=… CONSISTENCY_IGNORE=…
+CONSISTENCY_MODE=survey|shrink`, run against `test/consistency/generic`).
+Scenario: a fragment order (`ab` / `ba`, two server renders) and a shuffled
+schedule of `hydrate`, the stream's chunks (wire order kept), an optional
+client write and store push (after `hydrate` — before it they are an app
+mismatch, outside the contract), clicks on either boundary, a dispose,
+0–3 settles, 0–2 microtasks. Laws: G no-runtime-error; C1 no-key-miss /
+no-unclaimed / node-identity / no-duplicate; C9 no-fallback-over-settled;
+C3 in-progress-until-done / done-counts-holds; C12 fragment-parity; C19
+claim-shows-signal / -memo / -async-memo / -store-list; C14 dispose-no-invoke
+/ dispose-no-dom; C2 every-range-live / -reactive; E queued-click-replays-once.
+
+| seed  | cases | ignore         | cases with findings | findings by law                                                                                                                      |
+| ----- | ----- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 3289  | 500   | —              | 101                 | C1 no-key-miss 95, C19 store-list 60 (GH3), C19 memo 55 (GH1), C9 fallback-over-settled 26 (GH4), C19 async-memo 16 (GH2), E 8 (GH4) |
+| 91501 | 500   | —              | 99                  | C1 84, C19 memo 60, C19 store-list 48, C9 26, C19 async-memo 15, E 4                                                                 |
+| 91501 | 500   | C1, C9, C19, E | **0**               | C2, C3, C12, C14, G: nothing surfaces                                                                                                |
+
+Limitations: one page shape (two sibling boundaries; no nested boundaries,
+no `lazy()`, no `<Errored>`); the server's chunking is fixed per order
+(three chunks: the first boundary's data, `shared` + its fragment, the
+second fragment); `_hydrationDone` is a worker latch so every case after
+the first runs post-done (a reveal before `hydrate()` is held and replayed
+at registration — both regimes are legal pages); `readyState` is not
+mocked (plain hydration consults it only for truncation).
+
+### Caveats
+
+- The verdicts are "a pin could not break it", as above. The harness covers
+  one page; nested boundaries resolving out of order, `lazy()` inside a
+  boundary and two `hydrate()` roots are covered only by the existing suite
+  (`parity-harness`, `loading-lazy-resume-3749`, `multi-root-registry`).
+- GH4 self-heals for the DOM (the server nodes return); its lasting damage
+  is the lost input and the focus/selection loss, which the pin observes
+  through the click only.
+- Severity of GH5 depends on the islands setup: a single deferred root is
+  fine (control pinned); the red needs a second root finishing while the
+  first waits.
