@@ -19,7 +19,13 @@ export default defineConfig({
     environment: "jsdom",
     pool: "threads",
     globals: true,
-    include: ["test/hydration/**/*.spec.tsx"]
+    // test/consistency: the frames/hydration consistency contract's pins and
+    // property harness (documentation/server-components/frames-consistency-
+    // contract.md). Hydratable + dev is the superset posture every pin needs
+    // (claims, `_hk` keys, the dev findings the oracle listens for); the pins
+    // that never hydrate run unchanged under it. The harness's generated
+    // campaign is opt-in: CONSISTENCY_FUZZ=1 (see harness/README.md).
+    include: ["test/hydration/**/*.spec.tsx", "test/consistency/**/*.spec.tsx"]
   },
   resolve: {
     conditions: ["development", "browser"],

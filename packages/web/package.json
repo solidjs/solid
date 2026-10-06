@@ -350,6 +350,7 @@
     "types:web-performance-tracks": "tsc --project ./performance-tracks/tsconfig.build.json",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
+    "consistency:fuzz": "CONSISTENCY_FUZZ=1 vitest run --config vite.config.hydrate.mjs test/consistency/harness",
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",
@@ -365,6 +366,7 @@
   "devDependencies": {
     "@codspeed/vitest-plugin": "^5.4.0",
     "@solidjs/signals": "workspace:*",
+    "fast-check": "3.23.2",
     "solid-js": "workspace:*"
   }
 }

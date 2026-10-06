@@ -4,13 +4,19 @@
 // page would fetch later (reported, never counted), and the per-package
 // minified split so a bump is attributed in the log that reports it.
 //
-// Usage: node size.mjs [--json <file>] [scenario-substring ...]
-//   --json <file>  also write the results (for the PR compare comment)
+// Usage: node size.mjs [--json <file>] [--no-gate] [scenario-substring ...]
+//   --json <file>  also write the results (for gate.mjs and the PR comment)
+//   --no-gate      measure and report, exit 0; CI's check job makes the
+//                  decision with gate.mjs, which also has the base numbers
+//
+// Run on its own this is the absolute gate: any scenario over its brotli cap
+// fails. The PR gate (gate.mjs) also weighs minified growth over the base.
 
 import { writeFileSync } from "node:fs";
 import { bundle, packageOf, scenarios, toBytes, toKB } from "./bundle.mjs";
 
 const args = process.argv.slice(2);
+const gate = !args.includes("--no-gate");
 const jsonAt = args.indexOf("--json");
 const jsonFile = jsonAt >= 0 ? args[jsonAt + 1] : null;
 // Without `--json`, jsonAt is -1 and `i !== jsonAt + 1` would drop the first
@@ -59,6 +65,9 @@ for (const scenario of scenarios) {
     minified: r.min,
     limit: cap,
     passed: !over,
+    ...(scenario.minifiedAllowance !== undefined && {
+      minifiedAllowance: scenario.minifiedAllowance
+    }),
     lazy: r.lazy,
     packages: Object.fromEntries(packages)
   });
@@ -80,4 +89,4 @@ console.log(
     ? "\nsize: a scenario exceeds its cap or failed to bundle."
     : "\nsize: every scenario within its cap."
 );
-process.exit(failed ? 1 : 0);
+process.exit(failed && gate ? 1 : 0);
