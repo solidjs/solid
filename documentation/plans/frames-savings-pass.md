@@ -325,7 +325,9 @@ A5 as their call sites vanish, and the gates tighten to the measured value
 at each landing (the ratchet). Pages (KB br): base 44.82 → A1 43.7 → A5
 43.4 → B 43.5 → C1 43.0 → C2 42.65 → C3 36.0 → C4 35.5 → C5 34.85 → C6
 32.35 → D 28.2; live 48.58 → A1 47.5 → A5 47.15 → B 47.25 → C1 46.75 → C2
-46.4 → C3 39.8 → C4 39.3 → C5 38.65 → C6 36.1 → D 31.8.
+46.4 → C3 39.8 → C4 39.3 → C5 38.65 → C6 36.1 → D 31.8. Under the 8.0
+ruling C1 is skipped; the 7.8 gates from C1 on read +546 (frames) / +508
+(pages).
 
 ---
 
@@ -366,6 +368,46 @@ Pages (br; the whole page, lazy chunks not counted):
 | app hydrating (no stores) | 17,705                    | **≈ 17,750** (+≈ 45: S-hold's `hydrateWindow` + the registration reach, S-adopted, `whenRevealed`)                                                               | unchanged                            | +45                  | — (the rulings estimated +8 for 3a alone; the other two seams add) |
 | compiled hydrating        | 30,943 (at its 30.93 cap) | **≈ 30,990** (the same +≈ 45)                                                                                                                                    | unchanged                            | +45                  | **cap raise needed — the maintainer's**                            |
 | frames eager              | 13,770                    | ≈ 7,600 (7.8 reading; the C6 gate is 8.5 before the residual R / D cuts land) / ≈ 8,150 (8.0)                                                                    | **≈ 7,250 / ≈ 7,800**                | **−6.5 KB (−47 %)**  | ≈ 10,500                                                           |
+
+### 4.1 Measured (2026-10-06)
+
+The Phase D estimates above, turned into numbers by a measurement pass on
+edited dist copies over the `L8` / `T+holes` / `Tglue` floors (method: the
+re-attribution §2.1). All br unless marked. Baseline `next` @ `49a8dca84`:
+page base 44,864 / page live 48,527; the correctness pass #3837 measures
++18 base / +68 live against it. The tables above are left as the estimate
+record.
+
+- **Phase D components on `L8` (page base).** **B.3** (`dynamic`'s string
+  tag + `staticElement` lazy): **−3,692** — not the −2,372 estimated on
+  `L0`: on the tiered page `assign` has no importer left, so the whole
+  attribute runtime leaves with it; B.3's full saving therefore depends on
+  C6 and `preserveModules`. **Store hydration adapters: 0** — already out
+  of `L8`; the plan's +1,300 was S1's shape (measured −1,063 on S1's own
+  build). **E.b+** (natural-body encode arms, the codec-args message,
+  `Retry-After`, the trailer error, the natural decode arms): **−462**.
+  Cumulative on `Tglue`: page base **26,832** (7.8) / **27,400** (8.0);
+  page live 30,514 / 31,071.
+- **End state** including the pass and the still-estimated seam glue
+  (+110–150: `prepareTier`, S-hold's solid reach, S-adopted /
+  `whenRevealed`): **page base ≈ 27.0 KB (7.8) / ≈ 27.5 KB (8.0)**; page
+  live ≈ 30.7 / ≈ 31.3 KB — live stays over 30 KB on either reading,
+  dominated by `action` and the optimistic lanes (+8.4 K min of signals
+  over base). Frames eager measured `Tglue` + E.b+: **7,304 / 7,840**, in
+  the §4 bands.
+- **Fixture caveat.** The page fixture is hand-written; a compiled page
+  keeps ≈ 1 KB br of DOM runtime through its templates, so the realistic
+  8.0 end state is ≈ **28.5 KB**.
+- **Router.** `@solidjs/router@2.0.0-next.35` on page base adds **+12,137
+  br** (+38,779 min: the router's own 28,008 min; the signals it retains
+  +8,583 — `action` and the lanes; sf +1,188; web +1,137). The base case
+  with the router at the Phase D end state is ≈ **39.7 KB (8.0)**. The
+  30 KB target is stated against page base WITHOUT the router; with it the
+  gap is the router's. Scenarios `page: base + router` / `page: live +
+  router` are on draft #3838 (57,001 / 58,243 measured today).
+- **Under 30 KB?** Page base: **yes on both readings**; the margin rests on
+  B.3 — without it 8.0 is ≈ 31.1 KB, over. This is the measurement §6
+  decision 1's ruling (8.0, holes eager) was conditioned on.
 
 ---
 
@@ -420,6 +462,12 @@ Each a yes/no with a recommendation.
    headroom for the seams' glue to come in heavier than estimated. The
    classification (transport) does not depend on the choice; §6's table
    writes the holes line either way, eager or tier.
+   **Ruled 2026-10-06: 8.0 — holes eager.** The maintainer's condition
+   ("only if we can get that sort of size number") was checked by
+   measurement (§4.1): the page-base end state on 8.0 is ≈ 27.5 KB br,
+   under the 30 KB target with ≈ 2.4 KB of margin (≈ 1.5 KB on a realistic
+   compiled page). The C1 holes-tier step is skipped; `T.holes` stays in
+   the eager client.
 2. **Assets: eager or tiered?** — **Recommend tiered, with the
    reveal-readiness term and the announcement mandatory for style-gated
    fragments.** Eager costs +684 br and puts the default over both
@@ -429,6 +477,9 @@ Each a yes/no with a recommendation.
    (route the mirror through `web`'s asset registry) — fewer bytes than
    eager, no tier, and it retires ≈ 750 B of untested mirror; it is the
    second-best answer, not a bad one.
+   **Ruled 2026-10-06: tiered, with the reveal-readiness term.** S10
+   (route the mirror through `web`'s asset registry) is the fallback if a
+   latency term is later unwanted.
 3. **Is the document `modulepreload` (+ the `sc:tiers` record + the
    `X-Frame-Tiers` header) acceptable wire?** — **Recommend yes.** All three
    are additive; an old client ignores them, a new client without them
@@ -438,6 +489,8 @@ Each a yes/no with a recommendation.
    (traces today: the materializer loads at the first record), which is the
    timing exposure the maintainer's condition is about. Announcement is
    what turns the register's races from "likely" into "theoretical".
+   **Ruled 2026-10-06: yes** — `modulepreload` + `_$HY.r["sc:tiers"]` +
+   `X-Frame-Tiers`, as additive wire.
 4. **The plain-response streaming bound** — _"presumably not infinitely"_:
    should the server end a plain (non-`live`) response after a bound, with
    detectable truncation, `live` being the declared way past it? —
@@ -455,12 +508,17 @@ Each a yes/no with a recommendation.
    a bound a plain response over a generator holds the connection as long
    as a `live` one does, with none of `live`'s reconnect semantics — the
    worst of both.
+   **Ruled 2026-10-06: yes** — `complete.bound: "yields" | "time"`;
+   defaults 64 later yields or 30 s after first flush, the latter aligned
+   to the request's `signal`; the dev warning names `live()`.
 5. **S1 merges re-based, after Phases A and B (at C3) — not as built, not
    first?** — **Recommend yes** (§5): its hold must register under 3.1,
    which A2 provides; its hydration-end pin re-pins at merge; its
    `prepareData` / `prepareArgs` surface never ships; no Size-Exception is
    needed. The cost is deferring the −6.4 KB page saving until Phases A and
    B are in.
+   **Ruled 2026-10-06: yes** — S1 merges re-based at C3, after Phases A
+   and B.
 6. **The adopt-path holds (traces, regions, bind) register as pending
    boundaries through `initBoundaryResume` (3.1 participants), with the
    solid-side reach (`sharedConfig.resumeBoundary`, `hydrateWindow`) paid by
@@ -468,16 +526,24 @@ Each a yes/no with a recommendation.
    raised accordingly?** — **Recommend yes.** It is the ruling (3.1, 3.2),
    and it is what bounds bind's dead-handler window (§1). The alternative —
    plain waits — is what the ruling rejects (a private notion of done).
+   **Ruled 2026-10-06: closed by #3837** in the `sharedConfig.holdBoundary`
+   form, cost accepted (+59 B min on every hydrating page; "pay the cost
+   for correctness"). The plan's `hydrateWindow` form (R.claim's deletion)
+   is being attempted in A2b (`fix/frames-a2b-park-and-window`); if sound
+   it supersedes the `holdBoundary` form before release.
 7. **`preserveModules` for `solid-js` / `@solidjs/web` (audit S2 / C) as
    Phase D's enabler, so the store hydration adapters and B.3's
    `staticElement` can leave the flat dists?** — **Recommend yes, after the
    tiers**, not before: it is 0 B on every single-entry scenario and only
    matters for what C3 and C6 leave behind on a page (≈ 1.3 KB of
    adapters, ≈ 2.4 KB of `dynamic`'s string tag).
+   **Ruled 2026-10-06: yes** — `preserveModules` after the tiers (Phase D).
 8. **Claims + `frame:applied` ride the router's chunk rather than a frames
    tier?** — **Recommend yes**: 331 br, not worth a seam; the router is
    the only installer of `CLAIM_SEAM` and the only consumer of
    `frame:applied`.
+   **Ruled 2026-10-06: yes** — claims + `frame:applied` ride the router's
+   chunk.
 
 ---
 

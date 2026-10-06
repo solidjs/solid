@@ -1,10 +1,16 @@
 # Frames rulings — the three seams (2026-10-05)
 
-**Status: proposed — maintainer ruling pending**, except **3.1, ruled
-2026-10-05** (hydration-done follows non-SC Solid 2) and the **Principle**
-below, which is the maintainer's (three statements, 2026-10-05); every other
-ruling is re-derived from it and marked *recommended-by-principle* where the
-principle decides a reading. Nothing here changes an engine. Branch
+**Status: ruled.** **3.1, ruled 2026-10-05** (hydration-done follows non-SC
+Solid 2) and the **Principle** below, which is the maintainer's (three
+statements, 2026-10-05); every other ruling was re-derived from it and
+marked *recommended-by-principle* where the principle decides a reading —
+and on **2026-10-06** the maintainer nodded the lot (*"other than that lets
+do your recommendations"*): **1.3, 1.4 full, 1.6 (i), 2.3, 3.3** are ruled
+as recommended; **3.6 is ruled (iii)** (the consumer parks); the one wire
+fact (whether `slot` may trail `html`) is ruled by leaving the order
+unspecified and pinning the client's tolerance; **3.5 is closed**,
+superseded by the pass's default #3 (the occurrence name decides the class)
+and kept as the diagnosis record. Nothing here changes an engine. Branch
 `spec/frames-rulings` off `next` @ `01e80a601`; this document only. **The gate
 for every fix below is PR #3813** (the contract, its
 twenty-two `test.fails`, its harness): a step lands when its named pins flip
@@ -331,6 +337,12 @@ Two forms; the maintainer picks.
   is the rule (pin it; the contract's (a1) ordering is then contrived and
   (a2) is the real arm) or the defer generalizes to every sync as a hold
   (3.2). Needs the maintainer; not decided here.
+  **Ruled 2026-10-06 — the second.** RFC 11 leaves the order unspecified
+  and stays that way; the pinned invariant is the client's tolerance: a
+  recordless called occurrence waits, whichever order the sink used (the
+  pass's default #3, landed in #3837). Pinning the sink's order is
+  deliberately not done — the precondition the full form needed is met by
+  the client, not promised by the wire.
 
 ### 1.5 The shell gate is the bound address's
 
@@ -842,7 +854,19 @@ server's node.**
   none — `05-async-data.md` "SSR and hydration"). **Frames-specific** only in
   *which* owner the server minted — a transport fact to pin, not a rule.
 
-### 3.5 An occurrence is classified only after every delivered record has drained
+### 3.5 An occurrence is classified only after every delivered record has drained — **closed 2026-10-06**
+
+**Closed — superseded by the pass's default #3** (the occurrence's name
+decides its class on every sync; #3830 → #3837). The sentence as it now
+stands: **a called occurrence (`prop#n`) found recordless waits — a fresh
+mount is not invoked, a mounted one keeps its applied args, the delivering
+write re-syncs; a bare occurrence is direct-insert content by design; the
+drain is no longer a classification bound** (the #2968 poll is the document
+face's re-sync trigger only). There is nothing left for "after every
+delivered record has drained" to decide: a recordless called occurrence is
+never classified, drained or not, so C18 is unrepresentable rather than
+guarded (#3827 closed). The text below is kept as the diagnosis record —
+three ledgers, two consulted; delivered is not drained.
 
 **A recordless adopted occurrence is direct-insert content only once nothing
 the document delivered for its boundary is still waiting to be applied: the
@@ -920,13 +944,24 @@ recordless occurrence it finds, whatever triggered the sync.**
   answer sits (`_$HY.r` versus the store — the drain is the transport's two
   steps); the sentence itself is the adoption rule.
 
-### 3.6 A claim shows the value it read — and reads what the markup was rendered from
+### 3.6 A claim shows the value it read — and reads what the markup was rendered from — **ruled (iii), 2026-10-06**
 
 **A fill that claims adopted markup reads the state the server rendered it
 from — a container trace's snapshot, the record the occurrence was held on —
 and claims against it; what moved before the claim (a patch beyond the
 snapshot, a record that replaced the held one) lands after the claim as the
 update it is. The claim pass never rewrites a hole.**
+
+- **Ruled (iii) — the consumer parks** (maintainer, 2026-10-06, with the
+  recommendations). The materializer, read for a claim, serves the snapshot
+  and parks the backlog until hydration ends; the backlog applies as
+  ordinary updates. **C19 ×2 flip when the park is ported** — in progress
+  on `fix/frames-a2b-park-and-window` (the plan's A2 "3e port": the
+  detached root and the parked backlog beyond the snapshot, without S1's
+  `claiming` plumbing). **C11** is read as "every observable point outside a
+  claim's park". **Correction to the contract:** its R10 read S1 as evidence
+  for (i); S1 is evidence for (iii) — `9927ddddd`'s mechanism is the park,
+  and its own comment says a text hole is never rewritten during a claim.
 
 - **Mechanism today.** `web/src/client.ts:insertExpression` under hydration is
   a claim pass, not a mutation pass (C1/C9: nothing moves);
@@ -1034,10 +1069,15 @@ collapsed carrier.**
   server's consumption pinned.
 
 **Ruled.** **3.1** — hydration-done follows non-SC Solid 2 (2026-10-05).
+**2026-10-06, the nod** (*"other than that lets do your recommendations"*):
+**1.3, 1.4 full, 1.6 (i), 2.3, 3.3** ruled as recommended below; **3.6
+(iii)** ruled; the wire order ruled unspecified-with-tolerance; **3.5**
+closed (superseded by default #3). The list below is kept as written — the
+derivation is the record of why each reading is the one.
 
 **Readings the draft left open, re-derived against the principle** — each
-"decided by the principle?" yes/no; a *yes* is recommended-by-principle, not
-ruled, until the maintainer nods.
+"decided by the principle?" yes/no; a *yes* was recommended-by-principle,
+and is ruled since the 2026-10-06 nod.
 
 1. **1.3** a record resolves through its own response's data — **yes**
    (corollary 1: an answer resolves its parts in its own question's context;
@@ -1063,11 +1103,21 @@ ruled, until the maintainer nods.
    analogue). *Open only because the contract named (i): the maintainer
    picks.*
 
-**Genuinely open after the principle:** 3.5's wording (confirm), 3.6's shape
-(pick; (iii) recommended), and one wire fact the principle cannot supply —
-whether `slot` may trail `html` (1.4's precondition; RFC 11 fixes no order,
-the sink emits records ahead of markup, C6 (a1) assumes the reverse is
-legal). Everything else above is decided by the principle pending the nod.
+**Genuinely open after the principle** — as the draft left them: 3.5's
+wording (confirm), 3.6's shape (pick; (iii) recommended), and one wire fact
+the principle cannot supply — whether `slot` may trail `html` (1.4's
+precondition; RFC 11 fixes no order, the sink emits records ahead of markup,
+C6 (a1) assumes the reverse is legal). **All three closed 2026-10-06:** 3.5
+is superseded by default #3 (nothing to confirm — the drain is no longer a
+bound); 3.6 is (iii); the wire order stays unspecified and the client's
+tolerance is the pin (1.4). Everything else above is ruled.
+
+**Two judgment calls at the Phase A gate, accepted 2026-10-06.** (1) **C19
+stands red** (harness ×2) until the A2b port lands the park
+(`fix/frames-a2b-park-and-window`) — the pass does not take it. (2) **The
+server arms stand at the gate with their drafts attached** — C13 (a, b) and
+C12 (c2) — and the server PRs follow; Phase A is taken as done with those
+three reds open, as the plan's gate allows.
 
 **Decided by default in the overnight correctness pass (2026-10-06;
 #3830–#3833) — each the reading A0 implies, with the alternative written.**
@@ -1193,7 +1243,9 @@ is given as a recommendation, not a ruling.**
 - **Whether `slot` may trail `html` on the wire** (1.4's open item) — RFC 11
   fixes no order; the sink emits records ahead of markup; the contract's
   C6 (a1) assumes the reverse is legal. Decides whether the #2968 defer
-  generalizes to every sync.
+  generalizes to every sync. **Ruled 2026-10-06:** the order stays
+  unspecified; the defer generalized (default #3) and the client's
+  tolerance is the pinned invariant. The sink's order is not pinned.
 
 **The server half / wire (§6.3) — out of these rulings.**
 
