@@ -82,6 +82,28 @@ export interface FrameStreamOptions {
    */
   live?: boolean;
   /**
+   * The plain response's streaming bound, in later yields (frames savings
+   * pass §6 decision 4). A plain (non-`live`) server component whose
+   * content reads a standing source — a generator, a projection — keeps
+   * its response open and ships each later commit as holes; with no
+   * declaration of liveness anywhere, that response ends here: after this
+   * many emitting sweeps past the first flush the producer emits
+   * `{ type: "complete", bound: "yields" }` and closes. `live()` is the
+   * declared way past the bound; a `live` response is never bounded.
+   * Default 64. `0` / `Infinity` disables the count bound.
+   */
+  maxYields?: number;
+  /**
+   * The plain response's streaming bound, in wall-clock milliseconds after
+   * the first flush (the same decision): `{ type: "complete", bound:
+   * "time" }` then the body closes. The request's `signal` aborting after
+   * the first flush ends a plain response the same way — a platform's
+   * deadline is a time bound the client can tell from a death. Default
+   * 30 000. `0` / `Infinity` disables the timer (the `signal` still ends
+   * it).
+   */
+  maxDurationMs?: number;
+  /**
    * A RESUME (RFC 11 §9.5): the have-list the reconnecting client sent —
    * the digests it holds for this address, keyed as the chunks carry them
    * (`""` the root skeleton, `lh:N` / `lha:N` holes, `pl-N` revealed
@@ -354,12 +376,22 @@ function withHoles(chunk, holes) {
  * have-list (see `FrameStreamOptions.resume`): present, the sink emits
  * conditionally against it.
  *
+ * `hooks.onYield` is called after every sweep that emitted something — the
+ * visible effect of one commit (a source yielding, a promise settling): the
+ * producer's bound on a plain response counts these (see `frameStream`).
+ *
  * @param {(chunk: object) => void} emit
  * @param {{ id: string, version: number }} frame
  * @param {Record<string, string>} [have]
+ * @param {{ onYield?: () => void }} [hooks]
  */
-export function createFrameSink(emit, frame, have) {
+export function createFrameSink(write, frame, have, hooks) {
   const { id, version } = frame;
+  // Every emission passes here, so a sweep knows whether it produced one.
+  const emit = chunk => {
+    if (swept) swept.emitted = true;
+    write(chunk);
+  };
   // Conditional emission (Stage 8 B4, RFC 11 §9.5 Server face 2). `have`
   // is the client's ledger for this address; `conditional` arms once the
   // shell decides the client's structure stands (skeleton digests equal)
@@ -441,7 +473,7 @@ export function createFrameSink(emit, frame, have) {
   let swept = null;
   const sweep = () => {
     epoch++;
-    const ops = (swept = []);
+    const pass = (swept = { ops: [], emitted: false });
     try {
       for (const b of [...bindings.values()]) {
         try {
@@ -452,10 +484,15 @@ export function createFrameSink(emit, frame, have) {
           // value stands.
         }
       }
+      emitOps(pass.ops);
+      // A pass that emitted is one visible commit — one "yield" to the
+      // plain-response bound (`frameStream`). After the pass's unit left,
+      // so a cut taken here follows it on the wire; still inside the pass,
+      // so `end` knows nothing is owed to the latch.
+      if (pass.emitted && hooks && hooks.onYield) hooks.onYield();
     } finally {
       swept = null;
     }
-    emitOps(ops);
   };
   // Members ride unaddressed (the envelope addresses them); a lone member
   // is addressed and emitted as the plain chunk it always was.
@@ -660,14 +697,24 @@ export function createFrameSink(emit, frame, have) {
         emit({ type: "assets", id, version, key: "", preloads: [wirePreload(value)] });
       }
     },
-    end() {
+    /**
+     * End the response: `complete`, with `bound` when the producer cut a
+     * plain response at its streaming bound (`"yields"` | `"time"`; see
+     * `frameStream`) rather than its sources settling. Idempotent — a cut
+     * and the render's own end may both reach here.
+     */
+    end(bound) {
+      if (closed) return;
       // The end-of-response latch: one final synchronous sweep so a commit
       // that landed in the last flush still ships before `complete` (the
       // scheduled microtask would lose that race). Completion latches every
-      // binding's last value as final.
-      if (bindings.size) sweep();
+      // binding's last value as final. A cut taken from inside a sweep's
+      // yield hook has just swept; nothing is owed.
+      if (bindings.size && !swept) sweep();
       closed = true;
-      emit({ type: "complete", id, version });
+      const chunk = { type: "complete", id, version };
+      if (bound) chunk.bound = bound;
+      emit(chunk);
     },
     error(errorId, error) {
       emit({ type: "error", id, version, key: errorId, error });
@@ -689,7 +736,7 @@ export function createFrameSink(emit, frame, have) {
     // Produced by a sweep, so it joins the sweep's unit (see `sweep`).
     hole(key, html) {
       const op = { type: "hole", key, html, digest: textDigest(html) };
-      swept ? swept.push(op) : emitOps([op]);
+      swept ? swept.ops.push(op) : emitOps([op]);
     },
     // A live attr-hole re-emission: the addressed element's rebuilt
     // attribute text, plus the names that vanished since the last emission
@@ -698,7 +745,7 @@ export function createFrameSink(emit, frame, have) {
     attr(key, attrs, removed) {
       const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
       if (removed && removed.length) op.removed = removed;
-      swept ? swept.push(op) : emitOps([op]);
+      swept ? swept.ops.push(op) : emitOps([op]);
     },
     // An attr hole's first-render text, keyed by its address — the digest
     // source for root/fragment `holes` maps and the resume compare.
@@ -847,23 +894,101 @@ export function renderServerComponent(component, options = {}) {
 // emission, `complete` + end on the stream settling. `makeCode` builds the
 // render thunk with access to the sink/frame (the slot-props proxy needs
 // both); no document text is ever written.
+// The plain response's defaults (frames savings pass §6 decision 4, ruled
+// 2026-10-06): 64 later yields, or 30 s after the first flush.
+const DEFAULT_MAX_YIELDS = 64;
+const DEFAULT_MAX_DURATION_MS = 30_000;
+// The abort reason a response's own `cancel` tears its render down with:
+// the reader left, so the stream must not dress the end as a bound.
+const DISCONNECTED = Symbol("solid.frames.disconnected");
+
 function frameStream(makeCode, options) {
   const { id = "", version = 1 } = options.frame || {};
   const frame = { id, version };
+  // The plain-response streaming bound. A plain server component reading
+  // a standing source would otherwise hold its response open for as long
+  // as a `live` one does, with none of `live`'s reconnect semantics; the
+  // bound ends it, detectably: `complete` carries `bound`, so the client
+  // can tell a cut-off from a settled value. A `live` response is never
+  // bounded — liveness is the declaration that there is no bound.
+  const bounded = !options.live;
+  const maxYields = bounded ? (options.maxYields ?? DEFAULT_MAX_YIELDS) : 0;
+  const maxDurationMs = bounded ? (options.maxDurationMs ?? DEFAULT_MAX_DURATION_MS) : 0;
   function stream(w) {
     // Observe tier: the server half of the `"frame"` record
     // (`OBSERVE.records`, see `FrameProducedEvent`) — start → complete, with
     // the chunk census. Nothing is read, not even the clock, without a
     // listener.
     const observation = observeFrame(frame);
-    const emit = observation
-      ? chunk => {
-          observation.chunk(chunk);
-          w.write(chunk);
-        }
-      : chunk => w.write(chunk);
-    const sink = createFrameSink(emit, frame, options.resume && options.resume.have);
+    // The render's own teardown, chained from the caller's signal: a cut at
+    // the bound tears the render down (its sources returned, its holds
+    // released — nothing produces for a response that has ended) without
+    // touching the caller's signal.
+    const render = new AbortController();
+    const upstream = options.signal;
+    let ended = false;
+    let flushed = false;
+    let yields = 0;
+    let timer;
+    function finish() {
+      if (ended) return;
+      ended = true;
+      if (timer) clearTimeout(timer);
+      if (upstream) upstream.removeEventListener("abort", onSignal);
+      w.end && w.end();
+    }
+    // End a plain response at a bound: the sink's end (the latch sweep,
+    // then `complete` with the bound), the body's end, then the render's
+    // teardown — quiet, so the renderer records no abandonment for a
+    // response that chose to end.
+    function cut(bound) {
+      if (ended) return;
+      sink.end(bound);
+      observation && observation.settle("complete");
+      finish();
+      render.abort({ quiet: true, bound });
+    }
+    // The caller's signal (the request's, through `serverComponentResponse`)
+    // ends the response. After a plain response's first flush that end is
+    // its time bound — a platform deadline, a proxy's idle cut — and the
+    // client is told so (`complete.bound: "time"`); before the first flush,
+    // for a `live` response, or when the reader itself is gone (the body's
+    // cancel, flagged on the reason — nobody to tell), the body simply ends
+    // — the death the consumer already knows (an open frame's `:error`, a
+    // live loop's reconnect). Either way the render is torn down after the
+    // body's end, so the `complete` leaves before it.
+    function onSignal() {
+      const gone = upstream.reason && upstream.reason[DISCONNECTED];
+      if (bounded && flushed && !gone) return cut("time");
+      finish();
+      render.abort(upstream.reason);
+    }
+    const emit = chunk => {
+      if (observation) observation.chunk(chunk);
+      w.write(chunk);
+      // First flush: the root's html. From here the bound counts.
+      if (bounded && !flushed && chunk.type === "html" && chunk.id === id) {
+        flushed = true;
+        if (maxDurationMs > 0 && maxDurationMs !== Infinity)
+          timer = setTimeout(() => cut("time"), maxDurationMs);
+      }
+    };
+    const sink = createFrameSink(
+      emit,
+      frame,
+      options.resume && options.resume.have,
+      bounded
+        ? {
+            onYield() {
+              if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
+            }
+          }
+        : undefined
+    );
     w.write({ type: "start", id, version });
+    // A caller already gone has nobody to render for.
+    if (upstream && upstream.aborted) return finish();
+    if (upstream) upstream.addEventListener("abort", onSignal, { once: true });
     const code = makeCode(sink, frame);
     try {
       // Frames default to the keyed JSON codec for data records (eval-free
@@ -875,6 +1000,7 @@ function frameStream(makeCode, options) {
       renderToStream(() => serverOwned(code), {
         serializer: createJSONSerializer,
         ...options,
+        signal: render.signal,
         sink
       }).pipe({
         // Every document emission is intercepted by the frame sink, so no
@@ -882,9 +1008,10 @@ function frameStream(makeCode, options) {
         // signal.
         write() {},
         end() {
+          if (ended) return;
           sink.end();
           observation && observation.settle("complete");
-          w.end && w.end();
+          finish();
         }
       });
     } catch (err) {
@@ -897,7 +1024,7 @@ function frameStream(makeCode, options) {
       sink.error("", wire instanceof Error ? wire.message : String(wire));
       sink.end();
       observation && observation.settle("error", err);
-      w.end && w.end();
+      finish();
     }
   }
   return {
@@ -2494,12 +2621,11 @@ export function serverComponentResponse(component, options = {}, init = {}) {
           controller.close();
         } catch (_) {}
       };
-      // A torn-down render never ends its sink (nobody is listening), so the
-      // body closes here when the abort came from the request rather than
-      // from this body's own cancel — including a request gone before the
-      // body was ever read.
+      // A request gone before the body was ever read: nothing to render
+      // for. Once piping, the stream ends the body on the abort itself (and
+      // after a plain response's first flush, with `complete.bound: "time"`
+      // ahead of the close — see `frameStream`).
       if (teardown.signal.aborted) return end();
-      teardown.signal.addEventListener("abort", end, { once: true });
       // Chaos ends the body as a dying connection would: the render is torn
       // down first (its sources returned, as on a real disconnect), then
       // the body errors with the frame still open — a death to the reader.
@@ -2525,7 +2651,9 @@ export function serverComponentResponse(component, options = {}, init = {}) {
       closed = true;
       disarm();
       if (stopLive) stopLive();
-      teardown.abort();
+      // The reader is gone: a death, never a bound (there is nobody to
+      // tell) — the render abandons as on any disconnect.
+      teardown.abort({ [DISCONNECTED]: true });
     }
   });
   return new Response(body, { status: init.status || 200, headers });
@@ -2832,7 +2960,9 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec, sig
     cancel() {
       closed = true;
       disarm();
-      teardown.abort();
+      // The reader is gone: a death for the frame in progress, never a
+      // bound (see serverComponentResponse's cancel).
+      teardown.abort({ [DISCONNECTED]: true });
     }
   });
   return new Response(body, { status: init.status || 200, headers });
