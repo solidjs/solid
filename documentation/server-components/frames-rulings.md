@@ -18,7 +18,13 @@ and nothing else moves. **2026-10-06:** the correctness pass ran overnight
 as draft PRs #3830–#3833 (see "As landed" under the order of work, and the
 defaults it took under "What the rulings do NOT decide"); the maintainer
 folded the stack into **one PR against `next`, #3837** ("merge as one given
-all the checks"), which carries this document with the code.
+all the checks"), which carries this document with the code. **Phase A
+landed** (2026-10-06): #3837 (A0, A1's S-flush, A2's hold, C5's data scope,
+C12's report) and the second integration PR **#3849** (A2b's park +
+`hydrateWindow`, A1b + A4, A7 + A3, A5′, A6's server half, the generic
+hydration pins) — every ruling marked "Landed" below is on `next`; what
+stays open is that PR's "Not in this PR" (S-key, DR-4 structural, the
+`preview`/token pull form, the 30 s bound's arming point, GH1–GH6).
 
 The frames/hydration consistency contract
 (`frames-consistency-contract.md`, branch `spec/frames-consistency-contract`
@@ -1531,8 +1537,8 @@ S7, the three rename sites); store eviction (§3 4). No red touches them.
 
 ### The server half — drafts (2026-10-06; design, no wire change shipped)
 
-**Built — 2026-10-06, `fix/frames-a6-server-half` (the A6 PR, against
-`wip/frames-pass-integration`, retargets to `next` after #3837).** The three
+**Built — 2026-10-06, `fix/frames-a6-server-half` (the A6 PR, folded into
+the second integration PR #3849 on `next`).** The three
 drafts below were approved by the maintainer the morning of 2026-10-06 and
 are coded as three commits on that branch; each draft's text is kept as the
 design record, and what landed differs from it only where stated here.
@@ -1574,11 +1580,12 @@ design record, and what landed differs from it only where stated here.
   covers it); the position keeps the boundary's own fallback, never a
   blank. `_fr` still rejects. C12 (c2) flipped; a (c3) escape arm added;
   `test/server/frame-fragment-error-outcome.spec.tsx` pins both faces and
-  the unchanged client-twin case. **Not built:** the client's OUTWARD face
-  — nothing on the client throws a frame's `:error` into the enclosing
-  client `<Errored>` (see 3.3's refetch note); the record lands, the gate
-  releases, `frame.error` holds it, and that is all the client does with
-  it today.
+  the unchanged client-twin case. The client's OUTWARD face — a frame's
+  `:error` thrown into the enclosing client `<Errored>` — was not this
+  branch's; **A7 built it at the same integration** (3.3 "Landed": the
+  landing rejects, a later error errors the value, `reset` re-asks). The
+  (c3) escape arm mounts without a binding and keeps asserting
+  `frame.error` (3.3's integration note).
 
 **The maintainer's approvals recorded the same morning (2026-10-06):**
 
