@@ -203,7 +203,7 @@ export function redraw(b: Boundary): void {
 /** GlobalQueue._catch: status from a frame reader, nearest boundary first.
  * A loading boundary on the way records a pending reader whether or not it
  * catches it (its `on` may collect it later). */
-function catchStatus(node: Computed<any>, flags: number, error: unknown): boolean {
+function catchStatus(node: Computed<any>, flags: number, error?: unknown): boolean {
   if (flags === 0) {
     // A status cleared. Judged by the node's status now, against each
     // boundary's own rule (`unsettled`) — the error path clears pending
@@ -596,25 +596,23 @@ function createBoundary<T>(
       }
       if (isCollecting(b)) {
         // A29's boundary exemption (#3540): a boundary MOUNTED over a held
-        // value (its first pass; the tree born held) shows its fallback now
-        // and the content at the commit — entering the transaction would
-        // make the output itself born held, and nothing would show until
-        // the commit. (The seam keeps a held reader until it is committed.)
-        // A boundary with a committed value reads a held tree and enters:
-        // the outside sees its committed value until the landing, which
-        // reveals the content — a fallback staged earlier is replaced ahead
-        // of the commit and never shown.
+        // value (its first pass; a first pass under it that read a hold was
+        // collected, `joinPass` — the tree's own, or a render effect's that
+        // binds the content) shows its fallback now and the content at the
+        // commit — entering the transaction would make the output itself
+        // born held, and nothing would show until the commit. The seam
+        // keeps a held reader until it is committed, then re-derives this
+        // pass. A boundary with a committed value reads a held tree and
+        // enters: the outside sees its committed value until the landing,
+        // which reveals the content — a fallback staged earlier is replaced
+        // ahead of the commit and never shown.
         const self = getOwner() as Computed<any>;
         if (
-          tree._config & CONFIG_HELD &&
+          b._readers.size !== 0 &&
           self._statusFlags & STATUS_UNINITIALIZED &&
           !(self._config & CONFIG_HELD)
-        ) {
-          // The seam re-derives this pass once; by then the fallback is
-          // the committed value, and the next pass enters.
-          collecting.add(b);
+        )
           return fallback(b);
-        }
         // Readers under it still unready: the fallback, the tree untouched.
         // The seam re-derives this pass when they settle.
         if (prune(b, true) !== 0) return fallback(b);
@@ -776,6 +774,8 @@ export function createErrorBoundary<T, U>(
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
+GlobalQueue._fresh = node =>
+  node._statusFlags & STATUS_UNINITIALIZED && catchStatus(node, STATUS_PENDING);
 GlobalQueue._hidden = hidden;
 GlobalQueue._boundarySeam = boundarySeam;
 GlobalQueue._heldRun = heldRun;
