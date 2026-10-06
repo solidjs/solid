@@ -10,6 +10,15 @@ const { prodUrl, observeUrl, N, K, warmup, pairs } = workerData;
 const prod = await import(prodUrl);
 const observe = await import(observeUrl);
 
+// This thread's CPU time, in ms: time spent descheduled on a loaded runner
+// is wall-clock noise, not cost. Wall clock where Node predates the API.
+const clock = process.threadCpuUsage
+  ? () => {
+      const { user, system } = process.threadCpuUsage();
+      return (user + system) / 1000;
+    }
+  : () => performance.now();
+
 /**
  * A graph-heavy workload with no hooks installed: N chains of
  * signal → memo → memo → effect, then K write passes that touch every chain,
@@ -35,12 +44,12 @@ function workload(tier) {
       setters.push(setA);
     }
     flush();
-    const start = performance.now();
+    const start = clock();
     for (let k = 1; k <= K; k++) {
       for (let i = 0; i < N; i++) setters[i](i + k);
       flush();
     }
-    ms = performance.now() - start;
+    ms = clock() - start;
     dispose();
     if (sink === Infinity) throw new Error("unreachable");
   });
