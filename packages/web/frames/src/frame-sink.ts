@@ -1395,243 +1395,272 @@ export function createDocumentSlotProps(clientProps, frameId) {
           const occurrence = occurrenceId(prop, raw, counts);
           const slot = clientProps[prop];
           if (typeof slot !== "function") return range(occurrence, undefined);
-          const resolved = {};
-          // Usage tracking (dispatch case 3, document face): regions ride as
-          // THUNKS, so SSR hole resolution evaluating one IS the usage
-          // signal. A wrapper that never renders an arg (collapsed by
-          // default) leaves its thunk unevaluated — that content would
-          // vanish from the page, so after the wrapper's render it FLIPS:
-          // serialized once as hydration-data records (the occurrence's args
-          // + the region html, keyed for the adopting frame's store) and the
-          // client mounts it from there when the wrapper finally renders it.
-          // Unwrap function-valued args (a function can't be serialized, so
-          // it is a thunk producing content or a getter producing data),
-          // then classify the result — region detection and the t=0 arming
-          // below see the same classified value. This is how top-level
-          // one-shot reactive control flow (<For>/<Show>) reaches the region
-          // path when it arrives as a thunk/memo.
-          //
-          // The evaluator is captured from the property DESCRIPTOR exactly
-          // as on the stream face (createSlotProps): compiled JSX props are
-          // getters — the SAME authored shape as a markup hole — and that
-          // re-runnable handle is what the case-1 ledger sweeps, so an
-          // expression arg stays as live at t=0 as it is on a call-driven
-          // stream. A NOT-READY first evaluation is pending per-arg, never
-          // a hold on the whole occurrence: the retry-loop promise takes
-          // the value's place and flows down the value-tier path — the
-          // inline fill's read suspends into the fill's OWN boundary (the
-          // client read's semantics exactly), the record ships the promise
-          // (the hydration serializer patches it on settle), and the
-          // binding opens unsettled, re-armed by the retry's onSettle.
-          const liveArgs =
-            sharedConfig.context && sharedConfig.context.live && sharedConfig.context.live.args;
-          const vals = {};
-          const evals = {};
-          // Per-key ledger state: `settled` + the equality baseline. Kept
-          // as the PRE-TAP value — `vals` entries get replaced for tapped
-          // iterables (the rest-wrapper below), and comparing a
-          // re-evaluation against the wrapper would re-emit spuriously.
-          const states = {};
-          // Keys whose evaluation minted reactive scopes (scopeStamp moved):
-          // not re-runnable, so no watched binding opens for them below.
-          const minted = {};
-          for (const key of Object.keys(raw)) {
-            if (key === "$key") continue;
-            const desc = Object.getOwnPropertyDescriptor(raw, key);
-            let evaluate = null;
-            let value;
-            if (desc.get) {
-              const get = desc.get;
-              evaluate = () => unwrapThunks(get.call(raw));
-            } else {
-              value = desc.value;
-              if (typeof value === "function") {
-                const fn = value;
-                evaluate = () => unwrapThunks(fn);
-              }
-            }
-            if (evaluate) {
-              evals[key] = evaluate;
-              const stampBefore = scopeStamp();
-              try {
-                value = evaluate();
-                states[key] = { settled: true, last: value };
-              } catch (err) {
-                const blocked = ssrHandleError && ssrHandleError(err);
-                if (!blocked) throw err;
-                const state = (states[key] = { settled: false, last: undefined });
-                value = retryArgUntilSettled(evaluate, blocked, key, occurrence, v => {
-                  state.settled = true;
-                  state.last = v;
-                  // The settle is a commit: other bindings may read the
-                  // same source. (This binding's own re-emission stays
-                  // gated on inequality with the value just recorded.)
-                  if (liveArgs) liveArgs.commit();
-                });
-              }
-              if (scopeStamp() !== stampBefore) minted[key] = true;
-            }
-            vals[key] = value;
+          // The record is DECLARED at the marker (frames A4, S-record): a
+          // pending value under its key, written now — ahead of the fill
+          // and of any fragment that carries this range — and settled with
+          // the args once they are classified below. The same shape a
+          // fragment's `<key>_fr` takes, so the adopting client awaits a
+          // record that trails its range's reveal through the value's own
+          // `.then` instead of polling the registry for a plain write; a
+          // settled one reads its stamp synchronously at adoption, as it
+          // always did. (The hydration serializer emits the resolver and
+          // the settle as one task batch when both happen in one span.) A
+          // SYNC render (`renderToString`) has no later script to settle a
+          // declaration in and no serializer for one: its record is the
+          // value, written after the fill.
+          const context = sharedConfig.context;
+          const recordKey = `sc:slot:${frameId}:${occurrence}`;
+          let settleRecord;
+          if (context && context.async) {
+            context.serialize(recordKey, new Promise(resolve => (settleRecord = resolve)));
           }
-          const regions = [];
-          for (const key of Object.keys(vals)) {
-            const value = vals[key];
-            if (isContainerTraced(value)) {
-              // Container tier (DR-2 case 3): a traced container is DATA
-              // however object-shaped it is, and the check comes FIRST — the
-              // classifiers below read properties, and a pending projection
-              // proxy throws not-ready at any string-key get (isAsyncValue's
-              // `.then` probe would detonate here). The fill reads the proxy
-              // itself: settled reads pass through; a pending read throws
-              // not-ready into the hole machinery — a per-arg suspend, the
-              // value tier's own behavior. The record ships the proxy, which
-              // the serializer's trace plugin carries as snapshot + patches.
-              resolved[key] = value;
-            } else if (isServerContent(value)) {
-              const childId = `${frameId}.${occurrence}.${key}`;
-              const region = { key, childId, value, used: false, locked: false };
-              regions.push(region);
-              resolved[key] = () => {
-                // Streaming occlusion lock: the usage flip below runs at the
-                // wrapper's SYNCHRONOUS return, but a wrapper that places this
-                // region behind an async boundary (a Suspense that resolves
-                // after the shell flush) calls this thunk LATER — after the
-                // flip already deemed the region occluded and serialized its
-                // content once as a data record. Re-emitting it as markup now
-                // would double-ship the same content (data + markup), the one
-                // thing single-copy forbids. So a locked region contributes
-                // nothing — identical to a region the wrapper never placed; the
-                // client mounts it from the `sc:region:` record on placement.
-                if (region.locked) return [];
-                region.used = true;
-                // A region is a frame ELEMENT the client wrapper adopts —
-                // the same DOM contract as the boundary, one level down.
-                return [{ t: frameElementOpen(childId) }, value, { t: FRAME_ELEMENT_CLOSE }];
-              };
-            } else if (ssrAsyncValue && isAsyncValue(value)) {
-              // DR-2 value tier, document face: the inline fill's read of an
-              // async arg must SUSPEND (throw not-ready into the engine's
-              // hole machinery, which re-pulls on settle), not read the raw
-              // promise — a raw read renders empty markup the adopted client
-              // then contradicts (it reads the record's settled value): a
-              // hydration mismatch instead of a covered pending state. The
-              // record is untouched — the async value itself still ships
-              // there and the document's data scripts stream its resolution,
-              // exactly as before.
-              //
-              // An async ITERABLE has two consumers here (this read wants
-              // the first yield; the record's serialization wants every
-              // yield) and possibly a third — the server component reading
-              // the same source — so each takes a seat on the runtime's
-              // shared multicast of it: the read settles on the first yield
-              // — markup is the V1 snapshot, later yields are the adopted
-              // client's story — and the record's seat carries the full
-              // sequence.
-              let readable = value;
-              if (typeof value.then !== "function") {
-                const { first, rest } = tapFirstYield(value);
-                readable = first;
-                vals[key] = rest;
+          try {
+            const resolved = {};
+            // Usage tracking (dispatch case 3, document face): regions ride as
+            // THUNKS, so SSR hole resolution evaluating one IS the usage
+            // signal. A wrapper that never renders an arg (collapsed by
+            // default) leaves its thunk unevaluated — that content would
+            // vanish from the page, so after the wrapper's render it FLIPS:
+            // serialized once as hydration-data records (the occurrence's args
+            // + the region html, keyed for the adopting frame's store) and the
+            // client mounts it from there when the wrapper finally renders it.
+            // Unwrap function-valued args (a function can't be serialized, so
+            // it is a thunk producing content or a getter producing data),
+            // then classify the result — region detection and the t=0 arming
+            // below see the same classified value. This is how top-level
+            // one-shot reactive control flow (<For>/<Show>) reaches the region
+            // path when it arrives as a thunk/memo.
+            //
+            // The evaluator is captured from the property DESCRIPTOR exactly
+            // as on the stream face (createSlotProps): compiled JSX props are
+            // getters — the SAME authored shape as a markup hole — and that
+            // re-runnable handle is what the case-1 ledger sweeps, so an
+            // expression arg stays as live at t=0 as it is on a call-driven
+            // stream. A NOT-READY first evaluation is pending per-arg, never
+            // a hold on the whole occurrence: the retry-loop promise takes
+            // the value's place and flows down the value-tier path — the
+            // inline fill's read suspends into the fill's OWN boundary (the
+            // client read's semantics exactly), the record ships the promise
+            // (the hydration serializer patches it on settle), and the
+            // binding opens unsettled, re-armed by the retry's onSettle.
+            const liveArgs =
+              sharedConfig.context && sharedConfig.context.live && sharedConfig.context.live.args;
+            const vals = {};
+            const evals = {};
+            // Per-key ledger state: `settled` + the equality baseline. Kept
+            // as the PRE-TAP value — `vals` entries get replaced for tapped
+            // iterables (the rest-wrapper below), and comparing a
+            // re-evaluation against the wrapper would re-emit spuriously.
+            const states = {};
+            // Keys whose evaluation minted reactive scopes (scopeStamp moved):
+            // not re-runnable, so no watched binding opens for them below.
+            const minted = {};
+            for (const key of Object.keys(raw)) {
+              if (key === "$key") continue;
+              const desc = Object.getOwnPropertyDescriptor(raw, key);
+              let evaluate = null;
+              let value;
+              if (desc.get) {
+                const get = desc.get;
+                evaluate = () => unwrapThunks(get.call(raw));
+              } else {
+                value = desc.value;
+                if (typeof value === "function") {
+                  const fn = value;
+                  evaluate = () => unwrapThunks(fn);
+                }
               }
-              const read = ssrAsyncValue(readable);
-              Object.defineProperty(resolved, key, {
-                get: read,
-                enumerable: true,
-                configurable: true
-              });
-            } else {
-              // What hydration will read: a stand-in anywhere in the arg is
-              // `undefined` in the record (argBorderForm), so the t=0 fill
-              // takes the same value — the one-record shape holds for the
-              // args the fill saw, not only the ones it shipped.
-              resolved[key] = vals[key] = withoutStandIns(value, key, occurrence);
+              if (evaluate) {
+                evals[key] = evaluate;
+                const stampBefore = scopeStamp();
+                try {
+                  value = evaluate();
+                  states[key] = { settled: true, last: value };
+                } catch (err) {
+                  const blocked = ssrHandleError && ssrHandleError(err);
+                  if (!blocked) throw err;
+                  const state = (states[key] = { settled: false, last: undefined });
+                  value = retryArgUntilSettled(evaluate, blocked, key, occurrence, v => {
+                    state.settled = true;
+                    state.last = v;
+                    // The settle is a commit: other bindings may read the
+                    // same source. (This binding's own re-emission stays
+                    // gated on inequality with the value just recorded.)
+                    if (liveArgs) liveArgs.commit();
+                  });
+                }
+                if (scopeStamp() !== stampBefore) minted[key] = true;
+              }
+              vals[key] = value;
             }
-          }
-          const out = suppressedFill(() =>
-            scoped(occurrence, () => range(occurrence, slot(resolved)))
-          );
-          const unused = regions.filter(r => !r.used);
-          if (sharedConfig.context) {
-            // One record shape (A5, server-components-principles.md): the
-            // t=0 document emits the record a stream would — every invoked
-            // occurrence gets one, and EVERY region arg rides as its
-            // `{$frame}` address ref, used or not. The ref is addressing,
-            // not content: a used region's content ships once as page
-            // markup (the adopting client resolves the ref to the element
-            // already in the interior), an occluded one ships once as its
-            // `sc:region:` record. Primitive args always ship — a scalar
-            // the client needs AS DATA to re-invoke the wrapper is not a
-            // single-copy concern (value-from-page recovery is a
-            // template-mode question, never a substring guess: the old
-            // heuristic dropped correct args on any markup coincidence).
-            const args = {};
+            const regions = [];
             for (const key of Object.keys(vals)) {
               const value = vals[key];
-              const region = regions.find(r => r.key === key);
-              if (region) {
-                args[key] = { $frame: region.childId };
-                continue;
+              if (isContainerTraced(value)) {
+                // Container tier (DR-2 case 3): a traced container is DATA
+                // however object-shaped it is, and the check comes FIRST — the
+                // classifiers below read properties, and a pending projection
+                // proxy throws not-ready at any string-key get (isAsyncValue's
+                // `.then` probe would detonate here). The fill reads the proxy
+                // itself: settled reads pass through; a pending read throws
+                // not-ready into the hole machinery — a per-arg suspend, the
+                // value tier's own behavior. The record ships the proxy, which
+                // the serializer's trace plugin carries as snapshot + patches.
+                resolved[key] = value;
+              } else if (isServerContent(value)) {
+                const childId = `${frameId}.${occurrence}.${key}`;
+                const region = { key, childId, value, used: false, locked: false };
+                regions.push(region);
+                resolved[key] = () => {
+                  // Streaming occlusion lock: the usage flip below runs at the
+                  // wrapper's SYNCHRONOUS return, but a wrapper that places this
+                  // region behind an async boundary (a Suspense that resolves
+                  // after the shell flush) calls this thunk LATER — after the
+                  // flip already deemed the region occluded and serialized its
+                  // content once as a data record. Re-emitting it as markup now
+                  // would double-ship the same content (data + markup), the one
+                  // thing single-copy forbids. So a locked region contributes
+                  // nothing — identical to a region the wrapper never placed; the
+                  // client mounts it from the `sc:region:` record on placement.
+                  if (region.locked) return [];
+                  region.used = true;
+                  // A region is a frame ELEMENT the client wrapper adopts —
+                  // the same DOM contract as the boundary, one level down.
+                  return [{ t: frameElementOpen(childId) }, value, { t: FRAME_ELEMENT_CLOSE }];
+                };
+              } else if (ssrAsyncValue && isAsyncValue(value)) {
+                // DR-2 value tier, document face: the inline fill's read of an
+                // async arg must SUSPEND (throw not-ready into the engine's
+                // hole machinery, which re-pulls on settle), not read the raw
+                // promise — a raw read renders empty markup the adopted client
+                // then contradicts (it reads the record's settled value): a
+                // hydration mismatch instead of a covered pending state. The
+                // record is untouched — the async value itself still ships
+                // there and the document's data scripts stream its resolution,
+                // exactly as before.
+                //
+                // An async ITERABLE has two consumers here (this read wants
+                // the first yield; the record's serialization wants every
+                // yield) and possibly a third — the server component reading
+                // the same source — so each takes a seat on the runtime's
+                // shared multicast of it: the read settles on the first yield
+                // — markup is the V1 snapshot, later yields are the adopted
+                // client's story — and the record's seat carries the full
+                // sequence.
+                let readable = value;
+                if (typeof value.then !== "function") {
+                  const { first, rest } = tapFirstYield(value);
+                  readable = first;
+                  vals[key] = rest;
+                }
+                const read = ssrAsyncValue(readable);
+                Object.defineProperty(resolved, key, {
+                  get: read,
+                  enumerable: true,
+                  configurable: true
+                });
+              } else {
+                // What hydration will read: a stand-in anywhere in the arg is
+                // `undefined` in the record (argBorderForm), so the t=0 fill
+                // takes the same value — the one-record shape holds for the
+                // args the fill saw, not only the ones it shipped.
+                resolved[key] = vals[key] = withoutStandIns(value, key, occurrence);
               }
-              // Container check first for exactness: a store whose STATE has
-              // a `t` key would satisfy isServerContent's shape probe.
-              if (!isContainerTraced(value) && isServerContent(value)) continue;
-              // Containers (at any depth) ride the record as trace envelopes;
-              // everything else passes through by reference.
-              args[key] = argBorderForm(value, key, occurrence);
             }
-            // A CLONE serializes; `args` stays canonical for the ledger
-            // below — re-emissions mutate it and clone again, so the
-            // initial record can never change under a consumer.
-            sharedConfig.context.serialize(`sc:slot:${frameId}:${occurrence}`, { ...args });
-            for (const region of unused) {
-              // Lock BEFORE returning: the content is now committed to the data
-              // channel, so any later async placement of this region must
-              // suppress its markup (see the thunk above) — that is what makes
-              // "serialize once at flush" a guarantee rather than a race.
-              region.locked = true;
-              // Resolve the region's server content through the live render
-              // context. Sync content serializes directly; async content
-              // serializes as a PROMISE of its final html — the hydration
-              // serializer holds the stream and patches the record when it
-              // settles (resolveRegionHtml re-pulls holes as their promises
-              // land, the resolveRootHoles shape).
-              sharedConfig.context.serialize(
-                `sc:region:${region.childId}`,
-                resolveRegionHtml(sharedConfig.context, region.value)
-              );
-            }
-            // The document arg ledger (DR-2 case 1 at t=0): every
-            // re-runnable arg that classified as DATA opens a watched
-            // binding AFTER its record emitted, mirroring the stream face —
-            // the same authored getter shape stays live on both faces. Only
-            // on an armed document (live.args): the hostless fallback
-            // latches, like everything else at t=0.
-            if (liveArgs) {
-              for (const key of Object.keys(evals)) {
-                if (regions.some(r => r.key === key)) continue;
-                if (minted[key]) continue; // scope-minting eval: latched
-                const ledgerKey = `${frameId}:${occurrence}:${key}`;
-                openArgBinding(
-                  liveArgs,
-                  ledgerKey,
-                  occurrence,
-                  key,
-                  evals[key],
-                  states[key],
-                  value => {
-                    args[key] = argBorderForm(value, key, occurrence);
-                    liveArgs.slot(frameId, occurrence, { ...args });
-                  }
+            const out = suppressedFill(() =>
+              scoped(occurrence, () => range(occurrence, slot(resolved)))
+            );
+            const unused = regions.filter(r => !r.used);
+            if (context) {
+              // One record shape (A5, server-components-principles.md): the
+              // t=0 document emits the record a stream would — every invoked
+              // occurrence gets one, and EVERY region arg rides as its
+              // `{$frame}` address ref, used or not. The ref is addressing,
+              // not content: a used region's content ships once as page
+              // markup (the adopting client resolves the ref to the element
+              // already in the interior), an occluded one ships once as its
+              // `sc:region:` record. Primitive args always ship — a scalar
+              // the client needs AS DATA to re-invoke the wrapper is not a
+              // single-copy concern (value-from-page recovery is a
+              // template-mode question, never a substring guess: the old
+              // heuristic dropped correct args on any markup coincidence).
+              const args = {};
+              for (const key of Object.keys(vals)) {
+                const value = vals[key];
+                const region = regions.find(r => r.key === key);
+                if (region) {
+                  args[key] = { $frame: region.childId };
+                  continue;
+                }
+                // Container check first for exactness: a store whose STATE has
+                // a `t` key would satisfy isServerContent's shape probe.
+                if (!isContainerTraced(value) && isServerContent(value)) continue;
+                // Containers (at any depth) ride the record as trace envelopes;
+                // everything else passes through by reference.
+                args[key] = argBorderForm(value, key, occurrence);
+              }
+              // A CLONE settles the declaration (or IS the record, on a sync
+              // render); `args` stays canonical for the ledger below —
+              // re-emissions mutate it and clone again, so the initial
+              // record can never change under a consumer.
+              settleRecord ? settleRecord({ ...args }) : context.serialize(recordKey, { ...args });
+              for (const region of unused) {
+                // Lock BEFORE returning: the content is now committed to the data
+                // channel, so any later async placement of this region must
+                // suppress its markup (see the thunk above) — that is what makes
+                // "serialize once at flush" a guarantee rather than a race.
+                region.locked = true;
+                // Resolve the region's server content through the live render
+                // context. Sync content serializes directly; async content
+                // serializes as a PROMISE of its final html — the hydration
+                // serializer holds the stream and patches the record when it
+                // settles (resolveRegionHtml re-pulls holes as their promises
+                // land, the resolveRootHoles shape).
+                context.serialize(
+                  `sc:region:${region.childId}`,
+                  resolveRegionHtml(context, region.value)
                 );
               }
+              // The document arg ledger (DR-2 case 1 at t=0): every
+              // re-runnable arg that classified as DATA opens a watched
+              // binding AFTER its record emitted, mirroring the stream face —
+              // the same authored getter shape stays live on both faces. Only
+              // on an armed document (live.args): the hostless fallback
+              // latches, like everything else at t=0.
+              if (liveArgs) {
+                for (const key of Object.keys(evals)) {
+                  if (regions.some(r => r.key === key)) continue;
+                  if (minted[key]) continue; // scope-minting eval: latched
+                  const ledgerKey = `${frameId}:${occurrence}:${key}`;
+                  openArgBinding(
+                    liveArgs,
+                    ledgerKey,
+                    occurrence,
+                    key,
+                    evals[key],
+                    states[key],
+                    value => {
+                      args[key] = argBorderForm(value, key, occurrence);
+                      liveArgs.slot(frameId, occurrence, { ...args });
+                    }
+                  );
+                }
+              }
             }
+            // The fill ran and its return is classified: a keyed call
+            // registers for repeats whatever its face, an un-keyed one only
+            // as data (two identical placements are two ranges).
+            if (rk !== undefined && (rk === occurrence || out.$face === SLOT_FACE_DATA))
+              repeats.has(rk) || repeats.set(rk, out);
+            return out;
+          } catch (error) {
+            // The fill (or an arg's evaluation) threw: the record has no args to
+            // settle with, and a declaration left pending would hold the
+            // response open. Settle it empty — the range it would have named
+            // was never rendered, so nothing on the client reads it.
+            settleRecord && settleRecord(undefined);
+            throw error;
           }
-          // The fill ran and its return is classified: a keyed call
-          // registers for repeats whatever its face, an un-keyed one only
-          // as data (two identical placements are two ranges).
-          if (rk !== undefined && (rk === occurrence || out.$face === SLOT_FACE_DATA))
-            repeats.has(rk) || repeats.set(rk, out);
-          return out;
         };
         // A slot getter placed directly as a child (`{props.children}`) is a
         // function-shaped hole; the tag opts it out of live-hole marking the

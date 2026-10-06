@@ -342,27 +342,15 @@ export interface FrameOptions {
    */
   reveal?(seam: { before: Node; fallback: Node[]; content: () => Node | DocumentFragment }): void;
   /**
-   * Document-face record delivery (adopt path only — solidjs/solid#2968).
-   * Nothing on the wire formally orders an occurrence's args-record data
-   * script before the event that triggers adoption, and a data script is a
-   * plain assignment the frame cannot observe. A called occurrence
-   * (`prop#n`) found without its record WAITS for it; while this returns
-   * true the frame re-drains the document's records a macrotask later
-   * (all currently parsed scripts run first — `drainRecords`) and re-syncs,
-   * until the record lands. Return false once the document can deliver no
-   * further records.
-   */
-  recordsPending?(): boolean;
-  /** Re-absorb the document's arrived-by-now records (idempotent per key). */
-  drainRecords?(): void;
-  /**
    * Adopt path only. Called when a sync leaves an adopted occurrence
-   * waiting — for its args record, for a `{$ref}`'s data — while none was
-   * before; returns the release, called when a sync leaves none waiting or
-   * the frame disposes. The integration registers the hold with whatever
-   * counts its page as not yet settled (hydration-done counts it as a
-   * pending boundary — frames-rulings 3.1): a claim the frame has not made
-   * yet is page work still pending.
+   * waiting for its args record while none was before; returns the release,
+   * called when a sync leaves none waiting or the frame disposes. The
+   * integration registers the hold with whatever counts its page as not
+   * yet settled (hydration-done counts it as a pending boundary —
+   * frames-rulings 3.1): a claim the frame has not made yet is page work
+   * still pending. The record's delivery is the integration's to observe
+   * (the document declares it at the marker and settles it — see
+   * `adoptBoundary`); the frame only re-syncs on the write.
    */
   hold?(): () => void;
 }
@@ -1059,9 +1047,6 @@ class FrameImpl {
   #slotConsumers = new Map();
   #slotRebinders = new Map();
   #processedAssets = new WeakSet();
-  // The pending re-check for adopt-time occurrences deferred on a
-  // still-arriving args record (#2968 — see #syncSlots).
-  #recordRefresh = null;
   // The release of the frame's hold with the integration while a sync
   // leaves an occurrence waiting to mount (see #syncSlots' end).
   #hold;
@@ -1498,27 +1483,19 @@ class FrameImpl {
       // screen — an adopted occurrence's server-rendered interior is already
       // in the DOM, and a mounted one shows what it showed.
       //
-      // The document face has no write to wait for (a data script is a
-      // plain assignment into `_$HY.r`), so while the document may still
-      // deliver records (`recordsPending` — the parser running, a fragment
-      // held, a record delivered and undrained) the frame re-drains them a
-      // macrotask later (all currently parsed scripts run first) and
-      // re-syncs — repeatedly, not after a fixed single beat: a streamed
-      // document held open on async content keeps records arriving across
-      // many macrotasks (PR #559). A called occurrence still recordless once
-      // nothing can deliver its record is the protocol's invariant broken
-      // (a record dropped, or marker and record minted under different
-      // ids), never something the fill can fix; dev names it.
+      // The document face delivers its records as writes too: the producer
+      // DECLARES each record at the marker (a pending value under its key,
+      // settled with the args — as a fragment's `<key>_fr`), and the
+      // adopting integration applies it when it settles, so a record that
+      // trails the reveal is a write the frame sees, not a plain assignment
+      // it would have to poll for. A called occurrence still recordless on
+      // a stream once nothing can deliver its record is the protocol's
+      // invariant broken (a record dropped, or marker and record minted
+      // under different ids), never something the fill can fix; dev names
+      // it there (the document's declaration may still settle).
       if (record === undefined && isCalled(occurrence)) {
         waiting ||= !mounted;
-        if (this.#options.adopt && this.#options.recordsPending?.()) {
-          this.#recordRefresh ??= setTimeout(() => {
-            this.#recordRefresh = null;
-            if (this.#disposed) return;
-            this.#options.drainRecords?.();
-            this.#syncSlots();
-          });
-        } else if ("_SOLID_DEV_" && consumers && !mounted)
+        if ("_SOLID_DEV_" && consumers && !mounted && !this.#options.adopt)
           devSlotOrphan(this, occurrence, consumers, "record");
         continue;
       }
@@ -1652,9 +1629,8 @@ class FrameImpl {
       // integration while a sync leaves an occurrence waiting to mount —
       // for its record, or for the record's reads to settle — released by
       // the first sync that leaves none, or by disposal. The waits are
-      // bounded as a `<Loading>` resume's is: the record by the document's
-      // records running out (`recordsPending`), the read by the stream's
-      // `complete`/`:error`.
+      // bounded as a `<Loading>` resume's is: the record by its declared
+      // value settling, the read by the stream's `complete`/`:error`.
       if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
       else if (!waiting && this.#hold) this.#releaseHold();
     }
@@ -1991,10 +1967,6 @@ class FrameImpl {
     const { host, id } = this.#options;
     if (host && id !== undefined) host.unregister(id, this);
     this.#disposed = true;
-    if (this.#recordRefresh) {
-      clearTimeout(this.#recordRefresh);
-      this.#recordRefresh = null;
-    }
     this.#releaseHold();
     for (const key of [...this.#slotCleanups.keys()]) this.#runSlotCleanups(key);
     // Release this frame's occurrences' records from the store that owns them

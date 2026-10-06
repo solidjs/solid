@@ -1270,11 +1270,13 @@ function adoptBoundary(
   // markup. Apply the records BEFORE binding the frame — the host buffers
   // them per id and drains at registration, so the first slot sync claims
   // WITH real args and the wrapper can render the occluded region later
-  // from the frame store. Re-drainable (each key applies once): nothing on
-  // the wire formally orders a record's data script before the event that
-  // triggers adoption, so the frame re-drains before classifying a
-  // recordless occurrence it deferred (#2968 — the frame's recordsPending/
-  // drainRecords seam below).
+  // from the frame store. Re-drainable (each key is taken once): a reveal
+  // brings its occurrences' records with it (the cascade below re-drains),
+  // and a record the producer DECLARED but has not settled yet is awaited
+  // through its `.then` — the record is a pending value under its key at
+  // the marker, settled with the args (as a fragment's `<key>_fr` is), so
+  // its arrival is a write the frame sees, never a plain assignment to
+  // poll for (frames A4, S-record).
   const appliedRecords = new Set<string>();
   // Deferred fragments in the adopted markup (#2978): a <Loading> that
   // suspended inside the server component during document SSR left a `pl-*`
@@ -1335,13 +1337,25 @@ function adoptBoundary(
         appliedRecords.add(key);
         // Slot records land in the ADDRESS's store (where the frame binds);
         // the wire keys them by function id, the document's producer name.
-        host.apply({
-          type: "slot",
-          id: address,
-          version: 0,
-          key: key.slice(slotPrefix.length),
-          args: hy.r[key]
-        });
+        const apply = (args: unknown) =>
+          host.apply({
+            type: "slot",
+            id: address,
+            version: 0,
+            key: key.slice(slotPrefix.length),
+            args
+          });
+        const value = hy.r[key];
+        // A declared record: settled reads its stamp synchronously (a
+        // pending beat here would push an adopt-time claim past the
+        // window — readHydratedValue's rule); pending is awaited; rejected
+        // is observed (the stamp is the consumption, #2997) and nothing
+        // applies — the occurrence has no args to run with.
+        if (value && typeof value.then === "function") {
+          if (value.s === 1) apply(value.v);
+          else if (value.s === 2) value.then(undefined, () => {});
+          else value.then(apply, () => {});
+        } else apply(value);
       } else if (key.startsWith("sc:region:")) {
         const childId = key.slice("sc:region:".length);
         if (childId.startsWith(id + ".")) {
@@ -1371,9 +1385,9 @@ function adoptBoundary(
         if (fr.claim && inside) claimRegionFragments(parent!);
         // A revealed fragment also brings its occurrences' ARGS RECORDS: a
         // slot invoked inside a server `<Loading>` ships its `sc:slot:`
-        // script with the fragment, ~the async's own delay after this
+        // declaration with the fragment, ~the async's own delay after this
         // boundary adopted — long after the adopt-time drain below ran.
-        // Re-drainable by design (each key applies once), so this is a
+        // Re-drainable by design (each key is taken once), so this is a
         // cheap no-op once caught up.
         drainRecords();
         // A reveal is an apply (frames-rulings 2.3): content that becomes
@@ -1384,7 +1398,8 @@ function adoptBoundary(
         // holds for them: a direct-insert range the fragment carried mounts
         // (C2 b), a record drained before its range was shown takes effect
         // now (C4 d), and a called occurrence whose record trails the
-        // reveal waits for it under the poll above (C2 a2). "The record
+        // reveal waits for the declaration's settle — the drain above
+        // subscribed to it, and that write re-syncs (C2 a2). "The record
         // arrived" and "the range is shown" are one event seen from two
         // sides; either one completes the pair.
         if (inside && frame) frame.apply({ version: frame.version ?? 0, r: {} });
@@ -1432,51 +1447,31 @@ function adoptBoundary(
     slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
-    // May the document still run scripts that assign records? While the
-    // parser is running the answer is yes, and a held fragment's replay can
-    // still deliver one — so a called occurrence found without its record
-    // re-drains and re-syncs a macrotask later, until the record lands (the
-    // runtime re-checks until this flips false). Deliberately NOT
-    // boundaryMayArrive(): its `!_$HY.done` term answers a different
-    // question (can this boundary's ELEMENT still appear), and holding the
-    // adopted mount until client hydration completes pushes it past the
-    // hydrate window — the claim then adopts markup the client's state has
-    // already moved past (the adopted-slot-live spec pins the working
-    // ordering).
-    // Spread-cast: the published FrameOptions predates this seam; a runtime
-    // without it simply never calls the hooks (drop once the pin catches up).
-    ...({
-      recordsPending: () => {
-        if (document.readyState === "loading") return true;
-        const hy = (globalThis as any)._$HY;
-        return !!(hy && hy.fr && hy.fr.pending());
-      },
-      drainRecords,
-      // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
-      // an adopted occurrence the frame has not claimed yet — waiting for
-      // its record, for a `{$ref}`'s data — is a pending boundary in
-      // everything but a resume, and registers as one through the same
-      // registration a streamed `<Loading>` takes (`sharedConfig.
-      // holdBoundary`), under this component's owner so disposal releases
-      // it, keyed where no fragment is. No parallel accounting, no second
-      // "done": `onHydrationEnd` and `isHydrationInProgress()` mean the
-      // same thing with or without server components. Only while hydration
-      // is in progress: a hold taken on a page that never hydrated (a
-      // client render adopting server markup) or after it settled is the
-      // frame's business, not the page's. Untracked: the registration reads
-      // its trigger once, which is not a read of this component's.
-      hold: () =>
-        sc.isHydrationInProgress?.()
-          ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
-          : () => {},
-      // The identity split binds the frame to the call ADDRESS (id + args
-      // hash), but the document producer stamped `_hk` keys and region fids
-      // under the wire name — the bare function id. Hydration-claim prefixes
-      // must derive from what the producer wrote, so thread the wire id down
-      // as the claim scope; without it every adopted claim misses and the
-      // occurrence re-renders fresh clones that cannibalize the server DOM.
-      claimScope: id
-    } as {})
+    // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
+    // an adopted occurrence the frame has not claimed yet — waiting for
+    // its record — is a pending boundary in everything but a resume, and
+    // registers as one through the same registration a streamed
+    // `<Loading>` takes (`sharedConfig.holdBoundary`), under this
+    // component's owner so disposal releases it, keyed where no fragment
+    // is. No parallel accounting, no second "done": `onHydrationEnd` and
+    // `isHydrationInProgress()` mean the same thing with or without server
+    // components. Only while hydration is in progress: a hold taken on a
+    // page that never hydrated (a client render adopting server markup) or
+    // after it settled is the frame's business, not the page's. Untracked:
+    // the registration reads its trigger once, which is not a read of this
+    // component's.
+    hold: () =>
+      sc.isHydrationInProgress?.()
+        ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
+        : () => {},
+    // The identity split binds the frame to the call ADDRESS (id + args
+    // hash), but the document producer stamped `_hk` keys and region fids
+    // under the wire name — the bare function id. Hydration-claim prefixes
+    // must derive from what the producer wrote, so thread the wire id down
+    // as the claim scope; without it every adopted claim misses and the
+    // occurrence re-renders fresh clones that cannibalize the server DOM.
+    // Spread-cast: the published FrameOptions predates this seam.
+    ...({ claimScope: id } as {})
   });
   // Follow the live address binding (see boundaryComponent and
   // followAddress): a kept resolution delivers the new call's address, or a

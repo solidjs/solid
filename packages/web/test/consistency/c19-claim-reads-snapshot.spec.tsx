@@ -116,6 +116,9 @@ describe("C19 — a claim reads the snapshot; the backlog lands after the claim"
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "2"))}</ul>`)
     );
     const trace = movedTrace(2);
+    // Declared at the marker (S-record); settled by the script the parser
+    // is still owed.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const li = page.container.querySelector("li")!;
     const reads: number[] = [];
@@ -138,9 +141,9 @@ describe("C19 — a claim reads the snapshot; the backlog lands after the claim"
     // The trace moves while the occurrence waits for its record.
     trace.patch([[["n"], 3]]);
     trace.patch([[["n"], 5]]);
-    // The record the parser was still owed; the poll drains it and the
-    // deferred mount claims.
-    page.slotRecord(fid, "item#0", { data: trace.marker });
+    // The record's settle the parser was still owed; the declaration's
+    // `.then` applies it and the deferred mount claims.
+    record.settle({ data: trace.marker });
     await quiesce();
     await quiesce();
     expect(reads).toEqual([2]);
@@ -163,6 +166,7 @@ describe("C19 — a claim reads the snapshot; the backlog lands after the claim"
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "2"))}</ul>`)
     );
     const trace = movedTrace(2);
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const li = page.container.querySelector("li")!;
     const order: string[] = [];
@@ -184,7 +188,7 @@ describe("C19 — a claim reads the snapshot; the backlog lands after the claim"
     onHydrationEnd(() => order.push(`done:${store.n}:${li.textContent}`));
     await quiesce();
     trace.patch([[["n"], 5]]);
-    page.slotRecord(fid, "item#0", { data: trace.marker });
+    record.settle({ data: trace.marker });
     await quiesce();
     await quiesce();
     order.push(`settled:${store.n}:${li.textContent}`);
@@ -268,6 +272,8 @@ describe("C19 — a claim reads the snapshot; the backlog lands after the claim"
     );
     const trace = movedTrace(2, 5);
     page.slotRecord(fid, "item#0", { data: trace.marker });
+    // item#1's record: declared at its marker, settled a beat later.
+    const record1 = page.declareSlotRecord(fid, "item#1");
     const Comp = (globalThis as any)._$SC.r(fid);
     let store: any;
     const dispose = hydrate(
@@ -287,7 +293,7 @@ describe("C19 — a claim reads the snapshot; the backlog lands after the claim"
     // backlog is parked, the store reads the snapshot.
     expect(hydrationInProgress()).toBe(true);
     expect(store.n).toBe(2);
-    page.slotRecord(fid, "item#1", { text: "one" });
+    record1.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(hydrationInProgress()).toBe(false);

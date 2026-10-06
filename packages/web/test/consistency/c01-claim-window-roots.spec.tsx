@@ -37,6 +37,9 @@ describe("C1 — an adopted occurrence's claim window gathers against its own ro
     page = bootPage(
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
     );
+    // Declared at the marker (S-record); its settle is the script the
+    // parser is still owed.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const li = page.container.querySelector("li")!;
     const invocations: number[] = [];
@@ -61,9 +64,9 @@ describe("C1 — an adopted occurrence's claim window gathers against its own ro
     document.body.appendChild(other);
     const disposeOther = hydrate(() => <p>other</p>, other);
     await quiesce();
-    // The record the parser was still owed: the deferred claim gathers
-    // against the frame's root, claims the server's node in place.
-    page.slotRecord(fid, "item#0", { text: "one" });
+    // The record's settle the parser was still owed: the deferred claim
+    // gathers against the frame's root, claims the server's node in place.
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(invocations).toEqual([1]);
