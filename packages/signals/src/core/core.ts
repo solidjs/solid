@@ -258,15 +258,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // (REACTIVE_LANE_DIRTY, lanes.ts — a leaf the lane owns). A written guess's
   // own pass is its truth arriving (A18), the frame's. A tracked read of a
   // lane's value moves a derivation's pass into the lane (`read`); a leaf's
-  // never moves. Restored at the end, after this pass's staging and runs
-  // have been routed.
+  // never moves. A first pass sits in its creator's lane from its start
+  // (ruling A), so what its body creates and reads is the lane's too (#3835).
+  // Restored at the end, after this pass's staging and runs have been routed.
   const prevLane = passLane;
   setPassLane(
     (el._flags & REACTIVE_LANE_DIRTY ||
       (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
       el._x?._transaction?._lane
       ? el._x._transaction
-      : null
+      : create && creatorPass(context)?._flags! & REACTIVE_RECOMPUTING_DEPS
+        ? prevLane
+        : null
   );
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -497,11 +500,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // that read none of the lane's world has left it: its result is the
   // frame's (a derivation whose branch no longer reaches the guess). A
   // guess is written, not derived — it never leaves this way.
-  let lane =
-    passLane ??
-    (create && (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS
-      ? prevLane
-      : null);
+  let lane = passLane;
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error;
@@ -982,9 +981,13 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // leaf — the transaction's own later passes read it — so a mainline mount's
   // derivations carry the future (A29, born held); only its direct bindings
   // read the screen.
+  // Lane work with no committed value yet reads a flight as a mount's memo
+  // does: it enters, and the boundary it mounts catches the pending (#3540).
   const verdict = c._config & CONFIG_VERDICT;
   if (
-    passLane === null &&
+    (passLane === null ||
+      (c._statusFlags & STATUS_UNINITIALIZED &&
+        (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
     !verdict &&
     ((c as any)._type !== EFFECT_RENDER || el._config & CONFIG_INPUTS_PUBLISHED)
   )
@@ -1684,7 +1687,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(el._config & CONFIG_OVERRIDE) &&
     !(owner._statusFlags & STATUS_UNINITIALIZED)
   ) {
-    if (passLane !== null) committed = true;
+    // A reader with no committed value yet sees the flight pending: a boundary
+    // a lane mounts shows its fallback (A29's boundary exemption, #3540).
+    if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
+      committed = true;
     else if (c !== null && c._config & CONFIG_VERDICT) {
       committed = true;
       GlobalQueue._observeFlight!(c as Computed<any>, owner);
