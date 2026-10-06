@@ -2,21 +2,26 @@
 
 **Status: proposed — maintainer ruling pending.** Nothing here changes an
 engine. Branch `spec/frames-rulings` off `next` @ `01e80a601`; this document
-only.
+only. **The gate for every fix below is PR #3813** (the contract, its
+twenty-two `test.fails`, its harness): a step lands when its named pins flip
+and nothing else moves.
 
 The frames/hydration consistency contract
-(`frames-consistency-contract.md`, branch `spec/frames-consistency-contract`)
-pinned seventeen invariants against `next` and found eight red: thirteen
-`test.fails` under `packages/web/test/consistency/` across C2, C3, C4, C5, C6,
-C7, C12 and C17, each diagnosed to a mechanism (its §Red R1–R8). The
-server-components size audit (`documentation/plans/sc-layer-audit.md` §4, branch
-`size/sc-audit`) separately listed the layer's duplicated seams: two dedupes,
-two gates, two late-boundary waiters, two `_$SC` bootstraps, two version
-spaces, two asset loaders, three region-rename sites, two reveal engines, and
-`preview` re-implementing the args arm. The hypothesis this document tests is
-that the reds and the duplicates are the same seams seen from two sides — that
-each red is a question two carriers answer differently, and each duplicate is
-a question asked twice because no ruling said who answers it.
+(`frames-consistency-contract.md`, branch `spec/frames-consistency-contract`
+@ `681c96684`, PR #3813) stated seventeen invariants, found two more with its
+property harness (C18, C19), and pinned nineteen against `next`: eleven red,
+**twenty-two `test.fails`** under `packages/web/test/consistency/` — fifteen
+hand pins across C2, C3, C4, C5, C6, C7, C12, C13 and C17, seven harness
+replays (C18 ×3, C19 ×2, and C2/C3 rediscovered once each) — each diagnosed to
+a mechanism (its §Red R1–R10). The server-components size audit
+(`documentation/plans/sc-layer-audit.md` §4, branch `size/sc-audit`)
+separately listed the layer's duplicated seams: two dedupes, two gates, two
+late-boundary waiters, two `_$SC` bootstraps, two version spaces, two asset
+loaders, three region-rename sites, two reveal engines, and `preview`
+re-implementing the args arm. The hypothesis this document tests is that the
+reds and the duplicates are the same seams seen from two sides — that each
+red is a question two carriers answer differently, and each duplicate is a
+question asked twice because no ruling said who answers it.
 
 The finding: **yes for every red but one, and for five of the nine duplicates
 directly.** The reds cluster on three questions — which response owns a thing,
@@ -27,8 +32,14 @@ between; each collapses under the ruling that decides its red. Two more (the
 two late-boundary waiters, the two `_$SC` bootstraps) sit on the seams'
 questions with no red to show for it and stay with the audit's S9. Two (the
 asset-loader mirror, the region-rename sites) are outside the three seams —
-the audit's S10/S7. The one red outside the seams is C13 (one sweep, one
-frame), which needs a wire delimiter and is the server half's.
+the audit's S10/S7. The two reds the harness found after this document was
+drafted both fall under seam 3: C18 is a hold whose release is read from the
+wrong ledger (3.5 — the only page-halting red, first in the order of work),
+C19 is a claim reading state that moved before it (3.6). The one red outside
+the seams is C13 (one sweep, one frame): the contract's pin **confirmed** it
+red on both faces with identical torn frames — no client-side unit larger
+than one op exists — so it needs a wire delimiter and is the server half's;
+the delimiter's shape is sketched in that list below.
 
 The form is the signals core's L2 section (`packages/signals/docs/SPEC-ASYNC-SEMANTICS.md`,
 "The hold model — L2"): one-sentence rulings, the mechanism meant to carry
@@ -37,7 +48,7 @@ it decides. Where two readings are possible, both are stated with
 consequences and one is recommended, as that section did. The method for
 turning rulings into fixes is the carve's (`documentation/plans/size-reduction-carve-step1.md`
 §40–§42): fix under the ruling, collapse the duplicated carrier into one, state
-the bytes, flip the pins — not thirteen patches.
+the bytes, flip the pins — not twenty-two patches.
 
 Vocabulary is the contract's (occurrence, claim, shows, quiescent, hold).
 "Response" below means one HTTP response for one address, identified on the
@@ -49,9 +60,9 @@ is a response too — version 0, the t = 0 frame (DR-4).
 | seam | question | reds (pins that fail on `next`) | duplicates (audit §4) |
 | --- | --- | --- | --- |
 | **1. Response identity** | which response owns a record, a `{$ref}` wait, a data table, the shell gate | **C5** (a, b, e) a superseded response's late `data` lands in the current table — R4; **C6** (a1, b2) a held `slot:*` record outlives its response and resolves through the next one's data — R5; **C17** (a, c) the shell gate answers to the frame's registered address, which lags the binding — R8 | two table spaces (`tables` + `stageTables`' `staged`, 183 B); two ref-resolution paths (`host.resolve(ref, frameId)` + the `resolve` parameter threaded through `preview` → `#refsUnresolved`/`#refArgsUnchanged`/`#resolveArgs`/`#resolveRef`); two dedupes (`argsEquivalent` 217 B at apply, `#refArgsUnchanged` 534 B at sync — the first exists because refs are response-scoped and the store is not); two shell gates (`boundaryComponent` + the adopted face in `adoptBoundary`, ≈ 150 B duplicated); `preview`'s data half (the `resolve` it threads). _No red, same question:_ the `_$SC` bootstrap twice — the document's t = 0 address record reaches the mount by `documentAddress` scanning `_$SC.a` (audit S9) |
-| **2. Applied state per version** | what a version bump resets; when a reveal is an apply | **C7** (c) a byte-identical v2 root never re-applies, so v2's segment waits for a placeholder v1 removed — R2; **C2** (a2, b) and **C4** (d) a fragment reveal into adopted content is not a sync trigger — R3 | two version spaces (`FrameImpl.#version` beside `store.version`; `rebase`, ≈ 60–100 B); applied state in seven fields reset at three sites (`#resetStreamState` ×5, `rebind` ×2, the root apply ×1), one of them (`#appliedRootValue`) reset at only one; two reveal engines (`web.js`'s `$df`/`$dfl` and the frame's `#revealSegment`/`#showFallback`, ≈ 1.3 KB on one side — DR-4); the #2978 cascade (`claimRegionFragments` + the `fr.subscribe` body ≈ 250 B) as the document face's half of a sync |
-| **3. Hydration-done accounting** | what `done` counts; what a claim owes | **C3** (a) hydration reports done while an adopted occurrence is still deferred — R1; **C12** (c) a rejected server `<Loading>` the adoption claimed swaps to a blank, unsurfaced — R6; S1's **C3b** shape (the `prepareArgs` wait — held by S1's own pin as the *expected* order); S1's `.fails` (a keyed sibling after a document boundary misses its key) | the #2968 deferral (`recordsPending` + `#recordRefresh` arm + the drain hook ≈ 300 B), S1's `#argsRefresh` + `#heldRecords`, and the `{$ref}` wait's non-carrier: three hold kinds, two carriers, no shared accounting; `drainRecords` + `appliedRecords` (DR-4 row 20). _No red, same question:_ two late-boundary waiters (`boundaryWaiters` + `arrivals`, ≈ 150 B duplicated, resolved from one subscription — a hold already counted through the covering `<Loading>`'s `_fr`; audit S9) |
-| outside | — | **C13** (a, b) one sweep, two frames — R7 (no pin file yet) | the asset-loader mirror (audit S10), the three region-rename sites (audit S7) |
+| **2. Applied state per version** | what a version bump resets; when a reveal is an apply | **C7** (c) a byte-identical v2 root never re-applies, so v2's segment waits for a placeholder v1 removed — R2; **C2** (a2, b; and the harness's C2 replay — R3 rediscovered: record before adoption, fragment revealed after) and **C4** (d) a fragment reveal into adopted content is not a sync trigger — R3 | two version spaces (`FrameImpl.#version` beside `store.version`; `rebase`, ≈ 60–100 B); applied state in seven fields reset at three sites (`#resetStreamState` ×5, `rebind` ×2, the root apply ×1), one of them (`#appliedRootValue`) reset at only one; two reveal engines (`web.js`'s `$df`/`$dfl` and the frame's `#revealSegment`/`#showFallback`, ≈ 1.3 KB on one side — DR-4); the #2978 cascade (`claimRegionFragments` + the `fr.subscribe` body ≈ 250 B) as the document face's half of a sync |
+| **3. Hydration-done accounting** | what `done` counts; when a hold lifts; what a claim owes and reads | **C3** (a; and the harness's C3 replay — R1 rediscovered) hydration reports done while an adopted occurrence is still deferred — R1; **C18** (×3: two records drained after the parser finished, a live op before the drain, the live pump's catch-up read) a recordless occurrence is classified while the document still holds its record undrained, its render prop evaluated argless → `TypeError` → `REACTIVITY_HALTED` — R9, **page-halting**; **C19** (×2: patch before claim, two orders) a trace patch delivered before the fill's claim is never shown; heals only on the next distinct patch — R10 (green on S1); **C12** (c) a rejected server `<Loading>` the adoption claimed swaps to a blank, unsurfaced — R6; S1's **C3b** shape (the `prepareArgs` wait — held by S1's own pin as the *expected* order); S1's `.fails` (a keyed sibling after a document boundary misses its key) | the #2968 deferral (`recordsPending` + `#recordRefresh` arm + the drain hook ≈ 300 B) — whose bound is the parser's state while the records it waits for sit in a ledger (`_$HY.r`) nothing consults; S1's `#argsRefresh` + `#heldRecords`, and the `{$ref}` wait's non-carrier: three hold kinds, two carriers, no shared accounting; `drainRecords` + `appliedRecords` (DR-4 row 20) — one `host.apply` per record, a sync per apply; the trace's claim reading (`materializeContainerTrace`'s synchronous replay) and the claim pass's non-mutation (`insertExpression`) each right alone, wrong together. _No red, same question:_ two late-boundary waiters (`boundaryWaiters` + `arrivals`, ≈ 150 B duplicated, resolved from one subscription — a hold already counted through the covering `<Loading>`'s `_fr`; audit S9) |
+| outside | — | **C13** (a, b) one sweep, two frames — R7, **confirmed** by `c13-sweep-atomic` on both faces (`a0\|b0 → a1\|b0 → a1\|b1`, identical through `frame:applied` and a `MutationObserver`); the delimiter's shape is in "The server half / wire" below | the asset-loader mirror (audit S10), the three region-rename sites (audit S7) |
 
 Byte figures are the audit's (minified, page base, exact per function;
 brotli ≈ 0.29× at this layer). Estimates below carry a sign per direction:
@@ -269,7 +280,7 @@ and the superseded address never reveals after the switch was delivered.**
 | 1b — 1.3, record carries its resolver | `host.resolve` 53 + `FrameHostOptions.resolve` wiring ≈ 40; the `resolve` parameter across `preview` ×2, `#refsUnresolved`, `#refArgsUnchanged`, `#resolveArgs`, `#resolveRef` ≈ 70 | the stamp at chunk→records ≈ 40 | **≈ −120** | C6 (a1), (b2) | `FrameHost.resolve(ref, frameId)` / `FrameHostOptions.resolve` (public, experimental — no caller); `FrameHost.preview`/`Frame.preview` signatures (@internal) |
 | 1c — 1.4 full, the store is one response's | `argsEquivalent` 217; the `slot:` arm of `FrameImpl.apply` ≈ 80; `clearStreamRecords`' filter + `root` ≈ 60 | — | **≈ −350** (narrow form: ≈ +50) | none directly; closes the C6 class | the sink's A5 rule must be confirmed (no wire change if it holds) |
 | 1d — 1.5 + 1.6 (i), the gate | the second gate (`adoptBoundary`'s face) ≈ 150 | `shellGate()` helper's waiter check ≈ 20; per-address gate memo ≈ 80 | **≈ −50** (1.5 alone: ≈ −130) | C17 (a); C17 (c) under (i) | none public |
-| **seam 1** | | | **≈ −740** (≈ −215 br) | 7 of the 13 | |
+| **seam 1** | | | **≈ −740** (≈ −215 br) | 7 of the 22 | |
 
 The audit's **S8** ("one apply path for staged content", ≈ −0.7 KB) splits
 here: 1a/1b are its *data* half (`stageTables` folds into response-owned
@@ -399,9 +410,9 @@ delivery to the store, not application to the page.**
 | step | collapse (−) | carrier (+) | net (min B, est.) | pins that flip | touches |
 | --- | --- | --- | --- | --- | --- |
 | 2a — 2.1 + 2.2, one applied record | `#resetStreamState` 115 → ≈ 45; `rebind`'s two resets ≈ 40; seven field declarations → one ≈ 30; `rebase` 24 → ≈ 15 | the record constructor ≈ 60; longer member paths in `#flush` ≈ 50 | **≈ −70** (≈ −130 if `#version` folds into the host's guard — pending the `rebase` question) | C7 (c) | none public |
-| 2b — 2.3 interim, the document reveal syncs | — | the `fr.subscribe` → scoped-sync call ≈ 40; exposing the sync ≈ 30 | **≈ +70** | C2 (a2), C2 (b), C4 (d) | a `Frame` method or an internal options hook (flag if public) |
-| 2c — 2.3 structural, DR-4 | one reveal engine ≈ 1.3 KB on one side; the #2978 cascade ≈ 250 | the document ledger as frame-`""` store writes (unestimated) | its own plan | the same three, by construction | the document runtime (`$df` family); artifacts re-recorded |
-| **seam 2 (2a + 2b)** | | | **≈ 0** (≈ −70 + 70) | 4 of the 13 | |
+| 2b — 2.3 interim, the document reveal syncs | — | the `fr.subscribe` → scoped-sync call ≈ 40; exposing the sync ≈ 30 | **≈ +70** | C2 (a2), C2 (b), C4 (d), the harness's C2 replay (R3) | a `Frame` method or an internal options hook (flag if public) |
+| 2c — 2.3 structural, DR-4 | one reveal engine ≈ 1.3 KB on one side; the #2978 cascade ≈ 250 | the document ledger as frame-`""` store writes (unestimated) | its own plan | the same four, by construction | the document runtime (`$df` family); artifacts re-recorded |
+| **seam 2 (2a + 2b)** | | | **≈ 0** (≈ −70 + 70) | 5 of the 22 | |
 
 ---
 
@@ -415,7 +426,12 @@ timer), the `{$ref}` wait (the next flush), S1's `prepareArgs` wait (a promise),
 the late-boundary wait (a ledger subscription) — and registers none of them.
 S1 pinned the resulting order as *expected*: "hydration completes while the
 load pends; the late mount claims the server markup". The contract pinned it as
-red (C3 a). Both cannot stand.
+red (C3 a). Both cannot stand. One of the four — the record defer — also
+*lifts* on the wrong condition: it asks the parser whether records may still
+come, while the records it is waiting for already sit in a ledger (`_$HY.r`)
+nothing consults; that is C18 (3.5), the only page-halting red the contract
+holds. And a claim that lands after a hold reads state the markup was not
+rendered from, and shows the markup anyway — C19 (3.6).
 
 ### 3.1 Hydration is done when every occurrence the document delivered has claimed or deliberately replaced its markup
 
@@ -435,8 +451,10 @@ hydrated, whatever deferred it.**
     `isHydrationInProgress`, `onSettled`-style callbacks, dev's completion
     sweep, `registry.clear()` — sees a page whose adopted ranges are live.
     Cost: every hold must be bounded (L1) or done never comes; the frames'
-    holds are — the record defer by `recordsPending` (document complete, no
-    fragment left), the ref wait by the stream's `complete`/`:error`, the
+    holds are — the record defer by the drain's end (3.5: the document
+    complete, no fragment left, *and* nothing delivered left undrained — not
+    by `recordsPending` alone, which is the parser's state and is what C18
+    breaks on), the ref wait by the stream's `complete`/`:error`, the
     `prepareArgs` wait by the chunk load's settle or rejection, the
     late-boundary wait by exhaustion.
   - **(ii) Done is the root pass's and its boundaries'** (S1's pin). A frame's
@@ -488,12 +506,17 @@ disposes.**
   `adoptBoundary` into the frame's options as `recordsPending`/`drainRecords`
   are. S1's `#heldRecords` is the natural set to count (it is exactly the
   adopt-time held occurrences with a record); the recordless defer joins it.
+  Under 3.5 the deferred set also holds an occurrence whose record is
+  delivered and undrained — without 3.5 the count is wrong in the other
+  direction: a sync that classifies such an occurrence leaves nothing
+  deferred, and the hold releases a drain early.
 - **Ordering to pin with it.** S1 parks a trace's backlog beyond the snapshot
-  until `onHydrationEnd` so the claim sees the markup it was rendered from. Under
-  (i) the park's release moves later, never earlier: the claim is synchronous
-  at the materialization (`prepareArgs` settles → sync → invoke → revive →
-  materialize → claim), the frame's hold releases after that sync, done after
-  the hold, the backlog after done. No deadlock; pin the order.
+  until `onHydrationEnd` so the claim sees the markup it was rendered from
+  (3.6 (iii)). Under (i) the park's release moves later, never earlier: the
+  claim is synchronous at the materialization (`prepareArgs` settles → sync →
+  invoke → revive → materialize → claim), the frame's hold releases after that
+  sync, done after the hold, the backlog after done. No deadlock; pin the
+  order.
 
 ### 3.3 A claim is a promise to account for the outcome
 
@@ -544,6 +567,148 @@ server's node.**
   server-side normalization (the server half, §6.3) rather than a client
   mirror.
 
+### 3.5 An occurrence is classified only after every delivered record has drained
+
+**A recordless adopted occurrence is direct-insert content only once nothing
+the document delivered for its boundary is still waiting to be applied: the
+record defer's bound is the drain's end, not the parser's — a sync that runs
+while `_$HY.r` holds an unapplied record for the boundary defers every
+recordless occurrence it finds, whatever triggered the sync.**
+
+- **Mechanism today.** `FrameImpl.#syncSlots`' #2968 arm: `record === undefined
+  && !root && adopt && recordsPending()` → arm `#recordRefresh` (a `setTimeout`
+  that runs `drainRecords()` then `#syncSlots()`), `continue`; otherwise
+  classify — a recordless called occurrence (`prop#n`) is invoked argless
+  (dev names it; prod proceeds). `adoptBoundary.recordsPending` answers
+  `readyState === "loading" || fr.pending()` — the parser's state (§3 45:
+  "while the document can still run data scripts"). `drainRecords` applies
+  one record per `host.apply`, each a synchronous `#flush` → `#syncSlots`.
+  Three ledgers, two consulted: the document's (`_$HY.r`, where the data
+  script put the record), the store's (where the drain puts it), the page's
+  (2.4). "Recordless" reads the store, "pending" reads the parser, and nothing
+  reads the gap between them — a record delivered and not yet drained.
+- **The red (R9).** Two records owed at adoption; both execute; the parser
+  finishes before the deferred timer fires (the document's tail — the frame's
+  data scripts and the end of the response — parses in one go, so this is the
+  common order, not a contrived one). The timer's `drainRecords` applies
+  record #0 → `#flush` → `#syncSlots`: #0 mounts; #1 is recordless in the
+  store, its record sits in `_$HY.r` one loop iteration away,
+  `recordsPending()` is false → classified direct-insert → the render prop is
+  evaluated as a zero-arg accessor → `props.text` → `TypeError` inside the
+  insert effect → `REACTIVITY_HALTED`. The same window is reached by a live
+  hole op (`applyLiveOp` → `host.apply`) and by the live pump's catch-up read
+  (`pumpLiveChannel`'s first async read replaying ops logged before adoption)
+  — any sync, not only the drain's. C18 ×3.
+- **Plain bug or new sentence?** New sentence. §3 45's bound is the parser's
+  and the code honours it exactly; no existing sentence says a delivered
+  record counts as pending until applied — 2.4 names the store ≠ page gap
+  (`appliedRecords` is a delivery dedupe), not the document ≠ store gap, and
+  3.1 (i) in this document's own draft named `recordsPending` as the record
+  defer's bound. The sentence has one reading — nobody rules for the
+  `TypeError` — so the maintainer confirms rather than chooses; it exists so
+  the carrier cannot miss again (2.2's reason). It also makes 3.2 right: a
+  hold that releases on the parser's end releases early, and 3.2's count
+  would release with it.
+- **Decides.** **C18** (×3: the drain's own first apply, a live op before the
+  drain, the pump's catch-up read). The harness's control (a tick between the
+  two records) holds today and keeps holding.
+- **Carrier.** The predicate: `adoptBoundary.recordsPending` gains a third
+  term — `_$HY.r` holds a key under the boundary's `sc:slot:<id>:` or
+  `sc:region:<id>.` prefix not yet in `appliedRecords` — so "pending" means
+  delivered-and-undrained as well as not-yet-delivered. The defer arm needs
+  no change: on the drain's own first apply the other record's key is not yet
+  in `appliedRecords`, so the sync defers it and the loop's next apply mounts
+  it; a redundant timer fires once into a no-op. ≈ +50 B min (≈ +15 br). The
+  drain, batched: `drainRecords` collects every delivered record and hands
+  the host one write — `FrameImpl.apply(write)` already takes a multi-record
+  `FrameWrite.r` and flushes once; what is missing is a chunk that carries
+  several records (`chunkToRecords` merging an `ops` member, ≈ +40 B — the
+  same member C13's delimiter needs, below) — so a drain is one sync, never a
+  sync per record. Optional for the invariant (the predicate alone carries
+  it), but it is the shape 2.4 reads the drain as ("delivery to the store"),
+  it makes a drain O(occurrences) instead of O(records × occurrences), and it
+  is the client arm C13 wants regardless. Not the shape: calling
+  `drainRecords` from inside `#syncSlots` — a drain is `host.apply` → `#flush`
+  → `#syncSlots`, re-entrant into the sync that called it. Under S9/DR-4
+  (A5-complete records: the sink writes frame-shaped records into the one
+  buffer before adoption can observe them) the drain, the defer and this
+  predicate all delete; the sentence is then true by construction and is what
+  S9 must satisfy.
+
+### 3.6 A claim shows the value it read — and reads what the markup was rendered from
+
+**A fill that claims adopted markup reads the state the server rendered it
+from — a container trace's snapshot, the record the occurrence was held on —
+and claims against it; what moved before the claim (a patch beyond the
+snapshot, a record that replaced the held one) lands after the claim as the
+update it is. The claim pass never rewrites a hole.**
+
+- **Mechanism today.** `web/src/client.ts:insertExpression` under hydration is
+  a claim pass, not a mutation pass (C1/C9: nothing moves);
+  `materializeContainerTrace` replays the trace's buffered emissions
+  synchronously at revive, so a fill's first read is the snapshot *with every
+  patch so far*; `claimRender` claims the text node as-is. R10: the server
+  rendered `2`, a patch to `5` lands before the claim (record → patch →
+  hydrate, patch → record → hydrate, or hydrate → patch → record through the
+  deferred claim); the fill reads `5`, the DOM keeps `2`, nothing warns; the
+  next *distinct* patch heals it, a same-value patch never does. The trace
+  model assumed the server's text IS the store's first value — true only if
+  no patch precedes the claim.
+- **Lives twice in.** The claim's two inputs are answered by two mechanisms
+  that are each right alone: the materializer's synchronous replay (C11: a
+  trace equals its oracle at every point) and the claim pass's non-mutation
+  (C1/C9). On S1 (`9927ddddd`, third commit) one shape answers both:
+  `materializeContainerTrace(marker, claiming)` parks the replayed backlog
+  beyond the snapshot (`limit = 1`) until `afterHydration` (`onHydrationEnd`,
+  or a microtask once the pass is over) and then releases it (`limit =
+  Infinity; bump()`); `claiming` is threaded `FrameHostOptions.revive(value,
+  claiming)` → `reviveContainerTraces` → `materialize` from the adopt-time
+  mount's `#resolveArgs`; and `#heldRecords` claims an occurrence with the
+  record it was *held* on and applies the record that replaced it as an args
+  change. On `next` neither exists.
+- **Three shapes; the maintainer picks.** The contract names the first two.
+  - **(i) The claim pass reconciles.** A hydrating `insertExpression`
+    rewrites a text hole whose value already differs (narrow: text holes,
+    trace-sourced values). Touches `web`'s claim pass — the rule C1/C9 rest on
+    ("nothing moves") gains an exception; covers text only (a trace that grew
+    a list between SSR and claim still key-misses); ≈ +40 B in `web` on every
+    hydrating page.
+  - **(ii) The producer holds.** No patch crosses before the record's claim.
+    But the claim's moment is the client's (a deferred claim runs after the
+    parser), and the document face has no back-channel to say when — so the
+    server can only hold until the response ends: the trace's liveness at
+    t = 0 goes, and the stream face would need a chunk to say so. Server half,
+    wire change; worse than (iii) on every axis.
+  - **(iii) The consumer parks — S1's shape.** The materializer, told it is
+    read for a claim, serves the snapshot and parks the rest until hydration
+    ends; the backlog then applies as ordinary updates and the DOM catches up
+    outside hydration. (ii)'s rule carried on the client with no wire change:
+    the claim reads what the markup shows by construction, the claim pass
+    stays non-mutating, structural divergence is covered (the claim always
+    sees the snapshot's shape), and the park is a bounded hold (L1: by
+    `onHydrationEnd`, which 3.1 (i) moves later — 3.2's "ordering to pin"
+    already says the park releases after the frame's hold). Cost ≈ +90 B min
+    est. (the `limit`/`afterHydration` arm ≈ 70, the `claiming` thread ≈ 20)
+    — already paid on S1. Consequence to pin: during the park the trace's
+    *store* reads the snapshot while its oracle has the patch, so C11's
+    "every observable point" is read as "outside a claim's park"; the
+    harness's settled points (ticks, the end) fall after the release, and
+    C19 ×2 are green on S1 with every other pin unchanged.
+- **Recommend (iii).** It is built, pinned (S1's
+  `container-trace-hold-{snapshot,hydration-end}` specs) and green on C19 ×2;
+  it keeps the claim pass the claim pass. One correction to the contract: its
+  R10 describes S1's path as one that "reconciles the text with the live
+  value" and its fix order reads S1 as evidence for (i); `9927ddddd`'s own
+  comment says the opposite — "a text hole is never rewritten during a claim"
+  — and the mechanism is the park. S1 is evidence for (iii), and that (ii)'s
+  rule is reachable without the wire. (i) remains the answer only if the
+  maintainer wants the patched value *at* the claim rather than one
+  hydration-end later; nothing else needs it.
+- **Decides.** **C19** (×2) under (iii) — the pins flip when S1 lands or its
+  third commit is ported. 3.3's sibling: 3.3 says the claimant owns what the
+  swap delivers after the claim; 3.6 says the claimant reads what the markup
+  was rendered from and owns what moved before it.
+
 ### Fix shape — seam 3
 
 | step | collapse (−) | carrier (+) | net (min B, est.) | pins that flip | touches |
@@ -551,7 +716,9 @@ server's node.**
 | 3a — 3.1 (i) + 3.2, one hold counter | the three hold kinds become one `deferred` set the sync already walks (S1's `#heldRecords` + the recordless defer); no bytes leave — the wake-ups stay | `sharedConfig.holdHydration` in `hydration.ts` ≈ 90 (the **hydrating** scenario pays ≈ +30 br); `#hold` take/release at the sync's end + the option ≈ 110 | **≈ +200** | C3 (a); S1's `hydration-end` spec re-pins (order inverted, claim assertions kept) | `FrameOptions.hold` (new option — public, experimental; flag); `sharedConfig.holdHydration` (internal) |
 | 3b — 3.3 client minimum | — | the `_fr` rejection consumer per claimed fragment ≈ 120 | **≈ +120** | C12 (c)'s blank/surfacing clause | the position's error display is the product question; the server's blank-template error path is the server half |
 | 3c — 3.4 id parity | — | client mirror of the server's consumption ≈ 40, or server-side normalization | **≈ +40** or 0 | S1's `.fails` | the server half if normalized there |
-| **seam 3** | | | **≈ +360** (≈ +105 br) | 2 of the 13 + S1's two | |
+| 3d — 3.5 classification waits for the drain | — | `recordsPending`'s delivered-undrained term ≈ 50; the batched drain through a multi-record chunk ≈ 40 (optional; shared with C13's client arm) | **≈ +50** (≈ +90 with the batch) | C18 ×3 | none public for the predicate; the multi-record chunk is a `FrameChunk` member (wire — C13's delimiter; flag) |
+| 3e — 3.6 (iii) the claim reads the snapshot, the backlog lands after | — | S1's `claiming` park: `materializeContainerTrace`'s `limit`/`afterHydration` ≈ 70, the thread through `revive` ≈ 20 | **≈ +90** on `next`; **0** if S1 lands first (it is S1's third commit) | C19 ×2 | `FrameHostOptions.revive(value, claiming?)` (@experimental) and `reviveContainerTraces`/`setContainerTraceMaterializer`'s second parameter — S1's surface, already flagged there |
+| **seam 3** | | | **≈ +500** (≈ +145 br); ≈ +410 (≈ +120 br) with S1 landed | 8 of the 22 + S1's two | |
 
 ---
 
@@ -577,7 +744,12 @@ collapsed carrier.**
   gate value (i) vs holds-latest (ii). **2.3** a reveal is an apply (today:
   a non-event on the document face). **3.1** done counts the page (i) vs the
   root pass (ii) — S1's pin and the contract's pin contradict; one re-pins.
-  **3.3** a claimant owns the outcome.
+  **3.3** a claimant owns the outcome. **3.5** an occurrence is classified
+  only after every delivered record has drained — one reading; the maintainer
+  confirms the sentence (and §3 45's re-statement: "pending" is the drain's
+  state, not the parser's). **3.6** a claim reads what the markup was rendered
+  from — (i) the claim pass reconciles / (ii) the producer holds / (iii) the
+  consumer parks (S1's shape); recommended (iii).
 
 **Product questions — a different conversation before any fix.**
 
@@ -594,6 +766,8 @@ collapsed carrier.**
   as a live container with a backlog to park, and the fill's claim must see
   the snapshot the markup shows). Whether such a value should cross as a
   promise of its snapshot (no store engine, no park) is a wire/DR-2 question.
+  3.6 (iii)'s park is the client-side answer while this stays open; under
+  promise-of-snapshot there is nothing to park and 3.6 holds by construction.
 - **Whether crossing containers are live by default** — the same DR-2 tier
   question from the other side; decides how much of 3.2's `prepareArgs` hold
   a typical page ever takes.
@@ -604,9 +778,37 @@ collapsed carrier.**
 
 **The server half / wire (§6.3) — out of these rulings.**
 
-- **C13** (R7, one sweep one frame): the wire carries no sweep delimiter (the
-  server coalesces per binding, not per sweep); no client ruling can make two
-  ops one frame. Server half.
+- **C13** (R7, one sweep one frame) — **confirmed** by `c13-sweep-atomic` (a,
+  b): both faces show `a0|b0 → a1|b0 → a1|b1`, through `frame:applied` and a
+  `MutationObserver` alike. The client has no unit larger than one op:
+  `applyFrames.drain` does one `host.apply` per framed chunk with an `await`
+  between; `pumpLiveChannel` reads the `sc:live` `ReadableStream` one op at a
+  time and `applyLiveOp` applies each; every op is its own `FrameImpl.apply`
+  → `#flush` → `#applied`. The sink *has* the unit: `frame-sink.ts`'s
+  `sweep()` walks every binding in one synchronous span (coalesced per
+  microtask, `epoch++` once per sweep) and each `b.sweep()` that finds a
+  change writes its own `hole`/`attr` chunk or op. **The delimiter's shape.**
+  What the sink emits: the sweep as one unit — `sweep()` collects the pass's
+  changed bindings per frame and writes one chunk `{ type: "ops", id,
+  version, ops: [{ type: "hole", key, html, … }, { type: "attr", key, attrs,
+  … }] }` on the stream face (one wire line; `FrameChunk` gains the member)
+  and one `sc:live` op of the same shape on the document face; a sweep that
+  changes one binding emits as today (the pin's control holds either way).
+  What the client batches on: the chunk's edge — `applyFrames.drain` and
+  `applyLiveOp` pass it through unchanged; `chunkToRecords` merges the
+  members' records into one map (≈ +40 B, shared with 3.5's batched drain);
+  `FrameImpl.apply` already writes a multi-record `FrameWrite.r` and flushes
+  **once** — one hole pass, one `#applied(version, "morph")`, one
+  `frame:applied` — so the unit the sink coalesced is the unit the page
+  shows. No buffering, no timeout for a sweep a connection died inside, no
+  sweep-id correlation. The `liveOps` catch-up log (last-value-wins per
+  `type:fid:key`) flattens an `ops` op into its members (≈ +30 B). The server
+  arm — `sweep()` collecting instead of writing — is unestimated here. Wire:
+  a new `FrameChunk` / `sc:live` member, RFC 11 addendum. Rejected: a
+  `sweep-end` marker with client-side buffering — a second ledger, a timeout,
+  and a correlation the chunk's edge gives for free. **Server half.**
+- **3.6 (ii)** — the producer holding a trace's patches until the response
+  ends; named for completeness, not recommended (3.6).
 - **3.3**'s error-fallback option three; **3.4**'s server-side normalization;
   **2c** (DR-4) re-records the 146 artifacts.
 - **Nothing in seams 1–2's client steps changes the wire**: 1a–1d and 2a–2b
@@ -624,33 +826,38 @@ S7, the three rename sites); store eviction (§3 4). No red touches them.
 
 ## Order of work
 
-Each step is one PR off `next`; its gate is the contract's pins — the step's
-named `test.fails` flip to `test`, every other pin and the whole frames/hydration
-suite stay green (`packages/web/test/consistency/`, and the harness when it
-lands) — plus `scripts/size` (every scenario ≤ its cap in `floor-caps.json`,
-the step's expected delta stated in the PR and the caps lowered at landing —
-the ratchet). A step that lands outside its band is the finding, not a failure
-to hide.
+Each step is one PR off `next`; its gate is **PR #3813** — the contract's
+twenty-two `test.fails` and its harness: the step's named pins flip to `test`,
+every other pin, the harness's laws (a survey campaign with the step's
+invariants un-ignored surfaces nothing new) and the whole frames/hydration
+suite stay green (`packages/web/test/consistency/`) — plus `scripts/size`
+(every scenario ≤ its cap in `floor-caps.json`, the step's expected delta
+stated in the PR and the caps lowered at landing — the ratchet). A step that
+lands outside its band is the finding, not a failure to hide.
 
 | # | step | rulings | pins flip | size expectation (min / ≈ br) | depends on |
 | --- | --- | --- | --- | --- | --- |
-| 0 | land the contract's pins and harness as `test.fails`/green | — | — | 0 | `spec/frames-consistency-contract` finishing |
-| 1 | **2a** one applied record keyed by version | 2.1, 2.2 | C7 (c) | ≈ −70 / −20 on frames eager, both pages | nothing; smallest, self-contained in `FrameImpl` |
-| 2 | **1a + 1b** response-owned data cells; records carry their resolver | 1.1–1.3 | C5 (a, b, e), C6 (a1, b2) | ≈ −340 / −100 | the `onStream`/`resolve` surface flagged and accepted |
-| 3 | **1c** the store is one response's (full 1.4) — or the narrow form | 1.4 | none; closes the class | ≈ −350 / −100 (narrow: +50) | the sink's A5 rule confirmed |
-| 4 | **1d** one shell gate; per-address value | 1.5, 1.6 | C17 (a); C17 (c) under (i) | ≈ −50 / −15 | 1.6's reading |
-| 5 | **2b** the document reveal syncs (interim) | 2.3, 2.4 | C2 (a2, b), C4 (d) | ≈ +70 / +20 | nothing; DR-4 (**2c**) replaces it later as its own plan |
-| 6 | **3a** one hold counter | 3.1 (i), 3.2 | C3 (a); S1's `hydration-end` re-pins | ≈ +200 / +60 (hydrating +30 br) | 3.1's reading; S1 landed (its `#heldRecords` is the set) |
-| 7 | **3b, 3c** claim owns outcome (client minimum); id parity | 3.3, 3.4 | C12 (c)'s surfacing clause; S1's `.fails` | ≈ +160 / +45 | the product question and the server's consumption |
+| 0 | **PR #3813 lands** — the contract, its 22 `test.fails`, the harness | — | — | 0 | review |
+| 1 | **3d** classification waits for the drain — **first: the only page-halting red** | 3.5 | C18 ×3 | ≈ +50 / +15 (≈ +90 / +25 with the batched drain) | nothing; the predicate is one term in `adoptBoundary.recordsPending`; the batch waits on the `ops` member if taken here |
+| 2 | **2a** one applied record keyed by version | 2.1, 2.2 | C7 (c) | ≈ −70 / −20 on frames eager, both pages | nothing; smallest, self-contained in `FrameImpl` |
+| 3 | **1a + 1b** response-owned data cells; records carry their resolver | 1.1–1.3 | C5 (a, b, e), C6 (a1, b2) | ≈ −340 / −100 | the `onStream`/`resolve` surface flagged and accepted |
+| 4 | **1c** the store is one response's (full 1.4) — or the narrow form | 1.4 | none; closes the class | ≈ −350 / −100 (narrow: +50) | the sink's A5 rule confirmed |
+| 5 | **1d** one shell gate; per-address value | 1.5, 1.6 | C17 (a); C17 (c) under (i) | ≈ −50 / −15 | 1.6's reading |
+| 6 | **2b** the document reveal syncs (interim) | 2.3, 2.4 | C2 (a2, b), the harness's C2 replay, C4 (d) | ≈ +70 / +20 | nothing; DR-4 (**2c**) replaces it later as its own plan |
+| 7 | **3a** one hold counter | 3.1 (i), 3.2, 3.5 | C3 (a), the harness's C3 replay; S1's `hydration-end` re-pins | ≈ +200 / +60 (hydrating +30 br) | 3.1's reading; S1 landed (its `#heldRecords` is the set); step 1 (the deferred set is right only once the drain's end is the bound) |
+| 8 | **3e** the claim reads the snapshot, the backlog lands after — S1's third commit | 3.6 (iii) | C19 ×2 | 0 if S1 lands first; else ≈ +90 / +25 | 3.6's reading; 3.2's ordering pinned with 3a |
+| 9 | **3b, 3c** claim owns outcome (client minimum); id parity | 3.3, 3.4 | C12 (c)'s surfacing clause; S1's `.fails` | ≈ +160 / +45 | the product question and the server's consumption |
 
-Expected end state after 1–6: **≈ −540 B min / ≈ −155 B br** on the frames
-client with the full 1.4 (≈ −140 min / −40 br with the narrow form) — frames
+Expected end state after 1–8: **≈ −490 B min / ≈ −140 B br** on the frames
+client with the full 1.4 and S1 landed (≈ −90 min / −25 br with the narrow
+form; ≈ −400 / −115 if step 8 ports S1's park onto `next` instead) — frames
 eager, page base and page live all carry it — and **+30 br** on the hydrating
-scenario; twelve of the thirteen pins flipped (eleven if 1.6 is ruled (ii)),
-the thirteenth (C12 c) pending the product question. This sits inside the
-audit's C' estimate (≈ −1.8 KB br for the whole rulings pass) as its
-consistency half; S7–S10's remaining items (regions, the asset mirror, the
-markup half of S8) are the size half and need no ruling here.
+scenario; **nineteen of the twenty-two pins flipped** (eighteen if 1.6 is
+ruled (ii)), C12 (c) pending the product question, C13 (a, b) the server
+half's. This sits inside the audit's C' estimate (≈ −1.8 KB br for the whole
+rulings pass) as its consistency half; S7–S10's remaining items (regions, the
+asset mirror, the markup half of S8) are the size half and need no ruling
+here.
 
 ---
 
@@ -658,35 +865,48 @@ markup half of S8) are the size half and need no ruling here.
 
 All `@experimental` or `@internal`; none is wire.
 
-- `ServerComponentHandlerOptions.onStream(address, version, response)` — step 2:
+- `ServerComponentHandlerOptions.onStream(address, version, response)` — step 3:
   the rotation it signalled becomes the response's cell install; delete or
   redefine.
 - `FrameHostOptions.resolve(ref, frameId)` / `FrameHost.resolve(ref, frameId)` —
-  step 2: no caller once records carry their resolver.
+  step 3: no caller once records carry their resolver.
 - `FrameHost.preview(chunk, resolve)` / `Frame.preview(records, resolve, inherited)`
-  (`@internal`) — step 2: the `resolve` parameter goes.
-- `STAGED_DATA` (`@internal`) — step 2: generalizes from "the staged response's
+  (`@internal`) — step 3: the `resolve` parameter goes.
+- `STAGED_DATA` (`@internal`) — step 3: generalizes from "the staged response's
   data factory" to "every response's".
-- A `Frame` sync hook for the document reveal — step 5: new, or kept internal
+- A `Frame` sync hook for the document reveal — step 6: new, or kept internal
   through the spread-cast options seam `adoptBoundary` already uses.
-- `FrameOptions.hold(): () => void` — step 6: new option; `sharedConfig.holdHydration`
+- `FrameOptions.hold(): () => void` — step 7: new option; `sharedConfig.holdHydration`
   internal.
+- A multi-record `FrameChunk` member (`{ type: "ops", ops: [...] }`) — step 1
+  only if the drain batches there; otherwise the server half's, as C13's
+  delimiter. **This one is wire** (RFC 11 addendum), the only wire item in
+  these steps.
+- `FrameHostOptions.revive(value, claiming?)` / `FrameHost.revive`,
+  `reviveContainerTraces(value, claiming?)`, `setContainerTraceMaterializer`'s
+  second parameter — step 8: S1's surface (`9927ddddd`), flagged in S1.
 
-`FrameOptions.onApply`'s detail, `FrameChunk`, the store record keys, the DOM
-markers, the hydration data keys and the `_$SC` bootstrap are unchanged by
-every step above.
+`FrameOptions.onApply`'s detail, the store record keys, the DOM markers, the
+hydration data keys and the `_$SC` bootstrap are unchanged by every step
+above; `FrameChunk` is unchanged unless the `ops` member is taken.
 
 ---
 
 ## Sources
 
 - `documentation/server-components/frames-consistency-contract.md`
-  (`spec/frames-consistency-contract` @ `ed803885d`): C1–C17, §Red R1–R8, the
-  pins' arms; `packages/web/test/consistency/c0{2,3,4,5,6,7}-*.spec.tsx`,
-  `c12-*`, `c17-*` (13 `test.fails`).
-- `size/s1-lazy-store-materializer` @ `9927ddddd`:
+  (`spec/frames-consistency-contract` @ `681c96684`, **PR #3813**): C1–C19,
+  §Red R1–R10, §Harness, §S1 delta, the pins' arms;
+  `packages/web/test/consistency/c0{2,3,4,5,6,7}-*.spec.tsx`, `c12-*`,
+  `c13-*`, `c17-*` (15 `test.fails`) and `harness/replay.spec.tsx` (7: C18 ×3,
+  C19 ×2, C2 ×1, C3 ×1) — 22 in all.
+- `size/s1-lazy-store-materializer` @ `9927ddddd` (third commit, "a held
+  container-trace fill hydrates like a resident one"):
   `packages/web/test/hydration/container-trace-hold-{hydration-end,id-determinism,snapshot,interruption,record-retention}.spec.tsx`;
-  `FrameImpl.#argsUnprepared`/`#heldRecords`/`#argsRefresh`.
+  `FrameImpl.#argsUnprepared`/`#heldRecords`/`#argsRefresh`;
+  `materializeContainerTrace(marker, claiming)`'s park (`limit`,
+  `afterHydration`), the `claiming` thread through `revive` →
+  `reviveContainerTraces` → `materialize`.
 - `documentation/plans/sc-layer-audit.md` (`size/sc-audit` @ `0bb67ff38`): §3
   rulings 1–75 (cited "§3 n"), §4 structural vs incidental, §6.3 the
   compatibility surface, §6.5 S7–S10, §7 open questions, Appendix A function
