@@ -308,7 +308,7 @@ export function laneStage(
   create: boolean,
   errored: boolean
 ): boolean {
-  if (!create && !errored && !(el._flags & REACTIVE_LANE_READ) && !(el._config & CONFIG_GUESS)) {
+  if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
     if (el._x !== null) {
       if (el._x._transaction?._lane) el._x._transaction = null;
       el._x._lane = NOT_PENDING;
