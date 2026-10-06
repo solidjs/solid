@@ -4,6 +4,7 @@ import {
   CONFIG_GUESS,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_REDERIVE,
   CONFIG_STAGED,
   CONFIG_VERDICT,
   EFFECT_RENDER,
@@ -317,9 +318,16 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       // `frameRead`): served committed instead of going pending, it derives
       // from the flight all the same and is re-derived at the landing — the
       // frame's observation survives its reader becoming a lane's (a guess
-      // over a held window, V5/A17). A probe alone does not hold.
+      // over a held window, V5/A17). A probe alone does not hold. A
+      // boundary showing content forwards the pending (its output pending,
+      // CONFIG_REDERIVE): transparent, its readers hold through it (A33; the
+      // lane-membership ruling, 2026-10-05). An output that never committed
+      // shows nothing — a mount the frame has not revealed — and holds
+      // nothing.
       if (
-        ((r as any)._type === EFFECT_RENDER || r._flags & REACTIVE_FRAME_READ) &&
+        ((r as any)._type === EFFECT_RENDER ||
+          r._flags & REACTIVE_FRAME_READ ||
+          (r._config & CONFIG_REDERIVE && r._statusFlags === STATUS_PENDING)) &&
         (s._gen === r._depGen || r._x?._error != null) &&
         !(r._flags & REACTIVE_DISPOSED) &&
         onScreen(r, judge ?? owner)
