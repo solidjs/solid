@@ -77,7 +77,11 @@ one of two things — the frames **form of a rule the core already has**
 (`Frames-specific:` names why — a wire delimiter is one; a second notion of
 "done" is not). A ruling that is neither is wrong as drafted, and this
 document says so where it found one (3.3's client error arm; the contract's
-C12 (c) expectation).
+C12 (c) expectation). The design doc carries this as **A0 — Equivalence**
+([`server-components-principles.md`](server-components-principles.md) §2,
+above A1, same date), with A1–A7/L1 each annotated with the Solid 2 rule it
+is the SC form of, and §4's note on which of the contract's reds A0 would have
+made unrepresentable.
 
 Four corollaries, one per seam and one for the boundary the seams meet at:
 
@@ -1257,8 +1261,10 @@ above; `FrameChunk` is unchanged unless the `ops` member is taken.
   `claimFragment`) at 3.1–3.3;
   `documentation/plans/size-reduction-carve-step1.md` §38 (the two-readings
   memo form), §40–§42 (rulings → fixes → re-pins → numbers).
-- `documentation/server-components/server-components-principles.md` A1–A7, L1,
-  DR-2, DR-4, §4 rows 6, 14, 19, 20, §5.2.
+- `documentation/server-components/server-components-principles.md` A0
+  (equivalence, 2026-10-05 — this document's Principle in axiom form), A1–A7,
+  L1 with their Solid 2 annotations, DR-2, DR-4, §4 rows 6, 14, 19, 20 and
+  the 2026-10-05 note, §5.2.
 - Code on `next` @ `01e80a601`: `packages/web/frames/src/frame-client.ts`
   (`createFrameHost`, `FrameImpl.apply`/`preview`/`#resetStreamState`/`#flush`/
   `#syncSlots`/`#refsUnresolved`/`#resolveRef`/`#refArgsUnchanged`/`rebind`/
