@@ -66,6 +66,26 @@ describe("WIDE_SCOPE_DEPS default threshold", () => {
     expect(events).toEqual([]);
   });
 
+  it("is quiet for a memo over 150 per-row memos, under the default of 200", () => {
+    const events = capture(["WIDE_SCOPE_DEPS"]);
+    attribution.enable({ log: false, hotTime: false });
+    const total = root(() => sumOfRowMemos(150));
+    flush();
+    total();
+    expect(events).toEqual([]);
+  });
+
+  it("warns for a memo over 250 per-row memos at the default", () => {
+    const events = capture(["WIDE_SCOPE_DEPS"]);
+    attribution.enable({ log: false, hotTime: false });
+    const total = root(() => sumOfRowMemos(250));
+    flush();
+    total();
+    expect(events).toHaveLength(1);
+    expect(events[0].nodeName).toBe("sum of 250");
+    expect(events[0].data!.depCount).toBe(251); // the row list + 250 row memos
+  });
+
   it("warns for a memo over 600 per-row memos at the default", () => {
     const events = capture(["WIDE_SCOPE_DEPS"]);
     attribution.enable({ log: false, hotTime: false });

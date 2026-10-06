@@ -441,7 +441,7 @@ export interface AttributionOptions {
   hotRuns?: { count: number; windowMs: number } | false;
   /**
    * Wide-scope warning: emit a diagnostic when a scope's dependency count
-   * reaches this (default 500) — the coarse-read / helper-leak signature.
+   * reaches this (default 200) — the coarse-read / helper-leak signature.
    * Re-warns only if the count then grows by another 50%. HMR plumbing is
    * not counted, and in dev builds the renderer's insert child-resolution
    * pass (which must track every row's resolved child) is not judged;
@@ -649,7 +649,7 @@ const defaultOptions = {
   stacks: false,
   historyLimit: 200,
   hotRuns: { count: 120, windowMs: 1000 } as { count: number; windowMs: number } | false,
-  wideDeps: 500 as number | false,
+  wideDeps: 200 as number | false,
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
   wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 2, windowMs: 1000 } as

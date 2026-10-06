@@ -442,7 +442,7 @@ Perf-kind warnings emitted by the **attribution engine** — they only fire whil
 
 - `HOT_SCOPE_RERUNS`: one scope re-ran 120+ times within 1000ms (above animation-frame cadence, so a legitimate rAF-driven scope doesn't cry wolf). The message names the most recent cause chain. When many scopes go hot from the _same_ root cause (a selection write re-running every row), only the first warns per-node; the rest fold into `HOT_SCOPE_FANOUT` (below) so one culprit can't bury the console in victim warnings.
 - `HOT_SCOPE_TIME`: one scope's summed self-time exceeded 8ms within 1000ms — half a frame in one scope. Catches the few-but-expensive runs that counts miss.
-- `WIDE_SCOPE_DEPS`: a scope's dependency count reached 500 (re-warns after another 50% growth), with the source names listed. It counts what the scope's author can act on: HMR plumbing sources (the dev-only `solid-js/refresh` memo per component instance) are not counted, and in dev builds the renderer's insert child-resolution pass — the effect that must track each row's resolved child, e.g. every `<Show>` row of a `<For>` — is not judged. A memo combining hundreds of per-row memos is judged as written.
+- `WIDE_SCOPE_DEPS`: a scope's dependency count reached 200 (re-warns after another 50% growth), with the source names listed. It counts what the scope's author can act on: HMR plumbing sources (the dev-only `solid-js/refresh` memo per component instance) are not counted, and in dev builds the renderer's insert child-resolution pass — the effect that must track each row's resolved child, e.g. every `<Show>` row of a `<For>` — is not judged. A memo combining hundreds of per-row memos is judged as written.
 
 All three thresholds are configurable (or disable-able) through `enable()` options.
 
@@ -956,7 +956,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `HOT_SCOPE_RERUNS`                 | warn       | perf           | 120+ re-runs of one scope in 1s (attribution enabled)                                                                                                             |
 | `HOT_SCOPE_FANOUT`                 | warn       | perf           | 5+/50+/500+ scopes hot from one root cause (attribution enabled)                                                                                                  |
 | `HOT_SCOPE_TIME`                   | warn       | perf           | 8ms+ self-time in one scope in 1s (attribution enabled)                                                                                                           |
-| `WIDE_SCOPE_DEPS`                  | warn       | perf           | Scope subscribed to 500+ sources (attribution cost checks on)                                                                                                     |
+| `WIDE_SCOPE_DEPS`                  | warn       | perf           | Scope subscribed to 200+ sources (attribution cost checks on)                                                                                                     |
 | `ASYNC_WATERFALL`                  | info/warn  | perf           | 2+/3+ sequential async flights, origin-proven (attribution enabled)                                                                                               |
 | `UNSTABLE_MEMO_OUTPUT`             | warn       | perf           | Memo returned a new-but-equivalent container 4+ runs running (attribution enabled)                                                                                |
 | `WASTED_RECOMPUTE`                 | warn       | perf           | 80%+ of a scope's 5+ runs in a second produced an unchanged value for 2ms+ of compute — inputs change, result does not (attribution enabled)                      |
@@ -1014,7 +1014,7 @@ const release = attribution.enable({
   historyLimit: 200,  // ring buffer size
   hotRuns: { count: 120, windowMs: 1000 },   // or false
   hotTime: { budgetMs: 8, windowMs: 1000 },  // or false
-  wideDeps: 500,                              // or false
+  wideDeps: 200,                              // or false
   unstableMemos: 4,                           // or false
   fanOut: 250,                                // or false (HUGE_FAN_OUT threshold while enabled)
   waterfalls: { minFlightMs: 50 },            // or false
@@ -1212,6 +1212,8 @@ const disable = enablePerformanceTracks({
   attribution: { values: "labels" } // options for the engine hold it takes (log: false, checks: false; values: the tier's default)
 });
 ```
+
+**`vite-plugin-solid` enables the tracks for you under `vite dev`** (`@solidjs/vite-plugin` 3.0.0-next.46+): its `performanceTracks` option defaults to on while serving, injects a client module that calls `enablePerformanceTracks()` ahead of the app's entry, and is off in `vite build`, preview and vitest. Pass `performanceTracks: false` to turn it off, or an object, which is passed through as the `enablePerformanceTracks()` options (`{ minMs, rich, attribution }`). The tracks' engine hold is **records only**: it runs none of the six cost checks (`hotRuns`, `hotTime`, `wideDeps`, `unstableMemos`, `fanOut`, `wastedRecompute`), so a default dev session paints the timeline without turning them on. To get them, opt in explicitly — `enablePerformanceTracks({ attribution: { checks: true } })`, `performanceTracks: { attribution: { checks: true } }` in the plugin, or a hold of your own (`attribution.enable()`), which turns them on beside the tracks while it is held.
 
 The adapter scrubs nothing itself: what the spans and tooltips say about values and elements is what the engine put on the records under the hold's `values` level (above) — the tier's default unless the `attribution` option names one: dev shows previews and element text (`"full"`), an observe build shows neither (`"none"`); pass `attribution: { values: "labels" }` for the control labels in an observe build, or `"none"` for a dev timeline without user data.
 

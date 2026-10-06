@@ -277,13 +277,13 @@ The always-on backstop: one computation tracked 2000 or more sources in a
 single pass, so it re-runs when any of them change. The message names the
 computation and the count (`data: { count }`); it does NOT list the sources.
 To see which sources, enable the attribution engine and read
-[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires earlier (500 sources)
+[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires earlier (200 sources)
 and names up to 12 of them. The repair is the same: narrow the reads or
 split the derivation into smaller memos that each track only what they need.
 
 #### WIDE_SCOPE_DEPS
 
-Attribution engine cost checks only: a scope is subscribed to 500 or more
+Attribution engine cost checks only: a scope is subscribed to 200 or more
 sources (it re-warns on 50% further growth). HMR plumbing sources are not
 counted, and in dev the renderer's insert child-resolution pass (which tracks
 each row's resolved child) is not judged — `HUGE_FAN_IN` still is. The
