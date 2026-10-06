@@ -347,7 +347,10 @@ export interface FrameOptions {
    * occurrence is ambiguous while this returns true: the frame defers its
    * mount one macrotask (all currently parsed scripts run first), calls
    * `drainRecords`, and classifies with whatever is then resolvable. Return
-   * false once the document can run no further data scripts.
+   * false once the document can run no further data scripts AND every
+   * record it has already delivered has been drained (frames-rulings 3.5):
+   * a record that executed but has not been applied yet is pending too — a
+   * sync in that window must defer, not classify.
    */
   recordsPending?(): boolean;
   /** Re-absorb the document's arrived-by-now records (idempotent per key). */
@@ -1312,7 +1315,11 @@ class FrameImpl {
         // bounded by the same contract as everything else here:
         // recordsPending flips false when the document completes with no
         // fragment left to reveal (truncation included — the ledger rejects
-        // stragglers). Deferral is invisible on screen: an adopted
+        // stragglers) and no delivered record left undrained (frames-
+        // rulings 3.5: the drain itself syncs once per record it applies,
+        // and that sync must not classify the records still in its loop —
+        // nor may a live op's sync in the same window). Deferral is
+        // invisible on screen: an adopted
         // occurrence's server-rendered interior is already in the DOM; the
         // mount is the hydration attach. Full syncs only: a scoped segment
         // fill renders into a detached fragment a later full sync can't

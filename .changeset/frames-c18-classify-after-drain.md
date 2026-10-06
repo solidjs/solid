@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Frames client: a recordless adopted occurrence is classified only after every delivered document record has drained (frames-rulings 3.5, proposed; consistency contract C18 / red R9). `adoptBoundary.recordsPending` gains a third term — `_$HY.r` still holds a slot or region record for the boundary that `drainRecords` has not applied — so "pending" is the drain's state, not only the parser's. Before, two records drained after the parser finished classified each other: the deferred drain applies one record per `host.apply`, each a synchronous frame sync, and that first sync found the second occurrence recordless with `document.readyState` no longer "loading", classified it direct-insert, and evaluated its render prop as a zero-arg accessor — a `TypeError` on the props read halted the reactive system. The same window was reachable from a live-hole op and from the live pump's catch-up read. Now such a sync defers the occurrence and the drain's next apply mounts it with its args.

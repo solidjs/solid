@@ -1331,6 +1331,11 @@ function adoptBoundary(
   // recordless occurrence it deferred (#2968 — the frame's recordsPending/
   // drainRecords seam below).
   const appliedRecords = new Set<string>();
+  // The document keys this boundary's records under the wire name: slot
+  // records as `sc:slot:<id>:<occurrence>`, nested regions as
+  // `sc:region:<id>.<occurrence>.<key>`.
+  const slotPrefix = `sc:slot:${id}:`;
+  const regionPrefix = `sc:region:${id}.`;
   // Deferred fragments in the adopted markup (#2978): a <Loading> that
   // suspended inside the server component during document SSR left a `pl-*`
   // placeholder here, but its producer ran on the SERVER — no client
@@ -1361,7 +1366,9 @@ function adoptBoundary(
     // drain normally starts the pump; attempted on every re-drain anyway —
     // idempotent, and a defensive catch for a record that lands late.
     pumpLiveChannel();
-    const slotPrefix = `sc:slot:${id}:`;
+    // Each record is marked applied BEFORE its `host.apply`: that apply
+    // syncs the frame, and the sync's `recordsPending` must read the other
+    // delivered records as still pending while this one is no longer (3.5).
     for (const key of Object.keys(hy.r)) {
       if (appliedRecords.has(key)) continue;
       if (key.startsWith(slotPrefix)) {
@@ -1375,19 +1382,17 @@ function adoptBoundary(
           key: key.slice(slotPrefix.length),
           args: hy.r[key]
         });
-      } else if (key.startsWith("sc:region:")) {
+      } else if (key.startsWith(regionPrefix)) {
+        appliedRecords.add(key);
+        // Async-occluded regions arrive as promises (the producer held
+        // the stream on them); regions keep their producer-relative ids
+        // (the records reference them by those), and the store warms per
+        // id either way, so a late apply still lands before the region
+        // binds on expand.
         const childId = key.slice("sc:region:".length);
-        if (childId.startsWith(id + ".")) {
-          appliedRecords.add(key);
-          // Async-occluded regions arrive as promises (the producer held
-          // the stream on them); regions keep their producer-relative ids
-          // (the records reference them by those), and the store warms per
-          // id either way, so a late apply still lands before the region
-          // binds on expand.
-          const val = hy.r[key];
-          const apply = (html: any) => host.apply({ type: "html", id: childId, version: 0, html });
-          val && typeof val.then === "function" ? val.then(apply) : apply(val);
-        }
+        const val = hy.r[key];
+        const apply = (html: any) => host.apply({ type: "html", id: childId, version: 0, html });
+        val && typeof val.then === "function" ? val.then(apply) : apply(val);
       }
     }
   };
@@ -1473,23 +1478,44 @@ function adoptBoundary(
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     onApply: settle,
-    // May the document still run scripts that assign records? While the
-    // parser is running the answer is yes, and a held fragment's replay can
-    // still deliver one — so a recordless occurrence defers instead of
-    // misclassifying as content (the runtime re-checks until this flips
-    // false). Deliberately NOT boundaryMayArrive(): its `!_$HY.done` term
-    // answers a different question (can this boundary's ELEMENT still
-    // appear), and holding classification until client hydration completes
-    // pushes the adopted mount past the hydrate window — the claim then
-    // adopts markup the client's state has already moved past (the
-    // adopted-slot-live spec pins the working ordering).
+    // Is a record for this boundary still to come — or here and not yet
+    // applied? While the parser is running the document can still run a
+    // data script, a held fragment's replay can still deliver one, and a
+    // record whose script already ran sits in `_$HY.r` until the drain
+    // moves it into the store — so a recordless occurrence defers instead
+    // of misclassifying as content (the runtime re-checks until this flips
+    // false). The third term is frames-rulings 3.5 (contract C18/R9): an
+    // occurrence is classified only after every delivered record has
+    // drained — "pending" is the drain's state, not the parser's. Without
+    // it, two records drained after the parser finished classify each
+    // other: the first apply's sync finds the second recordless with the
+    // parser done, evaluates its render prop argless, and the `TypeError`
+    // halts the reactive system. Deliberately NOT boundaryMayArrive(): its
+    // `!_$HY.done` term answers a different question (can this boundary's
+    // ELEMENT still appear), and holding classification until client
+    // hydration completes pushes the adopted mount past the hydrate window
+    // — the claim then adopts markup the client's state has already moved
+    // past (the adopted-slot-live spec pins the working ordering).
     // Spread-cast: the published FrameOptions predates this seam; a runtime
     // without it simply never calls the hooks (drop once the pin catches up).
     ...({
       recordsPending: () => {
         if (document.readyState === "loading") return true;
         const hy = (globalThis as any)._$HY;
-        return !!(hy && hy.fr && hy.fr.pending());
+        if (!hy) return false;
+        if (hy.fr && hy.fr.pending()) return true;
+        // Delivered and undrained: a record for this boundary whose data
+        // script ran (`_$HY.r` has the key) that the drain has not moved
+        // into the store yet. "Recordless" reads the store, and the parser's
+        // state says nothing about this gap — the record sits one loop
+        // iteration from applying while a sync runs.
+        for (const key in hy.r)
+          if (
+            !appliedRecords.has(key) &&
+            (key.startsWith(slotPrefix) || key.startsWith(regionPrefix))
+          )
+            return true;
+        return false;
       },
       drainRecords,
       // The identity split binds the frame to the call ADDRESS (id + args
