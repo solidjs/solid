@@ -430,17 +430,38 @@ export function createFrameSink(emit, frame, have) {
   // sweep computes once; a memo pulled across commits recomputes — the
   // client contract applied to the server, without a subscriber graph).
   let epoch = 0;
+  // The sweep is one unit on the wire (C13, frames-rulings §"the server
+  // half": one sweep, one frame). The hole / attr re-emissions a pass
+  // produces are collected here and leave as ONE chunk — `{ type: "ops",
+  // ops: [...] }` when the pass changed more than one binding, the member
+  // itself when it changed one — so the client, whose unit of application
+  // is the chunk, lands the server's flush as one flush of its own. The
+  // chunk's edge is the delimiter: no sweep-end marker, no buffering on
+  // the client, nothing to time out if a connection dies mid-sweep.
+  let swept = null;
   const sweep = () => {
     epoch++;
-    for (const b of [...bindings.values()]) {
-      try {
-        b.sweep();
-      } catch (_) {
-        // A sweep failure (a serializer already closed at the end-of-response
-        // latch) must not take the stream down: the binding's last emitted
-        // value stands.
+    const ops = (swept = []);
+    try {
+      for (const b of [...bindings.values()]) {
+        try {
+          b.sweep();
+        } catch (_) {
+          // A sweep failure (a serializer already closed at the end-of-response
+          // latch) must not take the stream down: the binding's last emitted
+          // value stands.
+        }
       }
+    } finally {
+      swept = null;
     }
+    emitOps(ops);
+  };
+  // Members ride unaddressed (the envelope addresses them); a lone member
+  // is addressed and emitted as the plain chunk it always was.
+  const emitOps = ops => {
+    if (ops.length === 1) emit(Object.assign({ type: ops[0].type, id, version }, ops[0]));
+    else if (ops.length) emit({ type: "ops", id, version, ops });
   };
   const scheduleSweep = () => {
     if (closed || sweepScheduled || !bindings.size) return;
@@ -665,17 +686,19 @@ export function createFrameSink(emit, frame, have) {
     },
     // A live-hole re-emission (Stage 3): the hole's re-resolved HTML, keyed
     // by its marker id — the consumer morphs the marked range in place.
+    // Produced by a sweep, so it joins the sweep's unit (see `sweep`).
     hole(key, html) {
-      emit({ type: "hole", id, version, key, html, digest: textDigest(html) });
+      const op = { type: "hole", key, html, digest: textDigest(html) };
+      swept ? swept.push(op) : emitOps([op]);
     },
     // A live attr-hole re-emission: the addressed element's rebuilt
     // attribute text, plus the names that vanished since the last emission
     // (the server holds the previous text — the client never tracks name
     // history).
     attr(key, attrs, removed) {
-      const chunk = { type: "attr", id, version, key, attrs, digest: textDigest(attrs) };
-      if (removed && removed.length) chunk.removed = removed;
-      emit(chunk);
+      const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
+      if (removed && removed.length) op.removed = removed;
+      swept ? swept.push(op) : emitOps([op]);
     },
     // An attr hole's first-render text, keyed by its address — the digest
     // source for root/fragment `holes` maps and the resume compare.
@@ -1751,16 +1774,31 @@ function armDocumentLiveHoles(ctx) {
   let epoch = 0;
   let sweepScheduled = false;
   let closed = false;
+  // The sweep is one op on the channel (C13 — see the stream sink's
+  // `sweep`): a pass that changed more than one hole / attr binding ships
+  // them as one `{ type: "ops", ops: [...] }` op, so an adopted boundary
+  // applies the server's flush as one flush.
+  let swept = null;
   const sweep = () => {
     epoch++;
-    for (const b of [...bindings.values()]) {
-      try {
-        b.sweep();
-      } catch (_) {
-        // A sweep failure must not take the document down: the binding's
-        // last emitted value stands.
+    const ops = (swept = []);
+    try {
+      for (const b of [...bindings.values()]) {
+        try {
+          b.sweep();
+        } catch (_) {
+          // A sweep failure must not take the document down: the binding's
+          // last emitted value stands.
+        }
       }
+    } finally {
+      swept = null;
     }
+    pushOps(ops);
+  };
+  const pushOps = ops => {
+    if (ops.length === 1) push(ops[0]);
+    else if (ops.length) push({ type: "ops", ops });
   };
   const scheduleSweep = () => {
     if (closed || sweepScheduled || !bindings.size) return;
@@ -1794,12 +1832,13 @@ function armDocumentLiveHoles(ctx) {
       // hashes) — the document channel's ops included, so a ledger seeded
       // from the document can follow what the channel later re-emits.
       hole(key, html) {
-        push({ type: "hole", key, html, digest: textDigest(html) });
+        const op = { type: "hole", key, html, digest: textDigest(html) };
+        swept ? swept.push(op) : pushOps([op]);
       },
       attr(key, attrs, removed) {
         const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
         if (removed && removed.length) op.removed = removed;
-        push(op);
+        swept ? swept.push(op) : pushOps([op]);
       },
       error(key, error) {
         push({ type: "error", key, error });

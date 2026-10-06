@@ -449,6 +449,54 @@ frame, and that slot/slot chunks follow the same rule.
 > currently only set flag keys — the readiness model re-derives everything from
 > the store each flush, so there is nothing to "replay."
 
+### Addenda (2026-10-06 — the frames correctness pass, server half)
+
+Additive members; a producer may omit them and a consumer that predates them
+reads the stream it always read (what an old consumer does with each is
+stated).
+
+**`ops` — one sweep, one unit (C13, frames-rulings §"The server half").**
+
+```ts
+| {
+    type: "ops";
+    id: string;
+    version: number;
+    ops: (
+      | { type: "hole"; key: string; html: string; digest?: string }
+      | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
+    )[];
+  }
+```
+
+The server's commit unit is the sweep: one pass over every open binding,
+coalesced per microtask. Before this member the wire carried a sweep's
+re-emissions as N independent `hole` / `attr` chunks with no edge between
+them, and the consumer — whose unit of application is the chunk — landed
+them one flush apart, so a listener (a `frame:applied` handler, a
+`MutationObserver`) could observe one hole of a sweep moved while a sibling
+of the same sweep still showed the previous value (contract R7). The `ops`
+member is the sweep's edge on the wire: the producer collects the pass's
+`hole` / `attr` emissions and ships them as ONE chunk (stream face — one
+wire line) or ONE `sc:live` op of the same shape (document face — the op
+carries no `id` / `version`, as no document op does). Members ride
+unaddressed; the envelope addresses them. A pass that changed one binding
+emits that member alone, exactly as before. The consumer maps the unit to
+one record map (`chunkToRecords` merges the members') and applies it as one
+write — one hole pass, one `frame:applied`. Nothing is buffered, nothing is
+correlated, nothing times out: a connection that dies mid-sweep dies before
+the unit was written, and the unit is never half-delivered.
+
+_Old consumer:_ `chunkToRecords` answers an unknown `type` with an empty
+record map (its `default` arm), so the write lands nothing and the frame's
+flush is a no-op — the sweep's values are **lost on that consumer** until a
+later sweep that changes one binding at a time re-ships them (each as a
+plain member), or a reconnect / refetch re-ships the root. The old consumer
+does not crash and does not tear; it under-updates. The frames surface is an
+experimental preview (RFC 11's status note): the member is taken as
+additive on the producer and the consumer ships with it in the same
+release.
+
 ### Two identity schemes
 
 The format uses two deliberately distinct identity schemes:
