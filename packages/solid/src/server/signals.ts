@@ -1049,6 +1049,17 @@ const SLOTS = /* @__PURE__ */ Symbol("settledSlots");
 // fresh one per pass. Same lifetime and keying rationale as SLOTS above.
 const PROJECTION_SLOTS = /* @__PURE__ */ Symbol("projectionSlots");
 
+function adoptSlot(comp: ServerComputation<any>, slot: SlotRecord) {
+  if (slot.s === 1) {
+    comp.value = slot.v;
+    comp.error = undefined;
+    comp.errored = false;
+  } else {
+    comp.error = slot.v;
+    comp.errored = true;
+  }
+}
+
 function settleServerAsync<T, U>(
   initial: T | PromiseLike<T>,
   rerun: () => T | PromiseLike<T>,
@@ -1679,14 +1690,7 @@ function processResult<T>(
       // Observe its rejection so a rejecting duplicate doesn't surface as an
       // unhandled rejection (fatal under --unhandled-rejections=strict).
       (result as any).then(undefined, () => {});
-      if (slot.s === 1) {
-        comp.value = slot.v;
-        comp.error = undefined;
-        comp.errored = false;
-      } else {
-        comp.error = slot.v;
-        comp.errored = true;
-      }
+      adoptSlot(comp, slot);
       return;
     }
     const deferred: DeferredPromise<T> = slot ? slot.d! : createDeferredPromise<T>();
@@ -1694,6 +1698,14 @@ function processResult<T>(
     if (!slot) {
       recordSlot(0, undefined, deferred);
       if (serializes) ctx.serialize(id, deferred.promise, deferStream);
+    } else {
+      // Joined flight (#3815): the slot may settle from the earlier node's
+      // promise, which never touches this comp — adopt it, or readers retry
+      // on that settled promise in microtasks forever.
+      const settle = () => {
+        if (slot.s !== 1 || !(loadingState?.served && serializes)) adoptSlot(comp, slot);
+      };
+      deferred.promise.then(settle, settle);
     }
     // Flatten one async level, mirroring the client core's handleAsync: a
     // thenable that RESOLVES to an AsyncIterable — the shape an async stub
@@ -1859,21 +1871,11 @@ function processResult<T>(
     const slotted = !!(id && ctx) && (serializes || !pumpsInScope(ctx, scopeOwner));
     const slot: SlotRecord | undefined = slotted ? (ctx as any)[SLOTS]?.[id!] : undefined;
     if (slot) {
-      const adopt = () => {
-        if (slot.s === 1) {
-          comp.value = slot.v;
-          comp.error = undefined;
-          comp.errored = false;
-        } else {
-          comp.error = slot.v;
-          comp.errored = true;
-        }
-      };
-      if (slot.s) return adopt();
+      if (slot.s) return adoptSlot(comp, slot);
       // A known answer lands in this node too; under a served loading value
       // the markup stays at commit #0 (the first-value lock).
       const settle = () => {
-        if (slot.s !== 1 || !(loadingState?.served && serializes)) adopt();
+        if (slot.s !== 1 || !(loadingState?.served && serializes)) adoptSlot(comp, slot);
       };
       slot.d!.promise.then(settle, settle);
       if (loadingState) {
