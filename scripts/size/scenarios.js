@@ -1695,6 +1695,17 @@ module.exports = [
     // at the 0.01 KB step at or below measured + 10 B; recorded minified
     // 52,626 B. Accepted by the maintainer (2026-10-06, "pay the cost for
     // correctness"). The cap is frozen again at 17.73 KB.
+    // Size-Exception (frames A0 correctness pass, part 2, 2026-10-06): 17.73 ->
+    // 17.85 KB (floor-caps.json), measured at 17,838 B against `next` @
+    // 9d89df731's 17,728 (+110 B; 108 B over the cap; +168 B minified,
+    // 52,626 -> 52,794) — `sharedConfig.hydrateWindow` in solid-js (A2b,
+    // frames-rulings 3.2 "Cost as landed": the claim window's scope capture
+    // for post-done claim fidelity, ≈ +118 B minified) and the fragment
+    // ownership predicate `_$HY.fa` read by `fragmentPolicy` (A5′, rulings
+    // 3.3 claimant by rendering, +50 B minified). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 52,794 B. Accepted by the
+    // maintainer (2026-10-06, "I will follow recommendations here"; A5′
+    // within the budget he set). The cap is frozen again at 17.85 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2132,8 +2143,16 @@ module.exports = [
     // measured + 10 B; recorded minified 91,684 B. Accepted by the maintainer
     // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
     // at 28.93 KB.
-    limit: "28.93 KB",
-    capMinified: 91684,
+    // Size-Exception (frames A0 correctness pass, part 2, 2026-10-06): 28.93 ->
+    // 29.08 KB, measured at 29,066 B against `next` @ 9d89df731's 28,924
+    // (+142 B; 136 B over the cap; +174 B minified, 91,684 -> 91,858) —
+    // `sharedConfig.hydrateWindow` (A2b, frames-rulings 3.2) and `_$HY.fa`
+    // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 91,858 B.
+    // Accepted by the maintainer (2026-10-06). The cap is frozen again at
+    // 29.08 KB.
+    limit: "29.08 KB",
+    capMinified: 91858,
     alias
   },
   {
@@ -3155,8 +3174,16 @@ module.exports = [
     // measured + 10 B; recorded minified 99,257 B. Accepted by the maintainer
     // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
     // at 31.03 KB.
-    limit: "31.03 KB",
-    capMinified: 99257,
+    // Size-Exception (frames A0 correctness pass, part 2, 2026-10-06): 31.03 ->
+    // 31.09 KB, measured at 31,075 B against `next` @ 9d89df731's 31,023
+    // (+52 B; 45 B over the cap; +174 B minified, 99,257 -> 99,431) —
+    // `sharedConfig.hydrateWindow` (A2b, frames-rulings 3.2) and `_$HY.fa`
+    // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 99,431 B.
+    // Accepted by the maintainer (2026-10-06). The cap is frozen again at
+    // 31.09 KB.
+    limit: "31.09 KB",
+    capMinified: 99431,
     alias
   },
   {
