@@ -83,6 +83,17 @@ const hasOwn = Object.prototype.hasOwnProperty;
  * restored when the setter's writes become guesses (`writes`). */
 const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 
+// A chained backing is a proxy: reading it as a handler can expose a
+// derived store's staging. Compose the writer's view on the committed
+// backing of each link, retaining any optimistic guesses on that link.
+function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
+  const base = committed(t);
+  const inner: StoreTarget | undefined = (base as any)[$TARGET];
+  return inner === undefined
+    ? base
+    : optimisticView(inner, writerBacking(inner), laneValueOf, true);
+}
+
 /** The user's draft on an optimistic family: a clone of the view the user
  * saw — the committed frame with the lanes' values and the tick's own
  * unflushed guesses over it (#3665). A staging already on the target (a
@@ -90,7 +101,7 @@ const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
  * guesses go over it, it stays the truth beneath. */
 function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
   if (t.pb !== null) optStaged.set(t, t.pb);
-  return cloneRaw(optimisticView(t, committed(t), laneValueOf, true), t);
+  return cloneRaw(optimisticView(t, writerBacking(t), laneValueOf, true), t);
 }
 
 export function notifyOptimisticWrites(
@@ -99,7 +110,7 @@ export function notifyOptimisticWrites(
 ): Record<PropertyKey, any> | null {
   // The view the user saw: the committed frame (a staging adopted eagerly
   // is not it) with the lanes' values and the tick's own guesses over it.
-  const base = committed(t);
+  const base = writerBacking(t);
   const old = optimisticView(t, base, laneValueOf, true);
   const isArr = Array.isArray(pb);
   // A chained target's nodes are links (§7b): their committed value is
@@ -108,8 +119,7 @@ export function notifyOptimisticWrites(
   // inner store's truth for its key before guessing over it.
   const inner = t.ch ? (t.v as Record<PropertyKey, any>) : null;
   const guess = (node: Signal<any>, key: PropertyKey, presence: boolean, nv: unknown): void => {
-    if (inner !== null)
-      node._value = untrack(() => (presence ? key in inner : unwrapValue(inner[key as any])));
+    if (inner !== null) node._value = presence ? key in base : unwrapValue(base[key as any]);
     // By value: a function leaf is a value, not an updater (#3017).
     optimisticWrite(node, () => nv);
   };
@@ -126,7 +136,8 @@ export function notifyOptimisticWrites(
       guess(getHasNode(t, key), key, true, true);
       structural = true;
     } else {
-      const ov = unwrapValue(old[key as any]);
+      const previous = old[key as any];
+      const ov = unwrapValue(inner && previous ? resolveChainedRaw(t, key, previous) : previous);
       if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) {
         guess(getNode(t, key), key, false, nv);
         if (isArr) structural = true;
