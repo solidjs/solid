@@ -1677,7 +1677,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // A verdict reader likewise (CONFIG_VERDICT): a frame reader sees the
   // screen, and for a flight the screen is the committed value — a render
   // effect keeps its DOM by throwing, a memo has no DOM and is handed the
-  // value. `[isPending(x), x()]` reads `[true, stale]` in either order (A10).
+  // value. `[isPending(x), x()]` reads `[true, stale]` in either order (A10)
+  // — unless the flight committed beneath inputs already on screen
+  // (`observeFlight`).
   if (
     owner._statusFlags & STATUS_PENDING &&
     !committed &&
@@ -1685,10 +1687,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(owner._statusFlags & STATUS_UNINITIALIZED)
   ) {
     if (passLane !== null) committed = true;
-    else if (c !== null && c._config & CONFIG_VERDICT) {
-      committed = true;
-      GlobalQueue._observeFlight!(c as Computed<any>, owner);
-    }
+    else if (c !== null && c._config & CONFIG_VERDICT)
+      committed = GlobalQueue._observeFlight!(c as Computed<any>, owner);
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
