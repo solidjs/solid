@@ -822,7 +822,7 @@ place and reads its declared records synchronously (#3844).
   only for a boundary registered against `_fr` — a client twin; a server-only
   `<Loading>` has none (R6's symptom was the blank, not the absence).
 - **Measured before written (re-attribution §7 method; Δ min B on `app:
-  hydrating (no stores)` vs base `d9d217959`, edited dist copies).** The
+hydrating (no stores)` vs base `d9d217959`, edited dist copies).** The
   plan's A5 as specified — S-adopted (`_adoptedRoots`, `fr.adopt`/`unadopt`,
   held-swap replay) plus S-key (`whenRevealed` published, the covering
   fragment key on the SC reference) — came in at **+504** solid-side (S-adopted
@@ -1017,6 +1017,26 @@ rule:
   reaches it only as the enclosing `<Errored>` reaches every descendant.
   `SlotContext.address` was proposed and is **not** added here (the
   maintainer has not ruled).
+- **Refetch after the outcome — ruled by A0 (2026-10-06, the maintainer's
+  question). Two cases.** (a) The frame errored and an enclosing CLIENT
+  `<Errored>` caught it — the `reset` re-ask rule above, landed with A7.
+  - **(b) The SERVER `<Errored>` caught it** — the client sees a successful
+    frame whose fragment carries static fallback markup; a retry there is
+    re-asking the whole server component. **What a client component rendered
+    inside the server component can reach today: nothing frame-specific.**
+    No context, `useFrame`, `refetch` or `bump` is exposed to slot content
+    (grep: `frames/src` has none; `bump` is private to the handler). What it
+    DOES have is full app context — client positions re-enter the zone owner
+    outside the barrier (`createDocumentSlotProps`) — so an integration's
+    own revalidation reaches it already (`revalidate(key)` through the
+    router's context); what it lacks is WHICH call encloses it. **The
+    smallest addition** (not made): the enclosing call's identity on the
+    slot callback's context — `SlotContext.address` (the call's
+    `frameAddress`) beside `adopted` / `call` — one field the client already
+    builds per occurrence (≈ 15 B); the integration maps the address to its
+    cache key (one-to-one by construction, DR-1) and refetches through its
+    own path. A frames-owned `refetch()` on the slot context is the larger
+    form and needs (a)'s per-address re-invoke first.
 
 ### 3.4 The client consumes what the server consumed
 
@@ -1511,6 +1531,68 @@ S7, the three rename sites); store eviction (§3 4). No red touches them.
 
 ### The server half — drafts (2026-10-06; design, no wire change shipped)
 
+**Built — 2026-10-06, `fix/frames-a6-server-half` (the A6 PR, against
+`wip/frames-pass-integration`, retargets to `next` after #3837).** The three
+drafts below were approved by the maintainer the morning of 2026-10-06 and
+are coded as three commits on that branch; each draft's text is kept as the
+design record, and what landed differs from it only where stated here.
+
+- **(i) C13** — as drafted: the sink's `sweep()` collects the pass's hole /
+  attr re-emissions and emits one `{ type: "ops", id, version, ops: [...]
+}` chunk (stream face) / one `sc:live` op of the same shape (document
+  face); members ride unaddressed; a one-binding sweep emits the plain
+  member. Client: `chunkToRecords` merges the members (one write); the op
+  log flattens a unit; **and one more line than the draft counted** —
+  `FrameImpl.#flush`'s hole pass announced `frame:applied` per hole (inside
+  the loop), so a listener could still read a torn DOM mid-pass; it now
+  announces once per flush. `c13-sweep-atomic` (a, b) flipped, plus a (log)
+  arm; `test/server/frame-sweep-ops.spec.tsx` pins the sink on both faces.
+  RFC addendum in `frame-streams-rfc.md` (an old consumer drops the unit's
+  write — under-updates, never tears).
+- **(ii) the plain-response bound** — as ruled (§6 decision 4): `complete`
+  gains `bound: "yields" | "time"`; `maxYields` (64) and `maxDurationMs`
+  (30 000, from the first flush) are `FrameStreamOptions`; the request's
+  `signal` aborting after the first flush ends a plain response as the time
+  bound does (before it, or for `live`, the death it was; a body's own
+  cancel is never a bound). The render is torn down quietly at the cut
+  (the abort reason carries `quiet: true`; no `SSR_STREAM_ABANDONED`).
+  Client: `:bound` beside `:complete`; a dev warning once per cut-off,
+  naming `live()`. A "yield" is an EMITTING sweep after the first flush
+  (the sink's `onYield` hook — a sweep the equality gate silenced is not
+  one). `frameTransformResult` takes the defaults (a policy function, no
+  options object).
+- **(iii) C12 (c)** — as drafted, both decisions taken as recommended: (1)
+  the nearest server `<Errored>`'s fallback renders at the `<Loading>`'s
+  position (the handler chain's new `outcome` mode asks it; a `<Loading>`
+  between passes the question up; an `<Errored>` outside the component —
+  the app's twin at t = 0 — answers nothing); (2) ids are the component's
+  own hydration-free scope's; head / asset registrations drop with the
+  error as before. With no server `<Errored>` the error **escapes**: the
+  stream face's unkeyed `error` chunk (`:error`), and — beyond the draft —
+  the document face's `sc:live` `{ type: "error", fid, error }` op, which
+  only the owning adopted boundary applies (`applyLiveOp`'s `fid` gate now
+  covers it); the position keeps the boundary's own fallback, never a
+  blank. `_fr` still rejects. C12 (c2) flipped; a (c3) escape arm added;
+  `test/server/frame-fragment-error-outcome.spec.tsx` pins both faces and
+  the unchanged client-twin case. **Not built:** the client's OUTWARD face
+  — nothing on the client throws a frame's `:error` into the enclosing
+  client `<Errored>` (see 3.3's refetch note); the record lands, the gate
+  releases, `frame.error` holds it, and that is all the client does with
+  it today.
+
+**The maintainer's approvals recorded the same morning (2026-10-06):**
+
+- **A4 = the declared slot record** (`sc:slot:<fid>:<occ>` written as a
+  declared pending ref at the marker, settled with the args) — not the
+  `_$HY.r` write hook.
+- **A1b's surface removals approved** — `ServerComponentHandlerOptions.
+onStream`, `FrameHostOptions.resolve` / `FrameHost.resolve`, `FrameHost.
+preview` / `Frame.preview`, `STAGED_DATA`: "not even beta"; they go.
+- **S-adopted is to be built** (`_$HY.fr.adopt / unadopt`,
+  `claimRegionFragments` deleted; ≈ +80 B solid on hydrating pages).
+- **The 30 KB target** (savings pass §4.1) is stated against `page: base`
+  **without the router**, to be reviewed after the first size pass.
+
 Three items the client pass could not close, each with the server-side
 shape it needs. None is coded; each is a design note the server PR follows.
 The savings pass's A6 is this section.
@@ -1615,21 +1697,23 @@ lands outside its band is the finding, not a failure to hide.
 
 ### As landed — the overnight pass (2026-10-06, draft PRs off `next` @ `49a8dca84`; folded into #3837)
 
-| step (plan)                                                         | PR                                                        | pins flipped (`test.fails` → `test`)                                             | frames eager (min / br, local, vs `next` 43,310 / 13,770) | note                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 / 3d — C18 (A0)                                                   | #3827 (another agent) — **closed 2026-10-06, superseded** | C18 ×3 (there, by the predicate; in #3830 by `#` deciding the class)             | —                                                         | the two meet at the pins; both are right. Closed per the maintainer: under S-flush the occurrence name decides the class on every sync, so C18 is unrepresentable and the predicate's third term has nothing left to guard; 3.5's diagnosis (delivered is not drained) stands as the record.                                      |
-| 4+6+3 / A1 — S-flush (1.5, 1.6 (i), 1.4 full, 2.1/2.2, 2.3 interim) | #3830 `fix/frames-s-flush-address-source`                 | C2 (b), C4 (d), C6 (a1, b2), C7 (c), C17 (a re-pinned, c), harness C2 ×1, C18 ×3 | **43,123 / 13,642 (−187 / −128)**                         | `FrameHost.landing(address)`; the store is one response's; `argsEquivalent`, `clearStreamRecords`, both hand-rolled gates, the re-arm/waiter deleted. **1b not done:** `preview` / `stage`'s client half / `#refArgsUnchanged` (≈ 1,300 B min) — the pull form is written in the PR; it needs the fills' props to read the token. |
-| 2 / A2 — C3 (3.1 ruled, 3.2)                                        | #3831 `fix/frames-c3-hold-is-pending-boundary` (on #3830) | C3 (a), harness C3 ×1; campaign C3 280 → 0 / 268 → 0                             | 43,411 / 13,768 (+288 / +126 vs #3830)                    | `sharedConfig.holdBoundary` (solid, ≈ +59 B min on hydrating pages — over the 20 B allowance; **accepted by the maintainer 2026-10-06**, caps raised), `FrameOptions.hold`. Not done: `hydrateWindow` / R.claim's deletion, the 3e port (C19 ×2 stay red).                                                                        |
-| 7 / A3 — C2 / C4 (2.3, 2.4)                                         | in #3830                                                  | C2 (b), C4 (d), harness C2 ×1                                                    | (in #3830's figure)                                       | the interim form (an empty write at the frame's version from the reveal cascade). Not done: R.reveal's readiness/retry deletion; DR-4 (2c). C2 (a2) is S-record's.                                                                                                                                                                |
-| 4 / A4 — C5 (1.2)                                                   | #3832 `fix/frames-c5-data-response-scoped` (on #3830)     | C5 (a, b, e)                                                                     | 43,194 / 13,659 (+71 / +17 vs #3830)                      | the data path under the store's version guard. Not done: the per-response cell, S-ref (the pending `{$ref}` read), S-record.                                                                                                                                                                                                      |
-| 9 / A5 — C12 (c) client half                                        | #3833 `fix/frames-c12-server-outcome` (on #3830)          | C12 (c) → c1 green (dev report), c2 red (server half)                            | 43,123 / 13,642 (±0)                                      | S-adopted documented, not built (+80 B solid).                                                                                                                                                                                                                                                                                    |
-| A6 — server-half drafts                                             | this branch (docs)                                        | —                                                                                | —                                                         | C13 delimiter, the streaming bound, C12 (c)'s template — above.                                                                                                                                                                                                                                                                   |
+| step (plan)                                                         | PR                                                                                                                               | pins flipped (`test.fails` → `test`)                                             | frames eager (min / br, local, vs `next` 43,310 / 13,770) | note                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 / 3d — C18 (A0)                                                   | #3827 (another agent) — **closed 2026-10-06, superseded**                                                                        | C18 ×3 (there, by the predicate; in #3830 by `#` deciding the class)             | —                                                         | the two meet at the pins; both are right. Closed per the maintainer: under S-flush the occurrence name decides the class on every sync, so C18 is unrepresentable and the predicate's third term has nothing left to guard; 3.5's diagnosis (delivered is not drained) stands as the record.                                      |
+| 4+6+3 / A1 — S-flush (1.5, 1.6 (i), 1.4 full, 2.1/2.2, 2.3 interim) | #3830 `fix/frames-s-flush-address-source`                                                                                        | C2 (b), C4 (d), C6 (a1, b2), C7 (c), C17 (a re-pinned, c), harness C2 ×1, C18 ×3 | **43,123 / 13,642 (−187 / −128)**                         | `FrameHost.landing(address)`; the store is one response's; `argsEquivalent`, `clearStreamRecords`, both hand-rolled gates, the re-arm/waiter deleted. **1b not done:** `preview` / `stage`'s client half / `#refArgsUnchanged` (≈ 1,300 B min) — the pull form is written in the PR; it needs the fills' props to read the token. |
+| 2 / A2 — C3 (3.1 ruled, 3.2)                                        | #3831 `fix/frames-c3-hold-is-pending-boundary` (on #3830)                                                                        | C3 (a), harness C3 ×1; campaign C3 280 → 0 / 268 → 0                             | 43,411 / 13,768 (+288 / +126 vs #3830)                    | `sharedConfig.holdBoundary` (solid, ≈ +59 B min on hydrating pages — over the 20 B allowance; **accepted by the maintainer 2026-10-06**, caps raised), `FrameOptions.hold`. Not done: `hydrateWindow` / R.claim's deletion, the 3e port (C19 ×2 stay red).                                                                        |
+| 7 / A3 — C2 / C4 (2.3, 2.4)                                         | in #3830                                                                                                                         | C2 (b), C4 (d), harness C2 ×1                                                    | (in #3830's figure)                                       | the interim form (an empty write at the frame's version from the reveal cascade). Not done: R.reveal's readiness/retry deletion; DR-4 (2c). C2 (a2) is S-record's.                                                                                                                                                                |
+| 4 / A4 — C5 (1.2)                                                   | #3832 `fix/frames-c5-data-response-scoped` (on #3830)                                                                            | C5 (a, b, e)                                                                     | 43,194 / 13,659 (+71 / +17 vs #3830)                      | the data path under the store's version guard. Not done: the per-response cell, S-ref (the pending `{$ref}` read), S-record.                                                                                                                                                                                                      |
+| 9 / A5 — C12 (c) client half                                        | #3833 `fix/frames-c12-server-outcome` (on #3830)                                                                                 | C12 (c) → c1 green (dev report), c2 red (server half)                            | 43,123 / 13,642 (±0)                                      | S-adopted documented, not built (+80 B solid).                                                                                                                                                                                                                                                                                    |
+| A6 — server-half drafts                                             | this branch (docs); **built** on `fix/frames-a6-server-half` (2026-10-06, three commits — see the drafts section's status block) | C13 (a, b), C12 (c2); new: C12 (c3), the refetch pin (a) as `test.fails`         | see the A6 PR's size table                                | C13's `ops` chunk, `complete.bound` + the `maxYields` / `maxDurationMs` options, C12 (c)'s error outcome on both faces (the escape as the frame's `:error`). Not built: the client's outward `:error` face; the refetch rule's two parts.                                                                                         |
 
 Still red after the pass (on #3831 ∪ #3832 ∪ #3833 over #3830): C2 (a2 —
 S-record), C12 (c2 — server half), C13 (a, b — wire), harness C19 ×2 (3e).
 Harness, 500 cases, both seeds: only C19 remains (83 / 79 — up from 71 / 68
 because cases that ended in C18/C2 now mount and reach the known R10
-shape).
+shape). **After A6 (`fix/frames-a6-server-half`):** C12 (c2) and C13 (a, b)
+green; still red: C2 (a2 — S-record), harness C19 ×2 (A2b), and the new
+refetch pin (a).
 
 **Landed after the pass (2026-10-06, `fix/frames-a1b-a4-stage-deletion-declared-records`
 on the A2b branch) — 1b, 1.2/1.3's carriers, S-ref, S-record:**
@@ -1704,7 +1788,33 @@ above; `FrameChunk` is unchanged unless the `ops` member is taken.
   chunk below the store's version is dropped (#3832).
 - Untouched, pending 1b: `ServerComponentHandlerOptions.onStream`,
   `FrameHostOptions.resolve` / `FrameHost.resolve`, `FrameHost.preview` /
-  `Frame.preview`, `STAGED_DATA`.
+  `Frame.preview`, `STAGED_DATA` — **their removal approved 2026-10-06**
+  ("not even beta").
+
+**Touched by A6 (`fix/frames-a6-server-half`, 2026-10-06), each flagged in
+its PR:**
+
+- **Wire (additive):** `FrameChunk` gains `{ type: "ops", id, version, ops:
+(hole | attr member)[] }` and the same shape as an `sc:live` op;
+  `complete` gains `bound?: "yields" | "time"`; the `sc:live` channel gains
+  the frame-addressed `{ type: "error", fid, error }` op. RFC addenda in
+  `frame-streams-rfc.md`.
+- `FrameStreamOptions.maxYields?: number` / `maxDurationMs?: number` —
+  **new** (`renderServerComponent`, `renderToFrameStream`,
+  `serverComponentResponse`).
+- `createFrameSink(emit, frame, have, hooks?)` — a fourth optional
+  parameter (`{ onYield }`); the sink's `end(bound?)` takes the bound.
+- Behaviour: `frame:applied` fires once per flush for the hole pass (was
+  once per hole); a plain response's body ends with `complete.bound: "time"`
+  on the request's abort after the first flush (was a bare close); the
+  `SSR_STREAM_ABANDONED` finding is suppressed for an abort whose reason
+  carries `quiet: true` (`renderToStream`).
+- **solid (server, `@internal`):** `HydrationContext.registerFragment`'s
+  resolver gains `escaped?: { frame?: string }`; `HydrationContext.frameId`;
+  the module-internal `ErrorContext` handler takes `(err, outcome?: true)`
+  and may return the rendered outcome (`BoundaryErrorHandler` — not on the
+  package surface; `ErrorContext` never was).
+- Store keys: `:bound` beside `:complete`.
 
 **Touched by A1b + A4 (`fix/frames-a1b-a4-stage-deletion-declared-records`),
 each flagged in its PR — all `@experimental`/`@internal`, none wire:**
