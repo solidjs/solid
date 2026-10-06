@@ -10,8 +10,9 @@ for every fix below is PR #3813** (the contract, its
 twenty-two `test.fails`, its harness): a step lands when its named pins flip
 and nothing else moves. **2026-10-06:** the correctness pass ran overnight
 as draft PRs #3830–#3833 (see "As landed" under the order of work, and the
-defaults it took under "What the rulings do NOT decide"); this document
-rides with the first of them.
+defaults it took under "What the rulings do NOT decide"); the maintainer
+folded the stack into **one PR against `next`, #3837** ("merge as one given
+all the checks"), which carries this document with the code.
 
 The frames/hydration consistency contract
 (`frames-consistency-contract.md`, branch `spec/frames-consistency-contract`
@@ -1356,7 +1357,7 @@ lands outside its band is the finding, not a failure to hide.
 | 8 | **3e** the claim reads the snapshot, the backlog lands after — S1's third commit | 3.6 (iii) | C19 ×2 | 0 if S1 lands first; else ≈ +90 / +25 | 3.6's pick; 3.2's ordering pinned with 3a |
 | 9 | **3c** id parity; **3b** dev report (client minimum) | 3.4, 3.3 | S1's `.fails`; C12 (c) flips with the **server half** (the document face renders the error outcome) | ≈ +40 / +10 (+30 dev) | the server's consumption pinned; the server-half PR for the fragment error path |
 
-### As landed — the overnight pass (2026-10-06, draft PRs off `next` @ `49a8dca84`)
+### As landed — the overnight pass (2026-10-06, draft PRs off `next` @ `49a8dca84`; folded into #3837)
 
 | step (plan)                                                         | PR                                                        | pins flipped (`test.fails` → `test`)                                             | frames eager (min / br, local, vs `next` 43,310 / 13,770) | note                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
