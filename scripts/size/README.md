@@ -200,12 +200,12 @@ breaks.
   `compare` job (which ran after `check`) into a parallel `base` job that
   `check` waits on, and pushes to `next` now compare against the previous
   commit instead of the absolute cap. No cap changed.
-- **2026-10-05 — recorded minified (#SEED_PR).** Measured per PR, the
+- **2026-10-05 — recorded minified (#3822).** Measured per PR, the
   allowance let an over-cap scenario creep: each +15 B PR passed against its
   own base. Every cap now records the minified size measured when it was
   set, and the allowance is measured against that. The warning states the
   headroom left instead of promising a re-base (the lower-only ratchet
   cannot re-base an over-cap scenario). Seeded by the ratchet's
-  `--minified-only` mode from CI's measurement of `next` @ SEED_SHA (Size
-  run SEED_RUN); every cap unchanged. The base comparison remains the fail-safe
+  `--minified-only` mode from CI's measurement of `next` @ c54fb10eb (Size
+  run 37424485735); every cap unchanged. The base comparison remains the fail-safe
   for a cap without a recorded minified.
