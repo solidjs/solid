@@ -48,40 +48,88 @@ mechanism that shouldn't exist. This is that pass for server components.
 
 ## 2. Axioms
 
-Everything below is derived from these seven statements plus one liveness rule. A
-mechanism that cannot cite an axiom is a bug in the architecture even if it fixes a
-bug in the behavior.
+Everything below is derived from one equivalence, seven statements, and one liveness
+rule. A mechanism that cannot cite an axiom is a bug in the architecture even if it
+fixes a bug in the behavior. **And (2026-10-05): a mechanism that cites only A3–A7
+for something the hold model already decides is likewise a bug — cite the L2 rule.**
+A1–A7 are SC-internal; each one is the SC *form* of a rule Solid 2 already has
+(named per axiom below), and a mechanism that satisfies the SC form while
+duplicating what the core rule already provides — a second version space, a second
+gate, a second "done" — has cited the wrong document.
 
+- **A0 — Equivalence** (maintainer, 2026-10-05). *"SCs are no different than other
+  rendered data."* *"Hydration ending follows non-SC Solid 2."* *"SCs participate in
+  `<Loading>` until their first flush the same way, and can have their own internal
+  loading states the client doesn't care about."* A server component's output —
+  frame markup, records, traces — is async rendered data, and
+  [`packages/signals/docs/SPEC-ASYNC-SEMANTICS.md`](../../packages/signals/docs/SPEC-ASYNC-SEMANTICS.md)
+  (the L2 hold model: rulings 1–9 and the A-rules) is the governing document for
+  anything async in this layer, with `documentation/solid-2.0/05-async-data.md` for
+  the `<Loading>` rules and `solid-js` hydration for "done": **the frames layer adds
+  a transport, never a second model.** Outward, a frame is one async value — the
+  enclosing `<Loading>` and hydration-done wait for its first flush, a refetch or
+  switch is a new question under the supersession rules; inward, its server
+  boundaries are the server's — markup the client renders and tracks nothing of.
+  Applied to the frames client, ruling by ruling, in
+  [`frames-rulings.md`](frames-rulings.md) ("Principle"), which marks every ruling
+  `Restates: <core rule>` or `Frames-specific: <transport property>`.
 - **A1 — Single-copy.** Server content travels exactly once: as HTML if it is
   markup, as a data record if the client needs the value. Never both. (At t = 0,
   values recoverable from the rendered page are recovered, not re-sent.)
+  *Transport-specific* — a property of the wire; no core analogue, nothing to
+  restate.
 - **A2 — Hydrate once.** Client components hydrate at t = 0 and never again. After
   boot the server never renders a client component; post-load responses carry server
   content and slot records only.
+  *SC form of* the non-SC hydration rule — hydration is the one-time adoption of the
+  document, finished when `_pendingBoundaries` reaches zero (`hydration.ts`
+  `checkHydrationComplete`); a frame's hold on that is a pending boundary like any
+  other, not a second end (A0; `frames-rulings.md` 3.1, ruled).
 - **A3 — Addresses key content, not mounts.** Every byte the server produces belongs
   to a `(function, arguments)` address. Arrival — any transport: preload, refetch,
   single-flight region, document inline — *only writes the address's store*. There is
   no code path from arrival to DOM.
+  *SC form of* supersession / provenance — L2 ruling 5 and A18: an address is a
+  source, a response is a flight answering one question on it, and an older
+  question's landing is not the answer. "Only writes the store" is "a landing
+  replaces the value; readers pull."
 - **A4 — Sites own mounts.** A consumption site owns one mounted frame, bound to one
   address at a time. DOM changes are pulls: the bound address's store advanced a
   version, or the site rebound to a different address. Binding follows the site's own
   reactive expression, nothing else.
+  *SC form of* latest-wins — L2 ruling 1 / A15 / A30: the mount reads the source's
+  current value; a rebind is a new read, and the version it sees is the one the hold
+  model says is current, not a frame-side counter.
 - **A5 — One record shape.** A slot/region record has one meaning and one
   availability point on every transport. The t = 0 document emits the same records a
   stream would; a consumer never branches on "how did this arrive."
+  *Transport-specific* — the wire's own uniformity rule; its core echo is only that
+  `ssrSource` adoption (`05-async-data.md`) treats a serialized value and a streamed
+  one as the same value.
 - **A6 — One reveal owner.** A pending placeholder has exactly one owner: the frame
   store/flush model. The document is the t = 0 frame (id `""`), not a parallel
   system with its own policy.
+  *SC form of* the one-frame concept — L2 ruling 1 and A15 ("one reveal"): a flush is
+  one landing, and a landing has one owner. DR-4 is this axiom applied to the
+  document.
 - **A7 — Identity-first matching.** Occurrence identity is frame-wide. Reconciliation
   matches client-owned ranges by identity first and position second; a live range is
   *never* detached because of where it sat.
+  *Transport-specific* — a morph rule for server-produced markup around client-owned
+  ranges; the core has no reconciliation of foreign markup to restate.
 - **L1 — Liveness.** Every pending state resolves to exactly one of: content, error,
   or detectable truncation. Nothing pends silently forever. (This is the axiom
   solidjs/solid#2958 showed was missing: a truncated stream must be observable, and
   the `_$HY.fe` seam it relies on must actually exist.)
+  *SC form of* A19 / A27 liveness — a hold that can never land is a bug, not a
+  state; an unreachable source settles as an error (A5 for the escaping case).
+  Truncation is the transport's way of making the source unreachable *observably*.
 
 A1, A2 are unchanged from the shipped design and have never been the source of a bug
-class. A3–A7 and L1 are the corrective ones.
+class. A3–A7 and L1 are the corrective ones. A0 is the one the maintainer had stated
+and this document had not caught: the axioms above were written SC-internally, so a
+mechanism could satisfy A3 or A6 to the letter while building a second copy of what
+the hold model already provides — see §4's 2026-10-05 note.
 
 ### The derived data flow
 
@@ -691,6 +739,33 @@ exists to undo another mechanism's consequences; deletes with its cause.
 
 Score: 24 derived (several simplified), 8 compensatory deletions, 3 restructured.
 The deletions are precisely the mechanisms with the worst bug-per-line record.
+
+**2026-10-05 — what A0 would have made unrepresentable.** The consistency
+contract (`frames-consistency-contract.md` on
+[solidjs/solid#3813](https://github.com/solidjs/solid/pull/3813), 22 `test.fails`)
+pinned reds that each pass the audit above —
+every one of them cites A3, A4 or A6 honestly — and each is an A0 violation: a
+second copy of something the hold model already decides.
+
+- **Two version spaces** (rows 5, 7 above; contract C5–C7, rulings 1.1–1.2, 2.1–2.2):
+  `#version` on the frame store and the applied-version in the DOM, each
+  bookkeeping that A3/A4's "latest version" already is — L2 ruling 1 / A18 decide
+  which landing is current; there is one.
+- **Two gates** (row 32; C17, rulings 1.5–1.6): a frame-side shell gate beside the
+  enclosing `<Loading>`'s pending state, where A0's outward face says the boundary
+  *is* the gate for the frame's first flush.
+- **A second notion of done** (rows 32, 34; C3, ruling 3.1 — ruled): a frames-side
+  hydration-end beside `_pendingBoundaries`, where A2 + A0 say a frame's hold is a
+  pending boundary registered with the one counter.
+- **Client-side error state for a server boundary** (row 23; C12 (c), ruling 3.3):
+  a client `<Errored>` for a boundary the server owns, where A0's inward face says
+  the client shows whatever the server rendered for the outcome and never invents
+  one.
+
+The rulings, their fixes and byte estimates are in
+[`frames-rulings.md`](frames-rulings.md); the lesson for this document is the
+standard added to §2 — a mechanism that cites only A3–A7 for what the L2 rule
+decides cites the wrong document.
 
 ---
 
