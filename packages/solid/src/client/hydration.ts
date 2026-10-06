@@ -220,6 +220,38 @@ type SharedConfig = {
    * @internal
    */
   holdBoundary?: (id: string) => () => void;
+  /**
+   * Run `fn` as a CLAIM of server-rendered DOM under `id`'s keys — the
+   * re-entry a streamed `<Loading>` resume takes, for an integration that
+   * owns server markup wholesale (the frames client's adopted occurrences):
+   * the keys under `id` gathered into the registry, hydrating on for the
+   * synchronous window, the current owner the claim owner (a render the
+   * window forces elsewhere is a client render — `isClaiming`), `scope`
+   * the registry/gather pair the claimant adopted under when another
+   * `hydrate()` root may have replaced the live one since (#2917). Call it
+   * only once a root has gathered (`sharedConfig.registry` is set): there
+   * is nothing to claim against before. Assigned by `enableHydration()`;
+   * absent in CSR bundles. Cross-package wiring; not part of the
+   * user-facing API.
+   *
+   * @internal
+   */
+  hydrateWindow?: <T>(
+    id: string,
+    fn: () => T,
+    scope?: { registry?: Map<string, object>; gather?: (key: string) => void }
+  ) => T;
+  /**
+   * The roots of the claim in progress when its range may be detached (an
+   * async slot fill renders before its boundary re-inserts it): the DOM
+   * runtime's hydration guard reads connectivity to tell claimed server
+   * nodes from fresh clones, and a node under one of these is as claimed as
+   * a connected one. Set by the claimant around its `hydrateWindow` (the
+   * frames client), read by the DOM runtime.
+   *
+   * @internal
+   */
+  claimRoots?: Node[];
 };
 
 /**
@@ -1950,6 +1982,10 @@ export function enableHydration() {
     const release = initBoundaryResume(getOwner()!, id)[2];
     return () => release() && checkHydrationComplete();
   };
+  // An adopted occurrence's claim is a resume's window — the keys under its
+  // producer prefix, the current owner the claim owner — without a resume's
+  // registration (the frame's hold above is that).
+  sharedConfig.hydrateWindow = hydrateWindow;
 
   // Take ownership of streamed-fragment reveals (see the fragment ledger).
   // The header script creates `_$HY` before any module runs, so the hook is
@@ -2567,6 +2603,83 @@ function createBoundaryTrigger(): () => void {
   return set;
 }
 
+/**
+ * The claim window: `fn` runs claiming server-rendered DOM under `o`.
+ *
+ * - The keys under `id` are gathered into the registry (none without an
+ *   `id`); `scope` is the registry/gather pair the claimant registered
+ *   under — another `hydrate()` root may have replaced the live globals
+ *   since (#2917) — swapped in for the synchronous window; without one the
+ *   live globals apply.
+ * - Hydrating is on, `o` is the claim owner — the window claims `o`'s
+ *   subtree only; a re-render it forces elsewhere (a write from the claimed
+ *   content's user effects reaching a signal above it) is a client render
+ *   (#3504). A claimant whose range may be detached declares it in
+ *   `sharedConfig.claimRoots` around the window (the frames client does).
+ * - `o` is the window's snapshot and live scope (D8) when no scope is open
+ *   — a late claim, after the root pass. Writes during the window are held
+ *   from `o`'s subtree and replay at release, once the claim is over; the
+ *   live nodes it hydrated take over then. Inside an open scope (the root
+ *   pass; an enclosing window) the claim joins it and releases with it —
+ *   releasing `o` on its own would let a write later in the pass cascade
+ *   live into a claim pass whose DOM writes are skipped. Capture is on
+ *   through hydration; a window opened after hydration-done (an adopted
+ *   frame's claim at a fragment's reveal) turns it on for its span and
+ *   clears what it captured.
+ *
+ * Everything is restored on the way out, nested windows included. The body
+ * of a streamed boundary's resume (below), factored so the frames client's
+ * adopted occurrences re-enter hydration the same way — it IS
+ * `sharedConfig.hydrateWindow`, `o` defaulting to the current owner there —
+ * instead of through a registry and a hydrating flag of their own. The
+ * caller sees to it that a root has gathered (`sharedConfig.registry`): a
+ * window with no registry to claim against would miss every key.
+ */
+function hydrateWindow<T>(
+  id: string | undefined,
+  fn: () => T,
+  scope?: { registry?: Map<string, object>; gather?: (key: string) => void },
+  o: Owner | null = getOwner()
+): T {
+  const prevRegistry = sharedConfig.registry;
+  const prevGather = sharedConfig.gather;
+  const prevHydrating = _hydratingValue;
+  const prevClaim = _claimOwner;
+  const own = !_snapshotRootOwner && o;
+  const capture = own && _hydrationDone;
+  if (scope) {
+    sharedConfig.registry = scope.registry;
+    sharedConfig.gather = scope.gather;
+  }
+  try {
+    if (id) sharedConfig.gather?.(id);
+    _hydratingValue = true;
+    _claimOwner = o;
+    if (own) {
+      if (capture) setSnapshotCapture(true);
+      markSnapshotScope(own);
+      openLiveScope(own);
+      _snapshotRootOwner = own;
+    }
+    return fn();
+  } finally {
+    _hydratingValue = prevHydrating;
+    _claimOwner = prevClaim;
+    if (scope) {
+      sharedConfig.registry = prevRegistry;
+      sharedConfig.gather = prevGather;
+    }
+    if (own) {
+      _snapshotRootOwner = null;
+      releaseSnapshotScope(own);
+      // this claim's hydration is over: its live nodes take over now,
+      // without waiting for the rest of the page (D8)
+      releaseLiveScope(own);
+      if (capture) clearSnapshots();
+    }
+  }
+}
+
 function resumeBoundaryHydration(
   o: Owner,
   id: string,
@@ -2582,49 +2695,30 @@ function resumeBoundaryHydration(
     checkHydrationComplete();
     return;
   }
-  // A late resume must claim against the root this boundary registered
-  // under — another hydrate() root may have replaced the global
-  // registry/gather since (#2917). Swap the captured pair in for the
-  // synchronous resume window; without a capture the live globals apply.
-  const prevRegistry = sharedConfig.registry;
-  const prevGather = sharedConfig.gather;
-  const prevClaim = _claimOwner;
-  if (scope) {
-    sharedConfig.registry = scope.registry;
-    sharedConfig.gather = scope.gather;
-  }
-  try {
-    if (shouldHydrate) sharedConfig.gather?.(id);
-    _hydratingValue = shouldHydrate;
-    if (shouldHydrate) {
-      markSnapshotScope(o);
-      openLiveScope(o);
-      _snapshotRootOwner = o;
-      // The window claims this boundary's subtree only: the rest of the
-      // tree hydrated in the root pass, and a re-render it takes during the
-      // window (a write from the resumed content's user effects) is a
-      // client render (#3504).
-      _claimOwner = o;
-    }
+  if (shouldHydrate) {
+    // A late resume claims against the root this boundary registered under
+    // (the captured `scope`), its subtree the snapshot and live scope for
+    // the window; the trigger re-runs the boundary's compute inside it.
+    hydrateWindow(
+      id,
+      () => {
+        set();
+        flush();
+      },
+      scope,
+      o
+    );
+  } else {
+    // The client renders the boundary fresh (recover): no claim.
+    _hydratingValue = false;
     set();
     flush();
-    if (shouldHydrate) _snapshotRootOwner = null;
-    _hydratingValue = false;
-    _claimOwner = prevClaim;
-    if (shouldHydrate) {
-      releaseSnapshotScope(o);
-      // this boundary's hydration is over: its live nodes take over now,
-      // without waiting for the rest of the page (D8)
-      releaseLiveScope(o);
-    }
-    flush();
-  } finally {
-    _claimOwner = prevClaim;
-    if (scope) {
-      sharedConfig.registry = prevRegistry;
-      sharedConfig.gather = prevGather;
-    }
   }
+  // Hydration mode is off once a boundary has resumed — whatever the flag
+  // read before (a resume never runs inside a root's synchronous pass; the
+  // client-gated nodes the resume created compute in the flush below).
+  _hydratingValue = false;
+  flush();
   checkHydrationComplete();
 }
 

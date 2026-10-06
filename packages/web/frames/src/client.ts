@@ -281,71 +281,41 @@ function normalizeSlotContent(value: any): Node | Node[] {
  * instance disposes with its owning scope.
  */
 /**
- * Scoped hydration re-entry for one slot range (the late-boundary-resume
- * pattern): gather the range's `_hk` nodes into a registry, flip the
- * hydration window on for the synchronous render, and run under an owner
- * whose id chain reproduces the document producer's keys. No claimable
- * nodes in the range → plain client render (CSR boot, post-load streams).
+ * The registry/gather pair a boundary adopts under — read at adoption, so
+ * its occurrences' claims (which may run long after, under the frame's hold
+ * or at a fragment's reveal) gather against the root that holds the frame
+ * and not whichever `hydrate()` root replaced the live pair since (#2917).
  */
-function gatherClaims(el: Element, registry: Map<string, Element>) {
-  if (el.hasAttribute("_hk")) registry.set(el.getAttribute("_hk")!, el);
-  // A nested frame region is server-owned and opaque: the occurrences inside
-  // it run their own claims with their own registries. Not descending keeps
-  // gathering linear over an adopted tree — a blanket querySelectorAll here
-  // re-collected every nested comment's subtree once per enclosing level.
-  if (el.hasAttribute(FRAME_ID_ATTR)) return;
-  for (let c = el.firstElementChild; c; c = c.nextElementSibling) gatherClaims(c, registry);
-}
+type ClaimScope = { registry?: Map<string, object>; gather?: (key: string) => void };
 
-// A deferred-fragment placeholder (`<template id="pl-*">`) in the range means
-// a <Loading> inside this slot's content is still waiting on a streamed
-// fragment. The claim scope must engage even when the visible fallback has no
-// `_hk` elements to gather (plain text fallbacks): the boundary has to render
-// under the producer's id chain so it finds its pending `<key>_fr`
-// registration, goes on record as the fragment's claimant (#2964), and
-// resumes into the swapped content instead of eagerly re-rendering on the
-// client over a fragment that then has no owner.
-function hasPendingFragment(existing: Node[]) {
-  for (const n of existing) {
-    if (n.nodeType !== 1) continue;
-    const el = n as Element;
-    if (el.tagName === "TEMPLATE" && el.id.startsWith("pl-")) return true;
-    if (el.querySelector?.('template[id^="pl-"]')) return true;
-  }
-  return false;
-}
-
-function claimRender(prefix: string, existing: Node[], render: () => any) {
+/**
+ * Hydration re-entry for one adopted slot range: the fill renders inside a
+ * claim window — `sharedConfig.hydrateWindow`, the same window a streamed
+ * boundary's resume opens — under an owner whose id chain reproduces the
+ * document producer's keys (`sc-<fid>-<occurrence>-`). The window gathers
+ * the range's keys by that prefix, so the fill's components take the
+ * server-rendered nodes by key; the range is declared as the window's claim
+ * roots because it may be DETACHED right now (an async slot fill renders
+ * before its boundary re-inserts it) and the runtime's hydration guards
+ * read connectivity to tell claimed SSR nodes from fresh clones. A fill
+ * whose range has no keyed node claims nothing and renders as it would
+ * have; a `<Loading>` fallback in it still renders under the producer's
+ * chain, finds its pending `<key>_fr` registration, and resumes into the
+ * swapped content instead of re-rendering over a fragment nobody owns.
+ * Plain render on a page that never hydrated (CSR boot, post-load streams).
+ */
+function claimRender(prefix: string, existing: Node[], render: () => any, scope?: ClaimScope) {
   const sc: any = sharedConfig;
-  if (!sc.getNextContextId) return render();
-  const registry = new Map<string, Element>();
-  for (const n of existing) {
-    if (n.nodeType !== 1) continue;
-    gatherClaims(n as Element, registry);
-  }
-  if (!registry.size && !hasPendingFragment(existing)) return render();
-  const prevRegistry = sc.registry;
-  const prevHydrating = sc.hydrating;
-  const prevClaimRoots = sc.claimRoots;
-  // The enclosing pass gathered these same nodes: gatherHydratable sweeps the
-  // whole document for `_hk`, frame regions included, so every slot root ends
-  // up in the root registry too. Only this scoped registry ever claims them,
-  // so hand ownership over — otherwise the root's completion check reports
-  // each claimed slot node as unclaimed server markup.
-  if (prevRegistry) for (const key of registry.keys()) prevRegistry.delete(key);
-  sc.registry = registry;
-  sc.hydrating = true;
-  // The range may be DETACHED right now (an async slot fill renders before
-  // its boundary re-inserts it), and the runtime's hydration guards read
-  // connectivity to tell claimed SSR nodes from fresh clones. Declaring the
-  // range as claim roots keeps its interior walking as hydration either way.
+  // No window, or no registry gathered yet (no `hydrate()` pass has run):
+  // nothing to claim against — render fresh over the markup.
+  if (!sc.hydrateWindow || !sc.registry) return render();
+  const prevRoots = sc.claimRoots;
   sc.claimRoots = existing;
   try {
-    return runWithOwner(createOwner({ id: prefix }), render);
+    // The claim owner too: the window claims this fill's subtree only.
+    return runWithOwner(createOwner({ id: prefix }), () => sc.hydrateWindow(prefix, render, scope));
   } finally {
-    sc.registry = prevRegistry;
-    sc.hydrating = prevHydrating;
-    sc.claimRoots = prevClaimRoots;
+    sc.claimRoots = prevRoots;
   }
 }
 
@@ -679,7 +649,12 @@ function isReactiveContent(value: any): boolean {
   return false;
 }
 
-function slotsFor(props: Record<string, any>) {
+/**
+ * The slot fills of a boundary. `scope` (adopted boundaries): the
+ * registry/gather pair the boundary adopted under, for its occurrences'
+ * claims — see `claimRender`.
+ */
+function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
   // Live range bindings, one per occurrence. A re-call replaces its
   // occurrence's binding (the frame only runs slot cleanups at unmount, not
   // between re-calls), so dispose the outgoing one before the incoming
@@ -845,10 +820,10 @@ function slotsFor(props: Record<string, any>) {
           // displaced, e.g. moved-out {$frame} region ranges (#547).
           const value = fillOwner
             ? runWithOwner(fillOwner, () =>
-                adopted ? claimRender(prefix, ctx.existing, evaluate) : evaluate()
+                adopted ? claimRender(prefix, ctx.existing, evaluate, scope) : evaluate()
               )
             : adopted
-              ? claimRender(prefix, ctx.existing, evaluate)
+              ? claimRender(prefix, ctx.existing, evaluate, scope)
               : evaluate();
           // Static content (the common case: render props returning component
           // roots, plain JSX with no top-level control flow): today's
@@ -897,7 +872,9 @@ function slotsFor(props: Record<string, any>) {
                 end,
                 [...ctx.existing]
               );
-            runWithOwner(owner, () => (adopted ? claimRender(prefix, ctx.existing, bind) : bind()));
+            runWithOwner(owner, () =>
+              adopted ? claimRender(prefix, ctx.existing, bind, scope) : bind()
+            );
             return undefined;
           }
           // No range handle (a consumer-constructed frame without markers):
@@ -1411,11 +1388,14 @@ function adoptBoundary(
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
   // boundaryScope for the ambient-preserving rule).
   const owner = getOwner();
+  // The root this boundary adopts under (see ClaimScope): its occurrences
+  // claim against this pair however late they mount.
+  const sc: any = sharedConfig;
   frame = createFrame(el, {
     adopt: true,
     host,
     id: address,
-    slots: slotsFor(props),
+    slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     // May the document still run scripts that assign records? While the
@@ -1451,12 +1431,10 @@ function adoptBoundary(
       // client render adopting server markup) or after it settled is the
       // frame's business, not the page's. Untracked: the registration reads
       // its trigger once, which is not a read of this component's.
-      hold: () => {
-        const sc: any = sharedConfig;
-        return sc.isHydrationInProgress?.()
+      hold: () =>
+        sc.isHydrationInProgress?.()
           ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
-          : () => {};
-      },
+          : () => {},
       // The identity split binds the frame to the call ADDRESS (id + args
       // hash), but the document producer stamped `_hk` keys and region fids
       // under the wire name — the bare function id. Hydration-claim prefixes
