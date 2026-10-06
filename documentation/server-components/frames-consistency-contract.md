@@ -98,7 +98,10 @@ live fill behind it.
 
 - **Mechanism:** `frame-client.ts:FrameImpl.#syncSlots` (range discovery over
   the frame's content), `client.ts:adoptBoundary`'s `fr.subscribe` cascade
-  (`claimRegionFragments` + `drainRecords`, #2978/#2968), `#recordRefresh`.
+  (`drainRecords` + the reveal-is-an-apply write, #2968 / rulings 2.3; the
+  swap itself needs no claim from the adoption — a placeholder inside a
+  `data-fid` element is the frame's content by rendering, `_$HY.fa`, A5′),
+  `#recordRefresh`.
   A re-sync after a reveal happens only when the reveal brings a _new_
   record (`drainRecords` → `host.apply` → `#flush` → `#syncSlots`); nothing
   re-syncs on the reveal itself.
@@ -296,8 +299,11 @@ one — and changes only when the document (or a stream) delivers.
 
 - **Mechanism:** `solid/hydration.ts:hydratedCreateLoadingBoundary` (`_fr`
   states: pending / settled / parked / superseded / rejected), `fragmentPolicy`
-  (held swaps), `client.ts:adoptBoundary.claimRegionFragments` (#2978: the
-  adoption claims server-produced placeholders so a late swap lands).
+  (held swaps) with its ownership-by-rendering term (`_$HY.fa`, installed by
+  `client.ts:installRevealHook` — #2978: a server-produced placeholder inside
+  a live `data-fid` element is the frame's content, so a late swap lands with
+  or without an adoption on record; rulings 3.3, A5′), `adoptBoundary`'s
+  dev-only rejection report over the region's `pl-*` templates.
 - **Pin:** `c12-boundary-parity.spec.tsx` — a server `<Loading>` inside the
   adopted frame: (a) pending at adopt (fallback shows, no fetch, ledger
   pending); (b) revealed after adopt (content replaces the fallback in one
@@ -336,9 +342,11 @@ reveal touches the DOM or invokes a fill.
 
 - **Mechanism:** `frame-client.ts:FrameImpl.dispose` (unregister first,
   cleanups, record hygiene, `#recordRefresh` cleared), `createFrameHost.unregister`,
-  `client.ts:adoptBoundary`'s `onCleanup` (applier, `fr` unsubscribe, fragment
-  claims released), `client.ts:documentBoundary`'s `boundaryWaiters` cleanup,
-  `client.ts:followAddress.drop`.
+  `client.ts:adoptBoundary`'s `onCleanup` (applier, `fr` unsubscribe, the
+  element and its region elements entered in `disposedFrames` so `_$HY.fa`
+  disowns their placeholders — a boundary disposed _in place_ keeps its
+  element in the document), `client.ts:documentBoundary`'s `live` latch over
+  the shared arrival wait, `client.ts:followAddress.drop`.
 - **Pin:** `c14-dispose-clean.spec.tsx` — arms: (a) dispose during the
   record defer (`readyState` "loading"), the record lands after; (b) during a
   `{$ref}` wait on a stream, the data lands after; (c) during a late-boundary
@@ -429,7 +437,7 @@ address's late chunks never release it.
 | C9  | no phantom                         | `claimRender`, `slotArgsProxy`, settled-branch hydration               | `c09-no-phantom`                  | holds             |
 | C10 | ids timing-independent             | `claimRender` owner id, `#invokeSlot` ctx                              | `c10-ids-timing-independent`      | holds             |
 | C11 | trace equals oracle                | `materializeContainerTrace`, `materialize` memo                        | `c11-trace-equals-oracle`         | holds             |
-| C12 | boundary parity at claim           | `hydratedCreateLoadingBoundary`, `claimRegionFragments`                | `c12-boundary-parity`             | **red** (c)       |
+| C12 | boundary parity at claim           | `hydratedCreateLoadingBoundary`, `fragmentPolicy` + `_$HY.fa`          | `c12-boundary-parity`             | **red** (c2)      |
 | C13 | one sweep, one frame               | `applyFrames.drain`, `#flush` hole pass                                | `c13-sweep-atomic`                | **red** (a, b)    |
 | C14 | disposal leaves nothing            | `dispose`, `unregister`, adopt cleanups                                | `c14-dispose-clean`               | holds             |
 | C15 | staged refetch lands whole         | `stage`/`stagedContent`, `followAddress`                               | `c15-staging-atomic`              | holds             |
