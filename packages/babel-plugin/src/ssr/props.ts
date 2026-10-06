@@ -156,6 +156,20 @@ function insideRealFunction(path: NodePath, stop: NodePath): boolean {
   return false;
 }
 
+/** Type positions are erased before the code runs: a name there (the `x` of
+ * `typeof x`, or a type that shares a value's name) is not a value the
+ * constructor can be handed. `TSType` covers `implements`/`extends` heritage. */
+function isTypePosition(path: NodePath): boolean {
+  return (
+    path.isTSType() ||
+    path.isTSTypeAnnotation() ||
+    path.isTSTypeParameterDeclaration() ||
+    path.isTSTypeParameterInstantiation() ||
+    path.isTSInterfaceDeclaration() ||
+    path.isTSTypeAliasDeclaration()
+  );
+}
+
 /** Is `binding` initialized by the time the site constructs its props? The
  * getter read it lazily; the constructor reads it now. A parameter or a
  * hoisted function always is. Otherwise the declaration must precede the
@@ -239,6 +253,10 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
         }
         if (q.isMetaProperty()) {
           if (q.node.meta.name === "new" && !insideRealFunction(q, m)) fallback = true;
+          return;
+        }
+        if (isTypePosition(q)) {
+          q.skip();
           return;
         }
         if (!q.isIdentifier()) return;

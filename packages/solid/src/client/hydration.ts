@@ -202,6 +202,24 @@ type SharedConfig = {
    * @internal
    */
   isClaiming?: () => boolean;
+  /**
+   * Register a hold on hydration-done under the current owner — a pending
+   * boundary in everything but a resume. Hydration-done follows non-SC
+   * Solid 2 (frames-rulings 3.1): a client hold on adopted server markup
+   * — an occurrence waiting for its args record, a `{$ref}` wait — counts
+   * through the same registration a streamed `<Loading>` resume takes, so
+   * `onHydrationEnd` and `isHydrationInProgress` mean the same thing with
+   * or without server components. Call it under the holding owner (its
+   * disposal releases), with an `id` no fragment uses, and only while
+   * `isHydrationInProgress()` — a hold taken on a page that never hydrated,
+   * or after it settled, is the holder's business, not the page's. Returns
+   * the release (idempotent). Assigned by enableHydration(); absent in CSR
+   * bundles (nothing to hold). Cross-package wiring; not part of the
+   * user-facing API.
+   *
+   * @internal
+   */
+  holdBoundary?: (id: string) => () => void;
 };
 
 /**
@@ -1867,6 +1885,14 @@ export function enableHydration() {
   sharedConfig.isHydrationInProgress = isHydrationInProgress;
   sharedConfig.onHydrationEnd = onHydrationEnd;
   sharedConfig.isClaiming = isClaiming;
+  // A client hold on adopted markup is a resume's registration — the count,
+  // the owner's `_hp` mark (a rerun under it is still the claim in
+  // progress), the disposal release — with nothing to resume; `id` keys the
+  // registration's bookkeeping, and the holder passes one no fragment uses.
+  sharedConfig.holdBoundary = id => {
+    const release = initBoundaryResume(getOwner()!, id)[2];
+    return () => release() && checkHydrationComplete();
+  };
 
   // Take ownership of streamed-fragment reveals (see the fragment ledger).
   // The header script creates `_$HY` before any module runs, so the hook is

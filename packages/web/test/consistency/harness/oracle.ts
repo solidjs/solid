@@ -208,7 +208,15 @@ export function settled(w: World): Finding[] {
 export function end(w: World): Finding[] {
   const f: Finding[] = [];
   const at = (id: string, law: string, detail: string) => f.push({ id, law, step: w.step, detail });
-  if (w.hydrationEnd && w.hydrationEnd.mountedButUninvoked.length)
+  // A mount disposed before done owes no claim: its hold releases at the
+  // disposal (as a disposed <Loading>'s registration does — a boundary that
+  // can never resume must not hold global hydration open forever), and the
+  // server markup it left behind is nobody's to claim.
+  if (
+    w.hydrationEnd &&
+    w.hydrationEnd.mountedButUninvoked.length &&
+    !(w.disposedAt >= 0 && w.hydrationEnd.step >= w.disposedAt)
+  )
     at(
       "C3",
       "done-counts-holds",

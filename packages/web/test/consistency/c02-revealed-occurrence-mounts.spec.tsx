@@ -231,54 +231,54 @@ describe("C2 — no inert server content", () => {
   );
 
   // Arm (b): a direct-insert occurrence (`children`) is recordless by design.
-  // Revealed into the adopted region, it must mount all the same.
-  test.fails(
-    "(b) direct-insert `children` occurrence revealed after adoption: mounted and live",
-    async () => {
-      const fid = freshFid("c2b");
-      const frag = "c2b";
-      page = bootPage(pendingShell(fid, frag));
-      page.declareFragment(frag);
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const [tick, setTick] = createSignal(0);
-      const dispose = hydrate(
-        () => (
-          <Comp>
-            <b>{tick()}</b>
-          </Comp>
-        ),
-        page.container
-      );
-      await quiesce();
-      expect(page.container.textContent).toBe("loading");
+  // Revealed into the adopted region, it must mount all the same. Was red
+  // on `next` (the reveal applied nothing, so no sync ran over the revealed
+  // range); green under frames-rulings 2.3 — a reveal is an apply: the
+  // document face's reveal cascade syncs the adopting frame.
+  test("(b) direct-insert `children` occurrence revealed after adoption: mounted and live", async () => {
+    const fid = freshFid("c2b");
+    const frag = "c2b";
+    page = bootPage(pendingShell(fid, frag));
+    page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const [tick, setTick] = createSignal(0);
+    const dispose = hydrate(
+      () => (
+        <Comp>
+          <b>{tick()}</b>
+        </Comp>
+      ),
+      page.container
+    );
+    await quiesce();
+    expect(page.container.textContent).toBe("loading");
 
-      page.revealFragment(frag, slotRange("children", liveChildrenHtml(fid)));
-      await quiesce();
-      await quiesce();
-      const b = page.container.querySelector("b")!;
-      expect(b).not.toBeNull();
-      expect(page.container.textContent).toBe("0");
+    page.revealFragment(frag, slotRange("children", liveChildrenHtml(fid)));
+    await quiesce();
+    await quiesce();
+    const b = page.container.querySelector("b")!;
+    expect(b).not.toBeNull();
+    expect(page.container.textContent).toBe("0");
 
-      setTick(1);
-      flush();
-      // Observed on next: the revealed <b> shows "0" after the bump (the
-      // client `children` JSX was never evaluated); no warning, no error.
-      // Expected: "1" — the occurrence mounted and its hole is live. Where
-      // it goes wrong: client.ts adoptBoundary's `fr.subscribe` callback is
-      // the only reaction to a reveal, and it does two things — claim nested
-      // `pl-*` placeholders and `drainRecords()`. `drainRecords` applies only
-      // NEW `sc:slot:`/`sc:region:` keys; a direct-insert occurrence has no
-      // record by design, so nothing reaches `host.apply`, no `#flush` runs,
-      // and frame-client.ts `#syncSlots` — the only place a marker pair is
-      // discovered and mounted — never walks the revealed content. The
-      // reveal itself (`$dfr` → `_$HY.fe`) carries no re-sync.
-      expect(page.container.textContent).toBe("1");
-      expect(page.container.querySelector("b")).toBe(b);
-      expect(page.warnings).toEqual([]);
-      expect(page.errors).toEqual([]);
-      dispose();
-    }
-  );
+    setTick(1);
+    flush();
+    // Observed on next: the revealed <b> shows "0" after the bump (the
+    // client `children` JSX was never evaluated); no warning, no error.
+    // Expected: "1" — the occurrence mounted and its hole is live. Where
+    // it goes wrong: client.ts adoptBoundary's `fr.subscribe` callback is
+    // the only reaction to a reveal, and it does two things — claim nested
+    // `pl-*` placeholders and `drainRecords()`. `drainRecords` applies only
+    // NEW `sc:slot:`/`sc:region:` keys; a direct-insert occurrence has no
+    // record by design, so nothing reaches `host.apply`, no `#flush` runs,
+    // and frame-client.ts `#syncSlots` — the only place a marker pair is
+    // discovered and mounted — never walks the revealed content. The
+    // reveal itself (`$dfr` → `_$HY.fe`) carries no re-sync.
+    expect(page.container.textContent).toBe("1");
+    expect(page.container.querySelector("b")).toBe(b);
+    expect(page.warnings).toEqual([]);
+    expect(page.errors).toEqual([]);
+    dispose();
+  });
 
   // Arm (c2): reveal BEFORE hydrate, post-done. Global hydration has already
   // completed in this worker (forced here with a throwaway pass, so the arm
