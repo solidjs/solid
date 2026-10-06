@@ -26,14 +26,21 @@ export default defineConfig({
     environment: "jsdom",
     pool: "threads",
     globals: true,
-    exclude: ["**/node_modules/**", "wip_tests/**", "test/server/**", "test/hydration/**"],
+    exclude: [
+      "**/node_modules/**",
+      "wip_tests/**",
+      "test/server/**",
+      "test/hydration/**",
+      // The consistency contract's pins run under vite.config.hydrate.mjs.
+      "test/consistency/**"
+    ],
     // Bench mode reads `benchmark.exclude` separately from `test.exclude`.
     // Without this, `pnpm bench` would pick up the SSR Tier-1 benches under
     // the jsdom env + client-build aliases, which silently produces wrong
     // numbers (server build is loaded as client). SSR benches run via
     // `pnpm bench:server` against `vite.config.server-bench.mjs` instead.
     benchmark: {
-      exclude: ["**/node_modules/**", "test/server/**", "test/hydration/**"]
+      exclude: ["**/node_modules/**", "test/server/**", "test/hydration/**", "test/consistency/**"]
     }
   },
   resolve: {

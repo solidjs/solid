@@ -112,6 +112,34 @@ calls until both are current.
   (frames). B1 (teardown) and the D8 fix are independent and may land any
   time.
 
+### D8 amendment — in-flight values take over at hydration end (2026-10-06)
+
+A live node whose serialized value is still in flight when it arms (no
+`s` stamp on the seroval promise yet) takes over at hydration end, not
+when its scope releases. Such a node is typically created in the shell
+and read only inside a streamed `<Loading>`, a shape that misses the
+shell flush unless its first value is ready synchronously. The boundary
+reading it claims its server DOM against that value, and a takeover
+before the value arrives has nothing to replay (the takeover's local
+first yield is the adopted value), so the boundary rendered a second
+copy beside the server's (#3764, fixed in #3817). Nodes with a
+`loadingValue` are exempt: every claim reads commit #0, so the streamed
+value has nothing to wait for. Every other node keeps D8 as written. The
+cost is latency: such a node goes live only when the slowest boundary on
+the page has hydrated (the room demo's header is the case). Per-scope
+takeover for these nodes is the follow-up, #3819.
+
+The live-source brand, `Symbol.for("solid.LiveSource")`, is the protocol
+between `solid-js` and `live()`, not an authoring surface. A source that
+carries the brand must also replay: on a takeover, the hydrating node
+stamps the iterable with `Symbol.for("solid.LiveResumeFrom")` (the value
+the page was served with), and the iteration must yield that value
+first, locally, before anything from the wire. A branded source that
+skips the replay leaves the node pending at takeover, and a boundary
+still to claim against it loses its server DOM even when the value was
+settled in the shell. `live()` from `@solidjs/web/server-functions` does
+both.
+
 ## Phase 0 — write it down (this worktree, `feat/sse-carrier`)
 
 - [x] RFC 10: `live(fn)` subsection with its Framing bullet (per-source

@@ -33,7 +33,7 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
-import type { StoreFamily, StoreTarget } from "./target.js";
+import { setLookup, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   markRawIngest,
@@ -116,7 +116,12 @@ function wrapDraft(
         Reflect.defineProperty(inner, prop, desc);
       })
   };
-  return new Proxy(Array.isArray(inner) ? [] : {}, traps);
+  const px = new Proxy(Array.isArray(inner) ? [] : {}, traps);
+  // The wrapper stands for its store proxy wherever the derive's result
+  // carries it (`wrap`, `unwrapValue`, reconcile's slot matching).
+  const t: StoreTarget | undefined = inner[$TARGET];
+  if (t !== undefined) setLookup(px, t);
+  return px;
 }
 
 function cloneState<T extends object>(v: T, shallow: boolean): T {
