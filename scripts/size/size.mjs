@@ -13,7 +13,10 @@ import { bundle, packageOf, scenarios, toBytes, toKB } from "./bundle.mjs";
 const args = process.argv.slice(2);
 const jsonAt = args.indexOf("--json");
 const jsonFile = jsonAt >= 0 ? args[jsonAt + 1] : null;
-const filters = args.filter((a, i) => !a.startsWith("--") && i !== jsonAt + 1);
+// Without `--json`, jsonAt is -1 and `i !== jsonAt + 1` would drop the first
+// positional filter (index 0); only exclude the file argument when the flag
+// is present.
+const filters = args.filter((a, i) => !a.startsWith("--") && (jsonAt < 0 || i !== jsonAt + 1));
 
 const results = [];
 let failed = false;

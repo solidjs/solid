@@ -2972,6 +2972,95 @@ module.exports = [
     limit: "28.68 KB",
     alias: observeAlias
   },
+  // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
+  // are hand-written runtime calls that return the flow components as
+  // values; none of them compiles a template, so the attribute runtime
+  // (`spread`, `className`, `style`, `setAttribute`, `addEvent`,
+  // `delegateEvents`) and the hydratable walk helpers (`getNextElement`,
+  // `getNextMarker`, `runHydrationEvents`, `scope`) were never on the gate
+  // (documentation/plans/solid-web-size-audit.md §1.3, §2.4). These three are
+  // JSX under fixtures/compiled/, compiled by the measured checkout's native
+  // @solidjs/compiler at measure time (bundle.mjs, `compile`) and bundled
+  // like every other scenario. The compiled app's own modules report as the
+  // `app` package, so the runtime's bytes are separable. Not frozen floors
+  // yet: their caps are inline, measured + 10 B rounded up to 0.01 KB.
+  {
+    name: "app: compiled floor (one template, one text hole, one delegated click)",
+    // The compiled counterpart of the "render + one signal" floor: a
+    // counter button through `template`, a text-hole `insert`, a delegated
+    // `_$$click` and `delegateEvents`. Its delta against that floor is what
+    // the first real template costs over a hand-written app.
+    //
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 10,033 B (28,188 B minified; signals=21,602
+    // web=6,099 solid=260 app=229) — +187 B brotli / +531 B minified over
+    // the hand-written floor's 9,846: `template`, `delegateEvents` and the
+    // delegated-handler branch of the dispatcher, and the compiled
+    // component itself. (Measured locally at 10,019 / 28,184 on next @
+    // b07fed550 before #3806's +4 B minified in the signals scheduler
+    // landed; the compiled app's own bytes are identical on both.) Cap at
+    // CI-measured + 10 B rounded up to 0.01 KB.
+    path: "fixtures/compiled/floor.jsx",
+    compile: { hydratable: false },
+    limit: "10.05 KB",
+    alias
+  },
+  {
+    name: "app: compiled CSR (JSX todo app: spread/merge/omit, events, class/style, keyed For, Show, Loading + lazy, store)",
+    // fixtures/compiled/app.jsx through render(), compiled in client DOM
+    // mode: the production build of a plain SPA. What it adds over the
+    // hand-written CSR app is the DOM attribute runtime — and the store
+    // view machinery (`merge`/`omit` views in signals' store/utils) that
+    // `spread` reads a source through, whether or not the app calls
+    // `merge` itself (audit §1.3 finding 2).
+    //
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 25,070 B (78,807 B minified; signals=62,632
+    // web=12,167 app=2,575 solid=1,431; lazy stats.js 182 B brotli). (Locally
+    // 25,128 / 78,803 on next @ b07fed550, before #3806's +4 B minified in
+    // the signals scheduler; the brotli layout moved -58 B over it.) The
+    // store engine is ~24 KB minified of the signals figure (the app uses
+    // createStore, as the `+ createStore` scenario measures); the same app
+    // on signals alone measures 54,467 / 18,097 — the audit's §1.3 fixture,
+    // compiled by the Babel plugin, measured 51,898 / 17,498. The props machinery —
+    // element spread + the compiler's mergeProps + merge/omit — retains
+    // 14,751 B minified / 3,918 B brotli of this scenario (measured on
+    // edited copies of the compiled output: spread alone 6,390 / 1,877 with
+    // merge still used; merge/omit/mergeProps alone 5,139 / 1,171; the
+    // spread alone retains 9.6 KB minified when nothing else uses merge,
+    // because it reads sources through the merge/omit view records). Cap at
+    // CI-measured + 10 B rounded up to 0.01 KB.
+    path: "fixtures/compiled/csr.jsx",
+    compile: { hydratable: false },
+    limit: "25.08 KB",
+    alias
+  },
+  {
+    name: "app: compiled hydrating (the same JSX todo app through hydrate(), compiled hydratable)",
+    // The same app.jsx entered through hydrate(), compiled with
+    // `hydratable: true`: the client half of an SSR build. The delta against
+    // the compiled CSR scenario is hydration's cost on a compiled app — the
+    // runtime's claim walk and adapters (as the hand-written hydrating
+    // scenario measures) plus the compiled output's own growth
+    // (`getNextElement`/`getNextMarker` destructures, `scope()` wrappers,
+    // `runHydrationEvents()` calls, `addEvent` in place of the `_$$click`
+    // property form).
+    //
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 30,899 B (99,068 B minified; signals=62,815
+    // solid=16,600 web=16,594 app=3,058; lazy stats.js 195 B brotli):
+    // +5,829 B brotli / +20,261 B minified over the compiled CSR scenario —
+    // solid +15,169 (client/hydration.ts, including the store adapters the
+    // store import reaches), web +4,427 (`hydrate`, the claim walk,
+    // `getNextElement`/`getNextMarker`/`runHydrationEvents`/`setProperty`),
+    // app +483 (the compiled output's own growth). (Locally 30,898 / 99,064
+    // on next @ b07fed550, before #3806.) Cap at CI-measured + 10 B rounded
+    // up to 0.01 KB.
+    path: "fixtures/compiled/hydrating.jsx",
+    compile: { hydratable: true },
+    limit: "30.91 KB",
+    alias
+  },
   {
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
     // 10.37 KB measured after Stage 5 (container tier): the eager halves

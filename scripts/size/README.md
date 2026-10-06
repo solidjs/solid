@@ -3,12 +3,14 @@
 Tree-shaken import-cost tracking: `scenarios.js` defines scenario entries
 (signals floor, +createStore, +isPending/latest, the render+one-signal simple
 app, a representative CSR app, a hydrating pair — with and without store
-primitives — that keeps the store engine pay-for-use under `hydrate()`, the
-frames client as a package, two server-component PAGES: base and live, and
-two server-entry floors: `getRequestEvent`/`isServer` and `renderToString`)
-with hard brotli limits on the eager entry chunk. CI fails when a scenario
-exceeds its limit — that means tree-shaking regressed, or a deliberate feature
-landed and the limit should be bumped in the same PR with a reason.
+primitives — that keeps the store engine pay-for-use under `hydrate()`, three
+compiled-template scenarios — a compiled floor and a JSX todo app in CSR and
+hydrating form — the frames client as a package, two server-component PAGES:
+base and live, and two server-entry floors: `getRequestEvent`/`isServer` and
+`renderToString`) with hard brotli limits on the eager entry chunk. CI fails
+when a scenario exceeds its limit — that means tree-shaking regressed, or a
+deliberate feature landed and the limit should be bumped in the same PR with
+a reason.
 
 ## Bundler
 
@@ -31,6 +33,25 @@ Until 2026-09-26 the harness measured with esbuild through `size-limit`. The
 switch re-based every cap (Rolldown lands 4–9% lower on the same artifacts;
 the table is in the switch PR and each scenario's ledger note in
 `scenarios.js`). Ledger deltas must not be read across that line.
+
+## Compiled scenarios
+
+The hand-written `app:` fixtures call the runtime directly and never compile
+a template, so the DOM attribute runtime (`spread`, `className`, `style`,
+`setAttribute`, `addEvent`, `delegateEvents`) and the hydratable walk
+helpers were never on the gate. A scenario with `compile` is JSX under
+`fixtures/` — `fixtures/compiled/` holds a one-button floor and a todo app
+with an element spread, `merge`/`omit`, a component spread, delegated and
+direct events, `class`/`style` objects, a keyed `<For>`, `<Show>`,
+`<Loading>` around a `lazy()` child and a store — compiled at measure time
+by the **native `@solidjs/compiler` of the checkout being measured**
+(`packages/compiler/index.js`, so the compare job measures the base with the
+base's compiler) in client DOM mode with the production posture the Vite
+plugin uses (`dev: false`, `hydratable` from the scenario), then bundled like
+every other scenario. The compiler sees only each file's basename, so the
+output — and the numbers — are the same on every host. The compiled app's
+own modules report as the `app` package. CI needs nothing beyond what it
+already does: the compiler is built before `pnpm build`.
 
 ## Frozen floor caps
 
