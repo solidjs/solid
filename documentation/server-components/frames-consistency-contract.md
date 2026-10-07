@@ -374,7 +374,11 @@ land at that transaction's commit — never when the body finishes arriving.
   (a) the body completes before the sibling releases; (b) the sibling
   releases first, the body completes after; (c) a second refetch supersedes
   the first while staged; (control) a refetch holding nothing else lands at
-  body end.
+  body end; (e) the gap #3844 named, by name — a same-address refetch
+  enters the transaction (the fill derives the new arg in that pass while
+  the DOM, `frame:applied` and the frame's version still show v1) and
+  lands whole at its commit; any carrier of the staging, push or pull,
+  must keep both halves (residue pass §3.1 "As measured").
 - **Verdict:** **holds on `next`** (4/4). Nothing of the staged version is
   visible, applied (`frame:applied`) or versioned in the host before the
   commit; root, fill and sibling change in one frame in both orders; a

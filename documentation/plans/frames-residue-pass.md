@@ -39,7 +39,16 @@ edited dist copy through the harness's own bundler (§1); estimates are marked.
 without the mirror and the capture arm (2b, 2c, 2e, 2f, 2g), `FRAME_HAVE_*`
 off the client entry (5a), the lean re-ask (6b) — **frames eager 11,901 →
 11,654 br (−757 min / −247 br)**; see §7 for the measured → built table and
-what the step found (2d is pinned; 10 has no export to re-use)._
+what the step found (2d is pinned; 10 has no export to re-use).
+**Residue step 2 stopped at the carrier budget** (`size/frames-residue-2-pull-form`,
+measured on step 1's head, nothing built): the `preview` pull form's sketch
+deleted the content token, which is the only carrier by which a same-address
+refetch enters the Transaction at all (unsound — #3844's gap (1)); with the
+token kept and the carrier built honestly on the edited dist — per-store
+staging, a lane-correct read, the flight path, nested regions, the commit's
+landing / L1 semantics the chunk replay got for free — it measures **+1,414
+min / +483 br over the −546 ceiling: net −63 br**, against the +242 budget
+and the −300 target. §3.1 "As measured" has the attribution; §7 the row._
 
 ---
 
@@ -211,7 +220,7 @@ pattern every tier in #3860 showed).
 | --: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | 1a | `preview` — the staging **push** half out (commit-only form): `FrameImpl#preview`, `host.preview`, `entry.preview`, `stagedContent.preview` | R.stage | −719 / −216 | −227 | −236 | 0 | — | **not a candidate**: C15 ×4 stay green but `frames-optimistic-hold` ×3 go red (`false/false` in the derivation trace — #3844's finding, re-stated) |
 | 1b | `stage` — **everything** out: the buffer, the token, `stagedContent`, `contentAddress`, `CONTENT_TOKEN`, the token arms of `handle` / `applyFlightResponse`, `followAddress` → a plain rebind effect | R.stage | **−1,643 / −542** | −564 | −558 | — (ceiling) | — | C15 ×4 red, optimistic-hold ×3 red: the refetch's morph lands at body end beside siblings the transaction still holds |
-| 1c | **the `preview` pull form** = 1b + the carrier sketch (§3.1): a staged record set per address in the host written through as chunks arrive, promoted at the commit; a version tick per frame written in the follow's compute half; the live props read the staged record through it | R.stage | **−803 / −300** | −217 | −264 | **sketch measured: +840 min / +242 br** over 1b (a first honest cut, not golfed; B's first cut was +233 → +145 after golfing) | **−300** (band −250 … −350) | **design**: C15 ×4, `frames-optimistic-hold` ×3, `frames-morph-in-transition` ×3, principles §9.2.2; `c17-gate-bound-address`; public surface: `FrameHost.preview` / `Frame.preview` / `stagedContent` / `contentAddress` removed (approved 2026-10-06, "not even beta") |
+| 1c | **the `preview` pull form** = 1b + the carrier sketch (§3.1): a staged record set per address in the host written through as chunks arrive, promoted at the commit; a version tick per frame written in the follow's compute half; the live props read the staged record through it | R.stage | ~~−803 / −300~~ **−231 / −63** (step 2, the sound carrier as designed, measured) | −29 | −37 | ~~sketch +840 min / +242 br~~ **+1,414 / +483 over 1b** — the sketch deleted the token (unsound: `dynamic` never delivers a same-address refetch without it) and omitted the flight path, regions, the lane gate and the commit's landing / L1 semantics (§3.1 "As measured") | **−63** | **stopped at the carrier budget (2026-10-06)**: C15 ×4, `frames-optimistic-hold` ×3, `frames-morph-in-transition` ×3, principles §9.2.2; `c17-gate-bound-address`; public surface: `FrameHost.preview` / `Frame.preview` / `stagedContent` / `contentAddress` removed (approved 2026-10-06, "not even beta") |
 | 2a | `_$SC` client mirror | D | −234 / −80 | −70 | −151 | 0 (or ≈ +60 for a minimal `r` without the address arms) | −80 … −60 | **behaviour**: a page whose data scripts carried no reference (so the server never emitted the bootstrap) and a CSR boot have no `_$SC.r` → `handler.component` throws. Needs the server to emit the bootstrap unconditionally on SC pages (≈ +200 B of document output) or the client to keep a minimal `r` |
 | 2b | `documentAddress` | D | −95 / −28 | −49 | −3 | 0 | −28 | an unbound adopted mount (direct `_$SC.r(id)` placeholder, no binding) binds the function id instead of the call's address — a post-load refetch under the address would not reach it; `frames-adopted-*` pins to check. Deletes cleanly only with 2a's server half (the t = 0 record carries the address to the mount) |
 | 2c | the second dispose map (`bindings` → `fillScopes`) | D | −82 / −20 | −76 | −24 | 0 | −20 | safe (identical bookkeeping; both maps dispose the previous invocation under the same key) |
@@ -321,6 +330,106 @@ refetch — the host's write rule covers it once regions bump per frame).
 this pass learned apply: budget the carrier at the sketch (+242), not below
 it.
 
+#### As measured — residue step 2 (2026-10-06): stopped at the carrier budget
+
+Branch `size/frames-residue-2-pull-form` on step 1's head (`fce81d2c0`:
+frames eager 35,250 / 11,654; page base 114,422 / 36,488; live 126,294 /
+40,125). Measured before writing, as the step's rule says: the ceiling
+re-applied to this head's dist, then the carrier **as the step would have
+written it** (the same text, not a sketch) applied on top of the ceiling,
+through the harness's own bundler (§0's method; `.wt-logs/res2-edit.mjs`,
+`res2-measure.mjs`). Nothing was written to source; no pin ran against it.
+
+**The sketch is unsound in one place, and it is the place the budget was
+built on.** `pullcarrier` deleted the content token with the buffer — the
+call resolves the bare per-address binding, `followAddress` reads
+`host.staged(address)` off the bare address. But `dynamic` delivers a kept
+resolution only when its `.address` differs from the one it last delivered
+(`web/src/index.ts`, `resolveBinding` / `sameInstance`): a refetch of the
+address a mount SHOWS resolves to the same object, `deliver(address)` is a
+same-value write, and neither the follow effect's compute half nor any fill
+memo runs in the transaction — the content lands when the body ends, beside
+siblings the transaction still holds. That is #3844's gap (1), restated;
+the sketch's text could not have kept C15 (a, b) or any multi-flight arm of
+`frames-optimistic-hold` green. **The token binding stays in any form**
+(`stage`'s mint, `latest`, `settled`, `showing`, one staging target):
+**227 min / 88 br** measured — the first thing the +242 did not count.
+
+**The honest carrier, as designed for the build.** Handler: `showing`
+decides at the header as today; a staged response's chunks reach the host
+flagged (`host.apply(chunk, true)`; the flight path flags by staged root
+prefix, as `regionOf` did); the token binding is minted into `latest` and
+the call settles at body end. Host: `apply(chunk, stage)` writes a flagged
+chunk whose version is newer than the store's into `store.staged = {
+version, records }` under the same policy-A `write` (one response's — a
+newer replaces it; once the store is at the version, the rest writes
+through, as a committed entry did); `settleArgs` through the store's
+version-keyed waits, with `settleWait` re-applying only a record that is
+the store's current one (a staged record's data settles silently and lands
+at the commit); `staged(id)`; `promote(id, version)` = the store's own
+`write` plus the landing tail `apply` runs (shown / open / the pending
+landing settled or rejected / frames applied / L1 for the response's
+undelivered refs), the waits carried across the bump. Frame:
+`#stagedRecord(occurrence)` — the staged set's record, else the parent's
+when this frame's store does not shadow the key (the `inherited` rule
+`preview` had); `ctx.staged()` resolves it through `#resolveArgs` unless it
+adds or renames a region (`R.changed`, as `preview` skipped). Fill:
+`liveSlotProps` reads `staged() && ctx.staged() || args()`, where
+`staged` is the mount's **gate** — `host.staged(address)?.version ===
++version` parsed from the mount's own address accessor (`binding()`), so
+the read is keyed by the signal `dynamic` writes in the transaction's pass
+and is lane-correct: a write-through recompute between the refetch's header
+and its commit (a live op on an adopted boundary, a reveal cascade, a
+`settleWait`) reads the committed accessor value and falls to `args()`.
+Without the gate the staged set is readable from its first chunk to its
+commit — a read outside the pass. Follow: the effect half promotes the
+token's version, rebinds, then promotes each region store below
+(`regions-tier.ts`, the recursion that replaces `frames()`), so a nested
+region's chunks — which the handler's buffer held with the root for free —
+land with the root's commit; `Frame.preview`, `FrameHost.preview`,
+`stagedContent`, `contentAddress`, the entry's buffer and `named` delete.
+
+**Bytes** (frames eager; the four non-SC scenarios 0 / 0 on every row):
+
+| edited dist | min / br | Δ vs head | carrier over the ceiling |
+| --- | ---: | ---: | ---: |
+| ceiling — `stage` whole out (§2 row 1b, re-measured on this head) | 33,605 / 11,108 | **−1,645 / −546** | — |
+| the carrier as designed | 35,212 / 11,651 | −38 / −3 | +1,607 / +543 |
+| … promote through `write` + the shared landing tail (**the lean form; sound**) | 35,019 / 11,591 | **−231 / −63** | **+1,414 / +483** |
+| lean − the token binding (_unsound_: nothing delivers) | 34,792 / 11,503 | −458 / −151 | token = 227 / 88 |
+| lean − the flight path's staging (_unsound_: a mutation's region tears) | 34,843 / 11,537 | −407 / −117 | flight = 176 / 54 |
+| lean − regions (no region promote, no inherited record, no structural check; _unsound_) | 34,867 / 11,538 | −383 / −116 | regions = 152 / 53 |
+| lean − the gate (the fill reads the staged set unguarded; _unsound_: a read outside the pass) | 34,913 / 11,562 | −337 / −92 | gate = 106 / 29 |
+| lean − flight − regions − gate (the unsound floor) | 34,585 / 11,447 | −665 / −207 | +980 / +339 |
+
+Pages, the lean form: base 114,184 / 36,459 (−238 / −29), live 126,061 /
+40,088 (−233 / −37); the ceiling alone −555 / −499.
+
+**Why the sketch was short by half.** The handler's buffer is ≈ 200 min of
+dumb array replayed through `host.apply`, and the replay inherits every
+semantic the host already has — version policy, the landing, L1, per-id
+routing, so nested regions and the flight path's several roots stage for
+free. A host-side staged set has to carry each of those itself (≈ 600 min
+across `apply`'s branch, `promote`, the `write` / `settleWait` guards and the
+region promote), and the pull read (`#stagedRecord` + `ctx.staged` + the gate
++ the `liveSlotProps` / `slotsFor` threading ≈ 750 min) is not smaller than
+the push it replaces (`FrameImpl#preview` + `host.preview` + `entry.preview`
+≈ 700): the push writes the signal **in** the pass and is lane-correct by
+construction, the pull has to buy that with the gate. Keeping the buffer
+and pulling from it instead (a `stagedContent.record(token, id,
+occurrence)` read, the host's `settleArgs` exposed, the same frame-side
+read and gate) measures the same way: ≈ 720 added for ≈ 710 deleted.
+
+**Conclusion.** The deletion ceiling is real (−546) but ≈ 480 of it is
+carrier under any sound form; the honest net is **≈ −60 br**, a fifth of
+the row's −300 and outside the −250 … −350 band. Stopped per the step's
+rule (carrier > +300); §2 row 1c and §4 row 3 are corrected below to the
+measured net. What it would still buy if taken for its own sake: the
+handler loses `staged` / `named` / `stagedContent` module state and the
+flight path's `regions` map; the host gains `staged` / `promote` and
+`apply`'s second parameter (`@experimental` surface added, see the step's
+PR). Not recommended at −63.
+
 ### 3.2 S-ref's pending read belongs to the table (item 12)
 
 As built (#3844), the host mints a pending promise per undelivered key per
@@ -427,7 +536,7 @@ still has to pay; the "built" column subtracts it.
 | 0 | head `5c5991cbd` | | **13,083** | | | | |
 | 1 | **C6** bind tier (`tight-nopair`, in flight) | −1,243 | **11,840** | 0 (C6's glue is in) | 11,840 | 11,548 | C6's pins; `tier-bind-hold`; the click-replay finding (C6 P1) |
 | 2 | **the D list** (2a–2g) + the s / v stamp (10) + the nested marking (8a) + `FRAME_HAVE_*` off the entry (5a) | −349 | **11,491** | +10 (`readHydratedValue` export); the mirror's server half is output, not client bytes | 11,501 | 11,209 | 2a / 2b need the server to emit the bootstrap unconditionally; 2f / 5a / 10 are public-surface items; 2d / 2g are behaviour changes |
-| 3 | **the `preview` pull form** (1c; carrier sketched **and measured in the row**) | −277 | **11,214** | 0 | 11,224 | 10,932 | **design** §3.1; C15 ×4, optimistic-hold ×3, morph-in-transition ×3 |
+| 3 | **the `preview` pull form** (1c; carrier sketched **and measured in the row**) | −277 → **−63 as designed** (step 2: the sketch's carrier was unsound and half-counted; §3.1 "As measured") | **11,214** (≈ 11,430 with the honest carrier) | 0 | 11,224 (≈ 11,440) | 10,932 (≈ 11,150) | **stopped** (carrier +483 > +300); C15 ×4, optimistic-hold ×3, morph-in-transition ×3 |
 | 4 | **R.insert** — every fill through `insert` (3) | −196 | **11,018** | 0 | 11,028 | 10,736 | public surface: the marker-less `createFrame` path |
 | 5 | the fallback pass (4a) | −75 | 10,943 | DR-4 (its own plan) | — | — | **not recommended** (§3.4); kept to show it does not matter — the rows below are measured **without** it where marked |
 | 6 | **the lean re-ask** (6b) | −78 | **10,865** (10,940 without row 5) | pages +30 | 10,950 | 10,658 | **design** §3.3 (sf client ctx) |
@@ -495,7 +604,9 @@ two seeds clean):
    sketch's budget (+242 br), with C15 ×4 and optimistic-hold ×3 as the
    gate. It also simplifies the handler (no `stage` / `latest` / `named` /
    token) and `applyFlightResponse` (regions bump per frame, no staged-region
-   map).
+   map). **Stopped (residue step 2, §3.1 "As measured" / §7):** the token
+   cannot go (it is the delivery), the honest carrier is +483 br over the
+   −546 ceiling, net −63; not recommended at that price.
 4. **R.insert** (−196) with the marker-less `createFrame` path ruled (an
    anchor requirement on `createFrame`, documented).
 5. **S-ref to the table** (§3.2; ≈ −250 built) — a decode-chunk change plus
@@ -598,6 +709,36 @@ Left for later steps, from this one: the `_$SC` mirror + `documentAddress`'s
 server half (§3.7 — the mirror alone, now that `documentAddress` is gone);
 the capture arm, which needs a ruling on the away/back behaviour of an
 SSR'd boundary; the stamp, which needs a `solid-js/internal` export.
+
+## 7b. Measured, not landed — residue step 2 (2026-10-06): the `preview` pull form
+
+Branch `size/frames-residue-2-pull-form` on step 1's head (`fce81d2c0`,
+frames eager **35,250 / 11,654**). §5 row 3, measured before writing per the
+step's rule (ceiling, then the carrier as it would be written, both on an
+edited dist copy through the harness's bundler) — and **stopped at the
+carrier budget**: the rule was "if the carrier exceeds +300 br, stop and
+report the design". Nothing of the form reached source; the step's one
+source change is a pin.
+
+| item | measured on this head | note |
+| --- | ---: | --- |
+| the ceiling — `stage` whole out (§2 row 1b) | **−1,645 / −546** (pages −555 / −499) | matches the row's −542 |
+| the sketch's carrier (`pullcarrier`, §2 row 1c) | +840 / +242 (the row's figure) | **unsound**: it deleted the content token; `dynamic` delivers a kept resolution only when its address differs, so without the token a same-address refetch never runs the follow's compute half or any fill memo in the transaction (#3844's gap (1); C15 (a, b), the optimistic-hold multi-flight arms) |
+| the carrier as the step would have written it (§3.1 "As measured") | **+1,414 / +483** over the ceiling → **−231 / −63 net** (pages −29 / −37) | token 227 / 88 · flight-path staging 176 / 54 · nested regions 152 / 53 · the lane gate 106 / 29 · the host's staged set with promote's landing / L1 / waits ≈ the rest; every one load-bearing |
+| the unsound floor (no flight, no regions, no gate) | +980 / +339 | still over the +300 budget |
+| **built** | **—** | stopped; frames eager stays **11,654** |
+
+**Pin added (by name, green on the push form):** `c15-staging-atomic` (e) —
+the gap #3844 named: a same-address refetch enters the transaction (the
+fill derives the new arg in its pass — `seen` is `["one", "two"]` while the
+DOM, `frame:applied` and the frame's version still show v1), and the commit
+lands it whole. Any carrier of the staging — push or pull — must keep both
+halves.
+
+What this changes in the path (§4): row 3's −277 becomes ≈ −60 as a sound
+build, so the residue proper (rows 2–4, 6) stalls ≈ 215 B higher than §4
+says; crossing 10.0 still needs C1 and the claims chunk, with ≈ 120 B of
+margin instead of ≈ 330. The push form stays, as #3844 left it.
 
 ---
 
