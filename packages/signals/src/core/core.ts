@@ -273,9 +273,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
       el._x?._transaction?._lane
       ? el._x._transaction
-      : create &&
-          (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS &&
-          prevLane?._parent!._verdict !== prevLane
+      : // Loose `!=`: false with no creator lane (undefined == null).
+        create &&
+          prevLane?._parent!._verdict != prevLane &&
+          (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS
         ? prevLane
         : null
   );
