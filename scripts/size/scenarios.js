@@ -496,6 +496,16 @@ module.exports = [
     // unchanged at 7.35 KB, recorded minified 20,133 B (first record);
     // CI-measured at 7,361 B (20,133 B minified). Lower only: cap at measured +
     // 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 7.35 KB -> 7.40 KB (floor-caps.json), measured at 7,384 B
+    // by CI (Size run 37642512669) against `next` @ 53ef0e69e's 7,374 (+10 B;
+    // 34 B over the cap; +34 B minified, 20,144 -> 20,178; recorded 20,133 ->
+    // 20,178) — the signals core: a first pass seated in its creator's guess
+    // lane, the verdict-lane filter, lane work over a pending flight entering
+    // (#3843), a verdict lane's mount born held for a staged read, and
+    // verdict-lane stagedReaders. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen again
+    // at 7.40 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -919,8 +929,17 @@ module.exports = [
     // unchanged at 14.56 KB, recorded minified 44,396 B (first record);
     // CI-measured at 14,540 B (44,396 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "14.56 KB",
-    capMinified: 44396,
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 14.56 KB -> 14.62 KB, measured at 14,606 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 14,603 (+3 B; 46 B over the
+    // cap; +32 B minified, 44,407 -> 44,439; recorded 44,396 -> 44,439) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    limit: "14.62 KB",
+    capMinified: 44439,
     alias
   },
   {
@@ -1369,6 +1388,16 @@ module.exports = [
     // unchanged at 9.86 KB, recorded minified 27,687 B (first record);
     // CI-measured at 9,856 B (27,687 B minified). Lower only: cap at measured +
     // 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 9.86 KB -> 9.88 KB (floor-caps.json), measured at 9,867 B
+    // by CI (Size run 37642512669) against `next` @ 53ef0e69e's 9,884 (-17 B;
+    // 7 B over the cap; +33 B minified, 27,698 -> 27,731; recorded 27,687 ->
+    // 27,731) — the signals core: a first pass seated in its creator's guess
+    // lane, the verdict-lane filter, lane work over a pending flight entering
+    // (#3843), a verdict lane's mount born held for a staged read, and
+    // verdict-lane stagedReaders. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen again
+    // at 9.88 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2384,8 +2413,17 @@ module.exports = [
     // unchanged at 12.86 KB, recorded minified 36,568 B (first record);
     // CI-measured at 12,905 B (36,568 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "12.86 KB",
-    capMinified: 36568,
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 12.86 KB -> 12.88 KB, measured at 12,866 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 12,890 (-24 B; 6 B over the
+    // cap; +33 B minified, 36,584 -> 36,617; recorded 36,568 -> 36,617) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    limit: "12.88 KB",
+    capMinified: 36617,
     alias
   },
   {
@@ -3103,8 +3141,17 @@ module.exports = [
     // unchanged at 10.05 KB, recorded minified 28,218 B (first record);
     // CI-measured at 10,031 B (28,218 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "10.05 KB",
-    capMinified: 28218,
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 10.05 KB -> 10.07 KB, measured at 10,058 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 10,042 (+16 B; 8 B over the
+    // cap; +32 B minified, 28,229 -> 28,261; recorded 28,218 -> 28,261) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    limit: "10.07 KB",
+    capMinified: 28261,
     alias
   },
   {
@@ -3144,8 +3191,17 @@ module.exports = [
     // unchanged at 25.13 KB, recorded minified 78,898 B (first record);
     // CI-measured at 25,129 B (78,898 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "25.13 KB",
-    capMinified: 78898,
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 25.13 KB -> 25.22 KB, measured at 25,207 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 25,197 (+10 B; 77 B over the
+    // cap; +33 B minified, 78,913 -> 78,946; recorded 78,898 -> 78,946) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    limit: "25.22 KB",
+    capMinified: 78946,
     alias
   },
   {
@@ -3188,8 +3244,17 @@ module.exports = [
     // measured + 10 B; recorded minified 99,257 B. Accepted by the maintainer
     // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
     // at 31.03 KB.
-    limit: "31.03 KB",
-    capMinified: 99257,
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 31.03 KB -> 31.06 KB, measured at 31,050 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 30,958 (+92 B; 20 B over the
+    // cap; +33 B minified, 99,272 -> 99,305; recorded 99,257 -> 99,305) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    limit: "31.06 KB",
+    capMinified: 99305,
     alias
   },
   {
@@ -3618,6 +3683,16 @@ module.exports = [
     // at measured + 10 B rounded up to 0.01 KB; recorded minified 146,295 B.
     // Accepted by the maintainer (2026-10-07: server-function/frames reader
     // correctness). The cap is frozen again at 45.12 KB.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 45.12 KB -> 45.14 KB (floor-caps.json), measured at 45,130
+    // B by CI (Size run 37642512669) against `next` @ 53ef0e69e's 45,117 (+13
+    // B; 10 B over the cap; +33 B minified, 146,391 -> 146,424; recorded
+    // 146,295 -> 146,424) — the signals core: a first pass seated in its
+    // creator's guess lane, the verdict-lane filter, lane work over a pending
+    // flight entering (#3843), a verdict lane's mount born held for a staged
+    // read, and verdict-lane stagedReaders. Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen
+    // again at 45.14 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3754,6 +3829,16 @@ module.exports = [
     // retains. Cap set at measured + 10 B rounded up to 0.01 KB; recorded
     // minified 158,377 B. Accepted by the maintainer 2026-10-07. The cap is
     // frozen again at 48.89 KB.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 48.89 KB -> 48.91 KB (floor-caps.json), measured at 48,892
+    // B by CI (Size run 37642512669) against `next` @ 53ef0e69e's 48,831 (+61
+    // B; 2 B over the cap; +60 B minified, 158,477 -> 158,537; recorded
+    // 158,377 -> 158,537) — the signals core: a first pass seated in its
+    // creator's guess lane, the verdict-lane filter, lane work over a pending
+    // flight entering (#3843), a verdict lane's mount born held for a staged
+    // read, and verdict-lane stagedReaders. Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen
+    // again at 48.91 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
