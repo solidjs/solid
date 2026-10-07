@@ -11,6 +11,7 @@
 
 import {
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_COMMITTED_ERROR,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_INPUTS_PUBLISHED,
@@ -33,6 +34,7 @@ import {
   context,
   markLateLinker,
   pullComputed,
+  readCommitted,
   setVerdict,
   spectating,
   strictRead,
@@ -43,7 +45,7 @@ import {
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { display, laneValueOf, verdictLane } from "./lanes.js";
+import { display, readLaneValue, verdictLane } from "./lanes.js";
 import { enqueueSub } from "./heap.js";
 import {
   flushTransaction,
@@ -199,12 +201,14 @@ function quietPending(el: Computed<any>): boolean {
  * lands: final now (maintainer, 2026-10-02). */
 function heldNotFinal(owner: Computed<any>): boolean {
   if ((owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner)) return true;
-  return (
-    owner._pendingValue !== NOT_PENDING &&
-    !latestActive &&
-    !owner._x!._reask &&
-    !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    (!owner._equals || !owner._equals(owner._value as any, owner._pendingValue as any))
+  // The reveal exemptions apply to successful and failed outcomes alike.
+  if (latestActive || owner._x!._reask || owner._statusFlags & STATUS_UNINITIALIZED) return false;
+  // Internal failure wrappers are non-undefined, even for falsy user causes.
+  if (owner._statusFlags & STATUS_ERROR) return owner._x!._committedError !== owner._x!._error;
+  return !!(
+    owner._config & CONFIG_COMMITTED_ERROR ||
+    (owner._pendingValue !== NOT_PENDING &&
+      (!owner._equals || !owner._equals(owner._value as any, owner._pendingValue as any)))
   );
 }
 
@@ -343,7 +347,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       return el._x!._lane;
     }
     if (probing && flying) probeFound = true;
-    return latestActive && !flying ? laneValueOf(el) : display(el);
+    return latestActive && !flying ? readLaneValue(el) : display(el);
   }
   // Dev strict-read scopes (a component body, an effect callback) warn on a
   // verdict read as on any untracked read; the pending throw they add for a
@@ -355,29 +359,51 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       ownerName: (c as any)?._name,
       nodeName: (owner as any)?._name
     });
+  // An errored derivation has answered: a held/staged value must not mask
+  // that answer and let a verdict reader commit an old successful result.
+  // Active optimistic overrides above still supply their own value.
   const uninitialized = (owner._statusFlags & STATUS_UNINITIALIZED) !== 0;
-  if (el._config & CONFIG_HELD) {
+  const held = el._config & CONFIG_HELD;
+  if (held && !uninitialized) {
+    const t = txOf(el);
+    // A render effect re-run (or mounted) outside the verdict lane's flush
+    // while the lane is blocked — its display held on its own derivation
+    // in flight — is a stale reader of the lane (#3460, as `laneRead`): the
+    // committed value now, re-derived at the reveal. Not inside a probe:
+    // `isPending` is answered below either way.
+    if (
+      tracked &&
+      !probing &&
+      (c as any)._type === EFFECT_RENDER &&
+      passLane === null &&
+      t._verdict !== null &&
+      t._verdict._held &&
+      flushTransaction !== t
+    ) {
+      staleReader(c!, t._verdict);
+      return readCommitted(el);
+    }
+    if (tracked) verdictRead(c!, t);
+    if (probing && heldNotFinal(owner)) probeFound = true;
+  }
+  // Interpret failed proposals after selecting a stale render reader's frame,
+  // but before any successful staging can mask them, including born-held nodes.
+  if (owner._fn !== undefined && owner._statusFlags & STATUS_ERROR) {
+    if (!held && tracked && globalQueue._running)
+      provisionalVerdict(c!, !latestActive && !uninitialized);
+    throw owner._x!._error;
+  }
+  if (held) {
     if (!uninitialized) {
-      const t = txOf(el);
-      // A render effect re-run (or mounted) outside the verdict lane's flush
-      // while the lane is blocked — its display held on its own derivation
-      // in flight — is a stale reader of the lane (#3460, as `laneRead`): the
-      // committed value now, re-derived at the reveal. Not inside a probe:
-      // `isPending` is answered below either way.
+      // A projection can recover without a payload staging on its firewall.
+      // The successful proposed outcome still differs from its published error.
       if (
-        tracked &&
-        !probing &&
-        (c as any)._type === EFFECT_RENDER &&
-        passLane === null &&
-        t._verdict !== null &&
-        t._verdict._held &&
-        flushTransaction !== t
-      ) {
-        staleReader(c!, t._verdict);
+        latestActive &&
+        owner._config & CONFIG_COMMITTED_ERROR &&
+        !(owner._statusFlags & STATUS_PENDING) &&
+        el._pendingValue === NOT_PENDING
+      )
         return el._value;
-      }
-      if (tracked) verdictRead(c!, t);
-      if (probing && heldNotFinal(owner)) probeFound = true;
       if (latestActive && el._pendingValue !== NOT_PENDING) {
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
@@ -385,7 +411,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         if (!tracked && flushTransaction !== null && !globalQueue._running) joinFuture(txOf(el));
         return heldLatest(el, tracked ? c : null);
       }
-      return el._value;
+      return readCommitted(el);
     }
     // Born into the future: its staging is its only value.
     if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING))
@@ -408,12 +434,12 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       if (globalQueue._running) return el._pendingValue;
       if (c !== null) markLateLinker(c);
     }
-    return el._value;
+    return readCommitted(el);
   }
   if (owner._statusFlags & STATUS_PENDING) {
     if (!uninitialized) {
       pendingVerdict(tracked ? c : null, owner);
-      return el._value;
+      return readCommitted(el);
     }
     // As `read()`: an untracked read of a pending node still re-runs its
     // reader when the node settles (a projection's pull reads its firewall
@@ -421,8 +447,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if (c !== null && !tracking && !spectating && el !== c) link(el, c);
     throw owner._x?._error;
   }
-  if (owner._fn !== undefined && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;
-  return el._value;
+  return readCommitted(el);
 }
 
 // Installed at module evaluation — present exactly when something imports

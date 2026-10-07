@@ -1,5 +1,6 @@
 import {
   CONFIG_HELD,
+  CONFIG_COMMITTED_ERROR,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_GUESS,
   CONFIG_INPUTS_PUBLISHED,
@@ -22,6 +23,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -777,6 +779,7 @@ export class GlobalQueue implements IQueue {
           if (
             n._pendingValue === NOT_PENDING &&
             (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
+            !((n as Computed<any>)._statusFlags & STATUS_ERROR) &&
             (n as any)._type !== EFFECT_RENDER
           )
             continue;
@@ -787,6 +790,7 @@ export class GlobalQueue implements IQueue {
           // back: A34 (1).)
           if (
             n._pendingValue !== NOT_PENDING &&
+            !(n._config & CONFIG_COMMITTED_ERROR) &&
             !((n as Computed<any>)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
             n._equals &&
             n._equals(n._value, n._pendingValue) &&
@@ -1126,6 +1130,30 @@ export function sameLane(a: Transaction, b: Transaction): boolean {
   return a === b || (a._links !== null && a._links === b._links);
 }
 
+/** Publish the terminal outcome with the frame, never with a pending retry. */
+export function publishError(n: Signal<any> | Computed<any>, error: unknown): void {
+  if (error !== undefined) {
+    n._x!._committedError = error;
+    n._config |= CONFIG_COMMITTED_ERROR;
+  } else if (n._config & CONFIG_COMMITTED_ERROR) {
+    n._x!._committedError = undefined;
+    n._config &= ~CONFIG_COMMITTED_ERROR;
+  }
+}
+
+export function commitStatus(n: Computed<any>): void {
+  // A manual proposal is a successful answer even while the derivation's
+  // request remains pending. Publish it just as the successful-payload path
+  // does; the pending request still owns availability and its eventual answer.
+  if (!(n._statusFlags & STATUS_PENDING) || n._flags & REACTIVE_MANUAL_WRITE) {
+    publishError(n, n._statusFlags & STATUS_ERROR ? n._x!._error : undefined);
+    n._statusFlags &= ~STATUS_UNINITIALIZED;
+  }
+  // A committing frame ends the loading window, including a direct first
+  // failure before the first flush. Keep successful seed history separately.
+  n._loading = false;
+}
+
 export function commitPendingNode(n: Signal<any>): void {
   const c = n as Partial<Computed<unknown>>;
   // L2: the commit is where a pass, held or not, stops being uncommitted —
@@ -1168,10 +1196,9 @@ export function commitPendingNode(n: Signal<any>): void {
       );
     }
   }
-  // The committed value is the first observable answer for a loading-window
-  // node — the window closes here, not at compute time (#2990). Unconditional
-  // store to an always-present computed slot.
-  c._loading = false;
+  // Publish status after the payload and before dependency disposal can call
+  // user code. Effect enqueueing above cannot execute its callback inline.
+  commitStatus(c as Computed<any>);
   c._flags! &= ~REACTIVE_MANUAL_WRITE;
   // The dependencies of the pass that produced the value are the frame's now:
   // the previous frame's tail goes (A30, #3410; `recompute` left it for a
@@ -1180,7 +1207,6 @@ export function commitPendingNode(n: Signal<any>): void {
   // `_error` means the last pass threw, kept its full list, and `_depsTail`
   // marks where it stopped.
   if (c._x?._error == null) trimStaleDeps(c as Computed<unknown>);
-  if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   // L2: the children this commit publishes are the frame's now — the frame
   // they replace, parked by the pass (`recompute`), goes.
   if (

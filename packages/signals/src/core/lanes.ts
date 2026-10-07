@@ -52,17 +52,19 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, stagedRead, tracking } from "./core.js";
+import { ext, readCommitted, stagedRead, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { enqueueSub } from "./heap.js";
 import {
   blocked,
   clock,
   commitPendingNode,
+  publishError,
   flushTransaction,
   GlobalQueue,
   holdNode,
@@ -107,8 +109,22 @@ export function laneValueOf(el: Signal<any> | Computed<any>): unknown {
 /** What the screen shows for a lane's node: the lane's value once the lane
  * has revealed, the committed truth before. */
 export function display(el: Signal<any> | Computed<any>): unknown {
-  const v = el._x!._lane;
-  return el._x!._transaction!._shown && v !== NOT_PENDING ? v : el._value;
+  const x = el._x!;
+  if (x._transaction!._shown) {
+    if (!(el._config & CONFIG_GUESS) && x._laneError !== undefined) throw x._laneError;
+    if (x._lane !== NOT_PENDING) return x._lane;
+  }
+  return readCommitted(el);
+}
+
+/** A lane's proposed outcome; payload-only laneValueOf remains bookkeeping. */
+export function readLaneValue(el: Signal<any> | Computed<any>): unknown {
+  if (!(el._config & CONFIG_GUESS)) {
+    const status = (el as Computed<any>)._statusFlags;
+    if (status & STATUS_ERROR) throw el._x!._error;
+    if (status & STATUS_PENDING && el._x!._laneError !== undefined) throw el._x!._laneError;
+  }
+  return laneValueOf(el);
 }
 
 /** Guesses written since the last seam (`[node, value, question, …]`).
@@ -430,12 +446,15 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     const effect = (n as any)._type;
     const guess = n._config & CONFIG_GUESS;
     const slot = x._lane;
+    const shownError = x._laneError;
     // What the screen shows of it (NOT_PENDING: nothing — a lane pass that
     // errored or pends staged no value), and the lane's latest.
     const shown = l._shown && !effect ? slot : n._value;
     const latest = laneValueOf(n);
     x._lane = NOT_PENDING;
+    x._laneError = undefined;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
+    if (l._shown && !guess) publishError(n, shownError);
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest commits (its frame with
@@ -496,6 +515,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       }
       if (l._shown) {
         commitPendingNode(n);
+        if (!effect) publishError(n, shownError);
         if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
       } else {
         if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
@@ -536,9 +556,8 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
-  if (c !== null && c._config & CONFIG_AUTHORITATIVE)
-    return guess && el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-  if (c === null) return laneValueOf(el);
+  if (c !== null && c._config & CONFIG_AUTHORITATIVE) return NOT_PENDING;
+  if (c === null) return readLaneValue(el);
   const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
@@ -551,7 +570,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     if (passLane === null || c._config & CONFIG_CHILDREN_FORBIDDEN) return display(el);
     enterLane(l, c);
     if (!guess && status & STATUS_PENDING) return NOT_PENDING;
-    return laneValueOf(el);
+    return readLaneValue(el);
   }
   if ((c as any)._type === EFFECT_RENDER && (passLane === null || !sameLane(passLane, l))) {
     if (!guess) {
@@ -582,7 +601,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   }
   enterLane(l, c);
   if (!guess && status & STATUS_PENDING) return NOT_PENDING;
-  return laneValueOf(el);
+  return readLaneValue(el);
 }
 
 /** The value a guess covered: the node's committed value — a store slot's
@@ -659,6 +678,8 @@ function laneSeam(l: Transaction, leaked: boolean): void {
       x._lane = n._pendingValue;
       n._pendingValue = NOT_PENDING;
     }
+    if (!(n._config & CONFIG_GUESS) && !(n._statusFlags & STATUS_PENDING))
+      x._laneError = n._statusFlags & STATUS_ERROR ? x._error : undefined;
     // The frame this pass built is the screen's now; the one it replaced
     // goes (as `commitPendingNode` retires a committed pass's).
     if (x._pendingFirstChild !== null || x._pendingDisposal !== null)

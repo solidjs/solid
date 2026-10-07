@@ -70,6 +70,11 @@ export const REACTIVE_SCREEN_READ = 1 << 18;
 export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
+/** The published frame ended in failure. The cause lives in the cold
+ * extension; current computation status describes the proposed frame. */
+export const CONFIG_COMMITTED_ERROR = 1 << 19;
+/** The snapshot slot contains a failure rather than a successful payload. */
+export const CONFIG_SNAPSHOT_ERROR = 1 << 20;
 export const CONFIG_OWNED_WRITE = 1 << 0;
 export const CONFIG_NO_SNAPSHOT = 1 << 1;
 export const CONFIG_TRANSPARENT = 1 << 2;

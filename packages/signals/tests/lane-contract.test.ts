@@ -303,6 +303,30 @@ describe("lane contract 3 — a lane holds itself", () => {
 });
 
 describe("lane hardening — errors, disposal, nesting, growth", () => {
+  it("a first user-effect failure in a shown lane publishes without waiting for its parent", async () => {
+    const f = fixture();
+    const errors: string[] = [];
+    f.setSrc(1);
+    f.setOpt(5);
+    flush();
+    const dispose = createRoot(d => {
+      createEffect(
+        () => {
+          if (f.opt() === 5) throw new Error("boom");
+          return "ok";
+        },
+        { effect: () => {}, error: (e: any) => void errors.push(e.message) }
+      );
+      return d;
+    });
+    flush();
+    expect(errors).toEqual(["boom"]);
+    await f.land(5);
+    expect(errors).toEqual(["boom"]);
+    dispose();
+    f.dispose();
+  });
+
   it("a lane pass that throws errors its node like any pass — contained by a user effect's error arm; the lane and the parent are unaffected", async () => {
     const f = fixture();
     const errors: string[] = [];

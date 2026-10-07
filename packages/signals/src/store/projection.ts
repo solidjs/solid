@@ -231,6 +231,13 @@ export function runProjectionComputed<T extends object>(
   // `_value`); every later run — a re-derive in a flush, an async landing
   // — stages and commits with the flush like a memo's recompute.
   const first = run === 1;
+  const notifyFamily = (error: unknown, pending: boolean) => {
+    // Readers subscribe to the leaves, not the firewall. Every failed
+    // outcome, synchronous or deferred, must wake that same family.
+    if (first && owner._statusFlags & STATUS_UNINITIALIZED) return;
+    if (pending) wakeFamily(fam, error);
+    else errorFamily(fam);
+  };
   const pass = () =>
     storeSetter(
       draft,
@@ -258,17 +265,7 @@ export function runProjectionComputed<T extends object>(
           // pending on the derive settle.
           if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
         };
-        const sync = handleAsync(owner, result, commit, (error, pending) => {
-          // The flight rejected: the leaves' readers learn it from here —
-          // they do not subscribe to the derive. Pending again (a NotReady
-          // rejection): the wake, as for the pass. Errored: every live
-          // reader re-derives and meets the error at its pull (memo parity,
-          // #2897) — and the flush that runs them advances the clock, so a
-          // later tracked re-read may retry (core `read`).
-          if (first && owner._statusFlags & STATUS_UNINITIALIZED) return;
-          if (pending) wakeFamily(fam, error);
-          else errorFamily(fam);
-        });
+        const sync = handleAsync(owner, result, commit, notifyFamily);
         if (!owner._loading) commit(sync as void | T);
       },
       false
@@ -279,7 +276,7 @@ export function runProjectionComputed<T extends object>(
     // A flight went up (NotReady out of the pass — the derive's own, with
     // the derive as its source): the leaves' readers learn it from here —
     // they do not subscribe to the derive.
-    if (e instanceof NotReadyError && !first) wakeFamily(fam, e);
+    notifyFamily(e, e instanceof NotReadyError);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):
