@@ -3527,8 +3527,18 @@ module.exports = [
     // range mode (`#start` / `#end`) gone, the frame element IS the range —
     // −978 min / −287 br. Cap set at measured + 10 B at the 0.01 KB step
     // (the ratchet); recorded minified 34,272 B.
-    limit: "11.38 KB",
-    capMinified: 34272,
+    // Frames residue pass, step 4 (2026-10-06): 11.38 -> 11.21 KB, measured
+    // at 11,193 B (33,767 B minified): S-ref's pending read moved into the
+    // lazy decode table — a `{$ref}` to a key the response has not
+    // delivered is answered by the table with a promise it settles at the
+    // key's `data` chunk and rejects when the response ends (`closeData`);
+    // the host's `pendingRef` / `settleWait` / per-store waits are gone,
+    // what stays eager is the `record.pending` count and one fan-out
+    // helper — −505 min / −174 br (the decode chunk, lazy, +420 / +161).
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 33,767 B.
+    limit: "11.21 KB",
+    capMinified: 33767,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3756,6 +3766,11 @@ module.exports = [
     // at 36,271 B (113,443 B minified): every fill through `insert`, the
     // frame element as the range — −979 min / −217 br. Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 113,443 B.
+    // Frames residue pass, step 4 (2026-10-06): 36.29 -> 36.09 KB, measured
+    // at 36,071 B (112,938 B minified): S-ref's pending read in the decode
+    // table (lazy `decode.js` +420 / +161) — −505 min / −200 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 112,938 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3925,6 +3940,11 @@ module.exports = [
     // at 39,904 B (125,315 B minified): every fill through `insert`, the
     // frame element as the range — −979 min / −221 br. Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 125,315 B.
+    // Frames residue pass, step 4 (2026-10-06): 39.92 -> 39.76 KB, measured
+    // at 39,747 B (124,810 B minified): S-ref's pending read in the decode
+    // table (lazy `decode.js` +420 / +161) — −505 min / −157 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 124,810 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

@@ -56,7 +56,15 @@ eager 11,654 → 11,367 br (−978 min / −287 br)**, more than the row's −20
 because the dead range mode (−196 / −67 alone) went with it; see §7c for
 the measured → built table, the `Slot` contract change and the one pin
 re-pinned (C1 (b): the frames rule for a fill that does not claim is now
-the core's mismatch rule)._
+the core's mismatch rule).
+**Residue step 4 landed** (`size/frames-residue-4-sref-table`, on step 3's
+head): S-ref's pending read moved into the lazy decode table — a `{$ref}`
+to a key the response has not delivered is the table's promise, settled
+by the key's `data` chunk and rejected when the response ends; frames
+keeps the `record.pending` count — **frames eager 11,367 → 11,193 br
+(−505 min / −174 br)**, the decode chunk (lazy) +420 / +161; the carrier
+measured +374 min / +110 br over a −879 / −280 ceiling, against the row's
++40 br estimate — see §3.2 "As built" and §7d._
 
 ---
 
@@ -250,7 +258,7 @@ pattern every tier in #3860 showed).
 | 9 | **unifying the tiers' dispatch**: one `tier(name)` helper (module or start the load), one `waitsOn(record, consumers)` predicate for both sync sites, the assets walk and the style gate through the same helper | T.glue | **+6 / −20** | −18 | −9 | — | **≈ 0** | nothing to gain: the seams' cost is the hand-offs at the sites the code left, not the helpers' shape. The indirection would cost one extra call per readiness check for no bytes |
 | 10 | the s / v fast-adopt in `slotArgsProxy` | R.error | −92 / −30 | −6 | −50 | `readHydratedValue` exported from `solid-js/internal` ≈ +10 | −20 | the frames copy lacks #2997's rejection-observe (the export fixes that too); a declared record's settled promise must still read synchronously at a t = 0 claim (C1 / C9) — the export, not a deletion |
 | 11 | the sf slice's live arm of `deserializeStream` | sf (E.a2) | −154 / −45 | −80 | −74 | — | — | **not frames'**: `shared.ts` serves `live()` for non-frame answers; C2's pass found it cannot move into a frames chunk. An sf-side lazy arm (E.b class) — the page's, not this scenario's |
-| 12 | **S-ref's pending read in the table** — the ceiling: `pendingRef`, `settleWait`, the waits in `apply`, `record.pending`'s arm | T (A1b) | **−884 / −289** | −225 | −257 | decode chunk (lazy) ≈ +120 min for pending-on-missing + reject-at-close; frames ≈ +120 min / +40 br to keep the "fresh mount waits" count | **≈ −250** | **design** (§3.2): the table answers an undelivered key with a promise it settles at the key's `data` chunk and rejects at `close` / `abort` (L1); C5 (a, b, e), C6 (a1), `frames-flight-delivery`, the `{$ref}` rows of the lifecycle matrix |
+| 12 | **S-ref's pending read in the table** — the ceiling: `pendingRef`, `settleWait`, the waits in `apply`, `record.pending`'s arm | T (A1b) | **−884 / −289** → **built −505 / −174** (step 4, §7d: the ceiling re-measured on step 3's head −879 / −280; the carrier +374 / +110 over it — the row's +40 br estimate counted the count and the `.then`, not the `closeData` seam (host + integration ≈ 190 min), the transport's await for a `{$ref}`-carrying slot chunk (61 / 7) or the fan-out helper) | −200 (built) | −157 (built) | decode chunk (lazy) **+420 / +161 built** (pending-on-missing, the stamp, the callbacks, `close`) | **−174** (built) | **landed (2026-10-06)**. The table answers an undelivered key with a promise (marked `s = 0`, carrying `c`) it settles at the key's `data` chunk and rejects at `close` (L1); frames keeps `record.pending` and one `settle` per read; `FrameHostOptions.closeData` added (`@experimental`). C5 (a, b, c, e), C6 (a1), C17 (c), `frames-flight-delivery`, the `{$ref}` rows of the lifecycle matrix green unchanged; `sref-table-pending-read` added (the table's lifecycle; L1 through the shared host) |
 | 13 | **claims + `frame:applied` to the router's chunk** — the ceiling: `claimHandlers` / `claimNode` / `claimTree` / `claimedAttr` / `#claimTree` / `#claimContent`, the `claim` thread through the morph, the `CustomEvent` dispatch | F.claims + F.event | **−890 / −291** | −228 | −344 | ≈ +60 min / +20 br seam (the router installs a sweep hook the morph calls) | **≈ −270** | **public surface**: `FRAME_APPLIED_EVENT` leaves the client entry; the router contract (`CLAIM_SEAM`) becomes "the router sweeps on install and on the seam's call"; plan Phase D's own item |
 | 14 | **C1 — hole-op application as a tier** — the ceiling: `#applyHole`, `#applyAttrs`, `findLiveTarget`, the hole pass, `pumpLiveChannel` + the op log, `applyLiveOp` + the catch-up (the record cases stay) | T.holes (E.a1) | **−1,870 / −504** | −459 | −507 | loader entry + `#flush` dispatch + the pump's dispatch + the applier hand-off ≈ +190 min / **+65 br**; server `needs("holes")` at `createLiveHoles`' first `openBinding` ≈ +30 min | **≈ −440** | **the 8.0 ruling reversed** (holes eager); buffer-only, no hold (plan §1's holes row); `tier-holes-buffer.spec` as the plan drafted it; C13 control arm, C18's pump catch-up arm unchanged |
 | 15 | two golfs: `sameArg`'s `Boxed` arm folded; one content-record helper in `chunkToRecords` | — | −144 / −6 | −41 | −22 | — | ≈ 0 | brotli already folds the repetition — not worth touching |
@@ -461,6 +469,85 @@ surface: `FrameHostOptions.resolve` keeps its signature; the table's
 `resolve` contract changes (a promise for a missing key) — the serialization
 package's, `@internal`.
 
+#### As built — residue step 4 (2026-10-06)
+
+Branch `size/frames-residue-4-sref-table` on step 3's head (`8a0b090cf`,
+frames eager 34,272 / 11,367). Measured before writing on an edited dist
+copy of this head — the frames client AND the decode dist, the latter
+routed into the page scenarios so the lazy chunk's growth is read, not
+estimated (`.wt-logs/res4-edit.mjs`, `res4-measure.mjs`; §0's method):
+
+| edited dist | frames eager Δ | page base / live Δ br | decode.js (lazy) Δ | note |
+| --- | ---: | ---: | ---: | --- |
+| the ceiling (§2 row 12's cut re-applied: `pendingRef`, `settleWait`, the waits in `write` / the data arm / the end arm, the `record.pending` test) | **−879 / −280** | −300 / −297 | 0 | the row measured −884 / −289 on #3860's head |
+| the carrier as designed (below) | −485 / −162 | −183 / −208 | **+382 / +140** | glue +394 min / +118 br over the ceiling |
+| … without the transport's slot-chunk await | −546 / −169 | −209 / −218 | +382 / +140 | the await is 61 / 7 — kept (soundness, below) |
+| … with one `applyTo` fan-out shared by `apply` and the settle | **−519 / −170** | −243 / −180 | +382 / +140 | the shape built |
+| **built** | **−505 / −174 → 33,767 / 11,193** | **−200 / −157** → 112,938 / 36,071 and 124,810 / 39,747 | **+420 / +161** → 23,410 / 6,237 | +14 min / −4 br over the copy: the `instanceof` guard and the callbacks (below) |
+
+The stop rule was net < −150 br; the carrier cleared it by 20.
+
+**What the table owns.** `createJSONDataTable.resolve` of a key no `apply`
+has delivered answers with ONE pending read per key — a promise marked
+`s = 0`, carrying `c` (its settle callbacks), owned by the table
+(`then(undefined, noop)`, so a read nobody makes is not an unhandled
+rejection). The key's `apply` settles it (stamped `s = 1` / `v`, the marks a
+fill's prop read adopts synchronously at a t=0 claim — the stamp moved into
+the lazy chunk with the read) and runs its callbacks; `close(error)` rejects
+every read still pending (stamped `s = 2`; the response's error record when
+it ended by one, else an `Error` naming the key) and runs theirs; a second
+`close` is a no-op. A delivered value that is itself a promise carries no
+mark and is taken as the value it is (DR-2's value tier: the fill's own
+boundary holds it).
+
+**What frames kept.** `settleArgs` counts a record's pending reads
+(`record.pending`: `instanceof Promise && s === 0` — `instanceof` before
+the mark, because a decoded value may be a live container whose property
+reads throw not-ready) and pushes one `settle` per read on its `c`: the
+last to settle re-applies the record through one `applyTo(id, version, r)`
+fan-out (shared with `apply`) if the record is still the store's — a bump,
+a re-sent record under the same version or a staged refetch's preview make
+it not. The end arm tells the integration the response ended
+(`FrameHostOptions.closeData(frameId, version, error?)`); the shared host
+closes `tables.get(id)?.get(version)` — never minted for a response that
+carried no data, never a superseded version's. `pendingRef`, `settleWait`,
+the per-store `waits`, `write`'s reset of them, the data arm's lookup and
+the end arm's loop are gone.
+
+**Two things the build found that the edit could not.** (i) The settle
+must be a **callback the table runs at the delivery**, not the promise's
+own `then`: a delivered value that is itself a pending promise is ADOPTED
+by the read (`resolve(value)` follows a thenable), so `.then(settle)` fired
+only when the inner value landed — the fresh mount never ran at delivery
+and the fill's `<Loading>` never showed (`frames-client` "suspends an async
+slot arg", the three `container-args` pins, `frames-container-lazy-codec`
+red). The old `settleWait` re-applied synchronously inside the data arm;
+the callbacks restore exactly that timing. (ii) The mark check must not
+read a property of the value: a pending live container's trap throws
+not-ready on `resolved.s` (REACTIVITY_HALTED in the container pins);
+`instanceof Promise` is a prototype walk (the store proxy has no
+`getPrototypeOf` trap) and is the probe.
+
+**One soundness item the design did not name.** `tableFor` returns no
+table before the codec is resident, so a `{$ref}` resolved ahead of any
+`data` chunk would have had no table to mint its read (the host used to
+answer that case itself). The transport now awaits `prepareData` before a
+`slot` chunk whose args carry a `{$ref}`, as it does before a `data` chunk
+(61 min / 7 br). On the producer's wire this await is already answered —
+the sink emits the data chunk ahead of the record that names it
+(`start → data → slot → html → complete`, probed) — so nothing is delayed
+in production; RFC 11's order-independence holds for hand-framed streams
+(the C5 / C6 shapes) because the slot chunk now queues behind the load.
+
+**Why the glue is +110 br, not +40.** The row budgeted the count and the
+re-apply (≈ 120 min — about what `settleArgs`' pending block costs) and
+nothing for the seam: the response's end has to reach the table (`closeData`
+in the host + the integration ≈ 190 min), the read has to exist before the
+codec (the transport's 61), and brotli no longer folds the end arm's
+rejection against the landing's (the ceiling's −280 vs the row's −289).
+Not golfable below ≈ −170 without changing the seam's shape (the
+`applyTo` helper was the one fold left, −8 br).
+
 ### 3.3 The lean re-ask (item 6b)
 
 A7 records the call per address (`calls`, `callFor`) and re-invokes it by
@@ -548,7 +635,7 @@ still has to pay; the "built" column subtracts it.
 | 4 | **R.insert** — every fill through `insert` (3) | −196 → **−287 built** (step 3; with the dead range mode) | **11,018** (built: 11,654 → **11,367**, row 3 not taken) | 0 | 11,028 | 10,736 | **landed** (§7c): `Slot` owns its range; C1 (b) re-pinned to the core's rule |
 | 5 | the fallback pass (4a) | −75 | 10,943 | DR-4 (its own plan) | — | — | **not recommended** (§3.4); kept to show it does not matter — the rows below are measured **without** it where marked |
 | 6 | **the lean re-ask** (6b) | −78 | **10,865** (10,940 without row 5) | pages +30 | 10,950 | 10,658 | **design** §3.3 (sf client ctx) |
-| 7 | **S-ref's pending read to the table** (12, ceiling) | −289 | **10,576** (≈ 10,637 without row 5) | **+40** frames; decode chunk +≈ 120 min lazy | ≈ 10,687 | ≈ 10,395 | **design** §3.2; C5 ×3, C6 (a1) |
+| 7 | **S-ref's pending read to the table** (12, ceiling) | −289 → **−174 built** (step 4: the ceiling −280 on step 3's head; the carrier +110 — the `closeData` seam, the transport's await, the count) | **10,576** (≈ 10,637 without row 5; built: 11,367 → **11,193**, rows 3 and 5 not taken) | **+40** frames (built +110); decode chunk +≈ 120 min lazy (built +420 / +161) | ≈ 10,687 | ≈ 10,395 | **landed** (§3.2 "As built", §7d); C5 ×4, C6 (a1), C17 (c), `sref-table-pending-read` |
 | 8 | **claims + `frame:applied` to the router** (13, ceiling) | −299 | **10,277** (≈ 10,338 without row 5) | **+20** seam | ≈ 10,408 | ≈ 10,116 | public surface (`FRAME_APPLIED_EVENT`); the router contract |
 | 9 | **C1 — the holes tier** (14, ceiling) | −516 | **9,761** | **+65** glue; server `needs("holes")` | ≈ 9,896 | ≈ 9,604 | **the 8.0 ruling reversed** |
 | 9′ | rows 1–4 + 6–9 (no fallback pass), measured as one dist | | **9,822** | +135 | **9,957** | **≈ 9,665** | the recommended set, every carrier in |
@@ -625,7 +712,13 @@ two seeds clean):
    PR.
 5. **S-ref to the table** (§3.2; ≈ −250 built) — a decode-chunk change plus
    a host simplification; worth it on its own terms (the pending read lives
-   where the keys live).
+   where the keys live). **Landed as residue step 4 (§7d): −174 built** —
+   the ceiling held (−280) but the carrier is +110, not +40: the response's
+   end has to reach the table (`closeData`), the read has to exist before
+   the codec (the transport awaits it for a `{$ref}`-carrying slot chunk),
+   and the settle is a callback at the delivery, not the promise's `then`
+   (a delivered promise value is adopted). The decode chunk grew +161 br
+   (lazy).
 6. **The lean re-ask** (§3.3; −78 frames, +30 pages). **Landed in residue
    step 1 (§7): −99 frames, and the pages shrink too (−30 / −65).**
 7. **C2** (−292), taking `FRAME_HAVE_*` off the entry with it (−28 more if
@@ -840,6 +933,77 @@ filled it at the parent's end from a snapshot).
 §4's row 4 estimated −196; built −287 with the range mode. The residue
 proper's remaining rows: S-ref to the table (§3.2, ≈ −250), then C2, C1,
 the claims chunk.
+
+## 7d. Landed — residue step 4 (2026-10-06): S-ref's pending read in the decode table
+
+Branch `size/frames-residue-4-sref-table` on step 3's head (`8a0b090cf`,
+frames eager **34,272 / 11,367**; page base 113,443 / 36,271; live 125,315
+/ 39,904; the lazy `decode.js` chunk of the page scenarios 22,990 / 6,076).
+§5 row 5 / §2 row 12. Measured before writing on edited dist copies of the
+frames client and the decode entry through the harness's bundler
+(`.wt-logs/res4-edit.mjs`, `res4-measure.mjs`); the four non-SC scenarios
+0 / 0 on every row. min / br.
+
+| item | measured on this head | note |
+| --- | ---: | --- |
+| the ceiling — the host's pending-read machinery out whole (`pendingRef`, `settleWait`, the waits in `write` / the data arm / the end arm, `record.pending`'s test) | **−879 / −280** (pages −300 / −297) | the row measured −884 / −289 on #3860's head; unsound alone (a record applies with `undefined` for an undelivered key) |
+| the carrier as designed: the table's pending read (`s = 0`, stamped `s`/`v`, `close`), the count + one settle per read, `closeData` host + integration, the transport's await for a `{$ref}`-carrying slot chunk | −485 / −162; decode +382 / +140 | +394 min / +118 br over the ceiling — the row estimated +120 / +40 |
+| the transport's await alone | 61 / 7 | kept: without it a `{$ref}` resolved ahead of the codec has no table to mint its read |
+| one `applyTo` fan-out shared by `apply` and the settle | −519 / −170 | the shape built; the one fold left |
+| **built** | **−505 / −174 → 33,767 / 11,193**; pages **−200 / −157** → 36,071 and 39,747; **decode.js +420 / +161** → 23,410 / 6,237 (lazy, reported not counted) | +14 min / −4 br over the copy: the settle as the table's callback (not the read's `then`), the `instanceof` guard — §3.2 "As built" |
+
+**The table's behaviour** (`createJSONDataTable`, `@internal` on the
+integration-facing type): a `{$ref}` to a key no `apply` has delivered is
+a promise the table owns, marked `s = 0`, carrying `c`; the key's `apply`
+settles it (stamped `s = 1` / `v`) and runs `c`; `close(error)` rejects what
+is still pending (stamped `s = 2`; the response's error, else an `Error`
+naming the key) and runs `c`; idempotent. **What frames deleted:**
+`pendingRef`, `settleWait`, the per-store `waits` and `write`'s reset of
+them, the data arm's wait lookup, the end arm's rejection loop, the error
+string. **What it kept:** `record.pending` (a fresh mount waits for its
+record; the covering `<Loading>` pends on the landing alone; a mounted
+occurrence's prop pends and holds — A17), one `settle` per read that
+re-applies the record if it is still the store's, and `applyTo`.
+
+**Two things the build found** (§3.2 "As built"): the settle must be the
+table's callback at the delivery — a delivered promise value is adopted by
+the read, so its `then` fires at the inner value (five pins red:
+`frames-client` DR-2, `container-args` ×3, `frames-container-lazy-codec`);
+and the mark must be read behind `instanceof Promise` — a pending live
+container's property trap throws not-ready.
+
+**Pins.** C5 (a, b, c, d, e), C6 (a1, a2, b1, b2, c, control), C17 (c), the
+`{$ref}` rows of the lifecycle matrix (`call-driven-args` ×13 refs,
+`container-args`), `frames-flight-delivery`, `adopted-slot-late-record`,
+c01, c03 (a), c04 (b), c09 (c), c10 (b), c14 (a), c19 (b, c, e), every
+`frames-*` / `hydration/*` suite green unchanged. **Added:**
+`consistency/sref-table-pending-read` — (a) the table's lifecycle (one read
+per key, the mark, the stamp, callbacks at delivery even for a
+promise-valued key, `close()` naming the key, `close(error)` with the
+response's own, idempotence); (b) L1 through the production shared host (a
+never-delivered key rejects at `complete`; the fill's read throws to the
+nearest `<Errored>` naming the key; nothing fabricated reached the fill);
+(c) the control (delivered before `complete`; nothing rejects). No earlier
+pin reached the rejection. Web client 129 / 1,194; hydrate + consistency
+88 / 449; server 159 / 1,511; `types` + `test-types` clean; harness 500 ×
+{3289, 91501}: SC arm 0, generic arm (`CONSISTENCY_IGNORE=C1,C9,C19,E`) 0.
+
+**Public surface** (`@experimental` / `@internal`): `FrameHostOptions.
+closeData?(frameId, version, error?)` added — the host tells the
+integration a response ended; `FrameHostOptions.resolve` keeps its
+signature, its answer for an undelivered key is now the table's pending
+read (the integration no longer returns `undefined` for "not delivered");
+`FrameHostOptions.prepareData` is awaited before a `slot` chunk carrying a
+`{$ref}` as well as before a `data` chunk; `JSONDataTable.close(error?)`
+added and `resolve`'s pending read documented (`@internal` behaviour on the
+integration-facing type). Behaviour, no surface: the L1 error names the
+key (`Stream ended without delivering {$ref: "k"}`; before: `Frame stream
+ended without delivering a {$ref}.`).
+
+**Running number: frames eager 11,193 br — 1,193 B above ≤ 10.0 KB.**
+§4's row 7 estimated −250 built; −174 landed. The residue proper is done
+(rows 2, 4, 6, 7 landed; row 3 stopped); what remains is C2 (−292), C1
+(≈ −440) and the claims chunk (≈ −270) — the two decision items.
 
 ---
 
