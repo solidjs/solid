@@ -345,6 +345,14 @@
       "types": "./types/frames/assets-tier.d.ts",
       "default": "./frames/dist/assets.js"
     },
+    "./frames/bind": {
+      "development": {
+        "types": "./types/frames/bind-tier.d.ts",
+        "default": "./frames/dist/bind.dev.js"
+      },
+      "types": "./types/frames/bind-tier.d.ts",
+      "default": "./frames/dist/bind.js"
+    },
     "./types/*": "./types/*"
   },
   "scripts": {

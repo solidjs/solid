@@ -21,9 +21,7 @@ import {
   createOwner,
   createRenderEffect,
   createSignal,
-  DEV,
   getOwner,
-  OBSERVE,
   onCleanup,
   runWithOwner,
   untrack
@@ -33,15 +31,19 @@ import type { Element as SolidElement } from "solid-js";
 // already uses — importing it from the runtime source instead bundles a second
 // copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
 // already has). Kept external in rollup.config.js for the same reason the
-// server-functions/client import below is.
-import { insert, assign } from "@solidjs/web";
+// server-functions/client import below is. (`assign` — a binding slot's
+// position writer — is the bind tier's import, not this entry's.)
+import { insert } from "@solidjs/web";
 import {
   createFrame,
   createFrameElement,
   createFrameHost,
   FRAME_ID_ATTR,
+  isAsyncValue,
   prepareTier,
+  slotShapeFinding,
   tierLoaders,
+  tierLoads,
   type TierModule
 } from "./frame-client.js";
 import {
@@ -94,6 +96,17 @@ tierLoaders.regions = () => import("@solidjs/web/frames/regions");
 // fallback stays on screen, no segment reveals unstyled. The module's
 // exports are the dispatch (`gate`, `apply`); no install.
 tierLoaders.assets = () => import("@solidjs/web/frames/assets");
+// The bind tier (frames savings pass §3 row C6): binding-slot positions
+// (principles §9.2.3) — the `_s:*` marker parsers, consumer discovery, the
+// morph's owned-position arms, the per-frame consumer set and the fill's
+// binding (`assign` over every consuming element) — as the chunk
+// `@solidjs/web/frames/bind` (bind-tier.ts). The server announces `bind`
+// wherever a slot is read as data (the slot proxy's `needs("bind")`); a
+// marker met in a frame's content while the tier is absent is noted by
+// the sync's walk and the frame holds on the note, its load started by
+// the readiness check (frame-client.ts, `#syncSlots`). The module's
+// exports are the dispatch; no install.
+tierLoaders.bind = () => import("@solidjs/web/frames/bind");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
@@ -136,6 +149,11 @@ export {
 } from "./frame-client.js";
 // The shape a tier loader resolves (`InstallOptions.tiers`); type-only.
 export type { TierModule } from "./frame-client.js";
+// The bind tier's import of this entry (bind-tier.ts): one copy of the
+// async-value probe, and the edge that keeps the chunk attached to the
+// entry's graph in an app's bundler.
+/** @internal */
+export { isAsyncValue } from "./frame-client.js";
 export {
   FRAME_STREAM_HEADER,
   FRAME_HAVE_HEADER,
@@ -430,19 +448,6 @@ function liveSlotProps(initial: Record<string, any>, ctx: any) {
 }
 
 /**
- * Whether a slot arg value is an async value passed whole (a promise or an
- * async iterable) — DR-2's value tier. The server never resolves these to
- * dead values; the client suspends at the consumption read.
- */
-function isAsyncValue(v: any): boolean {
-  return (
-    v !== null &&
-    typeof v === "object" &&
-    (typeof v.then === "function" || typeof v[Symbol.asyncIterator] === "function")
-  );
-}
-
-/**
  * Whether two values of one slot arg are the same value — the per-prop
  * memo's equality, and so the whole dedupe of a re-sent record (a record
  * whose refs decode to equal values churns no reader; one with a changed
@@ -561,225 +566,6 @@ function slotArgsProxy(args: () => Record<string, any>) {
   );
 }
 
-interface ElementState {
-  /** `assign`'s diff state: the props last written to the element. */
-  prev: Record<string, any>;
-  /** Bound handler props (`onclick`): the key and the value read at bind. */
-  handlers: Record<string, { key: string; value: any }>;
-  /** The ref dispatcher for the element's current ref keys, and those keys. */
-  ref: ((el: Element) => void) | undefined;
-  refId: string;
-}
-
-/**
- * The occurrence holding each handler prop of an element. A rebind can hand
- * an element from one occurrence to another (a positional id now names
- * another row's data), and a delegated handler is one slot on the element:
- * the outgoing occurrence's release must not clear what the incoming one set.
- */
-const handlerOwners = new WeakMap<Element, Record<string, object>>();
-
-/**
- * Bind a binding-slot occurrence (principles §9.2.3). The fill runs ONCE,
- * untracked, under the occurrence's owner — a component body: a top-level
- * read is a one-time read (dev names it through `untrack`'s label), and state
- * created in the body lives as long as the occurrence. Its object's value
- * positions are written by one render effect over every consuming element,
- * diffed per position by `assign`, so a getter's change re-reads the
- * occurrence and touches only what moved. Handlers and refs are read once
- * when an element binds and handed to `assign`, which binds them as client
- * JSX does (delegation, tuples). A consumer change (`ctx.onRebind`: the morph
- * replaced an element, a response bound a new position) rebinds without
- * re-running the fill.
- */
-function bindDataOccurrence(
-  fill: (args: any) => any,
-  args: any,
-  ctx: any,
-  label: string | undefined
-) {
-  const [consumers, setConsumers] = createSignal<any[]>(ctx.positions);
-  ctx.onRebind(setConsumers);
-  const raw = untrack(() => fill(args), label);
-  // Content where data was expected: a DOM node is an object, so it is
-  // named here rather than read as one (its properties are the DOM's); an
-  // async value has no properties to bind until it settles.
-  const node = typeof Node === "function" && raw instanceof Node;
-  const pending = isAsyncValue(raw);
-  if (IS_DEV && (raw == null || typeof raw !== "object" || Array.isArray(raw) || node || pending)) {
-    const shape = shapeOf(raw);
-    slotShapeFinding(
-      { reason: "fill-shape", occurrence: ctx.key, shape },
-      `[BINDING_SLOT_POSITION] The fill for \`${ctx.key}\` returned ${shape}; server markup reads ` +
-        `its properties at bound positions, so it must return an object (\`{ done, onToggle, … }\`). ` +
-        `Nothing binds.`
-    );
-  }
-  const out = raw == null || typeof raw !== "object" || node || pending ? {} : raw;
-  const token = {};
-  const state = new WeakMap<Element, ElementState>();
-  // The elements written last time: one that drops out of the consumer
-  // list on a rebind (its markers gone, the element kept by the morph) is
-  // released so its handlers unbind.
-  let bound = new Set<Element>();
-  createRenderEffect(
-    () => consumers().map(valuesFor),
-    writes => {
-      const next = new Set<Element>();
-      for (const { element, positions, values, texts } of writes) {
-        next.add(element);
-        write(element, positions, values);
-        for (const [start, v, key] of texts) writeText(start, v, key);
-      }
-      for (const element of bound) if (!next.has(element)) release(element);
-      bound = next;
-    }
-  );
-  // The occurrence's end (a later response dropped it, a positional id now
-  // names another row's data) unbinds what it bound: the element may outlive
-  // the occurrence (a morph keeps un-keyed elements) and another occurrence
-  // may bind it next, so a handler left behind fires a disposed fill's.
-  onCleanup(() => {
-    for (const element of bound) release(element);
-  });
-  // Value positions are READ in the compute phase: a getter read here
-  // tracks, so the occurrence re-writes when its sources move. Text
-  // positions are values too, collected apart: they are nodes, not props.
-  function valuesFor({ element, positions }: { element: Element; positions: any[] }) {
-    const props: Record<string, any> = {};
-    const texts: [Comment, unknown, string][] = [];
-    let classNames: Record<string, boolean> | null = null;
-    let styleProps: Record<string, any> | null = null;
-    for (const { pos, key, name, start } of positions) {
-      if (pos === "ref" || pos.startsWith("on:")) continue;
-      if (pos === "text") texts.push([start, out[key], key]);
-      else if (pos === "class" || pos === "style") {
-        if (name === undefined) props[pos] = out[key];
-        else if (pos === "class") (classNames || (classNames = {}))[name] = !!out[key];
-        else (styleProps || (styleProps = {}))[name] = out[key];
-      } else props[pos] = out[key];
-    }
-    if (classNames !== null && !("class" in props)) props.class = classNames;
-    if (styleProps !== null && !("style" in props)) props.style = styleProps;
-    return { element, positions, values: props, texts };
-  }
-  function write(element: Element, positions: any[], props: Record<string, any>) {
-    let st = state.get(element);
-    if (!st) state.set(element, (st = { prev: {}, handlers: {}, ref: undefined, refId: "" }));
-    // Handler positions: the marker's event name (`onClick` compiled to
-    // `click`) as the prop `assign` binds. The prop must be `on` + an
-    // uppercase letter (`onClick`) — a lowercase `onclick` is an attribute
-    // to `assign`. The server merges duplicate handlers last-wins, so a
-    // position names one key; given more, the last. Several keys at a ref
-    // position all fire, in marker order.
-    const handlers: Record<string, string> = {};
-    const refKeys: string[] = [];
-    for (const { pos, key } of positions) {
-      if (pos === "ref") refKeys.push(key);
-      else if (pos.startsWith("on:")) handlers["on" + pos[3].toUpperCase() + pos.slice(4)] = key;
-    }
-    let owners = handlerOwners.get(element);
-    if (!owners) handlerOwners.set(element, (owners = {}));
-    for (const prop in handlers) {
-      const key = handlers[prop];
-      let h = st.handlers[prop];
-      if (h === undefined || h.key !== key)
-        st.handlers[prop] = h = { key, value: untrack(() => out[key]) };
-      props[prop] = h.value;
-      owners[prop] = token;
-    }
-    // A handler the server released (or this occurrence let go of) is
-    // unbound through `assign`'s diff — unless another occurrence has taken
-    // the element's handler since, which is then not ours to clear.
-    const clearing: Record<string, true> = {};
-    for (const prop in st.handlers) {
-      if (prop in handlers) continue;
-      delete st.handlers[prop];
-      if (owners[prop] === token) {
-        delete owners[prop];
-        clearing[prop] = true;
-      }
-    }
-    if (refKeys.length) {
-      // One stable ref per key set: `assign` fires a ref when its value
-      // changes; a rebind that changes the bound keys fires it once.
-      const id = refKeys.join(",");
-      if (st.refId !== id) {
-        const refs = refKeys.map(k => untrack(() => out[k]));
-        st.refId = id;
-        st.ref = (el: Element) => {
-          for (const r of refs) typeof r === "function" && r(el);
-        };
-      }
-      props.ref = st.ref;
-    }
-    // A value position the server RELEASED (a rebind whose incoming markup
-    // no longer marks it) is the server's again, and the morph already
-    // wrote the server's value there. Drop it from the diff state so
-    // `assign` does not null the attribute the morph just applied. The ref
-    // is the client's alone: it stays in `prev` and clears through the diff.
-    for (const k in st.prev) {
-      if (k in props || k === "ref" || k in clearing) continue;
-      delete st.prev[k];
-    }
-    assign(element, props, true, st.prev);
-  }
-  function release(element: Element) {
-    if (!state.has(element)) return;
-    write(element, [], {});
-    state.delete(element);
-  }
-  // A text position renders as a client insert renders a primitive: a
-  // string or number as text, nullish and booleans as nothing. Anything
-  // else is content, which belongs in a template slot.
-  function writeText(start: Comment, v: unknown, key: string) {
-    let s = "";
-    if (typeof v === "string" || typeof v === "number") s = "" + v;
-    else if (IS_DEV && v != null && typeof v !== "boolean") {
-      const shape = shapeOf(v);
-      slotShapeFinding(
-        { reason: "text-shape", occurrence: ctx.key, key, shape },
-        `[BINDING_SLOT_POSITION] \`${key}\` of \`${ctx.key}\` is placed as text, but the fill ` +
-          `returned ${shape} for it. A text position renders a string or number; markup belongs ` +
-          `in a template slot. The text is cleared.`
-      );
-    }
-    const n = start.nextSibling;
-    if (n && n.nodeType === 3) {
-      if ((n as Text).data !== s) (n as Text).data = s;
-    } else if (s) start.after(s);
-  }
-}
-
-/** A value's shape, as the binding-slot shape findings name it. */
-function shapeOf(v: unknown): string {
-  return v === null
-    ? "null"
-    : typeof Node === "function" && v instanceof Node
-      ? "a DOM node"
-      : Array.isArray(v)
-        ? "an array"
-        : isAsyncValue(v)
-          ? "an async value"
-          : typeof v;
-}
-
-/**
- * Dev finding (`BINDING_SLOT_POSITION`): the client side of a binding slot
- * has the wrong shape — the fill's return is not an object or the prop is
- * not a function (`fill-shape`), or a text position's value is not a
- * primitive (`text-shape`). Through the diagnostics channel, so an
- * observer captures it beside the server's findings.
- */
-function slotShapeFinding(data: Record<string, string>, message: string) {
-  DEV!.report(
-    OBSERVE!.diagnostics.emit(
-      { code: "BINDING_SLOT_POSITION", kind: "render", severity: "warn", message, data },
-      null
-    )
-  );
-}
-
 /** Whether a resolved slot value is reactive at the top level. */
 function isReactiveContent(value: any): boolean {
   if (typeof value === "function") return true;
@@ -833,7 +619,9 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // a per-occurrence owner: the binding must die with the occurrence
           // (a later response dropping it, or every consumer replaced by
           // the morph), and there are no placed nodes for the frame's zombie
-          // heuristic to misread.
+          // heuristic to misread. The binding itself is the BIND TIER's
+          // (`bind`, bind-tier.ts) — resident by construction: positions
+          // exist only once the tier parsed the markers.
           if (ctx && ctx.positions) {
             const fill = props[prop];
             if (typeof fill !== "function") {
@@ -858,7 +646,7 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
               const args = ctx.onUpdate
                 ? liveSlotProps(slotProps, ctx)
                 : slotArgsProxy(() => slotProps);
-              bindDataOccurrence(
+              tierLoads.bind.r.bind(
                 fill,
                 args,
                 ctx,

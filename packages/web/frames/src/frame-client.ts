@@ -517,96 +517,81 @@ const slotEnd = id => `slot:${id}:end`;
 // element beside that element's attribute positions (`{ pos: "text", key,
 // start }`); the fill writes the one text node between the markers, and the
 // morph keeps a pair it meets again (see `reconcileChildren`).
-const SLOT_MARKER = "_s:";
-const SLOT_TEXT = SLOT_MARKER + "t=";
+//
+// Everything that READS a marker — the entry parser, the consumer
+// registration (`positions` / `text`), the owned-position arms of the
+// morph (`owned` / `apply`), the per-frame consumer set and rebinder
+// (`sync` / `rebinder` / `unmount`) and the fill's binding (`bind`) — is
+// the BIND TIER's (`@solidjs/web/frames/bind`, bind-tier.ts; frames savings
+// pass §3 row C6), reached through its resident stamp (`tierLoads.bind.r`).
+// The eager client keeps the constants, one test — whether a node carries
+// a marker at all (`hasSlotMarker`, `isTextStart`) — and the morph's
+// text-pair arm (a position's text survives a morph by not being
+// reconciled; see `reconcileChildren`). The sync's walk NOTES a marker met
+// while the tier is absent (`found.b`) and the frame holds on the note —
+// the tier's load started by the readiness check, the install's flush
+// re-walking with the tier in place.
+/** @internal (the bind tier's own copy — see bind-tier.ts) */
+export const SLOT_MARKER = "_s:";
+/** @internal (the bind tier's own copy — see bind-tier.ts) */
+export const SLOT_TEXT = SLOT_MARKER + "t=";
 const SLOT_TEXT_END = "/" + SLOT_MARKER + "t";
 
 const isTextStart = n => n.nodeType === COMMENT_NODE && n.data.startsWith(SLOT_TEXT);
 
-/**
- * One marker entry, `<occurrence>:<key>[=<name>]`, as `[occurrence,
- * { pos, key, name }]`, or null. Keys and names are percent-encoded on the
- * wire (they are client-controlled strings landing in a `,`/`:`/`=`-delimited
- * grammar) and decoded here.
- */
-function slotEntry(entry, pos) {
-  const colon = entry.indexOf(":");
-  if (colon < 1) return null;
-  const eq = entry.indexOf("=", colon);
-  return [
-    entry.slice(0, colon),
-    {
-      pos,
-      key: decodeURIComponent(eq === -1 ? entry.slice(colon + 1) : entry.slice(colon + 1, eq)),
-      name: eq === -1 ? undefined : decodeURIComponent(entry.slice(eq + 1))
-    }
-  ];
-}
-
-/**
- * Register a text start marker's position on its parent element's consumer
- * entry for the occurrence — the one its attribute markers opened, if any,
- * so an element is one consumer however its positions are spelled.
- */
-function textPosition(start, elements) {
-  const parsed = slotEntry(start.data.slice(SLOT_TEXT.length), "text");
-  const consumers = parsed && consumersOf(elements, parsed[0]);
-  if (!consumers) return;
-  const element = start.parentNode;
-  let consumer;
-  for (let i = consumers.length; i-- && !consumer; )
-    if (consumers[i].element === element) consumer = consumers[i];
-  consumer || consumers.push((consumer = { element, positions: [] }));
-  parsed[1].start = start;
-  consumer.positions.push(parsed[1]);
-}
-
-/** An occurrence's consumer list, created on first use; null when a slot
- *  range claimed the id (the dev range check reports it). */
-function consumersOf(elements, occurrence) {
-  let consumers = elements.get(occurrence);
-  if (consumers === undefined) elements.set(occurrence, (consumers = []));
-  return Array.isArray(consumers) ? consumers : null;
-}
-
-/**
- * Parse one element's `_s:*` markers into positions grouped by occurrence:
- * `{ [occurrence]: [{ pos, key, name }] }`, or null. `pos` is the marker's
- * position as written (`class`, `hidden`, `on:click`, `ref`), `name` the
- * class name / style property for a member position.
- */
-function slotPositions(el) {
+/** Whether an element carries any `_s:*` marker (the detection alone; the
+ *  tier parses it). */
+function hasSlotMarker(el) {
   const attrs = el.attributes;
-  let out = null;
-  for (let i = 0; i < attrs.length; i++) {
-    const attr = attrs[i];
-    if (!attr.name.startsWith(SLOT_MARKER)) continue;
-    const pos = attr.name.slice(SLOT_MARKER.length);
-    for (const entry of attr.value.split(",")) {
-      const parsed = slotEntry(entry, pos);
-      if (!parsed) continue;
-      out || (out = Object.create(null));
-      (out[parsed[0]] || (out[parsed[0]] = [])).push(parsed[1]);
-    }
-  }
-  return out;
+  for (let i = 0; i < attrs.length; i++) if (attrs[i].name.startsWith(SLOT_MARKER)) return true;
+  return false;
 }
 
-/** Whether a data occurrence's consumer set changed (elements or positions). */
-function consumersEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
-    if (x.element !== y.element || x.positions.length !== y.positions.length) return false;
-    for (let j = 0; j < x.positions.length; j++) {
-      const p = x.positions[j];
-      const q = y.positions[j];
-      if (p.pos !== q.pos || p.key !== q.key || p.name !== q.name || p.start !== q.start)
-        return false;
-    }
-  }
-  return true;
+/**
+ * Whether a slot arg value is an async value passed whole (a promise or an
+ * async iterable) — DR-2's value tier. The server never resolves these to
+ * dead values; the client suspends at the consumption read.
+ * @internal (the client entry's and the bind tier's — each its own copy)
+ */
+export function isAsyncValue(v: any): boolean {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    (typeof v.then === "function" || typeof v[Symbol.asyncIterator] === "function")
+  );
+}
+
+/**
+ * A value's shape, as the binding-slot shape findings name it.
+ * @internal (dev only; the client entry's and the bind tier's)
+ */
+export function shapeOf(v: unknown): string {
+  return v === null
+    ? "null"
+    : typeof Node === "function" && v instanceof Node
+      ? "a DOM node"
+      : Array.isArray(v)
+        ? "an array"
+        : isAsyncValue(v)
+          ? "an async value"
+          : typeof v;
+}
+
+/**
+ * Dev finding (`BINDING_SLOT_POSITION`): the client side of a binding slot
+ * has the wrong shape — the fill's return is not an object or the prop is
+ * not a function (`fill-shape`), or a text position's value is not a
+ * primitive (`text-shape`). Through the diagnostics channel, so an
+ * observer captures it beside the server's findings.
+ * @internal (dev only; the client entry's and the bind tier's)
+ */
+export function slotShapeFinding(data: Record<string, string>, message: string) {
+  DEV!.report(
+    OBSERVE!.diagnostics.emit(
+      { code: "BINDING_SLOT_POSITION", kind: "render", severity: "warn", message, data },
+      null
+    )
+  );
 } /**
  * Maps a wire chunk onto resident-store record writes. `data` chunks map to
  * no records — they are response-scoped and the host applies them through
@@ -1118,9 +1103,9 @@ export const FRAME_APPLIED_EVENT = "frame:applied";
 // entry, client.ts) carries the tiers that have been cut — `trace`, the
 // container tier's client half (plan step C3); `regions`, nested
 // server-content regions (C4); `assets`, the head mirror and the
-// stylesheet gate (C5) — and `installServerComponents({ tiers })` adds or
-// replaces entries; a name with no loader is eager and resident by
-// definition (`bind`, `wire` today).
+// stylesheet gate (C5); `bind`, binding-slot positions (C6) — and
+// `installServerComponents({ tiers })` adds or replaces entries; a name
+// with no loader is eager and resident by definition (`wire` today).
 /**
  * A frames-client tier's module, as its loader resolves it: its exports are
  * the tier's appliers — the functions the runtime dispatches to once the
@@ -1280,11 +1265,11 @@ class FrameImpl {
   // REGIONS TIER's (`@solidjs/web/frames/regions`, plan C4), kept by that
   // module per frame and reached through its resident stamp
   // (`tierLoads.regions.r`).
+  // Nor data-occurrence state (§9.2.3): the consumer set last handed to a
+  // mount and the mount's rebind callback (`ctx.onRebind`) are the BIND
+  // TIER's (`@solidjs/web/frames/bind`, plan C6), kept by that module per
+  // frame (`sync` / `rebinder` / `unmount` off `tierLoads.bind.r`).
   #slotNodes = new Map();
-  // Data occurrences (§9.2.3): the consumer set last handed to the mount,
-  // and the mount's rebind callback (`ctx.onRebind`) for when it changes.
-  #slotConsumers = new Map();
-  #slotRebinders = new Map();
   // The release of the frame's hold with the integration while a sync
   // leaves an occurrence waiting to mount (see #syncSlots' end).
   #hold;
@@ -1651,17 +1636,21 @@ class FrameImpl {
     // loop below treats them as occurrences whose mount binds those
     // positions rather than filling a range (no interior, no regions, never
     // replaced), and whose consumer set may change without a re-call.
-    const found = new Map();
+    const found: Map<any, any> & { b?: boolean } = new Map();
     if (root) collectSlots(root.firstChild, null, found, found);
     else this.#collectSlots(found, found);
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
     let waiting = false;
-    // The regions tier's appliers, if resident (an install cannot land
-    // mid-sync: it is a load's continuation). Absent, nothing in this sync
-    // can need them — a record naming a region waits (`needsRegions`).
+    // The regions and bind tiers' appliers, if resident (an install cannot
+    // land mid-sync: it is a load's continuation). Absent, nothing in this
+    // sync can need them — a record naming a region waits (`needsRegions`);
+    // a marker met with the bind tier absent is a NOTE on the found map
+    // (`found.b`, no consumer entry — see `collectSlots`) and the sync
+    // holds on it below, so `B` is resident wherever `consumers` exist.
     const R = tierLoads.regions?.r;
+    const B = tierLoads.bind?.r;
 
     for (const [occurrence, start] of found) {
       const callback = this.#resolveSlot(propOf(occurrence));
@@ -1737,24 +1726,27 @@ class FrameImpl {
       // at its end: the mount runs then and the read throws (L1).
       //
       // A fresh mount also waits for the TIER its occurrence needs (frames
-      // savings pass §2 — the server-announced tier mechanism): a data
-      // occurrence needs `bind` (its positions), a called occurrence whose
-      // record names a region needs `regions` (`needsRegions` — the host's
-      // note of the `{$frame}` args), one whose literal args carry a
-      // container-trace marker needs `trace` (`needsTrace` — the marker
-      // walk, run only while that tier is absent). Resident tiers cost one
-      // test; an absent one has its load started by the check (`tierReady`)
-      // and the occurrence stays as the server left it — its interior on
-      // screen, its positions at the server's values — until the install's
-      // flush re-syncs. On the adopt path this wait is one more reason in
-      // the frame's registered hold (3.1): the delegated-event replay window
-      // stays open, hydration-done waits.
+      // savings pass §2 — the server-announced tier mechanism): a called
+      // occurrence whose record names a region needs `regions`
+      // (`needsRegions` — the host's note of the `{$frame}` args), one
+      // whose literal args carry a container-trace marker needs `trace`
+      // (`needsTrace` — the marker walk, run only while that tier is
+      // absent). Resident tiers cost one test; an absent one has its load
+      // started by the check (`tierReady`) and the occurrence stays as the
+      // server left it — its interior on screen — until the install's
+      // flush re-syncs. (A data occurrence's own tier, `bind`, is waited
+      // for at the walk: absent, no consumer entry reaches this loop — see
+      // the note after it.) On the adopt path this wait is one more reason
+      // in the frame's registered hold (3.1): hydration-done waits. The
+      // hold does NOT keep the delegated-event replay window open for the
+      // page's elements — replay is keyed on each `_hk` element's
+      // completion, which the root pass grants long before the hold lifts;
+      // an event-slot consumer's window is its own `_hk` stamp, completed
+      // by the bind tier at the bind (see bind-tier.ts).
       if (
         !mounted &&
-        ((record && record.pending) ||
-          (consumers
-            ? !tierReady("bind")
-            : record && (needsRegions(record) || needsTrace(record.args))))
+        record &&
+        (record.pending || needsRegions(record) || needsTrace(record.args))
       ) {
         waiting = true;
         // Remember what the adopted interior was rendered from. A hold is
@@ -1765,7 +1757,11 @@ class FrameImpl {
         // replacement's args instead would trust markup rendered from the
         // old ones and leave every differing text hole stale: a claim pass
         // never rewrites text (frames-rulings 3.6).
-        if (this.#options.adopt)
+        // A data occurrence mounts with the CURRENT record instead: its
+        // positions are written whole at the bind (the fill's object over
+        // the server's values — never claimed), so the latest args are the
+        // right ones and the held/current two-step would write twice.
+        if (this.#options.adopt && !consumers)
           this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, record);
         continue;
       }
@@ -1806,11 +1802,12 @@ class FrameImpl {
           start,
           this.#options.adopt
         );
-        // A data occurrence's mount never returns nodes to place, and it
-        // keeps no `#slotNodes` entry: the zombie check above skips data
-        // occurrences (a replaced element is a consumer change, not a
-        // destroyed mount), so the entry would never be read.
-        if (consumers) this.#slotConsumers.set(occurrence, consumers);
+        // A data occurrence's mount never returns nodes to place; its
+        // consumer set is handed to the tier (`sync`), which keeps it per
+        // frame for the rebind below. (No `#slotNodes` entry: the zombie
+        // check above skips data occurrences — a replaced element is a
+        // consumer change, not a destroyed mount.)
+        if (consumers) B.sync(this, occurrence, consumers);
         else {
           if (nodes) this.#replaceRange(occurrence, start, nodes);
           this.#slotNodes.set(occurrence, nodes);
@@ -1828,12 +1825,9 @@ class FrameImpl {
       // A mounted data occurrence whose CONSUMERS changed — a morph replaced
       // one of its elements, a response added or dropped a bound position
       // — rebinds in place: the fill's computation stays, the binding gets
-      // the new set. Independent of an args change, which follows below.
-      if (consumers && !consumersEqual(this.#slotConsumers.get(occurrence), consumers)) {
-        this.#slotConsumers.set(occurrence, consumers);
-        const rebind = this.#slotRebinders.get(occurrence);
-        if (rebind) rebind(consumers);
-      }
+      // the new set. The tier compares against the set it keeps and calls
+      // the mount's rebinder. Independent of an args change, which follows.
+      if (consumers) B.sync(this, occurrence, consumers);
       if (record !== this.#slotArgs.get(occurrence)) {
         // A new record that names a region while the regions tier is absent
         // (a refetch adding a `{$frame}` arg to a mounted occurrence — the
@@ -1884,6 +1878,17 @@ class FrameImpl {
       }
     }
 
+    // The bind tier's wait (frames savings pass §1, "bind"; §3 row C6): the
+    // walk met a `_s:*` marker — an element's or a text position's — while
+    // the tier that parses it is absent, and noted it (`found.b`) without
+    // registering an occurrence. The data occurrences stay as the server
+    // left them — positions at the server's values, handlers inert, their
+    // events queued behind each consumer's own `_hk` stamp — and the frame
+    // waits: the check starts the load (the un-announced fallback;
+    // announced, it is already in flight), the install's flush re-syncs
+    // with the tier in place and the loop above mounts them.
+    if (found.b && !tierReady("bind")) waiting = true;
+
     // Unmount occurrences whose range has disappeared from the server content
     // — full-frame syncs only; a scoped fragment fill never removes siblings.
     if (!root) {
@@ -1921,7 +1926,6 @@ class FrameImpl {
     // binding's updater so a stream args-change can't push props into a
     // disposed instance. The new invocation re-registers if it wants updates.
     this.#slotUpdaters.delete(occurrence);
-    this.#slotRebinders.delete(occurrence);
     const cleanups = this.#slotCleanups.get(occurrence) ?? [];
     // One walk yields both the interior and the end marker. The end marker is
     // part of the consumer contract (ctx.range): a framework binding that owns
@@ -1970,9 +1974,11 @@ class FrameImpl {
       // from its returned object, and returns undefined (there is nothing
       // to place). `onRebind` receives the new set when consumers change
       // (a morph replaced an element; a response bound a new position)
-      // without the args changing — the fill's computation survives.
+      // without the args changing — the fill's computation survives. The
+      // rebinder is kept by the bind tier (resident: positions exist only
+      // once it is), beside the consumer set it compares.
       positions,
-      onRebind: positions ? fn => this.#slotRebinders.set(occurrence, fn) : undefined
+      onRebind: positions ? fn => tierLoads.bind.r.rebinder(this, occurrence, fn) : undefined
     };
     // One record shape (A5): the t=0 record carries used regions as
     // `{$frame}` refs like any stream record would, and #resolveArgs
@@ -2007,19 +2013,18 @@ class FrameImpl {
   #unmountSlot(key) {
     this.#mountedSlots.delete(key);
     this.#slotNodes.delete(key);
-    this.#slotConsumers.delete(key);
     // Long-session hygiene: an occurrence gone from the stream releases its
     // record and caches — keyed churn must not accumulate forever.
     this.#slotArgs.delete(key);
     this.#slotUpdaters.delete(key);
-    this.#slotRebinders.delete(key);
     this.#heldRecords.delete(key);
     this.#removeSlotRecord(key);
     this.#runSlotCleanups(key);
     // The occurrence's regions (the tier's): their frames dispose, the
     // entries go. Nothing to do while the tier is absent — no region was
-    // ever bound.
+    // ever bound. Likewise its consumer set and rebinder (the bind tier's).
     tierLoads.regions?.r?.unmount(this, key);
+    tierLoads.bind?.r?.unmount(this, key);
   }
 
   #runSlotCleanups(key) {
@@ -2686,26 +2691,25 @@ function collectSlots(n, end, out, elements) {
       n = afterRange(n, id);
       continue;
     }
+    // Binding-slot markers (`_s:*`), when the caller wants them — the slot
+    // sync does; the morph's range index does not (an element is reconciled
+    // as an element, not relocated as a protected range). The BIND TIER
+    // parses them: a text position's start marker joins its parent
+    // element's consumer entry (`text`); an element's positions join its
+    // occurrence's consumer list, in document order (`positions`). With
+    // the tier absent, the walk only NOTES that a marker was met
+    // (`elements.b`) — the sync holds on the note and the install's flush
+    // re-walks. A text pair's interior (one text node, the end marker) and
+    // the element's interior are walked like any server content: they may
+    // hold further occurrences of either kind.
     if (elements !== undefined && isTextStart(n)) {
-      textPosition(n, elements);
-      n = afterText(n);
-      continue;
+      const B = tierLoads.bind?.r;
+      B ? B.text(n, elements) : (elements.b = true);
     }
     if (n.nodeType === ELEMENT_NODE && !isFrameElement(n)) {
-      // Data occurrences (`_s:*` markers), when the caller wants them — the
-      // slot sync does; the morph's range index does not (an element is
-      // reconciled as an element, not relocated as a protected range). The
-      // element's positions join its occurrence's consumer list, in document
-      // order. The element's interior is still walked: it is server content
-      // and may hold further occurrences of either kind.
       if (elements !== undefined && n.hasAttributes()) {
-        const byOccurrence = slotPositions(n);
-        if (byOccurrence !== null) {
-          for (const occurrence in byOccurrence) {
-            const consumers = consumersOf(elements, occurrence);
-            if (consumers) consumers.push({ element: n, positions: byOccurrence[occurrence] });
-          }
-        }
+        const B = tierLoads.bind?.r;
+        B ? B.positions(n, elements) : hasSlotMarker(n) && (elements.b = true);
       }
       collectSlots(n.firstChild, null, out, elements);
     }
@@ -2806,61 +2810,17 @@ function preservesOpen(el) {
 // the owned names' live state on top. The markers themselves are ordinary
 // attributes and morph like any other, which is what lets the slot sync
 // see a consumer change.
-function ownedPositions(el) {
-  const attrs = el.attributes;
-  let out = null;
-  for (let i = 0; i < attrs.length; i++) {
-    const name = attrs[i].name;
-    if (!name.startsWith(SLOT_MARKER)) continue;
-    const pos = name.slice(SLOT_MARKER.length);
-    if (pos === "ref" || pos.startsWith("on:")) continue;
-    out || (out = { attrs: new Set(), class: null, style: null });
-    if (pos !== "class" && pos !== "style") {
-      out.attrs.add(pos);
-      continue;
-    }
-    for (const entry of attrs[i].value.split(",")) {
-      const eq = entry.indexOf("=");
-      if (eq === -1) {
-        out.attrs.add(pos); // a whole-value read owns the attribute
-        continue;
-      }
-      (out[pos] || (out[pos] = [])).push(decodeURIComponent(entry.slice(eq + 1)));
-    }
-  }
-  return out;
-}
-
-/** Set `class` to the server's value with the fill-owned class names' live
- *  state preserved. Returns whether the attribute changed. */
-function morphOwnedClass(oldEl, value, names) {
-  const list = oldEl.classList;
-  const set = new Set(value ? value.split(/\s+/) : []);
-  set.delete("");
-  for (const name of names) list.contains(name) ? set.add(name) : set.delete(name);
-  const next = [...set].join(" ");
-  if (next === (oldEl.getAttribute("class") || "")) return false;
-  next ? oldEl.setAttribute("class", next) : oldEl.removeAttribute("class");
-  return true;
-}
-
-/** Set `style` to the server's value with the fill-owned properties' live
- *  values preserved. Returns whether the attribute changed. */
-function morphOwnedStyle(oldEl, value, names) {
-  const style = oldEl.style;
-  const saved = names.map(name => [
-    name,
-    style.getPropertyValue(name),
-    style.getPropertyPriority(name)
-  ]);
-  const before = oldEl.getAttribute("style");
-  value ? oldEl.setAttribute("style", value) : oldEl.removeAttribute("style");
-  for (const [name, v, priority] of saved) {
-    v ? style.setProperty(name, v, priority) : style.removeProperty(name);
-  }
-  return oldEl.getAttribute("style") !== before;
-}
-
+//
+// The parse and the re-imposition are the BIND TIER's (`owned` / `apply`,
+// bind-tier.ts): while it is absent nothing is bound, so nothing is the
+// client's and the morph writes the server's values whole — `null` here,
+// the "no owned positions" answer the arms already take.
+/** The incoming element's owned positions, or null (none, or the tier
+ *  absent). */
+const ownedPositions = el => {
+  const B = tierLoads.bind?.r;
+  return B ? B.owned(el) : null;
+};
 /**
  * Apply the server's value for `name` (null: absent) to an element with
  * binding-slot positions: a client-owned attribute is left alone; owned
@@ -2868,16 +2828,8 @@ function morphOwnedStyle(oldEl, value, names) {
  * whether the attribute changed, or undefined when the position is not
  * owned and the caller writes it.
  */
-function applyOwned(oldEl, name, value, owned) {
-  if (owned === null) return undefined;
-  if (owned.attrs.has(name)) return false;
-  if ((name === "class" || name === "style") && owned[name] !== null) {
-    return name === "class"
-      ? morphOwnedClass(oldEl, value, owned.class)
-      : morphOwnedStyle(oldEl, value, owned.style);
-  }
-  return undefined;
-}
+const applyOwned = (oldEl, name, value, owned) =>
+  owned === null ? undefined : tierLoads.bind.r.apply(oldEl, name, value, owned);
 
 function morphAttributes(oldEl, newEl, claim) {
   let reclaim = false;
@@ -3143,10 +3095,14 @@ function reconcileChildren(
       old.nodeType === COMMENT_NODE &&
       old.data === newChild.data
     ) {
-      // The same text position: its interior is the client's (the incoming
-      // one is empty on the stream face) — keep it and skip both ranges.
-      // Any other case reconciles as ordinary nodes; the consumer change
-      // that follows rebinds the owner, which writes the new range.
+      // The same binding-slot text position: its interior is the client's
+      // (the incoming one is empty on the stream face) — keep it and skip
+      // both ranges. Any other case reconciles as ordinary nodes; the
+      // consumer change that follows rebinds the owner, which writes the
+      // new range. Eager, not the bind tier's: reconciled as ordinary nodes
+      // the pair's text would be dropped and its unchanged position would
+      // not rebind (same start marker), and a dispatch point here costs
+      // what the arm does (measured, C6).
       oldChild = afterText(old);
       newChild = afterText(newChild);
       continue;

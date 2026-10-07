@@ -4956,6 +4956,28 @@ function slotEntry(sv, name) {
 function slotMarker(position, entries) {
   return ` ${SLOT_MARKER}${position}="${entries}"`;
 }
+/**
+ * The replay-window stamp of an EVENT-SLOT consumer (frames savings pass
+ * C6, option (a) of the ruling): an element bound to a stand-in at a handler
+ * position (`_s:on:*`) on the DOCUMENT face carries a bare `_hk`, so the
+ * hydration bootstrap's nearest-`_hk` lookup files the element's events
+ * behind its OWN completion rather than the nearest page element's — which
+ * the page root's pass completes long before any frame tier lands, replaying
+ * the click into an element whose handler is not bound yet (lost). The bind
+ * tier completes the element at the bind and replays (bind-tier.ts). Bare
+ * (no key): the bootstrap tests presence, and no claim ever looks this
+ * element up — the ambient `_hk` sweep skips frame interiors (`data-fid`
+ * containment, client.ts `gatherHydratable`) and a prefix-scoped gather
+ * (`[_hk^="sc-…"]`, a boundary id) cannot match the empty value, so the dev
+ * completion sweep never reports it. Four bytes per element, document face
+ * only: the stream face arrives after hydration, when the bootstrap no
+ * longer queues (its `events` buffer is gone with `_$HY.done`). Server
+ * components render under NoHydration, so the element has no keyed `_hk`
+ * of its own to collide with.
+ */
+function eventSlotStamp(mode) {
+  return mode === CLAIMS_DOCUMENT ? " _hk" : "";
+}
 function propOfOccurrence(occurrence) {
   const i = occurrence.indexOf("#");
   return i === -1 ? occurrence : occurrence.slice(0, i);
@@ -5101,13 +5123,19 @@ function spreadBehaviorMarkers(behaviors, claims, mode) {
     }
   }
   let out = "";
+  let events = false;
   if (behaviors !== null) {
     for (const [pos, b] of behaviors) {
       const e = claims === undefined ? b : b.e;
-      if (e) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, e);
+      if (!e) continue;
+      if (pos === "ref") out += slotMarker("ref", e);
+      else {
+        out += slotMarker("on:" + pos, e);
+        events = true;
+      }
     }
   }
-  return out;
+  return events ? out + eventSlotStamp(mode) : out;
 }
 
 /**
@@ -5209,7 +5237,9 @@ function slotSpreadSource(tag, source) {
  * drops handler and ref expressions from plain SSR output, so this is
  * where a stand-in at one of those positions is seen. A server-local
  * function there can never run (the server has no client to run it on);
- * dev says so, inside the component barrier only.
+ * dev says so, inside the component barrier only. An element with a
+ * handler position bound is an EVENT-SLOT consumer and carries the
+ * replay-window stamp beside its markers (`eventSlotStamp`).
  */
 export function ssrClaim(map: Record<string, unknown>): string;
 
@@ -5217,11 +5247,17 @@ export function ssrClaim(map) {
   const mode = sharedConfig.context && sharedConfig.context.claims;
   if (!mode) return "";
   let out = "";
+  let events = false;
   for (const pos in map) {
     const entries = claimEntries(pos, map[pos], mode);
-    if (entries) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
+    if (!entries) continue;
+    if (pos === "ref") out += slotMarker("ref", entries);
+    else {
+      out += slotMarker("on:" + pos, entries);
+      events = true;
+    }
   }
-  return out;
+  return events ? out + eventSlotStamp(mode) : out;
 }
 
 /**

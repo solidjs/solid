@@ -87,6 +87,11 @@ afterEach(async () => {
 
 describe("the held set — bind (adopt path, un-announced: detection starts the load)", () => {
   // The ONE test for `bind` while it is not resident (see the module doc).
+  // `bind` is a REAL tier since C6 (`@solidjs/web/frames/bind`): the walk
+  // that would register the occurrences is the module's, so the deferred
+  // loader settles with the real module (the install hook is the test's
+  // own, counted the same way). The tier's own pins — the hold's shape,
+  // the delegated-event replay window — are consistency/tier-bind-hold.
   test("an adopted data occurrence waits for its tier: positions untouched, the hold registers under 3.1, hydration-done waits; the install flushes every frame and mounts them", async () => {
     const bind = deferredTier();
     const fidA = freshFid("tier-bind-a");
@@ -129,8 +134,9 @@ describe("the held set — bind (adopt path, un-announced: detection starts the 
     expect(hydrationInProgress()).toBe(true);
     expect(runsAtEnd).toBe(-1);
     // The tier lands: its install hook runs once, then one flush per live
-    // frame — both occurrences mount with the records they were held on.
-    bind.resolve();
+    // frame — both occurrences mount (a data occurrence with the CURRENT
+    // record — here the one they were held on, nothing moved).
+    bind.resolve(await import("../../frames/src/bind-tier.js"));
     await quiesce();
     await quiesce();
     expect(bind.install).toHaveBeenCalledTimes(1);
