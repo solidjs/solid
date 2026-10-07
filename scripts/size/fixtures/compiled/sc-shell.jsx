@@ -3,10 +3,10 @@
 // an application actually ships. The hand-written sc-base-app.js /
 // sc-live-app.js keep the same runtime pieces alive as values and never
 // compile a template, so the attribute runtime a compiled template imports
-// — `className`, `style`, `setAttribute`, `addEvent`, `delegateEvents`,
-// `spread` and `assign` beneath it — is not on those pages, and a change
-// that "removes" it there removes nothing from a real one. Here it is
-// reached the way compiled templates reach it. Each construct is here
+// — `className`, `style`, `setAttribute`, `addEvent`, `delegateEvents` —
+// reaches those pages only through the bind tier's `assign` edge, and a
+// change that "removes" it there removes nothing from a real one. Here it
+// is reached the way compiled templates reach it. Each construct is here
 // because a real page has it:
 //
 // - a nav of links: `href` from a prop (`setAttribute`), `class` and `style`
@@ -15,11 +15,18 @@
 //   `setStyleProperty` forms), the click handler passed through as a prop
 //   (`addEvent`: the compiler cannot see that `props.onSelect` is a function,
 //   so it defers the delegated/direct decision to the runtime);
-// - one element spread, `<input {...props}>` (`spread`, `assign`);
+// - a search input with a `value` binding (`setProperty`) and a delegated
+//   `onInput`;
 // - a `<For>` over the tabs and a `<Show>` with a function child;
 // - the client signal + memo the hand-written pages keep (`d`), `<Errored>`
 //   and `<Loading>` around the server component, a `lazy()` child under its
 //   own `<Loading>` (the lazy chunk is reported, not counted).
+//
+// NO element spread (maintainer's ruling, 2026-10-07: most server-component
+// apps do not have client element spreads — the compiled baseline must not
+// carry one). `spread` / `assign` / `assignProp` and the store `merge` /
+// `omit` view records `spread` reads a source through must be absent from
+// these pages; the ledger in scenarios.js records the check.
 //
 // The server component itself is `props.children` — mounted by the entry
 // through `dynamicComponent()` over a server-function reference, as the
@@ -34,10 +41,6 @@ function Tab(props) {
       {props.children}
     </a>
   );
-}
-
-function SearchBox(props) {
-  return <input type="search" {...props} />;
 }
 
 const TABS = ["Top", "New", "Ask"];
@@ -61,7 +64,12 @@ export default function Shell(props) {
             </Tab>
           )}
         </For>
-        <SearchBox placeholder="Search" value={query()} onInput={e => setQuery(e.target.value)} />
+        <input
+          type="search"
+          placeholder="Search"
+          value={query()}
+          onInput={e => setQuery(e.target.value)}
+        />
       </nav>
       <Show when={query()} fallback={<h1>{label()}</h1>}>
         {q => <h1>Results for “{q()}”</h1>}

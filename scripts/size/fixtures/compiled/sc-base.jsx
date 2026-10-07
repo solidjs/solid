@@ -2,8 +2,8 @@
 // sc-base-app.js — a hydrating client (no client stores) that installs the
 // frames transport and mounts one server component through
 // `dynamicComponent()` over a server-function reference, inside the compiled
-// shell of sc-shell.jsx (templates with ordinary attributes, a spread, For /
-// Show / Loading / Errored, a lazy child). Compiled hydratable by the measured
+// shell of sc-shell.jsx (templates with ordinary attributes — no element
+// spread — For / Show / Loading / Errored, a lazy child). Compiled hydratable by the measured
 // checkout's @solidjs/compiler, like the `app: compiled hydrating` scenario.
 // The delta against the hand-written page is what the compiled templates
 // retain of @solidjs/web — the attribute runtime and the hydratable walk

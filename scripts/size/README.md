@@ -148,15 +148,19 @@ same reason (`page: compiled base …`, `page: compiled live …`;
 the hand-written `sc-base-app.js` / `sc-live-app.js` keep the runtime alive as
 values and never compile a template, so a change that drops the attribute
 runtime from those pages drops nothing from a page an application ships —
-compiled templates import `className`, `style`, `setAttribute`, `addEvent`,
-`delegateEvents` and `spread` themselves. The compiled pages mount the same
-server component through `dynamicComponent()` over the same server-function
+compiled templates import `className`, `style`, `setAttribute`, `addEvent`
+and `delegateEvents` themselves. The compiled pages mount the same server
+component through `dynamicComponent()` over the same server-function
 reference (the live one through `live(GET(…))`, with `action` and
 `isPending`/`latest`), inside a compiled shell: links with a dynamic `class`
-and `style`, an `href`, a handler passed through as a prop, one element
-spread, `<For>`, `<Show>`, `<Errored>`/`<Loading>` and a `lazy()` child. The
-hand-written pages stay as the frames-only floor (their caps are the frozen
-ones); the compiled pages are the number a real page moves by.
+and `style`, an `href`, a handler passed through as a prop, a search input
+with a `value` binding, `<For>`, `<Show>`, `<Errored>`/`<Loading>` and a
+`lazy()` child — and **no element spread** (the maintainer's ruling,
+2026-10-07: most server-component apps do not have client element spreads, so
+the compiled baseline must not carry one; `spread` is absent from both
+pages' rendered `web.js`). The hand-written pages stay as the frames-only
+floor (their caps are the frozen ones); the compiled pages are the number a
+real page moves by.
 
 ## Frozen floor caps
 

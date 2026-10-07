@@ -23,7 +23,7 @@
 // imports (each brotli'd on its own: two files are two compressions); only
 // chunks reached through `import()` alone are lazy. The first scenario to
 // split this way was the compiled live server-component page: `isPending`
-// on the page and a lazy route with a template put the whole runtime (~70 KB
+// on the page and a lazy route with a template put the whole runtime (~66 KB
 // minified) in a shared chunk; counted as lazy it would have read as half
 // the page. No other scenario splits; their numbers did not move.
 //

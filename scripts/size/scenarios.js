@@ -3997,59 +3997,68 @@ module.exports = [
   // Compiled server-component PAGES (2026-10-07): the two page scenarios
   // above are hand-written — they keep the runtime alive as values and never
   // compile a template, so the attribute runtime a compiled template imports
-  // (`className`, `style`, `setAttribute`, `addEvent`, `delegateEvents`,
-  // `spread` and `assign` beneath it) is not on them, and a change that
-  // "removes" it from those pages removes nothing from a page an
+  // (`className`, `style`, `setAttribute`, `addEvent`, `delegateEvents`)
+  // reaches them only through the bind tier's `assign` edge, and a change
+  // that "removes" it from those pages removes nothing from a page an
   // application ships. These two are the same pages as JSX under
   // fixtures/compiled/ (sc-base.jsx, sc-live.jsx, the shared sc-shell.jsx),
   // compiled hydratable by the measured checkout's @solidjs/compiler like
   // the `app: compiled hydrating` scenario, with the templates a real page
-  // has. The hand-written pages stay as the frames-only floor (frozen caps);
-  // these carry inline caps like the compiled app scenarios: measured + 10 B
+  // has — and NO element spread: the maintainer's ruling (2026-10-07) is
+  // that most server-component apps do not have client element spreads, so
+  // the compiled baseline must not carry one (`spread` must be absent from
+  // the rendered web.js of both pages; the notes record the check). The
+  // hand-written pages stay as the frames-only floor (frozen caps); these
+  // carry inline caps like the compiled app scenarios: measured + 10 B
   // rounded up to 0.01 KB, with the minified recorded from the same run.
   {
-    name: "page: compiled base server components (the base page as JSX: templates with class/style/attributes/events/spread, For/Show)",
+    name: "page: compiled base server components (the base page as JSX: templates with class/style/attributes/events, For/Show; no spread)",
     // sc-base-app.js as a compiled page: the same server-component mount
     // (`dynamicComponent()` over a server-function reference, the frames
     // transport installed), the same client signal + memo, `lazy()` child,
     // Show / For / Loading / Errored — inside a compiled shell: links with
     // `href` (`setAttribute`), a dynamic `class` and `style` value
-    // (`className`, `style`), a handler passed through as a prop
-    // (`addEvent`, `delegateEvents`), one element spread (`spread`,
-    // `assign`), `<For>`, `<Show>` with a function child. The delta against
-    // the hand-written base page is what the compiled templates retain of
-    // @solidjs/web (the attribute runtime, `claimElement`, `readShallow`,
-    // the hydratable walk helpers) plus the compiled app's own bytes.
+    // (`className`, `style`, and the `readShallow` the compiler wraps them
+    // in), a handler passed through as a prop (`addEvent`, `delegateEvents`),
+    // a search input with a `value` binding (`setProperty`), `<For>`, `<Show>`
+    // with a function child. The delta against the hand-written base page is
+    // what the compiled templates retain of @solidjs/web plus the compiled
+    // app's own bytes.
     //
     // Added 2026-10-07 on feat/web-dynamic-component @ 99915141a (#3870's
     // head; the stack beneath is #3860 -> #3849 -> next). Measured locally
-    // (macOS, Node 26): 35,914 B (112,967 B minified; signals=36,336
-    // web/frames=26,299 web=18,157 solid=17,700 web/server-functions=12,381
-    // app=2,097) — +2,344 B brotli / +8,381 B minified over the hand-written
-    // base page's 33,570 / 104,586 on the same build: web +2,719 (`spread`
-    // 992, `template`/`getNextElement`/`getNextMarker` 632, `readShallow`
-    // 238, `scope`), signals +3,679 (store/utils.js 3,510 — the merge/omit
-    // view records `spread` reads a source through, whether or not the page
-    // calls `merge`), app +2,097, the rest layout. The attribute runtime
-    // proper (`className` 713, `style` 454, `setAttribute` 368, `addEvent`
-    // 282, `delegateEvents` 184, `eventHandler` 1,108, `assign` 283 +
-    // `assignProp` 921 minified) is on BOTH pages: the hand-written one
-    // reaches it through the bind tier's `assign` import (Rolldown attaches
-    // bind.js to the entry graph); here the templates import it directly —
-    // which is why a cut that drops `assign` from the hand-written page
-    // saves nothing here. On `next` @ 537e9451f (same harness; the fixture
-    // mounts with `dynamic`, which is all `next` has): 45,936 / 148,705 —
-    // the stack is −10,022 B brotli / −35,738 B minified on this page
-    // (−11,547 / −41,805 on the hand-written one). Mounted with `dynamic`
-    // instead of `dynamicComponent` on this head: 36,599 / 114,362 — the
-    // sibling saves 685 B brotli / 1,395 B minified on a compiled page,
-    // against 2,152 / 7,417 on the hand-written one (the templates import
-    // `spread` and `assign` themselves). Cap at local measured + 10 B at the
-    // 0.01 KB step; CI (Linux, Node 24) must confirm — lower only.
+    // (macOS, Node 26): 34,869 B (108,634 B minified; signals=33,849
+    // web/frames=26,261 solid=17,675 web=16,521 web/server-functions=12,364
+    // app=1,966) — +1,299 B brotli / +4,048 B minified over the hand-written
+    // base page's 33,570 / 104,586 on the same build: web +1,083
+    // (`template`/`getNextElement`/`getNextMarker` 632, `readShallow` 238,
+    // `setProperty` 217, `scope` 35), signals +1,192 (store/utils.js 1,071:
+    // `readShallow` calls `sourceKeys(value, SOURCE_PROXY)`, which retains
+    // the leaf/merge key walkers of the merge/omit view records — the one
+    // store-view cost left on a spread-free page; `merge`/`omit` themselves
+    // are absent), app +1,966. `spread` is absent (992 B with the spread the
+    // fixture first carried; store/utils.js was 3,510 then). The attribute
+    // runtime proper (`className` 713, `style` 454, `setAttribute` 368,
+    // `addEvent` 282, `delegateEvents` 184, `eventHandler` 1,108, `assign`
+    // 283 + `assignProp` 921 minified) is on BOTH pages: the hand-written one
+    // reaches all of it through the bind tier's `assign` import (Rolldown
+    // attaches bind.js to the entry graph); here the templates import
+    // everything but `assign`/`assignProp` directly — which is why a cut
+    // that drops the bind edge from the hand-written page saves only
+    // `assign`/`assignProp` here. On `next` @ 11e9fb653 (same harness; the
+    // fixture mounts with `dynamic`, which is all `next` has): 45,900 /
+    // 148,820 — the stack is −11,031 B brotli / −40,186 B minified on this
+    // page (−11,569 / −41,837 on the hand-written one). Mounted with
+    // `dynamic` instead of `dynamicComponent` on this head: 36,550 / 114,446
+    // — the sibling saves 1,681 B brotli / 5,812 B minified on this page,
+    // against 2,152 / 7,417 on the hand-written one (the templates already
+    // carry `readShallow` and the walk helpers `dynamic`'s tag arm shares).
+    // Cap at local measured + 10 B at the 0.01 KB step; CI (Linux, Node 24)
+    // must confirm — lower only.
     path: "fixtures/compiled/sc-base.jsx",
     compile: { hydratable: true },
-    limit: "35.93 KB",
-    capMinified: 112967,
+    limit: "34.88 KB",
+    capMinified: 108634,
     alias: pageAlias
   },
   {
@@ -4057,33 +4066,33 @@ module.exports = [
     // sc-live-app.js as a compiled page: the compiled base page plus
     // `live(GET(...))` on the reference, an `action` dispatched from a
     // compiled click handler, `isPending` / `latest` read in a template's
-    // `class` and a text hole. Still no client stores.
+    // `class` and a text hole. Still no client stores, no spread.
     //
     // Added 2026-10-07 on feat/web-dynamic-component @ 99915141a. Measured
-    // locally (macOS, Node 26): 41,406 B (126,294 B minified; signals=44,398
-    // web/frames=27,490 web=17,685 solid=17,245 web/server-functions=16,905
-    // app=2,571). This page's eager graph is TWO chunks (bundle.mjs): with
+    // locally (macOS, Node 26): 40,266 B (121,963 B minified; signals=41,889
+    // web/frames=27,502 solid=17,173 web/server-functions=16,912 web=16,047
+    // app=2,439). This page's eager graph is TWO chunks (bundle.mjs): with
     // `isPending` on the page, the frames tiers (trace.js, bind.js) and the
     // lazy comments route all reaching the core, Rolldown hoists the shared
-    // runtime — signals core, solid-js, @solidjs/web, 70,576 B minified —
-    // into a `web.js` the entry imports statically (entry 55,718 / 18,383 +
-    // web.js 70,576 / 23,023). It ships eagerly, so it is counted; the two
-    // compressions cost ≈ 1,238 B brotli over one chunk (40,168 concatenated)
+    // runtime — signals core, solid-js, @solidjs/web, 66,354 B minified —
+    // into a `web.js` the entry imports statically (entry 55,609 / 18,354 +
+    // web.js 66,354 / 21,912). It ships eagerly, so it is counted; the two
+    // compressions cost ≈ 1,223 B brotli over one chunk (39,043 concatenated)
     // and the export glue ≈ 1.3 KB minified. The hand-written live page does
     // not split only because its lazy page is empty: the same page with a
-    // template in its lazy route splits the same way. +5,492 B brotli /
-    // +13,327 B minified over the compiled base page (the hand-written pair
-    // is +3,671 / +11,899). On `next` @ 537e9451f (same harness, `dynamic`
-    // mount, one chunk — no tiers to share with): 49,752 / 161,091 — the
-    // stack is −8,346 B brotli / −34,797 B minified on this page (−11,590 /
-    // −41,992 on the hand-written one). Mounted with `dynamic` on this head:
-    // 42,080 / 127,690 (−674 / −1,396 for `dynamicComponent`). Cap at local
-    // measured + 10 B at the 0.01 KB step; CI (Linux, Node 24) must confirm
-    // — lower only.
+    // template in its lazy route splits the same way. +5,397 B brotli /
+    // +13,329 B minified over the compiled base page (the hand-written pair
+    // is +3,671 / +11,899). `spread` absent, as on the base page. On `next`
+    // @ 11e9fb653 (same harness, `dynamic` mount, one chunk — no tiers to
+    // share with): 49,721 / 161,233 — the stack is −9,455 B brotli / −39,270
+    // B minified on this page (−11,647 / −42,051 on the hand-written one).
+    // Mounted with `dynamic` on this head: 42,002 / 127,779 (−1,736 /
+    // −5,816 for `dynamicComponent`). Cap at local measured + 10 B at the
+    // 0.01 KB step; CI (Linux, Node 24) must confirm — lower only.
     path: "fixtures/compiled/sc-live.jsx",
     compile: { hydratable: true },
-    limit: "41.42 KB",
-    capMinified: 126294,
+    limit: "40.28 KB",
+    capMinified: 121963,
     alias: pageAlias
   },
   {
