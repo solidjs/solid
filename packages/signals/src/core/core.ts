@@ -258,17 +258,28 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // boundary reset, a frame rerun — so its children and its result are the
   // lane's; so does a member the lane's own re-staging dirtied
   // (REACTIVE_LANE_DIRTY, lanes.ts — a leaf the lane owns). A written guess's
-  // own pass is its truth arriving (A18), the frame's. A tracked read of a
-  // lane's value moves a derivation's pass into the lane (`read`); a leaf's
-  // never moves. Restored at the end, after this pass's staging and runs
-  // have been routed.
+  // own pass is its truth arriving (A18), the frame's. A first pass is its
+  // creator's (ruling A: a lane pass's children are the lane's frame), and
+  // under a guess's lane it reads as the lane's too — a binding the lane
+  // mounts sees the screen, like the pass that mounted it (#3835). Not
+  // under a verdict lane, for its reads or its result: a verdict lane holds
+  // verdicts, and a mount it makes is a mainline mount (A29's boundary
+  // exemption, #3851). A tracked read of a lane's value moves a
+  // derivation's pass into the lane (`read`); a leaf's never moves.
+  // Restored at the end, after this pass's staging and runs have been
+  // routed.
   const prevLane = passLane;
   setPassLane(
     (el._flags & REACTIVE_LANE_DIRTY ||
       (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
       el._x?._transaction?._lane
       ? el._x._transaction
-      : null
+      : // Loose `!=`: false with no creator lane (undefined == null).
+        create &&
+          prevLane?._parent!._verdict != prevLane &&
+          (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS
+        ? prevLane
+        : null
   );
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -493,17 +504,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     setPassLane(prevLane);
     return;
   }
-  // The lane this pass is work of, if any: its seat (the node's, or the one
-  // a lane read moved it into), or — a first pass — its creator's (ruling A:
-  // a lane pass's children are the lane's frame). A pass in a lane's seat
-  // that read none of the lane's world has left it: its result is the
+  // The lane this pass is work of, if any: its seat (the node's, its
+  // creator's, or the one a lane read moved it into). A pass in a lane's
+  // seat that read none of the lane's world has left it: its result is the
   // frame's (a derivation whose branch no longer reaches the guess). A
   // guess is written, not derived — it never leaves this way.
-  let lane =
-    passLane ??
-    (create && (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS
-      ? prevLane
-      : null);
+  let lane = passLane;
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error;
@@ -612,8 +618,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // skips the synchronous first run on a staged value) — when the flush
       // has joined a transaction and either the pass read a held node (it
       // derives from that world — the join merged the node's transaction
-      // into the flush's) or a pass created it (ruling A: a held pass's
-      // children are the transaction's). A node created outside any pass
+      // into the flush's), or — a verdict lane's mount, mainline — read a
+      // staging of this flush (the same world before the seam parks it; the
+      // mount is not shown ahead of it: #3851), or a pass created it (ruling
+      // A: a held pass's children are the transaction's). Any other mount
+      // that read a staging does not join by being new (2026-10-07): it
+      // publishes and re-derives if the flush parks. A node created outside any pass
       // that read only the committed world (root setup, a mount, an effect
       // callback) is nobody's frame and publishes directly, as does a first
       // pass that runs before anything joins: the pass's input, not a verdict
@@ -633,7 +643,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         create
           ? !(
               (flushTransaction !== null || passTx !== null) &&
-              (joined || (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
+              (joined ||
+                (prevLane && el._flags & REACTIVE_STAGED_READ) ||
+                (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
             )
           : isEffect && el._pendingValue === NOT_PENDING
       ) {
@@ -993,10 +1005,14 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // mount's memo (2026-10-02, considered and reverted): a memo is not a
   // leaf — the transaction's own later passes read it — so a mainline mount's
   // derivations carry the future (A29, born held); only its direct bindings
-  // read the screen.
+  // read the screen. Lane work with no committed value yet reads a flight
+  // as a mount's memo does: it enters, and the boundary it mounts catches
+  // the pending (#3540).
   const verdict = c._config & CONFIG_VERDICT;
   if (
-    passLane === null &&
+    (passLane === null ||
+      (c._statusFlags & STATUS_UNINITIALIZED &&
+        (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
     !verdict &&
     ((c as any)._type !== EFFECT_RENDER || el._config & CONFIG_INPUTS_PUBLISHED)
   )
@@ -1699,7 +1715,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(el._config & CONFIG_OVERRIDE) &&
     !(owner._statusFlags & STATUS_UNINITIALIZED)
   ) {
-    if (passLane !== null) committed = true;
+    // A reader with no committed value yet sees the flight pending: a
+    // boundary a lane mounts shows its fallback (A29's boundary exemption).
+    if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
+      committed = true;
     else if (c !== null && c._config & CONFIG_VERDICT)
       committed = GlobalQueue._observeFlight!(c as Computed<any>, owner);
   }
@@ -1836,11 +1855,12 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * the frame commits — one pass, the common case — and a held write if it
  * parks, which the seam repairs (`stagedReaders`): the pass re-derives on
  * the committed world and its lane's runs wait that round, so the held
- * write never shows through the lane. A verdict lane's work reads the
- * frame's proposal like a frame reader (verdict.ts). */
+ * write never shows through the lane. A verdict lane's work likewise: the
+ * lane holds verdicts, not the frame's other stagings (#3851) — except a
+ * verdict reader, which answered for itself (the lane seam, lanes.ts). */
 export function stagedRead(c: Computed<any>): void {
   c._flags |= REACTIVE_STAGED_READ;
-  if (passLane !== null && passLane._parent?._verdict !== passLane) stagedReaders.push(c);
+  if (passLane !== null) stagedReaders.push(c);
 }
 
 /** A10 for a staged node: a verdict reader (the pass entered a window) that

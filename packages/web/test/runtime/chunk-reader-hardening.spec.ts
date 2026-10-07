@@ -9,11 +9,7 @@
  * - An oversized store is released once nothing in it is unread.
  */
 import { describe, expect, it } from "vitest";
-import {
-  ChunkReader,
-  createChunk,
-  deserializeStream
-} from "../../server-functions/src/shared.js";
+import { ChunkReader, createChunk, deserializeStream } from "../../server-functions/src/shared.js";
 
 const encoder = new TextEncoder();
 
@@ -188,7 +184,9 @@ describe("ChunkReader cleanup", () => {
 
   it("releases a large frame's store as soon as the stream goes idle", async () => {
     // No frame follows: the connection waits, as a live source does.
-    const reader = new ChunkReader(source(reads(createChunk("x".repeat(8 << 20))), { hold: true }).stream);
+    const reader = new ChunkReader(
+      source(reads(createChunk("x".repeat(8 << 20))), { hold: true }).stream
+    );
     expect((await reader.next()).value).toHaveLength(8 << 20);
     expect(storeOf(reader).length).toBe(0);
     reader.cancel(undefined);
@@ -210,7 +208,9 @@ describe("ChunkReader cleanup", () => {
   });
 
   it("keeps a store at or under 64 KiB across frames", async () => {
-    const frames = Array.from({ length: 20 }, (_, i) => createChunk(`frame-${i}-` + "y".repeat(300)));
+    const frames = Array.from({ length: 20 }, (_, i) =>
+      createChunk(`frame-${i}-` + "y".repeat(300))
+    );
     const reader = new ChunkReader(source([concat(frames)], { hold: true }).stream);
     await reader.next();
     const store = storeOf(reader);
