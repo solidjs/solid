@@ -541,6 +541,16 @@ module.exports = [
     // verdict-lane stagedReaders. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen again
     // at 7.40 KB.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 7.40 KB -> 7.45 KB (floor-caps.json),
+    // measured at 7,432 B by CI (Size run 37684843282) against `next` @
+    // dafad1db3's 7,382 (+50 B; 32 B over the cap; +139 B minified, 20,177 ->
+    // 20,316; recorded 20,178 -> 20,316) — the signals core: a pending first
+    // pass records the transaction it was born into (`_bornIn`), and its first
+    // landing stages into it while it is live (`liveTx`, `holdNode`). Cap set
+    // at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07 on the condition hello world stays under 10 KB. The cap is
+    // frozen again at 7.45 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -973,8 +983,17 @@ module.exports = [
     // verdict lane's mount born held for a staged read, and verdict-lane
     // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-07.
-    limit: "14.62 KB",
-    capMinified: 44439,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 14.62 KB -> 14.68 KB, measured at
+    // 14,667 B by CI (Size run 37684843282) against `next` @ dafad1db3's 14,603
+    // (+64 B; 47 B over the cap; +145 B minified, 44,437 -> 44,582; recorded
+    // 44,439 -> 44,582) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "14.68 KB",
+    capMinified: 44582,
     alias
   },
   {
@@ -1228,8 +1247,17 @@ module.exports = [
     // (+21), the landing's pending-derivation mark (+9) and the correction's
     // drop of parked runs (+7). Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-07.
-    limit: "9.58 KB",
-    capMinified: 26962,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 9.58 KB -> 9.65 KB, measured at 9,634
+    // B by CI (Size run 37684843282) against `next` @ dafad1db3's 9,570 (+64 B;
+    // 54 B over the cap; +135 B minified, 27,020 -> 27,155; recorded 26,962 ->
+    // 27,155) — the signals core: a pending first pass records the transaction
+    // it was born into (`_bornIn`), and its first landing stages into it while
+    // it is live (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-07 on the condition hello
+    // world stays under 10 KB.
+    limit: "9.65 KB",
+    capMinified: 27155,
     alias
   },
   {
@@ -1433,6 +1461,16 @@ module.exports = [
     // verdict-lane stagedReaders. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen again
     // at 9.88 KB.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 9.88 KB -> 9.93 KB (floor-caps.json),
+    // measured at 9,914 B by CI (Size run 37684843282) against `next` @
+    // dafad1db3's 9,878 (+36 B; 34 B over the cap; +142 B minified, 27,730 ->
+    // 27,872; recorded 27,731 -> 27,872) — the signals core: a pending first
+    // pass records the transaction it was born into (`_bornIn`), and its first
+    // landing stages into it while it is live (`liveTx`, `holdNode`). Cap set
+    // at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07 on the condition hello world stays under 10 KB. The cap is
+    // frozen again at 9.93 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -1779,6 +1817,16 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-06, "I will follow recommendations here"; A5′ within the budget
     // he set). The cap is frozen again at 17.85 KB.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 17.85 KB -> 17.91 KB
+    // (floor-caps.json), measured at 17,892 B by CI (Size run 37684843282)
+    // against `next` @ dafad1db3's 17,840 (+52 B; 42 B over the cap; +136 B
+    // minified, 52,841 -> 52,977; recorded 52,841 -> 52,977) — the signals
+    // core: a pending first pass records the transaction it was born into
+    // (`_bornIn`), and its first landing stages into it while it is live
+    // (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07 on the condition hello world stays
+    // under 10 KB. The cap is frozen again at 17.91 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2240,8 +2288,17 @@ module.exports = [
     // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-06).
-    limit: "29.09 KB",
-    capMinified: 92114,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 29.09 KB -> 29.19 KB, measured at
+    // 29,179 B by CI (Size run 37684843282) against `next` @ dafad1db3's 29,079
+    // (+100 B; 89 B over the cap; +149 B minified, 92,114 -> 92,263; recorded
+    // 92,114 -> 92,263) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "29.19 KB",
+    capMinified: 92263,
     alias
   },
   {
@@ -2476,8 +2533,17 @@ module.exports = [
     // verdict lane's mount born held for a staged read, and verdict-lane
     // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-07.
-    limit: "12.88 KB",
-    capMinified: 36617,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 12.88 KB -> 12.96 KB, measured at
+    // 12,945 B by CI (Size run 37684843282) against `next` @ dafad1db3's 12,863
+    // (+82 B; 65 B over the cap; +139 B minified, 36,616 -> 36,755; recorded
+    // 36,617 -> 36,755) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "12.96 KB",
+    capMinified: 36755,
     alias
   },
   {
@@ -2753,8 +2819,17 @@ module.exports = [
     // unchanged at 14.46 KB, recorded minified 41,091 B (first record);
     // CI-measured at 14,449 B (41,091 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "14.46 KB",
-    capMinified: 41091,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 14.46 KB -> 14.53 KB, measured at
+    // 14,515 B by CI (Size run 37684843282) against `next` @ dafad1db3's 14,448
+    // (+67 B; 55 B over the cap; +138 B minified, 41,146 -> 41,284; recorded
+    // 41,091 -> 41,284) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "14.53 KB",
+    capMinified: 41284,
     alias: observeAlias
   },
   {
@@ -3166,8 +3241,17 @@ module.exports = [
     // Engine-only: every prod scenario byte-identical, the observe tier
     // scenario above moved -7 B. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-07.
-    limit: "28.82 KB",
-    capMinified: 86773,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 28.82 KB -> 28.89 KB, measured at
+    // 28,876 B by CI (Size run 37684843282) against `next` @ dafad1db3's 28,804
+    // (+72 B; 56 B over the cap; +138 B minified, 86,773 -> 86,911; recorded
+    // 86,773 -> 86,911) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "28.89 KB",
+    capMinified: 86911,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3213,8 +3297,17 @@ module.exports = [
     // verdict lane's mount born held for a staged read, and verdict-lane
     // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-07.
-    limit: "10.07 KB",
-    capMinified: 28261,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 10.07 KB -> 10.13 KB, measured at
+    // 10,118 B by CI (Size run 37684843282) against `next` @ dafad1db3's 10,068
+    // (+50 B; 48 B over the cap; +143 B minified, 28,260 -> 28,403; recorded
+    // 28,261 -> 28,403) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "10.13 KB",
+    capMinified: 28403,
     alias
   },
   {
@@ -3263,8 +3356,17 @@ module.exports = [
     // verdict lane's mount born held for a staged read, and verdict-lane
     // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-07.
-    limit: "25.22 KB",
-    capMinified: 78946,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 25.22 KB -> 25.24 KB, measured at
+    // 25,222 B by CI (Size run 37684843282) against `next` @ dafad1db3's 25,187
+    // (+35 B; 2 B over the cap; +141 B minified, 78,944 -> 79,085; recorded
+    // 78,946 -> 79,085) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "25.24 KB",
+    capMinified: 79085,
     alias
   },
   {
@@ -3324,8 +3426,17 @@ module.exports = [
     // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-06).
-    limit: "31.09 KB",
-    capMinified: 99477,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 31.09 KB -> 31.12 KB, measured at
+    // 31,105 B by CI (Size run 37684843282) against `next` @ dafad1db3's 31,079
+    // (+26 B; 15 B over the cap; +140 B minified, 99,477 -> 99,617; recorded
+    // 99,477 -> 99,617) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "31.12 KB",
+    capMinified: 99617,
     alias
   },
   {
@@ -4183,6 +4294,16 @@ module.exports = [
     // branch's base land under the `dynamicComponent` note's 37,241 /
     // 116,485 (+816 B minified, +271 B brotli). Cap set at measured + 10 B
     // rounded up to 0.01 KB; recorded minified 117,301 B.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 37.53 KB -> 37.59 KB
+    // (floor-caps.json), measured at 37,578 B by CI (Size run 37684843282)
+    // against `next` @ dafad1db3's 37,512 (+66 B; 48 B over the cap; +140 B
+    // minified, 117,301 -> 117,441; recorded 117,301 -> 117,441) — the signals
+    // core: a pending first pass records the transaction it was born into
+    // (`_bornIn`), and its first landing stages into it while it is live
+    // (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07 on the condition hello world stays
+    // under 10 KB. The cap is frozen again at 37.59 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -4259,8 +4380,17 @@ module.exports = [
     // 109,300 B.
     path: "fixtures/compiled/sc-base.jsx",
     compile: { hydratable: true },
-    limit: "35.09 KB",
-    capMinified: 109300,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 35.09 KB -> 35.13 KB, measured at
+    // 35,120 B by CI (Size run 37684843282) against `next` @ dafad1db3's 35,079
+    // (+41 B; 30 B over the cap; +146 B minified, 109,300 -> 109,446; recorded
+    // 109,300 -> 109,446) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "35.13 KB",
+    capMinified: 109446,
     alias: pageAlias
   },
   {
@@ -4301,8 +4431,17 @@ module.exports = [
     // 122,779 B.
     path: "fixtures/compiled/sc-live.jsx",
     compile: { hydratable: true },
-    limit: "40.61 KB",
-    capMinified: 122779,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 40.61 KB -> 40.66 KB, measured at
+    // 40,645 B by CI (Size run 37684843282) against `next` @ dafad1db3's 40,593
+    // (+52 B; 35 B over the cap; +139 B minified, 122,779 -> 122,918; recorded
+    // 122,779 -> 122,918) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "40.66 KB",
+    capMinified: 122918,
     alias: pageAlias
   },
   {
@@ -4342,8 +4481,17 @@ module.exports = [
     // `dynamic`, but this page does not use it. Cap at measured + 10 B
     // rounded up to 0.01 KB; recorded minified 144,082 B (CI-confirmed).
     path: "sc-router-app.js",
-    limit: "45.95 KB",
-    capMinified: 144082,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 45.95 KB -> 46.02 KB, measured at
+    // 46,010 B by CI (Size run 37684843282) against `next` @ dafad1db3's 45,940
+    // (+70 B; 60 B over the cap; +141 B minified, 144,082 -> 144,223; recorded
+    // 144,082 -> 144,223) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "46.02 KB",
+    capMinified: 144223,
     alias: pageAlias
   },
   {
@@ -4362,8 +4510,17 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified 148,526 B
     // (CI-confirmed).
     path: "sc-live-router-app.js",
-    limit: "47.21 KB",
-    capMinified: 148526,
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 47.21 KB -> 47.29 KB, measured at
+    // 47,277 B by CI (Size run 37684843282) against `next` @ dafad1db3's 47,197
+    // (+80 B; 67 B over the cap; +142 B minified, 148,526 -> 148,668; recorded
+    // 148,526 -> 148,668) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    limit: "47.29 KB",
+    capMinified: 148668,
     alias: pageAlias
   },
   {
