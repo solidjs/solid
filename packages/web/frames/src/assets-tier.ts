@@ -13,12 +13,13 @@
  * styles). The eager client keeps the record itself (`chunkToRecords`'
  * `assets` case, the host's `seg::assets` accumulate), the pass's walk over
  * the store, and the reveal's READINESS TERM: a segment whose assets record
- * names stylesheets while this tier is not resident is not ready — the
- * server's `<Loading>` fallback stays on screen; the reveal happens at
- * max(tier load, stylesheet load) (frames savings pass §1, "assets": no
- * FOUC, no blank). A segment without stylesheets never waits on this tier:
- * modules, preloads and inline styles are not reveal-gating and apply when
- * the tier is resident — at the record's arrival, or at the install's flush.
+ * carries stylesheets or inline styles while this tier is not resident is
+ * not ready — the server's `<Loading>` fallback stays on screen; the reveal
+ * happens at max(tier load, stylesheet load) (frames savings pass §1,
+ * "assets": no FOUC, no blank). Once the tier is resident only stylesheets
+ * gate: inline styles apply at the record's arrival (the walk runs ahead of
+ * the segments in the same flush), modules and preloads likewise, and a
+ * segment with none of these never waits on the tier.
  *
  * The module's exports ARE its dispatch: `prepareTier` stamps the load with
  * the module once it has resolved (`tierLoads.assets.r`), and the eager
