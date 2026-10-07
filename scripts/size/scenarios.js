@@ -1165,8 +1165,17 @@ module.exports = [
     // unchanged at 9.49 KB, recorded minified 26,828 B (first record);
     // CI-measured at 9,513 B (26,828 B minified). Lower only: cap at measured +
     // 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "9.49 KB",
-    capMinified: 26828,
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 9.49 -> 9.58 KB, measured at 9,561 B by CI (Size run
+    // 37596666473) against `next` @ 721eb0676's 9,521 (+40 B; 71 B over the
+    // cap; +120 B minified, 26,842 -> 26,962; recorded 26,828 -> 26,962) —
+    // the pending-seat check in laneStage's leaf branch (+83), the
+    // observeFlight guard for a flight committed beneath published inputs
+    // (+21), the landing's pending-derivation mark (+9) and the correction's
+    // drop of parked runs (+7). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    limit: "9.58 KB",
+    capMinified: 26962,
     alias
   },
   {
@@ -2132,8 +2141,15 @@ module.exports = [
     // measured + 10 B; recorded minified 91,684 B. Accepted by the maintainer
     // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
     // at 28.93 KB.
-    limit: "28.93 KB",
-    capMinified: 91684,
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 28.93 -> 28.97 KB, measured at 28,951 B by CI (Size run
+    // 37596666473) against `next` @ 721eb0676's 28,886 (+65 B; 21 B over the
+    // cap; +96 B minified, 91,702 -> 91,798; recorded 91,684 -> 91,798) —
+    // the same signals fixes as the + isPending/latest note (this app
+    // retains isPending/latest). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    limit: "28.97 KB",
+    capMinified: 91798,
     alias
   },
   {
@@ -3032,8 +3048,16 @@ module.exports = [
     // unchanged at 28.66 KB, recorded minified 86,419 B (first record);
     // CI-measured at 28,639 B (86,419 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    limit: "28.66 KB",
-    capMinified: 86419,
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 28.66 -> 28.70 KB, measured at 28,686 B by CI (Size run
+    // 37596666473) against `next` @ 721eb0676's 28,635 (+51 B; 26 B over the
+    // cap; -4 B minified, 86,445 -> 86,441; recorded 86,419 -> 86,441). The
+    // PR's own minified change here is -4 B; the minified allowance was
+    // used up by earlier growth on `next` (#3850's dev-cost checks among
+    // it), and the brotli move is layout. Cap set at measured + 10 B
+    // rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07.
+    limit: "28.70 KB",
+    capMinified: 86441,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
