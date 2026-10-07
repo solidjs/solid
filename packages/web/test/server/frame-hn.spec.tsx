@@ -12,7 +12,7 @@
 // serialization between html and slot args (transport dispatch case
 // 1) — and the request carries only the story id (client collapse state is
 // server-invisible).
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error jsdom ships no types; used only to fabricate a document
 import { JSDOM } from "jsdom";
 globalThis.document = new JSDOM("<body></body>").window.document;
@@ -24,7 +24,21 @@ import {
   registerServerFunction
 } from "../../server-functions/src/server.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
-import { createFrame, createFrameHost } from "../../frames/src/frame-client.js";
+import {
+  createFrame,
+  createFrameHost,
+  prepareTier,
+  tierLoaders
+} from "../../frames/src/frame-client.js";
+
+// The client half here is the frame RUNTIME alone (frame-client.ts), not
+// the frames client entry — so the entry's built-in tier loaders are not
+// registered. The nested regions this slice is about are the REGIONS TIER's
+// (`@solidjs/web/frames/regions`, frames savings pass §3 row C4): wire its
+// loader as the entry does and warm it, so every region binds as it would
+// on a page that announced it.
+tierLoaders.regions = () => import("../../frames/src/regions-tier.js");
+beforeAll(() => prepareTier("regions"));
 
 type CommentData = { id: number; text: string; replies: CommentData[] };
 

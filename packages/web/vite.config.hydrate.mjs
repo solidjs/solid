@@ -42,13 +42,11 @@ export default defineConfig({
         rootDir,
         "serialization/src/serializer-decode.ts"
       ),
-      "@solidjs/web/serialization": resolve(
-        rootDir,
-        "serialization/src/serializer.ts"
-      ),
-      // The frames client's traces tier (lazy, through the packaged
-      // specifier) — to the source, for the same single-instance reason.
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/src/serializer.ts"),
+      // The frames client's tiers (lazy, through the packaged specifiers) —
+      // to the source, for the same single-instance reason.
       "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts"),
+      "@solidjs/web/frames/regions": resolve(rootDir, "frames/src/regions-tier.ts"),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }

@@ -51,22 +51,18 @@ export default defineConfig({
       // The frames specs stub fetch/createServerReference against the
       // runtime SOURCE, so route the specifier to that same module — one
       // instance, like every from-source consumer of this seam.
-      "@solidjs/web/server-functions/client": resolve(
-        rootDir,
-        "server-functions/src/client.ts"
-      ),
+      "@solidjs/web/server-functions/client": resolve(rootDir, "server-functions/src/client.ts"),
       "@solidjs/web/serialization/decode": resolve(
         rootDir,
         "serialization/src/serializer-decode.ts"
       ),
-      "@solidjs/web/serialization": resolve(
-        rootDir,
-        "serialization/src/serializer.ts"
-      ),
-      // The frames client's traces tier, lazy-imported through the packaged
-      // specifier (external in its dist build); route it to the source so
-      // the tier installs into the same client instance the specs drive.
-      "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts")
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/src/serializer.ts"),
+      // The frames client's tiers, lazy-imported through the packaged
+      // specifiers (external in their dist builds); route them to the
+      // source so a tier installs into the same client instance the specs
+      // drive.
+      "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts"),
+      "@solidjs/web/frames/regions": resolve(rootDir, "frames/src/regions-tier.ts")
     }
   }
 });

@@ -106,19 +106,24 @@ const externalizeSharedClient = {
   }
 };
 
-// The frames TRACES TIER entry (`frames/src/trace-tier.ts` →
-// `@solidjs/web/frames/trace`, loaded by the frames client through
-// `prepareTier("trace")`) wires itself into the eager frames client at
-// install — the shared host's `revive` (`getFrameHost()`). That must be the
-// SAME frames client instance the app mounted its boundaries through, so the
-// tier's import of the client entry resolves to the external package
-// specifier, never to a bundled private copy (whose `getFrameHost()` would
-// mint a host nothing reads). Same instance-identity reasoning as
-// externalizeSharedClient above.
+// The frames TIER entries (`frames/src/trace-tier.ts` →
+// `@solidjs/web/frames/trace`, `frames/src/regions-tier.ts` →
+// `@solidjs/web/frames/regions`; loaded by the frames client through
+// `prepareTier(name)`) wire themselves into the eager frames client: the
+// traces tier sets the shared host's `revive` (`getFrameHost()`) at install,
+// the regions tier binds frames (`createFrame`) the parent frame's host
+// routes to. That must be the SAME frames client instance the app mounted
+// its boundaries through, so a tier's import of the client entry resolves
+// to the external package specifier, never to a bundled private copy (whose
+// `getFrameHost()` would mint a host nothing reads, whose `createFrame`
+// would mint frames nothing routes to). Same instance-identity reasoning as
+// externalizeSharedClient above. A tier's imports of frame-client.js's pure
+// helpers stay bundled (its own copy — the module is importless and keeps
+// no state those helpers read).
 const externalizeFramesClient = {
   name: "externalize-frames-client",
   resolveId(source, importer) {
-    if (!importer || !/[\\/]trace-tier\.(js|ts)$/.test(importer)) return null;
+    if (!importer || !/[\\/](trace|regions)-tier\.(js|ts)$/.test(importer)) return null;
     if (source === "./client.js") return { id: "@solidjs/web/frames", external: true };
     return null;
   }
@@ -398,7 +403,12 @@ export default [
       // engine's one edge into a server-component page) and the plugin's
       // client half — loads behind the server's announcement or the first
       // adopt-time record whose args carry a trace. Its own entry below.
-      "@solidjs/web/frames/trace"
+      "@solidjs/web/frames/trace",
+      // Lazily imported (`tierLoaders.regions`): the regions tier — nested
+      // server-content regions (`{$frame}` args) — loads behind the
+      // server's announcement or the first record naming a region. Its own
+      // entry below.
+      "@solidjs/web/frames/regions"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -421,7 +431,8 @@ export default [
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
       "@solidjs/web/serialization/decode",
-      "@solidjs/web/frames/trace"
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/regions"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -440,7 +451,8 @@ export default [
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
       "@solidjs/web/serialization/decode",
-      "@solidjs/web/frames/trace"
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/regions"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)
@@ -465,6 +477,22 @@ export default [
       "solid-js/internal/container-trace",
       "@solidjs/web"
     ],
+    plugins: [externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The regions tier (`@solidjs/web/frames/regions`, frames/src/regions-tier.ts):
+    // nested server-content regions as a lazy chunk the frames client loads
+    // through `prepareTier("regions")` — the per-frame region cache,
+    // discovery in an adopted interior, the `{$frame}` arm of arg
+    // resolution, the bind of a frame over each region element, disposal.
+    // Bundles its own copy of frame-client.js's pure DOM helpers
+    // (`eachInRange`, `makeFrameElement`, `isFrameElement`); the eager
+    // client entry is external by instance (see externalizeFramesClient) —
+    // `createFrame` must be the runtime the app's host routes to. No
+    // `_SOLID_DEV_` gates of its own, so one build serves every condition.
+    input: "frames/src/regions-tier.ts",
+    output: { file: "frames/dist/regions.js", format: "es" },
+    external: ["solid-js", "solid-js/internal", "@solidjs/web"],
     plugins: [externalizeFramesClient].concat(plugins)
   },
   {

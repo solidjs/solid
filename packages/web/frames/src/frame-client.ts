@@ -1110,19 +1110,41 @@ export const FRAME_APPLIED_EVENT = "frame:applied";
 // holds, so an un-announced response converges to the same DOM.
 //
 // `tierLoaders` is the seam a tier plugs into: `name -> () => import(...)`,
-// the module exporting an `install()` that registers its appliers into
-// this runtime's dispatch. The built-in table (the frames client entry,
-// client.ts) carries the tiers that have been cut — `trace`, the container
-// tier's client half (plan step C3) — and `installServerComponents({ tiers })`
-// adds or replaces entries; a name with no loader is eager and resident by
-// definition (`bind`, `regions`, `assets`, `wire` today).
-export const tierLoaders: Record<string, () => Promise<{ install?(): void }>> = {};
+// the module whose exports are the tier's APPLIERS — the functions this
+// runtime dispatches to once the module is resident (`tierModules`) — and
+// whose optional `install()` writes whatever state lives elsewhere (the
+// traces tier sets the shared host's `revive` and the plugin's
+// materializer). The built-in table (the frames client entry, client.ts)
+// carries the tiers that have been cut — `trace`, the container tier's
+// client half (plan step C3); `regions`, nested server-content regions
+// (C4) — and `installServerComponents({ tiers })` adds or replaces
+// entries; a name with no loader is eager and resident by definition
+// (`bind`, `assets`, `wire` today).
+/**
+ * A frames-client tier's module, as its loader resolves it: its exports are
+ * the tier's appliers — the functions the runtime dispatches to once the
+ * module is resident (the regions tier's `resolve` / `bind` / …) — and the
+ * optional `install()` runs once at the load, for state that lives outside
+ * the runtime's dispatch (the traces tier sets the shared host's `revive`).
+ * @experimental
+ */
+export interface TierModule {
+  install?(): void;
+  [applier: string]: unknown;
+}
+export const tierLoaders: Record<string, () => Promise<TierModule>> = {};
 // `name -> the load`, a promise stamped `r` (resident) once the module has
 // installed. One per name for the page's lifetime: tiers never uninstall.
 // Exported for the tier specs alone (a test re-arms a tier's hold by
 // deleting its load; the dist's entry never re-exports it).
 /** @internal */
 export const tierLoads = {};
+// `name -> the installed module`: the dispatch table. A frame reaches a
+// tier's appliers through it (`tierModules.regions?.bind(...)`); absent
+// until the load installs, so every read is conditional on residency — and
+// the readiness checks (`tierReady`) guarantee a record that NEEDS a tier
+// never reaches an applier before it is here.
+const tierModules = {};
 // Every live frame, so an install can wake them all: a frame whose sync
 // held an occurrence on the tier re-syncs and mounts it; the rest see a
 // no-op flush.
@@ -1142,11 +1164,14 @@ export function prepareTier(name) {
     const loader = tierLoaders[name];
     tierLoads[name] = load = loader
       ? loader().then(module => {
-          // The install: the module registers its appliers, then one flush
-          // per live frame — the write is empty, so a frame re-walks what
-          // it holds and applies what the tier now makes applicable (the
-          // held occurrence mounts and its hold releases; a buffered
-          // record applies). A frame with no version yet keeps none.
+          // The install: the module's exports become the tier's appliers
+          // (`tierModules`), its `install` hook writes any state that lives
+          // elsewhere, then one flush per live frame — the write is empty,
+          // so a frame re-walks what it holds and applies what the tier now
+          // makes applicable (the held occurrence mounts and its hold
+          // releases; a buffered record applies). A frame with no version
+          // yet keeps none.
+          tierModules[name] = module;
           load.r = true;
           module.install?.();
           for (const frame of liveFrames) frame.apply({ version: frame.version, r: {} });
@@ -1162,6 +1187,19 @@ export function prepareTier(name) {
  * fallback: detection at the readiness check), and the caller holds.
  */
 const tierReady = name => !tierLoaders[name] || prepareTier(name).r;
+
+// The regions tier's reason to wait (frames savings pass §1, "regions"; §3
+// row C4): a record naming a `{$frame}` region — the host noted the args
+// that are addressing (`record.regions`, see `settleArgs`) — while the
+// tier that resolves it to a region element and binds a frame over it is
+// absent. One test, on the note the host already made (no arg walk). A
+// fresh mount waits in the held set (adopt path: the hold registers under
+// frames-rulings 3.1, the server interior stays on screen); a MOUNTED
+// occurrence's new record stays pending in the store — the live binding
+// keeps showing the previous args — until the install's flush re-syncs.
+// Either way the check starts the load (`tierReady`): the un-announced
+// fallback.
+const needsRegions = record => record.regions && !tierReady("regions");
 
 // The traces tier's reason to hold (frames savings pass §1, "traces"): a
 // container-trace marker — `{ $tr, $ta }`, the eval face's literal for a
@@ -1193,6 +1231,10 @@ class FrameImpl {
   #start;
   #end;
   #options;
+  // The frame this one is a region OF (`options.parent`, set by the regions
+  // tier at bind): slot callbacks, records and record removal thread up
+  // this link (`#resolveSlot` …). (`#parent` is the DOM parent, below.)
+  #outer;
   #version;
   #store = Object.create(null);
   // The applied state is keyed by RECORD identity (frames-rulings 2.1,
@@ -1226,7 +1268,10 @@ class FrameImpl {
   #slotCleanups = new Map();
   #slotArgs = new Map();
   #slotUpdaters = new Map();
-  #slotRegions = new Map();
+  // No region state here: a frame's nested server-content regions — the
+  // `{$frame}` args' elements and the frames bound over them — are the
+  // REGIONS TIER's (`@solidjs/web/frames/regions`, plan C4), kept by that
+  // module per frame and reached through `tierModules.regions`.
   #slotNodes = new Map();
   // Data occurrences (§9.2.3): the consumer set last handed to the mount,
   // and the mount's rebind callback (`ctx.onRebind`) for when it changes.
@@ -1276,6 +1321,7 @@ class FrameImpl {
     this.#end = end;
     this.#options = options;
     this.#slots = options.slots;
+    this.#outer = options.parent;
     // Enumerable for a tier's install (see `prepareTier`), until disposal.
     liveFrames.add(this);
     // Adopt: the boundary already holds server-rendered content, so the first
@@ -1403,34 +1449,28 @@ class FrameImpl {
   preview(records, inherited?) {
     const adopted = new Set<string>();
     if (this.#disposed) return adopted;
+    const R = tierModules.regions;
     for (const key in records) {
       const record = records[key];
       if (!record || record.kind !== "slot" || !key.startsWith("slot:")) continue;
       if (inherited && key in this.#store) continue;
       const occurrence = key.slice(5);
       const update = this.#mountedSlots.has(occurrence) && this.#slotUpdaters.get(occurrence);
-      if (!update || this.#regionsChange(occurrence, record)) continue;
+      // A record that adds a region to the occurrence or renames one of its
+      // regions is not previewed (its chunks ride the new name, so the
+      // rename lands with them at the commit) — the regions tier reads its
+      // cache for that; with the tier absent no region can exist yet, so
+      // any region the record names is an addition.
+      if (!update || (R ? R.changed(this, occurrence, record) : record.regions)) continue;
       this.#slotArgs.set(occurrence, record);
       adopted.add(key);
       update(this.#resolveArgs(occurrence, record));
     }
-    for (const regions of this.#slotRegions.values())
-      for (const entry of regions.values())
-        if (entry.frame) for (const key of entry.frame.preview(records, true)) adopted.add(key);
+    if (R)
+      for (const frame of R.frames(this))
+        for (const key of frame.preview(records, true)) adopted.add(key);
     if (!inherited) for (const key of adopted) this.#store[key] = records[key];
     return adopted;
-  }
-
-  /** Whether the record adds a region to the occurrence or renames one of
-   *  its regions (its chunks ride the new name, so the rename lands with
-   *  them). Read off the host's note of the record's `{$frame}` args. */
-  #regionsChange(occurrence, record) {
-    const regions = this.#slotRegions.get(occurrence);
-    for (const key in record.regions) {
-      const entry = regions && regions.get(key);
-      if (!(entry && entry.childId === record.regions[key])) return true;
-    }
-    return false;
   }
 
   /**
@@ -1538,9 +1578,17 @@ class FrameImpl {
     this.#syncSlots();
   }
 
-  /** Resolve a slot callback by prop: this frame's slots, then ancestors'. */
+  /**
+   * Resolve a slot callback by prop: this frame's slots, then ancestors'.
+   * A nested region frame carries its parent (`options.parent`, set by the
+   * regions tier when it binds the region — frame-internal, not a public
+   * option), and the three thread-ups below walk that link: private
+   * access across instances of this class, so the chain costs no closure
+   * per region. (`#outer && #outer.#x()`, not `parent?.#x()` — TypeScript
+   * rejects a private name in an optional chain, TS18030.)
+   */
   #resolveSlot(prop) {
-    return this.#slots?.[prop] ?? this.#options.resolveSlot?.(prop);
+    return this.#slots?.[prop] ?? (this.#outer && this.#outer.#resolveSlot(prop));
   }
 
   /**
@@ -1553,7 +1601,7 @@ class FrameImpl {
   #resolveSlotRecord(occurrence) {
     const record = this.#store[`slot:${occurrence}`];
     if (record !== undefined) return record;
-    return this.#options.resolveSlotRecord?.(occurrence);
+    return this.#outer && this.#outer.#resolveSlotRecord(occurrence);
   }
 
   /**
@@ -1575,7 +1623,7 @@ class FrameImpl {
     const key = `slot:${occurrence}`;
     if (key in this.#store) {
       if (!this.#mountedSlots.has(occurrence)) delete this.#store[key];
-    } else this.#options.removeSlotRecord?.(occurrence);
+    } else this.#outer && this.#outer.#removeSlotRecord(occurrence);
   }
 
   // `root`, when given, scopes discovery to a detached fragment instead of the
@@ -1585,7 +1633,7 @@ class FrameImpl {
   // skipped by the next full sync; the unmount sweep is full-frame-only (a
   // scoped fill only ADDS occurrences, never removes the frame's others).
   #syncSlots(root) {
-    if (!this.#slots && !this.#options.resolveSlot) return;
+    if (!this.#slots && !this.#outer) return;
 
     // Range-driven discovery: find every server-owned slot occurrence in this
     // frame's content. An occurrence id is the marker key (e.g. "children" or
@@ -1605,6 +1653,10 @@ class FrameImpl {
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
     let waiting = false;
+    // The regions tier's appliers, if resident (an install cannot land
+    // mid-sync: it is a load's continuation). Absent, nothing in this sync
+    // can need them — a record naming a region waits (`needsRegions`).
+    const R = tierModules.regions;
 
     for (const [occurrence, start] of found) {
       const callback = this.#resolveSlot(propOf(occurrence));
@@ -1682,8 +1734,9 @@ class FrameImpl {
       // A fresh mount also waits for the TIER its occurrence needs (frames
       // savings pass §2 — the server-announced tier mechanism): a data
       // occurrence needs `bind` (its positions), a called occurrence whose
-      // record names a region needs `regions`, one whose literal args carry
-      // a container-trace marker needs `trace` (`needsTrace` — the marker
+      // record names a region needs `regions` (`needsRegions` — the host's
+      // note of the `{$frame}` args), one whose literal args carry a
+      // container-trace marker needs `trace` (`needsTrace` — the marker
       // walk, run only while that tier is absent). Resident tiers cost one
       // test; an absent one has its load started by the check (`tierReady`)
       // and the occurrence stays as the server left it — its interior on
@@ -1696,7 +1749,7 @@ class FrameImpl {
         ((record && record.pending) ||
           (consumers
             ? !tierReady("bind")
-            : record && ((record.regions && !tierReady("regions")) || needsTrace(record.args))))
+            : record && (needsRegions(record) || needsTrace(record.args))))
       ) {
         waiting = true;
         // Remember what the adopted interior was rendered from. A hold is
@@ -1728,15 +1781,13 @@ class FrameImpl {
         // stream introduces mount with EMPTY interiors (the producer ships
         // bare marker pairs), so consumers' existing-content gate already
         // excludes them from claiming.
-        // Discover the interior's region elements BEFORE invoking, on the
-        // adopt path — claim wiring, not identity recovery (A5): the t=0
-        // record names every region arg by `{$frame}` address; discovery's
-        // job is locating the already-rendered ELEMENTS those addresses
-        // resolve to, so #resolveArgs hands the wrapper the adopted node
-        // instead of minting an empty one. A fresh mount has no interior
-        // regions yet; discovery is a no-op then, and #resolveArgs creates
-        // its entries during the invoke instead.
-        if (this.#options.adopt) this.#discoverRegions(occurrence, start);
+        // Regions (the regions tier, through #resolveArgs): on the adopt
+        // path the record's `{$frame}` args resolve to the region ELEMENTS
+        // already rendered in the interior — the tier discovers them before
+        // the fill runs, claim wiring, not identity recovery (A5) — so the
+        // wrapper is handed the adopted node instead of an empty one; a
+        // fresh mount has no interior regions yet and the tier mints its
+        // elements during the invoke.
         // A held occurrence mounts with the record it was held on (see the
         // hold above); a current record that differs applies right after,
         // through the mounted path below.
@@ -1764,14 +1815,13 @@ class FrameImpl {
           this.#slotNodes.set(occurrence, nodes);
         }
         this.#mountedSlots.add(occurrence);
-        // Re-scan after invoke: a fresh mount's regions come from
-        // #resolveArgs during the invoke, and the callback's output may have
-        // introduced more. A claim on the adopt path (nodes === null) left
-        // the interior untouched, so the pre-invoke discovery already saw
-        // everything — skip the repeat walk (it is per-occurrence over a
-        // large adopted tree).
-        if (!this.#options.adopt || nodes) this.#discoverRegions(occurrence, start);
-        this.#bindRegions(occurrence);
+        // Bind the occurrence's regions (the tier): a frame over each region
+        // element — those #resolveArgs minted or found, plus a re-scan of
+        // the fill's OUTPUT when it wrote one (`nodes`): a claim on the
+        // adopt path left the interior untouched, so the pre-invoke
+        // discovery already saw everything — the repeat walk (per
+        // occurrence, over a large adopted tree) is skipped.
+        R?.bind(this, occurrence, nodes && start);
         if (mountRecord === record || !record || record.kind !== "slot") continue;
       }
       // A mounted data occurrence whose CONSUMERS changed — a morph replaced
@@ -1788,6 +1838,15 @@ class FrameImpl {
         if (rebind) rebind(consumers);
       }
       if (record !== this.#slotArgs.get(occurrence)) {
+        // A new record that names a region while the regions tier is absent
+        // (a refetch adding a `{$frame}` arg to a mounted occurrence — the
+        // response announced the tier, its load is in flight) is NOT taken:
+        // it stays pending in the store, the live binding keeps the args it
+        // shows, and the install's flush re-syncs to here with the tier in
+        // place. The check starts the load when nothing announced it. (A
+        // mounted occurrence reaching here has a record: a called one
+        // without left above, a bare one's is `undefined` on both sides.)
+        if (needsRegions(record)) continue;
         // A re-sent record, live binding (the mount registered
         // ctx.onUpdate): push the re-resolved props into the LIVE
         // occurrence instead of re-calling — the consumer's reactive props
@@ -1807,7 +1866,7 @@ class FrameImpl {
           const props = this.#resolveArgs(occurrence, record);
           this.#slotArgs.set(occurrence, record);
           update(props);
-          this.#bindRegions(occurrence);
+          R?.bind(this, occurrence);
           continue;
         }
         // Args changed (incl. late args): re-call this occurrence only,
@@ -1823,7 +1882,7 @@ class FrameImpl {
           if (nodes) this.#replaceRange(occurrence, start, nodes);
           this.#slotNodes.set(occurrence, nodes);
         }
-        this.#bindRegions(occurrence);
+        R?.bind(this, occurrence);
       }
     }
 
@@ -1919,14 +1978,14 @@ class FrameImpl {
     };
     // One record shape (A5): the t=0 record carries used regions as
     // `{$frame}` refs like any stream record would, and #resolveArgs
-    // resolves them to the elements #discoverRegions seeded from the
-    // adopted interior — the wrapper's own reactivity OWNS the
-    // already-rendered element from the first render (a client-only
-    // toggle can hide/show it at t=0, no re-arming stream needed).
-    // `adopted` doubles as the claiming hint: this mount is about to hydrate
-    // server markup rendered from these args (see #resolveArgs).
+    // resolves them to the elements the regions tier discovers in the
+    // adopted interior (`start`, on the adopt path) — the wrapper's own
+    // reactivity OWNS the already-rendered element from the first render
+    // (a client-only toggle can hide/show it at t=0, no re-arming stream
+    // needed). `adopted` doubles as the claiming hint: this mount is about
+    // to hydrate server markup rendered from these args (see #resolveArgs).
     const props =
-      record && record.kind === "slot" ? this.#resolveArgs(occurrence, record, adopted) : {};
+      record && record.kind === "slot" ? this.#resolveArgs(occurrence, record, adopted, start) : {};
     // Run under the boundary's owner (when the creator provided one): slot
     // content reads the mount point's context (routers, stores) and bounds
     // its lifetime there. The t=0 adopt sync happens to run inside the
@@ -1959,11 +2018,10 @@ class FrameImpl {
     this.#heldRecords.delete(key);
     this.#removeSlotRecord(key);
     this.#runSlotCleanups(key);
-    const regions = this.#slotRegions.get(key);
-    if (regions) {
-      disposeRegions(regions);
-      this.#slotRegions.delete(key);
-    }
+    // The occurrence's regions (the tier's): their frames dispose, the
+    // entries go. Nothing to do while the tier is absent — no region was
+    // ever bound.
+    tierModules.regions?.unmount(this, key);
   }
 
   #runSlotCleanups(key) {
@@ -1973,10 +2031,15 @@ class FrameImpl {
     for (const fn of cleanups) fn();
   }
 
-  #regionsFor(slotKey) {
-    let regions = this.#slotRegions.get(slotKey);
-    if (!regions) this.#slotRegions.set(slotKey, (regions = new Map()));
-    return regions;
+  /**
+   * The frame's options, for the regions tier: a nested region frame
+   * inherits the host, the owner scope and the claim scope of the frame it
+   * is bound under (`regions-tier.ts`, `bind`). Not on the `Frame`
+   * interface.
+   * @internal
+   */
+  get options() {
+    return this.#options;
   }
 
   /**
@@ -1988,23 +2051,19 @@ class FrameImpl {
    *  - frame ref `{$frame}` (named in `record.regions`) -> a nested
    *    reconciled region delivered as a frame ELEMENT the wrapper places,
    *    **cached per slot** so a re-call reuses the same element and its
-   *    bound frame.
+   *    bound frame — the REGIONS TIER's work (`regions-tier.ts`, `resolve`;
+   *    this runs only with the tier resident: a record naming a region
+   *    waits for it, `needsRegions`). On the adopt path (`claiming`, with
+   *    the range's `start`) the tier first discovers the region elements
+   *    already rendered in the interior, so the wrapper is handed those.
    *  - a literal -> through the host's `revive` (document-face container
    *    traces arrive as inline markers), HERE rather than at the write: an
    *    adopted occurrence's claim must read the container as the markup
    *    was rendered from it, and the materializer keys that on the claim
    *    (frames-rulings 3.6 (iii)) — `claiming` is that hint, true for the
    *    adopt-time mount (`#invokeSlot`'s `adopted`), threaded to `revive`.
-   *
-   * Regions cache by ARG NAME, not wire id: `(occurrence, arg)` IS the
-   * region's identity, while its `$frame` childId is a per-stream wire name
-   * — different producers prefix it differently (the document and direct
-   * responses render under the function id, a single-flight region under
-   * the call's address). A re-sent ref whose only change is the wire name
-   * keeps the region — same element, same live interior — and the bound
-   * frame REBINDS to the new name so the incoming stream's chunks reach it.
    */
-  #resolveArgs(slotKey, record, claiming) {
+  #resolveArgs(slotKey, record, claiming, start) {
     const { args, regions, decoded } = record;
     const revive = this.#options.host && this.#options.host.revive;
     const props = {};
@@ -2013,78 +2072,8 @@ class FrameImpl {
       const value = args[key];
       props[key] = revive && !(decoded && key in decoded) ? revive(value, claiming) : value;
     }
-    if (regions) {
-      const cache = this.#regionsFor(slotKey);
-      for (const key in regions) {
-        // A nested server-content region: a single frame ELEMENT the wrapper
-        // places. On re-call the wrapper re-places the SAME element (the
-        // platform moves the subtree as one node — no marker range to walk,
-        // no fragment refill), and the bound frame's parent follows live.
-        const childId = regions[key];
-        let entry = cache.get(key);
-        if (!entry) {
-          cache.set(
-            key,
-            (entry = { childId, element: makeFrameElement(childId), frame: undefined })
-          );
-        } else if (entry.childId !== childId) renameRegion(entry, childId);
-        props[key] = entry.element;
-      }
-    }
+    if (regions) tierModules.regions.resolve(this, slotKey, regions, props, claiming && start);
     return props;
-  }
-
-  /**
-   * Element discovery for the adopt path — claim wiring only (A5): the t=0
-   * record names every region arg by `{$frame}` address, and this walk
-   * locates the already-rendered ELEMENTS those addresses resolve to,
-   * seeding entries (marked `adopt`) so `#resolveArgs` reuses the adopted
-   * node instead of minting an empty one. Seed from the OUTERMOST region
-   * elements in the interior (a region's own deeper regions belong to its
-   * occurrences and are discovered recursively when those claim);
-   * `#bindRegions` then constructs adopting frames over them, which run
-   * their own slot sync — this is what wires nested occurrences at boot.
-   */
-  #discoverRegions(slotKey, start) {
-    // A data occurrence has no interior (its args are data; a region arg
-    // has nowhere to render at an attribute position).
-    if (!start || Array.isArray(start)) return;
-    const regions = this.#regionsFor(slotKey);
-    eachInRange(start, slotKey, n => collectRegionElements(n, regions));
-  }
-
-  #bindRegions(slotKey) {
-    const regions = this.#slotRegions.get(slotKey);
-    if (!regions) return;
-    for (const entry of regions.values()) {
-      if (!entry.frame) {
-        // Bind eagerly — the region ELEMENT always exists (unlike the old
-        // marker range, which needed placement in a fragment/DOM to count).
-        // This is what makes an OCCLUDED region work: its element is created
-        // when args resolve but the wrapper doesn't place it until (e.g.)
-        // expand, so it must bind and fill (from buffered/streamed chunks)
-        // off-DOM, then reveal in place when the wrapper finally inserts the
-        // single node. Host buffering flushes any queued childId chunks. The
-        // region inherits this frame's slot resolution, so client slots
-        // revealed in its streamed content are filled by the same callbacks
-        // the client threaded down — no global registry.
-        entry.frame = new FrameImpl(entry.element, null, null, {
-          id: entry.childId,
-          host: this.#options.host,
-          // Regions discovered from adopted document elements already hold
-          // their server-rendered content (adopt); streamed regions start
-          // empty. Claim scoping threads the root boundary's id down.
-          adopt: entry.adopt,
-          claimScope: this.#options.claimScope ?? this.#options.id,
-          // Element-claim sweeps in the region bind cleanup to the same
-          // boundary owner as the root's.
-          ownerScope: this.#options.ownerScope,
-          resolveSlot: prop => this.#resolveSlot(prop),
-          resolveSlotRecord: occurrence => this.#resolveSlotRecord(occurrence),
-          removeSlotRecord: occurrence => this.#removeSlotRecord(occurrence)
-        });
-      }
-    }
   }
 
   /** Collect this frame's own top-level slot ranges (bounded to its content),
@@ -2193,8 +2182,8 @@ class FrameImpl {
     // (an ancestor's, for a region frame's nested occurrences) so a torn-down
     // region leaves nothing stale to dedupe a later re-navigation against.
     for (const key of this.#mountedSlots) this.#removeSlotRecord(key);
-    for (const regions of this.#slotRegions.values()) disposeRegions(regions);
-    this.#slotRegions.clear();
+    // Every region bound under this frame disposes with it (the tier's).
+    tierModules.regions?.unmount(this);
     this.#mountedSlots.clear();
   }
 
@@ -2563,16 +2552,22 @@ export function createFrameElement(options) {
  * defined: an undefined custom element is inert HTMLUnknownElement, and
  * `display:contents` makes it generate no box, so its children lay out in the
  * frame's parent.
+ *
+ * Exported (with `isFrameElement` and `eachInRange`) for the regions tier
+ * (`regions-tier.ts`), which bundles its own copy of these pure helpers;
+ * the eager entry re-exports none of them.
+ * @internal
  */
-function makeFrameElement(id) {
+export function makeFrameElement(id) {
   const el = document.createElement(FRAME_TAG);
   el.style.display = "contents";
   if (id !== undefined) el.setAttribute(FRAME_ID_ATTR, id);
   return el;
 }
 
-/** Whether `node` is a frame boundary/region element (carries our id attr). */
-function isFrameElement(node) {
+/** Whether `node` is a frame boundary/region element (carries our id attr).
+ *  @internal */
+export function isFrameElement(node) {
   return node.nodeType === ELEMENT_NODE && node.hasAttribute(FRAME_ID_ATTR);
 }
 
@@ -2592,11 +2587,6 @@ function propOf(occurrence) {
  *  a record) rather than the bare prop (a direct-insert position). */
 function isCalled(occurrence) {
   return occurrence.indexOf("#") !== -1;
-}
-
-/** Dispose every bound frame in a slot's region-entry map. */
-function disposeRegions(regions) {
-  for (const { frame } of regions.values()) frame?.dispose();
 }
 
 /** Remove siblings from `n` (inclusive) up to `stop` (exclusive). */
@@ -2825,55 +2815,13 @@ function collectSlots(n, end, out, elements) {
 }
 
 /**
- * Collect the OUTERMOST frame region elements in `node`'s subtree into
- * `regions` (keyed by arg name — the childId's final segment, always the
- * dot-free arg identifier — seeded for adoption). A region is opaque — its
- * own deeper regions belong to its occurrences, discovered when they claim —
- * so the walk stops descending at each region element. Client wrapper
- * elements around a region are descended through.
- */
-function collectRegionElements(node, regions) {
-  if (node.nodeType !== ELEMENT_NODE) return;
-  if (isFrameElement(node)) {
-    const childId = node.getAttribute(FRAME_ID_ATTR);
-    // Region ids are dotted (`<producer frame>.<occurrence>.<arg>`); bare ids
-    // belong to nested document BOUNDARIES, which own their interiors (the
-    // walk stops at every frame element, so a nested boundary's own regions
-    // are never reachable from here). The producer prefix is wire-relative —
-    // a mount registered under a call ADDRESS still adopts markup produced
-    // under the function id — so region membership is structural
-    // (outermost-in-this-interior), not prefix-matched.
-    if (childId && childId.includes(".")) {
-      const argKey = childId.slice(childId.lastIndexOf(".") + 1);
-      if (!regions.has(argKey)) {
-        regions.set(argKey, { childId, element: node, frame: undefined, adopt: true });
-      }
-    }
-    return;
-  }
-  for (let c = node.firstChild; c; c = c.nextSibling) collectRegionElements(c, regions);
-}
-
-/**
- * Point a cached region entry at a new wire name: the identity (occurrence,
- * arg) and the live element/interior stay, while the bound frame re-registers
- * under the id the incoming stream addresses its content by. An entry not
- * bound yet (discovery just seeded it) only updates its element's id — the
- * eager bind that follows registers under the new name.
- */
-function renameRegion(entry, childId) {
-  entry.childId = childId;
-  if (entry.frame) entry.frame.rebind(childId);
-  else entry.element.setAttribute(FRAME_ID_ATTR, childId);
-}
-
-/**
  * Walk a slot range's interior — every node between `start` and the range's
  * end marker — calling `cb` on each. The next sibling is captured before the
  * callback runs, so callbacks may detach the node. Returns the end marker
  * (null if the range is truncated).
+ * @internal (exported for the regions tier — see `makeFrameElement`)
  */
-function eachInRange(start, key, cb) {
+export function eachInRange(start, key, cb) {
   const end = slotEnd(key);
   let n = start.nextSibling;
   while (n && !(n.nodeType === COMMENT_NODE && n.data === end)) {

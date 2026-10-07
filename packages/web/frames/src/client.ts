@@ -41,7 +41,8 @@ import {
   createFrameHost,
   FRAME_ID_ATTR,
   prepareTier,
-  tierLoaders
+  tierLoaders,
+  type TierModule
 } from "./frame-client.js";
 import {
   COMPONENT_BINDING,
@@ -72,6 +73,15 @@ import { createLoadingBoundary, sharedConfig } from "solid-js/internal";
 // in the lazy codec chunk.
 const TRACE_STATE = Symbol.for("solid.container-trace-state");
 tierLoaders.trace = () => import("@solidjs/web/frames/trace");
+// The regions tier (frames savings pass §3 row C4): nested server-content
+// regions — `{$frame}` slot args resolved to region elements with frames
+// bound over them — as the chunk `@solidjs/web/frames/regions`
+// (regions-tier.ts). The server announces `regions` where it mints one; a
+// record naming a region met while the tier is absent waits for it
+// (frame-client.ts, `needsRegions`). This entry keeps the document face's
+// `sc:region:` drain (below): an occluded region's html lands in the
+// store regardless, and the frame the tier binds on install seeds from it.
+tierLoaders.regions = () => import("@solidjs/web/frames/regions");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
@@ -112,6 +122,8 @@ export {
   createFrameElement,
   FRAME_APPLIED_EVENT
 } from "./frame-client.js";
+// The shape a tier loader resolves (`InstallOptions.tiers`); type-only.
+export type { TierModule } from "./frame-client.js";
 export {
   FRAME_STREAM_HEADER,
   FRAME_HAVE_HEADER,
@@ -1647,14 +1659,16 @@ function adoptBoundary(
  */
 export interface InstallOptions {
   /**
-   * Frames-client tiers by name → loader. A tier's module exports
-   * `install()`, called once the import resolves; every live frame is then
-   * flushed so what the tier makes applicable applies (a held occurrence
-   * mounts). A name with no loader is resident (eager); `trace` has a
-   * built-in loader (`@solidjs/web/frames/trace`) that an entry here
-   * replaces. See `installServerComponents`.
+   * Frames-client tiers by name → loader. A tier's module's exports are its
+   * appliers (the runtime dispatches to them once resident) and its
+   * optional `install()` is called once the import resolves; every live
+   * frame is then flushed so what the tier makes applicable applies (a held
+   * occurrence mounts). A name with no loader is resident (eager); `trace`
+   * (`@solidjs/web/frames/trace`) and `regions` (`@solidjs/web/frames/regions`)
+   * have built-in loaders that an entry here replaces. See
+   * `installServerComponents`.
    */
-  tiers?: Record<string, () => Promise<{ install?(): void }>>;
+  tiers?: Record<string, () => Promise<TierModule>>;
 }
 
 /**
@@ -1674,13 +1688,15 @@ export interface InstallOptions {
  * call again to rebind to a custom host.
  *
  * `options.tiers` maps a frames-client tier's name to its loader (`() =>
- * import(...)`, the module exporting `install()`): the client resolves
- * tier chunks itself, so the server announces NAMES only
- * (`_$HY.r["sc:tiers"]`, `X-Frame-Tiers`) and the loads start here from
- * the document's record — the `modulepreload` the document may also carry
- * made the fetch warm. The built-in table carries `trace` (the container
- * tier's client half, `@solidjs/web/frames/trace`); a loader given here
- * for a name replaces the built-in one (tests gate a tier's load this way).
+ * import(...)`, the module whose exports are the tier's appliers, with an
+ * optional `install()`): the client resolves tier chunks itself, so the
+ * server announces NAMES only (`_$HY.r["sc:tiers"]`, `X-Frame-Tiers`) and
+ * the loads start here from the document's record — the `modulepreload`
+ * the document may also carry made the fetch warm. The built-in table
+ * carries `trace` (the container tier's client half,
+ * `@solidjs/web/frames/trace`) and `regions` (nested server-content
+ * regions, `@solidjs/web/frames/regions`); a loader given here for a name
+ * replaces the built-in one (tests gate a tier's load this way).
  * @experimental
  */
 export function installServerComponents(host: any = getFrameHost(), options?: InstallOptions) {

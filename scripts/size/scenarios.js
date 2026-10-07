@@ -74,12 +74,15 @@ const floorMinified = Object.fromEntries(
 // `solid-js/internal/container-trace` entry, plus the plugin's client half;
 // the store engine's one edge into these pages) is its second dynamic import
 // and reports the same way: `trace.js` is the tier + the engine, lazy, not
-// counted. The "frames: eager client consumer" scenario measures the
-// package; these measure the page. Subpath aliases first (see above) — the
-// two tier specifiers before `@solidjs/web/frames` and `solid-js/internal`,
-// which would otherwise swallow them.
+// counted; its REGIONS TIER (`@solidjs/web/frames/regions` — plan step C4,
+// 2026-10-06: nested server-content regions) is the third, `regions.js`.
+// The "frames: eager client consumer" scenario measures the package; these
+// measure the page. Subpath aliases first (see above) — the tier specifiers
+// before `@solidjs/web/frames` and `solid-js/internal`, which would
+// otherwise swallow them.
 const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
+  "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
@@ -122,9 +125,11 @@ const framesExternal = [
   "solid-js/internal",
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
-  // the eager graph alone; its own `solid-js` entry rides with it.
+  // the eager graph alone; its own `solid-js` entry rides with it. The
+  // regions tier (C4) likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
+  "@solidjs/web/frames/regions",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3438,8 +3443,23 @@ module.exports = [
     // Cap unchanged (over it); recorded minified lowered to 42,968 B (the
     // ratchet: a cap not lowered only ever has its recorded minified
     // lowered).
-    limit: "13.79 KB",
-    capMinified: 42968,
+    // Frames savings pass C4 — the regions tier (2026-10-06): 13.79 -> 13.64 KB,
+    // measured at 13,629 B against the C3 head 89954fa1b's 13,866 (-237 B;
+    // -1,078 B minified, 42,968 -> 41,890) and `next` @ 9d89df731's 13,787
+    // (-158 B; -1,524 B minified). Nested server-content regions left for the
+    // lazy `@solidjs/web/frames/regions` chunk (the per-frame region cache,
+    // discovery in an adopted interior, the `{$frame}` arm of arg
+    // resolution with the wire-name rename, the bind of a frame over each
+    // region element, disposal: -1,596 B minified / -423 B brotli, measured
+    // on an edited dist copy); the glue left behind — the installed-module
+    // table, the loader entry, the `needsRegions` wait at the fresh-mount
+    // and update sites, the tier calls at bind / resolve / unmount / the
+    // staged preview, the `options` getter and the `parent` thread-up —
+    // costs +518 / +186. First time under the cap since Phase A: cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 41,890 B.
+    limit: "13.64 KB",
+    capMinified: 41890,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3625,6 +3645,15 @@ module.exports = [
     // before), the store symbols the chunk shares with the eager one, and
     // the tier's trigger in the frames client (its note). Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 122,028 B.
+    // Frames savings pass C4 — the regions tier (2026-10-06): 38.61 -> 38.33 KB
+    // (floor-caps.json), measured at 38,317 B against the C3 head
+    // 89954fa1b's 38,598 (-281 B; -1,083 B minified, 122,028 -> 120,945) and
+    // `next` @ 9d89df731's 44,882 (-6,565 B). Nested server-content regions
+    // leave this page's eager chunk for `regions.js` — reported above as
+    // lazy, not counted, 1,872 B minified / 805 B brotli — which the frames
+    // client fetches when the document announces the tier or a record names
+    // a `{$frame}` region (the frames note). Cap set at measured + 10 B at
+    // the 0.01 KB step (the ratchet); recorded minified 120,945 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3755,6 +3784,13 @@ module.exports = [
     // / 8,158 B brotli); the store hydration adapters stay. Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 133,899 B.
+    // Frames savings pass C4 — the regions tier (2026-10-06): 42.16 -> 41.90 KB
+    // (floor-caps.json), measured at 41,886 B against the C3 head
+    // 89954fa1b's 42,147 (-261 B; -1,083 B minified, 133,899 -> 132,816) and
+    // `next` @ 9d89df731's 48,595 (-6,709 B). The same split as the base page
+    // (its note): regions leave for `regions.js` (lazy, not counted, 1,872 B
+    // minified / 802 B brotli). Cap set at measured + 10 B at the 0.01 KB
+    // step (the ratchet); recorded minified 132,816 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

@@ -31,7 +31,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, Loading } from "solid-js";
 import { dynamic, hydrate } from "@solidjs/web";
-import { prepareTier, tierLoaders } from "../../frames/src/frame-client.js";
+import { prepareTier, tierLoaders, type TierModule } from "../../frames/src/frame-client.js";
 import { applyFrameResponse, installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { createChunk } from "../../server-functions/src/shared.js";
@@ -48,13 +48,15 @@ import {
   type Page
 } from "./support.js";
 
-/** A loader the test settles: the import's promise, and the module. */
+/** A loader the test settles: the import's promise, and the module — the
+ *  test's `install` hook over the appliers of `module` (a real tier's, when
+ *  the mount the install flushes needs them). */
 function deferredTier() {
-  let resolve!: (m: { install?(): void }) => void;
-  const promise = new Promise<{ install?(): void }>(r => (resolve = r));
+  let resolve!: (m: TierModule) => void;
+  const promise = new Promise<TierModule>(r => (resolve = r));
   const install = vi.fn();
   const loader = vi.fn(() => promise);
-  return { loader, install, resolve: () => resolve({ install }) };
+  return { loader, install, resolve: (module?: object) => resolve({ ...module, install }) };
 }
 
 /** A held frame-stream Response with the given extra headers. */
@@ -151,7 +153,11 @@ describe("the held set — bind (adopt path, un-announced: detection starts the 
 });
 
 describe("the stream path — regions (announced on the head; the record buffers until the install)", () => {
-  // The ONE test for `regions` while it is not resident.
+  // The ONE test for `regions` while it is not resident. `regions` is a REAL
+  // tier since C4 (`@solidjs/web/frames/regions`): the mount the install
+  // flushes resolves its `{$frame}` through the module's appliers, so the
+  // deferred loader settles with the real module (the install hook is the
+  // test's own, counted the same way).
   test("`X-Frame-Tiers` starts the load before the body is read; the occurrence's record stays pending in the store until the install's flush mounts it", async () => {
     const regions = deferredTier();
     const WIRE = "tier/regions-wire";
@@ -213,9 +219,10 @@ describe("the stream path — regions (announced on the head; the record buffers
     expect(div.querySelector("article")).not.toBeNull();
     expect(mounts).toBe(0);
     expect(div.querySelector(".wrap")).toBeNull();
-    // The install: one flush, the pending record applies — the occurrence
-    // mounts with the record it was held on, its region inside.
-    regions.resolve();
+    // The install (the real tier's appliers, the test's hook): one flush,
+    // the pending record applies — the occurrence mounts with the record it
+    // was held on, its region inside.
+    regions.resolve(await import("../../frames/src/regions-tier.js"));
     await pump();
     expect(regions.install).toHaveBeenCalledTimes(1);
     expect(mounts).toBe(1);

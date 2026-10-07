@@ -13,7 +13,8 @@
       "@solidjs/web/server-functions/client": ["./server-functions/src/client.ts"],
       "@solidjs/web/serialization": ["./serialization/src/serializer.ts"],
       "@solidjs/web/serialization/decode": ["./serialization/src/serializer-decode.ts"],
-      "@solidjs/web/frames/trace": ["./frames/src/trace-tier.ts"]
+      "@solidjs/web/frames/trace": ["./frames/src/trace-tier.ts"],
+      "@solidjs/web/frames/regions": ["./frames/src/regions-tier.ts"]
     }
   },
   "include": [
