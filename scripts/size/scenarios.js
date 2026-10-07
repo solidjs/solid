@@ -3509,8 +3509,17 @@ module.exports = [
     // replay window is the server's ` _hk` stamp on event-slot consumers
     // (0 eager bytes; +106 min / +48 br in the chunk). Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 36,007 B.
-    limit: "11.92 KB",
-    capMinified: 36007,
+    // Frames residue pass, step 1 (2026-10-06): 11.92 -> 11.67 KB, measured
+    // at 11,654 B (35,250 B minified): the D list without the mirror
+    // (`documentAddress`, one dispose map, the zombie heuristic + `#slotNodes`,
+    // the default reveal seam, `showing`'s brand), `FRAME_HAVE_*` off the
+    // entry's export list, and the lean re-ask (`ctx.retry` from the sf
+    // client in place of the RPC-seam re-ask) — −757 min / −247 br. The
+    // capture arm stays (pinned by `lifecycle-matrix/remount`). Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 35,250 B.
+    limit: "11.67 KB",
+    capMinified: 35250,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3729,6 +3738,11 @@ module.exports = [
     // lazy, not counted: `bind.js` 4,771 B minified / 1,844 B brotli. Cap
     // set at measured + 10 B at the 0.01 KB step (the ratchet); recorded
     // minified 115,087 B.
+    // Frames residue pass, step 1 (2026-10-06): 36.66 -> 36.50 KB, measured
+    // at 36,488 B (114,422 B minified): the frames client's D list, the lean
+    // re-ask (the sf client carries the `retry` thunks, +≈ 80 B minified,
+    // and the page still shrinks) — −665 min / −159 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 114,422 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3890,6 +3904,10 @@ module.exports = [
     // splitting the shared runtime out of the entry — see bind-tier.ts).
     // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
     // recorded minified 126,964 B.
+    // Frames residue pass, step 1 (2026-10-06): 40.30 -> 40.14 KB, measured
+    // at 40,125 B (126,294 B minified): the frames client's D list and the
+    // lean re-ask — −670 min / −161 br. Cap set at measured + 10 B at the
+    // 0.01 KB step (the ratchet); recorded minified 126,294 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

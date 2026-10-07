@@ -34,7 +34,12 @@ the style gate, the hold's owner wrap and the dispose guard are measured
 and left.
 
 _Status: complete (2026-10-06). Every number marked measured was read from an
-edited dist copy through the harness's own bundler (§1); estimates are marked._
+edited dist copy through the harness's own bundler (§1); estimates are marked.
+**Residue step 1 landed** (`size/frames-residue-1`, on C6's head): the D list
+without the mirror and the capture arm (2b, 2c, 2e, 2f, 2g), `FRAME_HAVE_*`
+off the client entry (5a), the lean re-ask (6b) — **frames eager 11,901 →
+11,654 br (−757 min / −247 br)**; see §7 for the measured → built table and
+what the step found (2d is pinned; 10 has no export to re-use)._
 
 ---
 
@@ -482,7 +487,9 @@ two seeds clean):
    capture arm, the imperative branch and the brand are small behaviour /
    surface changes to rule on individually. Take `FRAME_HAVE_*` off the
    entry with C2, not here; take the mirror and `documentAddress` (−108)
-   only with the server's unconditional bootstrap (§3.7).
+   only with the server's unconditional bootstrap (§3.7). **Landed as
+   residue step 1 (§7)** with 2b and 5a pulled in and 2d / 10 left out:
+   2d is pinned, 10 has no export to re-use.
 3. **The `preview` pull form** (§3.1; −277 with its carrier). The one design
    with a real payoff and a real risk surface — build it against the carrier
    sketch's budget (+242 br), with C15 ×4 and optimistic-hold ×3 as the
@@ -494,7 +501,8 @@ two seeds clean):
 5. **S-ref to the table** (§3.2; ≈ −250 built) — a decode-chunk change plus
    a host simplification; worth it on its own terms (the pending read lives
    where the keys live).
-6. **The lean re-ask** (§3.3; −78 frames, +30 pages).
+6. **The lean re-ask** (§3.3; −78 frames, +30 pages). **Landed in residue
+   step 1 (§7): −99 frames, and the pages shrink too (−30 / −65).**
 7. **C2** (−292), taking `FRAME_HAVE_*` off the entry with it (−28 more if
    the two constants leave the client surface).
 8. **C1** (§3.5; ≈ −450 built) — the first decision item: it reverses the
@@ -553,6 +561,43 @@ golfs, and the unification of the tier dispatch (measured at zero).
 - Nothing here changes an engine or a wire; the two wire-adjacent items
   (`needs("holes")`, the unconditional bootstrap) are named as the decisions
   they are.
+
+---
+
+## 7. Landed — residue step 1 (2026-10-06)
+
+Branch `size/frames-residue-1` on C6's head (`feat/frames-bind-tier` @
+`e7d6e9e34`: frames eager **36,007 / 11,901**; page base 115,087 / 36,647;
+page live 126,964 / 40,286). §5's rows 2 and 6, plus 5a pulled forward from
+row 7 (it needs nothing of C2). Every item measured on an edited dist copy
+of THIS head before writing (the same method as §0; single cuts against the
+head, the combination as one copy), then the real build. min / br.
+
+| item | §2 row | measured, alone | **built** (in the combination) | note |
+| --- | --- | ---: | ---: | --- |
+| `documentAddress` + its call | 2b | −95 / −44 | in | a mount with no binding binds the function id; `adopted-claim-args-address.spec` mounts the binding (the production shape) and asserts the store |
+| the second dispose map | 2c | −73 / −24 | in | the range binding's `insert` under the fill's owner where there is one, else its own, registered in `fillScopes` |
+| the capture arm (`contentHTML` + last-unmount) | 2d | −272 / −90 | **not taken** | **pinned** — `lifecycle-matrix/remount` › "away/back over a t=0 adopted boundary: the interior captured at unmount re-materializes instantly"; §2 called it unpinned. Deleting it shows the covering `<Loading>`'s fallback across an away/back of an SSR'd boundary while the refetch is in flight — a ruling, not a cut |
+| the zombie heuristic + `#slotNodes` | 2e | −186 / −68 | in | the map's only reader was the check (C6 had already dropped the data-occurrence writes), so the map went with it — hence more than §2's −104 / −35 |
+| the imperative branch of `#revealSegment` | 2f | ceiling −121 / −30; **default seam −34 / −19** | in (the seam) | `FrameOptions.reveal` stays optional: `revealAtOnce` inserts `content()` before the closing comment at once. One reveal path; a placeholder without its closing comment is not revealed (the boundary path threw on the null anchor before) |
+| `showing`'s brand | 2g | −95 / −20 | in | c16 / c17 / the hydration suite green: the t=0 reference is the bootstrap's binding, branded there |
+| the D list together (2b, 2c, 2e, 2f-seam, 2g) | 2 | **−721 / −210** | | |
+| `FRAME_HAVE_*` off the client entry | 5a | −63 / −25 (pages 0 / 0) | in | removed public surface; the server entry keeps both; no consumer in the repo or the router's dist |
+| the lean re-ask | 6b | **−260 / −99** frames; pages −230 / −30, −235 / −65 | in | the sf client's `ctx.retry` / `info.retry` thunks cost the pages ≈ +80 min and the pages still shrink — better than §3.3's +30 br estimate, which did not count the RPC-seam code the pages also shed. `createServerReference` left the RPC slot |
+| the s / v stamp | 10 | — | **skipped** | `readHydratedValue` is module-private in `solid/src/client/hydration.ts` (`(initP, refresh, options)`, with a loading-window arm); exporting it is a new `solid-js/internal` export, not a 0-B re-export. The frames copy still lacks #2997's rejection-observe for `s === 2` — a correctness note for the maintainer, not a size item |
+| **everything, one edited copy** | | **−1,045 / −342** (with 2d) → ≈ −250 br without | **−757 / −247 → 35,250 / 11,654** | pages −665 / −159 and −670 / −161; non-SC 0 / 0 |
+
+**Running number: frames eager 11,654 br — 1,654 B above ≤ 10.0 KB.** §4's
+row 2 estimated −349 for the step with the mirror, the stamp and the capture
+arm; without those three the step came in at −247 as built (the row's
+remaining items measured −210 + −25 + −99 as singles and −342 in context
+_with_ the capture arm; brotli context cost ≈ 30 B against the singles'
+sum, as §6 says it would).
+
+Left for later steps, from this one: the `_$SC` mirror + `documentAddress`'s
+server half (§3.7 — the mirror alone, now that `documentAddress` is gone);
+the capture arm, which needs a ruling on the away/back behaviour of an
+SSR'd boundary; the stamp, which needs a `solid-js/internal` export.
 
 ---
 
