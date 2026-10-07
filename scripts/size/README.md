@@ -7,8 +7,8 @@ primitives — that keeps the store engine pay-for-use under `hydrate()`, three
 compiled-template scenarios — a compiled floor and a JSX todo app in CSR and
 hydrating form — the frames client as a package, two server-component PAGES:
 base and live, their two compiled counterparts — the same pages as JSX with
-the templates a real page has — and two server-entry floors:
-`getRequestEvent`/`isServer` and
+the templates a real page has — the same two hand-written pages under
+`@solidjs/router`, and two server-entry floors: `getRequestEvent`/`isServer` and
 `renderToString`) with hard brotli limits on the eager entry chunk. CI fails
 when a scenario exceeds its limit and grew more than a small minified
 allowance over its base (see [The gate](#the-gate)) — that means tree-shaking regressed, or a deliberate
@@ -122,6 +122,19 @@ Until 2026-09-26 the harness measured with esbuild through `size-limit`. The
 switch re-based every cap (Rolldown lands 4–9% lower on the same artifacts;
 the table is in the switch PR and each scenario's ledger note in
 `scenarios.js`). Ledger deltas must not be read across that line.
+
+## The router scenarios
+
+`page: base + router` and `page: live + router` are the two page scenarios
+plus `@solidjs/router` 2.0 — the Solid 2 line (`2.0.0-next.*`), a
+devDependency of this directory pinned exactly like Rolldown (a router
+upgrade is a re-base, recorded like any other cap change). It resolves from
+this directory's `node_modules`; its `solid-js` / `@solidjs/web` imports go
+through the page alias to the built dists like everything else, and
+`.npmrc`'s `legacy-peer-deps` keeps npm from installing those peers from the
+registry for nothing. The router's own modules report as the `other`
+package. These are not floors: their caps are inline, and the two page
+floors stay the gate on the runtime alone.
 
 ## Compiled scenarios
 

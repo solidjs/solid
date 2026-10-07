@@ -4306,6 +4306,67 @@ module.exports = [
     alias: pageAlias
   },
   {
+    name: "page: base + router (base page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
+    // The base page as an application ships it: with a router. The two page
+    // floors above carry no router, so the "base case" they gate is a page
+    // nobody deploys; this scenario is the same composition plus
+    // `@solidjs/router` 2.0 (`2.0.0-next.35`, pinned exactly in this
+    // directory's package.json — the Solid 2 line; a router upgrade is a
+    // re-base recorded like a Rolldown upgrade) with `createRouter`, two
+    // routes (one `preload`, one lazy), the instance as the hydrated root
+    // and `useNavigate` in a route component. Not a floor: an inline cap,
+    // and the router's growth is the router's — this scenario attributes it
+    // (the `other` package in the report is the router).
+    // Landing (2026-10-06, next @ 49a8dca84): measured locally at 57,001 B
+    // (184,378 B minified) against the base page's 44,864 (145,599) — the
+    // router's contribution +12,137 B br / +38,779 B minified: the router's
+    // own 28,008 minified (`createRouterContext`, `setupNativeEvents` incl.
+    // the form-action path, `query`'s preload cache, `setupLinkClaims`,
+    // scroll restoration, `browserHistory`) plus what it retains of ours —
+    // signals +8,583 (`action` and the optimistic lanes: `verdictValue`,
+    // `dissolveLane`, `laneRead`, `isPending`/`latest`, `createEffect`,
+    // `onSettled`), sf +1,188 (`subscribeFlightData`, `decodeResponsePayload`,
+    // the redirect header, `parseServerFunctionAddress`), web +1,137
+    // (`takeHydrationValue`, `registerElementClaim`), solid +364
+    // (`createContext`, `children`). The router standalone, with solid-js /
+    // @solidjs/web external, is 32,430 / 11,216 B.
+    // Re-based onto `next` @ 7233451ee (#3838, 2026-10-07), after the frames
+    // tiers (#3860): measured at 45,940 B (144,082 B minified) against the
+    // base page's 33,908 (105,252) — the router's contribution +12,032 B br
+    // / +38,830 B minified, the same as at landing; the page under it is
+    // what #3860 cut. The fixture now mounts through `dynamicComponent`, the
+    // documented server-component mount the base page uses (#3870); with
+    // `dynamic` it measures 48,272 / 151,551 (+2,332 / +7,469: `dynamic`'s
+    // tag arm keeps the element runtime). The router does not retain that
+    // runtime itself — its `serverRouteComponent` helper mounts with
+    // `dynamic`, but this page does not use it. Cap at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 144,082 B (CI-confirmed).
+    path: "sc-router-app.js",
+    limit: "45.95 KB",
+    capMinified: 144082,
+    alias: pageAlias
+  },
+  {
+    name: "page: live + router (live page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
+    // The live page with the same router (see the base + router note).
+    // Landing (2026-10-06, next @ 49a8dca84): measured locally at 58,243 B
+    // (188,800 B minified) against the live page's 48,527 (157,562) — the
+    // router's contribution +9,716 B br / +31,238 B minified, less than on
+    // the base page because the live page already carries `action` and
+    // `isPending`/`latest`, which the router retains on every page.
+    // Re-based onto `next` @ 7233451ee (#3838, 2026-10-07), after the frames
+    // tiers (#3860): measured at 47,197 B (148,526 B minified) against the
+    // live page's 37,512 (117,301) — the router's contribution +9,685 B br /
+    // +31,225 B minified. Mounted through `dynamicComponent` as the live page
+    // is (the base + router note); with `dynamic`: 49,475 / 155,995. Cap at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 148,526 B
+    // (CI-confirmed).
+    path: "sc-live-router-app.js",
+    limit: "47.21 KB",
+    capMinified: 148526,
+    alias: pageAlias
+  },
+  {
     name: "server: floor (getRequestEvent + isServer)",
     // What a server module that only asks "am I on the server / which
     // request is this" retains of the server entry — the import an
