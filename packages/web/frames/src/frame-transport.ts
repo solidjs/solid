@@ -339,13 +339,22 @@ function applyFrames(response, host, options = {}, observation) {
         // only with the tier resident), so it awaits the load, as it awaits
         // the codec below.
         const needs = chunk.tiers?.map(prepareTier) || [];
-        // Codec-free until a `data` chunk actually arrives: a host whose
-        // deserializer loads lazily (`prepareData`) gets awaited here, and
-        // because the loop is sequential every later chunk — the records
-        // referencing this data included — queues behind the load. Chunk
+        // Codec-free until a chunk that READS data actually arrives: a host
+        // whose deserializer loads lazily (`prepareData`) gets awaited here,
+        // and because the loop is sequential every later chunk — the
+        // records referencing this data included — queues behind the load.
+        // A `slot` chunk whose args carry a `{$ref}` reads data too (its
+        // refs settle at the write, through its response's table — a key
+        // not delivered yet is the TABLE's pending read, so the table must
+        // exist); the producer emits the data ahead of the record that
+        // names it, so on its wire this await is already answered. Chunk
         // ORDER is the only contract downstream (network jitter already
         // stretches time between chunks), so nothing else observes the wait.
-        if (chunk.type === "data") await Promise.all([host.prepareData?.(), ...needs]);
+        if (
+          chunk.type === "data" ||
+          (chunk.type === "slot" && Object.values(chunk.args).some(v => v && v.$ref))
+        )
+          await Promise.all([host.prepareData?.(), ...needs]);
         host.apply(chunk);
       }
       result = await reader.next();

@@ -326,13 +326,17 @@ export interface FrameHostOptions {
    * Called at a `slot` chunk's write with the chunk's frame id and version
    * — the RESPONSE the record belongs to (data tables are response-scoped;
    * one response is one version of one id), so the integration answers from
-   * that response's table and never a later one's. `undefined` means the
-   * key has not been delivered: the host then hands the fill a pending read
-   * that the key's `data` chunk settles and the stream's `complete` or
-   * `error` rejects (frames-rulings 1.3; the L1 rule — a value that never
-   * comes is an error, not a silence). `current` is the version the id's
-   * store is at — every version below it is superseded, and an integration
-   * keeping a table per response may drop theirs.
+   * that response's table and never a later one's. Answers the key's value,
+   * or — for a key the response has not delivered yet — the table's own
+   * PENDING READ: a promise marked `s = 0`, carrying `c` (the callbacks run
+   * when it settles), that the key's `data` chunk settles (stamped `s`/`v`
+   * as it does) and `closeData` rejects (frames-rulings 1.3; the L1 rule —
+   * a value that never comes is an error, not a silence). The host counts
+   * a record's pending reads so a fresh mount waits for them
+   * (`record.pending`) and re-applies the record when the last settles.
+   * `current` is the version the id's store is at — every version below it
+   * is superseded, and an integration keeping a table per response may
+   * drop theirs.
    */
   resolve?(ref: { $ref: string }, frameId: string, version: number, current?: number): unknown;
   /** Test/host-side counterpart of `resolve`. */
@@ -344,10 +348,20 @@ export interface FrameHostOptions {
    */
   applyData?(chunk: Extract<FrameChunk, { type: "data" }>, current?: number): void;
   /**
+   * The response (one version of one id) has ended — its `complete`, or
+   * its `error` with no key — and a key it never delivered never comes:
+   * the integration closes that response's table so every pending read of
+   * it rejects (`table.close(error)`, with the response's error record when
+   * it ended by one). Called after the end chunk's own apply, so the frame
+   * has the response's last word first.
+   */
+  closeData?(frameId: string, version: number, error?: unknown): void;
+  /**
    * A lazily-loaded deserializer's load, awaited by the transport before it
-   * delivers a `data` chunk — `applyData`/`resolve` can assume the codec is
-   * resident once data has arrived. Keeps codec weight out of the eager
-   * client graph for responses that never carry serialized data.
+   * delivers a `data` chunk or a `slot` chunk whose args carry a `{$ref}` —
+   * `applyData`/`resolve` can assume the codec is resident when a chunk
+   * that reads data arrives. Keeps codec weight out of the eager client
+   * graph for responses that never carry serialized data.
    */
   prepareData?(): Promise<unknown>;
   /**
@@ -706,19 +720,22 @@ export function createFrameHost(options?: FrameHostOptions): FrameHost;
  *
  * @param {{
  *   serialize?: (value: unknown) => { $ref: string },
- *   resolve?: (ref: { $ref: string }, frameId: string, version: number) => unknown,
- *   applyData?: (chunk: object) => void,
+ *   resolve?: (ref: { $ref: string }, frameId: string, version: number, current?: number) => unknown,
+ *   applyData?: (chunk: object, current?: number) => void,
+ *   closeData?: (frameId: string, version: number, error?: unknown) => void,
  *   prepareData?: () => Promise<unknown>,
  *   revive?: (value: unknown, claiming?: boolean) => unknown
  * }} [options]
- *   `serialize`/`resolve` back slot data refs (response-scoped table);
+ *   `serialize`/`resolve` back slot data refs (response-scoped table — a
+ *   key not delivered yet answers with the table's pending read);
  *   `applyData` receives each `data` chunk whole — keyed codec records
  *   ({ key, node, initial }, apply via createJSONDataTable) or eval-style
- *   `payload` scripts, depending on the producer's serializer. A host whose
- *   deserializer loads lazily exposes the load as `prepareData`: the
- *   transport awaits it before delivering a `data` chunk, so `applyData`
- *   can assume the codec is resident once data has arrived (a `resolve`
- *   ahead of it answers `undefined`, and the host waits — see below).
+ *   `payload` scripts, depending on the producer's serializer; `closeData`
+ *   is told a response ended, so its table rejects what it never
+ *   delivered. A host whose deserializer loads lazily exposes the load as
+ *   `prepareData`: the transport awaits it before delivering a chunk that
+ *   reads data (a `data` chunk, a `slot` chunk carrying a `{$ref}`), so
+ *   `applyData` / `resolve` can assume the codec is resident.
  */
 export function createFrameHost(options = {}) {
   // One logical stream may feed several mounted boundaries (the same server
@@ -763,20 +780,24 @@ export function createFrameHost(options = {}) {
   // for the chunk's response (`options.resolve(ref, id, version)`), so the
   // record the store holds — and every mount reads — carries values, never
   // refs, and a later response's data can answer none of them. A key the
-  // response has not delivered yet resolves to a pending read (`waits`,
-  // per store) stamped like a serialized promise once it settles (`s`/`v`,
-  // the marks a fill's prop read adopts synchronously): its `data` chunk
-  // settles it, the stream's `complete` or `error` rejects it (L1 — a value
-  // that never comes surfaces where it is read, instead of leaving the
-  // record silently unapplied), and a bump drops the superseded response's
-  // waits unanswered (their readers re-derive from the new response's
-  // record; nothing is left to tell). A record counts its unsettled reads
-  // (`pending`): a mounted occurrence takes the read as it is — its prop
-  // pends and holds the value it shows (A17) — while a FRESH mount waits for
-  // the record to settle (the frame's `#syncSlots`), so the frame's shell
-  // shows at its landing with the range as the server left it, and the
-  // mount's covering boundary pends on the landing alone (A0, corollary 4);
-  // the settle re-applies the record and the mount runs with values.
+  // response has not delivered yet resolves to the TABLE's pending read — a
+  // promise the table owns (marked `s = 0`; the key lives there, so the
+  // wait does too), stamped like a serialized promise once it settles
+  // (`s`/`v`, the marks a fill's prop read adopts synchronously): the key's
+  // `data` chunk settles it through the table's own `apply`, and the
+  // response's end closes the table (`closeData`) so every read it never
+  // answered rejects (L1 — a value that never comes surfaces where it is
+  // read, instead of leaving the record silently unapplied); a bump drops
+  // the superseded response's table with its reads unanswered (their
+  // readers re-derive from the new response's record; nothing is left to
+  // tell). What the host keeps is the COUNT: a record counts its unsettled
+  // reads (`pending`) — a mounted occurrence takes the read as it is (its
+  // prop pends and holds the value it shows, A17), while a FRESH mount
+  // waits for the record to settle (the frame's `#syncSlots`), so the
+  // frame's shell shows at its landing with the range as the server left
+  // it, and the mount's covering boundary pends on the landing alone (A0,
+  // corollary 4); the last read to settle re-applies the record and the
+  // mount runs with values.
   const stores = new Map();
   const storeFor = id => {
     let store = stores.get(id);
@@ -787,6 +808,11 @@ export function createFrameHost(options = {}) {
   // while the address's first response is in flight, with its resolver.
   const landings = new Map();
   const lands = records => "" in records || ":error" in records || ":complete" in records;
+  // One write's fan-out: every frame mounted under the id applies it.
+  const applyTo = (id, version, r) => {
+    const set = frames.get(id);
+    if (set) for (const frame of set) frame.apply({ version, r });
+  };
   // Mirrors FrameImpl.apply's version policy (policy A): stale writes drop,
   // a newer version replaces the records wholesale, the same version
   // accumulates.
@@ -795,7 +821,6 @@ export function createFrameHost(options = {}) {
     if (store.version === undefined || version > store.version) {
       store.version = version;
       store.records = {};
-      store.waits = undefined;
     }
     // Root assets reuse one key for the shell and late chunks. Accumulate
     // their arrays so frames registered later receive the full snapshot.
@@ -813,66 +838,53 @@ export function createFrameHost(options = {}) {
     }
     return true;
   };
-  /** The pending read for an undelivered key of a response (its version),
-   *  on behalf of `record` (stored under `recordKey`). Keyed by version and
-   *  key: ids restart per response, and a staged refetch's preview resolves
-   *  through the shown response's store. */
-  const pendingRef = (store, version, key, recordKey, record) => {
-    const waits = (store.waits ??= new Map());
-    key = version + "\0" + key;
-    let w = waits.get(key);
-    if (!w) {
-      waits.set(key, (w = { records: [] }));
-      w.p = new Promise((r, j) => ((w.r = r), (w.j = j)));
-      // Owned here: a read nobody makes (the occurrence never mounted) must
-      // not surface the rejection as unhandled; a fill's read attaches its
-      // own handlers.
-      w.p.then(undefined, () => {});
-    }
-    w.records.push(recordKey, record);
-    record.pending = (record.pending || 0) + 1;
-    return w.p;
-  };
-  /** Settle a wait (`s` 1 fulfilled / 2 rejected, as the hydration
-   *  serializer stamps a promise) and re-apply every record it was the last
-   *  unsettled read of, so a mount that waited runs with values. */
-  const settleWait = (id, store, w, s, value) => {
-    w.p.s = s;
-    w.p.v = value;
-    s === 1 ? w.r(value) : w.j(value);
-    const set = frames.get(id);
-    for (let i = 0; i < w.records.length; i += 2) {
-      const record = w.records[i + 1];
-      if (--record.pending || !set) continue;
-      for (const frame of set)
-        frame.apply({ version: store.version, r: { [w.records[i]]: record } });
-    }
-  };
   /**
    * Settle the record's `{$ref}` args into client values through the
-   * response's table (or a pending read). The record notes what it found
-   * so the frames never probe a value again (a decoded value may be a live
-   * container, whose property reads throw not-ready while pending):
-   * `decoded` names the args that came through the table — the frame
-   * passes those through untouched — and `regions` the `{$frame}` args
-   * (arg name -> the region's wire id), which are addressing, not data. A
-   * literal stays as written: it is revived at the mount (`revive`), where
-   * a claim can read it as the markup was rendered from it.
+   * response's table (or its pending read for a key not delivered yet).
+   * The record notes what it found so the frames never probe a value again
+   * (a decoded value may be a live container, whose property reads throw
+   * not-ready while pending): `decoded` names the args that came through
+   * the table — the frame passes those through untouched — and `regions`
+   * the `{$frame}` args (arg name -> the region's wire id), which are
+   * addressing, not data. A literal stays as written: it is revived at the
+   * mount (`revive`), where a claim can read it as the markup was rendered
+   * from it.
+   *
+   * A pending read (the table's promise, marked `s = 0` — a delivered value
+   * that is itself a promise, an async arg passed whole, carries no mark
+   * and is taken as the value it is) is counted on the record (`pending`),
+   * and the last of them to settle — the key delivered, or the response
+   * closed — re-applies the record to the frames (`settle`, pushed on the
+   * read's `c` and run by the table in the `apply` / `close` that settles
+   * it — not the promise's `then`, which a delivered promise value would
+   * defer to ITS settle), so a fresh mount that waited for it runs with
+   * values (or throws the rejection where it reads, L1). Re-applied only
+   * if the record is still the one the store holds: a bump replaced it
+   * (the read belongs to a superseded response), a re-sent record under
+   * the same version superseded it, or it was a staged refetch's PREVIEW
+   * (never the store's — the commit's own write re-settles it).
    */
   const settleArgs = (store, recordKey, record, chunk) => {
     const args = record.args;
     const out = {};
     let regions, decoded;
+    const settle = () => {
+      if (!--record.pending && store.records[recordKey] === record)
+        applyTo(chunk.id, store.version, { [recordKey]: record });
+    };
     for (const key in args) {
       const value = args[key];
       if (value && typeof value.$ref === "string") {
-        const resolved =
-          options.resolve && options.resolve(value, chunk.id, chunk.version, store.version);
-        out[key] =
-          resolved === undefined
-            ? pendingRef(store, chunk.version, value.$ref, recordKey, record)
-            : resolved;
+        const resolved = (out[key] =
+          options.resolve && options.resolve(value, chunk.id, chunk.version, store.version));
         (decoded ??= {})[key] = true;
+        // `instanceof` before the mark: a decoded value may be a live
+        // container, whose property reads throw not-ready while pending —
+        // `instanceof` is a prototype walk, no property read.
+        if (resolved instanceof Promise && resolved.s === 0) {
+          record.pending = (record.pending || 0) + 1;
+          resolved.c.push(settle);
+        }
       } else {
         if (value && typeof value.$frame === "string") (regions ??= {})[key] = value.$frame;
         out[key] = value;
@@ -946,7 +958,8 @@ export function createFrameHost(options = {}) {
       // now the current response's (the transport restamps every chunk
       // with its response's version; the integration rotates the table at
       // the header and creates it at first use, so the first use must be
-      // the current response's).
+      // the current response's). A record waiting on the chunk's key is
+      // answered by the table's own apply (see `settleArgs`).
       if (chunk.type === "data") {
         const store = stores.get(chunk.id);
         const current = store && store.version;
@@ -954,15 +967,6 @@ export function createFrameHost(options = {}) {
         // with none, guards nothing.)
         if (store && chunk.version < current) return;
         options.applyData && options.applyData(chunk, current);
-        // The key a record of this response is waiting on: answered now,
-        // from the table the chunk just landed in.
-        const key = chunk.version + "\0" + chunk.key;
-        const w = chunk.initial && store && store.waits && store.waits.get(key);
-        if (w) {
-          store.waits.delete(key);
-          const value = options.resolve({ $ref: chunk.key }, chunk.id, chunk.version, current);
-          settleWait(chunk.id, store, w, 1, value);
-        }
         return;
       }
       // Write through to the resident store first: the store version-guards
@@ -1015,21 +1019,14 @@ export function createFrameHost(options = {}) {
           ":error" in records ? landed.j(records[":error"]) : landed.r();
         }
       }
-      const set = frames.get(chunk.id);
-      if (set) {
-        for (const frame of set) frame.apply({ version: chunk.version, r });
-      }
+      applyTo(chunk.id, chunk.version, r);
       // The response's end: a key it never delivered never comes, and every
-      // read waiting on one fails where it is read (L1) — a mount that
-      // waited for the record runs now and its read throws. After the end
-      // chunk's own apply, so the frame has the response's last word first.
-      if (store.waits && (":complete" in records || ":error" in records)) {
-        const error =
-          records[":error"] || new Error("Frame stream ended without delivering a {$ref}.");
-        const waits = store.waits;
-        store.waits = undefined;
-        for (const w of waits.values()) settleWait(chunk.id, store, w, 2, error);
-      }
+      // read waiting on one fails where it is read (L1) — the integration
+      // closes the response's table, a mount that waited for the record
+      // runs and its read throws. After the end chunk's own apply, so the
+      // frame has the response's last word first.
+      if (":complete" in records || ":error" in records)
+        options.closeData && options.closeData(chunk.id, chunk.version, records[":error"]);
     },
     landing(id) {
       const store = stores.get(id);
@@ -1054,10 +1051,10 @@ export function createFrameHost(options = {}) {
       if (!set) return;
       const records = chunkToRecords(chunk);
       const key = `slot:${chunk.key}`;
-      // Through the STAGED response's table (its version's), with the
-      // shown response's store as the wait's home — the version in the
-      // key tells them apart; a wait a bump drops is re-minted by the
-      // committed write's own settle.
+      // Through the STAGED response's table (its version's): a key it has
+      // not delivered is that table's pending read — never the shown
+      // response's — and this record is never the store's, so its settle
+      // re-applies nothing; the committed write's own settle does.
       settleArgs(storeFor(chunk.id), key, records[key], chunk);
       for (const frame of set) frame.preview && frame.preview(records);
     },
@@ -1694,12 +1691,13 @@ class FrameImpl {
         continue;
       }
       // A record's args are client values by the time it is here: the host
-      // settled its `{$ref}`s at the write — a delivered value, or a pending
-      // read its `data` chunk settles (`record.pending` counts those still
-      // open). A MOUNTED occurrence takes the read as it is: its prop pends
-      // and holds what it shows until the value lands (DR-2's value tier,
-      // the path a promise passed whole takes). A fresh mount waits for the
-      // record to settle — the host re-applies it then — so the frame's
+      // settled its `{$ref}`s at the write — a delivered value, or the
+      // table's pending read its `data` chunk settles (`record.pending`
+      // counts those still open). A MOUNTED occurrence takes the read as it
+      // is: its prop pends and holds what it shows until the value lands
+      // (DR-2's value tier, the path a promise passed whole takes). A fresh
+      // mount waits for the record to settle — the host re-applies it then
+      // — so the frame's
       // shell shows at its landing with the range as the server left it,
       // instead of a fill whose first read pends into the mount's covering
       // boundary (which would hold the frame's own address follow behind

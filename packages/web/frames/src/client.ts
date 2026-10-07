@@ -190,10 +190,14 @@ export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
 // their own host.
 //
 // Tables materialize lazily, at first use once the codec module is
-// resident — `prepareData` guarantees that before any `data` chunk
-// delivers. A `resolve` ahead of the codec (a record's `$ref` sighted
-// before its data) answers undefined — "not delivered" — and the host hands
-// the fill a pending read the data chunk settles (see `createFrameHost`).
+// resident — `prepareData` guarantees that before any chunk that reads
+// data delivers (a `data` chunk; a `slot` chunk whose args carry a `$ref`).
+// A `resolve` of a key the response has not delivered yet is the table's
+// own pending read (the key lives there, so the wait does), settled by the
+// key's `data` chunk through `apply` and rejected when the response ends
+// (`closeData` → `table.close`, see `createFrameHost`); a version the
+// address has moved past takes its table — and its unanswered reads — with
+// it.
 let sharedHost: any;
 let codec: any;
 let codecLoading: Promise<unknown> | undefined;
@@ -361,7 +365,11 @@ export function getFrameHost() {
       prepareData: loadCodec,
       applyData: (c: any, current?: number) => tableFor(c.id, c.version, current)?.apply(c),
       resolve: (ref: any, id: string, version: number, current?: number) =>
-        tableFor(id, version, current)?.resolve(ref)
+        tableFor(id, version, current)?.resolve(ref),
+      // The response's table alone — never minted for a response that
+      // carried no data, never a superseded version's.
+      closeData: (id: string, version: number, error?: unknown) =>
+        tables.get(id)?.get(version)?.close(error)
       // No `revive` here: document-face container traces ride slot records
       // as inline literals (never `{$ref}`s) and are revived into live
       // stores at arg-read by the traces tier, whose install sets this
