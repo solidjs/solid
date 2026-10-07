@@ -581,18 +581,16 @@ function isReactiveContent(value: any): boolean {
  * claims — see `claimRender`.
  */
 function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
-  // Live range bindings, one per occurrence. A re-call replaces its
-  // occurrence's binding (the frame only runs slot cleanups at unmount, not
-  // between re-calls), so dispose the outgoing one before the incoming
-  // invocation takes either path — a static re-call after a reactive one must
-  // not leave a binding fighting the frame for the range.
-  const bindings = new Map<string, { dispose(): void }>();
   // Each fill invocation's reactive scope, one per occurrence. The fill
   // renders under a PER-OCCURRENCE owner (a child of the ambient scope, so
   // context flows) whose disposal rides the frame's occurrence-level
   // cleanup: a fill's `onCleanup` and effects live and die with the
   // occurrence — a later response dropping it disposes right there — not
   // with the covering boundary, which outlives every occurrence it covers.
+  // A live range binding (the reactive-content path below) is the same
+  // scope: the `insert` lives under the fill's owner where there is one,
+  // under an owner of its own otherwise, so one map disposes whichever path
+  // the previous invocation took.
   const fillScopes = new Map<string, { dispose(): void }>();
   return new Proxy(
     {},
@@ -601,14 +599,11 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
         if (typeof prop !== "string" || !(prop in props)) return undefined;
         return (slotProps: any, ctx: any) => {
           const key = ctx && ctx.key;
-          const prev = key !== undefined && bindings.get(key);
-          if (prev) {
-            bindings.delete(key);
-            prev.dispose();
-          }
-          // A re-call replaces the invocation wholesale (same contract as
-          // the binding above): the outgoing fill's scope disposes before
-          // the incoming one renders.
+          // A re-call replaces the invocation wholesale (the frame only
+          // runs slot cleanups at unmount, not between re-calls): the
+          // outgoing fill's scope — its binding included — disposes before
+          // the incoming one renders, so a static re-call after a reactive
+          // one never leaves a binding fighting the frame for the range.
           const prevFill = key !== undefined && fillScopes.get(key);
           if (prevFill) {
             fillScopes.delete(key);
@@ -618,8 +613,7 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // elements reading its properties at bound positions. Always under
           // a per-occurrence owner: the binding must die with the occurrence
           // (a later response dropping it, or every consumer replaced by
-          // the morph), and there are no placed nodes for the frame's zombie
-          // heuristic to misread. The binding itself is the BIND TIER's
+          // the morph). The binding itself is the BIND TIER's
           // (`bind`, bind-tier.ts) — resident by construction: positions
           // exist only once the tier parsed the markers.
           if (ctx && ctx.positions) {
@@ -665,13 +659,10 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // Live-render invocations (a reveal boundary's content render, the
           // t=0 adoption sync) are deliberately NOT scoped this way: the
           // ambient owner — the reconstructed segment boundary's content
-          // computation — already owns the fill with the right lifetime, and
-          // handing it to frame cleanups instead is wrong there: the frame's
-          // zombie heuristic reads "mounted nodes without a parent" as a
-          // destroyed mount, but a pending fill's nodes are legitimately
-          // detached while its covering boundary shows the fallback — the
-          // cleanup would dispose the live pending effect and release the
-          // boundary over a hole.
+          // computation — already owns the fill with the right lifetime (a
+          // pending fill's nodes are legitimately detached while its
+          // covering boundary shows the fallback; the boundary, not a frame
+          // cleanup, decides when that render is done with).
           const fillOwner = streamInvoke ? createOwner() : null;
           if (fillOwner && key !== undefined && ctx) {
             fillScopes.set(key, fillOwner);
@@ -786,12 +777,17 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // it again.
           if (ctx && ctx.range) {
             const source = value;
-            const owner = createOwner();
-            bindings.set(key, owner);
-            ctx.onCleanup(() => {
-              if (bindings.get(key) === owner) bindings.delete(key);
-              owner.dispose();
-            });
+            // The binding's owner: the fill's own (a stream-mounted fill,
+            // already in `fillScopes` with its cleanup), else one minted
+            // here and registered the same way.
+            const owner = fillOwner || createOwner();
+            if (!fillOwner) {
+              fillScopes.set(key, owner);
+              ctx.onCleanup(() => {
+                if (fillScopes.get(key) === owner) fillScopes.delete(key);
+                owner.dispose();
+              });
+            }
             const end = ctx.range.end;
             const bind = () =>
               insert(
@@ -1176,21 +1172,6 @@ function documentBoundary(
   return boundaryComponent(host, id)(props, binding);
 }
 
-/**
- * The address a document boundary's content is keyed under: the call's
- * address as the hydration references recorded it (`_$SC.a`, address -> id).
- * A mount without a live binding (a direct placeholder render at t=0) reads
- * it from those records; an argless call's address IS the function id, so
- * the common shell case needs no record at all.
- */
-function documentAddress(id: string) {
-  const records = (globalThis as any)._$SC?.a;
-  if (records) {
-    for (const address in records) if (records[address] === id) return address;
-  }
-  return id;
-}
-
 function adoptBoundary(
   host: any,
   id: string,
@@ -1202,8 +1183,13 @@ function adoptBoundary(
   // Content is keyed by the CALL's address (the identity split): the frame
   // binds the address's resident store, while `id` — the function id, the
   // document's wire name — stays the key records and region ids on the page
-  // are written under.
-  const address = binding ? contentAddress(binding()) : documentAddress(id);
+  // are written under. The address comes with the binding — every reference
+  // the document serializes resolves to the call's binding, and a `dynamic`
+  // mount is called with the live accessor. A mount with no binding (the
+  // per-function placeholder rendered directly, `_$SC.r(id)` — a page with
+  // no transport) binds the function id: an argless call's address IS its
+  // id, and no refetch reaches a page without a transport.
+  const address = binding ? contentAddress(binding()) : id;
   // Occlusion records (case 3, document face): content a client wrapper
   // never rendered during SSR shipped ONCE as hydration data instead of
   // markup. Apply the records BEFORE binding the frame — the host buffers

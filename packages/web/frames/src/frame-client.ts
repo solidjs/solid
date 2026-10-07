@@ -391,15 +391,16 @@ export interface FrameOptions {
    */
   ownerScope?<T>(fn: () => T): T;
   /**
-   * Boundary-driven segment reveal. When present, `#revealSegment` hands the
-   * placeholder seam to this hook instead of swapping imperatively: the binding
-   * reconstructs a client `<Loading>` there — `fallback` is the placeholder's
-   * own template content (shown while holding), `content()` materializes the
-   * segment and renders its client fills INSIDE the boundary so their readiness
-   * gates the reveal — and inserts it before `before`. An unboundaried async
-   * fill suspends up to that boundary and is covered instead of orphaned; one
-   * boundary per revealed segment, i.e. per author-placed `<Loading>`. Omit it
-   * for the framework-agnostic imperative swap (no reactive reveal).
+   * Boundary-driven segment reveal. `#revealSegment` hands the placeholder
+   * seam to this hook: the binding reconstructs a client `<Loading>` there —
+   * `fallback` is the placeholder's own template content (shown while
+   * holding), `content()` materializes the segment and renders its client
+   * fills INSIDE the boundary so their readiness gates the reveal — and
+   * inserts it before `before`. An unboundaried async fill suspends up to
+   * that boundary and is covered instead of orphaned; one boundary per
+   * revealed segment, i.e. per author-placed `<Loading>`. Omitted, the
+   * default seam inserts `content()` before `before` at once and removes
+   * `before` (the framework-agnostic swap: no boundary, no reactive reveal).
    */
   reveal?(seam: { before: Node; fallback: Node[]; content: () => Node | DocumentFragment }): void;
   /**
@@ -1269,7 +1270,9 @@ class FrameImpl {
   // mount and the mount's rebind callback (`ctx.onRebind`) are the BIND
   // TIER's (`@solidjs/web/frames/bind`, plan C6), kept by that module per
   // frame (`sync` / `rebinder` / `unmount` off `tierLoads.bind.r`).
-  #slotNodes = new Map();
+  // Nor the mounts' output nodes: the range IS the occurrence's place
+  // (`#replaceRange` writes between its markers), and nothing reads the
+  // nodes back — "mounted" is `#mountedSlots`, not a check on them.
   // The release of the frame's hold with the integration while a sync
   // leaves an occurrence waiting to mount (see #syncSlots' end).
   #hold;
@@ -1664,22 +1667,11 @@ class FrameImpl {
         continue;
       }
       const record = this.#resolveSlotRecord(occurrence);
-      // A mount whose output the morph destroyed (its range was recreated
-      // inside a different server parent — ranges only relocate among
-      // siblings) is a zombie: remount fresh so content stays correct, even
-      // though state can't survive a destroyed node.
-      const prev = this.#slotNodes.get(occurrence);
-      const prevFirst = Array.isArray(prev) ? prev[0] : prev;
-      let mounted = this.#mountedSlots.has(occurrence);
-      // A data occurrence is never a zombie: its nodes are the server's
-      // consumers, not the fill's output — a replaced element is a consumer
-      // change (rebind, below), and an occurrence no element reads any more
-      // is simply not found (unmounted at the end).
-      if (!consumers && mounted && prevFirst && !prevFirst.parentNode) {
-        this.#mountedSlots.delete(occurrence);
-        this.#runSlotCleanups(occurrence);
-        mounted = false;
-      }
+      // A mounted occurrence is one this frame invoked and has not unmounted;
+      // the morph never destroys a mount's output (identity-first matching
+      // relocates a range among siblings and recreates nothing — DR-5), so
+      // "mounted" is the set, not a check on the nodes.
+      const mounted = this.#mountedSlots.has(occurrence);
       // The occurrence's name decides its class: the producer mints every
       // CALLED occurrence as `prop#n` and emits its record at the call,
       // ahead of the markup that reads it; a bare occurrence (the prop
@@ -1804,14 +1796,9 @@ class FrameImpl {
         );
         // A data occurrence's mount never returns nodes to place; its
         // consumer set is handed to the tier (`sync`), which keeps it per
-        // frame for the rebind below. (No `#slotNodes` entry: the zombie
-        // check above skips data occurrences — a replaced element is a
-        // consumer change, not a destroyed mount.)
+        // frame for the rebind below.
         if (consumers) B.sync(this, occurrence, consumers);
-        else {
-          if (nodes) this.#replaceRange(occurrence, start, nodes);
-          this.#slotNodes.set(occurrence, nodes);
-        }
+        else if (nodes) this.#replaceRange(occurrence, start, nodes);
         this.#mountedSlots.add(occurrence);
         // Bind the occurrence's regions (the tier): a frame over each region
         // element — those #resolveArgs minted or found, plus a re-scan of
@@ -1870,10 +1857,7 @@ class FrameImpl {
         // reusing its cached server-content regions. Same contract: an
         // undefined return keeps the current interior.
         const nodes = this.#invokeSlot(occurrence, callback, record, start);
-        if (!consumers) {
-          if (nodes) this.#replaceRange(occurrence, start, nodes);
-          this.#slotNodes.set(occurrence, nodes);
-        }
+        if (!consumers && nodes) this.#replaceRange(occurrence, start, nodes);
         R?.bind(this, occurrence);
       }
     }
@@ -2012,7 +1996,6 @@ class FrameImpl {
 
   #unmountSlot(key) {
     this.#mountedSlots.delete(key);
-    this.#slotNodes.delete(key);
     // Long-session hygiene: an occurrence gone from the stream releases its
     // record and caches — keyed churn must not accumulate forever.
     this.#slotArgs.delete(key);
@@ -2411,60 +2394,54 @@ class FrameImpl {
     // and they land at the install's flush, still ahead of this reveal.
     const content = this.#store[`seg:${name}`];
     const closing = rangeClose(tpl, placeholderId(name));
-    if ("_SOLID_DEV_" && !closing) {
-      console.error(
-        `Frame fragment placeholder "${name}" is missing its closing comment ` +
-          `(<!--${placeholderId(name)}-->); revealed content will be appended at the end of ` +
-          `its parent instead of in place. Likely an HTML-rewriting layer stripped the ` +
-          `comment, or invalid nesting split the placeholder range.`,
-        tpl
-      );
-    }
-    const parent = tpl.parentNode;
-    // Clear the current range interior (a materialized fallback, if #showFallback
-    // ran) — both paths below re-own this position.
-    removeUntil(parent, tpl.nextSibling, closing);
-
-    if (this.#options.reveal) {
-      // Boundary-driven reveal (the ratified "per-`<Loading>`" model): the
-      // server `<Loading>` boundary's footprint on the client is this exact
-      // placeholder seam, so the binding reconstructs a client boundary here —
-      // fallback = the placeholder's own template content, children = the
-      // segment content plus its client fills, rendered INSIDE the boundary so
-      // their readiness gates it. An unboundaried async fill suspends up to
-      // THIS boundary and is covered, not orphaned; a fill with its own
-      // boundary contains itself. Cost is one boundary per revealed segment —
-      // and segments are `<Loading>` boundaries (few, author-placed), so this
-      // is React's granularity, not a per-chunk tax. `closing` stays as the
-      // boundary's insertion anchor; only the template is removed. The
-      // content is applied as it is revealed (2.3): its fills mount and its
-      // nested segments reveal INSIDE the still-detached fragment, so a
-      // placeholder the boundary commits later (a pending fill holds it)
-      // is already swapped when it lands.
-      const fallbackFrag = tpl.content.cloneNode(true);
-      this.#claimTree(fallbackFrag);
-      this.#options.reveal({
-        before: closing,
-        fallback: [...fallbackFrag.childNodes],
-        content: () => {
-          const materialized = this.#materialize(content);
-          this.#syncSlots(materialized);
-          this.#claimTree(materialized);
-          this.#revealSegments(materialized);
-          return materialized;
-        }
-      });
-      tpl.remove();
-      this.#recordHave(name, content);
+    // A placeholder without its closing comment is not a range: nothing
+    // reveals into it (as #showFallback materializes nothing there).
+    if (!closing) {
+      if ("_SOLID_DEV_")
+        console.error(
+          `Frame fragment placeholder "${name}" is missing its closing comment ` +
+            `(<!--${placeholderId(name)}-->); the segment is not revealed. Likely an ` +
+            `HTML-rewriting layer stripped the comment, or invalid nesting split the ` +
+            `placeholder range.`,
+          tpl
+        );
       return;
     }
+    // Clear the current range interior (a materialized fallback, if #showFallback
+    // ran) — the seam re-owns this position.
+    removeUntil(tpl.parentNode, tpl.nextSibling, closing);
 
-    const materialized = this.#materialize(content);
-    this.#claimTree(materialized);
-    this.#revealSegments(materialized);
-    parent.insertBefore(materialized, closing);
+    // Boundary-driven reveal (the ratified "per-`<Loading>`" model): the
+    // server `<Loading>` boundary's footprint on the client is this exact
+    // placeholder seam, so the binding reconstructs a client boundary here —
+    // fallback = the placeholder's own template content, children = the
+    // segment content plus its client fills, rendered INSIDE the boundary so
+    // their readiness gates it. An unboundaried async fill suspends up to
+    // THIS boundary and is covered, not orphaned; a fill with its own
+    // boundary contains itself. Cost is one boundary per revealed segment —
+    // and segments are `<Loading>` boundaries (few, author-placed), so this
+    // is React's granularity, not a per-chunk tax. `closing` stays as the
+    // boundary's insertion anchor; only the template is removed. The
+    // content is applied as it is revealed (2.3): its fills mount and its
+    // nested segments reveal INSIDE the still-detached fragment, so a
+    // placeholder the boundary commits later (a pending fill holds it)
+    // is already swapped when it lands. A frame created without the hook
+    // reveals through the default seam — the same content, inserted at
+    // once (no boundary).
+    const fallbackFrag = tpl.content.cloneNode(true);
+    this.#claimTree(fallbackFrag);
+    (this.#options.reveal || revealAtOnce)({
+      before: closing,
+      fallback: [...fallbackFrag.childNodes],
+      content: () => {
+        const materialized = this.#materialize(content);
+        this.#syncSlots(materialized);
+        this.#claimTree(materialized);
+        this.#revealSegments(materialized);
+        return materialized;
+      }
+    });
     tpl.remove();
-    closing && closing.remove();
     this.#recordHave(name, content);
   }
 
@@ -2605,6 +2582,16 @@ function propOf(occurrence) {
  *  a record) rather than the bare prop (a direct-insert position). */
 function isCalled(occurrence) {
   return occurrence.indexOf("#") !== -1;
+}
+
+/**
+ * The default reveal seam (`FrameOptions.reveal` omitted): the segment's
+ * content inserted before the closing comment at once, the comment removed
+ * — the framework-agnostic swap, no boundary.
+ */
+function revealAtOnce(seam) {
+  seam.before.parentNode.insertBefore(seam.content(), seam.before);
+  seam.before.remove();
 }
 
 /** Remove siblings from `n` (inclusive) up to `stop` (exclusive). */

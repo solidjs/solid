@@ -646,10 +646,8 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
    * Declares that the document is showing a call: hydration-data references
    * carry their call's address (`_$SC.r(id, address)`) but never travel
    * through the transport, so the integration forwards those records here.
-   * Mints the call's binding (a post-load refetch then resolves a value
-   * whose component matches what the document mounted) and brands the
-   * per-function component so cache-seeded readers deliver instead of
-   * remounting when their site later switches calls.
+   * Mints the call's binding, so a post-load refetch resolves a value
+   * whose component matches what the document mounted.
    */
   showing(address: string, functionId: string): void;
 };
@@ -969,21 +967,12 @@ export function createServerComponentHandler({ host, component, intercept }) {
      * through this seam instead — the t=0 reference carries it (see
      * ServerComponentPlugin.serialize). Minting the binding here keeps a
      * post-load refetch of the same call resolving a value whose component
-     * matches what the document mounted; branding the document's per-
-     * function placeholder (the cache-seeded value readers hold at t=0)
-     * lets an equals-gated reader deliver instead of remounting when its
-     * site later switches calls.
+     * matches what the document mounted. (The reference the reader holds
+     * at t=0 is the bootstrap's BINDING for the address — branded there —
+     * never the bare per-function placeholder, so nothing brands it here.)
      */
     showing(address, functionId) {
       bindingFor(address, functionId);
-      const comp = componentFor(functionId);
-      if (
-        comp &&
-        (typeof comp === "function" || typeof comp === "object") &&
-        !comp[COMPONENT_BINDING]
-      ) {
-        comp[COMPONENT_BINDING] = { component: comp, address };
-      }
     }
   };
 

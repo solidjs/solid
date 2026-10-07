@@ -2573,9 +2573,10 @@ amended here:
   are the same `liveSlotProps` proxy content occurrences get, so a
   re-emitted record updates the instance in place. The
   per-occurrence owner is unconditional here (content fills scope
-  only stream-mounted invocations, for the zombie-heuristic reason
-  recorded in `slotsFor`): an element occurrence places no nodes, so
-  nothing can be misread, and the spread's effect must die with the
+  only stream-mounted invocations — a live-render fill's ambient
+  owner, the reconstructed boundary's content computation, already
+  has the right lifetime; see `slotsFor`): an element occurrence
+  places no nodes, and the spread's effect must die with the
   occurrence. Fill-returned handlers go through client `spread`'s
   own delegation (the "open" item above closes this way — the
   one-owner rule keeps `_bnd` and a fill off the same position).
@@ -2589,8 +2590,8 @@ amended here:
   the server's value and re-imposes the owned names' live state on
   top (a class the fill toggled on stays on through a server class
   change; an owned style property survives the attribute rewrite).
-  A replaced element is a zombie mount (its node left the tree) and
-  the fill remounts on the fresh node; an unmounted occurrence
+  A replaced element is a consumer change (the fill rebinds on the
+  fresh node, see §9.2.3); an unmounted occurrence
   releases its ownership so the element is wholly the server's from
   the next morph on.
 - *No regions in attribute slots.* An element occurrence has no
@@ -3238,14 +3239,14 @@ the text above, the build is right and the text is amended here:
   compared. A placed range never registers: two identical positional
   markup calls stay two ranges (pinned). No wire change: ids stay
   `prop#<n>`.
-- *A data occurrence's nodes are its consumers, and it is never a
-  zombie.* The client's slot discovery collects `_s:*` elements into
-  per-occurrence consumer lists `[{ element, positions }]` alongside
-  the range walk. The occurrence's "nodes" are those elements (so the
-  existing bookkeeping sees them), but the zombie rule — output whose
-  node left the tree remounts fresh — does not apply: a replaced
-  consumer is a *consumer change*, and an occurrence no element
-  reads is simply not found and unmounts at the sync's end. Consumer
+- *A data occurrence's nodes are its consumers.* The client's slot
+  discovery collects `_s:*` elements into per-occurrence consumer
+  lists `[{ element, positions }]` alongside the range walk. The
+  occurrence's "nodes" are those elements: a replaced consumer is a
+  *consumer change*, and an occurrence no element reads is simply
+  not found and unmounts at the sync's end. (No mount's output is
+  ever checked for having left the tree — the morph recreates
+  nothing, DR-5; "mounted" is the frame's set.) Consumer
   sets compare structurally per sync; a change without an args
   change rebinds in place through a per-occurrence rebinder (the
   fill's computation stays; new elements and positions take their
