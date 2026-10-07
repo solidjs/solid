@@ -3207,6 +3207,20 @@ the text above, the build is right and the text is amended here:
   them, so a kept un-keyed element carries one listener, not one per
   occurrence that ever bound it, and a dropped occurrence's handler
   never fires through its disposed fill.
+- *The replay-window stamp (frames savings pass C6, option (a)).* On
+  the document face an element with an `_s:on:*` position — only
+  those; a ref-only or attribute-only consumer carries nothing — is
+  written with a bare ` _hk` after its markers (4 bytes, no key). The
+  binding runtime is a lazy tier, so the hydration bootstrap must
+  queue the element's events until its handlers bind: it queues only
+  under a not-yet-completed `_hk` element, and a server component's
+  interior (NoHydration) has none of its own. Bare, the stamp is
+  nothing's to gather or claim (prefix gathers match keyed values;
+  the root's ambient sweep leaves frame interiors to their fills);
+  the tier marks the element completed at the bind and drains the
+  queue. The stream face writes no stamp — the bootstrap stopped
+  capturing at `_$HY.done`, so a response's html has no window to
+  keep open.
 - *A repeated call is one occurrence per render, on both faces —
   keyed or not.* Found by the first todos port, which emitted eleven
   `sc:slot:…row#<id>` records per row (one per position read through

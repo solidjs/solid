@@ -78,7 +78,9 @@ const floorMinified = Object.fromEntries(
 // 2026-10-06: nested server-content regions) is the third, `regions.js`,
 // and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
 // 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
-// the fourth, `assets.js` — each lazy, not counted. The "frames: eager
+// the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
+// plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
+// the fifth, `bind.js` — each lazy, not counted. The "frames: eager
 // client consumer" scenario measures the package; these measure the page.
 // Subpath aliases first (see above) — the tier specifiers before
 // `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
@@ -87,6 +89,7 @@ const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
   "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
   "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
+  "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
@@ -130,11 +133,12 @@ const framesExternal = [
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
   // the eager graph alone; its own `solid-js` entry rides with it. The
-  // regions tier (C4) and the assets tier (C5) likewise.
+  // regions tier (C4), the assets tier (C5) and the bind tier (C6) likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
   "@solidjs/web/frames/regions",
   "@solidjs/web/frames/assets",
+  "@solidjs/web/frames/bind",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3489,8 +3493,24 @@ module.exports = [
     // C5's resident stamp, `tierLoads[name].r = module`). Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 40,000 B.
-    limit: "13.10 KB",
-    capMinified: 40000,
+    // Frames savings pass C6 (2026-10-06, the bind tier): 13.10 -> 11.92 KB,
+    // measured at 11,901 B (36,007 B minified) against the integration base
+    // 6b7213d64's 13,086 (-1,185 B; -4,005 B minified, 40,012 -> 36,007)
+    // and `next` @ 9d89df731's 13,787 (-1,886 B; -7,407 B minified).
+    // Binding-slot positions — the consumer walk, the per-frame consumer
+    // sets and rebinders, the owned-position arms of the morph, the fill's
+    // bind (`assign` with it) — are `bind.js` (4,771 B minified / 1,844 B
+    // brotli, lazy, not counted). The eager client keeps the marker
+    // detection at the walk (`hasSlotMarker` → the 3.1 hold), the text-pair
+    // arm of `reconcileChildren` (a client-owned text node must survive a
+    // morph the tier has not seen — the pin at frames-binding-slots "a
+    // refetch re-sends the empty pairs"), `isAsyncValue` (shared with the
+    // tier through the entry) and the loader entry. The delegated-event
+    // replay window is the server's ` _hk` stamp on event-slot consumers
+    // (0 eager bytes; +106 min / +48 br in the chunk). Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 36,007 B.
+    limit: "11.92 KB",
+    capMinified: 36007,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3701,6 +3721,14 @@ module.exports = [
     // not counted: `trace.js` 25,419 B minified / 8,176 B brotli,
     // `regions.js` 1,872 / 805, `assets.js` 2,040 / 783. Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 119,044 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 37.79 -> 36.66 KB
+    // (floor-caps.json), measured at 36,647 B (115,087 B minified) against
+    // the integration base 6b7213d64's 37,747 (-1,100 B; -3,969 B minified)
+    // and `next` @ 9d89df731's 44,882 (-8,235 B; -30,670 B minified). The
+    // fourth tier chunk rides beside the eager one — reported above as
+    // lazy, not counted: `bind.js` 4,771 B minified / 1,844 B brotli. Cap
+    // set at measured + 10 B at the 0.01 KB step (the ratchet); recorded
+    // minified 115,087 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3853,6 +3881,15 @@ module.exports = [
     // 25,419 / 8,173, `regions.js` 1,872 / 802, `assets.js` 2,040 / 783.
     // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
     // recorded minified 130,915 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 41.44 -> 40.30 KB
+    // (floor-caps.json), measured at 40,286 B (126,964 B minified) against
+    // the integration base 6b7213d64's 41,396 (-1,110 B; -3,963 B minified)
+    // and `next` @ 9d89df731's 48,595 (-8,309 B; -30,756 B minified). The
+    // chunk here: `bind.js` 4,771 / 1,843 (it imports the eager frames
+    // entry, so Rolldown attaches it to the page's graph instead of
+    // splitting the shared runtime out of the entry — see bind-tier.ts).
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 126,964 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
