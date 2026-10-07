@@ -393,11 +393,13 @@ export function hasFlightMetadata(response) {
  * envelope context, whose `SINGLE_FLIGHT_HEADER` names the folded sources.
  * Each registered consumer receives its own slice, in registration order,
  * awaited sequentially so caches are seeded before the caller sees the
- * value. A consumer whose source was not folded is skipped — unless the
- * response carries integration metadata, in which case it runs with `data`
- * `undefined` to apply the metadata. Consumers are looked up per delivery:
- * an awaited consumer may unsubscribe another (a provider tearing down
- * under a navigation).
+ * value. Pending entries in the slices (values the collector folded while
+ * still in flight, streamed after the response head) are settled before
+ * any consumer runs. A consumer whose source was not folded is skipped —
+ * unless the response carries integration metadata, in which case it runs
+ * with `data` `undefined` to apply the metadata. Consumers are looked up
+ * per delivery: an awaited consumer may unsubscribe another (a provider
+ * tearing down under a navigation).
  *
  * Transport building block; not meant for hand-written code.
  * @internal
@@ -406,6 +408,14 @@ export function deliverFlightData(response: Response, data: unknown): Promise<vo
 
 /** Delivers each consumer its slice of a single-flight envelope's `data`. */
 export async function deliverFlightData(response, data) {
+  // The body decode resolves on the first chunk, while values a collector
+  // folded still pending (the router's preload `query` promises) stream
+  // after it. `allSettled`: a failed read belongs to the cache entry it
+  // seeds, not to the mutation that carried it.
+  if (data)
+    await Promise.allSettled(
+      Object.values(data).flatMap(s => (s && typeof s == "object" ? Object.values(s) : []))
+    );
   // An absent header splits to [""], which names no source (ids are never
   // empty — see assertFlightSource), so no consumer matches it.
   const folded = (response.headers.get(SINGLE_FLIGHT_HEADER) || "").split(",");
