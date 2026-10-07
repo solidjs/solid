@@ -3793,6 +3793,16 @@ module.exports = [
     // 1,922 / 934, reported not counted) — −935 min / −349 br. Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 112,003 B.
+    // `dynamicComponent` (B.3-sync, 2026-10-07): 35.74 -> 33.58 KB, measured
+    // at 33,570 B (104,586 B minified): the fixture mounts its server
+    // component through `dynamicComponent`, the component-only sibling of
+    // `dynamic` (documentation/plans/frames-b3-sync.md), so `dynamic`'s
+    // string-tag arm — `staticElement`, `createElement`, `spread`, the
+    // prop-collection helpers, the SVG/MathML tables — is no longer
+    // reachable from this page: −7,417 min / −2,152 br (the edited-dist
+    // model said −7,423 / −2,158). `assign` and below stay for the lazy bind
+    // chunk. Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 104,586 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3974,6 +3984,11 @@ module.exports = [
     // against the base's 39,747) — −907 min / −335 br eager. Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 123,903 B.
+    // `dynamicComponent` (B.3-sync, 2026-10-07): 39.43 -> 37.26 KB, measured
+    // at 37,241 B (116,485 B minified): the fixture mounts through
+    // `dynamicComponent`, shedding `dynamic`'s string-tag arm as on the base
+    // page — −7,418 min / −2,171 br. Cap set at measured + 10 B at the
+    // 0.01 KB step (the ratchet); recorded minified 116,485 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

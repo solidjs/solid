@@ -22,8 +22,8 @@
  * every distinct text the site showed is recorded (`watchFrames`).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, Errored, Loading } from "solid-js";
-import { dynamic } from "@solidjs/web";
+import { createRoot, createSignal, Errored, Loading, type Component } from "solid-js";
+import { dynamic, dynamicComponent } from "@solidjs/web";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { freshFid, heldStream, makeHost, pump, stubHeldFetch, watchFrames } from "./support.js";
@@ -52,9 +52,19 @@ afterEach(() => {
 // nearest client `<Errored>` as any rejected `createAsync` does — without
 // one, the core halts the reactive system. Its fallback is an `<em>`, so
 // `pending` (the `<span>` fallback) still reads the <Loading> alone.
-function mountSite(getX: (...args: any[]) => unknown) {
+// Both entry points: `dynamic` and its component-only sibling
+// `dynamicComponent` share one implementation (the address accessor the gate
+// is bound through included); the sibling is the documented server-component
+// mount, so the rule is pinned on it by name.
+type Dyn = (source: () => any) => Component<any>;
+const VIA: ReadonlyArray<[string, Dyn]> = [
+  ["dynamic", dynamic],
+  ["dynamicComponent", dynamicComponent]
+];
+
+function mountSite(dyn: Dyn, getX: (...args: any[]) => unknown) {
   const [n, setN] = createSignal(1);
-  const Site = dynamic(() => getX(n()) as any);
+  const Site = dyn(() => getX(n()) as any);
   let div!: HTMLDivElement;
   const dispose = createRoot(d => {
     <div ref={div}>
@@ -75,7 +85,7 @@ function mountSite(getX: (...args: any[]) => unknown) {
   return { div, frames: watch.frames, pending, h1, error, setN };
 }
 
-describe("C17 — the shell gate answers only to the bound address", () => {
+describe.each(VIA)("C17 — the shell gate answers only to the bound address (%s)", (_, dyn) => {
   // Arm (a): A's stream is held open after its header (the mount pends on
   // A's landing, the fallback shows); the site switches to B (B's header
   // resolved and the switch delivered — the second request is out); then
@@ -100,7 +110,7 @@ describe("C17 — the shell gate answers only to the bound address", () => {
     installServerComponents(makeHost().host);
     const { held, calls } = stubHeldFetch([WIRE, WIRE]);
     const [a, b] = held;
-    const site = mountSite(getX);
+    const site = mountSite(dyn, getX);
     await pump();
     a.send(start);
     await pump(1);
@@ -149,7 +159,7 @@ describe("C17 — the shell gate answers only to the bound address", () => {
     installServerComponents(makeHost().host);
     const { held } = stubHeldFetch([WIRE, WIRE]);
     const [a, b] = held;
-    const site = mountSite(getX);
+    const site = mountSite(dyn, getX);
     await pump();
     a.send(start);
     await pump(1);
@@ -198,7 +208,7 @@ describe("C17 — the shell gate answers only to the bound address", () => {
       await bHeader;
       return b.response;
     });
-    const site = mountSite(getX);
+    const site = mountSite(dyn, getX);
     await pump();
     a.send(start);
     await pump(1);
@@ -238,7 +248,7 @@ describe("C17 — the shell gate answers only to the bound address", () => {
     installServerComponents(makeHost().host);
     const { held } = stubHeldFetch([WIRE, WIRE]);
     const [a, b] = held;
-    const site = mountSite(getX);
+    const site = mountSite(dyn, getX);
     await pump();
     a.send(start);
     await pump(1);
@@ -268,7 +278,7 @@ describe("C17 — the shell gate answers only to the bound address", () => {
     installServerComponents(makeHost().host);
     const { held } = stubHeldFetch([WIRE]);
     const [a] = held;
-    const site = mountSite(getX);
+    const site = mountSite(dyn, getX);
     await pump();
     a.send(start);
     await pump(1);

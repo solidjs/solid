@@ -2156,7 +2156,7 @@ const toggleAll = action(function* (ids: string[], completed: boolean) {
   yield toggleAllTodos(ids, completed);
 });
 
-const Todos = dynamic(() => getTodos(filter()));
+const Todos = dynamicComponent(() => getTodos(filter()));
 
 <Todos
   row={p => ({ class: { completed: done(p) }, hidden: !!pending.byId[p.id]?.removed })}

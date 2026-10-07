@@ -243,7 +243,7 @@ export const feed = live(
 );
 
 // client
-const Feed = dynamic(() => feed(props.room));
+const Feed = dynamicComponent(() => feed(props.room));
 ```
 
 The client's binding reconnects on death through `live`'s loop; the document render takes first values from the component's sources and hands off (the brand on the component marks the frame's scope); hydration adopts the document's markup and the loop reconnects from there. How frames make the resume _quiet_ — a stable binding identity per address, conditional re-emission by hole — is frames' business, recorded in `documentation/server-components/server-components-principles.md` §9.5. What is RFC-10-level is that liveness has one declaration, one loop, and one status surface across both tiers.

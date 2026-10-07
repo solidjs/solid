@@ -33,8 +33,15 @@
 // (its fallback is content); a keyed error chunk (a fragment's or a live
 // hole's diagnostic) is not the frame's error. Both are controls here.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, Errored, Loading, resetErrorHalt } from "solid-js";
-import { dynamic } from "../src/index.js";
+import {
+  createRoot,
+  createSignal,
+  Errored,
+  Loading,
+  resetErrorHalt,
+  type Component
+} from "solid-js";
+import { dynamic, dynamicComponent } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
 import { createServerReference, GET } from "../server-functions/src/client.js";
 import { frameAddress } from "../server-functions/src/shared.js";
@@ -81,7 +88,16 @@ function mount(code: () => any) {
   };
 }
 
-describe("a frame's error is an errored async value (3.3)", () => {
+// Every arm runs through both entry points: `dynamic` and its component-only
+// sibling `dynamicComponent` share one implementation (the hoisted factory
+// memo the re-ask depends on included), and the sibling is the documented
+// server-component mount, so the contract is pinned on it by name.
+const VIA: ReadonlyArray<[string, (source: () => any) => Component<any>]> = [
+  ["dynamic", dynamic],
+  ["dynamicComponent", dynamicComponent]
+];
+
+describe.each(VIA)("a frame's error is an errored async value (3.3) — via %s", (_via, dyn) => {
   test("(a) the frame errors → the client <Errored> catches (never an empty frame) → reset() → a new request, the new content shows", async () => {
     const { host } = makeHost();
     installServerComponents(host);
@@ -93,7 +109,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
       return call === 1 ? errored("srv", "boom") : content("srv", "recovered");
     });
     const getStory = createServerReference("frames-reset/story");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     let resetFn: (() => void) | undefined;
     const m = mount(() => (
       <Errored
@@ -145,7 +161,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
       return call === 1 ? errored("srv", "boom") : content("srv", "recovered");
     });
     const getStory = createServerReference("frames-reset/inner");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     let resetFn: (() => void) | undefined;
     const m = mount(() => (
       <Loading fallback={<span class="shell">shell-fallback</span>}>
@@ -183,7 +199,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
       return call === 1 ? errored("srv", "boom") : content("srv", "recovered");
     });
     const getStory = GET(createServerReference("frames-reset/get"));
-    const Page = dynamic(() => getStory(7, "x") as any);
+    const Page = dyn(() => getStory(7, "x") as any);
     let resetFn: (() => void) | undefined;
     const m = mount(() => (
       <Errored
@@ -217,7 +233,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
       return content("srv", "recovered");
     });
     const getStory = createServerReference("frames-reset/wire");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     let resetFn: (() => void) | undefined;
     const m = mount(() => (
       <Errored
@@ -265,7 +281,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
     );
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const getStory = createServerReference("frames-reset/uncaught");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     const m = mount(() => (
       <Loading fallback={<span class="shell">shell-fallback</span>}>
         <Page />
@@ -291,7 +307,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
       return call === 1 ? held.response : content("srv", "recovered");
     });
     const getStory = createServerReference("frames-reset/late");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     let resetFn: (() => void) | undefined;
     const m = mount(() => (
       <Errored
@@ -335,7 +351,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
     const held = openFrameResponse("srv");
     vi.stubGlobal("fetch", async () => held.response);
     const getStory = createServerReference("frames-reset/truncated");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     const m = mount(() => (
       <Errored fallback={err => <span class="err">failed: {(err() as any)?.message}</span>}>
         <Loading fallback={<span class="shell">shell-fallback</span>}>
@@ -365,7 +381,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
     });
     const getStory = createServerReference("frames-reset/refetch");
     const [tick, setTick] = createSignal(0);
-    const Page = dynamic(() => (tick(), getStory() as any));
+    const Page = dyn(() => (tick(), getStory() as any));
     let resetFn: (() => void) | undefined;
     const m = mount(() => (
       <Errored
@@ -419,7 +435,7 @@ describe("a frame's error is an errored async value (3.3)", () => {
       ])
     );
     const getStory = createServerReference("frames-reset/server-caught");
-    const Page = dynamic(() => getStory() as any);
+    const Page = dyn(() => getStory() as any);
     const m = mount(() => (
       <Errored fallback={<span class="err">client fallback</span>}>
         <Loading fallback={<span class="shell">shell-fallback</span>}>

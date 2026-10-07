@@ -6,7 +6,7 @@
 
 ## Summary
 
-A **server component is a function returned from a server function** — there is no new component API, no new directive, and no `"use client"`. The server function’s _arguments_ are the server’s inputs (ids, filters); the returned component’s _props_ are client positions (**slots**) the server marks but never renders. On the client, `dynamic` is the entire consumption surface: a server-function call that resolves to a frame stream produces a **stable per-call component** — one boundary per (function, arguments), the same per-args rule a query cache keys values by — so refetches of the same call never remount: server content **morphs in place** underneath and client state inside the boundary (focus, inputs, toggles, video) survives server updates. A call with different arguments resolves its own boundary; the site swaps to it, re-materialized instantly from retained state when that call has shown before.
+A **server component is a function returned from a server function** — there is no new component API, no new directive, and no `"use client"`. The server function’s _arguments_ are the server’s inputs (ids, filters); the returned component’s _props_ are client positions (**slots**) the server marks but never renders. On the client, `dynamicComponent` — `dynamic`'s component-only form — is the entire consumption surface: a server-function call that resolves to a frame stream produces a **stable per-call component** — one boundary per (function, arguments), the same per-args rule a query cache keys values by — so refetches of the same call never remount: server content **morphs in place** underneath and client state inside the boundary (focus, inputs, toggles, video) survives server updates. A call with different arguments resolves its own boundary; the site swaps to it, re-materialized instantly from retained state when that call has shown before.
 
 The governing invariant is **single-copy**: server content travels as HTML, values the client needs travel as data records, and nothing travels as both. The acceptance test is literal — view-source the page or a navigation response and search for any piece of content; it appears exactly once.
 
@@ -64,7 +64,7 @@ A complete working setup (no Vite, no metaframework) is `examples/hackernews`; i
 ## Motivation
 
 - **Islands fall apart on navigation; RSC ships everything twice.** Islands architectures give a lean initial page but degenerate to full-page loads or bespoke protocols when you navigate. RSC-style server components keep rich composition but serialize the rendered tree alongside the HTML — every piece of server content pays twice. This design — _lakes, not islands_ — keeps one copy: the server owns and streams content, the client owns islands of interactivity **inside** it, and neither re-sends what the other has.
-- **No new API surface.** Every prior server-components design grew a parallel component model. Here the entire client surface is `dynamic` + server functions (RFC 10) plus one `installServerComponents()` call. Boundary identity is **derived, never declared** — the call’s intrinsic (function, arguments) address keys the boundary, mirroring a data layer’s cache keys by construction, so panes over different calls are independent with nothing annotated and multi-instance mounting fans one stream out to every mounted frame.
+- **No new API surface.** Every prior server-components design grew a parallel component model. Here the entire client surface is `dynamicComponent` + server functions (RFC 10) plus one `installServerComponents()` call. Boundary identity is **derived, never declared** — the call’s intrinsic (function, arguments) address keys the boundary, mirroring a data layer’s cache keys by construction, so panes over different calls are independent with nothing annotated and multi-instance mounting fans one stream out to every mounted frame.
 - **Client state must survive server updates.** The failure mode that kills server-driven UIs is the refetch that blows away a half-typed reply. Policy here is structural: refetching into the same boundary morphs server content in place; teardown is disposal, never a version bump.
 
 ## Detailed design
@@ -102,7 +102,7 @@ async function getStory(id: number) {
 
 ```tsx
 function StoryPage(props) {
-  const Story = dynamic(() => getStory(props.storyId));
+  const Story = dynamicComponent(() => getStory(props.storyId));
   return (
     <Story comment={p => <CollapsibleComment cid={p.cid}>{p.children}</CollapsibleComment>}>
       <ShareBar />
@@ -111,7 +111,9 @@ function StoryPage(props) {
 }
 ```
 
-Navigation is a prop change: the tracked source re-calls the server function. A same-arguments refetch resolves the _same_ component reference (equals-gated — `dynamic` never remounts) and the stream morphs the boundary; a new `storyId` resolves that story’s own boundary and the site swaps to it — instantly, from retained content, when the story has shown before. Client-only state never reaches the server. State _inside_ a boundary belongs to its call (`CollapsibleComment`’s toggles reset per story — story 1’s collapse state never bleeds into story 2), while state _outside_ the boundary (`StoryPage`’s own signals) survives every navigation. First load composes with `<Loading>`; refetches don’t re-fallback.
+`dynamicComponent` is `dynamic` for a source that only ever answers with a component ([RFC 03](03-control-flow.md#dynamic-components-the-dynamic-factory)): the same contract and the same implementation, minus the tag arm — `dynamic` has to be able to render a tag name, so one `dynamic` on a page retains the element runtime (`spread` and the attribute helpers) for everyone; a server-component page that mounts with `dynamicComponent` never pays for it.
+
+Navigation is a prop change: the tracked source re-calls the server function. A same-arguments refetch resolves the _same_ component reference (equals-gated — `dynamicComponent` never remounts) and the stream morphs the boundary; a new `storyId` resolves that story’s own boundary and the site swaps to it — instantly, from retained content, when the story has shown before. Client-only state never reaches the server. State _inside_ a boundary belongs to its call (`CollapsibleComment`’s toggles reset per story — story 1’s collapse state never bleeds into story 2), while state _outside_ the boundary (`StoryPage`’s own signals) survives every navigation. First load composes with `<Loading>`; refetches don’t re-fallback.
 
 ### What routers get
 

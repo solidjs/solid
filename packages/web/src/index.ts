@@ -332,12 +332,79 @@ export interface DynamicOptions {
  * (as a reference) or a serializable value (a tag name). A promise of a
  * client component function is a dev error on the server
  * (`DYNAMIC_ASYNC_COMPONENT`): resolve the async upstream, or use `lazy()`.
+ *
+ * Cost: because a source may answer with a tag name, one `dynamic` on a page
+ * retains the element runtime (create/claim, `spread`, the namespace tables)
+ * for everyone. A source that only ever answers with a component — a server
+ * component mount — should use `dynamicComponent`, which never does.
  */
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | AsyncIterable<T> | null | undefined | false,
   options?: DynamicOptions
 ): Component<ComponentProps<T>> {
-  if (options?.static) return staticDynamic(untrack(source));
+  return dynamicCore(source, options, staticElement);
+}
+
+/**
+ * `dynamic` for a source that only ever answers with a component — never a
+ * tag name. Same contract, same semantics, same hydration shape (the two
+ * share one implementation): a reactive, optionally async source; a stable
+ * `Component` back; `{ static: true }` and `{ deferStream: true }` as on
+ * `dynamic`. The source's type excludes strings, so a tag name is a compile
+ * error here — use `dynamic` for one.
+ *
+ * Cost model, which is the reason this exists: `dynamic` must be able to
+ * render a tag, so one `dynamic` anywhere on a page retains the element
+ * runtime — `createElement`, `spread` and the prop-collection helpers, the
+ * SVG/MathML tables — for everyone, whether or not any source ever answers
+ * with a string (a bundler cannot know what a source will resolve to).
+ * `dynamicComponent` has no tag arm and never references that runtime, so a
+ * page whose only dynamic mounts are components pays nothing for it.
+ *
+ * This is the documented way to mount a server component: a server
+ * function's answer is a component reference, and the frames transport
+ * resolves every call for the same function to the same mount identity, so
+ * a refetch or an argument change is delivered into the mounted instance
+ * rather than remounting it (see `dynamic` for the full account).
+ *
+ * @example
+ * ```tsx
+ * const Story = dynamicComponent(() => getStory(props.storyId));
+ * return <Story comment={p => <Comment cid={p.cid}>{p.children}</Comment>} />;
+ *
+ * // A client component chosen by (sync) data — the same thing `dynamic`
+ * // does, without retaining the element runtime for the page.
+ * const Page = dynamicComponent(() => (page().editable ? Editor : Viewer));
+ * ```
+ */
+export function dynamicComponent<C extends Component<any>>(
+  source: () => C | Promise<C> | AsyncIterable<C> | null | undefined | false,
+  options?: DynamicOptions
+): Component<ComponentProps<C>> {
+  return dynamicCore(source, options);
+}
+
+/**
+ * How a tag name a source resolved to becomes an element — `dynamic`'s
+ * string arm (`staticElement`: create or claim, spread, replay hydration
+ * events). The core takes it as a PARAMETER so that it never names the
+ * element runtime itself: `dynamic` passes it, `dynamicComponent` passes
+ * nothing, and a bundle whose only consumer is `dynamicComponent` sheds
+ * `staticElement` and everything under it.
+ */
+type TagArm = (tag: string, props: any) => JSX.Element;
+
+// The shared implementation behind `dynamic` and `dynamicComponent`. Every
+// line here is load-bearing for both (the pins listed in
+// documentation/plans/frames-b3-sync.md §3): the factory/value/render memo
+// shape, the FLIGHT box, kept-resolution delivery, the live address accessor.
+// The only thing the tag arm decides is what a string value renders as.
+function dynamicCore(
+  source: () => any,
+  options: DynamicOptions | undefined,
+  tagArm?: TagArm
+): Component<any> {
+  if (options?.static) return staticDynamic(untrack(source), tagArm);
   // `prev` threads into the resolution so a source switching server-component
   // calls of the same function DELIVERS instead of swapping: the memo keeps
   // its previous value (the mount below never re-renders) and the new call's
@@ -499,7 +566,10 @@ export function dynamic<T extends ValidComponent>(
         }
 
         case "string":
-          return staticElement(component, props);
+          // `dynamic` only: `dynamicComponent` has no tag arm (its source
+          // type excludes strings), so a string there renders nothing, like
+          // any other non-component value.
+          return tagArm ? tagArm(component, props) : undefined;
 
         default:
           break;
@@ -512,7 +582,7 @@ export function dynamic<T extends ValidComponent>(
 // memo, no per-instance memo — the instance IS the element or the component
 // call, owner-free like compiled JSX, so the server's static path (the same
 // rule) produces the same hydration keys.
-function staticDynamic(component: any): Component<any> {
+function staticDynamic(component: any, tagArm?: TagArm): Component<any> {
   if (isDev && component && typeof component.then === "function")
     throw new Error("dynamic(): a static source must resolve synchronously, not to a promise");
   if (typeof component === "function") {
@@ -526,7 +596,7 @@ function staticDynamic(component: any): Component<any> {
     }
     return props => untrack(() => component(props));
   }
-  if (typeof component === "string") return props => staticElement(component, props);
+  if (typeof component === "string" && tagArm) return props => tagArm(component, props);
   return () => undefined as unknown as JSX.Element;
 }
 
