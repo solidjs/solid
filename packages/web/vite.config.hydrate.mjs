@@ -49,6 +49,8 @@ export default defineConfig({
       // The frames client's traces tier (lazy, through the packaged
       // specifier) — to the source, for the same single-instance reason.
       "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts"),
+      // The assets tier (C5): same reason.
+      "@solidjs/web/frames/assets": resolve(rootDir, "frames/src/assets-tier.ts"),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }

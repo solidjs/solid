@@ -74,12 +74,16 @@ const floorMinified = Object.fromEntries(
 // `solid-js/internal/container-trace` entry, plus the plugin's client half;
 // the store engine's one edge into these pages) is its second dynamic import
 // and reports the same way: `trace.js` is the tier + the engine, lazy, not
-// counted. The "frames: eager client consumer" scenario measures the
-// package; these measure the page. Subpath aliases first (see above) — the
-// two tier specifiers before `@solidjs/web/frames` and `solid-js/internal`,
-// which would otherwise swallow them.
+// counted. Its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
+// 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
+// is the third, `assets.js`, lazy, not counted. The "frames: eager client
+// consumer" scenario measures the package; these measure the page. Subpath
+// aliases first (see above) — the tier specifiers before
+// `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
+// swallow them.
 const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
+  "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
@@ -125,6 +129,9 @@ const framesExternal = [
   // the eager graph alone; its own `solid-js` entry rides with it.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
+  // The assets tier (plan step C5, 2026-10-06): lazily imported like the
+  // traces tier — external here for the same reason.
+  "@solidjs/web/frames/assets",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3438,8 +3445,20 @@ module.exports = [
     // Cap unchanged (over it); recorded minified lowered to 42,968 B (the
     // ratchet: a cap not lowered only ever has its recorded minified
     // lowered).
-    limit: "13.79 KB",
-    capMinified: 42968,
+    // Frames savings pass C5 — the assets tier (2026-10-06): measured at
+    // 13,332 B against the C3 head 89954fa1b's 13,866 (-534 B; -1,913 B
+    // minified, 42,968 -> 41,055) and `next` @ 9d89df731's 13,787 (-455 B;
+    // -2,359 B minified). The head mirror a segment's assets record drives
+    // (the stylesheet gate, module / typed preloads, inline styles) left for
+    // the lazy `@solidjs/web/frames/assets` chunk (2,040 B minified / 783 B
+    // brotli); the whole group measured -2,419 / -666 on an edited dist copy,
+    // and what stays eager — the record cases (+208 min), the reveal-readiness
+    // term with the load trigger and the assets walk's dispatch (+300 min) —
+    // costs +508 / +131. Back under the cap for the first time since Phase A:
+    // cap 13.79 KB -> 13.35 KB (measured + 10 B at the 0.01 KB step — the
+    // ratchet); recorded minified 42,968 -> 41,055 B.
+    limit: "13.35 KB",
+    capMinified: 41055,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3625,6 +3644,11 @@ module.exports = [
     // before), the store symbols the chunk shares with the eager one, and
     // the tier's trigger in the frames client (its note). Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 122,028 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06): 37,970 B
+    // (120,102 B minified): -628 / -1,926 against the C3 head, -6,912 /
+    // -25,655 against `next` @ 9d89df731. The head mirror leaves for the lazy
+    // `assets.js` chunk (783 B brotli, reported, not counted). Cap 38.61 ->
+    // 37.98 KB (the ratchet); recorded minified 122,028 -> 120,102 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3755,6 +3779,10 @@ module.exports = [
     // / 8,158 B brotli); the store hydration adapters stay. Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 133,899 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06): 41,651 B
+    // (131,973 B minified): -496 / -1,926 against the C3 head, -6,944 /
+    // -25,747 against `next` @ 9d89df731; the same cut as the base page. Cap
+    // 42.16 -> 41.67 KB (the ratchet); recorded minified 133,899 -> 131,973 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

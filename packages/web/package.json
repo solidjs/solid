@@ -337,6 +337,10 @@
       "types": "./types/frames/trace-tier.d.ts",
       "default": "./frames/dist/trace.js"
     },
+    "./frames/assets": {
+      "types": "./types/frames/assets-tier.d.ts",
+      "default": "./frames/dist/assets.js"
+    },
     "./types/*": "./types/*"
   },
   "scripts": {

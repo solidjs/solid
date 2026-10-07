@@ -1111,18 +1111,31 @@ export const FRAME_APPLIED_EVENT = "frame:applied";
 //
 // `tierLoaders` is the seam a tier plugs into: `name -> () => import(...)`,
 // the module exporting an `install()` that registers its appliers into
-// this runtime's dispatch. The built-in table (the frames client entry,
-// client.ts) carries the tiers that have been cut — `trace`, the container
-// tier's client half (plan step C3) — and `installServerComponents({ tiers })`
-// adds or replaces entries; a name with no loader is eager and resident by
-// definition (`bind`, `regions`, `assets`, `wire` today).
-export const tierLoaders: Record<string, () => Promise<{ install?(): void }>> = {};
-// `name -> the load`, a promise stamped `r` (resident) once the module has
-// installed. One per name for the page's lifetime: tiers never uninstall.
-// Exported for the tier specs alone (a test re-arms a tier's hold by
-// deleting its load; the dist's entry never re-exports it).
+// this runtime's dispatch, and/or the appliers themselves (the module IS
+// the dispatch entry — see `tierLoads`). The built-in table (the frames
+// client entry, client.ts) carries the tiers that have been cut — `trace`,
+// the container tier's client half (plan step C3); `assets`, the head
+// mirror and the stylesheet gate (C5) — and `installServerComponents({
+// tiers })` adds or replaces entries; a name with no loader is eager and
+// resident by definition (`bind`, `regions`, `wire` today).
+export const tierLoaders: Record<string, () => Promise<TierModule>> = {};
+/**
+ * A tier's chunk, as its loader resolves it: an optional `install()` the
+ * client calls once the import resolves (the traces tier registers the
+ * materializer), and/or the appliers the client dispatches to off the
+ * resident module (the assets tier's `gate` / `apply`). `& object` so a
+ * module with no `install` is one too.
+ * @experimental
+ */
+export type TierModule = { install?(): void } & object;
+// `name -> the load`, a promise stamped `r` with the MODULE once it has
+// installed (truthy = resident): a tier whose exports are its appliers is
+// dispatched off the stamp — `tierReady("assets").gate(...)` — with no
+// registration step. One per name for the page's lifetime: tiers never
+// uninstall. Exported for the tier specs alone (a test re-arms a tier's
+// hold by deleting its load; the dist's entry never re-exports it).
 /** @internal */
-export const tierLoads = {};
+export const tierLoads: Record<string, Promise<void> & { r?: any }> = {};
 // Every live frame, so an install can wake them all: a frame whose sync
 // held an occurrence on the tier re-syncs and mounts it; the rest see a
 // no-op flush.
@@ -1134,7 +1147,7 @@ const liveFrames = new Set();
  * installed and every live frame has been flushed.
  * @internal The frames client's own seam (the announcement reads call it).
  */
-export function prepareTier(name: string): Promise<void>;
+export function prepareTier(name: string): Promise<void> & { r?: any };
 
 export function prepareTier(name) {
   let load = tierLoads[name];
@@ -1142,12 +1155,15 @@ export function prepareTier(name) {
     const loader = tierLoaders[name];
     tierLoads[name] = load = loader
       ? loader().then(module => {
-          // The install: the module registers its appliers, then one flush
-          // per live frame — the write is empty, so a frame re-walks what
-          // it holds and applies what the tier now makes applicable (the
-          // held occurrence mounts and its hold releases; a buffered
-          // record applies). A frame with no version yet keeps none.
-          load.r = true;
+          // The install: the module is the resident stamp (its exports are
+          // the dispatch for a tier that has them), it registers whatever
+          // else it owns (`install`), then one flush per live frame — the
+          // write is empty, so a frame re-walks what it holds and applies
+          // what the tier now makes applicable (the held occurrence mounts
+          // and its hold releases; a buffered record applies; a style-gated
+          // segment's sheets are requested). A frame with no version yet
+          // keeps none.
+          load.r = module;
           module.install?.();
           for (const frame of liveFrames) frame.apply({ version: frame.version, r: {} });
         })
@@ -1157,9 +1173,12 @@ export function prepareTier(name) {
 }
 
 /**
- * Whether a tier's code is resident — eager (no loader), or installed. A
- * tier that is neither has its load started here (the un-announced
- * fallback: detection at the readiness check), and the caller holds.
+ * Whether a tier's code is resident — eager (no loader: `true`), or
+ * installed (its module). A tier that is neither has its load started here
+ * (the un-announced fallback: detection at the readiness check), and the
+ * caller holds. A tier dispatched off the stamp (`assets`) needs its loader
+ * wired — the client entry does; a spec driving this module directly wires
+ * and warms it (see frames-assets-client.spec).
  */
 const tierReady = name => !tierLoaders[name] || prepareTier(name).r;
 
@@ -1232,7 +1251,6 @@ class FrameImpl {
   // and the mount's rebind callback (`ctx.onRebind`) for when it changes.
   #slotConsumers = new Map();
   #slotRebinders = new Map();
-  #processedAssets = new WeakSet();
   // The release of the frame's hold with the integration while a sync
   // leaves an occurrence waiting to mount (see #syncSlots' end).
   #hold;
@@ -1244,11 +1262,6 @@ class FrameImpl {
   // (frames-rulings 3.6: a claim reads what the markup was rendered from).
   #heldRecords = new Map();
   #disposed = false;
-  // Stable identity so a pending stylesheet holds at most one waiter per
-  // frame across repeated readiness checks.
-  #styleFlush = () => {
-    if (!this.#disposed) this.#flush();
-  };
 
   // Element-claim sweep for one materialized/morph-touched subtree, run
   // under `ownerScope` when the creator provided one — claim consumers
@@ -1439,7 +1452,7 @@ class FrameImpl {
    * the previous response), the root the morph applied (so a byte-identical
    * root under the new version applies as the new version's — 2.2), the
    * error it notified, the applied map (segments revealed, fallbacks shown,
-   * holes), the assets. Nothing applied under the previous version is
+   * holes, asset records). Nothing applied under the previous version is
    * consulted under the next; the DOM keeps showing what it showed until
    * the new version's writes morph it.
    */
@@ -1447,7 +1460,6 @@ class FrameImpl {
     this.#store = Object.create(null);
     this.#appliedRoot = this.#appliedError = undefined;
     this.#appliedHoles.clear();
-    this.#processedAssets = new WeakSet();
   }
 
   #flush() {
@@ -1473,6 +1485,26 @@ class FrameImpl {
     if (error && error !== this.#appliedError) {
       this.#appliedError = error;
       this.#applied(version, "error");
+    }
+
+    // Asset records (`seg:<k>:assets`, the root's `seg::assets`): module
+    // and typed preloads, inline styles — through the ASSETS TIER
+    // (`@solidjs/web/frames/assets`, plan step C5), once per record identity
+    // per mount (the applied map — root asset records reuse one key, so the
+    // record is the unit; a fresh mount seeding from a warm store replays
+    // them). Before the segments, so a segment's inline styles precede its
+    // content in the head as the document face orders them. Stylesheets
+    // are the reveal gate's (#segmentReady), never applied here. A record
+    // met while the tier is absent starts its load (`tierReady`) and stays
+    // pending — the install's flush applies it; the walk stops there (the
+    // rest wait on the same load).
+    for (const key in this.#store) {
+      const record = this.#store[key];
+      if (!key.endsWith(":assets") || !record || this.#appliedHoles.get(key) === record) continue;
+      const tier = tierReady("assets");
+      if (!tier) break;
+      this.#appliedHoles.set(key, record);
+      tier.apply(record);
     }
 
     // Segments: every content record the store holds whose placeholder is
@@ -1518,22 +1550,6 @@ class FrameImpl {
       }
     }
     if (morphed) this.#applied(version, "morph");
-
-    // Root asset records reuse a store key, so consume them by identity.
-    // Styles remain owned by the reveal gate.
-    for (const key in this.#store) {
-      const record = this.#store[key];
-      if (!key.endsWith(":assets") || !record || this.#processedAssets.has(record)) {
-        continue;
-      }
-      this.#processedAssets.add(record);
-      if (record.modules) {
-        for (const href of record.modules) ensureModulePreload(href);
-      }
-      if (record.preloads) {
-        for (const entry of record.preloads) ensurePreload(entry);
-      }
-    }
 
     this.#syncSlots();
   }
@@ -2376,16 +2392,21 @@ class FrameImpl {
     // Reveal gate must be present and truthy.
     if (!this.#store[`seg:${name}:reveal`]) return false;
     // Style gate: the segment's streamed stylesheets must be loaded before it
-    // shows (the $dfs/$dfc analogue). ensureStylesheet inserts pending links
-    // immediately — even when other prerequisites are missing — so loading
-    // overlaps with the rest of the stream; #styleFlush re-runs this frame
-    // when one settles. Inline styles never gate (they apply on insertion).
+    // shows (the $dfs/$dfc analogue), and the code that loads them is the
+    // ASSETS TIER — so the term is two-fold (frames savings pass §1,
+    // "assets": the reveal-readiness term): the segment is not ready while
+    // the tier is not resident (`tierReady` starts its load if nothing
+    // announced it; the server's fallback stays on screen; the install's
+    // flush re-evaluates), and once it is, not until every named sheet has
+    // settled — the tier's `gate` inserts pending links immediately, even
+    // when other prerequisites are missing, so loading overlaps the rest of
+    // the stream, and re-flushes this frame when one settles. The reveal is
+    // at max(tier load, stylesheet load); no segment reveals unstyled. A
+    // segment that names no stylesheet never consults the tier: inline
+    // styles, modules and preloads do not gate (they apply in the assets
+    // walk, at arrival or at the install).
     const assets = this.#store[`seg:${name}:assets`];
-    if (assets && assets.styles) {
-      let ready = true;
-      for (const entry of assets.styles) ready = ensureStylesheet(entry, this.#styleFlush) && ready;
-      if (!ready) return false;
-    }
+    if (assets && assets.styles && !tierReady("assets")?.gate(assets.styles, this)) return false;
     // Structural prerequisite: the placeholder must exist in the range.
     return !!this.#findPlaceholder(name, root);
   }
@@ -2398,10 +2419,10 @@ class FrameImpl {
   #revealSegment(name, root) {
     const tpl = this.#findPlaceholder(name, root);
     if (!tpl) return;
-    // Inline styles ride the segment's assets record and apply just before
-    // its content shows (document order: <style> precedes the template).
-    const assets = this.#store[`seg:${name}:assets`];
-    if (assets && assets.inlineStyles) applyInlineStyles(assets.inlineStyles);
+    // The segment's inline styles rode its assets record and landed in the
+    // head at the record's arrival (the assets walk in #flush, ahead of the
+    // segments), so they precede the content as the document face orders
+    // them; with the assets tier absent then, they land at its install.
     const content = this.#store[`seg:${name}`];
     const closing = rangeClose(tpl, placeholderId(name));
     if ("_SOLID_DEV_" && !closing) {
@@ -2613,120 +2634,6 @@ function parseFragment(html) {
   const template = document.createElement("template");
   template.innerHTML = html;
   return template.content;
-}
-
-// ---- Style loading (reveal gating) ------------------------------------
-//
-// Minimal, import-free mirror of the client asset registry's conventions
-// (client.js acquireAsset): data-asset ids for inline styles, attribute-
-// compared lookup instead of selector interpolation, adopt elements already
-// in the document. The Solid binding can swap in the ref-counted
-// registry later; the gate only needs "are this segment's stylesheets loaded,
-// and call me back when they settle".
-
-// Mirrors head.ts without importing it into the standalone frame client.
-const PRELOAD_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
-
-// Mirrors head.ts's qualifierValue — keep them in step. `as` folds ASCII
-// case; an empty source set or size reads as absent (registration never
-// emits one); `crossorigin` is three states, not a string range, so `""`, a
-// bare attribute and `anonymous` are one request. Frame `attrs` are already
-// canonical strings, but the document may carry any spelling.
-function qualifierValue(name, value) {
-  if (value == null) return null;
-  if (name === "imagesrcset" || name === "imagesizes") return value === "" ? null : value;
-  if (name === "as") return value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
-  if (name !== "crossorigin") return value;
-  return value.length === 15 && value.toLowerCase() === "use-credentials"
-    ? "use-credentials"
-    : "anonymous";
-}
-
-/** Attribute-compared head lookup so href/id values never need escaping. */
-function findHeadElement(selector, attr, value, qualifiers) {
-  candidate: for (const node of document.head.querySelectorAll(selector)) {
-    if (node.getAttribute(attr) !== value) continue;
-    if (!qualifiers) return node;
-    for (let i = 0; i < PRELOAD_QUALIFIERS.length; i++) {
-      const name = PRELOAD_QUALIFIERS[i];
-      if (
-        qualifierValue(name, node.getAttribute(name)) !==
-        qualifierValue(name, qualifiers[name] ?? null)
-      )
-        continue candidate;
-    }
-    return node;
-  }
-  return null;
-}
-
-/** Ensure one typed preload exists, preserving request-qualifying attributes. */
-function ensurePreload(entry) {
-  const attrs = entry.attrs;
-  const href = entry.href;
-  if (findHeadElement('link[rel="preload"]', "href", href || null, attrs)) return;
-  const link = document.createElement("link");
-  link.rel = "preload";
-  for (const name in attrs) link.setAttribute(name, attrs[name]);
-  if (href) link.setAttribute("href", href);
-  document.head.appendChild(link);
-}
-
-/**
- * Ensure a stylesheet link exists and report whether it has settled. A link
- * this loader created tracks waiters until load/error (error unblocks too —
- * same policy as the document runtime's $dfc gate); a link that was
- * already in the document counts as settled. `entry` is a url string or an
- * attributed record `{ href, attrs }` (fetch-metadata attributes carried by
- * useHead stylesheets).
- */
-function ensureStylesheet(entry, onSettle) {
-  const href = typeof entry === "string" ? entry : entry.href;
-  let link = findHeadElement('link[rel="stylesheet"]', "href", href);
-  if (!link) {
-    link = document.createElement("link");
-    link.rel = "stylesheet";
-    if (typeof entry !== "string" && entry.attrs) {
-      for (const name in entry.attrs) link.setAttribute(name, entry.attrs[name]);
-    }
-    link.href = href;
-    const waiters = new Set();
-    link._$frWaiters = waiters;
-    const settle = () => {
-      link._$frWaiters = null;
-      for (const fn of waiters) fn();
-    };
-    link.addEventListener("load", settle);
-    link.addEventListener("error", settle);
-    document.head.appendChild(link);
-  }
-  const waiters = link._$frWaiters;
-  if (waiters == null) return true; // settled, or document-owned
-  waiters.add(onSettle);
-  return false;
-}
-
-/** Ensure a modulepreload link exists for `href` (deduped, adopt existing). */
-function ensureModulePreload(href) {
-  if (findHeadElement('link[rel="modulepreload"]', "href", href)) return;
-  const link = document.createElement("link");
-  link.rel = "modulepreload";
-  link.href = href;
-  document.head.appendChild(link);
-}
-
-/** Insert inline-style entries into the head, deduped by data-asset id. */
-function applyInlineStyles(inlineStyles) {
-  for (const entry of inlineStyles) {
-    if (findHeadElement("style[data-asset]", "data-asset", entry.id)) continue;
-    const el = document.createElement("style");
-    el.setAttribute("data-asset", entry.id);
-    if (entry.attrs) {
-      for (const name in entry.attrs) el.setAttribute(name, entry.attrs[name]);
-    }
-    el.textContent = entry.content || "";
-    document.head.appendChild(el);
-  }
 }
 
 /** Whether `node` is the `<template id="pl-KEY">` placeholder start marker. */

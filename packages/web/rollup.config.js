@@ -398,7 +398,8 @@ export default [
       // engine's one edge into a server-component page) and the plugin's
       // client half — loads behind the server's announcement or the first
       // adopt-time record whose args carry a trace. Its own entry below.
-      "@solidjs/web/frames/trace"
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/assets"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -421,7 +422,8 @@ export default [
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
       "@solidjs/web/serialization/decode",
-      "@solidjs/web/frames/trace"
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/assets"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -440,7 +442,8 @@ export default [
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
       "@solidjs/web/serialization/decode",
-      "@solidjs/web/frames/trace"
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/assets"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)
@@ -466,6 +469,19 @@ export default [
       "@solidjs/web"
     ],
     plugins: [externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The assets tier (`@solidjs/web/frames/assets`, frames/src/assets-tier.ts):
+    // the head mirror a segment's assets record drives — the stylesheet
+    // gate, module / typed preloads, inline styles — as a lazy chunk the
+    // frames client loads through `prepareTier("assets")` (plan step C5).
+    // Import-free (its one import is a type), so nothing is external and no
+    // instance seam applies: the module's exports are the dispatch the
+    // eager client calls off the resident stamp, with the frame handed in.
+    // No `_SOLID_DEV_` gates of its own, so one build serves every condition.
+    input: "frames/src/assets-tier.ts",
+    output: { file: "frames/dist/assets.js", format: "es" },
+    plugins
   },
   {
     // Prod build, like the main server entry above: the sink's own

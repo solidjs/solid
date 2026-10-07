@@ -66,7 +66,9 @@ export default defineConfig({
       // The frames client's traces tier, lazy-imported through the packaged
       // specifier (external in its dist build); route it to the source so
       // the tier installs into the same client instance the specs drive.
-      "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts")
+      "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts"),
+      // The assets tier (C5): same reason.
+      "@solidjs/web/frames/assets": resolve(rootDir, "frames/src/assets-tier.ts")
     }
   }
 });
