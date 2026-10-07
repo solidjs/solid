@@ -51,6 +51,9 @@ describe("C3 — hydration-done counts every hold", () => {
     page = bootPage(
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
     );
+    // Declared at the marker (S-record), settled by the script the parser
+    // is still owed.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const invocations: number[] = [];
     let invocationsAtEnd = -1;
@@ -71,8 +74,8 @@ describe("C3 — hydration-done counts every hold", () => {
       inProgressAtEnd = hydrationInProgress();
     });
     await quiesce();
-    // The record script the parser was still owed.
-    page.slotRecord(fid, "item#0", { text: "one" });
+    // The record's settle script the parser was still owed.
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     // The occurrence did claim in the end (the deferral is invisible)…

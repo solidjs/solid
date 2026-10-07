@@ -25,10 +25,7 @@ import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
-import {
-  reviveContainerTraces,
-  isMaterializedContainer
-} from "../../frames/src/frame-container-plugin.js";
+import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { FID, statusFill } from "../harness/frames-welcome.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -64,8 +61,7 @@ function makeHost() {
     resolve: (r: any) => table.resolve(r),
     // The production host (getFrameHost) wires these; the document-face
     // container-trace args under test need the same revival at arg-read.
-    revive: reviveContainerTraces,
-    isContainer: isMaterializedContainer
+    revive: reviveContainerTraces
   });
 }
 

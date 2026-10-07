@@ -19,6 +19,7 @@ import {
   frameHtml,
   freshFid,
   holeHtml,
+  hydrationInProgress,
   macrotask,
   microtasks,
   onHydrationEnd,
@@ -92,6 +93,19 @@ export async function runScenario(scenario: Scenario): Promise<RunResult> {
   const hole = scenario.liveHole ? `<p>${holeHtml(holeId, "hole-v0")}</p>` : "";
   const page = bootPage(frameHtml(fid, `<ul>${rootRanges}${placeholders}</ul>${hole}`));
   scenario.fragments.forEach((_, i) => page.declareFragment(fragKey(i)));
+  // The producer DECLARES a render occurrence's record at its marker (frames
+  // A4, S-record): a pending value under the record's key, written with the
+  // markup that carries the range — the shell for a root occurrence, the
+  // fragment for one inside it — and settled by the record's own data
+  // script. The `record` event is that settle; a record event ahead of its
+  // fragment's reveal (an order the client tolerates, never the producer's)
+  // declares and settles in one script.
+  const declared = new Map<number, ReturnType<typeof page.declareSlotRecord>>();
+  const declare = (i: number) => {
+    if (scenario.occurrences[i].kind !== "render" || declared.has(i)) return;
+    declared.set(i, page.declareSlotRecord(fid, scenario.occurrences[i].name));
+  };
+  scenario.occurrences.forEach((o, i) => o.inFragment === null && declare(i));
   const traces = new Map<number, ReturnType<typeof traceMarker>>();
   scenario.occurrences.forEach((o, i) => {
     if (o.arg.kind !== "trace") return;
@@ -118,6 +132,7 @@ export async function runScenario(scenario: Scenario): Promise<RunResult> {
     appliedAfterDispose: 0,
     zeroArgCalls: 0,
     hostHas: () => !!page.host.get(fid),
+    hydrationInProgress,
     traceN: new Map(),
     holeId,
     holeHistory: ["hole-v0"],
@@ -231,7 +246,8 @@ export async function runScenario(scenario: Scenario): Promise<RunResult> {
         const o = scenario.occurrences[e.occ];
         const args =
           o.arg.kind === "plain" ? { text: `p${e.occ}` } : { data: traces.get(e.occ)!.marker };
-        page.slotRecord(fid, o.name, args);
+        declare(e.occ);
+        declared.get(e.occ)!.settle(args);
         owedDone();
         break;
       }
@@ -239,6 +255,9 @@ export async function runScenario(scenario: Scenario): Promise<RunResult> {
         const html = scenario.occurrences
           .map((o, i) => (o.inFragment === e.frag ? rangeHtml(i) : ""))
           .join("");
+        // The fragment carries its occurrences' declarations (ahead of the
+        // swap, as the producer orders its one task batch).
+        scenario.occurrences.forEach((o, i) => o.inFragment === e.frag && declare(i));
         page.revealFragment(fragKey(e.frag), html);
         world.revealed.set(e.frag, world.step);
         collectBootNodes(page.container);

@@ -146,6 +146,8 @@ describe("C9 — no phantom", () => {
     page = bootPage(
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
     );
+    // Declared at the marker (S-record), settled a beat after adoption.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const serverLi = page.container.querySelector("li")!;
     const frames = watchFrames(page.container);
@@ -165,7 +167,7 @@ describe("C9 — no phantom", () => {
     );
     await quiesce();
     expect(invocations.length).toBe(0);
-    page.slotRecord(fid, "item#0", { text: "one" });
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     frames.sample();

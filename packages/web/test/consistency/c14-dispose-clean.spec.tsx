@@ -13,9 +13,12 @@
  * (unregister first, `#recordRefresh` cleared, slot cleanups, record
  * hygiene), `createFrameHost.unregister`, frames/src/client.ts
  * `adoptBoundary`'s `onCleanup` (live applier removed, `fr` unsubscribed,
- * fragment claims released, `frame.dispose()`), `documentBoundary`'s
- * `boundaryWaiters` cleanup, `followAddress.drop`, `slotsFor`'s
- * per-occurrence fill owners (`ctx.onCleanup`).
+ * `frame.dispose()`), `documentBoundary`'s `live` latch over the shared
+ * arrival wait, `followAddress.drop`, `slotsFor`'s per-occurrence fill
+ * owners (`ctx.onCleanup`). Fragment ownership needs no release: it is
+ * geometry (`_$HY.fa` reads the placeholder's enclosing `data-fid` element
+ * in the live document), so a disposed boundary's element leaving the
+ * document is what retires it — arm (e) pins the attached case.
  *
  * Each arm disposes at a different hold, then delivers EVERYTHING the
  * disposed mount was waiting for and asserts nothing moved: the fill's
@@ -71,6 +74,15 @@ function makeFill(log: { invocations: number; seen: string[]; cleanups: number }
 }
 const freshLog = () => ({ invocations: 0, seen: [] as string[], cleanups: 0 });
 
+/** Latch global hydration done the way a completed root pass does (see
+ *  c02): the post-done arms need the ledger's held-swap policy in force. */
+function completeHydrationPass() {
+  const other = document.createElement("div");
+  document.body.appendChild(other);
+  hydrate(() => null, other)();
+  other.remove();
+}
+
 /** A stream-face site over `getX()` with the instrumented fill under `item`. */
 function mountSite(getX: () => unknown, log: ReturnType<typeof freshLog>) {
   const Site = dynamic(() => getX() as any);
@@ -90,16 +102,17 @@ function mountSite(getX: () => unknown, log: ReturnType<typeof freshLog>) {
 }
 
 describe("C14 — disposal leaves nothing", () => {
-  // Arm (a): document face, disposed during the #2968 record defer. The
-  // parser is "still running" (readyState loading) and the occurrence's
-  // record has not executed; the frame armed its `#recordRefresh` timer.
-  // Dispose before it fires; then the record lands.
-  test("(a) dispose during the record defer: the late record never invokes the fill", async () => {
+  // Arm (a): document face, disposed during the record wait. The parser is
+  // "still running" (readyState loading); the occurrence's record is
+  // DECLARED at its marker (S-record) but its settle has not executed, so
+  // the frame waits on it. Dispose before the settle; then the record lands.
+  test("(a) dispose during the record wait: the late record never invokes the fill", async () => {
     const fid = freshFid("c14a");
     vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
     page = bootPage(
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
     );
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const log = freshLog();
     const li = page.container.querySelector("li")!;
@@ -110,9 +123,9 @@ describe("C14 — disposal leaves nothing", () => {
     await microtasks(2);
     expect(log.invocations).toBe(0);
     dispose();
-    // The record script the parser was owed, then every beat the defer
-    // loop would have used.
-    page.slotRecord(fid, "item#0", { text: "one" });
+    // The record's settle script the parser was owed, then every beat a
+    // re-sync would have used.
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(log.invocations).toBe(0);
@@ -122,8 +135,10 @@ describe("C14 — disposal leaves nothing", () => {
   });
 
   // Arm (b): stream face, disposed during a `{$ref}` wait. The slot record
-  // references data that has not arrived (the mount is held); dispose; then
-  // the data, a `complete`, and the body's end.
+  // references data that has not arrived: the host settled the ref into a
+  // pending read at the write (frames A4, S-ref) and the fresh mount waits
+  // for it to settle; dispose; then the data, a `complete`, and the body's
+  // end — the settle re-applies the record to no frame.
   test("(b) dispose during a {$ref} wait: the data's arrival never invokes the fill", async () => {
     const id = freshFid("c14b");
     const { host } = makeHost();
@@ -257,6 +272,86 @@ describe("C14 — disposal leaves nothing", () => {
     expect(log.seen).toEqual(["one"]);
     expect(frameEl.innerHTML).toBe(html);
     expect(site.applied).toEqual([]);
+  });
+
+  // Arm (e): document face, adopted, disposed IN PLACE, then a post-done
+  // reveal into the dead element. The adopted element is the component's
+  // return value, so a root disposed without detaching it leaves the
+  // `<solid-frame>` standing in the document with a server `<Loading>`'s
+  // placeholder still inside it. By geometry alone that placeholder reads
+  // as the frame's content (frames A5′, `_$HY.fa`: inside a `data-fid`
+  // element) and the swap would land — server markup nobody drives,
+  // visible and inert. The disposal must disown it: `$df` holds (0), the
+  // fallback stands, the record never invokes the fill. A region element
+  // between the placeholder and the boundary (the nested-region shape) must
+  // not hide the disposed boundary from the predicate.
+  test("(e) dispose in place, then a post-done reveal into the dead element: held, nothing lands", async () => {
+    const fid = freshFid("c14e");
+    const frag = "c14e";
+    const nested = "c14e-nested";
+    page = bootPage(
+      frameHtml(
+        fid,
+        `<ul>${placeholderHtml(frag, "<i>loading</i>")}` +
+          `<solid-frame data-fid="${fid}.sub#0.k" style="display:contents">` +
+          `${placeholderHtml(nested, "<i>inner</i>")}</solid-frame></ul>`
+      )
+    );
+    completeHydrationPass();
+    page.declareFragment(frag);
+    page.declareFragment(nested);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const log = freshLog();
+    const dispose = createRoot(d => {
+      <Comp item={makeFill(log)} />;
+      return d;
+    });
+    await quiesce();
+    const frameEl = page.container.querySelector("solid-frame")!;
+    expect(frameEl).not.toBeNull();
+    expect(page.container.textContent).toBe("loadinginner");
+    dispose();
+    // Disposed, but still in the document — the shape under test.
+    expect(frameEl.isConnected).toBe(true);
+    expect(page.container.querySelector("solid-frame")).toBe(frameEl);
+    const html = frameEl.innerHTML;
+    page.slotRecord(fid, "item#0", { text: "one" });
+    expect(page.revealFragment(frag, slotRange("item#0", fillHtml(fid, "item#0", "one")))).toBe(0);
+    expect(page.revealFragment(nested, "<b>late</b>")).toBe(0);
+    await quiesce();
+    await quiesce();
+    expect(frameEl.innerHTML).toBe(html);
+    expect(page.container.textContent).toBe("loadinginner");
+    expect(log.invocations).toBe(0);
+    expect(page.errors).toEqual([]);
+  });
+
+  // Control for (e): the same page NOT disposed — the placeholder inside the
+  // live adopted element is the frame's content by rendering, the swap
+  // lands (1) and the revealed occurrence mounts.
+  test("(e-control) undisposed, the same post-done reveal lands and the fill runs", async () => {
+    const fid = freshFid("c14e-control");
+    const frag = "c14e-control";
+    page = bootPage(frameHtml(fid, `<ul>${placeholderHtml(frag, "<i>loading</i>")}</ul>`));
+    completeHydrationPass();
+    page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const log = freshLog();
+    const dispose = createRoot(d => {
+      <Comp item={makeFill(log)} />;
+      return d;
+    });
+    disposers.push(dispose);
+    await quiesce();
+    expect(page.container.textContent).toBe("loading");
+    page.slotRecord(fid, "item#0", { text: "one" });
+    expect(page.revealFragment(frag, slotRange("item#0", fillHtml(fid, "item#0", "one")))).toBe(1);
+    await quiesce();
+    await quiesce();
+    expect(page.container.textContent).toBe("one");
+    expect(log.invocations).toBe(1);
+    expect(log.seen).toEqual(["one"]);
+    expect(page.errors).toEqual([]);
   });
 
   // Control: undisposed, the same late chunks land — the hole morphs, the

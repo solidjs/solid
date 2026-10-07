@@ -76,13 +76,15 @@ describe("C10 — hydration ids are timing-independent", () => {
     page = bootPage(
       frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
     );
+    // Declared at the marker (S-record), settled a beat after adoption.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const serverLi = page.container.querySelector("li")!;
     const keys: (string | null)[] = [];
     const dispose = hydrate(() => <Comp item={keyedFill(keys)} />, page.container);
     await quiesce();
     expect(keys).toEqual([]);
-    page.slotRecord(fid, "item#0", { text: "one" });
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(keys).toEqual([fillKey(fid, "item#0")]);

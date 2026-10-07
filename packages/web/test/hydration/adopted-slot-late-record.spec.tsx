@@ -10,14 +10,15 @@
  * zero-argument accessor. A callback that reads `props.id` then halted the
  * reactive system (`TypeError: Cannot read properties of undefined`).
  *
- * The fix: while the document may still deliver records (parser running —
- * `document.readyState === "loading"` — or fragments still pending), a
- * recordless adopt-time occurrence defers, the boundary re-drains `_$HY.r`
- * each beat, and classification happens with the record present. The
- * server-rendered DOM stays in place across the deferral, so the wait is
- * invisible. NOT gated on `_$HY.done`: holding classification until client
- * hydration completes pushes adopted mounts past the hydrate window (see
- * adopted-slot-live.spec).
+ * The fix (as it stands after frames A4, S-record): the occurrence's name
+ * decides its class — a called occurrence (`button#0`) found without its
+ * record WAITS, never classifies as direct-insert — and the document
+ * DECLARES the record at the marker: `_$HY.r["sc:slot:…"]` is a pending
+ * value from the shell's data script on, settled with the args by the
+ * script the parser is still owed (the shape a fragment's `<key>_fr`
+ * takes). The adopting boundary awaits the declaration through `.then`,
+ * so the settle is a write the frame re-syncs on — no poll, no beat. The
+ * server-rendered DOM stays in place across the wait, so it is invisible.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { flush } from "solid-js";
@@ -62,6 +63,18 @@ describe("adopted invoked slot whose record script runs after adoption", () => {
       "</solid-frame>";
     document.body.appendChild(container);
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+    // The record, DECLARED at the marker by the shell's data script: a
+    // pending promise under its key, settled — and stamped `s`/`v` as the
+    // hydration serializer's resolve helper does — by the later script.
+    let settleRecord!: (args: unknown) => void;
+    const record: any = new Promise(resolve => {
+      settleRecord = (args: unknown) => {
+        record.s = 1;
+        record.v = args;
+        resolve(args);
+      };
+    });
+    (globalThis as any)._$HY.r[`sc:slot:${FID}:button#0`] = record;
     vi.stubGlobal("fetch", () => {
       throw new Error("fetch must not be called");
     });
@@ -85,14 +98,14 @@ describe("adopted invoked slot whose record script runs after adoption", () => {
     );
     flush();
 
-    // The race moment: adoption ran, the record hasn't. Nothing may have
-    // invoked the callback yet — the server-rendered button is still the
-    // range's content.
+    // The race moment: adoption ran, the record's settle hasn't. Nothing may
+    // have invoked the callback yet — the server-rendered button is still
+    // the range's content.
     expect(reads).toEqual([]);
     expect(container.textContent).toContain("Click me 10");
 
-    // The data script the parser was still owed.
-    (globalThis as any)._$HY.r[`sc:slot:${FID}:button#0`] = { id: 10 };
+    // The data script the parser was still owed: the declaration settles.
+    settleRecord({ id: 10 });
 
     await settle();
     flush();

@@ -3211,7 +3211,20 @@ export function repeat<T>(
 
 // === Boundary primitives ===
 
-const ErrorContext: Context<((err: any) => void) | null> = {
+/**
+ * The error handler a boundary installs for its subtree. Called with the
+ * error alone it routes it (an `<Errored>` renders its fallback and throws;
+ * a `<Loading>` channels it). Called with `outcome: true` it is asked for
+ * the SERVER's rendered outcome for a post-flush failure inside a server
+ * component (frames-rulings 3.3 — the position shows what the server
+ * rendered, never a blank): the nearest server `<Errored>` answers with
+ * its fallback as markup; a `<Loading>` passes the question up; a handler
+ * that belongs to no server `<Errored>` answers `undefined` — the error
+ * escapes the component.
+ */
+export type BoundaryErrorHandler = (err: any, outcome?: true) => string | undefined | void;
+
+const ErrorContext: Context<BoundaryErrorHandler | null> = {
   id: Symbol("ErrorContext"),
   defaultValue: null
 };
@@ -3258,7 +3271,11 @@ export const RevealGroupContext: Context<ServerRevealGroup | null> = {
 export function runWithBoundaryErrorContext<T>(
   owner: Owner,
   render: () => T,
-  onError: (err: any, parentHandler: ((err: any) => void) | null) => void,
+  onError: (
+    err: any,
+    parentHandler: BoundaryErrorHandler | null,
+    outcome?: true
+  ) => string | undefined | void,
   context?: NonNullable<typeof sharedConfig.context>,
   boundaryId?: string
 ): T {
@@ -3284,7 +3301,7 @@ export function runWithBoundaryErrorContext<T>(
   try {
     return runWithOwner(owner, () => {
       const parentHandler = getContext(ErrorContext);
-      setContext(ErrorContext, err => onError(err, parentHandler));
+      setContext(ErrorContext, (err, outcome) => onError(err, parentHandler, outcome));
       return render();
     }) as T;
   } finally {
@@ -3677,6 +3694,36 @@ export function createErrorBoundary<T, U>(
     serializeError(wire);
     return renderFallback(wire);
   };
+  // The server's rendered OUTCOME for a post-flush failure inside a server
+  // component (frames-rulings 3.3, A0 corollary 4 inward; asked through the
+  // handler's `outcome` mode by the `<Loading>` whose fragment failed): this
+  // boundary's fallback for the error, as finished markup, rendered at the
+  // asking boundary's position — this boundary's own subtree is already in
+  // the shell, so its fallback replacing the placeholder is the one layout
+  // the fragment can express. Only a SERVER `<Errored>` answers — one inside
+  // the component's scope, whose ids the client never claims (the scope is
+  // hydration-free) and whose record nothing adopts; an `<Errored>` outside
+  // the component (the app's, at t = 0 — a client twin) answers nothing, and
+  // the error escapes the component as the frame's own error (the outward
+  // face). A fallback still resolving (an async hole in it) has no finished
+  // markup to answer with and escapes the same way.
+  const renderOutcome = (err: any): string | undefined => {
+    if (!ctx || !inServerComponentScope(owner as unknown as SSROwner)) return undefined;
+    // Rendered from a resume loop, where the render context the compiled
+    // template reads has long moved past this boundary's: restore it.
+    const prevCtx = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      const resolved: any = ctx.resolve(ctx.escape(handleError(err)));
+      if (!resolved || (resolved.h && resolved.h.length)) return undefined;
+      const t = resolved.t;
+      return Array.isArray(t) ? t[0] : t;
+    } catch {
+      return undefined;
+    } finally {
+      sharedConfig.context = prevCtx;
+    }
+  };
   // `$lhSkip`: boundary machinery owns this position (see ssrLoadingBoundary)
   // — a live binding over the boundary's output would re-run resolve(),
   // which re-creates owners and re-enters retry plumbing per sweep.
@@ -3689,8 +3736,9 @@ export function createErrorBoundary<T, U>(
       if (ctx && !pending) disposeOwner(owner, false);
       try {
         result = ctx
-          ? runWithBoundaryErrorContext(owner, resolve, err => {
+          ? runWithBoundaryErrorContext(owner, resolve, (err, _parent, outcome) => {
               if (err instanceof NotReadyError) throw err;
+              if (outcome) return renderOutcome(err);
               handled = true;
               result = handleError(err);
               throw err;

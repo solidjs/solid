@@ -112,9 +112,14 @@ describe("frame teardown on disconnect (Stage 8 B1)", () => {
     controller.abort();
     await tick();
     expect(state.returned).toBe(true);
-    // Nobody ends a torn-down render's sink; the response closes itself.
-    const { done } = await reader.read();
-    expect(done).toBe(true);
+    // The abort came after the first flush, so a PLAIN response ends as at
+    // its time bound — `complete.bound: "time"` (the client can tell a
+    // deadline from a death) — and then the body closes.
+    const rest = await drain(reader);
+    expect(rest).toContain('"type":"complete"');
+    expect(rest).toContain('"bound":"time"');
+    // No abandonment finding: the response ended at a bound, nobody left.
+    expect(capture.events.filter(e => e.code === "SSR_STREAM_ABANDONED")).toHaveLength(0);
   });
 
   it("a request already aborted renders for nobody: torn down at once", async () => {
@@ -172,7 +177,20 @@ describe("frame teardown on disconnect (Stage 8 B1)", () => {
     expect(first.state.returned).toBe(true);
     // The second frame never started: its source was never pulled.
     expect(second.state.pulls).toBe(0);
-    const { done } = await reader.read();
-    expect(done).toBe(true);
+    // The frame in progress had flushed: it ends at its time bound; the
+    // body closes after it with no outcome.
+    const rest = await drain(reader);
+    expect(rest).toContain('"bound":"time"');
+    expect(rest).not.toContain('"outcome"');
   });
 });
+
+/** Read a body to its end; the text after the point the caller stopped at. */
+async function drain(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let text = "";
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    text += decoder.decode(r.value, { stream: true });
+  }
+  return text;
+}
