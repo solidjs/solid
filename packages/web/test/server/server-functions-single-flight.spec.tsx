@@ -299,6 +299,41 @@ describe("single-flight client bridge (built client bundle)", () => {
     }
   });
 
+  it("settles slice entries the collector folded while still pending before resolving", async () => {
+    // The router's collector folds its preloads' query promises as they
+    // stand; the codec streams them after the response head. The call must
+    // not resolve (and a router action must not settle) on the first chunk.
+    registerServerFunction("sf-bridge-client-pending", async () => "mutated");
+    let release!: (value: string[]) => void;
+    const pendingSlice = new Promise<string[]>(resolve => (release = resolve));
+    const restore = connectTransport({
+      collectFlightData: () => ({ "/notes": pendingSlice })
+    });
+    const order: string[] = [];
+    let delivered: any;
+    const unsubscribe = subscribeFlightDataClient(async data => {
+      order.push("consumer");
+      delivered = data;
+    });
+    try {
+      const call = createServerReference("sf-bridge-client-pending")().then(value => {
+        order.push("resolved");
+        return value;
+      });
+      // the head and the envelope's first chunk are out; the slice is not
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(order).toEqual([]);
+      order.push("slice");
+      release(["fresh"]);
+      expect(await call).toBe("mutated");
+      expect(order).toEqual(["slice", "consumer", "resolved"]);
+      expect(await delivered["/notes"]).toEqual(["fresh"]);
+    } finally {
+      unsubscribe();
+      restore();
+    }
+  });
+
   it("routes keyed slices to their subscribed consumers", async () => {
     registerServerFunction("sf-bridge-multi-client-0", async () => "mutated");
     let requestLeg: string | null = null;
