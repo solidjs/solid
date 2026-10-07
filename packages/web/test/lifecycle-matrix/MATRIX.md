@@ -79,10 +79,23 @@ classification must never probe a pending container's properties (they
 throw not-ready) — containers test FIRST, by WeakSet, on both faces. The
 producer and server faces are pinned in `test/server/container-traces.spec.tsx`,
 the client faces in `container-args.spec.tsx`, and the materializer's unit semantics
-in solid `test/container-trace.spec.ts`.
+in solid `test/container-trace.spec.ts`. The materializer is the store engine's one
+edge into a server-component page, so the frames client carries the whole client half
+as its TRACES TIER (`@solidjs/web/frames/trace` — solid's materializer through its own
+`solid-js/internal/container-trace` entry, plus the plugin's revive walk), loaded
+through the tier mechanism (`prepareTier("trace")`): announced by the server where it
+serializes a trace, held on by the adopt-time sync otherwise (frames savings pass §3
+row C3). Those load paths are pinned in `test/frames-container-lazy-*.spec.tsx`,
+`test/hydration/welcome-status-lazy.spec.tsx`, the `test/hydration/container-trace-hold-*`
+specs and `test/consistency/tier-trace-hold.spec.tsx`; the cells below run with the
+tier resident.
 
 | Cell | Spec / test | Status |
 | --- | --- | --- |
+| codec face, tier not resident: the `data` chunk whose node tree carries the trace plugin's node announces `trace` (`chunk.tiers`) and the transport awaits the tier BEFORE the chunk decodes (the `{$ref}` resolves to a live store); a `data` chunk without one announces and loads nothing | `frames-container-lazy-codec` | pass |
+| document face, tier not resident: an adopted record's marker holds the occurrence (server interior on screen, no fill; the frame's hold a pending boundary — frames-rulings 3.1) until the load settles, then the fill mounts with the live store; nested references share it | `frames-container-lazy-document`, `consistency/tier-trace-hold` | pass |
+| document face under `hydrate()`, tier not resident, announced (`sc:tiers`): the import starts at install; the fill claims the server nodes in place after the load — no key misses, no re-render; hydration-done after the claim | `hydration/welcome-status-lazy` | pass |
+| held occurrence whose record a refetch replaced meanwhile: one mount, with the record it was HELD on (the claim), then the replacement as an args change | `hydration/container-trace-hold-interruption` (a, a'), `consistency/tier-trace-hold` | pass |
 | container `{$ref}` arg materializes live: reference synchronous, reads suspend until the snapshot, patch batches update granularly (sibling reads don't re-fire), trace end latches | `container-args` › `call-driven/args/containers` (materializes live) | pass — closed gap: the client's arg classification (`slotArgsProxy` async probe, `#refArgsUnchanged` compare) detonated pending containers; both now classify containers first, trap-safe |
 | updates flow through the store — never a re-call, node identity survives | `container-args` › `call-driven/args/containers` (materializes live) | pass |
 | one container, many references: every `{$ref}` to the same trace resolves to the SAME live store instance | `container-args` › `call-driven/args/containers` (two arg positions) | pass |

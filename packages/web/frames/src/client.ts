@@ -51,22 +51,27 @@ import {
   stagedContent,
   type ServerComponentHandlerOptions
 } from "./frame-transport.js";
+import { createLoadingBoundary, sharedConfig } from "solid-js/internal";
+
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
-// projections. The materializer is solid's (it owns the patch protocol);
-// this entry installs it and wires the host's literal-arg reviver (document
-// face). The seroval plugin itself needs no wiring — it rides the codec's
-// default plugin set, in the lazy codec chunk. These named imports pull
-// only the eager core (hooks + revive walk + the WeakSet probe); the
-// plugin object tree-shakes away.
-import {
-  isMaterializedContainer,
-  reviveContainerTraces,
-  setContainerTraceMaterializer
-} from "./frame-container-plugin.js";
-import { createLoadingBoundary, materializeContainerTrace, sharedConfig } from "solid-js/internal";
-
-setContainerTraceMaterializer(materializeContainerTrace);
+// projections. The materializer is solid's (it owns the patch protocol) and
+// it is the store engine's one edge into a server-component page — so the
+// whole client half is a TIER (frames savings pass §3 row C3), the chunk
+// `@solidjs/web/frames/trace` (trace-tier.ts: solid's materializer + the
+// plugin's revive walk, memo and marker test), loaded through the tier
+// mechanism: the server announces `trace` where it serializes a trace, and
+// a marker met in an adopt-time record's args while the tier is absent
+// holds the occurrence and starts the load (frame-client.ts, `needsTrace`).
+// This entry imports NOTHING of the plugin's client half; it keeps the
+// loader entry and reads the container probe off the plugin's registered
+// state object (the protocol endpoint every copy shares — undefined until
+// some copy loaded, and no container can exist before one did). The tier's
+// install wires the shared host's `revive` (getFrameHost). The seroval
+// plugin itself needs no wiring — it rides the codec's default plugin set,
+// in the lazy codec chunk.
+const TRACE_STATE = Symbol.for("solid.container-trace-state");
+tierLoaders.trace = () => import("@solidjs/web/frames/trace");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
@@ -307,10 +312,13 @@ export function getFrameHost() {
       prepareData: loadCodec,
       applyData: (c: any, current?: number) => tableFor(c.id, c.version, current)?.apply(c),
       resolve: (ref: any, id: string, version: number, current?: number) =>
-        tableFor(id, version, current)?.resolve(ref),
-      // Document-face container traces ride slot records as inline literals
-      // (never `{$ref}`s); this revives them into live stores at arg-read.
-      revive: reviveContainerTraces
+        tableFor(id, version, current)?.resolve(ref)
+      // No `revive` here: document-face container traces ride slot records
+      // as inline literals (never `{$ref}`s) and are revived into live
+      // stores at arg-read by the traces tier, whose install sets this
+      // host's `revive` (trace-tier.ts). Until then no record that carries
+      // one mounts (the frame holds it on the tier), so nothing reads a
+      // marker inert.
     });
   }
   return sharedHost;
@@ -497,12 +505,16 @@ function slotArgsProxy(args: () => Record<string, any>) {
           // `.then` probe would detonate a pending one (property reads
           // throw not-ready), so it is classified before the probe and
           // held BOXED (see `Boxed`). Mirrors the server sink's
-          // classification order.
+          // classification order. The probe is the plugin's WeakSet of
+          // materialized values, read off its registered state (see
+          // TRACE_STATE): trap-safe, and absent until a copy of the plugin
+          // loaded — before which no container can exist.
           const make = () =>
             createMemo(
               () => {
                 const raw = (args() as any)[key];
-                if (isMaterializedContainer(raw)) return new Boxed(raw);
+                if ((globalThis as any)[TRACE_STATE]?.materializedValues.has(raw))
+                  return new Boxed(raw);
                 if (raw != null && typeof raw.then === "function") {
                   if (raw.s === 1) return raw.v;
                   if (raw.s === 2) throw raw.v;
@@ -1638,8 +1650,9 @@ export interface InstallOptions {
    * Frames-client tiers by name → loader. A tier's module exports
    * `install()`, called once the import resolves; every live frame is then
    * flushed so what the tier makes applicable applies (a held occurrence
-   * mounts). A name with no loader is resident (eager). See
-   * `installServerComponents`.
+   * mounts). A name with no loader is resident (eager); `trace` has a
+   * built-in loader (`@solidjs/web/frames/trace`) that an entry here
+   * replaces. See `installServerComponents`.
    */
   tiers?: Record<string, () => Promise<{ install?(): void }>>;
 }
@@ -1665,8 +1678,9 @@ export interface InstallOptions {
  * tier chunks itself, so the server announces NAMES only
  * (`_$HY.r["sc:tiers"]`, `X-Frame-Tiers`) and the loads start here from
  * the document's record — the `modulepreload` the document may also carry
- * made the fetch warm. Nothing is tiered yet; the map is the seam a tier
- * plugs into.
+ * made the fetch warm. The built-in table carries `trace` (the container
+ * tier's client half, `@solidjs/web/frames/trace`); a loader given here
+ * for a name replaces the built-in one (tests gate a tier's load this way).
  * @experimental
  */
 export function installServerComponents(host: any = getFrameHost(), options?: InstallOptions) {

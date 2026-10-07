@@ -106,6 +106,24 @@ const externalizeSharedClient = {
   }
 };
 
+// The frames TRACES TIER entry (`frames/src/trace-tier.ts` →
+// `@solidjs/web/frames/trace`, loaded by the frames client through
+// `prepareTier("trace")`) wires itself into the eager frames client at
+// install — the shared host's `revive` (`getFrameHost()`). That must be the
+// SAME frames client instance the app mounted its boundaries through, so the
+// tier's import of the client entry resolves to the external package
+// specifier, never to a bundled private copy (whose `getFrameHost()` would
+// mint a host nothing reads). Same instance-identity reasoning as
+// externalizeSharedClient above.
+const externalizeFramesClient = {
+  name: "externalize-frames-client",
+  resolveId(source, importer) {
+    if (!importer || !/[\\/]trace-tier\.(js|ts)$/.test(importer)) return null;
+    if (source === "./client.js") return { id: "@solidjs/web/frames", external: true };
+    return null;
+  }
+};
+
 // The frames SERVER entry's counterpart of externalizeSharedTransport. The
 // frame sink and transport lean on three server-side modules that carry
 // module state the rest of the app writes through the PUBLIC entries:
@@ -374,7 +392,13 @@ export default [
       "@solidjs/web/server-functions/client",
       // Lazily imported (`prepareData`): the codec loads only when a `data`
       // chunk actually arrives, so the frames client ships seroval-free.
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      // Lazily imported (`tierLoaders.trace`, through `prepareTier`): the
+      // traces tier — solid's container-trace materializer (the store
+      // engine's one edge into a server-component page) and the plugin's
+      // client half — loads behind the server's announcement or the first
+      // adopt-time record whose args carry a trace. Its own entry below.
+      "@solidjs/web/frames/trace"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -396,7 +420,8 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      "@solidjs/web/frames/trace"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -414,11 +439,33 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      "@solidjs/web/frames/trace"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)
       .concat(assertFramesClientTransport)
+  },
+  {
+    // The traces tier (`@solidjs/web/frames/trace`, frames/src/trace-tier.ts):
+    // the container tier's client half as a lazy chunk the frames client
+    // loads through `prepareTier("trace")`. Bundles the plugin's client half
+    // (frame-container-plugin.js: the shared hook state, the memo, the
+    // marker test, the revive walk); solid's materializer stays the external
+    // `solid-js/internal/container-trace` entry so the app's bundler can
+    // give the store engine to this chunk (bundled here it would be a second
+    // engine). The eager client entry is external by instance (see
+    // externalizeFramesClient). No `_SOLID_DEV_` gates of its own, so one
+    // build serves every condition.
+    input: "frames/src/trace-tier.ts",
+    output: { file: "frames/dist/trace.js", format: "es" },
+    external: [
+      "solid-js",
+      "solid-js/internal",
+      "solid-js/internal/container-trace",
+      "@solidjs/web"
+    ],
+    plugins: [externalizeFramesClient].concat(plugins)
   },
   {
     // Prod build, like the main server entry above: the sink's own

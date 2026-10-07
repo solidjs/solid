@@ -92,11 +92,14 @@ describe("C3 — hydration-done counts every hold", () => {
 
   // Arm (b): a container-trace arg present at adoption. The record and its
   // trace snapshot are in the page when the boundary adopts; the fill reads
-  // `props.data.n` through the revived projection. On `next` the materializer
-  // is installed at module load, so the claim runs in the adopt pass and done
-  // implies claimed. (On `size/s1-lazy-store-materializer` the materializer
-  // loads lazily and `prepareArgs` HOLDS the occurrence until it lands — a
-  // hold hydration does not count; this arm is the S1 probe.)
+  // `props.data.n` through the revived projection. Since the traces tier
+  // (plan step C3) the materializer loads LAZILY (`@solidjs/web/frames/
+  // trace`, through `prepareTier("trace")`), so the adopt pass finds it
+  // absent and HOLDS the occurrence — S1's `prepareArgs` hold, re-based onto
+  // A2's registered held set: the hold is a pending boundary (3.1), so done
+  // waits for the late claim. This is S1's C3 (b) arm, green by the ruling
+  // (it was the probe that would have been red on S1 as built, where the
+  // hold registered with nothing hydration counted).
   test("(b) container-trace arg present at adoption: the occurrence has claimed by hydration end", async () => {
     const fid = freshFid("c3b");
     page = bootPage(
@@ -122,6 +125,11 @@ describe("C3 — hydration-done counts every hold", () => {
     onHydrationEnd(() => {
       invocationsAtEnd = invocations.length;
     });
+    // The adopt pass HELD the occurrence on its tier: no fill yet, the
+    // server's interior on screen, hydration not done (the hold counts).
+    expect(invocations.length).toBe(0);
+    expect(page.container.textContent).toBe("1");
+    expect(hydrationInProgress()).toBe(true);
     await quiesce();
     await quiesce();
     expect(invocations.length).toBe(1);

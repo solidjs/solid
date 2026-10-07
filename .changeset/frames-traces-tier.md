@@ -1,0 +1,6 @@
+---
+"solid-js": patch
+"@solidjs/web": patch
+---
+
+frames: the container-trace materializer is the frames client's traces tier — `@solidjs/web/frames/trace`, loaded through the server-announced tier mechanism (`prepareTier("trace")`), so the store engine leaves every server-component page that never meets a trace (page base −6.6 KB brotli, page live −6.7 KB; frames eager −83 B). `solid-js/internal/container-trace` is a new `solid-js` entry carrying `materializeContainerTrace(marker, claiming?)` (the store engine reached through `@solidjs/signals`, the hydration dispatch `withStoreHydration` and the patch protocol read back from `solid-js`); the materializer leaves `solid-js`'s main and `solid-js/internal` entries. The eager frames client keeps the trigger: the loader entry, the held-set predicate (an adopt-time record whose args carry a `{ $tr }` marker while the tier is absent is held under frames-rulings 3.1 — its server interior on screen, hydration-done waits — and mounts with the record it was held on, a replacement applying as an args change), and the `claiming` hint (`FrameHostOptions.revive(value, claiming?)`), which keys the materializer's parked backlog on the claim again: a fresh mount reads the fold of its whole backlog at once.

@@ -306,8 +306,12 @@ export interface FrameHost {
    */
   landing(id: string): Promise<void> | undefined;
   serialize(value: unknown): { $ref: string };
-  /** See FrameHostOptions.revive. */
-  revive?(value: unknown): unknown;
+  /**
+   * See FrameHostOptions.revive. Assignable after creation: the frames
+   * client's traces tier installs the container-trace reviver on the
+   * shared host when its chunk loads (`@solidjs/web/frames/trace`).
+   */
+  revive?(value: unknown, claiming?: boolean): unknown;
 }
 
 /**
@@ -351,8 +355,12 @@ export interface FrameHostOptions {
    * revived value as the markup was rendered from it. Document-face
    * container traces ride this way — inline in the record, revived by the
    * integration (`reviveContainerTraces`) into live local containers.
+   * `claiming` marks the args of an adopt-time mount — the occurrence is
+   * about to hydrate server markup rendered from these values (the
+   * materializer parks a trace's backlog beyond the snapshot the markup
+   * shows until hydration ends — frames-rulings 3.6 (iii)).
    */
-  revive?(value: unknown): unknown;
+  revive?(value: unknown, claiming?: boolean): unknown;
 }
 
 /**
@@ -710,7 +718,7 @@ export function createFrameHost(options?: FrameHostOptions): FrameHost;
  *   resolve?: (ref: { $ref: string }, frameId: string, version: number) => unknown,
  *   applyData?: (chunk: object) => void,
  *   prepareData?: () => Promise<unknown>,
- *   revive?: (value: unknown) => unknown
+ *   revive?: (value: unknown, claiming?: boolean) => unknown
  * }} [options]
  *   `serialize`/`resolve` back slot data refs (response-scoped table);
  *   `applyData` receives each `data` chunk whole — keyed codec records
@@ -1101,17 +1109,20 @@ export const FRAME_APPLIED_EVENT = "frame:applied";
 // readiness check that finds a tier absent starts the load itself and
 // holds, so an un-announced response converges to the same DOM.
 //
-// Nothing is tiered in this step — every capability is eager, so no name
-// has a loader and every tier is resident by definition. `tierLoaders` is
-// the seam a tier plugs into (`installServerComponents({ tiers })`, or the
-// built-in table once a tier's chunk exists): `name -> () => import(...)`,
+// `tierLoaders` is the seam a tier plugs into: `name -> () => import(...)`,
 // the module exporting an `install()` that registers its appliers into
-// this runtime's dispatch.
-/** @type {Record<string, () => Promise<{ install?(): void }>>} */
-export const tierLoaders = {};
+// this runtime's dispatch. The built-in table (the frames client entry,
+// client.ts) carries the tiers that have been cut — `trace`, the container
+// tier's client half (plan step C3) — and `installServerComponents({ tiers })`
+// adds or replaces entries; a name with no loader is eager and resident by
+// definition (`bind`, `regions`, `assets`, `wire` today).
+export const tierLoaders: Record<string, () => Promise<{ install?(): void }>> = {};
 // `name -> the load`, a promise stamped `r` (resident) once the module has
 // installed. One per name for the page's lifetime: tiers never uninstall.
-const tierLoads = {};
+// Exported for the tier specs alone (a test re-arms a tier's hold by
+// deleting its load; the dist's entry never re-exports it).
+/** @internal */
+export const tierLoads = {};
 // Every live frame, so an install can wake them all: a frame whose sync
 // held an occurrence on the tier re-syncs and mounts it; the rest see a
 // no-op flush.
@@ -1151,6 +1162,26 @@ export function prepareTier(name) {
  * fallback: detection at the readiness check), and the caller holds.
  */
 const tierReady = name => !tierLoaders[name] || prepareTier(name).r;
+
+// The traces tier's reason to hold (frames savings pass §1, "traces"): a
+// container-trace marker — `{ $tr, $ta }`, the eval face's literal for a
+// trace (frame-container-plugin.js) — somewhere in a record's args while
+// the tier that materializes it is absent. The marker can sit at any depth
+// of an argument (`{ filters: { user: proj } }` is one arg), so the test is
+// a walk; it runs ONLY while the tier is not resident — once it is, a
+// decoded arg may already be a live container, whose property traps throw
+// not-ready on a pending one, and nothing can be a marker any more (the
+// codec materializes at decode, the revive walk at the mount). Before the
+// tier is resident no live container can exist (only the tier's install
+// makes one), so the walk is trap-safe. A record whose literal args carry
+// a marker found while the tier is absent starts the load (`tierReady`)
+// and holds the occurrence: its server interior stays on screen, the
+// frame's hold registers (3.1), the install's flush mounts it.
+const carriesTrace = value =>
+  value != null &&
+  typeof value === "object" &&
+  (value.$tr != null || Object.values(value).some(carriesTrace));
+const needsTrace = args => !tierLoads.trace?.r && carriesTrace(args) && !tierReady("trace");
 
 class FrameImpl {
   // A frame renders either into an element (element boundary: #start/#end
@@ -1205,6 +1236,13 @@ class FrameImpl {
   // The release of the frame's hold with the integration while a sync
   // leaves an occurrence waiting to mount (see #syncSlots' end).
   #hold;
+  // Adopt path: the record an unmounted occurrence was first HELD with (for
+  // its tier, for its record's reads — see #syncSlots). The adopted range's
+  // server interior was rendered from that record; should the store move on
+  // while it waits (a refetch, a rebind), the mount still claims with it
+  // and the current record applies as the args change it is
+  // (frames-rulings 3.6: a claim reads what the markup was rendered from).
+  #heldRecords = new Map();
   #disposed = false;
   // Stable identity so a pending stylesheet holds at most one waiter per
   // frame across repeated readiness checks.
@@ -1644,21 +1682,33 @@ class FrameImpl {
       // A fresh mount also waits for the TIER its occurrence needs (frames
       // savings pass §2 — the server-announced tier mechanism): a data
       // occurrence needs `bind` (its positions), a called occurrence whose
-      // record names a region needs `regions`. Resident tiers (every tier,
-      // until one is cut) cost one test; an absent one has its load started
-      // by the check (`tierReady`) and the occurrence stays as the server
-      // left it — its interior on screen, its positions at the server's
-      // values — until the install's flush re-syncs. On the adopt path this
-      // wait is one more reason in the frame's registered hold (3.1): the
-      // delegated-event replay window stays open, hydration-done waits.
-      // (A trace in the args is the trace tier's reason — it lands with the
-      // tier's cut, where the marker scan is.)
+      // record names a region needs `regions`, one whose literal args carry
+      // a container-trace marker needs `trace` (`needsTrace` — the marker
+      // walk, run only while that tier is absent). Resident tiers cost one
+      // test; an absent one has its load started by the check (`tierReady`)
+      // and the occurrence stays as the server left it — its interior on
+      // screen, its positions at the server's values — until the install's
+      // flush re-syncs. On the adopt path this wait is one more reason in
+      // the frame's registered hold (3.1): the delegated-event replay window
+      // stays open, hydration-done waits.
       if (
         !mounted &&
         ((record && record.pending) ||
-          (consumers ? !tierReady("bind") : record && record.regions && !tierReady("regions")))
+          (consumers
+            ? !tierReady("bind")
+            : record && ((record.regions && !tierReady("regions")) || needsTrace(record.args))))
       ) {
         waiting = true;
+        // Remember what the adopted interior was rendered from. A hold is
+        // the t=0 mount deferred: when it lifts, the mount must do what t=0
+        // would have — claim with THIS record — even if a later write has
+        // since replaced it in the store (the mount below falls through to
+        // the args-change path for the replacement). A claim with the
+        // replacement's args instead would trust markup rendered from the
+        // old ones and leave every differing text hole stale: a claim pass
+        // never rewrites text (frames-rulings 3.6).
+        if (this.#options.adopt)
+          this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, record);
         continue;
       }
       if (!mounted) {
@@ -1687,7 +1737,19 @@ class FrameImpl {
         // regions yet; discovery is a no-op then, and #resolveArgs creates
         // its entries during the invoke instead.
         if (this.#options.adopt) this.#discoverRegions(occurrence, start);
-        const nodes = this.#invokeSlot(occurrence, callback, record, start, this.#options.adopt);
+        // A held occurrence mounts with the record it was held on (see the
+        // hold above); a current record that differs applies right after,
+        // through the mounted path below.
+        const held = this.#heldRecords.get(occurrence);
+        this.#heldRecords.delete(occurrence);
+        const mountRecord = held || record;
+        const nodes = this.#invokeSlot(
+          occurrence,
+          callback,
+          mountRecord,
+          start,
+          this.#options.adopt
+        );
         // A data occurrence's nodes are its consuming elements (so the
         // zombie check above sees a morph that replaced them all); its mount
         // never returns nodes to place.
@@ -1710,7 +1772,7 @@ class FrameImpl {
         // large adopted tree).
         if (!this.#options.adopt || nodes) this.#discoverRegions(occurrence, start);
         this.#bindRegions(occurrence);
-        continue;
+        if (mountRecord === record || !record || record.kind !== "slot") continue;
       }
       // A mounted data occurrence whose CONSUMERS changed — a morph replaced
       // one of its elements, a response added or dropped a bound position
@@ -1861,7 +1923,10 @@ class FrameImpl {
     // adopted interior — the wrapper's own reactivity OWNS the
     // already-rendered element from the first render (a client-only
     // toggle can hide/show it at t=0, no re-arming stream needed).
-    const props = record && record.kind === "slot" ? this.#resolveArgs(occurrence, record) : {};
+    // `adopted` doubles as the claiming hint: this mount is about to hydrate
+    // server markup rendered from these args (see #resolveArgs).
+    const props =
+      record && record.kind === "slot" ? this.#resolveArgs(occurrence, record, adopted) : {};
     // Run under the boundary's owner (when the creator provided one): slot
     // content reads the mount point's context (routers, stores) and bounds
     // its lifetime there. The t=0 adopt sync happens to run inside the
@@ -1891,6 +1956,7 @@ class FrameImpl {
     this.#slotArgs.delete(key);
     this.#slotUpdaters.delete(key);
     this.#slotRebinders.delete(key);
+    this.#heldRecords.delete(key);
     this.#removeSlotRecord(key);
     this.#runSlotCleanups(key);
     const regions = this.#slotRegions.get(key);
@@ -1927,7 +1993,8 @@ class FrameImpl {
    *    traces arrive as inline markers), HERE rather than at the write: an
    *    adopted occurrence's claim must read the container as the markup
    *    was rendered from it, and the materializer keys that on the claim
-   *    (frames-rulings 3.6 (iii)).
+   *    (frames-rulings 3.6 (iii)) — `claiming` is that hint, true for the
+   *    adopt-time mount (`#invokeSlot`'s `adopted`), threaded to `revive`.
    *
    * Regions cache by ARG NAME, not wire id: `(occurrence, arg)` IS the
    * region's identity, while its `$frame` childId is a per-stream wire name
@@ -1937,14 +2004,14 @@ class FrameImpl {
    * keeps the region — same element, same live interior — and the bound
    * frame REBINDS to the new name so the incoming stream's chunks reach it.
    */
-  #resolveArgs(slotKey, record) {
+  #resolveArgs(slotKey, record, claiming) {
     const { args, regions, decoded } = record;
     const revive = this.#options.host && this.#options.host.revive;
     const props = {};
     for (const key in args) {
       if (regions && key in regions) continue;
       const value = args[key];
-      props[key] = revive && !(decoded && key in decoded) ? revive(value) : value;
+      props[key] = revive && !(decoded && key in decoded) ? revive(value, claiming) : value;
     }
     if (regions) {
       const cache = this.#regionsFor(slotKey);

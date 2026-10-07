@@ -333,6 +333,10 @@
       "types": "./types/frames/client.d.ts",
       "default": "./frames/dist/client.js"
     },
+    "./frames/trace": {
+      "types": "./types/frames/trace-tier.d.ts",
+      "default": "./frames/dist/trace.js"
+    },
     "./types/*": "./types/*"
   },
   "scripts": {

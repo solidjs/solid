@@ -62,7 +62,11 @@ export default defineConfig({
       "@solidjs/web/serialization": resolve(
         rootDir,
         "serialization/src/serializer.ts"
-      )
+      ),
+      // The frames client's traces tier, lazy-imported through the packaged
+      // specifier (external in its dist build); route it to the source so
+      // the tier installs into the same client instance the specs drive.
+      "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts")
     }
   }
 });

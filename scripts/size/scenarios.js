@@ -69,9 +69,18 @@ const floorMinified = Object.fromEntries(
 // Rolldown splits it the same way, so it shows up in the report as a lazy
 // chunk at its true size and stays out of the cap. (Under size-limit the
 // specifiers resolved to a stub because esbuild did not split there.) The
-// "frames: eager client consumer" scenario measures the package; these
-// measure the page. Subpath aliases first (see above).
+// frames client's TRACES TIER (`@solidjs/web/frames/trace` — plan step C3,
+// 2026-10-06: solid's container-trace materializer, reached through its own
+// `solid-js/internal/container-trace` entry, plus the plugin's client half;
+// the store engine's one edge into these pages) is its second dynamic import
+// and reports the same way: `trace.js` is the tier + the engine, lazy, not
+// counted. The "frames: eager client consumer" scenario measures the
+// package; these measure the page. Subpath aliases first (see above) — the
+// two tier specifiers before `@solidjs/web/frames` and `solid-js/internal`,
+// which would otherwise swallow them.
 const pageAlias = {
+  "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
+  "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/frames": "../../packages/web/frames/dist/client.js",
@@ -111,6 +120,11 @@ const framesAlias = {
 const framesExternal = [
   "solid-js",
   "solid-js/internal",
+  // The traces tier: lazily imported by the frames client (plan step C3,
+  // 2026-10-06) — external like the codec, so this scenario keeps measuring
+  // the eager graph alone; its own `solid-js` entry rides with it.
+  "solid-js/internal/container-trace",
+  "@solidjs/web/frames/trace",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3409,8 +3423,23 @@ module.exports = [
     // 10 B; recorded minified 43,414 B. Accepted by the maintainer
     // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
     // at 13.79 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): measured at
+    // 13,866 B against the Phase B head e05ba0283's 13,949 (-83 B; -484 B
+    // minified, 43,452 -> 42,968) and `next` @ 9d89df731's 13,787 (+79 B;
+    // -446 B minified). The container tier's client half left for the lazy
+    // `@solidjs/web/frames/trace` chunk (solid's materializer + the plugin's
+    // revive walk, memo and marker test: -951 B minified / -239 B brotli,
+    // measured on an edited dist copy); the trigger left behind — the loader
+    // entry and the container probe, the held-set predicate (`needsTrace`:
+    // the marker walk while the tier is absent), the `claiming` thread and
+    // the held-record mount — costs +467 / +156. Still 76 B over the 13.79 KB
+    // cap by Phase A's and B's own bytes (their notes); the minified size is
+    // below the recorded 43,414 B, so the gate passes by its minified rule.
+    // Cap unchanged (over it); recorded minified lowered to 42,968 B (the
+    // ratchet: a cap not lowered only ever has its recorded minified
+    // lowered).
     limit: "13.79 KB",
-    capMinified: 43414,
+    capMinified: 42968,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3582,6 +3611,20 @@ module.exports = [
     // at or below measured + 10 B; recorded minified 145,757 B. Accepted by
     // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
     // frozen again at 44.89 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): 44.89 -> 38.61 KB
+    // (floor-caps.json), measured at 38,598 B against the Phase B head
+    // e05ba0283's 45,210 (-6,612 B; -24,069 B minified, 146,097 -> 122,028)
+    // and `next` @ 9d89df731's 44,882 (-6,284 B). The store engine (signals
+    // `store/*`), solid's container-trace materializer (its own entry,
+    // `solid-js/internal/container-trace`) and the plugin's client half leave
+    // this page's eager chunk for `trace.js` — reported above as lazy, not
+    // counted, 25,409 B minified / 8,170 B brotli — which the frames client
+    // fetches when the document announces the tier (`_$HY.r["sc:tiers"]`) or
+    // an adopt-time record's args carry a trace. What stays: the store
+    // hydration adapters (`enableHydration`'s on every hydrating page, as
+    // before), the store symbols the chunk shares with the eager one, and
+    // the tier's trigger in the frames client (its note). Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 122,028 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3703,6 +3746,15 @@ module.exports = [
     // at or below measured + 10 B; recorded minified 157,720 B. Accepted by
     // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
     // frozen again at 48.60 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): 48.60 -> 42.16 KB
+    // (floor-caps.json), measured at 42,147 B against the Phase B head
+    // e05ba0283's 48,873 (-6,726 B; -24,161 B minified, 158,060 -> 133,899)
+    // and `next` @ 9d89df731's 48,595 (-6,448 B). The same split as the base
+    // page (its note): the store engine, the materializer and the plugin's
+    // client half leave for `trace.js` (lazy, not counted, 25,409 B minified
+    // / 8,158 B brotli); the store hydration adapters stay. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 133,899 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
