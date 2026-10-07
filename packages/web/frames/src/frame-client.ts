@@ -241,16 +241,6 @@ export interface Frame {
    */
   rebind(id: string): void;
   /**
-   * The frame's have-list (RFC 11 §9.5): the server-minted digests of
-   * what this frame currently SHOWS — the root skeleton under `""`, each
-   * live hole and attr hole by ledger key, each revealed fragment by name.
-   * Kept at apply time, never derived from the DOM. `undefined` when the
-   * content's provenance carried no digests (a document-adopted interior
-   * with no seed, a re-materialized capture): a resume then takes the full
-   * snapshot.
-   */
-  have?(): Record<string, string> | undefined;
-  /**
    * Push a staged response's slot args into the live occurrences they
    * address, ahead of the records' real apply (see `FrameHost.preview`).
    * @internal
@@ -1246,14 +1236,10 @@ class FrameImpl {
   // to say (frames-rulings 2.4: its placeholder is gone once it swapped),
   // so no second ledger of revealed names exists beside this.
   #appliedHoles = new Map();
-  // The have-list (RFC 11 §9.5): what this mount currently shows, by the
-  // server's own digests. Reset by a root apply (the root IS the content;
-  // its `holes` seed the entries inside), extended by each reveal, kept
-  // current by each hole/attr apply. Applied-state, so it tracks the DOM
-  // without reading it — a fragment received but not yet revealed is not
-  // in it, and a resume whose connection dies in between still asks for
-  // the reveal. `undefined` until a digest-carrying root applies.
-  #have;
+  // The have-list (RFC 11 §9.5) — what this mount currently shows, by the
+  // server's own digests — is the live wire tier's ledger (wire-tier.ts,
+  // `have` / `haveOf`): this frame hands it every applied content record
+  // through `#recordHave` and keeps nothing itself.
   #slots;
   #mountedSlots = new Set();
   #slotCleanups = new Map();
@@ -1475,7 +1461,7 @@ class FrameImpl {
       this.#applyRoot(root.value);
       this.#appliedRoot = root;
       // The root resets the ledger: everything shown is now this root.
-      this.#have = root.digest === undefined ? undefined : { "": root.digest, ...root.holes };
+      this.#recordHave("", root);
       this.#applied(version, reason);
     }
 
@@ -2096,22 +2082,16 @@ class FrameImpl {
     if (host) host.register(id, this);
   }
 
-  /** The have-list of what this mount shows (see the `Frame` interface). */
-  have() {
-    return this.#have;
-  }
-
   /**
-   * Ledger upkeep for an applied content record: the entry under `key`
-   * takes the record's digest and the map of holes inside it. A record
-   * without a digest (an older producer) leaves the entry as it was.
-   * Without a ledger (no digest-carrying root applied) there is nothing to
-   * keep — the next resume is a full snapshot either way.
+   * Ledger upkeep for an applied content record — the live wire tier's
+   * (`have`: `""` is the root and resets the ledger; any other key takes
+   * the record's digest and the holes inside it). The writers stay here,
+   * at apply time, because the ledger is what the mount SHOWS; a record
+   * applied while the tier is absent is not kept — the next resume is a
+   * full snapshot then (the degraded case, wire-tier.ts).
    */
   #recordHave(key, record) {
-    if (!this.#have || !record || record.digest === undefined) return;
-    this.#have[key] = record.digest;
-    if (record.holes) Object.assign(this.#have, record.holes);
+    tierLoads.wire?.r?.have(this, key, record);
   }
 
   dispose() {

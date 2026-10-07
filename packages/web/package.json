@@ -353,6 +353,10 @@
       "types": "./types/frames/bind-tier.d.ts",
       "default": "./frames/dist/bind.js"
     },
+    "./frames/wire": {
+      "types": "./types/frames/wire-tier.d.ts",
+      "default": "./frames/dist/wire.js"
+    },
     "./types/*": "./types/*"
   },
   "scripts": {

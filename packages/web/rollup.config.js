@@ -80,7 +80,10 @@ const replaceDev = isDev => replaceFlags(isDev, isDev);
 const externalizeSharedTransport = {
   name: "externalize-shared-transport",
   resolveId(source, importer) {
-    if (!importer || !/[\\/]frame-transport\.(js|ts)$/.test(importer)) return null;
+    // The live wire tier (wire-tier.ts) imports the same wire layer: the
+    // loop's `LIVE_WIRE` slot is a process-local symbol, so the tier must
+    // read the one instance the loop wrote.
+    if (!importer || !/[\\/](frame-transport|wire-tier)\.(js|ts)$/.test(importer)) return null;
     if (source === "../../server-functions/src/shared.js" || source === "../../src/response.js") {
       return { id: "@solidjs/web/server-functions/client", external: true };
     }
@@ -123,7 +126,7 @@ const externalizeSharedClient = {
 const externalizeFramesClient = {
   name: "externalize-frames-client",
   resolveId(source, importer) {
-    if (!importer || !/[\\/](trace|regions|bind)-tier\.(js|ts)$/.test(importer)) return null;
+    if (!importer || !/[\\/](trace|regions|bind|wire)-tier\.(js|ts)$/.test(importer)) return null;
     if (source === "./client.js") return { id: "@solidjs/web/frames", external: true };
     return null;
   }
@@ -415,7 +418,12 @@ export default [
       // Lazily imported (`tierLoaders.bind`): the bind tier — binding-slot
       // positions (the `_s:*` marker readers, the owned-position arms, the
       // fill's binding over `assign`). Its own entries below.
-      "@solidjs/web/frames/bind"
+      "@solidjs/web/frames/bind",
+      // Lazily imported (`tierLoaders.wire`): the live wire tier — a
+      // `live()` loop's connection (join / open / supersede, the SSE
+      // reader, the lifetime told to the loop, the have-list ledger and the
+      // resume request). Its own entry below.
+      "@solidjs/web/frames/wire"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -441,7 +449,8 @@ export default [
       "@solidjs/web/frames/trace",
       "@solidjs/web/frames/regions",
       "@solidjs/web/frames/assets",
-      "@solidjs/web/frames/bind"
+      "@solidjs/web/frames/bind",
+      "@solidjs/web/frames/wire"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -463,7 +472,8 @@ export default [
       "@solidjs/web/frames/trace",
       "@solidjs/web/frames/regions",
       "@solidjs/web/frames/assets",
-      "@solidjs/web/frames/bind"
+      "@solidjs/web/frames/bind",
+      "@solidjs/web/frames/wire"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)
@@ -547,6 +557,27 @@ export default [
     output: { file: "frames/dist/bind.dev.js", format: "es" },
     external: ["solid-js", "solid-js/internal", "@solidjs/web"],
     plugins: [replaceDev(true), externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The live wire tier (`@solidjs/web/frames/wire`, frames/src/wire-tier.ts):
+    // what a `live()` loop's connection needs of the frames transport — the
+    // per-address connection (join / open / supersede), the SSE reader
+    // selection and the connection's lifetime told to the loop, the
+    // mount's have-list ledger and the resume request — as a lazy chunk the
+    // frames client loads through `prepareTier("wire")` (plan step C2;
+    // preload-at-call from `live()`'s `onLive` hook). The eager client
+    // entry is external by instance (externalizeFramesClient —
+    // `applyFrameResponse` must be the runtime the handler's host routes
+    // through), and so is the server-function wire layer
+    // (externalizeSharedTransport — the loop's `LIVE_WIRE` slot, the
+    // `ChunkReader`, `frameAddress`, `isEventStream`; one instance). Its
+    // two literals from frame-transport.ts (the have-list header name and
+    // budget) bundle as its own copy. No `_SOLID_DEV_` gates of its own, so
+    // one build serves every condition.
+    input: "frames/src/wire-tier.ts",
+    output: { file: "frames/dist/wire.js", format: "es" },
+    external: ["solid-js", "solid-js/internal", "@solidjs/web"],
+    plugins: [externalizeFramesClient, externalizeSharedTransport].concat(plugins)
   },
   {
     // Prod build, like the main server entry above: the sink's own

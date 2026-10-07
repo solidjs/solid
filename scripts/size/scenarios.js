@@ -80,8 +80,12 @@ const floorMinified = Object.fromEntries(
 // 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
 // the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
 // plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
-// the fifth, `bind.js` — each lazy, not counted. The "frames: eager
-// client consumer" scenario measures the package; these measure the page.
+// the fifth, `bind.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
+// — plan step C2, 2026-10-06: a `live()` loop's connection — join / open /
+// supersede, the SSE reader, the lifetime told to the loop, the have-list
+// ledger and the resume request) the sixth, `wire.js` — each lazy, not
+// counted. The "frames: eager client consumer" scenario measures the
+// package; these measure the page.
 // Subpath aliases first (see above) — the tier specifiers before
 // `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
 // swallow them.
@@ -90,6 +94,7 @@ const pageAlias = {
   "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
   "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
   "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
+  "@solidjs/web/frames/wire": "../../packages/web/frames/dist/wire.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
@@ -133,12 +138,14 @@ const framesExternal = [
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
   // the eager graph alone; its own `solid-js` entry rides with it. The
-  // regions tier (C4), the assets tier (C5) and the bind tier (C6) likewise.
+  // regions tier (C4), the assets tier (C5), the bind tier (C6) and the live
+  // wire tier (C2) likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
   "@solidjs/web/frames/regions",
   "@solidjs/web/frames/assets",
   "@solidjs/web/frames/bind",
+  "@solidjs/web/frames/wire",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3537,8 +3544,18 @@ module.exports = [
     // helper — −505 min / −174 br (the decode chunk, lazy, +420 / +161).
     // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
     // recorded minified 33,767 B.
-    limit: "11.21 KB",
-    capMinified: 33767,
+    // Frames savings pass, C2 (2026-10-07): 11.21 -> 10.90 KB, measured at
+    // 10,888 B (32,802 B minified): the live wire moved into a lazy tier
+    // (`wire.js`, 1,922 / 934, reported not counted) — the connection
+    // bookkeeping (open-frame count, join of two loops on one address,
+    // supersession cancel), the have-list ledger and its encoder, the
+    // resume shape; what stays eager is the arm that awaits the tier's
+    // residency and the preload-at-call hook (`responseHandler.onLive`),
+    // ≈ +467 min / +162 br of carrier over the −1,432 / −472 ceiling —
+    // −965 min / −305 br. Cap set at measured + 10 B at the 0.01 KB step
+    // (the ratchet); recorded minified 32,802 B.
+    limit: "10.90 KB",
+    capMinified: 32802,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3771,6 +3788,11 @@ module.exports = [
     // table (lazy `decode.js` +420 / +161) — −505 min / −200 br. Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 112,938 B.
+    // Frames savings pass, C2 (2026-10-07): 36.09 -> 35.74 KB, measured at
+    // 35,722 B (112,003 B minified): the live wire in a lazy tier (`wire.js`
+    // 1,922 / 934, reported not counted) — −935 min / −349 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 112,003 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3945,6 +3967,13 @@ module.exports = [
     // table (lazy `decode.js` +420 / +161) — −505 min / −157 br. Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 124,810 B.
+    // Frames savings pass, C2 (2026-10-07): 39.76 -> 39.43 KB, measured at
+    // 39,412 B (123,903 B minified): the live wire in a lazy tier (`wire.js`
+    // 1,922 / 933, reported not counted — this page LOADS it at its first
+    // `live()` call, so its total transfer is 39,412 + 933 = 40,345 br
+    // against the base's 39,747) — −907 min / −335 br eager. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 123,903 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

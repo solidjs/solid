@@ -49,6 +49,7 @@ export default defineConfig({
       "@solidjs/web/frames/regions": resolve(rootDir, "frames/src/regions-tier.ts"),
       "@solidjs/web/frames/assets": resolve(rootDir, "frames/src/assets-tier.ts"),
       "@solidjs/web/frames/bind": resolve(rootDir, "frames/src/bind-tier.ts"),
+      "@solidjs/web/frames/wire": resolve(rootDir, "frames/src/wire-tier.ts"),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }

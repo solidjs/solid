@@ -278,6 +278,13 @@ export interface ServerFunctionsClientConfig {
       meta: unknown;
       args: unknown[];
     }): { position?: string; headers?: Record<string, string> } | undefined;
+    /**
+     * A `live()` call was made — fired at the call, before its first fetch,
+     * so a handler that serves live calls through code it loads on demand
+     * (the frames client's live wire tier) can start the load against the
+     * request's own latency. Per call, not per connect.
+     */
+    onLive?(): void;
   };
   /**
    * Encoder for argument lists JSON can't carry faithfully. JSON-safe args
@@ -1345,6 +1352,10 @@ export function live(fn) {
     // any other consumer's iteration yields it first, then connects. Either
     // way the connect that follows is not answered locally again (`adopted`).
     const handler = config.responseHandler;
+    // Preload-at-call (see `responseHandler.onLive`): the handler starts
+    // whatever a live connection will need of it NOW, before this call's
+    // first fetch — the load races only the request.
+    handler && handler.onLive && handler.onLive();
     const local =
       handler && handler.intercept ? handler.intercept({ id, meta: metadata, args }) : undefined;
     const iterable = {

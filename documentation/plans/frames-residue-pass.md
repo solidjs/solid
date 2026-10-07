@@ -64,7 +64,16 @@ by the key's `data` chunk and rejected when the response ends; frames
 keeps the `record.pending` count — **frames eager 11,367 → 11,193 br
 (−505 min / −174 br)**, the decode chunk (lazy) +420 / +161; the carrier
 measured +374 min / +110 br over a −879 / −280 ceiling, against the row's
-+40 br estimate — see §3.2 "As built" and §7d._
++40 br estimate — see §3.2 "As built" and §7d.
+**C2 landed** (`feat/frames-wire-tier`, on step 4's head, 2026-10-07): the
+live wire tier in the `lean` form — the connection, the have-list ledger and
+its encoder, the resume shape in a sixth lazy chunk (`wire.js` 1,922 / 934),
+the eager client keeping the await-residency arm and the
+`responseHandler.onLive` preload hook — **frames eager 11,193 → 10,888 br
+(−965 min / −305 br)**, against §2's −292 (arithmetic from the C2 pass's own
+measurement); the carrier ≈ +467 / +162 over a −1,432 / −472 ceiling. The
+coverage closure the plan tied to it: `live` 26/59 → 57/60 branch sites. See
+§7e._
 
 ---
 
@@ -1004,6 +1013,131 @@ ended without delivering a {$ref}.`).
 §4's row 7 estimated −250 built; −174 landed. The residue proper is done
 (rows 2, 4, 6, 7 landed; row 3 stopped); what remains is C2 (−292), C1
 (≈ −440) and the claims chunk (≈ −270) — the two decision items.
+
+---
+
+## 7e. Landed — C2 (2026-10-07): the live wire tier, `lean`
+
+Branch `feat/frames-wire-tier` on step 4's head (`55eb4c346`, frames eager
+**33,767 / 11,193**; page base 112,938 / 36,071; live 124,810 / 39,747).
+§2's C2 row (−292, arithmetic) and the savings plan's §3 row C2. The
+maintainer's ruling: the `lean` form, with `FRAME_HAVE_*` already off the
+entry (5a), the hook on `responseHandler.onLive` (not a config key),
+`Frame.have?()` leaving the public `Frame` interface (approved class), the
+trace update-site wait landed apart (#3861). Re-measured before writing on
+edited dist copies of the frames client and the sf client through the
+harness's bundler (`.wt-logs/c2b-edit.mjs`, `c2b-measure.mjs`) — the
+step 1–4 base had moved under the phase-1 edits (the sync loop,
+`insert`-placed fills, the table-owned pending read), so every anchor was
+re-derived; the four non-SC scenarios 0 / 0 on every row. min / br.
+
+| item | measured on this head | note |
+| --- | ---: | --- |
+| the ceiling (`del`) — the wire out whole: `connections` / `hold` / the join-or-hold arm, `resume` + `encodeHaveList`, the ledger (`#have` / `have()` / `#recordHave`), `applyFrames`' connection wiring, `isEventStream` + the reader selection | **−1,432 / −472** (pages −1,404 / −483 and −1,399 / −464) | unsound alone: a live response read as a plain stream, no reconnect |
+| `lean` — the tier owns the connection, the ledger and the resume; the client keeps the await-residency arm, `onLive`, `resume` delegating, `#recordHave` forwarding through `tierLoads.wire?.r` | **−965 / −310** (pages −979 / −285 and −946 / −300) | the carrier ≈ +467 / +162 over the ceiling |
+| the hook alone (`onLive` fired by `live()`'s `makeIterable`) | ≈ 20 / 15 (page live +85 br) | the config-key form measured ≈ 45 br heavier on the pages |
+| the ledger's residue (`#recordHave` ×3 forwarding) | ≈ 112 / 27 | kept: the digests are known only to the client's apply |
+| the field residue (the record fields the ledger reads) | ≈ 106 / 14 | kept: they feed the apply too |
+| **built** | **−965 / −305 → 32,802 / 10,888**; pages **−349 / −335** → 35,722 and 39,412; **`wire.js` 1,922 / 934** (lazy, reported not counted) | +0 min / +5 br over the copy |
+
+**What the tier owns** (`frames/src/wire-tier.ts` → `@solidjs/web/frames/wire`,
+`@internal`): `connect(response, wire, address, binding, host, bump, begin)`
+— a live response's connection: the join of a second loop onto an address
+whose connection is not done (one wire per address; the second loop reads
+the same store), else `bump` / `begin`; the reader (`wire.open(body)` for
+an event stream — the loop's `EventStreamReader`, which records each event's
+`id:` as the position — else a `ChunkReader`), proxied so a drained body
+applies nothing further; the open-frame count the body's end is judged by
+(`start` opens, `complete` / a keyless `error` closes; a nested region's
+chunks ride inside its parent's) — an end with frames open is a death the
+loop reconnects from, with none a completion; `connection.ended` / `cancel`
+(supersession by a later response for the address cancels the reader,
+which ends the drain as a clean body end); `have(frame, key, record)` /
+`haveOf(frame)` — the have-list ledger per mount (RFC 11 §9.5): the root
+apply resets it to the root digest plus the holes' (`""` → `{ "": digest,
+…holes }`), a hole / attr / reveal apply sets its key; `encodeHaveList`
+(the `FRAME_HAVE_HEADER` / `FRAME_HAVE_BUDGET` literals bundled — they were
+already off the entry); `resume(host, info, versions)` → `{ position:
+String(version), headers: { [FRAME_HAVE_HEADER]: encoded } }` for an
+address the host shows, else `undefined`; `cancel(host, address)`.
+**What the client kept:** `applyFrames` takes `options[LIVE_WIRE]` as its
+reader (one line); `handle`'s live arm — `prepareTier("wire").then(() =>
+tierLoads.wire.r.connect(…))` — awaits residency, never reads the body
+without the tier; `onLive() { prepareTier("wire") }`; `resume(info)`
+delegating; `bump` ending with `tierLoads.wire?.r?.cancel(host, address)`;
+`#recordHave(key, record)` forwarding to `tierLoads.wire?.r?.have(this,
+key, record)` at its three sites. **The hook:** `live()`'s `makeIterable`
+fires `handler.onLive()` before the first fetch, per call — the import
+races only the request, and the arm awaits it, so a live connection
+without the chunk is impossible by construction; a non-live call never
+loads it.
+
+**The degraded case, accepted.** Content applied before the chunk was
+resident (`#recordHave` forwarded to nothing) kept no ledger, and `resume`
+— the tier's — answers nothing while the tier is absent: that first
+connect sends neither `X-Frame-Have` nor `Last-Event-ID` and gets a full
+snapshot. The plan's row described it as "the ordinal with no have-list";
+the `lean` form drops the ordinal too, and the server never read it for a
+frame render (`liveSource` compares `Last-Event-ID` to a value digest a
+frame answer does not have; only `decodeHaveList(X-Frame-Have)` is read in
+the frame sink) — the same full snapshot either way. Pinned as accepted in
+`tier-wire-preload.spec` (3): the plain call's content lands with its
+digests while the tier is gated, the live call's first connect carries
+neither header, the tier's release lands the live root, the reconnect
+after a death carries `Last-Event-ID` and the live root's ledger.
+
+**Pins.** `consistency/tier-wire-preload.spec` (3) — the hook starts the
+import synchronously at the call, before any fetch; the arm awaits
+residency (chunks sent, nothing applied, the fallback shown, no status) and
+the release lands the content; `X-Frame-Tiers: wire` on a live response
+joins the same load (the loader called once); a non-live call never loads
+the tier and its refetch bumps nothing of the tier's; reconnect through the
+tier with `Last-Event-ID` and the have-list, the morph in place, the
+completion closing; the degraded first connect. `frames-live-resume`
+re-pointed to the tier's `haveOf` / `encodeHaveList`; `frames-live` and
+`frames-live-showing` warm the tier (`beforeAll(() => prepareTier("wire"))`
+— resident cells). **The coverage closure** the savings plan tied to this
+row: `server-functions-live-loop.spec` (19, client suite) drives `live()`'s
+loop over hand-framed bodies — the codec's chunk stream and the same
+payloads as server-sent events with `id:` lines — ending as the test says
+(cleanly, dropping, hanging until the request's signal): the
+non-server-function throw, a handler without `intercept`, a first-connect
+failure as the call's rejection (no status, no retry), a death reconnecting
+on the `online` wake with the reader's cursor as `Last-Event-ID`, the
+fail-fast 4xx closing with the error, 408 / 425 / 429 retrying, `Retry-After`
+naming the wait, `return()` mid-connect (the arriving stream closed, the
+wire severed) / mid-backoff (the sleep cut) / mid-seed (a late local answer
+not yielded), `invoke`'s signal mid-stream (a rejection, ended for good) /
+mid-backoff (the sleep woken, the connect refused), a host without a global
+`EventTarget`, `live(GET(fn))` at the live address over GET, the handler's
+local answers (a hit at the call yielded first and adopted; a deferred hit
+awaited, settling to a value or to nothing; a miss at the call but a hit at
+connect — one value, no wire). `live`'s per-function branch coverage by the
+audit's §2.4 method (v8, client + hydrate suites, merged): **26/59 sites
+fully covered (91/129 paths) on the base → 57/60 (129/132)**; the three
+left are `return()` landing between a value's arrival and its read, and
+the `resume` / seed arms' stopped-while-pending elses. Web client 130 /
+1,218; hydrate + consistency 89 / 452; server 159 / 1,511; solid 42 / 833;
+`types` + `test-types` clean; harness 500 × {3289, 91501}: SC arm 0,
+generic arm (`CONSISTENCY_IGNORE=C1,C9,C19,E`) 0.
+
+**Public surface.** **Removed:** `Frame.have?(): Record<string, string> |
+undefined` from the public `Frame` interface (the ledger is the tier's
+`haveOf(frame)`; approved class). **Moved:** `encodeHaveList` from
+`frame-transport` to the tier (`@internal`); `decodeHaveList` and the
+`FRAME_HAVE_*` constants stay in `frame-transport` (off the client entry
+since step 1). **Added:** the `@solidjs/web/frames/wire` export path (the
+chunk; its exports `@internal`); `responseHandler.onLive?()` on the sf
+client's `ServerFunctionsClientConfig.responseHandler` (optional; fired at
+a `live()` call before its first fetch); `ServerComponentHandler.onLive()`.
+`ServerFunctionsClientConfig` itself gains no key.
+
+**Running number: frames eager 10,888 br — 888 B above ≤ 10.0 KB.** §2's
+C2 row said −292; −305 landed. The live page's total transfer is honest:
+39,412 eager + 934 for the chunk it loads at its first `live()` call =
+40,345 br against the base's 39,747 (+598 — the chunk carries the whole
+connection, where the row's `est.` ≈ 470 br priced the dispatch alone).
+What remains is C1 (≈ −440) and the claims chunk (≈ −270).
 
 ---
 

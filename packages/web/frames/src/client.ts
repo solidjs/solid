@@ -107,6 +107,19 @@ tierLoaders.assets = () => import("@solidjs/web/frames/assets");
 // the readiness check (frame-client.ts, `#syncSlots`). The module's
 // exports are the dispatch; no install.
 tierLoaders.bind = () => import("@solidjs/web/frames/bind");
+// The live wire tier (frames savings pass §3 row C2): what a `live()`
+// loop's connection needs of the frames transport — the per-address
+// connection (join / open / supersede), the SSE reader selection and the
+// connection's lifetime told to the loop, the mount's have-list ledger and
+// the resume request — as the chunk `@solidjs/web/frames/wire`
+// (wire-tier.ts). Preload-at-call: `live()` fires the handler's `onLive`
+// hook at the call, before its first fetch, and the hook is
+// `prepareTier("wire")`; the handler's live arm awaits the same load before
+// the body is read, so a live connection without the tier cannot happen.
+// The server announces `wire` too (`X-Frame-Tiers` on a live response,
+// `sc:tiers` on a document carrying a live source). The module's exports
+// are the dispatch (`connect`, `cancel`, `resume`, `have`); no install.
+tierLoaders.wire = () => import("@solidjs/web/frames/wire");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
