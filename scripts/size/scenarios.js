@@ -3675,8 +3675,16 @@ module.exports = [
     // ≈ +467 min / +162 br of carrier over the −1,432 / −472 ceiling —
     // −965 min / −305 br. Cap set at measured + 10 B at the 0.01 KB step
     // (the ratchet); recorded minified 32,802 B.
-    limit: "10.90 KB",
-    capMinified: 32802,
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 14.02 KB -> 11.13 KB, measured at 11,112 B by CI (Size run
+    // 37671002618) against `next`'s 14,012 (-2,900 B; -10,178 B minified,
+    // 43,596 -> 33,418). The branch's own ratchets above were measured on
+    // its pre-merge base; `next`'s bytes since (#3846's ChunkReader, #3865,
+    // #3874) land under them (+616 B minified, +224 B brotli over the C2
+    // note's 32,802 / 10,888). Cap set at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified 33,418 B.
+    limit: "11.13 KB",
+    capMinified: 33418,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3941,6 +3949,13 @@ module.exports = [
     // model said −7,423 / −2,158). `assign` and below stay for the lazy bind
     // chunk. Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
     // recorded minified 104,586 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 45.14 KB -> 33.92 KB (floor-caps.json), measured at 33,908 B
+    // by CI (Size run 37671002618) against `next`'s 45,291 (-11,383 B;
+    // -41,032 B minified, 146,284 -> 105,252). `next`'s bytes since the
+    // branch's base land under the `dynamicComponent` note's 33,570 /
+    // 104,586 (+666 B minified, +338 B brotli). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 105,252 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4152,6 +4167,13 @@ module.exports = [
     // `dynamicComponent`, shedding `dynamic`'s string-tag arm as on the base
     // page — −7,418 min / −2,171 br. Cap set at measured + 10 B at the
     // 0.01 KB step (the ratchet); recorded minified 116,485 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 48.91 KB -> 37.53 KB (floor-caps.json), measured at 37,512 B
+    // by CI (Size run 37671002618) against `next`'s 48,962 (-11,450 B;
+    // -41,096 B minified, 158,397 -> 117,301). `next`'s bytes since the
+    // branch's base land under the `dynamicComponent` note's 37,241 /
+    // 116,485 (+816 B minified, +271 B brotli). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 117,301 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -4218,10 +4240,18 @@ module.exports = [
     // carry `readShallow` and the walk helpers `dynamic`'s tag arm shares).
     // Cap at local measured + 10 B at the 0.01 KB step; CI (Linux, Node 24)
     // must confirm — lower only.
+    // Merged onto `next` @ 3c1d51267 (#3860, 2026-10-07): 34.88 -> 35.09 KB,
+    // measured at 35,079 B by CI (Size run 37671002618; 109,300 B minified).
+    // The 34.88 KB above was local bytes on the branch's pre-merge base;
+    // `next`'s bytes since (#3846's ChunkReader, #3865, #3874 — the same
+    // +666 B minified as the hand-written base page) land under it. No cap
+    // on `next` (a new scenario; `next` cannot bundle the fixture). Cap set
+    // at CI measured + 10 B rounded up to 0.01 KB; recorded minified
+    // 109,300 B.
     path: "fixtures/compiled/sc-base.jsx",
     compile: { hydratable: true },
-    limit: "34.88 KB",
-    capMinified: 108634,
+    limit: "35.09 KB",
+    capMinified: 109300,
     alias: pageAlias
   },
   {
@@ -4252,10 +4282,18 @@ module.exports = [
     // Mounted with `dynamic` on this head: 42,002 / 127,779 (−1,736 /
     // −5,816 for `dynamicComponent`). Cap at local measured + 10 B at the
     // 0.01 KB step; CI (Linux, Node 24) must confirm — lower only.
+    // Merged onto `next` @ 3c1d51267 (#3860, 2026-10-07): 40.28 -> 40.61 KB,
+    // measured at 40,593 B by CI (Size run 37671002618; 122,779 B minified,
+    // the statically-imported web.js chunk counted). The 40.28 KB above was
+    // local bytes on the branch's pre-merge base; `next`'s bytes since land
+    // under it (+816 B minified, as on the hand-written live page). No cap
+    // on `next` (a new scenario; `next` cannot bundle the fixture). Cap set
+    // at CI measured + 10 B rounded up to 0.01 KB; recorded minified
+    // 122,779 B.
     path: "fixtures/compiled/sc-live.jsx",
     compile: { hydratable: true },
-    limit: "40.28 KB",
-    capMinified: 121963,
+    limit: "40.61 KB",
+    capMinified: 122779,
     alias: pageAlias
   },
   {
