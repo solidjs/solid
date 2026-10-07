@@ -5,6 +5,7 @@
 import { expect, test } from "vitest";
 import { Show, action, createMemo, createOptimistic, createSignal, flush } from "solid-js";
 import { render } from "../src/index.js";
+import type { JSX } from "@solidjs/web";
 
 async function settle() {
   for (let i = 0; i < 8; i++) await Promise.resolve();
@@ -26,7 +27,7 @@ for (const shape of ["memo", "no memo", "memo, static text"] as const) {
       yield new Promise<void>(r => (release = r));
     });
 
-    function Content(props: { enabled: () => boolean }) {
+    function Content(props: { enabled: () => boolean }): JSX.Element {
       if (shape === "no memo")
         return (
           <div style={{ color: props.enabled() ? "blue" : "red" }}>
@@ -36,12 +37,12 @@ for (const shape of ["memo", "no memo", "memo, static text"] as const) {
       if (shape === "memo, static text")
         return createMemo(() => (
           <div style={{ color: props.enabled() ? "blue" : "red" }}>Hello world</div>
-        ));
+        )) as unknown as JSX.Element;
       return createMemo(() => (
         <div style={{ color: props.enabled() ? "blue" : "red" }}>
           Hello{props.enabled() ? " world" : ""}
         </div>
-      ));
+      )) as unknown as JSX.Element;
     }
 
     const dispose = render(
