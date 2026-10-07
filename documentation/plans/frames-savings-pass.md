@@ -401,6 +401,43 @@ at each landing (the ratchet). Pages (KB br): base 44.82 → A1 43.7 → A5
 ruling C1 is skipped; the 7.8 gates from C1 on read +546 (frames) / +508
 (pages).
 
+**Phases B + C3–C5 — landed together (2026-10-06,
+`wip/frames-tiers-integration`, the tiers integration PR; B → C3 → C4
+linear on the Phase A base `0aab93230`, C5 cherry-picked over C4).**
+Measured against `next` @ `9d89df731`, both built fresh and measured with
+the integrated head's harness (the `next` figures match #3854's to the
+byte): frames eager **13,083 br / 40,000 min** (**−704 / −3,414**); page
+base **37,772 / 119,044** (**−7,110 / −26,713**); page live **41,427 /
+130,915** (**−7,168 / −26,805**); the non-SC scenarios 0 / 0 against the
+Phase A base (they carry Phase A's +110 / +142 / +52 br against `next`);
+`renderToString` +4 min / −9 br (C3's `materialize` parameter). Lazy
+chunks, reported not counted: `trace.js` 25,419 min / 8,176 br,
+`regions.js` 1,872 / 805, `assets.js` 2,040 / 783. The caps ratchet to
+13.10 / 37.79 / 41.44 KB. Against the gates in the paragraph above (B
+12.45 → C3 11.25 → C4 10.75 → C5 10.05; pages 34.85 / 38.65 after C5) the
+measured head reads ≈ 3 KB higher on every line, and the gap decomposes
+the same way on each: Phase A's projected saving (≈ 1.45 KB frames, ≈ 1.4
+KB pages) came in as a small cost instead (+14 B over the frames cap, +151
+/ +120 br on the pages, §3 A6 row); C1 / C2 / C6 are not in (≈ 0.55 KB
+frames, ≈ 0.85 KB pages of the planned path); the rest is the glue
+overrun. **The glue overran at every seam while every deletion held.**
+B's mechanism +145 br against ≈ +100 est. (×1.45 after golfing, ×2.3
+before); C3's trigger glue **+467 min** against the ≈ 150-min line (the
+held-set predicate and the held-record mount were S1's and never budgeted;
+the deletion −951 min held); C4's **+518 min** against 150 (the dispatch
+table and loader entry, the five hand-off sites, the update-site wait, the
+staged preview's reads, the `options` getter and `parent` thread-up; the
+deletion −1,596 held); C5's **+300 min** against 150 (the readiness term,
+the loader entry, the walk's dispatch; the deletion −2,419 held). Every
+tier's seam came in at ≈ 3× its estimate — the estimate counted the loader
+line alone and none of the hand-offs a lazy chunk needs at the sites it
+left — so C2 and C6 should be budgeted at 3× the loader line. The
+integration's own glue is **+1 min**: C4's installed-module table folded
+into C5's resident stamp (`tierLoads[name].r` is the module; truthy =
+resident), and `TierModule` is C4's index-signature interface (`{
+install?(): void; [applier: string]: unknown }` — what lets a loader whose
+module has no `install` typecheck), which C5's assets module satisfies.
+
 ---
 
 ## 4. End state
@@ -433,13 +470,13 @@ Tier chunks (lazy, reported not counted; br):
 
 Pages (br; the whole page, lazy chunks not counted):
 
-| scenario                  | today (head / audit)      | after Phases A–C (correctness + tiers; `est.` from the measured `L8` page cuts + the seams)                                                                      | after Phase D (+ B.3, adapters, E.b) | vs today             | the SC audit's floors                                              |
-| ------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------- | ------------------------------------------------------------------ |
-| page base                 | 44,823 / 44,762           | **≈ 32.3 KB** (`L8` page 30,901 measured + the adapters S1 leaves eager ≈ +1,300 + seams ≈ +150) — 8.0 reading ≈ 32.8                                            | **≈ 28.1 KB**                        | **−16.7 KB (−37 %)** | packaging only ≈ 31.4; S10 end ≈ 29.5–30                           |
-| page live                 | 48,576 / 48,436           | **≈ 36.1 KB** (`L8` page live 34,620 measured + adapters + seams; the holes and wire chunks load lazily on this page and are reported, not counted) — 8.0 ≈ 36.6 | **≈ 31.8 KB**                        | **−16.8 KB (−35 %)** | packaging only ≈ 35.5; S10 end ≈ 33.5                              |
-| app hydrating (no stores) | 17,705                    | **≈ 17,750** (+≈ 45: S-hold's `hydrateWindow` + the registration reach, S-adopted, `whenRevealed`)                                                               | unchanged                            | +45                  | — (the rulings estimated +8 for 3a alone; the other two seams add) |
-| compiled hydrating        | 30,943 (at its 30.93 cap) | **≈ 30,990** (the same +≈ 45)                                                                                                                                    | unchanged                            | +45                  | **cap raise needed — the maintainer's**                            |
-| frames eager              | 13,770                    | ≈ 7,600 (7.8 reading; the C6 gate is 8.5 before the residual R / D cuts land) / ≈ 8,150 (8.0)                                                                    | **≈ 7,250 / ≈ 7,800**                | **−6.5 KB (−47 %)**  | ≈ 10,500                                                           |
+| scenario                  | today (head / audit)      | after Phases A–C (correctness + tiers; `est.` from the measured `L8` page cuts + the seams)                                                                      | measured after B + C3–C5 (2026-10-06; vs `next` @ `9d89df731`)                                              | after Phase D (+ B.3, adapters, E.b) | vs today             | the SC audit's floors                                              |
+| ------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------- | ------------------------------------------------------------------ |
+| page base                 | 44,823 / 44,762           | **≈ 32.3 KB** (`L8` page 30,901 measured + the adapters S1 leaves eager ≈ +1,300 + seams ≈ +150) — 8.0 reading ≈ 32.8                                            | **37,772** (119,044 min; **−7,110 br**; C1 / C2 / C6 and Phase D still to come)                             | **≈ 28.1 KB**                        | **−16.7 KB (−37 %)** | packaging only ≈ 31.4; S10 end ≈ 29.5–30                           |
+| page live                 | 48,576 / 48,436           | **≈ 36.1 KB** (`L8` page live 34,620 measured + adapters + seams; the holes and wire chunks load lazily on this page and are reported, not counted) — 8.0 ≈ 36.6 | **41,427** (130,915 min; **−7,168 br**)                                                                     | **≈ 31.8 KB**                        | **−16.8 KB (−35 %)** | packaging only ≈ 35.5; S10 end ≈ 33.5                              |
+| app hydrating (no stores) | 17,705                    | **≈ 17,750** (+≈ 45: S-hold's `hydrateWindow` + the registration reach, S-adopted, `whenRevealed`)                                                               | 17,838 (+110 vs `next` — Phase A's, 0 vs the Phase A base)                                                  | unchanged                            | +45                  | — (the rulings estimated +8 for 3a alone; the other two seams add) |
+| compiled hydrating        | 30,943 (at its 30.93 cap) | **≈ 30,990** (the same +≈ 45)                                                                                                                                    | 31,075 (+52 — Phase A's)                                                                                    | unchanged                            | +45                  | **cap raise needed — the maintainer's**                            |
+| frames eager              | 13,770                    | ≈ 7,600 (7.8 reading; the C6 gate is 8.5 before the residual R / D cuts land) / ≈ 8,150 (8.0)                                                                    | **13,083** (40,000 min; **−704 br**; chunks `trace.js` 8,176 / `regions.js` 805 / `assets.js` 783 br, lazy) | **≈ 7,250 / ≈ 7,800**                | **−6.5 KB (−47 %)**  | ≈ 10,500                                                           |
 
 ### 4.1 Measured (2026-10-06)
 
@@ -609,6 +646,27 @@ Each a yes/no with a recommendation.
      `renderToString` document announces nothing (no shared render slot;
      the client detects — adding `live: {}` to the sync context would be a
      core change on the `renderToString` floor).
+   - **As built through C3–C5 (the tiers integration PR, 2026-10-06):**
+     (i) + (ii) ship together and three tiers ride them. The client's
+     built-in table (`tierLoaders` in the frames client entry) carries
+     `trace` → `@solidjs/web/frames/trace`, `regions` →
+     `@solidjs/web/frames/regions`, `assets` → `@solidjs/web/frames/assets`
+     — three new export paths, each its own rollup entry, loaded by
+     `prepareTier(name)` off the `sc:tiers` record at install, off
+     `X-Frame-Tiers` / `chunk.tiers` on a stream, or from the readiness
+     check that finds the tier absent (the un-announced fallback). An
+     integration replaces an entry through `installServerComponents(host,
+{ tiers })`; the loader's module type is `TierModule` (`{ install?():
+     void; [applier: string]: unknown }` — a tier whose exports are its
+     appliers, `regions` / `assets`, has no `install` and the index
+     signature is what lets it typecheck). The `modulepreload` still
+     depends on `tierUrls` and no integration passes them yet — SolidStart's
+     manifest bridge is the first consumer; until then the record alone
+     announces and the import starts at install. `prepareTier` stays
+     unexported from the public entry (three tiers exist to warm now — the
+     9 B is the maintainer's call); the sync `renderToString` document
+     still announces nothing. **Still open: accept (i)+(ii) as the
+     answer, or name a third.**
 4. **The plain-response streaming bound** — _"presumably not infinitely"_:
    should the server end a plain (non-`live`) response after a bound, with
    detectable truncation, `live` being the declared way past it? —
