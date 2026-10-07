@@ -3479,8 +3479,18 @@ module.exports = [
     // unstyled window the term exists to prevent). Measured on the edited
     // dist first: +22 min / +14 br; built the same on C5's branch, 13,346 B
     // (41,077 B minified).
-    limit: "13.35 KB",
-    capMinified: 41055,
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 13.35 -> 13.10 KB,
+    // measured at 13,083 B (40,000 B minified) against the Phase A base
+    // 0aab93230's 13,804 (-721 B; -2,979 B minified, 42,979 -> 40,000) and
+    // `next` @ 9d89df731's 13,787 (-704 B; -3,414 B minified). The four
+    // steps' minified deltas sum to -2,980; the integration's one byte is
+    // the dispatch unification (C4's installed-module table folded into
+    // C5's resident stamp, `tierLoads[name].r = module`). Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 40,000 B.
+    limit: "13.10 KB",
+    capMinified: 40000,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3682,6 +3692,15 @@ module.exports = [
     // (783 B brotli, reported, not counted). The C5 follow-up (inline styles
     // hold while the tier is absent): 37,969 B (120,124 B minified), +22 min
     // / -1 br.
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 37.98 -> 37.79 KB
+    // (floor-caps.json), measured at 37,772 B (119,044 B minified) against
+    // the Phase A base 0aab93230's 45,033 (-7,261 B; -26,575 B minified)
+    // and `next` @ 9d89df731's 44,882 (-7,110 B; -26,713 B minified). The
+    // three tier chunks ride beside the eager one — reported above as lazy,
+    // not counted: `trace.js` 25,419 B minified / 8,176 B brotli,
+    // `regions.js` 1,872 / 805, `assets.js` 2,040 / 783. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 119,044 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3825,6 +3844,15 @@ module.exports = [
     // 9d89df731; the same cut as the base page. The C5 follow-up (inline
     // styles hold while the tier is absent): 41,650 B (131,995 B minified),
     // +22 min / -1 br.
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 41.67 -> 41.44 KB
+    // (floor-caps.json), measured at 41,427 B (130,915 B minified) against
+    // the Phase A base 0aab93230's 48,715 (-7,288 B; -26,667 B minified)
+    // and `next` @ 9d89df731's 48,595 (-7,168 B; -26,805 B minified). The
+    // same split as the base page (its note); the chunks here: `trace.js`
+    // 25,419 / 8,173, `regions.js` 1,872 / 802, `assets.js` 2,040 / 783.
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 130,915 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
