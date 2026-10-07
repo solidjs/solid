@@ -20,6 +20,7 @@ describe("optimistic shadows over a writable derived store", () => {
     let move!: () => Promise<void>;
     let startDrag!: () => void;
     let drag!: () => boolean;
+    let failed!: () => boolean | undefined;
     const shown: string[] = [];
     createRoot(d => {
       dispose = d;
@@ -28,6 +29,7 @@ describe("optimistic shadows over a writable derived store", () => {
       );
       const [local, setLocal] = createStore(() => ({ ...source() }), {});
       const [view, setView] = createOptimisticStore(local);
+      failed = () => view.failed;
       const [dragging, setDragging] = createSignal(false);
       drag = dragging;
       startDrag = () => setDragging(true);
@@ -63,8 +65,11 @@ describe("optimistic shadows over a writable derived store", () => {
       release();
       await done;
       await delay();
-      dispose();
     }
+    // The action settled: the override is gone and the held backing write shows.
+    expect(failed()).toBe(false);
+    expect(shown.at(-1)).toBe("ready");
+    dispose();
   });
 
   it("covers a held reset on a nested row without replacing that row", async () => {
@@ -73,6 +78,7 @@ describe("optimistic shadows over a writable derived store", () => {
     let move!: () => Promise<void>;
     let startDrag!: () => void;
     let drag!: () => boolean;
+    let failed!: () => boolean | undefined;
     const shown: string[] = [];
     createRoot(d => {
       dispose = d;
@@ -80,6 +86,7 @@ describe("optimistic shadows over a writable derived store", () => {
       const [local, setLocal] = createStore(() => source().map(row => ({ ...row })), []);
       const [view, setView] = createOptimisticStore(local);
       const row = view[0];
+      failed = () => row.failed;
       const [dragging, setDragging] = createSignal(false);
       drag = dragging;
       startDrag = () => setDragging(true);
@@ -115,8 +122,10 @@ describe("optimistic shadows over a writable derived store", () => {
       release();
       await done;
       await delay();
-      dispose();
     }
+    expect(failed()).toBe(false);
+    expect(shown.at(-1)).toBe("ready");
+    dispose();
   });
 
   it("composes with guesses on an inner optimistic store and reverts on settle", async () => {
