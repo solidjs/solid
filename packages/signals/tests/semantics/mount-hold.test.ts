@@ -114,6 +114,10 @@ test("a re-armed tree whose Show mounts a direct render-effect read: a stale rea
   }
   expect(judged({ ...rearm, show: "memo" }, shown)).toBe("MH1");
   expect(judged({ ...rearm, show: "memo" }, fellBack)).toBeUndefined();
+  // A flight nothing outside reads: the content is pending under the boundary.
+  const caught = { ...rearm, hold: "flight" as const, anchor: false };
+  expect(judged(caught, fellBack)).toBeUndefined();
+  expect(judged(caught, shown)).toBe("MH1");
 });
 
 test("an uncommitted outside read: its own catcher shows the fallback, not the inner boundary", () => {

@@ -166,9 +166,12 @@ export function expectations(c: MountCase): Check[] {
   if (unruled(c)) return out;
   // A render effect reading the held source directly is a stale reader (A15
   // reveal carve-out): it shows the committed value now and waits for nothing.
+  // Only while something else holds the source: a flight with no anchor has
+  // the content as its only reader, pending under the boundary (A33).
   const staleReader = (family: MountFamily) =>
     c.content === "direct" &&
     !c.ownLoad &&
+    (anchored(c) || c.hold === "action") &&
     (family === "none" ||
       (c.show === "effect" && (family === "revealed" || family === "rearm-mount")));
   switch (c.family) {
