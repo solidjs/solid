@@ -1535,20 +1535,16 @@ function readSource(
     if (writeOverride && !userWrite) {
       const leaf = key !== undefined ? target.n?.[key as any] : undefined;
       if (leaf !== undefined) {
-        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD) {
-          GlobalQueue._owns?.(context as Computed<any>, leaf);
+        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
           joinPassTx(txOf(leaf));
-        }
       } else {
         const k = target.k;
         if (
           k !== null &&
           (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
           (key === undefined || heldKeyChanged(target, key))
-        ) {
-          GlobalQueue._owns?.(context as Computed<any>, k);
+        )
           joinPassTx(txOf(k));
-        }
       }
     }
     return pb;

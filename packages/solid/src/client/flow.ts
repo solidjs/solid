@@ -458,14 +458,10 @@ export function Errored(props: {
  * nothing else holds that frame; together with the rest of the new page
  * during a held navigation (a write inside an `action`, or one whose data
  * other readers are still waiting on) — never a spinner beside a page the
- * change has not reached yet. The re-armed boundary owns its content: data
- * the change did not start loading (a flight or a held write from an
- * earlier change) shows the fallback now rather than holding the change,
- * even where it is also read outside the boundary. If the change itself
- * starts the data loading and the data is also read outside the boundary,
- * the frame waits on it and the fallback can never be seen; DEV warns
- * `LOADING_ON_OUTSIDE_HOLD`, and the fix is structural — move the outside
- * read under the boundary so one hold owns the data. A frame held
+ * change has not reached yet. If the same data is also read outside the
+ * boundary, the frame waits on it and the fallback can never be seen; DEV
+ * warns `LOADING_ON_OUTSIDE_HOLD`, and the fix is structural — move the
+ * outside read under the boundary so one hold owns the data. A frame held
  * past the content's landing by something else (the write's action, other
  * pending data) shows no fallback either; that is a race, a legitimate
  * outcome, and not reported — show the wait with `isPending()` instead.

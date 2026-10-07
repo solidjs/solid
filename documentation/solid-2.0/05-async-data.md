@@ -47,7 +47,7 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 
 Nested `Loading` boundaries can be used to avoid blocking large subtrees and to control where loading UI appears.
 
-A `Loading` that has not shown content yet owns what is under it. Content there that reads a value a still-running change holds (a write inside an `action`, data another change is loading) is not part of that change: the boundary shows its fallback now, and the content appears when the change commits. The change does not wait for it. The exception is a boundary mounted by the change itself, for example a `<Show when={x()}>` where `x` is the held write: it appears with that change's commit, with no fallback. While the fallback shows, `isPending()` of the boundary is `false`, as for any first load. Content that has not rendered yet has no value for `latest()` to return either: `latest()` of a memo created under the boundary throws until the commit, as any not-yet-loaded value does.
+A `Loading` that has not shown content yet owns what is under it. Content there that reads a value a still-running change holds (a write inside an `action`, data another change is loading) is not part of that change: the boundary shows its fallback now, and the content appears when the change commits. The change does not wait for it. The exception is a boundary mounted by the change itself, for example a `<Show when={x()}>` where `x` is the held write: it appears with that change's commit, with no fallback. While the fallback shows, `isPending()` of the boundary is `false`, as for any first load.
 
 #### `Loading` `on` prop: dependencies that show the fallback again
 
@@ -83,7 +83,7 @@ The shell keeps showing A until `product(2)` lands; the spinner arrives with B, 
 
 One shape shows no fallback at all: when the data the boundary is waiting on is also read outside it (a sibling `<Loading>` over the same `comments(id)`, an `isPending` on it in the header), or the write's `action` stays open until the data lands. The frame waits on that read, so by the time it commits the content is ready and the fallback was never needed. The first of these is structural — no ordering of the flights can show that fallback — and in development the `LOADING_ON_OUTSIDE_HOLD` diagnostic names the source; the fix is to move the outside read under the boundary so one hold owns the data. The second is a race the fallback may still win (an action that ends first shows it with the commit), and is not reported: during an `action`, show the wait with `isPending()` or an optimistic value, which is what a hold's stale content is for. The old content is on screen and valid the whole time; a `Loading` fallback says it is not.
 
-Both shapes are about data the change itself starts loading. The re-armed boundary owns its content, so data still loading from an earlier change (a flight another write started, or an earlier `action`'s held write) does not hold this one: the fallback shows now, even where that data is also read outside the boundary, and nothing is reported.
+_Note (2026-10-06):_ how a re-armed boundary treats data an earlier change still holds is deferred to a separate change; until then a re-arm behaves as described here.
 
 It is possible to show the fallback beside the still-held frame anyway: a display-ahead read in `on` — `latest(id)`, `isPending()`, an optimistic signal — says the change is already on screen, so the fallback lands there too:
 
