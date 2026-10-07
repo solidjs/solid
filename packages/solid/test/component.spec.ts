@@ -486,6 +486,21 @@ describe("SplitProps Props", () => {
     expect(({} as any).evil).toBeUndefined();
   });
 
+  test("Keeps proxy state separate from defined properties", () => {
+    const [source, setSource] = createStore({ id: 1, title: "Title" });
+    const merged = mergeProps({}, source);
+    const [selected, rest] = splitProps(merged, ["id"]);
+    Object.defineProperty(merged, "sources", { value: [], configurable: true });
+    Object.defineProperty(selected, "source", { value: { id: 99 }, configurable: true });
+    expect(merged.id).toBe(1);
+    expect(selected.id).toBe(1);
+    expect({ ...rest }).toEqual({ title: "Title" });
+    expect(Object.getOwnPropertySymbols(merged)).toEqual([]);
+    expect(Object.getOwnPropertySymbols(selected)).toEqual([]);
+    setSource("id", 2);
+    expect(selected.id).toBe(2);
+  });
+
   test("Merge SplitProps", () => {
     let value: string | undefined = undefined;
     const [splittedProps] = splitProps({ color: "blue" } as { color: string; other?: string }, [
