@@ -167,9 +167,17 @@ export const CONFIG_PROMOTED = 1 << 22;
 /** Observe tiers only: the node is framework plumbing (the `solid-js/refresh`
  * HMR memo between a component's root and its body) — it has no name, is no
  * segment of any owner path, and the attribution engine records nothing about
- * it (creation, re-runs, checks), while the nodes it owns stay fully observed.
+ * it (creation, re-runs, checks) and does not count it toward another scope's
+ * WIDE_SCOPE_DEPS or a write's engine-side HUGE_FAN_OUT, while the nodes it
+ * owns stay fully observed.
  * Set from the internal `_plumbing` option at creation; never set in prod. */
 export const CONFIG_PLUMBING = 1 << 25;
+/** Observe tiers only: a framework scope wide by construction (`@solidjs/web`'s
+ * insert child-resolution pass, which must track each row's resolved child) —
+ * the attribution engine's WIDE_SCOPE_DEPS skips it; the always-on HUGE_FAN_IN
+ * does not. Set from the internal `_wide` option at creation by dev builds only
+ * (the observe artifact mangles the option name, as it does `_plumbing`). */
+export const CONFIG_WIDE = 1 << 26;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
