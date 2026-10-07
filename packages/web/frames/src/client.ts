@@ -82,6 +82,18 @@ tierLoaders.trace = () => import("@solidjs/web/frames/trace");
 // `sc:region:` drain (below): an occluded region's html lands in the
 // store regardless, and the frame the tier binds on install seeds from it.
 tierLoaders.regions = () => import("@solidjs/web/frames/regions");
+// The assets tier (frames savings pass §3 row C5): the head mirror a
+// segment's `seg:<k>:assets` record drives — the stylesheet gate, module
+// and typed preloads, inline styles — as the chunk `@solidjs/web/frames/
+// assets` (assets-tier.ts), loaded through the tier mechanism: the server
+// announces `assets` wherever it emits an assets chunk, and a record met
+// while the tier is absent starts the load from the readiness check. A
+// style-gated segment is NOT READY until the tier is resident and its
+// sheets have settled (the reveal-readiness term in frame-client.ts's
+// #segmentReady): the server's fallback stays on screen, no segment
+// reveals unstyled. The module's exports are the dispatch (`gate`,
+// `apply`); no install.
+tierLoaders.assets = () => import("@solidjs/web/frames/assets");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
@@ -1663,10 +1675,11 @@ export interface InstallOptions {
    * appliers (the runtime dispatches to them once resident) and its
    * optional `install()` is called once the import resolves; every live
    * frame is then flushed so what the tier makes applicable applies (a held
-   * occurrence mounts). A name with no loader is resident (eager); `trace`
-   * (`@solidjs/web/frames/trace`) and `regions` (`@solidjs/web/frames/regions`)
-   * have built-in loaders that an entry here replaces. See
-   * `installServerComponents`.
+   * occurrence mounts, a style-gated segment requests its sheets). A name
+   * with no loader is resident (eager); `trace` (`@solidjs/web/frames/trace`),
+   * `regions` (`@solidjs/web/frames/regions`) and `assets`
+   * (`@solidjs/web/frames/assets`) have built-in loaders that an entry here
+   * replaces. See `installServerComponents`.
    */
   tiers?: Record<string, () => Promise<TierModule>>;
 }
@@ -1694,9 +1707,10 @@ export interface InstallOptions {
  * the loads start here from the document's record — the `modulepreload`
  * the document may also carry made the fetch warm. The built-in table
  * carries `trace` (the container tier's client half,
- * `@solidjs/web/frames/trace`) and `regions` (nested server-content
- * regions, `@solidjs/web/frames/regions`); a loader given here for a name
- * replaces the built-in one (tests gate a tier's load this way).
+ * `@solidjs/web/frames/trace`), `regions` (nested server-content regions,
+ * `@solidjs/web/frames/regions`) and `assets` (the head mirror and the
+ * stylesheet gate, `@solidjs/web/frames/assets`); a loader given here for
+ * a name replaces the built-in one (tests gate a tier's load this way).
  * @experimental
  */
 export function installServerComponents(host: any = getFrameHost(), options?: InstallOptions) {

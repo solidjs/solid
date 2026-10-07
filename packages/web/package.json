@@ -341,6 +341,10 @@
       "types": "./types/frames/regions-tier.d.ts",
       "default": "./frames/dist/regions.js"
     },
+    "./frames/assets": {
+      "types": "./types/frames/assets-tier.d.ts",
+      "default": "./frames/dist/assets.js"
+    },
     "./types/*": "./types/*"
   },
   "scripts": {

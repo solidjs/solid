@@ -47,6 +47,7 @@ export default defineConfig({
       // to the source, for the same single-instance reason.
       "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts"),
       "@solidjs/web/frames/regions": resolve(rootDir, "frames/src/regions-tier.ts"),
+      "@solidjs/web/frames/assets": resolve(rootDir, "frames/src/assets-tier.ts"),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }

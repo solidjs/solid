@@ -408,7 +408,10 @@ export default [
       // server-content regions (`{$frame}` args) — loads behind the
       // server's announcement or the first record naming a region. Its own
       // entry below.
-      "@solidjs/web/frames/regions"
+      "@solidjs/web/frames/regions",
+      // Lazily imported (`tierLoaders.assets`): the assets tier — the head
+      // mirror a segment's assets record drives. Its own entry below.
+      "@solidjs/web/frames/assets"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -432,7 +435,8 @@ export default [
       "@solidjs/web/server-functions/client",
       "@solidjs/web/serialization/decode",
       "@solidjs/web/frames/trace",
-      "@solidjs/web/frames/regions"
+      "@solidjs/web/frames/regions",
+      "@solidjs/web/frames/assets"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -452,7 +456,8 @@ export default [
       "@solidjs/web/server-functions/client",
       "@solidjs/web/serialization/decode",
       "@solidjs/web/frames/trace",
-      "@solidjs/web/frames/regions"
+      "@solidjs/web/frames/regions",
+      "@solidjs/web/frames/assets"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)
@@ -494,6 +499,19 @@ export default [
     output: { file: "frames/dist/regions.js", format: "es" },
     external: ["solid-js", "solid-js/internal", "@solidjs/web"],
     plugins: [externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The assets tier (`@solidjs/web/frames/assets`, frames/src/assets-tier.ts):
+    // the head mirror a segment's assets record drives — the stylesheet
+    // gate, module / typed preloads, inline styles — as a lazy chunk the
+    // frames client loads through `prepareTier("assets")` (plan step C5).
+    // Import-free (its one import is a type), so nothing is external and no
+    // instance seam applies: the module's exports are the dispatch the
+    // eager client calls off the resident stamp, with the frame handed in.
+    // No `_SOLID_DEV_` gates of its own, so one build serves every condition.
+    input: "frames/src/assets-tier.ts",
+    output: { file: "frames/dist/assets.js", format: "es" },
+    plugins
   },
   {
     // Prod build, like the main server entry above: the sink's own

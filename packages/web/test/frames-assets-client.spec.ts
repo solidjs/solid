@@ -1,11 +1,14 @@
 /** @vitest-environment jsdom */
 // The frames client's stylesheet gate and inline-style application — the
 // stream face's analogue of the document runtime's `$dfs` / `$dfc`
-// (frame-client.ts: `ensureStylesheet`, `applyInlineStyles`, `#segmentReady`'s
-// style term). Pinned here before anything moves (frames savings pass §3 row
-// C5: the SC layer audit's one 0-coverage gap, §2.4): what a segment's
-// `seg:<k>:assets` record does to the reveal and to the head, as the code
-// does it today.
+// (`ensureStylesheet`, `applyInlineStyles`, `#segmentReady`'s style term).
+// Pinned before anything moved (frames savings pass §3 row C5: the SC layer
+// audit's one 0-coverage gap, §2.4) and kept through the move: the code is
+// now the ASSETS TIER (`@solidjs/web/frames/assets`, frames/src/
+// assets-tier.ts), resident here — the tier's load is warmed once, so these
+// pins read the gate and the pass as a warm page does; the tier's own
+// timing (what happens while it is NOT resident) is
+// consistency/tier-assets-ready.spec.
 //
 //  - A stylesheet named by the record is inserted the moment the segment's
 //    content and reveal are both in the store (the placeholder may still be
@@ -18,9 +21,22 @@
 //    flag: the flag is the server's note of what it emitted; the client
 //    reads the record.
 //  - Inline styles never gate. They land in the head, deduped by
-//    `data-asset` id, in entry order, before the segment's content shows.
-import { afterEach, describe, expect, it } from "vitest";
-import { createFrame, createFrameHost } from "../frames/src/frame-client.js";
+//    `data-asset` id, in entry order, at the record's arrival — before the
+//    segment's content shows, as the document face orders them.
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  createFrame,
+  createFrameHost,
+  prepareTier,
+  tierLoaders
+} from "../frames/src/frame-client.js";
+
+beforeAll(async () => {
+  // The frames client entry (client.ts) wires this loader in production;
+  // these pins drive the runtime module directly, so wire and warm it here.
+  tierLoaders.assets ??= () => import("../frames/src/assets-tier.js");
+  await prepareTier("assets");
+});
 
 afterEach(() => {
   document.head.replaceChildren();
@@ -326,7 +342,7 @@ describe("inline styles (applyInlineStyles)", () => {
     expect(doc.textContent).toBe("server");
   });
 
-  it("ride the same record as stylesheets: the sheet gates, the inline style lands at the reveal", () => {
+  it("ride the same record as stylesheets: the sheet gates, the inline style lands at the record's arrival", () => {
     const { boundary, frame } = mount();
     frame.apply({ version: 1, r: { "": { kind: "html", value: shell("c") } } });
     frame.apply({
@@ -336,12 +352,34 @@ describe("inline styles (applyInlineStyles)", () => {
         inlineStyles: [{ id: "with-sheet", content: "p{}" }]
       })
     });
-    // Held on the sheet: the inline style is not applied yet either (it
-    // applies with the reveal, after the gate).
+    // Held on the sheet; the inline style is already in the head (the
+    // document face writes a fragment's <style> with its markup, before the
+    // swap — the stream face lands it at the record, before the reveal).
     expect(pending(boundary, "c")).toBe(true);
-    expect(styles()).toEqual([]);
+    expect(styles().map(s => s.getAttribute("data-asset"))).toEqual(["with-sheet"]);
     settle(links()[0]);
     expect(pending(boundary, "c")).toBe(false);
-    expect(styles().map(s => s.getAttribute("data-asset"))).toEqual(["with-sheet"]);
+    expect(styles()).toHaveLength(1);
+  });
+
+  it("land at the record's arrival even before the segment's reveal gate (a grouped reveal still owed)", () => {
+    const { boundary, frame } = mount();
+    frame.apply({ version: 1, r: { "": { kind: "html", value: shell("c") } } });
+    frame.apply({
+      version: 1,
+      r: {
+        "seg:c": { kind: "html", value: "<p>grouped</p>" },
+        "seg:c:assets": {
+          type: "assets",
+          key: "c",
+          inlineStyles: [{ id: "early", content: "p{}" }]
+        }
+      }
+    });
+    expect(styles().map(s => s.getAttribute("data-asset"))).toEqual(["early"]);
+    expect(pending(boundary, "c")).toBe(true);
+    frame.apply({ version: 1, r: { "seg:c:reveal": true } });
+    expect(pending(boundary, "c")).toBe(false);
+    expect(styles()).toHaveLength(1);
   });
 });

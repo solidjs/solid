@@ -244,7 +244,9 @@ describe("prepareTier", () => {
     t.resolve();
     await p1;
     expect(t.install).toHaveBeenCalledTimes(1);
-    expect((p1 as any).r).toBe(true);
+    // The resident stamp is the module itself (a tier's exports are its
+    // dispatch — the assets tier's `gate` / `apply` are read off it).
+    expect((p1 as any).r).toEqual({ install: t.install });
     expect(prepareTier("tier/idem")).toBe(p1);
     expect(t.loader).toHaveBeenCalledTimes(1);
     // No loader: nothing to import, resolved.
@@ -257,9 +259,10 @@ describe("prepareTier", () => {
     let resolve!: (m: any) => void;
     Object.assign(tierLoaders, { "tier/bare": () => new Promise<any>(r => (resolve = r)) });
     const p = prepareTier("tier/bare");
-    resolve({});
+    const bare = {};
+    resolve(bare);
     await p;
-    expect((p as any).r).toBe(true);
+    expect((p as any).r).toBe(bare);
   });
 });
 

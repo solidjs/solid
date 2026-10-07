@@ -75,14 +75,18 @@ const floorMinified = Object.fromEntries(
 // the store engine's one edge into these pages) is its second dynamic import
 // and reports the same way: `trace.js` is the tier + the engine, lazy, not
 // counted; its REGIONS TIER (`@solidjs/web/frames/regions` — plan step C4,
-// 2026-10-06: nested server-content regions) is the third, `regions.js`.
-// The "frames: eager client consumer" scenario measures the package; these
-// measure the page. Subpath aliases first (see above) — the tier specifiers
-// before `@solidjs/web/frames` and `solid-js/internal`, which would
-// otherwise swallow them.
+// 2026-10-06: nested server-content regions) is the third, `regions.js`,
+// and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
+// 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
+// the fourth, `assets.js` — each lazy, not counted. The "frames: eager
+// client consumer" scenario measures the package; these measure the page.
+// Subpath aliases first (see above) — the tier specifiers before
+// `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
+// swallow them.
 const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
   "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
+  "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
@@ -126,10 +130,11 @@ const framesExternal = [
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
   // the eager graph alone; its own `solid-js` entry rides with it. The
-  // regions tier (C4) likewise.
+  // regions tier (C4) and the assets tier (C5) likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
   "@solidjs/web/frames/regions",
+  "@solidjs/web/frames/assets",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3458,8 +3463,18 @@ module.exports = [
     // costs +518 / +186. First time under the cap since Phase A: cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 41,890 B.
-    limit: "13.64 KB",
-    capMinified: 41890,
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 13,332 B against 89954fa1b's 13,866
+    // (-534 B; -1,913 B minified, 42,968 -> 41,055) and `next` @ 9d89df731's
+    // 13,787 (-455 B; -2,359 B minified). The head mirror a segment's assets
+    // record drives (the stylesheet gate, module / typed preloads, inline
+    // styles) left for the lazy `@solidjs/web/frames/assets` chunk (2,040 B
+    // minified / 783 B brotli); the whole group measured -2,419 / -666 on an
+    // edited dist copy, and what stays eager — the record cases (+208 min),
+    // the reveal-readiness term with the load trigger and the assets walk's
+    // dispatch (+300 min) — costs +508 / +131.
+    limit: "13.35 KB",
+    capMinified: 41055,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3654,6 +3669,11 @@ module.exports = [
     // client fetches when the document announces the tier or a record names
     // a `{$frame}` region (the frames note). Cap set at measured + 10 B at
     // the 0.01 KB step (the ratchet); recorded minified 120,945 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 37,970 B (120,102 B minified): -628 /
+    // -1,926 against the C3 head, -6,912 / -25,655 against `next` @
+    // 9d89df731. The head mirror leaves for the lazy `assets.js` chunk
+    // (783 B brotli, reported, not counted).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3791,6 +3811,10 @@ module.exports = [
     // (its note): regions leave for `regions.js` (lazy, not counted, 1,872 B
     // minified / 802 B brotli). Cap set at measured + 10 B at the 0.01 KB
     // step (the ratchet); recorded minified 132,816 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 41,651 B (131,973 B minified): -496 /
+    // -1,926 against the C3 head, -6,944 / -25,747 against `next` @
+    // 9d89df731; the same cut as the base page.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
