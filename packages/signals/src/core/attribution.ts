@@ -873,13 +873,20 @@ function targetLabel(target: string): string {
 
 function interactionStart(ref: InteractionRef): void {
   interactionStack.push(currentInteraction);
+  // No `ref.event`: the WeakMap answers undefined, which no open record is.
+  const joined = eventInteractions.get(ref.event!)!;
+  if (openInteractions.has(joined)) {
+    joined.open = true;
+    currentInteraction = joined.event.origin;
+    return;
+  }
   // One clock read: the frame opens now; the interaction began at `ref.at`
   // when the runtime dated it (the event's own timestamp), else now too.
   const opened = now();
   const origin: ChangeOrigin = { kind: "interaction", name: ref.type, at: ref.at ?? opened };
   if (ref.target) origin.target = targetLabel(ref.target);
   currentInteraction = origin;
-  openInteraction(origin, opened);
+  openInteraction(origin, opened, ref.event);
 }
 
 function interactionEnd(returned?: unknown): void {
@@ -3811,10 +3818,11 @@ function settleNavigation(
 //
 // A record settles once, by the same drain clock navigations use: `idle` —
 // the handler performed no root write (nothing to wait for; settles when the
-// frame closes); `committed` — its writes went through in drains no
-// transition held (the last such drain's `flushEnd` is the instant); `held`
-// — at least one of its writes waited in a transition (the last hold's commit
-// is the instant, each HoldEvent attached). A navigation the frame performed
+// frame closes — for an `event`'s frames, recorded at the next task with the
+// instant the last one closed); `committed` — its writes went through in
+// drains no transition held (the last such drain's `flushEnd` is the
+// instant); `held` — at least one of its writes waited in a transition (the
+// last hold's commit is the instant, each HoldEvent attached). A navigation the frame performed
 // is attached too and must settle before the interaction does. Runs are
 // counted while the record is open:
 // re-runs whose cause chain reaches the frame, plus computations CREATED in
@@ -3837,7 +3845,11 @@ export interface InteractionEvent {
    * INP counts as input delay. Present only when `at` predates the frame.
    */
   inputDelayMs?: number;
-  /** Wall time of the handler itself, entry to return. */
+  /**
+   * Wall time of the handler itself, entry to return — for the frames of one
+   * event (`InteractionRef.event`), the first listener's entry to the last
+   * one's return, as Event Timing measures processing.
+   */
   handlerMs: number;
   /** Root writes attributed to the frame: the handler's, and those of frames it opened (a navigation). */
   writes: number;
@@ -3860,7 +3872,8 @@ export interface InteractionEvent {
   outcome?: "idle" | "committed" | "held";
   /**
    * The handler returned a thenable (`async () => { await save(); … }`) and
-   * the record waited for it: handler return → the promise settling, in
+   * the record waited for it: handler return → the promise settling (the last
+   * one, when several listeners of one event returned one), in
    * milliseconds, capped at `ASYNC_HANDLER_CAP_MS`. The continuation runs
    * with no frame on the stack, so writes it makes are not attributed to
    * this interaction — only its duration is. Absent when the handler
@@ -3889,17 +3902,23 @@ interface InteractionState {
   held: boolean;
   /** Root writes to excluded subjects (the observer's own store): not the app's. */
   excludedWrites: number;
-  /** The handler returned a thenable that has not settled; the record waits for it. */
-  awaiting: boolean;
+  /** Thenables its handlers returned that have not settled; the record waits for them. */
+  awaiting: number;
   /** An action step ran under the frame: the handler's async work is an action's, tracked as such. */
   actioned: boolean;
+  /** Another frame for its event may still join it (until the next task). */
+  joinable: boolean;
+  /** When it last could have settled while joinable — the instant it settles at. */
+  settleAt?: number;
 }
 const interactionStates = new WeakMap<ChangeOrigin, InteractionState>();
+/** `InteractionRef.event` → the record its frames join, while joinable. */
+const eventInteractions = new WeakMap<object, InteractionState>();
 /** Opened, not yet settled. */
 const openInteractions = new Set<InteractionState>();
 let interactionLog: InteractionEvent[] = [];
 
-function openInteraction(frame: ChangeOrigin, opened: number): void {
+function openInteraction(frame: ChangeOrigin, opened: number, key?: object): void {
   const event: InteractionEvent = {
     name: frame.name!,
     at: frame.at!,
@@ -3925,13 +3944,23 @@ function openInteraction(frame: ChangeOrigin, opened: number): void {
     heldIn: new Set(),
     held: false,
     excludedWrites: 0,
-    awaiting: false,
-    actioned: false
+    awaiting: 0,
+    actioned: false,
+    joinable: key !== undefined
   };
   interactionStates.set(frame, state);
   openInteractions.add(state);
   interactionLog.push(event);
   if (interactionLog.length > options.historyLimit) interactionLog.shift();
+  if (key !== undefined) {
+    eventInteractions.set(key, state);
+    // A microtask is too early: native dispatch runs microtasks between listeners.
+    setTimeout(() => {
+      eventInteractions.delete(key);
+      state.joinable = false;
+      if (openInteractions.has(state)) maybeSettleInteraction(state, state.settleAt);
+    });
+  }
 }
 
 /**
@@ -3959,17 +3988,17 @@ function closeInteraction(frame: ChangeOrigin, returned?: unknown): void {
       ? (returned as PromiseLike<unknown>)
       : null;
   if (thenable !== null) {
-    state.awaiting = true;
+    state.awaiting++;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = (): void => {
       if (done) return;
       done = true;
       if (timer !== undefined) clearTimeout(timer);
-      if (!openInteractions.has(state)) return;
-      state.awaiting = false;
+      if (!openInteractions.has(state) || --state.awaiting > 0) return;
       const at = now();
-      state.event.continuationMs = at - end;
+      // From the last handler's return: the frames of one event share a record.
+      state.event.continuationMs = at - (state.opened + state.event.handlerMs);
       checkUntrackedAsyncHandler(state);
       maybeSettleInteraction(state, at);
     };
@@ -4085,12 +4114,16 @@ function settleInteractionsHeld(t: Transition, hold: HoldEvent | undefined): voi
 
 function maybeSettleInteraction(state: InteractionState, end: number = now()): void {
   const event = state.event;
-  if (state.open || state.awaiting || state.heldIn.size > 0) return;
+  if (state.open || state.awaiting > 0 || state.heldIn.size > 0) return;
   // A drain must have committed the last write (the handler's, or a redirect
   // hop's after the click's own drain) — the handler returning is not the
   // screen having it.
   if (event.writes > 0 && drainSeq <= state.writeDrain) return;
   for (const nav of event.navigations) if (nav.outcome === undefined) return;
+  if (state.joinable) {
+    state.settleAt = end;
+    return;
+  }
   openInteractions.delete(state);
   // Every write went to an excluded subject and nothing of the app's ran: the
   // click was on the observer's own UI (a devtools panel's button). Not a

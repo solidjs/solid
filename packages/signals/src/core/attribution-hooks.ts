@@ -251,6 +251,17 @@ export interface InteractionRef {
   target?: string;
   /** Dispatch time on the `performance.now()` clock; defaults to now. */
   at?: number;
+  /**
+   * The dispatch this frame handles — the DOM `Event` itself. Frames with the
+   * same `event` are one interaction: the first opens the record (its `type`,
+   * `target` and `at` describe it) and every later one re-enters it, so each
+   * listener of one dispatch adds its work to one record. Such a record stays
+   * open for joining until the next task — every listener of a dispatch runs
+   * within its task — and is recorded no earlier; a frame for the event after
+   * that opens a new interaction. Without `event` the record is the frame's
+   * alone and can settle as it closes.
+   */
+  event?: object;
 }
 
 /**

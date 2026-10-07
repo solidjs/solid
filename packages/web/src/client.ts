@@ -523,9 +523,12 @@ function attachDelegatedEvent(name, container, state) {
 // Wrapping those two in the signals attribution engine's `withInteraction`
 // stamps every root write a handler performs with the event that caused it
 // (`click on button#next "Next →"`) — what turns a transition hold or a hot
-// scope into a per-interaction number. Not covered: non-delegated events
-// whose handler is a literal function (the compiler emits a bare
-// `addEventListener` for those) and hand-written `ref`-based listeners.
+// scope into a per-interaction number. Every listener of one event joins one
+// frame (the event is the engine's join key), so a hand-written listener that
+// wraps itself in `dispatchAsInteraction` lands on the same record. Not
+// covered: non-delegated events whose handler is a literal function (the
+// compiler emits a bare `addEventListener` for those) and hand-written
+// listeners that do not wrap themselves.
 
 /** `button#next "Next →"`, `input[name=q]`, `a "Docs"` — what the user hit. */
 function describeEventTarget(target) {
@@ -558,11 +561,34 @@ function interactionStart(e) {
   return typeof at === "number" && at >= 0 && at <= performance.now() ? at : undefined;
 }
 
-function dispatchAsInteraction(e, fn) {
-  return OBSERVE.attribution.withInteraction(
-    { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e) },
-    fn
-  );
+/**
+ * Runs `fn` as a handler of the DOM event `e`, inside the interaction frame
+ * the runtime opens for `e` — the one its own listeners for `e` run in. A
+ * listener the runtime did not attach (a router's `document` click handler,
+ * analytics, drag-and-drop) wraps its body in this, so its work joins the
+ * same interaction record as the component handlers for the same event
+ * instead of running outside one. In production builds this is `fn()`.
+ *
+ * Use it for listeners that respond to the user (`click`, `submit`,
+ * `keydown`), not for passive ones (`mousemove`, `focusin` preloads), which
+ * would each record an interaction.
+ *
+ * @example
+ * ```ts
+ * document.addEventListener("click", e =>
+ *   dispatchAsInteraction(e, () => handleAnchorClick(e))
+ * );
+ * ```
+ */
+export function dispatchAsInteraction<T>(e: Event, fn: () => T): T;
+
+export function dispatchAsInteraction(e, fn) {
+  return "_SOLID_OBSERVE_"
+    ? OBSERVE.attribution.withInteraction(
+        { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e), event: e },
+        fn
+      )
+    : fn();
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function getDelegatedRoot(node: MountableElement): MountableElement | undefined;
 
