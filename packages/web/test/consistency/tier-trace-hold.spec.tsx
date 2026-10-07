@@ -16,6 +16,12 @@
  *    it was held on (S1 commit 3's held-record mount, generalized): a
  *    record that replaced it meanwhile applies as the args change it is.
  *    No `TypeError`, nothing read inert.
+ *  - Document face, update site: a MOUNTED occurrence's new record carrying
+ *    a marker while the tier is absent (a live slot op minting the page's
+ *    first trace after the shell) stays pending in the store — the live
+ *    binding keeps the args it shows, the load starts, the install's flush
+ *    applies it as an args change. The fresh-mount hold's twin (`needsTrace`
+ *    at the update site, as `needsRegions` is for regions).
  *  - Document face, announced: `_$HY.r["sc:tiers"]` names `trace`;
  *    `installServerComponents` starts the import before any boundary
  *    adopts (the warm start the `modulepreload` made a cache hit).
@@ -154,6 +160,71 @@ describe("the traces tier — document face", () => {
     expect(inProgressAtEnd).toBe(false);
     expect(mountedAtEnd).toBe(1);
     expect(page.warnings.filter(w => w.includes("unclaimed"))).toEqual([]);
+    expect(page.errors).toEqual([]);
+  });
+
+  test("update site: a MOUNTED occurrence's new record carrying `{ $tr }` while the tier is absent stays pending — the live binding keeps its args, the load starts, the install's flush applies it (a live slot op minting the page's first trace post-shell)", async () => {
+    const gate = gatedTrace();
+    const fid = freshFid("tier-trace-u");
+    page = bootPage(
+      frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "first"))}</ul>`),
+      { tiers: gate.tiers }
+    );
+    // The page's record carries no trace: the occurrence mounts at t=0 with
+    // the tier absent (nothing to wait for, nothing announced).
+    page.slotRecord(fid, "item#0", { label: "first" });
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const li = page.container.querySelector("li")!;
+    let mounts = 0;
+    let read: (() => [string, unknown]) | undefined;
+    const dispose = hydrate(
+      () => (
+        <Comp
+          item={(p: { label: string; data?: { n: number } }) => {
+            mounts++;
+            read = () => [p.label, p.data];
+            return <li>{p.data ? p.data.n : p.label}</li>;
+          }}
+        />
+      ),
+      page.container
+    );
+    disposers.push(dispose);
+    await quiesce();
+    expect(mounts).toBe(1);
+    expect(gate.loader).not.toHaveBeenCalled();
+    expect(hydrationInProgress()).toBe(false);
+    expect(li.textContent).toBe("first");
+
+    // Post-shell, the page's FIRST trace: a live slot op re-sends the
+    // occurrence's record with a projection arg (a marker) while the tier
+    // is still absent. The record is NOT pushed into the live binding raw
+    // — it stays pending in the store; the binding keeps the args it
+    // shows; the check starts the load (nothing announced it).
+    const t = traceMarker();
+    t.snapshot({ n: 5 });
+    page.live.push({ type: "slot", fid, key: "item#0", args: { label: "second", data: t.marker } });
+    await quiesce();
+    expect(gate.loader).toHaveBeenCalledTimes(1);
+    expect(read!()).toEqual(["first", undefined]);
+    expect(li.textContent).toBe("first");
+    expect(mounts).toBe(1);
+    expect(page.errors).toEqual([]);
+
+    // The install's flush re-syncs with the tier in place: the pending
+    // record applies as an args change into the SAME mount — the marker
+    // materialized, the projection readable.
+    await gate.release();
+    await quiesce();
+    await quiesce();
+    expect(resident()).toBe(true);
+    expect(mounts).toBe(1);
+    expect(page.container.querySelector("li")).toBe(li);
+    const [label, data] = read!();
+    expect(label).toBe("second");
+    expect((data as any).n).toBe(5);
+    expect(li.textContent).toBe("5");
+    expect(page.warnings).toEqual([]);
     expect(page.errors).toEqual([]);
   });
 
