@@ -14,6 +14,7 @@ import {
 import type { RunResult } from "./runner.js";
 import type { Scenario } from "./scenario.js";
 import {
+  anchored,
   judge,
   unruled,
   validateMountCase,
@@ -149,7 +150,12 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
           screenX = v;
         });
       });
-    if (!c.anchorLast) anchor();
+    const anchorNow = anchored(c) && !c.anchorLast;
+    if (anchorNow) anchor();
+    /** The screen's value of the held source. Without the anchor: an action's
+     * held write is read top-level and untracked (the committed value, no
+     * reader is created); a flight's memo is left unobserved. */
+    const screen = () => (anchored(c) ? screenX : c.hold === "action" ? untrack(src) : undefined);
 
     // --- content ---------------------------------------------------------
     const own = (read: () => number) =>
@@ -182,7 +188,10 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
       if (c.content === "nested")
         return Loading(() => {
           const inner = Loading(() => leaf(read), "fallback");
-          return () => `[${resolve(inner())}]`;
+          return () => {
+            if (c.outerRead) read();
+            return `[${resolve(inner())}]`;
+          };
         }, "outer fallback");
       const [key] = createSignal(0);
       return Loading(() => leaf(read), "fallback", c.keyed ? key : undefined);
@@ -240,6 +249,17 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
       else answer(V);
     };
 
+    /** Each run of a tree that contains its own Show returns a distinct
+     * token, so the screen reads the Show the boundary is displaying — a
+     * re-armed boundary keeping its old content shows the old tree's. */
+    const boxes = new Map<string, () => string>();
+    const box = (seen: () => string) => {
+      const token = `box#${boxes.size}`;
+      boxes.set(token, seen);
+      return token;
+    };
+    const unbox = (v: unknown) =>
+      typeof v === "string" && boxes.has(v) ? boxes.get(v)!() : render(v);
     /** A revealed boundary's tree that mounts the content on `open`: the
      * condition in the tree itself (`memo`), or a Show inside it (`effect`).
      * `seen` maps the boundary's displayed value to what the screen shows. */
@@ -249,13 +269,9 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
           fn: () => (open() ? leaf(x) : "closed"),
           seen: (v: unknown) => render(v)
         };
-      let inner: () => string = () => "closed";
       return {
-        fn: () => {
-          inner = show(open, () => leaf(x));
-          return "box";
-        },
-        seen: (v: unknown) => (v === "box" ? inner() : render(v))
+        fn: () => box(show(open, () => leaf(x))),
+        seen: unbox
       };
     };
 
@@ -291,22 +307,20 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
           break;
         case "revealed-under-pending":
         case "revealed-under-rearmed": {
-          let inner: () => string = () => "closed";
           const outer = slotOf(
             Loading(
               () => {
                 const tree = revealedTree();
                 const slot = slotOf(Loading(tree.fn, "fallback"));
-                inner = () => tree.seen(slot.v);
                 if (c.family === "revealed-under-pending")
                   slotOf(createMemo(() => outerGate.promise.then(() => "gate")));
-                return "outer";
+                return box(() => tree.seen(slot.v));
               },
               "outer fallback",
               c.family === "revealed-under-rearmed" ? open : undefined
             )
           );
-          seen = () => (outer.v === "outer" ? inner() : render(outer.v));
+          seen = () => unbox(outer.v);
           break;
         }
         case "held-cond":
@@ -361,7 +375,7 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
         }
       }
     });
-    if (c.anchorLast) anchor();
+    if (anchored(c) && c.anchorLast) anchor();
     flush();
     // Initial loads: the flight's first answer and any committed content's.
     answer(0);
@@ -369,7 +383,7 @@ export async function runMountCase(c: MountCase): Promise<RunResult> {
     await resolveOwn();
 
     const snap = (at: Checkpoint) => {
-      const s: MountSnapshot = { at, x: screenX, seen: seen(), running };
+      const s: MountSnapshot = { at, x: screen(), seen: seen(), running };
       snapshots.push(s);
       events.push(`${at} x=${s.x} seen=${s.seen}${running ? " running" : ""}`);
       result.metrics.frames++;

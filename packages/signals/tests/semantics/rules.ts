@@ -40,7 +40,15 @@ export interface Failure {
 // direction rulings; the lane rule, #3835). No law or scope of another cohort
 // changed: a revision-19 run and a revision-20 run of any other cohort judge
 // identically.
-export const ruleRevision = 20;
+// Revision 21 (2026-10-06, the outside-read ruling): a boundary shows its own
+// fallback for a source only when nothing outside it reads that source (or
+// anything in the same transition). A committed outside read holds the
+// transition: a fresh mount stays closed and a re-armed boundary keeps its old
+// content (MH8) until the hold releases; only then may content still loading
+// show the inner fallback. MH1 is narrowed to shapes with no outside read, and
+// the cohort gains cases without the screen anchor (`anchor: false`). Verdict
+// mounts become unruled. Other cohorts judge identically.
+export const ruleRevision = 21;
 export const rules = [
   {
     id: "A1",
@@ -154,9 +162,9 @@ export const rules = [
   },
   {
     id: "MH1",
-    law: "A loading boundary that has not shown content, or that an `on` change re-armed, owns its subtree: content waiting for a hold or its own first load shows that boundary's fallback; the boundary is not born held.",
+    law: "A loading boundary that has not shown content, or that an `on` change re-armed, shows its own fallback for what its content waits on when nothing outside it reads that source or its transition (an uncommitted outside read's own catcher shows instead); once an outside hold releases, content still loading shows the boundary's fallback.",
     scope:
-      "mount-under-hold cohort: a new Loading mounted by a flip or a mainline root, a re-armed revealed Loading, a verdict-lane mount, or a boundary that appeared at a hold's commit; same-tick flips excluded"
+      "mount-under-hold cohort: a new Loading mounted by a flip or a mainline root, a re-armed revealed Loading, or a boundary that appeared at a hold's commit, with no committed outside read of the held source while it is held; at the release, any of these with a first load of its own; same-tick flips and verdict mounts excluded"
   },
   {
     id: "MH2",
@@ -190,6 +198,12 @@ export const rules = [
     id: "MH7",
     law: "Once every hold and first load settles, the mount shows the final value.",
     scope: "mount-under-hold cohort; every shape"
+  },
+  {
+    id: "MH8",
+    law: "Committed work outside a boundary that reads the held source holds the transition: content inside waits with it, a re-armed boundary keeps its old content and a fresh mount stays closed, and the inner boundary does not show its fallback while that hold is open.",
+    scope:
+      "mount-under-hold cohort: a new Loading mounted by a flip or a mainline root, or a re-armed revealed Loading, with the screen anchor (a committed render effect reading the held source) outside it; same-tick flips and verdict mounts excluded"
   }
 ] as const;
 
@@ -216,7 +230,7 @@ export const ruleContracts = Object.fromEntries(
                       : rule.id === "S3"
                         ? "ordinary scoped completion; experimental extension includes observed optimistic correction"
                         : rule.id.startsWith("MH")
-                          ? "maintainer rulings: SPEC A29, the 2026-10-06 boundary-scope ruling (#3540), the 2026-10-06 direction rule, the lane rule (#3835); shapes they do not decide are listed by mount-hold.ts unruled()"
+                          ? "maintainer rulings: SPEC A29, the 2026-10-06 boundary-scope ruling (#3540) and its outside-read amendment, the 2026-10-06 direction rule, the lane rule (#3835); shapes they do not decide are listed by mount-hold.ts unruled()"
                           : rule.id.startsWith("O") || rule.id === "E5"
                             ? "experimental optimistic contract; upstream conformance not presumed"
                             : "semantic-fuzzing.md scoped law",

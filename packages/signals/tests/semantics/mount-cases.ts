@@ -83,6 +83,14 @@ export interface MountCase {
   value: number;
   /** The screen anchor for the held source is created after the mount site. */
   anchorLast: boolean;
+  /** Whether the screen anchor exists: a committed render effect outside every
+   * boundary that reads the held source (an outside read, rev 21). Absent in
+   * revision-20 artifacts, where it always existed. Without it the screen's
+   * value is an untracked top-level read (action holds) or unobserved. */
+  anchor?: boolean;
+  /** Nested content only: the new outer boundary's tree also reads the held
+   * source (an uncommitted outside read of the inner boundary). */
+  outerRead?: boolean;
   lane?: {
     /** The view is created inside a memo the lane creates. */
     wrap: boolean;
@@ -114,6 +122,7 @@ interface Check {
   rule: string;
   message: string;
   seen?: string;
+  notSeen?: string;
   x?: number;
 }
 
@@ -154,13 +163,49 @@ export function expectations(c: MountCase): Check[] {
         "a mount with no catcher (or one that is part of the hold) appeared before the hold's commit",
       seen: "closed"
     });
+  const outsideHold = (seen: string) =>
+    out.push({
+      at: "S2",
+      rule: "MH8",
+      message:
+        "a committed read outside the boundary holds the transition, but the mount appeared, the old content was replaced, or the inner fallback showed while that hold was open",
+      seen
+    });
   if (unruled(c)) return out;
+  // A render effect reading the held source directly is a stale reader (A15
+  // reveal carve-out): it shows the committed value now and waits for nothing.
+  const staleReader = (family: MountFamily) =>
+    c.content === "direct" &&
+    !c.ownLoad &&
+    (family === "none" ||
+      (c.show === "effect" && (family === "revealed" || family === "rearm-mount")));
   switch (c.family) {
     case "fresh":
     case "rearm-mount":
     case "rearm-committed":
-    case "verdict":
-      fallbackNow("S2");
+      if (staleReader(c.family)) {
+        // Nothing waits under the re-armed boundary: old content or the
+        // committed value, but never a fallback while the outside hold is open.
+        if (anchored(c))
+          out.push({
+            at: "S2",
+            rule: "MH8",
+            message:
+              "a committed read outside the boundary holds the transition, but the inner fallback showed while that hold was open",
+            notSeen: "fallback"
+          });
+      } else if (anchored(c))
+        // A fresh mount stays closed; a re-armed boundary keeps its old content.
+        outsideHold(c.family === "rearm-committed" ? "content 0" : "closed");
+      else if (c.outerRead)
+        out.push({
+          at: "S2",
+          rule: "MH1",
+          message:
+            "an uncommitted read outside the inner boundary: its own catcher (the outer boundary) did not show its fallback",
+          seen: "outer fallback"
+        });
+      else fallbackNow("S2");
       if (c.ownLoad) {
         fallbackNow("S3");
         holdDoesNotWait();
@@ -176,14 +221,10 @@ export function expectations(c: MountCase): Check[] {
       }
       break;
     case "revealed":
-    case "none": {
-      // A render effect reading the held source directly is a stale reader
-      // (A15 reveal carve-out): it may show the committed value now.
-      const staleReader = c.content === "direct" && (c.family === "none" || c.show === "effect");
-      if (!staleReader) hiddenWithHold();
+    case "none":
+      if (!staleReader(c.family)) hiddenWithHold();
       revealAtCommit();
       break;
-    }
     case "revealed-under-pending":
       // The outer boundary's pending sibling was created before the hold
       // (§15.2: a loading source is not held).
@@ -210,8 +251,13 @@ export function expectations(c: MountCase): Check[] {
   return out;
 }
 
+/** Revision-20 artifacts carry no `anchor`: the anchor always existed. */
+export const anchored = (c: MountCase) => c.anchor !== false;
+
 /** Shapes the rulings do not decide: invariants only. */
 export function unruled(c: MountCase): string | undefined {
+  if (c.family === "verdict")
+    return "a `latest()`-conditioned mount of a new Loading under the outside-read ruling: whether the verdict control's own read of the held source is an outside read that holds, and what the slot shows while the lane's control is on and its content waits";
   if (c.trigger === "same-tick")
     return "a flip written in the same tick as the hold's first write: whether the mount is part of the hold (A34 (1) joins a tick's writes only through a write to a held node)";
   if (c.family === "revealed-under-rearmed")
@@ -251,9 +297,16 @@ const families: MountFamily[] = [
   "lane"
 ];
 
+/** Families generated without the screen anchor too: the inside-only form of
+ * the outside-read ruling. */
+const withoutAnchor: MountFamily[] = ["fresh", "rearm-mount", "rearm-committed", "verdict"];
+
 export function generateMountCases(seed: number, count: number): MountCase[] {
   const rand = prng(seed);
   const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
+  // Revision-21 dimensions draw from their own stream so case i keeps every
+  // revision-20 field.
+  const rand21 = prng(seed ^ 0x5bd1e995);
   const cases: MountCase[] = [];
   for (let i = 0; i < count; i++) {
     const family = pick(families);
@@ -305,6 +358,10 @@ export function generateMountCases(seed: number, count: number): MountCase[] {
         break;
     }
     if (c.family !== "fresh" && c.family !== "revealed") c.keyed = false;
+    const noAnchor = rand21() < 0.35;
+    const outerRead = rand21() < 0.5;
+    c.anchor = !(withoutAnchor.includes(c.family) && noAnchor);
+    if (c.family === "fresh" && c.content === "nested") c.outerRead = outerRead;
     cases.push(c);
   }
   return cases;
@@ -329,6 +386,9 @@ export function validateMountCase(c: MountCase): string | undefined {
     !(c.family === "held-cond" && c.boundary)
   )
     return "Nested content needs a new boundary";
+  if (!anchored(c) && !withoutAnchor.includes(c.family)) return "This family needs the anchor";
+  if (c.outerRead && !(c.family === "fresh" && c.content === "nested"))
+    return "An outer read needs nested fresh content";
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +417,10 @@ export function judge(c: MountCase, snapshots: MountSnapshot[], result: RunResul
       if (!applies) continue;
       if (check.seen !== undefined && s.seen !== check.seen)
         return fail(check.rule, check.message, check.at, check.seen);
-      if (check.x !== undefined && s.x !== check.x)
+      if (check.notSeen !== undefined && s.seen.includes(check.notSeen))
+        return fail(check.rule, check.message, check.at, { not: check.notSeen });
+      // Without the anchor a flight hold's screen value is not observed.
+      if (check.x !== undefined && s.x !== undefined && s.x !== check.x)
         return fail(check.rule, check.message, check.at, { x: check.x });
     }
     // MH5: never torn; visible content agrees with its world.
@@ -369,7 +432,8 @@ export function judge(c: MountCase, snapshots: MountSnapshot[], result: RunResul
         "control, element and bindings together"
       );
     for (const [, n] of s.seen.matchAll(contentValue)) {
-      const world = c.family === "lane" && c.lane!.reads === "guess" && s.running ? V : (s.x ?? 0);
+      if (s.x === undefined) break;
+      const world = c.family === "lane" && c.lane!.reads === "guess" && s.running ? V : s.x;
       if (Number(n) !== world)
         return fail(
           "MH5",
@@ -382,7 +446,7 @@ export function judge(c: MountCase, snapshots: MountSnapshot[], result: RunResul
   // MH7: everything settles to the final view.
   const final = snapshots.find(s => s.at === "S4")!;
   const done = c.content === "nested" && c.family !== "lane" ? `[content ${V}]` : `content ${V}`;
-  if (final.x !== V || final.seen !== done)
+  if ((final.x !== undefined && final.x !== V) || final.seen !== done)
     return fail("MH7", "the view did not converge once every hold and load settled", "S4", {
       x: V,
       seen: done
@@ -399,6 +463,7 @@ const simpler: Array<[keyof MountCase, unknown]> = [
   ["keyed", false],
   ["value", 1],
   ["hold", "action"],
+  ["outerRead", false],
   ["content", "direct"],
   ["content", "memo"],
   ["show", "memo"],
@@ -439,7 +504,10 @@ export const mountCaseKey = (c: MountCase) => JSON.stringify(c);
 
 /** Report-queue variety: family and hold kind. A heuristic, not a bug identity. */
 export const mountShape = (c: MountCase) =>
-  families.indexOf(c.family) * 4 + (c.hold === "flight" ? 2 : 0) + (c.ownLoad ? 1 : 0);
+  families.indexOf(c.family) * 8 +
+  (anchored(c) ? 4 : 0) +
+  (c.hold === "flight" ? 2 : 0) +
+  (c.ownLoad ? 1 : 0);
 
 /** Prefer simpler cases for detailed reports and reduction. */
 export const mountComplexity = (c: MountCase) =>

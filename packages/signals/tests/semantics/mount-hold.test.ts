@@ -39,41 +39,116 @@ function judged(c: MountCase, snapshots: MountSnapshot[]) {
   return result.failure?.rule;
 }
 
-test("a fresh boundary over a hold: fallback now, content at the commit", () => {
-  const ok = timeline(
-    [0, "closed"],
-    [0, "closed"],
+const fallbackNow = timeline(
+  [0, "closed"],
+  [0, "closed"],
+  [0, "fallback"],
+  [1, "content 1"],
+  [1, "content 1"]
+);
+const heldClosed = timeline(
+  [0, "closed"],
+  [0, "closed"],
+  [0, "closed"],
+  [1, "content 1"],
+  [1, "content 1"]
+);
+// Pre-L2 served the committed value under the new boundary: torn by A29.
+const committed = timeline(
+  [0, "closed"],
+  [0, "closed"],
+  [0, "content 0"],
+  [1, "content 1"],
+  [1, "content 1"]
+);
+
+test("a fresh boundary with nothing outside reading the hold: fallback now, content at the commit", () => {
+  const inside = { ...base, anchor: false };
+  expect(judged(inside, fallbackNow)).toBeUndefined();
+  expect(judged(inside, committed)).toBe("MH1");
+  expect(judged(inside, heldClosed)).toBe("MH1");
+});
+
+test("an outside read holds the transition (rev 21): the fresh mount stays closed, no inner fallback", () => {
+  // Revision-20 artifacts carry no `anchor`; the anchor existed.
+  expect(judged(base, heldClosed)).toBeUndefined();
+  expect(judged({ ...base, anchor: true }, heldClosed)).toBeUndefined();
+  expect(judged(base, fallbackNow)).toBe("MH8");
+  expect(judged(base, committed)).toBe("MH8");
+});
+
+test("an outside read keeps a re-armed boundary's old content until the release", () => {
+  const rearm = { ...base, family: "rearm-committed" as const, show: "memo" as const };
+  const kept = timeline(
+    [0, "content 0"],
+    [0, "content 0"],
+    [0, "content 0"],
+    [1, "content 1"],
+    [1, "content 1"]
+  );
+  expect(judged(rearm, kept)).toBeUndefined();
+  const fellBack = timeline(
+    [0, "content 0"],
+    [0, "content 0"],
     [0, "fallback"],
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(base, ok)).toBeUndefined();
-  // Pre-L2 served the committed value under the new boundary: torn by A29.
-  const committed = timeline(
+  expect(judged(rearm, fellBack)).toBe("MH8");
+  // Same with `on` when nothing outside reads the hold.
+  expect(judged({ ...rearm, anchor: false }, fellBack)).toBeUndefined();
+  expect(judged({ ...rearm, anchor: false }, kept)).toBe("MH1");
+});
+
+test("a re-armed tree whose Show mounts a direct render-effect read: a stale reader, nothing waits", () => {
+  const rearm = { ...base, family: "rearm-mount" as const, content: "direct" as const };
+  const shown = timeline(
     [0, "closed"],
     [0, "closed"],
     [0, "content 0"],
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(base, committed)).toBe("MH1");
-  // The whole mount held with the tick (L2's in-flush #3540 regression).
-  const held = timeline(
+  expect(judged(rearm, shown)).toBeUndefined();
+  expect(judged({ ...rearm, anchor: false }, shown)).toBeUndefined();
+  expect(judged({ ...rearm, show: "memo" }, shown)).toBe("MH8");
+  const fellBack = timeline(
     [0, "closed"],
     [0, "closed"],
-    [0, "closed"],
+    [0, "fallback"],
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(base, held)).toBe("MH1");
+  expect(judged(rearm, fellBack)).toBe("MH8");
 });
 
-test("the direction rule: a hold does not wait on a first load the boundary owns", () => {
+test("an uncommitted outside read: its own catcher shows the fallback, not the inner boundary", () => {
+  const c: MountCase = { ...base, anchor: false, content: "nested", outerRead: true };
+  const outer = timeline(
+    [0, "closed"],
+    [0, "closed"],
+    [0, "outer fallback"],
+    [1, "[content 1]"],
+    [1, "[content 1]"]
+  );
+  expect(judged(c, outer)).toBeUndefined();
+  const inner = timeline(
+    [0, "closed"],
+    [0, "closed"],
+    [0, "[fallback]"],
+    [1, "[content 1]"],
+    [1, "[content 1]"]
+  );
+  expect(judged(c, inner)).toBe("MH1");
+  expect(judged({ ...c, outerRead: false }, inner)).toBeUndefined();
+});
+
+test("the direction rule: after the outside hold releases, a first load shows the inner fallback", () => {
   const c = { ...base, ownLoad: true };
   const ok = timeline(
     [0, "closed"],
     [0, "closed"],
-    [0, "fallback"],
+    [0, "closed"],
     [1, "fallback"],
     [1, "content 1"]
   );
@@ -81,11 +156,25 @@ test("the direction rule: a hold does not wait on a first load the boundary owns
   const waited = timeline(
     [0, "closed"],
     [0, "closed"],
-    [0, "fallback"],
+    [0, "closed"],
+    [0, "closed"],
+    [1, "content 1"]
+  );
+  expect(judged(c, waited)).toBe("MH1");
+  const held = timeline(
+    [0, "closed"],
+    [0, "closed"],
+    [0, "closed"],
     [0, "fallback"],
     [1, "content 1"]
   );
-  expect(judged(c, waited)).toBe("MH3");
+  expect(judged(c, held)).toBe("MH3");
+});
+
+test("verdict mounts are unruled under the outside-read ruling", () => {
+  const verdict = { ...base, family: "verdict" as const, trigger: "hold" as const };
+  expect(unruled(verdict)).toBeDefined();
+  expect(expectations(verdict)).toEqual([]);
 });
 
 test("no tearing: an element without its binding, and content from another world, fail everywhere", () => {
@@ -191,4 +280,6 @@ test("generated cases are valid and deterministic per seed", () => {
   for (const c of a) expect(validateMountCase(c), JSON.stringify(c)).toBeUndefined();
   const families = new Set(a.map(c => c.family));
   expect(families.size).toBe(10);
+  expect(a.some(c => c.anchor === false)).toBe(true);
+  expect(a.some(c => c.outerRead)).toBe(true);
 });

@@ -243,7 +243,7 @@ work/observation; and an optimistic proposal versus an ordinary update while its
 parent remains held. Read the preconditions in `equivalence.ts`. An unsupported
 comparison should be inapplicable, not forced into a false equivalence.
 
-### `mount-under-hold` (rule revision 20, MH1–MH7)
+### `mount-under-hold` (rule revision 21, MH1–MH8)
 
 This cohort does not use the scenario language. Each case is a small
 `MountCase` record ([mount-cases.ts](mount-cases.ts)) that
@@ -269,9 +269,27 @@ The oracle encodes only ruled behavior: A29 and its boundary exemption, the
 fallback, and no hold waits for it), the direction rule (a hold never waits on
 never-committed work), the lane rule (a lane sees the screen plus its own
 guesses, and a verdict lane's mounts stay mainline), and no tearing.
+
+Revision 21 adds the 2026-10-06 outside-read ruling. A boundary shows its own
+fallback for a source only when nothing outside it reads that source, or
+anything in the same transition. Every case used to create a screen anchor: a
+committed render effect outside every boundary that reads the held source. That
+anchor is an outside read. With it, the hold keeps a re-armed boundary's old
+content and a fresh mount closed, and the inner fallback must not show (MH8).
+Content still loading after the release may then show the inner fallback.
+Fresh and re-arm cases are now also generated without the anchor
+(`anchor: false`), where MH1's fallback-now timeline still applies. For an
+action hold, the screen value is then an untracked top-level read; for a flight
+hold, it is not observed. Nested fresh content can add an uncommitted read in
+the outer boundary (`outerRead`): its own catcher, the outer boundary, shows
+the fallback. These dimensions draw from a second random stream, so case _i_
+keeps every revision-20 field.
+
 `unruled()` lists the shapes it does not judge beyond tearing and final
 convergence:
 
+- verdict mounts (whether a `latest()` control is an outside read that holds,
+  and what its slot shows while the content waits);
 - same-tick mounts (the SPEC's "not yet one-way" item);
 - a revealed boundary under an `on`-re-armed ancestor;
 - an own first load under a revealed boundary or no boundary;
