@@ -612,7 +612,12 @@ export class GlobalQueue implements IQueue {
     | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
     | undefined;
   declare static _laneStage:
-    | ((el: Computed<any>, l: Transaction, create: boolean, errored: boolean) => boolean)
+    | ((
+        el: Computed<any>,
+        l: Transaction,
+        create: boolean,
+        errored: boolean | Computed<any>
+      ) => boolean)
     | undefined;
   declare static _laneOutcome:
     | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
@@ -643,7 +648,7 @@ export class GlobalQueue implements IQueue {
   declare static _lanesBlocked: ((t: Transaction) => boolean) | undefined;
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Verdicts (verdict.ts).
-  declare static _observeFlight: ((c: Computed<any>, el: Computed<any>) => void) | undefined;
+  declare static _observeFlight: ((c: Computed<any>, el: Computed<any>) => boolean) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
   declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
   /** Store (store/store.ts): fold the pending backings whose container
