@@ -373,21 +373,6 @@ export function getFrameHost() {
   return sharedHost;
 }
 
-/** Resolve Solid JSX slot content (thunks, arrays, primitives) to nodes. */
-function normalizeSlotContent(value: any): Node | Node[] {
-  while (typeof value === "function") value = value();
-  if (Array.isArray(value)) {
-    const out: Node[] = [];
-    for (const v of value) {
-      const n = normalizeSlotContent(v);
-      Array.isArray(n) ? out.push(...n) : out.push(n);
-    }
-    return out;
-  }
-  if (value == null || typeof value === "boolean") return document.createTextNode("");
-  return value instanceof Node ? value : document.createTextNode(String(value));
-}
-
 /**
  * The stable component minted once per boundary. Every mount creates its own
  * frame instance under the boundary id (mounting the same server component
@@ -419,8 +404,19 @@ type ClaimScope = { registry?: Map<string, object>; gather?: (key: string) => vo
  * chain, finds its pending `<key>_fr` registration, and resumes into the
  * swapped content instead of re-rendering over a fragment nobody owns.
  * Plain render on a page that never hydrated (CSR boot, post-load streams).
+ *
+ * `bound`: the second window of one fill — the `insert` of what the first
+ * evaluated. It claims under the same prefix but gathers nothing: the
+ * first window's gather is still in the registry, and gathering again
+ * would put the keys the evaluation already claimed back as unclaimed.
  */
-function claimRender(prefix: string, existing: Node[], render: () => any, scope?: ClaimScope) {
+function claimRender(
+  prefix: string,
+  existing: Node[],
+  render: () => any,
+  scope?: ClaimScope,
+  bound?: boolean
+) {
   const sc: any = sharedConfig;
   // No window, or no registry gathered yet (no `hydrate()` pass has run):
   // nothing to claim against — render fresh over the markup.
@@ -429,7 +425,9 @@ function claimRender(prefix: string, existing: Node[], render: () => any, scope?
   sc.claimRoots = existing;
   try {
     // The claim owner too: the window claims this fill's subtree only.
-    return runWithOwner(createOwner({ id: prefix }), () => sc.hydrateWindow(prefix, render, scope));
+    return runWithOwner(createOwner({ id: prefix }), () =>
+      sc.hydrateWindow(bound ? undefined : prefix, render, scope)
+    );
   } finally {
     sc.claimRoots = prevRoots;
   }
@@ -573,15 +571,6 @@ function slotArgsProxy(args: () => Record<string, any>) {
   );
 }
 
-/** Whether a resolved slot value is reactive at the top level. */
-function isReactiveContent(value: any): boolean {
-  if (typeof value === "function") return true;
-  if (Array.isArray(value)) {
-    for (const v of value) if (isReactiveContent(v)) return true;
-  }
-  return false;
-}
-
 /**
  * The slot fills of a boundary. `scope` (adopted boundaries): the
  * registry/gather pair the boundary adopted under, for its occurrences'
@@ -594,10 +583,9 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
   // cleanup: a fill's `onCleanup` and effects live and die with the
   // occurrence — a later response dropping it disposes right there — not
   // with the covering boundary, which outlives every occurrence it covers.
-  // A live range binding (the reactive-content path below) is the same
-  // scope: the `insert` lives under the fill's owner where there is one,
-  // under an owner of its own otherwise, so one map disposes whichever path
-  // the previous invocation took.
+  // The range binding (the `insert` below) is the same scope: it lives
+  // under the fill's owner where there is one, under an owner of its own
+  // otherwise, so one map disposes the previous invocation whole.
   const fillScopes = new Map<string, { dispose(): void }>();
   return new Proxy(
     {},
@@ -609,8 +597,8 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // A re-call replaces the invocation wholesale (the frame only
           // runs slot cleanups at unmount, not between re-calls): the
           // outgoing fill's scope — its binding included — disposes before
-          // the incoming one renders, so a static re-call after a reactive
-          // one never leaves a binding fighting the frame for the range.
+          // the incoming one renders, so two bindings never fight for the
+          // range.
           const prevFill = key !== undefined && fillScopes.get(key);
           if (prevFill) {
             fillScopes.delete(key);
@@ -656,6 +644,12 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
             });
             return undefined;
           }
+          // A range occurrence without its end marker has no anchor to bind
+          // before (the document is corrupted — `FRAME_MARKER_CORRUPTED`,
+          // reported at discovery): the range is left as the server
+          // rendered it.
+          const range = ctx && ctx.range;
+          if (!range) return undefined;
           // Stream-mounted fills (no ambient owner at invocation — the frame
           // called from a chunk microtask) render under a PER-OCCURRENCE
           // owner whose disposal rides the frame's occurrence-level cleanup:
@@ -669,7 +663,8 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // computation — already owns the fill with the right lifetime (a
           // pending fill's nodes are legitimately detached while its
           // covering boundary shows the fallback; the boundary, not a frame
-          // cleanup, decides when that render is done with).
+          // cleanup, decides when that render is done with). Their range
+          // binding gets an owner of its own below.
           const fillOwner = streamInvoke ? createOwner() : null;
           if (fillOwner && key !== undefined && ctx) {
             fillScopes.set(key, fillOwner);
@@ -678,20 +673,6 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
               fillOwner.dispose();
             });
           }
-          // A render whose output is already inside the range (hydration
-          // claims: the nodes ARE the server-rendered DOM) is a CLAIM —
-          // return undefined per the frame contract so nothing moves.
-          const settle = (out: Node | Node[]) => {
-            const existing: Node[] = (ctx && ctx.existing) || [];
-            if (existing.length) {
-              const list = Array.isArray(out) ? out : [out];
-              const inPlace = list.every(n =>
-                existing.some(e => e === n || (e.nodeType === 1 && (e as Element).contains(n)))
-              );
-              if (inPlace) return undefined;
-            }
-            return out;
-          };
           // The prop is read INSIDE the claim scope: compiled component props
           // are getters, so JSX evaluates lazily at access — deferring the
           // access into the scoped owner is what makes plain JSX (no thunks)
@@ -751,66 +732,58 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
             : adopted
               ? claimRender(prefix, ctx.existing, evaluate, scope)
               : evaluate();
-          // Static content (the common case: render props returning component
-          // roots, plain JSX with no top-level control flow): today's
-          // zero-cost path — claim in place or hand the frame the nodes. No
-          // effect is created and hydration stays a no-op.
-          if (!isReactiveContent(value)) {
-            return settle(normalizeSlotContent(value));
-          }
-          // Reactive content (a boundary accessor, route children): snapshot-
-          // ting it would freeze ONE state of it into the range, so own the
-          // range instead — bind the value before the range's end marker with
-          // insert() (the same primitive compiled JSX uses for `{expr}`
-          // positions) and return undefined so the frame leaves the interior
-          // alone. `existing` seeds insert's tracked array: an accessor that
-          // yields the claimed nodes reconciles to a zero-mutation no-op, one
-          // that yields new content swaps it in place.
+          // Every fill is one `insert` before the range's end marker — the
+          // primitive compiled JSX uses for `{expr}` positions — so the
+          // fill's output has the core's lifecycle, not a frame-side copy of
+          // it: a static value (the common case — a component root, plain
+          // JSX) is placed once with no effect created; a reactive one (a
+          // boundary accessor, route children) binds the range and follows
+          // (a snapshot would freeze ONE state of it); an adopted fill
+          // claims through `insertExpression`'s claim pass — nothing moves,
+          // and a render whose nodes never entered the DOM is the core's
+          // hydration mismatch (the server's nodes stay, hydration reports
+          // them unclaimed; C1) — disposal is the owner's. `existing` seeds
+          // insert's tracked array: output that IS the claimed nodes is a
+          // zero-mutation no-op, a stream re-call reconciles its new output
+          // against the previous one.
           //
-          // The claim scope wraps the insert CALL, not the accessor: the
-          // binding's first evaluation is insert's own render effect computing
-          // synchronously, so it still creates under the producer's hydration
-          // keys — boundary-deferred children (route content behind
-          // <Loading>) create on that read — while the reads it makes belong
-          // to the effect and stay tracked. Claiming inside the accessor
-          // instead put that first read inside runWithOwner's UNTRACKED window
-          // (it clears `tracking` along with the owner). Whenever the value it
-          // returned was not itself an accessor for insert to re-read — a
-          // <Loading> answering a still-pending streamed fragment returns its
-          // fallback NODES — the effect ended up with no dependency at all and
-          // the range went permanently inert: the boundary's own resume still
-          // claimed the swapped-in server markup, so the region looked right,
-          // but nothing downstream (a route change out of it) ever re-rendered
-          // it again.
-          if (ctx && ctx.range) {
-            const source = value;
-            // The binding's owner: the fill's own (a stream-mounted fill,
-            // already in `fillScopes` with its cleanup), else one minted
-            // here and registered the same way.
-            const owner = fillOwner || createOwner();
-            if (!fillOwner) {
-              fillScopes.set(key, owner);
-              ctx.onCleanup(() => {
-                if (fillScopes.get(key) === owner) fillScopes.delete(key);
-                owner.dispose();
-              });
-            }
-            const end = ctx.range.end;
-            const bind = () =>
-              insert(
-                end.parentNode as any,
-                () => (typeof source === "function" ? source() : source),
-                end,
-                [...ctx.existing]
-              );
-            runWithOwner(owner, () =>
-              adopted ? claimRender(prefix, ctx.existing, bind, scope) : bind()
-            );
-            return undefined;
+          // The claim scope wraps the insert CALL, not the accessor: a
+          // reactive value's first evaluation is insert's own render effect
+          // computing synchronously, so it still creates under the
+          // producer's hydration keys — boundary-deferred children (route
+          // content behind <Loading>) create on that read — while the reads
+          // it makes belong to the effect and stay tracked. Claiming inside
+          // the accessor instead put that first read inside runWithOwner's
+          // UNTRACKED window (it clears `tracking` along with the owner).
+          // Whenever the value it returned was not itself an accessor for
+          // insert to re-read — a <Loading> answering a still-pending
+          // streamed fragment returns its fallback NODES — the effect ended
+          // up with no dependency at all and the range went permanently
+          // inert: the boundary's own resume still claimed the swapped-in
+          // server markup, so the region looked right, but nothing
+          // downstream (a route change out of it) ever re-rendered it again.
+          //
+          // The binding's owner: the fill's own (a stream-mounted fill,
+          // already in `fillScopes` with its cleanup), else one minted here
+          // and registered the same way — TRANSPARENT, so a fill mounting
+          // inside the hydrate pass consumes no id from the adopting
+          // component's counter (a keyed sibling after the frame keys the
+          // same whether a fill mounted at t=0 or after a hold; the claim
+          // window below has its own id).
+          const owner = fillOwner || createOwner({ transparent: true });
+          if (!fillOwner) {
+            fillScopes.set(key, owner);
+            ctx.onCleanup(() => {
+              if (fillScopes.get(key) === owner) fillScopes.delete(key);
+              owner.dispose();
+            });
           }
-          // No range handle (a consumer-constructed frame without markers):
-          // static placement is the only option — degrade to the snapshot.
-          return settle(normalizeSlotContent(value));
+          const end = range.end;
+          const bind = () => insert(end.parentNode as any, value, end, [...ctx.existing]);
+          runWithOwner(owner, () =>
+            adopted ? claimRender(prefix, ctx.existing, bind, scope, true) : bind()
+          );
+          return undefined;
         };
       }
     }

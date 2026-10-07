@@ -12,8 +12,10 @@
  *
  * Mechanism meant to carry it: frames/src/client.ts `claimRender` (the
  * range-scoped registry handed over from the root registry), `slotsFor`'s
- * `settle` (in-place output → a claim, anything else → the frame replaces),
- * frames/src/frame-client.ts `FrameImpl.#replaceRange`, client.ts
+ * `insert` of the fill's output inside the claim window (web/src/client.ts
+ * `insertExpression`'s claim pass: in-place output is a claim, a render
+ * whose nodes never entered the DOM is the core's hydration mismatch — the
+ * server's nodes stay and hydration reports them unclaimed), client.ts
  * `adoptBoundary` + `claimedBoundaries` (one adopter per element) and
  * `documentBoundary` (a second mount of a claimed id goes fresh).
  */
@@ -83,10 +85,14 @@ describe("C1 — claim once, or replace, never both, never twice", () => {
   });
 
   // Arm (b): one occurrence claims, its sibling's fill answers with FRESH
-  // nodes (built outside the claim walk). The frame must replace that range
-  // wholesale — the server node leaves the document, nothing is duplicated
-  // — while the claiming sibling is untouched.
-  test("(b) a fill returning fresh nodes replaces its range; no server node of the range is left beside the clone", async () => {
+  // nodes (built outside the claim walk). The fill is placed by `insert`
+  // (residue step 3), so this is the core's hydration mismatch and takes
+  // the core's rule: a claim pass moves nothing — the server node stays in
+  // place, the fresh render is dropped, nothing is duplicated — and
+  // hydration reports the node left unclaimed. (Before residue step 3 the
+  // frame placed the fill's output itself and replaced the range.) The
+  // claiming sibling is untouched either way.
+  test("(b) a fill returning fresh nodes at the claim is a hydration mismatch: the server node stays, nothing is duplicated, hydration reports it", async () => {
     const fid = freshFid("c1b");
     page = bootPage(
       frameHtml(
@@ -128,11 +134,12 @@ describe("C1 — claim once, or replace, never both, never twice", () => {
     const lis = [...page.container.querySelectorAll("li")];
     expect(lis.length).toBe(2);
     expect(lis[0]).toBe(serverOne);
-    expect(lis[1]).not.toBe(serverTwo);
-    expect(lis[1].className).toBe("fresh");
-    expect(serverTwo.isConnected).toBe(false);
-    expect(page.container.textContent).toBe("onefresh:two");
-    expect(page.warnings).toEqual([]);
+    expect(lis[1]).toBe(serverTwo);
+    expect(page.container.querySelector(".fresh")).toBeNull();
+    expect(page.container.textContent).toBe("onetwo");
+    expect(page.warnings.length).toBe(1);
+    expect(page.warnings[0]).toContain("unclaimed");
+    expect(page.warnings[0]).toContain(`sc-${fid}-item#1-`);
     expect(page.errors).toEqual([]);
     dispose();
   });

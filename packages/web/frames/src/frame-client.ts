@@ -194,17 +194,17 @@ export interface SlotContext {
   /**
    * The range's current interior — server-rendered client content on an
    * adopted document-SSR boot, or the previous output on a re-call. A
-   * framework binding hydrates onto it and returns `undefined` to claim it
-   * in place (zero DOM mutation).
+   * framework binding hydrates onto it (a claim: zero DOM mutation) or
+   * replaces it.
    */
   existing: ChildNode[];
   /**
-   * The range's own marker comments, when the occurrence has a placed range.
-   * A framework binding whose slot content is reactive at the top level (a
-   * boundary accessor, changing route children) owns the interior instead of
-   * returning nodes: bind before `end` with the framework's insert primitive
-   * and return `undefined` — the frame leaves the range alone (server morphs
-   * already protect slot ranges).
+   * The range's own marker comments, when the occurrence has a placed range
+   * — the anchor the fill owns its interior through: bind or place the
+   * output before `end` (over `existing`) with the framework's insert
+   * primitive. The frame never touches a range's interior itself (server
+   * morphs protect slot ranges). Absent for a binding-slot occurrence
+   * (`positions`) and for a range whose end marker is missing.
    */
   range?: { start: Comment; end: Comment };
 }
@@ -213,11 +213,13 @@ export interface SlotContext {
  * Client content for a server-declared slot. Direct-insert occurrences
  * call it with empty props; render-prop occurrences pass the occurrence's
  * resolved args (primitives literal, `{$ref}` data resolved through the
- * host, `{$frame}` regions as marker-range fragments). Return nodes to fill
- * the range, or `undefined` to claim `ctx.existing` untouched.
+ * host, `{$frame}` regions as frame elements). The fill owns its range: it
+ * places or binds its output before `ctx.range.end`, over `ctx.existing`
+ * (claimed in place on hydration), and disposes it through `ctx.onCleanup`.
+ * The return value is not read.
  * @experimental
  */
-export type Slot = (props: Record<string, unknown>, ctx: SlotContext) => Node | Node[] | undefined;
+export type Slot = (props: Record<string, unknown>, ctx: SlotContext) => void;
 
 /** @experimental */
 export interface Frame {
@@ -426,7 +428,8 @@ export interface FrameOptions {
  * replay, so application is prerequisite-driven and order-independent by
  * construction:
  *
- *   - root HTML apply into a boundary (element or comment-marker range)
+ *   - root HTML apply into a boundary ELEMENT (the frame's range is the
+ *     element's children — `createFrame` / `createFrameElement`)
  *   - version as a stale-guard only ("policy A": a newer version morphs in
  *     place; client slots/regions and their state survive — teardown is
  *     dispose(), never a version bump)
@@ -435,7 +438,9 @@ export interface FrameOptions {
  *     slot ranges and fragment placeholders
  *   - the slot model: direct-insert and render-function slots as one callback
  *     primitive, iteration by occurrence id, re-call on args change, slot
- *     resolution threaded down through nested frames
+ *     resolution threaded down through nested frames; the fill OWNS its
+ *     range (it places or binds its output before the range's end marker —
+ *     the frame discovers ranges and invokes, it never writes an interior)
  *
  * Adaptations from the spike:
  *   - Fragment placeholders use the document marker vocabulary emitted by
@@ -1215,14 +1220,10 @@ const carriesTrace = value =>
 const needsTrace = args => !tierLoads.trace?.r && carriesTrace(args) && !tierReady("trace");
 
 class FrameImpl {
-  // A frame renders either into an element (element boundary: #start/#end
-  // null) or between two comment markers within some parent (range boundary).
-  // The parent of a range boundary is derived live from the start marker, so
-  // the range can be moved (e.g. re-placed by a client re-call) without
-  // rebinding.
+  // A frame renders INTO an element: the boundary / region element is the
+  // range (its children are the content), so it moves with the element and
+  // needs no markers of its own.
   #element;
-  #start;
-  #end;
   #options;
   // The frame this one is a region OF (`options.parent`, set by the regions
   // tier at bind): slot callbacks, records and record removal thread up
@@ -1270,8 +1271,8 @@ class FrameImpl {
   // mount and the mount's rebind callback (`ctx.onRebind`) are the BIND
   // TIER's (`@solidjs/web/frames/bind`, plan C6), kept by that module per
   // frame (`sync` / `rebinder` / `unmount` off `tierLoads.bind.r`).
-  // Nor the mounts' output nodes: the range IS the occurrence's place
-  // (`#replaceRange` writes between its markers), and nothing reads the
+  // Nor the mounts' output: the fill owns its range (it places or binds
+  // before the end marker through `ctx.range`), and nothing reads the
   // nodes back — "mounted" is `#mountedSlots`, not a check on them.
   // The release of the frame's hold with the integration while a sync
   // leaves an occurrence waiting to mount (see #syncSlots' end).
@@ -1305,10 +1306,8 @@ class FrameImpl {
     return scope ? scope(fn) : fn();
   }
 
-  constructor(element, start, end, options = {}) {
+  constructor(element, options = {}) {
     this.#element = element;
-    this.#start = start;
-    this.#end = end;
     this.#options = options;
     this.#slots = options.slots;
     this.#outer = options.parent;
@@ -1338,15 +1337,10 @@ class FrameImpl {
     if (options.adopt && this.#version === undefined) this.#syncSlots();
   }
 
-  /** The node content lives in (element itself, or the range markers' parent). */
-  #parent() {
-    return this.#element ?? this.#start.parentNode;
-  }
-
   /** Server content landed: caller hook + the bubbling document notification. */
   #applied(version, reason) {
     this.#options.onApply?.({ version, reason });
-    const parent = this.#parent();
+    const parent = this.#element;
     // Construct from the element's own realm — a cross-realm CustomEvent
     // (e.g. Node's global against a JSDOM document) is rejected by dispatch.
     const Ev = parent && (parent.ownerDocument || parent).defaultView?.CustomEvent;
@@ -1358,11 +1352,6 @@ class FrameImpl {
         })
       );
     }
-  }
-
-  /** First content node (or `#end`/null when empty). */
-  #firstContent() {
-    return this.#start ? this.#start.nextSibling : this.#parent().firstChild;
   }
 
   get version() {
@@ -1760,11 +1749,11 @@ class FrameImpl {
       if (!mounted) {
         // Direct-insert occurrences have no `slot:<id>` record and mount with
         // empty props; render-function occurrences mount with resolved props.
-        // Mounting replaces the range interior: on a fresh stream it is
-        // empty, but an adopted document-SSR range already holds the
-        // server-rendered client content — a callback that returns nodes
-        // replaces it (client render), one that returns undefined claims it
-        // in place (hydration attach; the DOM is untouched).
+        // The fill owns the range interior (`ctx.range`, `ctx.existing`): on
+        // a fresh stream it is empty, but an adopted document-SSR range
+        // already holds the server-rendered client content — the fill
+        // claims it in place (hydration attach; the DOM is untouched) or
+        // replaces it (client render).
         // In an adopt frame, a MOUNT is the hydration attach — whether the
         // constructor sync or a registration-flush drain (t=0 records
         // buffered before adoption) triggered it. ctx.adopted lets
@@ -1787,26 +1776,15 @@ class FrameImpl {
         const held = this.#heldRecords.get(occurrence);
         this.#heldRecords.delete(occurrence);
         const mountRecord = held || record;
-        const nodes = this.#invokeSlot(
-          occurrence,
-          callback,
-          mountRecord,
-          start,
-          this.#options.adopt
-        );
-        // A data occurrence's mount never returns nodes to place; its
-        // consumer set is handed to the tier (`sync`), which keeps it per
-        // frame for the rebind below.
+        this.#invokeSlot(occurrence, callback, mountRecord, start, this.#options.adopt);
+        // A data occurrence's consumer set is handed to the tier (`sync`),
+        // which keeps it per frame for the rebind below.
         if (consumers) B.sync(this, occurrence, consumers);
-        else if (nodes) this.#replaceRange(occurrence, start, nodes);
         this.#mountedSlots.add(occurrence);
         // Bind the occurrence's regions (the tier): a frame over each region
-        // element — those #resolveArgs minted or found, plus a re-scan of
-        // the fill's OUTPUT when it wrote one (`nodes`): a claim on the
-        // adopt path left the interior untouched, so the pre-invoke
-        // discovery already saw everything — the repeat walk (per
-        // occurrence, over a large adopted tree) is skipped.
-        R?.bind(this, occurrence, nodes && start);
+        // element #resolveArgs minted or — on the adopt path — discovered in
+        // the interior before the fill ran.
+        R?.bind(this, occurrence);
         if (mountRecord === record || !record || record.kind !== "slot") continue;
       }
       // A mounted data occurrence whose CONSUMERS changed — a morph replaced
@@ -1854,10 +1832,9 @@ class FrameImpl {
           continue;
         }
         // Args changed (incl. late args): re-call this occurrence only,
-        // reusing its cached server-content regions. Same contract: an
-        // undefined return keeps the current interior.
-        const nodes = this.#invokeSlot(occurrence, callback, record, start);
-        if (!consumers && nodes) this.#replaceRange(occurrence, start, nodes);
+        // reusing its cached server-content regions; the fill replaces its
+        // previous output (`ctx.existing`) over the same range.
+        this.#invokeSlot(occurrence, callback, record, start);
         R?.bind(this, occurrence);
       }
     }
@@ -1901,9 +1878,8 @@ class FrameImpl {
    * Invoke a slot occurrence's callback with resolved props. `ctx.existing`
    * carries the range's current interior (server-rendered client content on
    * an adopted document-SSR boot; the previous output on a re-call) so a
-   * framework binding can hydrate onto it. Returns the nodes to place, or
-   * null when the callback returned undefined — "I claimed the existing DOM,
-   * leave the range alone".
+   * framework binding can hydrate onto it, `ctx.range` the markers it
+   * places or binds its output within. The frame never writes an interior.
    */
   #invokeSlot(occurrence, callback, record, start, adopted) {
     // A (re-)call replaces the occurrence's binding wholesale: drop the old
@@ -1912,9 +1888,9 @@ class FrameImpl {
     this.#slotUpdaters.delete(occurrence);
     const cleanups = this.#slotCleanups.get(occurrence) ?? [];
     // One walk yields both the interior and the end marker. The end marker is
-    // part of the consumer contract (ctx.range): a framework binding that owns
-    // the range reactively (top-level dynamic slot content) needs an anchor to
-    // insert before — the markers are the only stable nodes in the range.
+    // the consumer contract (ctx.range): the fill owns the range and needs
+    // an anchor to insert before — the markers are the only stable nodes in
+    // the range.
     let existing = [];
     let end = null;
     // A data occurrence's node is its consumer list: no interior to collect,
@@ -1948,15 +1924,15 @@ class FrameImpl {
       // change. Registration is per-invocation; a real re-call clears it.
       onUpdate: fn => this.#slotUpdaters.set(occurrence, fn),
       existing,
-      // The range's own markers, when it has them: consumers that bind the
-      // interior reactively insert before `end` and return undefined — the
-      // frame then never touches the interior (morphs protect slot ranges).
+      // The range's own markers, when it has them: the fill places or binds
+      // its output before `end` — the frame never touches the interior
+      // (morphs protect slot ranges).
       range: end ? { start, end } : undefined,
       // Binding slot (§9.2.3): the positions of server markup that read this
       // occurrence — `[{ element, positions: [{ pos, key, name }] }]` in
-      // document order. The consumer runs the fill, writes each position
-      // from its returned object, and returns undefined (there is nothing
-      // to place). `onRebind` receives the new set when consumers change
+      // document order. The consumer runs the fill and writes each position
+      // from its returned object (there is nothing to place). `onRebind`
+      // receives the new set when consumers change
       // (a morph replaced an element; a response bound a new position)
       // without the args changing — the fill's computation survives. The
       // rebinder is kept by the bind tier (resident: positions exist only
@@ -1980,18 +1956,9 @@ class FrameImpl {
     // adopting render, but stream-driven mounts and re-calls arrive from
     // microtasks with no owner of their own — without the scope, a render
     // prop touching context works on boot and throws on the first refresh.
-    const content = this.#scoped(() => callback(props, ctx));
+    this.#scoped(() => callback(props, ctx));
     this.#slotArgs.set(occurrence, record);
     if (cleanups.length) this.#slotCleanups.set(occurrence, cleanups);
-    if (content == null) return null;
-    return Array.isArray(content) ? content : [content];
-  }
-
-  /** Replace the nodes between a slot range's start marker and its end marker. */
-  #replaceRange(key, start, nodes) {
-    const parent = start.parentNode;
-    const end = eachInRange(start, key, n => parent.removeChild(n));
-    for (const node of nodes) parent.insertBefore(node, end);
   }
 
   #unmountSlot(key) {
@@ -2065,18 +2032,14 @@ class FrameImpl {
   /** Collect this frame's own top-level slot ranges (bounded to its content),
    *  and — for the slot sync — its binding-slot elements into the same map. */
   #collectSlots(found, elements) {
-    collectSlots(this.#firstContent(), this.#end, found, elements);
+    collectSlots(this.#element.firstChild, null, found, elements);
   }
 
-  /** Find a fragment placeholder `<template id="pl-NAME">` bounded to this
-   *  frame's content, or null. */
   /** The `pl-<name>` template in `root` (a segment's content being
-   *  revealed) or, without one, in the frame's range; null when absent —
+   *  revealed) or, without one, in the frame's content; null when absent —
    *  not in the range yet, or already swapped out. */
   #findPlaceholder(name, root) {
-    return root
-      ? findPlaceholder(root.firstChild, null, placeholderId(name))
-      : findPlaceholder(this.#firstContent(), this.#end, placeholderId(name));
+    return findPlaceholder((root || this.#element).firstChild, null, placeholderId(name));
   }
 
   /**
@@ -2087,7 +2050,7 @@ class FrameImpl {
    * re-materialize from. Null when there is nothing to capture.
    */
   contentHTML() {
-    if (this.#disposed || !this.#element || !this.#hasContent) return null;
+    if (this.#disposed || !this.#hasContent) return null;
     return this.#element.innerHTML;
   }
 
@@ -2175,13 +2138,13 @@ class FrameImpl {
 
   #applyRoot(html) {
     const fragment = parseFragment(html);
-    const parent = this.#parent();
+    const parent = this.#element;
     if (!this.#hasContent) {
-      this.#clearContent();
+      parent.textContent = "";
       // Claim before insertion empties the fragment — matching compiled
       // output, which claims at creation, pre-insert.
       this.#claimTree(fragment);
-      parent.insertBefore(fragment, this.#end);
+      parent.appendChild(fragment);
       this.#hasContent = true;
     } else {
       // #claimTree self-gates on registered nav-claim handlers, so it
@@ -2202,7 +2165,7 @@ class FrameImpl {
       // never orphaned by position. Entries left over are occurrences the
       // new content dropped: detached, exactly what removal meant.
       const grafts = [];
-      reconcileChildren(parent, fragment, this.#start, this.#end, claim, ranges, grafts);
+      reconcileChildren(parent, fragment, null, null, claim, ranges, grafts);
       if (ranges.size) for (const root of grafts) flushGrafts(root, ranges);
     }
   }
@@ -2220,8 +2183,8 @@ class FrameImpl {
   #applyHole(marker, html) {
     if (!this.#hasContent) return false;
     const open = findLiveTarget(
-      this.#firstContent(),
-      this.#end,
+      this.#element.firstChild,
+      null,
       n => n.nodeType === COMMENT_NODE && n.data === marker
     );
     if (!open) return false;
@@ -2257,8 +2220,8 @@ class FrameImpl {
   #applyAttrs(addr, text, removed) {
     if (!this.#hasContent) return false;
     const el = findLiveTarget(
-      this.#firstContent(),
-      this.#end,
+      this.#element.firstChild,
+      null,
       n => n.nodeType === ELEMENT_NODE && n.getAttribute("data-lha") === addr
     );
     if (!el) return false;
@@ -2293,18 +2256,9 @@ class FrameImpl {
     return true;
   }
 
-  /** Remove the frame's current content (bounded to its range). */
-  #clearContent() {
-    removeUntil(this.#parent(), this.#firstContent(), this.#end);
-  }
-
   /** Sweep-claim the frame's existing content (the adoption path). */
   #claimContent() {
-    let n = this.#firstContent();
-    while (n && n !== this.#end) {
-      this.#claimTree(n);
-      n = n.nextSibling;
-    }
+    for (let n = this.#element.firstChild; n; n = n.nextSibling) this.#claimTree(n);
   }
 
   /**
@@ -2478,7 +2432,7 @@ class FrameImpl {
 export function createFrame(boundary: Element, options?: FrameOptions): Frame;
 
 export function createFrame(boundary, options) {
-  return new FrameImpl(boundary, null, null, options);
+  return new FrameImpl(boundary, options);
 }
 
 // The boundary/region element vocabulary — the DOM contract the producer
@@ -2529,7 +2483,7 @@ export function createFrameElement(options: FrameOptions): {
  */
 export function createFrameElement(options) {
   const el = makeFrameElement(options.id);
-  const frame = new FrameImpl(el, null, null, options);
+  const frame = new FrameImpl(el, options);
   return {
     element: el,
     frame,

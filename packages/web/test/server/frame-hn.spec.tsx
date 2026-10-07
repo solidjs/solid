@@ -40,6 +40,14 @@ import {
 tierLoaders.regions = () => import("../../frames/src/regions-tier.js");
 beforeAll(() => prepareTier("regions"));
 
+// A raw slot callback owns its range: it places its output before the
+// range's end marker over `ctx.existing` (the frame never writes an
+// interior — the Solid binding does the same through `insert`).
+function fillRange(ctx: any, node: Node) {
+  for (const n of ctx.existing) n.remove();
+  ctx.range.end.before(node);
+}
+
 type CommentData = { id: number; text: string; replies: CommentData[] };
 
 const STORIES: Record<string, { title: string; comments: CommentData[] }> = {
@@ -144,7 +152,7 @@ describe("HN slice — the no-double-serialization proof over the real wire", ()
       host,
       id: "story-pane",
       slots: {
-        comment: (p: any) => {
+        comment: (p: any, ctx: any) => {
           const wrap = document.createElement("div");
           wrap.className = "comment";
           wrap.dataset.cid = String(p.cid);
@@ -152,7 +160,7 @@ describe("HN slice — the no-double-serialization proof over the real wire", ()
           toggle.className = "collapse";
           toggle.addEventListener("click", () => wrap.classList.toggle("collapsed"));
           wrap.append(toggle, p.children);
-          return wrap;
+          fillRange(ctx, wrap);
         }
       }
     });
@@ -178,11 +186,11 @@ describe("HN slice — the no-double-serialization proof over the real wire", ()
       host,
       id: "story-pane",
       slots: {
-        comment: (p: any) => {
+        comment: (p: any, ctx: any) => {
           const wrap = document.createElement("div");
           wrap.className = "comment collapsed-by-default";
           wrap.appendChild(p.children);
-          return wrap;
+          fillRange(ctx, wrap);
         }
       }
     });

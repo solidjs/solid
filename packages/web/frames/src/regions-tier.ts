@@ -180,11 +180,11 @@ export function resolve(
 
 /**
  * Bind a frame over each of the occurrence's region elements that has none
- * yet. With `start` (the fill wrote the range: a fresh mount's output, or
- * an adopted interior the fill replaced), the output is re-scanned first —
- * a fresh mount's regions come from `resolve` during the invoke, and the
- * output may have introduced more. Bind eagerly — the region ELEMENT
- * always exists (unlike a marker range, which needs placement to count).
+ * yet — those `resolve` minted during the invoke or, on the adopt path,
+ * discovered in the interior before the fill ran (the fill owns its range
+ * through the framework's insert; the frame never reads its output back).
+ * Bind eagerly — the region ELEMENT always exists (unlike a marker range,
+ * which needs placement to count).
  * This is what makes an OCCLUDED region work: its element is created when
  * args resolve but the wrapper doesn't place it until (e.g.) expand, so it
  * must bind and fill (from buffered/streamed chunks) off-DOM, then reveal
@@ -194,8 +194,7 @@ export function resolve(
  * streamed content are filled by the same callbacks the client threaded
  * down — no global registry.
  */
-export function bind(frame: any, occurrence: string, start?: unknown): void {
-  if (start) discover(frame, occurrence, start);
+export function bind(frame: any, occurrence: string): void {
   const regions = byFrame.get(frame)?.get(occurrence);
   if (!regions) return;
   const o = frame.options;
