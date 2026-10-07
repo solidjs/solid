@@ -1806,16 +1806,12 @@ class FrameImpl {
           start,
           this.#options.adopt
         );
-        // A data occurrence's nodes are its consuming elements (so the
-        // zombie check above sees a morph that replaced them all); its mount
-        // never returns nodes to place.
-        if (consumers) {
-          this.#slotNodes.set(
-            occurrence,
-            consumers.map(c => c.element)
-          );
-          this.#slotConsumers.set(occurrence, consumers);
-        } else {
+        // A data occurrence's mount never returns nodes to place, and it
+        // keeps no `#slotNodes` entry: the zombie check above skips data
+        // occurrences (a replaced element is a consumer change, not a
+        // destroyed mount), so the entry would never be read.
+        if (consumers) this.#slotConsumers.set(occurrence, consumers);
+        else {
           if (nodes) this.#replaceRange(occurrence, start, nodes);
           this.#slotNodes.set(occurrence, nodes);
         }
@@ -1835,10 +1831,6 @@ class FrameImpl {
       // the new set. Independent of an args change, which follows below.
       if (consumers && !consumersEqual(this.#slotConsumers.get(occurrence), consumers)) {
         this.#slotConsumers.set(occurrence, consumers);
-        this.#slotNodes.set(
-          occurrence,
-          consumers.map(c => c.element)
-        );
         const rebind = this.#slotRebinders.get(occurrence);
         if (rebind) rebind(consumers);
       }
@@ -1884,12 +1876,7 @@ class FrameImpl {
         // reusing its cached server-content regions. Same contract: an
         // undefined return keeps the current interior.
         const nodes = this.#invokeSlot(occurrence, callback, record, start);
-        if (consumers)
-          this.#slotNodes.set(
-            occurrence,
-            consumers.map(c => c.element)
-          );
-        else {
+        if (!consumers) {
           if (nodes) this.#replaceRange(occurrence, start, nodes);
           this.#slotNodes.set(occurrence, nodes);
         }
