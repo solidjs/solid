@@ -18,10 +18,17 @@
  *    re-evaluates: the tier's gate requests the sheets, and the reveal is
  *    at max(tier load, stylesheet load). No frame between the fallback and
  *    the styled content.
- *  - A segment WITHOUT stylesheets never waits on the tier: it reveals
- *    with the tier absent, and a stream with no asset records never loads
- *    it. Inline styles, modules and typed preloads are not reveal-gating:
- *    they buffer in the store and apply at the install's flush.
+ *  - A segment whose record carries INLINE styles holds the same way while
+ *    the tier is absent: its `<style>` is the tier's to land (the assets
+ *    walk), so revealing before the install would be the very unstyled
+ *    window. The install's flush lands the style and reveals the segment,
+ *    in that order. Once the tier is resident inline styles never gate: the
+ *    style lands at the record's arrival and the segment reveals in the
+ *    same flush, style first.
+ *  - A segment with neither never waits on the tier: it reveals with the
+ *    tier absent, and a stream with no asset records never loads it.
+ *    Modules and typed preloads are not reveal-gating: they buffer in the
+ *    store and apply at the install's flush.
  *  - Announced: `X-Frame-Tiers: assets` starts the import before the body
  *    is read; `tiers: ["assets"]` in-band (the sink stamps the first assets
  *    chunk after the head) at the chunk; `_$HY.r["sc:tiers"]` at
@@ -36,7 +43,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { applyFrameResponse, installServerComponents } from "../../frames/src/client.js";
-import { createFrame, tierLoads } from "../../frames/src/frame-client.js";
+import { createFrame, prepareTier, tierLoads } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { createChunk } from "../../server-functions/src/shared.js";
 import {
@@ -91,6 +98,28 @@ const links = () => [...document.head.querySelectorAll<HTMLLinkElement>("link")]
 const styles = () => [...document.head.querySelectorAll<HTMLStyleElement>("style[data-asset]")];
 const load = (href: string) =>
   document.head.querySelector(`link[href="${href}"]`)!.dispatchEvent(new Event("load"));
+
+/**
+ * One observer over the head and a boundary: the order its records come in
+ * is the order of the mutations across both. `order()` is the index of the
+ * first head mutation and of the one that inserted the node with `text`.
+ */
+function observeOrder(boundary: Element) {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver(rs => records.push(...rs));
+  observer.observe(document.head, { childList: true });
+  observer.observe(boundary, { childList: true, subtree: true });
+  return (text: string) => {
+    records.push(...observer.takeRecords());
+    observer.disconnect();
+    return {
+      head: records.findIndex(r => r.target === document.head),
+      content: records.findIndex(r =>
+        [...r.addedNodes].some(n => (n as Element).textContent === text)
+      )
+    };
+  };
+}
 
 let page: Page | undefined;
 const disposers: (() => void)[] = [];
@@ -232,8 +261,100 @@ describe("the FOUC guard — a style-gated segment before the tier", () => {
   });
 });
 
+describe("inline styles — held while the tier is absent, never gating once it is resident", () => {
+  test("tier absent: an inline-only segment holds like a style-gated one; the install lands its style, then reveals it", async () => {
+    const gate = gatedAssets();
+    const WIRE = "tier-assets/inline-held";
+    const { host } = makeHost();
+    installServerComponents(host, { tiers: gate.tiers });
+    const boundary = document.createElement("div");
+    document.body.appendChild(boundary);
+    const frame = createFrame(boundary, { id: WIRE, host });
+    disposers.push(() => frame.dispose());
+    const held = heldResponse(WIRE);
+    const done = applyFrameResponse(held.response, host, { as: WIRE, version: 1 });
+    held.send({ type: "start", id: WIRE, version: 1 });
+    held.send({ type: "html", id: WIRE, version: 1, html: shell("inline") });
+    held.send({ type: "reveal", id: WIRE, version: 1, keys: ["inline"], fallback: true });
+    held.send({
+      type: "assets",
+      id: WIRE,
+      version: 1,
+      key: "inline",
+      inlineStyles: [{ id: "inline-only", content: "p{}" }]
+    });
+    held.send({ type: "fragment", id: WIRE, version: 1, key: "inline", html: "<p>inline</p>" });
+    held.send({ type: "reveal", id: WIRE, version: 1, keys: ["inline"], waitForStyles: false });
+    held.send({ type: "complete", id: WIRE, version: 1 });
+    held.close();
+    await done;
+    // Un-announced: the readiness check met the record with the tier
+    // absent — it started the load and HELD. The fallback is on screen, the
+    // content is not, and the style has not landed (it is the tier's to land).
+    expect(gate.loader).toHaveBeenCalledTimes(1);
+    expect(resident()).toBe(false);
+    expect(boundary.querySelector(".fallback")!.textContent).toBe("inline-loading");
+    expect(boundary.querySelector("p")).toBeNull();
+    expect(styles()).toEqual([]);
+    // The install's flush: the walk lands the style, then the segment
+    // reveals — one observer over both targets sees the mutations in order.
+    const order = observeOrder(boundary);
+    await gate.release();
+    await pump();
+    expect(styles().map(s => s.getAttribute("data-asset"))).toEqual(["inline-only"]);
+    expect(boundary.querySelector(".fallback")).toBeNull();
+    expect(boundary.querySelector("p")!.textContent).toBe("inline");
+    const at = order("inline");
+    expect(at.head).toBeGreaterThanOrEqual(0);
+    expect(at.content).toBeGreaterThan(at.head);
+  });
+
+  test("tier resident: an inline-only segment reveals at the record's arrival, its style landing first in the same flush", async () => {
+    const gate = gatedAssets();
+    const WIRE = "tier-assets/inline-resident";
+    const { host } = makeHost();
+    installServerComponents(host, { tiers: gate.tiers });
+    // Warm the tier ahead of the stream.
+    prepareTier("assets");
+    await gate.release();
+    await pump();
+    expect(resident()).toBe(true);
+    const boundary = document.createElement("div");
+    document.body.appendChild(boundary);
+    const frame = createFrame(boundary, { id: WIRE, host });
+    disposers.push(() => frame.dispose());
+    // The shell with the server's fallback showing.
+    frame.apply({
+      version: 1,
+      r: { "": { kind: "html", value: shell("inline") }, "seg:inline:fallback": true }
+    });
+    expect(boundary.querySelector(".fallback")!.textContent).toBe("inline-loading");
+    expect(styles()).toEqual([]);
+    // The segment's three records in ONE apply — one flush: the walk lands
+    // the style, then the reveal, with no readiness wait on the tier.
+    const order = observeOrder(boundary);
+    frame.apply({
+      version: 1,
+      r: {
+        "seg:inline:assets": { inlineStyles: [{ id: "inline-only", content: "p{}" }] },
+        "seg:inline": { kind: "html", value: "<p>inline</p>" },
+        "seg:inline:reveal": true
+      }
+    });
+    // Synchronously, before any task: asked no second time; revealed with
+    // the style, style first.
+    expect(gate.loader).toHaveBeenCalledTimes(1);
+    expect(styles().map(s => s.getAttribute("data-asset"))).toEqual(["inline-only"]);
+    expect(boundary.querySelector(".fallback")).toBeNull();
+    expect(boundary.querySelector("p")!.textContent).toBe("inline");
+    const at = order("inline");
+    expect(at.head).toBeGreaterThanOrEqual(0);
+    expect(at.content).toBeGreaterThan(at.head);
+  });
+});
+
 describe("what never waits on the tier", () => {
-  test("a segment without stylesheets reveals at once with the tier absent; one with inline styles alone reveals too, its style landing at the install", async () => {
+  test("a segment without stylesheets or inline styles reveals at once with the tier absent; styled and inline-only ones hold, revealing at the install (inline) and the sheet's load (styled)", async () => {
     const gate = gatedAssets();
     const WIRE = "tier-assets/unstyled";
     const { host } = makeHost();
@@ -283,20 +404,26 @@ describe("what never waits on the tier", () => {
     await done;
     expect(resident()).toBe(false);
     const text = () => [...boundary.querySelectorAll("p")].map(p => p.textContent);
-    // The unstyled segments revealed (the grouped reveal's `waitForStyles`
-    // is the server's note; the client reads each segment's record); the
-    // style-gated one is held on the tier.
-    expect(text()).toEqual(["plain", "inline"]);
+    // The plain segment revealed (the grouped reveal's `waitForStyles` is
+    // the server's note; the client reads each segment's record); the
+    // style-gated one and the inline-only one are held on the tier — the
+    // inline style buffers, not applied, and its segment does not show.
+    expect(text()).toEqual(["plain"]);
     expect(boundary.querySelector("template#pl-styled")).not.toBeNull();
-    expect(boundary.querySelector(".fallback")!.textContent).toBe("styled-loading");
-    // Not reveal-gating, not applied either: the inline style buffers.
+    expect(boundary.querySelector("template#pl-inline")).not.toBeNull();
+    expect([...boundary.querySelectorAll(".fallback")].map(f => f.textContent)).toEqual([
+      "styled-loading",
+      "inline-loading"
+    ]);
     expect(styles()).toEqual([]);
     await gate.release();
     await pump();
-    // The install: the inline style lands (once), the sheet is requested.
+    // The install: the inline style lands (once) and its segment reveals;
+    // the sheet is requested and the styled segment still holds on it.
     expect(styles().map(s => s.getAttribute("data-asset"))).toEqual(["inline-only"]);
     expect(links().map(l => l.getAttribute("href"))).toEqual(["/s.css"]);
     expect(text()).toEqual(["plain", "inline"]);
+    expect(boundary.querySelector(".fallback")!.textContent).toBe("styled-loading");
     load("/s.css");
     await pump();
     expect(text()).toEqual(["styled", "plain", "inline"]);

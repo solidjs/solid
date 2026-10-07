@@ -2402,11 +2402,20 @@ class FrameImpl {
     // when other prerequisites are missing, so loading overlaps the rest of
     // the stream, and re-flushes this frame when one settles. The reveal is
     // at max(tier load, stylesheet load); no segment reveals unstyled. A
-    // segment that names no stylesheet never consults the tier: inline
-    // styles, modules and preloads do not gate (they apply in the assets
-    // walk, at arrival or at the install).
+    // segment whose record carries INLINE styles holds the same way while
+    // the tier is absent — its `<style>` lands in the assets walk, which the
+    // tier performs, so revealing before the install would be the unstyled
+    // window the term exists to prevent; once the tier is resident inline
+    // styles never gate (the walk applied them at the record's arrival, in
+    // the same flush, ahead of the segments). A segment with neither never
+    // consults the tier: modules and preloads do not gate.
     const assets = this.#store[`seg:${name}:assets`];
-    if (assets && assets.styles && !tierReady("assets")?.gate(assets.styles, this)) return false;
+    if (
+      assets &&
+      (assets.styles || assets.inlineStyles) &&
+      !tierReady("assets")?.gate(assets.styles || [], this)
+    )
+      return false;
     // Structural prerequisite: the placeholder must exist in the range.
     return !!this.#findPlaceholder(name, root);
   }
@@ -2422,7 +2431,8 @@ class FrameImpl {
     // The segment's inline styles rode its assets record and landed in the
     // head at the record's arrival (the assets walk in #flush, ahead of the
     // segments), so they precede the content as the document face orders
-    // them; with the assets tier absent then, they land at its install.
+    // them; with the assets tier absent then, the segment held (#segmentReady)
+    // and they land at the install's flush, still ahead of this reveal.
     const content = this.#store[`seg:${name}`];
     const closing = rangeClose(tpl, placeholderId(name));
     if ("_SOLID_DEV_" && !closing) {

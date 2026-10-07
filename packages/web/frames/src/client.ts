@@ -79,11 +79,11 @@ tierLoaders.trace = () => import("@solidjs/web/frames/trace");
 // assets` (assets-tier.ts), loaded through the tier mechanism: the server
 // announces `assets` wherever it emits an assets chunk, and a record met
 // while the tier is absent starts the load from the readiness check. A
-// style-gated segment is NOT READY until the tier is resident and its
-// sheets have settled (the reveal-readiness term in frame-client.ts's
-// #segmentReady): the server's fallback stays on screen, no segment
-// reveals unstyled. The module's exports are the dispatch (`gate`,
-// `apply`); no install.
+// segment with stylesheets or inline styles is NOT READY until the tier is
+// resident, and one with stylesheets not until they have settled (the
+// reveal-readiness term in frame-client.ts's #segmentReady): the server's
+// fallback stays on screen, no segment reveals unstyled. The module's
+// exports are the dispatch (`gate`, `apply`); no install.
 tierLoaders.assets = () => import("@solidjs/web/frames/assets");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.

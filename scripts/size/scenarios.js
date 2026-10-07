@@ -3457,6 +3457,12 @@ module.exports = [
     // costs +508 / +131. Back under the cap for the first time since Phase A:
     // cap 13.79 KB -> 13.35 KB (measured + 10 B at the 0.01 KB step — the
     // ratchet); recorded minified 42,968 -> 41,055 B.
+    // C5 follow-up (2026-10-06): the readiness term holds a segment whose
+    // record carries INLINE styles too while the tier is absent (its
+    // `<style>` is the tier's to land — revealing before the install was the
+    // unstyled window the term exists to prevent). Measured on the edited
+    // dist first: +22 min / +14 br; built the same, 13,346 B (41,077 B
+    // minified). Within the 13.35 KB cap; recorded minified left at 41,055.
     limit: "13.35 KB",
     capMinified: 41055,
     alias: framesAlias,
@@ -3648,7 +3654,9 @@ module.exports = [
     // (120,102 B minified): -628 / -1,926 against the C3 head, -6,912 /
     // -25,655 against `next` @ 9d89df731. The head mirror leaves for the lazy
     // `assets.js` chunk (783 B brotli, reported, not counted). Cap 38.61 ->
-    // 37.98 KB (the ratchet); recorded minified 122,028 -> 120,102 B.
+    // 37.98 KB (the ratchet); recorded minified 122,028 -> 120,102 B. The C5
+    // follow-up (inline styles hold while the tier is absent): 37,969 B
+    // (120,124 B minified), +22 min / -1 br.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3783,6 +3791,8 @@ module.exports = [
     // (131,973 B minified): -496 / -1,926 against the C3 head, -6,944 /
     // -25,747 against `next` @ 9d89df731; the same cut as the base page. Cap
     // 42.16 -> 41.67 KB (the ratchet); recorded minified 133,899 -> 131,973 B.
+    // The C5 follow-up (inline styles hold while the tier is absent):
+    // 41,650 B (131,995 B minified), +22 min / -1 br.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
