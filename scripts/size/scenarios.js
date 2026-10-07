@@ -104,6 +104,29 @@ const pageAlias = {
   ...alias
 };
 
+// examples/hackernews as the harness bundles it (2026-10-07): the example's
+// `~` alias is its src/, and `@solidjs/router` is this directory's pinned
+// copy (`2.0.0-next.35`), not the `2.0.0-next.29` the example's own
+// package.json installs under examples/hackernews/node_modules — the
+// harness's router is the one whose upgrade is a recorded re-base, and the
+// scenario must not move with the workspace install. It resolves the way
+// the example's Vite build resolves it: @solidjs/vite-plugin puts the
+// `solid` export condition first, which is `dist/index.jsx` plus the
+// router's per-module output, JSX compiled by the app's compiler (here the
+// measured checkout's, hydratable, like the app's own `.tsx`). The router
+// scenarios above resolve the `default` condition, the flat `dist/index.js`
+// fallback for consumers without a Solid compiler — a different artifact:
+// its build inlines `data/events`' `import("./serverForms")`, so the
+// server-form fallback and, through it, `action` and the flight consumer
+// are eager there and a lazy chunk here. The rest is the page alias: the
+// example's `solid-js` / `@solidjs/web` / frames / server-function imports
+// route to the dists.
+const hackernewsAlias = {
+  "~": "../../examples/hackernews/src",
+  "@solidjs/router": "node_modules/@solidjs/router/dist/index.jsx",
+  ...pageAlias
+};
+
 // Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
 // `observe` export condition selects — wiring kept (attribution hook sites,
 // owner labels, edge counters, the diagnostics channel), checks folded. Its
@@ -4538,6 +4561,69 @@ module.exports = [
     limit: "47.29 KB",
     capMinified: 148668,
     alias: pageAlias
+  },
+  {
+    name: "page: hackernews (examples/hackernews client entry)",
+    // A real application's eager script: the client entry of
+    // examples/hackernews — the server-components HackerNews — as its
+    // `vite build` ships it. The fixture (fixtures/hackernews/entry.jsx) is
+    // @solidjs/vite-plugin 3.0.0-next.35's generated client entry written
+    // out (`installServerComponents()`, `hydrate()` of the plugin's document
+    // shell and default error boundary around the app); the app is the
+    // example's own src/, unchanged, compiled hydratable by the measured
+    // checkout's compiler: `createRouter` with three `defineRoute`s (six
+    // feed paths, `/stories/:id`, `/users/:id`), each with a `preload`, the
+    // instance as the root with a render-prop layout, two `<Loading>`
+    // boundaries, four server components mounted with `dynamic()` (the nav
+    // directly; the three routes through the router's `query` — the
+    // example's `"use server"` views compile, client side, to
+    // `createServerReference` proxies: the one `api.ts` module is the
+    // example's whole server-function surface), and the one client
+    // component (`Toggle`: a signal, a delegated click, `class`/`style`
+    // effects). No client stores, no `action`, no element spread. The
+    // router is resolved as the example's build resolves it (the `solid`
+    // condition; see hackernewsAlias), so its server-form fallback —
+    // `data/serverForms`, `data/action`, signals' `action` — is the lazy
+    // chunk it is in the example's build, reported and not counted. The
+    // router's own modules report as `other`; the example's as `app`.
+    // The example mounts with `dynamic()`, not #3870's `dynamicComponent`
+    // (which is not on this base); it carries `dynamic`'s string-tag
+    // branch and the spread runtime it retains, as #3870 measured.
+    // Not a floor: an inline cap.
+    // Landing (2026-10-07, next @ 49a8dca84 + #3838): measured locally at
+    // 54,557 B (176,581 B minified): signals 64,308, frames 35,009, router
+    // 22,616 (`routing.js` 6,616, `data/query.js` 3,260, `utils.js` 2,767,
+    // `routers/factory.jsx` 2,584, `data/events.js` 1,997, components
+    // 1,327, claims 1,296, history 1,045, scroll restoration 835, …), web
+    // 20,630, solid 18,097, sf 13,510, app 2,412 (the example's own
+    // modules 1,651 — `app.tsx` 505, `toggle.tsx` 426 — and the generated
+    // entry/document/error boundary 761). Lazy: the codec 6,074 B br, the
+    // router's `serverForms.js` 2,360 (`data/serverForms`, `data/action`,
+    // signals' `action`). On the flat `dist/index.js` the same page is
+    // 181,895 / 56,084: +5,314 / +1,527 for the inlined server-form
+    // fallback and what it reaches. Against `next` @ 3c1d51267 measured
+    // with this harness, 177,417 / 54,976: −836 / −419, which is the
+    // thirteen commits `next` took after this branch's base (#3849 and the
+    // signals/web fixes beside it), not this branch's. Cap at local
+    // measured + 10 B rounded up to 0.01 KB; to be confirmed against CI's
+    // measurement (Node 24) + 10 B.
+    // Re-based (2026-10-07, next @ d231b9911 — #3838 and #3860's frames
+    // tiers merged): 47,849 B (145,471 B minified): signals 41,036 (the
+    // store engine — `store/store.js`, reconcile, projection — is in the
+    // lazy `trace.js` now, 8.19 KB br; `store/utils.js` 3,425 and
+    // `store/types.js` 789 stay eager for `dynamic()`'s element arm, the
+    // lanes 5,343 + verdict 2,682 for the router's navigation core),
+    // frames 26,950, router 23,376, web 20,344, solid 17,309, sf 13,967,
+    // app 2,491. The −31,110 / −6,708 against the landing figure is
+    // `next`'s (the tiers), not this scenario's. The example still mounts
+    // with `dynamic()`; its move to `dynamicComponent` (now on `next`) is
+    // the example's own change and will show here when it lands. Cap at
+    // local measured + 10 B rounded up to 0.01 KB, same caveat.
+    path: "fixtures/hackernews/entry.jsx",
+    compile: { hydratable: true, serverFunctions: "../../examples/hackernews" },
+    limit: "47.86 KB",
+    capMinified: 145471,
+    alias: hackernewsAlias
   },
   {
     name: "server: floor (getRequestEvent + isServer)",

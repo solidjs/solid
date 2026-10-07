@@ -38,10 +38,23 @@
 // module it reaches are compiled; the output is handed to Rolldown as plain
 // JS. The compiler sees only each file's basename, so no host path can reach
 // the output and the numbers are the same on every machine.
+//
+// Example applications (2026-10-07): a compiled scenario may bundle one of
+// the repo's examples/ as an application ships it — its `.tsx` sources
+// (compiled like `.jsx`; the type annotations the JSX compiler leaves in
+// place are stripped by Rolldown, as Vite strips them) and, with
+// `compile.serverFunctions` naming the example's root, its `"use server"`
+// modules as the client build sees them: the native directive pass in
+// client mode replaces each exported function with a `createServerReference`
+// proxy and drops the server-only body and its imports, exactly what
+// @solidjs/vite-plugin does before the JSX compile. Function IDs hash the
+// root-relative path, so that output is host-independent too. A `.css`
+// import loads as an empty module (Vite extracts it to a stylesheet; none
+// of it is in the script). An example's own modules are the `app` package.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants } from "node:zlib";
 import { rolldown } from "rolldown";
@@ -61,6 +74,13 @@ export const packagesRoot = process.env.SIZE_PACKAGES_ROOT
 // package in every report: the compiled app's own bytes, separable from
 // the runtime's.
 export const fixturesRoot = join(here, "fixtures");
+// The repo's example applications; a `page: <example>` scenario bundles one
+// through its fixture entry. Like fixtures/, an example's own modules are
+// the `app` package. The example comes from this checkout even when
+// SIZE_PACKAGES_ROOT measures another's dists: the compare job measures the
+// base's runtime under the head's harness and fixtures, and the example is
+// a fixture here.
+export const examplesRoot = join(here, "..", "..", "examples");
 
 const resolvePath = p =>
   p.startsWith("../../packages/")
@@ -73,15 +93,48 @@ const resolvePath = p =>
 // (Linux CI and macOS alike), falling back to the installed platform
 // package — so no path here depends on the host.
 let compiler;
-const compile = (id, hydratable) => {
-  compiler ??= require(join(packagesRoot, "compiler", "index.js"));
-  return compiler.transform(readFileSync(id, "utf8"), {
+const loadCompiler = () => (compiler ??= require(join(packagesRoot, "compiler", "index.js")));
+const compile = (code, id, hydratable) =>
+  loadCompiler().transform(code, {
     filename: basename(id),
     generate: "dom",
     hydratable,
     dev: false
   }).code;
+
+// The `"use server"` pass, client mode, with the Vite plugin's defaults: the
+// runtime is `@solidjs/web/server-functions` (the page alias routes it to
+// the client dist), the ID hash is of the path relative to `root`, the
+// production posture. A module without the directive comes back `valid:
+// false` and is left as it is; the substring test is the plugin's own fast
+// path.
+const SERVER_FUNCTIONS_RUNTIME = "@solidjs/web/server-functions";
+const compileDirectives = (code, id, root) => {
+  if (!code.includes("use server")) return code;
+  const result = loadCompiler().transformDirectives(code, {
+    filename: id,
+    root,
+    mode: "client",
+    env: "production",
+    register: { kind: "named", name: "registerServerReference", source: SERVER_FUNCTIONS_RUNTIME },
+    create: { kind: "named", name: "createServerReference", source: SERVER_FUNCTIONS_RUNTIME }
+  });
+  return result.valid ? result.code : code;
 };
+
+// What the compile plugin loads itself: JSX/TSX everywhere (the compiler),
+// and under the server-functions root every script module (the directive
+// pass; the plugin's include is `src/**/*.{jsx,tsx,ts,js,mjs,cjs}`). The
+// output's module type tells Rolldown whether types remain to strip.
+const SCRIPT_TYPES = {
+  ".js": "js",
+  ".mjs": "js",
+  ".cjs": "js",
+  ".jsx": "js",
+  ".ts": "ts",
+  ".tsx": "ts"
+};
+const JSX_EXTENSIONS = new Set([".jsx", ".tsx"]);
 
 export const brotli = buf =>
   brotliCompressSync(buf, { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
@@ -102,17 +155,19 @@ const ENTRY = "\0scenario-entry";
 
 /**
  * Maps a module id to the package that shipped it; a compiled scenario's own
- * sources (fixtures/) are "app", anything else outside packages/ is "other".
+ * sources (fixtures/, and the examples/ an example scenario bundles) are
+ * "app", anything else outside packages/ is "other".
  */
 export function packageOf(id) {
-  if (id.startsWith(fixturesRoot)) return "app";
+  if (id.startsWith(fixturesRoot + sep) || id.startsWith(examplesRoot + sep)) return "app";
   const m = id.match(/packages\/([^/]+)\/(?:([^/]+)\/)?dist\//);
   if (!m) return "other";
   const [, pkg, sub] = m;
   return sub && sub !== "dist" ? `${pkg}/${sub}` : pkg;
 }
 export function moduleOf(id) {
-  if (id.startsWith(fixturesRoot)) return `app:${relative(fixturesRoot, id)}`;
+  if (id.startsWith(fixturesRoot + sep)) return `app:${relative(fixturesRoot, id)}`;
+  if (id.startsWith(examplesRoot + sep)) return `app:${relative(join(here, "..", ".."), id)}`;
   return id.replace(/^.*packages\//, "").replace(/\/dist\/(prod\/|observe\/)?/, ":");
 }
 
@@ -145,17 +200,29 @@ export async function bundle(scenario) {
         resolveId: id => (id === ENTRY ? ENTRY : null),
         load: id => (id === ENTRY ? synthetic : null)
       },
-      // Compiled scenarios: every `.jsx` module is compiled before Rolldown
-      // parses it, and arrives as plain JS so Rolldown's own JSX transform
-      // never runs on it.
+      // Compiled scenarios: every `.jsx`/`.tsx` module is compiled before
+      // Rolldown parses it, and arrives as JS (or type-annotated JS, which
+      // Rolldown strips) so Rolldown's own JSX transform never runs on it.
+      // Under `compile.serverFunctions` the directive pass runs first.
       ...(scenario.compile
         ? [
             {
               name: "scenario-compile",
-              load: id =>
-                id.endsWith(".jsx")
-                  ? { code: compile(id, !!scenario.compile.hydratable), moduleType: "js" }
-                  : null
+              load: id => {
+                if (id.endsWith(".css")) return { code: "", moduleType: "empty" };
+                const ext = extname(id);
+                const type = SCRIPT_TYPES[ext];
+                const jsx = JSX_EXTENSIONS.has(ext);
+                const root = scenario.compile.serverFunctions
+                  ? resolvePath(scenario.compile.serverFunctions)
+                  : null;
+                const directives = root && type && id.startsWith(root + sep);
+                if (!jsx && !directives) return null;
+                let code = readFileSync(id, "utf8");
+                if (directives) code = compileDirectives(code, id, root);
+                if (jsx) code = compile(code, id, !!scenario.compile.hydratable);
+                return { code, moduleType: type };
+              }
             }
           ]
         : [])

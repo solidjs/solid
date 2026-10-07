@@ -8,7 +8,8 @@ compiled-template scenarios — a compiled floor and a JSX todo app in CSR and
 hydrating form — the frames client as a package, two server-component PAGES:
 base and live, their two compiled counterparts — the same pages as JSX with
 the templates a real page has — the same two hand-written pages under
-`@solidjs/router`, and two server-entry floors: `getRequestEvent`/`isServer` and
+`@solidjs/router`, the client entry of `examples/hackernews` as the example's
+build ships it, and two server-entry floors: `getRequestEvent`/`isServer` and
 `renderToString`) with hard brotli limits on the eager entry chunk. CI fails
 when a scenario exceeds its limit and grew more than a small minified
 allowance over its base (see [The gate](#the-gate)) — that means tree-shaking regressed, or a deliberate
@@ -175,6 +176,41 @@ pages' rendered `web.js`). The hand-written pages stay as the frames-only
 floor (their caps are the frozen ones); the compiled pages are the number a
 real page moves by.
 
+## The example scenario
+
+`page: hackernews` bundles a real application: the client entry of
+`examples/hackernews` (the server-components HackerNews) as its `vite build`
+ships it. The fixture, `fixtures/hackernews/entry.jsx`, is
+`@solidjs/vite-plugin`'s generated client entry written out —
+`installServerComponents()`, then `hydrate()` of the plugin's document shell
+and default error boundary (the other two files beside it) around the app —
+and the app is the example's own `src/`, reached unchanged through its `~`
+alias and compiled hydratable like the other compiled scenarios. Two things
+the harness does for it that the plugin does in a Vite build: `.tsx`
+compiles like `.jsx`, with the type annotations the JSX compiler leaves in
+place stripped by Rolldown as Vite strips them, and the example's
+`"use server"` modules go through the native directive pass in client mode
+(`compile.serverFunctions` names the example's root), so each exported view
+becomes a `createServerReference` proxy and the server-only code is gone —
+the example's `api.ts` is its whole server-function surface. Its `.css`
+import loads as an empty module (Vite extracts it to a stylesheet). The
+router is this directory's pinned `@solidjs/router`, not the version the
+example's own `package.json` installs under `examples/hackernews/node_modules`
+(aliased, so the scenario does not move with the workspace install), and it
+is resolved the way the example's build resolves it: the `solid` export
+condition `@solidjs/vite-plugin` puts first — `dist/index.jsx` plus the
+router's per-module output, its JSX compiled by the measured checkout's
+compiler like the app's own. That is a different artifact from the flat
+`dist/index.js` the two router scenarios resolve (the `default` condition,
+the fallback for consumers without a Solid compiler): the flat bundle is
+built with `inlineDynamicImports`, so `data/events`' lazy
+`import("./serverForms")` — the server-form fallback, and through it
+`action` and the flight consumer — is eager there and a lazy chunk here,
+as it is in a Vite build. The example's modules report as the `app`
+package; the router's as `other`. Not a floor: an inline cap. The example
+itself is not changed for the scenario; if it changes, the scenario moves,
+which is the point.
+
 ## Frozen floor caps
 
 The three floor scenarios — the signals floor, the simple app, and the
@@ -250,3 +286,9 @@ breaks.
   `--minified-only` mode from CI's measurement of `next` @ fff1615ee (Size
   run 37443080193); every cap unchanged. The base comparison remains the fail-safe
   for a cap without a recorded minified.
+- **2026-10-07 — the example scenario.** `page: hackernews` bundles
+  `examples/hackernews`'s client entry (above). `bundle.mjs` compiles `.tsx`
+  as well as `.jsx`, runs the `"use server"` directive pass in client mode
+  under a scenario's `compile.serverFunctions` root, loads `.css` as empty,
+  and attributes an example's modules as `app`. No other scenario's number
+  moved.
