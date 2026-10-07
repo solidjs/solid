@@ -48,7 +48,12 @@ export interface Failure {
 // show the inner fallback. MH1 is narrowed to shapes with no outside read, and
 // the cohort gains cases without the screen anchor (`anchor: false`). Verdict
 // mounts become unruled. Other cohorts judge identically.
-export const ruleRevision = 21;
+// Revision 22 (2026-10-06, maintainer answer): a `latest()` read is not an
+// outside read that holds. A verdict-lane mount of a new Loading is judged by
+// the other reads present — MH8 with the committed anchor, MH1 without — and
+// is ruled again. Cases keep their fields; other families and cohorts judge
+// identically.
+export const ruleRevision = 22;
 export const rules = [
   {
     id: "A1",
@@ -164,7 +169,7 @@ export const rules = [
     id: "MH1",
     law: "A loading boundary that has not shown content, or that an `on` change re-armed, shows its own fallback for what its content waits on when nothing outside it reads that source or its transition (an uncommitted outside read's own catcher shows instead); once an outside hold releases, content still loading shows the boundary's fallback.",
     scope:
-      "mount-under-hold cohort: a new Loading mounted by a flip or a mainline root, a re-armed revealed Loading, or a boundary that appeared at a hold's commit, with no committed outside read of the held source while it is held; at the release, any of these with a first load of its own; same-tick flips and verdict mounts excluded"
+      "mount-under-hold cohort: a new Loading mounted by a flip, a mainline root or a `latest()` condition (a `latest()` read is not an outside read that holds), a re-armed revealed Loading, or a boundary that appeared at a hold's commit, with no committed outside read of the held source while it is held; at the release, any of these with a first load of its own; same-tick flips excluded"
   },
   {
     id: "MH2",
@@ -203,7 +208,7 @@ export const rules = [
     id: "MH8",
     law: "Committed work outside a boundary that reads the held source holds the transition: content inside waits with it, a re-armed boundary keeps its old content and a fresh mount stays closed, and the inner boundary does not show its fallback while that hold is open.",
     scope:
-      "mount-under-hold cohort: a new Loading mounted by a flip or a mainline root, or a re-armed revealed Loading, with the screen anchor (a committed render effect reading the held source) outside it; same-tick flips and verdict mounts excluded"
+      "mount-under-hold cohort: a new Loading mounted by a flip, a mainline root or a `latest()` condition, or a re-armed revealed Loading, with the screen anchor (a committed render effect reading the held source) outside it; same-tick flips excluded"
   }
 ] as const;
 

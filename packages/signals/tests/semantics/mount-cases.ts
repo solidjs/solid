@@ -183,6 +183,9 @@ export function expectations(c: MountCase): Check[] {
     case "fresh":
     case "rearm-mount":
     case "rearm-committed":
+    // A `latest()` condition is not an outside read that holds (rev 22): the
+    // mount is judged by the anchor alone.
+    case "verdict":
       if (staleReader(c.family)) {
         // Nothing waits under the re-armed boundary: old content or the
         // committed value, but never a fallback while the outside hold is open.
@@ -256,8 +259,6 @@ export const anchored = (c: MountCase) => c.anchor !== false;
 
 /** Shapes the rulings do not decide: invariants only. */
 export function unruled(c: MountCase): string | undefined {
-  if (c.family === "verdict")
-    return "a `latest()`-conditioned mount of a new Loading under the outside-read ruling: whether the verdict control's own read of the held source is an outside read that holds, and what the slot shows while the lane's control is on and its content waits";
   if (c.trigger === "same-tick")
     return "a flip written in the same tick as the hold's first write: whether the mount is part of the hold (A34 (1) joins a tick's writes only through a write to a held node)";
   if (c.family === "revealed-under-rearmed")

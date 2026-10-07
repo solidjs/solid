@@ -243,7 +243,7 @@ work/observation; and an optimistic proposal versus an ordinary update while its
 parent remains held. Read the preconditions in `equivalence.ts`. An unsupported
 comparison should be inapplicable, not forced into a false equivalence.
 
-### `mount-under-hold` (rule revision 21, MH1–MH8)
+### `mount-under-hold` (rule revision 22, MH1–MH8)
 
 This cohort does not use the scenario language. Each case is a small
 `MountCase` record ([mount-cases.ts](mount-cases.ts)) that
@@ -285,11 +285,13 @@ the outer boundary (`outerRead`): its own catcher, the outer boundary, shows
 the fallback. These dimensions draw from a second random stream, so case _i_
 keeps every revision-20 field.
 
+Revision 22 adds that a `latest()` read is not an outside read that holds. A
+mount triggered by `latest(x) > 0` is judged by the other reads present: MH8
+with the anchor, MH1 without it.
+
 `unruled()` lists the shapes it does not judge beyond tearing and final
 convergence:
 
-- verdict mounts (whether a `latest()` control is an outside read that holds,
-  and what its slot shows while the content waits);
 - same-tick mounts (the SPEC's "not yet one-way" item);
 - a revealed boundary under an `on`-re-armed ancestor;
 - an own first load under a revealed boundary or no boundary;

@@ -171,10 +171,38 @@ test("the direction rule: after the outside hold releases, a first load shows th
   expect(judged(c, held)).toBe("MH3");
 });
 
-test("verdict mounts are unruled under the outside-read ruling", () => {
+test("a latest() condition is not an outside read that holds (rev 22): the anchor decides", () => {
   const verdict = { ...base, family: "verdict" as const, trigger: "hold" as const };
-  expect(unruled(verdict)).toBeDefined();
-  expect(expectations(verdict)).toEqual([]);
+  expect(unruled(verdict)).toBeUndefined();
+  // The hold mounts: S1 is already the mount's checkpoint.
+  const closed = timeline(
+    [0, "closed"],
+    [0, "closed"],
+    [0, "closed"],
+    [1, "content 1"],
+    [1, "content 1"]
+  );
+  const fallback = timeline(
+    [0, "closed"],
+    [0, "fallback"],
+    [0, "fallback"],
+    [1, "content 1"],
+    [1, "content 1"]
+  );
+  const ahead = timeline(
+    [0, "closed"],
+    [0, "content 1"],
+    [0, "content 1"],
+    [1, "content 1"],
+    [1, "content 1"]
+  );
+  expect(judged(verdict, closed)).toBeUndefined();
+  expect(judged(verdict, fallback)).toBe("MH8");
+  expect(judged(verdict, ahead)).toBe("MH8");
+  const inside = { ...verdict, anchor: false };
+  expect(judged(inside, fallback)).toBeUndefined();
+  expect(judged(inside, closed)).toBe("MH1");
+  expect(judged(inside, ahead)).toBe("MH1");
 });
 
 test("no tearing: an element without its binding, and content from another world, fail everywhere", () => {
