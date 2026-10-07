@@ -3,7 +3,15 @@
 // routes — one `preload`, one lazy — the instance as the hydrated root,
 // `useNavigate` in a route component). See sc-router-app.js for why the
 // router's runtime, not just its imports, is retained.
-import { hydrate, Show, For, Loading, Errored, dynamic, createComponent } from "@solidjs/web";
+import {
+  hydrate,
+  Show,
+  For,
+  Loading,
+  Errored,
+  dynamicComponent,
+  createComponent
+} from "@solidjs/web";
 import { createSignal, createMemo, action, isPending, latest, lazy } from "solid-js";
 import { installServerComponents } from "@solidjs/web/frames";
 import { createServerReference, live, GET } from "@solidjs/web/server-functions/client";
@@ -11,7 +19,7 @@ import { createRouter, useNavigate } from "@solidjs/router";
 
 installServerComponents();
 const getStory = live(GET(createServerReference("story", "getStory")));
-const Story = dynamic(() => getStory());
+const Story = dynamicComponent(() => getStory());
 const send = action(async () => {});
 const [n, setN] = createSignal(0);
 const Page = lazy(() => import("./lazy-page.js"));

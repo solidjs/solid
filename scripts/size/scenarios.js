@@ -4320,12 +4320,21 @@ module.exports = [
     // the redirect header, `parseServerFunctionAddress`), web +1,137
     // (`takeHydrationValue`, `registerElementClaim`), solid +364
     // (`createContext`, `children`). The router standalone, with solid-js /
-    // @solidjs/web external, is 32,430 / 11,216 B. Cap at local measured +
-    // 10 B rounded up to 0.01 KB; to be confirmed against CI's measurement
-    // (Node 24) + 10 B.
+    // @solidjs/web external, is 32,430 / 11,216 B.
+    // Re-based onto `next` @ 7233451ee (#3838, 2026-10-07), after the frames
+    // tiers (#3860): measured at 45,940 B (144,082 B minified) against the
+    // base page's 33,908 (105,252) — the router's contribution +12,032 B br
+    // / +38,830 B minified, the same as at landing; the page under it is
+    // what #3860 cut. The fixture now mounts through `dynamicComponent`, the
+    // documented server-component mount the base page uses (#3870); with
+    // `dynamic` it measures 48,272 / 151,551 (+2,332 / +7,469: `dynamic`'s
+    // tag arm keeps the element runtime). The router does not retain that
+    // runtime itself — its `serverRouteComponent` helper mounts with
+    // `dynamic`, but this page does not use it. Cap at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 144,082 B (CI-confirmed).
     path: "sc-router-app.js",
-    limit: "57.02 KB",
-    capMinified: 184378,
+    limit: "45.95 KB",
+    capMinified: 144082,
     alias: pageAlias
   },
   {
@@ -4335,12 +4344,17 @@ module.exports = [
     // (188,800 B minified) against the live page's 48,527 (157,562) — the
     // router's contribution +9,716 B br / +31,238 B minified, less than on
     // the base page because the live page already carries `action` and
-    // `isPending`/`latest`, which the router retains on every page. Cap at
-    // local measured + 10 B rounded up to 0.01 KB; to be confirmed against
-    // CI's measurement (Node 24) + 10 B.
+    // `isPending`/`latest`, which the router retains on every page.
+    // Re-based onto `next` @ 7233451ee (#3838, 2026-10-07), after the frames
+    // tiers (#3860): measured at 47,197 B (148,526 B minified) against the
+    // live page's 37,512 (117,301) — the router's contribution +9,685 B br /
+    // +31,225 B minified. Mounted through `dynamicComponent` as the live page
+    // is (the base + router note); with `dynamic`: 49,475 / 155,995. Cap at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 148,526 B
+    // (CI-confirmed).
     path: "sc-live-router-app.js",
-    limit: "58.26 KB",
-    capMinified: 188800,
+    limit: "47.21 KB",
+    capMinified: 148526,
     alias: pageAlias
   },
   {
