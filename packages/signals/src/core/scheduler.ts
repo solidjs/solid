@@ -191,6 +191,12 @@ export function joinPassTx(t: Transaction, own?: unknown): void {
 export function txOf(n: Signal<any> | Computed<any>): Transaction {
   return (n._x!._transaction = resolveTx(n._x!._transaction!));
 }
+/** `t` resolved through merges while it is still parked or open; null once
+ * it has landed. */
+export function liveTx(t: Transaction): Transaction | null {
+  t = resolveTx(t);
+  return transactions.indexOf(t) !== -1 ? t : null;
+}
 export function resolveTx(t: Transaction): Transaction {
   while (t._into !== null) t = t._into;
   return t;
@@ -876,8 +882,8 @@ export class GlobalQueue implements IQueue {
     // write; #3528: a display-ahead swap before the count it is shown
     // beside). A parked frame's runs wait with its transaction instead: the
     // effect phase applies a committed frame.
-    const u = t !== null ? resolveTx(t) : null;
-    const parked = u !== null && transactions.indexOf(u) !== -1;
+    const u = t && liveTx(t);
+    const parked = u !== null;
     // Attribution hook: this flush found its transaction incomplete — its
     // writes stay staged, its runs are stashed below. Before the effect
     // phase (the lanes' display-ahead runs are the visible acknowledgers);

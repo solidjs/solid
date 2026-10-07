@@ -707,6 +707,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (wasPendingSource && !(el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)))
       settlePendingSource(el);
   }
+  // A first pass that went pending where the born-held arm would have held
+  // its value (it read a held node, or a verdict lane's mount read a staging,
+  // #3851) is born into that transaction without holding it: the hold never
+  // waits for a first load (the direction rule), but the answer lands into it
+  // while it is live (A29, #3800).
+  if (
+    create &&
+    lane === null &&
+    (joined || (prevLane && el._flags & REACTIVE_STAGED_READ)) &&
+    el._statusFlags & STATUS_PENDING
+  )
+    ext(el)._bornIn = flushTransaction ?? passTx;
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
   // `commitPendingNode` to trim, so a write to a dependency the committed
@@ -944,6 +956,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _pendingFirstChild: null,
     _pendingDisposal: null,
     _transaction: null,
+    _bornIn: null,
     _reask: false,
     _flushed: NOT_PENDING,
     _flushedAt: -1,

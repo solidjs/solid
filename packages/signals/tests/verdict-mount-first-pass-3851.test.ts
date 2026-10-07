@@ -29,7 +29,7 @@ const settle = async () => {
   }
 };
 
-async function mountUnderVerdict(contentInMemo: boolean) {
+async function mountUnderVerdict(contentInMemo: boolean | "async") {
   const [x, setX] = createSignal(0);
   let screenX: unknown;
   let slot: unknown;
@@ -46,7 +46,11 @@ async function mountUnderVerdict(contentInMemo: boolean) {
       when()
         ? untrack(() =>
             createLoadingBoundary(
-              contentInMemo ? createMemo(() => `content ${x()}`) : () => `content ${x()}`,
+              contentInMemo === "async"
+                ? createMemo(() => Promise.resolve(`content ${x()}`))
+                : contentInMemo
+                  ? createMemo(() => `content ${x()}`)
+                  : () => `content ${x()}`,
               () => "fallback"
             )
           )
@@ -91,6 +95,14 @@ describe("#3851: a verdict reader's mount stays mainline", () => {
 
   it("same with the content in a memo", async () => {
     expect(await mountUnderVerdict(true)).toEqual([
+      [0, "closed"],
+      [0, "fallback"],
+      [1, "content 1"]
+    ]);
+  });
+
+  it("same with an async content memo", async () => {
+    expect(await mountUnderVerdict("async")).toEqual([
       [0, "closed"],
       [0, "fallback"],
       [1, "content 1"]
