@@ -7152,6 +7152,13 @@ export function claimElementTree(root) {
   return root;
 }
 
+/** Server: `fn()`. No event is dispatched during SSR, so there is no interaction to join. */
+export function dispatchAsInteraction<T>(_e: Event, fn: () => T): T;
+
+export function dispatchAsInteraction(_e, fn) {
+  return fn();
+}
+
 // client-only APIs
 
 export {

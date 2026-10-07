@@ -1079,8 +1079,15 @@ attribution.markFlight(promise, startedAt?);
 // Runtime side (`OBSERVE`, present in dev and observe builds): stamp the
 // writes made synchronously inside `fn` with a user interaction. Compiled
 // event bindings do this for every handler; custom renderers and test
-// harnesses call it themselves. `fn()` when no engine is enabled.
+// harnesses call it themselves. `fn()` when no engine is enabled. Frames
+// given the same `event` are one interaction: every listener of a dispatch
+// joins the record the first one opened, which is recorded at the next task.
 OBSERVE.attribution.withInteraction({ type: "click", target: 'button#next "Next →"' }, fn);
+// A listener the web runtime did not attach (a router's `document` click
+// handler) joins the frame the runtime opened for the same event — `fn()`
+// in production builds.
+import { dispatchAsInteraction } from "@solidjs/web";
+document.addEventListener("click", e => dispatchAsInteraction(e, () => handleAnchorClick(e)));
 // A router declares a navigation around its location write — match eagerly,
 // describe by the parametrized route, then write. This is the only
 // router-specific line anywhere; the engine knows no router.
@@ -1178,11 +1185,12 @@ Known gap: handlers bound through the runtime (delegated events, and non-literal
 
 The interaction is the unit a person experiences: one click, and everything it cost until the screen had the answer. Every downstream fact is already keyed to the interaction frame — writes stamp it, re-runs trace to it through their causes, holds and navigations carry it — and `feedback().interactions` folds those by interaction _name_. `history("interaction")` keeps one `InteractionEvent` per dispatch instead (delivered on `OBSERVE.records.subscribe("interaction", …)` as it settles), with a start, an end, and the pieces attached, so a consumer building a span per interaction (an APM adapter) neither infers the end from an idle gap nor sums quantized per-run times to approximate the wall clock:
 
-- `name`, `target`, `at` — what the runtime described to `withInteraction` (`at` the event's own `timeStamp` when it was given, else the dispatch); `inputDelayMs` — the browser's queueing from `at` to the handler's entry, present when `at` predates it; `handlerMs` — the handler itself, entry to return.
+- One record per **event**, not per listener: the web runtime hands the engine the DOM event as the frame's join key (`InteractionRef.event`), so the delegated listener of every root, each runtime-attached listener and any outside listener wrapped in `dispatchAsInteraction(e, fn)` (a router's `document` click handler) add their work to the record the first one opened. That record stays joinable for the event's whole dispatch — browsers run microtasks between listeners, so it is finalized at the next task, not at a microtask — and is recorded no earlier, at the instant it settled. The same event dispatched again after that is a new interaction. A frame without an `event` (a test harness's `withInteraction`) is its own record and settles as it closes.
+- `name`, `target`, `at` — what the runtime described to `withInteraction` for the event's first frame (`at` the event's own `timeStamp` when it was given, else the dispatch); `inputDelayMs` — the browser's queueing from `at` to the first handler's entry, present when `at` predates it; `handlerMs` — the handlers themselves, the first one's entry to the last one's return.
 - `writes` — root writes attributed to the frame: the handler's, and those of frames it opened (a navigation).
 - `runs` and `created` — re-runs traced back to it, and computations _created_ in those runs or in its flushes (the "create 1,000 rows" work, which no `RerunEvent` describes); `runMs` sums the self-time of both.
 - `holds` — the `HoldEvent`s its writes waited in; `navigations` — the `NavigationEvent`s performed under it. The same objects as in `history("hold")`/`history("navigation")`.
-- `settledMs` and `outcome`, once everything is through: `idle` (the handler wrote nothing — settles as the frame closes), `committed` (its writes went through in drains no transition held — settles at the end of the last such drain), `held` (at least one write waited in a transition — settles at the last hold's commit). A navigation under it must settle first.
+- `settledMs` and `outcome`, once everything is through: `idle` (the handlers wrote nothing — settles as the last frame closes, recorded at the next task for an event's frames), `committed` (its writes went through in drains no transition held — settles at the end of the last such drain), `held` (at least one write waited in a transition — settles at the last hold's commit). A navigation under it must settle first.
 - `origin` — the frame object every downstream record carries as `interaction`; join by identity.
 
 Runs are counted while the record is open; an async landing the interaction caused that arrives after its writes committed (a fetch behind a `Loading` boundary that showed its fallback) is attributed to it on the `RerunEvent` but is not the interaction's wait — the boundary answered.
