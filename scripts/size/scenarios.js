@@ -2148,8 +2148,17 @@ module.exports = [
     // the same signals fixes as the + isPending/latest note (this app
     // retains isPending/latest). Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-07.
-    limit: "28.97 KB",
-    capMinified: 91798,
+    // Size-Exception (optimistic writes over a writable derived store, #3855,
+    // 2026-10-07): 28.97 -> 29.02 KB, measured at 29,003 B by CI (Size run
+    // 37602728903) against `next` @ fd9f381cc's 28,951 (+52 B; 33 B over the
+    // cap; +84 B minified, 91,798 -> 91,882) — `store/optimistic.ts`: the
+    // optimistic writer's baseline and draft are built from each chained
+    // link's committed frame (composing that link's guesses), not from the
+    // backing proxy, which exposes a derived store's held staging. Store
+    // engine only; every other scenario byte-identical. Cap set at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07.
+    limit: "29.02 KB",
+    capMinified: 91882,
     alias
   },
   {
