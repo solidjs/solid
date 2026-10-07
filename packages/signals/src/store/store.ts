@@ -2002,6 +2002,9 @@ const traps: ProxyHandler<StoreTarget> = {
       // Inherited: prototype getters/methods run with the proxy receiver.
       v = Reflect.get(src, key, receiver);
       if (typeof v === "function") return v; // proto methods untracked
+      // Read-through (§7b): the inner store answers an absent key too — the
+      // outer's node is a subscription point unless it carries a guess.
+      if (target.ch && src === target.v) return serveDataKey(target, key, v, src, node0, accProbe);
       // Reading a currently-absent own key subscribes to it (R12) — for any
       // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
       if (v === undefined && !inDraft(target)) {
