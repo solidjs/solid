@@ -9,6 +9,8 @@ import {
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_PLUMBING,
+  CONFIG_WIDE,
+  CONFIG_SUPERSEDES,
   CONFIG_VERDICT,
   NOT_PENDING
 } from "./constants.js";
@@ -440,8 +442,11 @@ export interface AttributionOptions {
   hotRuns?: { count: number; windowMs: number } | false;
   /**
    * Wide-scope warning: emit a diagnostic when a scope's dependency count
-   * reaches this (default 30) — the coarse-read / helper-leak signature.
-   * Re-warns only if the count then grows by another 50%. `false` disables.
+   * reaches this (default 200) — the coarse-read / helper-leak signature.
+   * Re-warns only if the count then grows by another 50%. HMR plumbing is
+   * not counted, and in dev builds the renderer's insert child-resolution
+   * pass (which must track every row's resolved child) is not judged;
+   * HUGE_FAN_IN (2000, always on) still covers both. `false` disables.
    */
   wideDeps?: number | false;
   /**
@@ -479,8 +484,8 @@ export interface AttributionOptions {
    * same code the always-on core check emits from GRAPH_SIZE_WARN_AT (2000)
    * up, with `data.write` naming the invalidation; the engine hands over to
    * the core there, so one change never carries two findings. Once per
-   * node, re-warning once the count has grown by another 500. `false`
-   * leaves only the always-on threshold.
+   * node, re-warning once the count has grown by another 500. HMR plumbing
+   * subscribers are not counted. `false` leaves only the always-on threshold.
    */
   fanOut?: number | false;
   /**
@@ -542,7 +547,9 @@ export interface AttributionOptions {
    * abandons `count` flights within `windowMs` — each superseded by the
    * next before it landed (default 3 / 1000ms: the request-per-keystroke
    * signature, every input asking again and the answers discarded). Once
-   * per window per source. `false` disables.
+   * per window per source. In dev builds a framework node that supersedes
+   * its own flights by design (a frames slot arg re-read by each re-shipped
+   * record) is not judged. `false` disables.
    */
   abandonedFlights?: { count: number; windowMs: number } | false;
   /**
@@ -645,7 +652,7 @@ const defaultOptions = {
   stacks: false,
   historyLimit: 200,
   hotRuns: { count: 120, windowMs: 1000 } as { count: number; windowMs: number } | false,
-  wideDeps: 30 as number | false,
+  wideDeps: 200 as number | false,
   hotTime: { budgetMs: 8, windowMs: 1000 } as { budgetMs: number; windowMs: number } | false,
   unstableMemos: 4 as number | false,
   wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 2, windowMs: 1000 } as
@@ -1099,13 +1106,6 @@ export function formatOrigin(origin: ChangeOrigin): string {
 }
 
 /** Record a root change (setSignal / refresh / async landing) on the node. */
-/** Live subscriber count, walked on demand — the core keeps no counter. */
-function countSubscribers(node: Signal<any> | Computed<any>): number {
-  let n = 0;
-  for (let s = node._subs; s !== null; s = s._nextSub) n++;
-  return n;
-}
-
 /**
  * HUGE_FAN_OUT from the engine's lower `fanOut` threshold (see dev.ts): a
  * committed root invalidation reaching hundreds of subscribers re-runs all
@@ -1114,6 +1114,9 @@ function countSubscribers(node: Signal<any> | Computed<any>): number {
  * was a post-construction field that forked node shapes). Stops at
  * GRAPH_SIZE_WARN_AT, where the always-on core check takes over, so the two
  * never fire for the same write; the once-per-node dedupe is the core's.
+ * HMR plumbing subscribers (the refresh memo of every mounted instance, on
+ * a component's registration signal) are not counted toward `fanOut`; the
+ * handover is on the full list, which is what the core counts.
  */
 function checkFanOut(
   node: Signal<any> | Computed<any>,
@@ -1121,8 +1124,13 @@ function checkFanOut(
 ): void {
   const limit = options.fanOut;
   if (typeof limit !== "number") return;
-  const subs = countSubscribers(node);
-  if (subs < limit || subs >= GRAPH_SIZE_WARN_AT) return;
+  let all = 0;
+  let subs = 0;
+  for (let s = node._subs; s !== null; s = s._nextSub) {
+    all++;
+    if (!(s._sub._config & CONFIG_PLUMBING)) subs++;
+  }
+  if (subs < limit || all >= GRAPH_SIZE_WARN_AT) return;
   noteFanOut(node, subs, kind);
 }
 
@@ -1212,18 +1220,25 @@ function captureDeps(el: Computed<any>): unknown[] {
 
 /**
  * Wide-scope warning — the coarse-read / helper-leak signature: one scope
- * subscribed to dozens of sources re-runs when ANY of them change. Fired from
+ * subscribed to hundreds of sources re-runs when ANY of them change. Fired from
  * recordRerun for re-runs and directly from recompute for creation runs (a
- * memo can be born too wide). Re-warns only on 50% further growth.
+ * memo can be born too wide). Re-warns only on 50% further growth. Counts
+ * what the scope's author can act on: HMR plumbing sources are not counted,
+ * and a framework scope wide by construction (CONFIG_WIDE) is not judged —
+ * the always-on HUGE_FAN_IN still is.
  */
 function checkDepWidth(el: Computed<any>): void {
   const limit = options.wideDeps;
-  if (limit === false) return;
+  // Only dev sets CONFIG_WIDE (see constants.ts).
+  if (limit === false || (__DEV__ && el._config & CONFIG_WIDE)) return;
   let count = 0;
   const names: string[] = [];
   for (let l = el._deps; l !== null; l = l._nextDep) {
-    count++;
-    if (names.length < 12) names.push(nodeName(l._dep));
+    // HMR plumbing is a dev-only hop the scope cannot read past: not a source.
+    if (!(l._dep._config & CONFIG_PLUMBING)) {
+      count++;
+      if (names.length < 12) names.push(nodeName(l._dep));
+    }
     if (l === el._depsTail) break; // the validated prefix, as captureDeps
   }
   const node = el as AttributedNode;
@@ -3229,11 +3244,14 @@ const abandonWindows = new WeakMap<
  * One source abandoning flight after flight inside a window: every input
  * asked again and the earlier answers were thrown away — the
  * request-per-keystroke signature `feedback().flights[].abandoned` counts,
- * as a finding while it happens. Warned once per window per source.
+ * as a finding while it happens. Warned once per window per source. A
+ * framework node superseding its own flights by design (CONFIG_SUPERSEDES)
+ * is not judged; its flights are still recorded.
  */
 function checkAbandonedFlights(el: Computed<any>, abandoned: LiveFlight): void {
   const cfg = options.abandonedFlights;
-  if (cfg === false || excludedNode(el)) return;
+  // Only dev sets CONFIG_SUPERSEDES (see constants.ts).
+  if (cfg === false || (__DEV__ && el._config & CONFIG_SUPERSEDES) || excludedNode(el)) return;
   const at = Date.now();
   let win = abandonWindows.get(el);
   if (win === undefined || at - win.start > cfg.windowMs) {

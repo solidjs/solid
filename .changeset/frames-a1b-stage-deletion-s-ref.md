@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+frames: A1b + A4 (S-ref) — a slot record's `{$ref}`s settle at the host's write, through the response's own data table (`FrameHostOptions.resolve(ref, frameId, version, current)`); an undelivered key is a pending read the response's `data` chunk settles and its `complete`/`error` rejects (L1 — a value that never comes is an error, not a silence); a fresh mount waits for the record to settle, a mounted occurrence's prop pends and holds its value. Codec data tables are per response (keyed by frame id and version). Deleted: `ServerComponentHandlerOptions.onStream`, `STAGED_DATA` and the staged tables, `FrameHost.resolve`, `FrameHostOptions.isContainer`/`FrameHost.isContainer`, `Frame.rebase`, the frame's record dedupe (`#refArgsUnchanged`, `#slotResolvedRefs`) — a re-sent record's equality is the fill's per-prop memo's — and the frame's error/root value latches (applied state keyed by record identity). `FrameHost.preview`/`Frame.preview` lose their `resolve` parameter and stay: the compute-half preview is what stages a refetch's args with the transaction that read it.

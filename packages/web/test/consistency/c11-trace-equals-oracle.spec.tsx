@@ -21,14 +21,18 @@
  * The oracle is `applyPatches` reproduced here over a plain value: the wire
  * shape is a tuple per patch — `[path, value]` sets, `[path]` deletes
  * (`splice(i, 1)` on arrays), `[path, value, 1]` inserts (`splice(i, 0, v)`).
- * The materializer under test is whichever the branch ships: resident at
- * module load on `next`, loaded lazily behind `host.prepareArgs` on
- * `size/s1-lazy-store-materializer` — `readyMaterializer` covers both.
+ * The materializer is the frames client's traces tier (`@solidjs/web/frames/
+ * trace`, loaded through `prepareTier("trace")` — plan step C3); these cells
+ * run with it RESIDENT (`readyMaterializer` warms it as the production host
+ * has it once that load has settled). The load itself, and the hold while
+ * it pends, are `tier-trace-hold.spec` and the `container-trace-hold-*`
+ * specs under test/hydration.
  */
 import { afterEach, describe, expect, test } from "vitest";
 import { createRoot, flush, NotReadyError } from "solid-js";
 import { hydrate } from "@solidjs/web";
-import { getFrameHost, installServerComponents } from "../../frames/src/client.js";
+import { installServerComponents } from "../../frames/src/client.js";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import {
   isMaterializedContainer,
   reviveContainerTraces
@@ -84,11 +88,10 @@ function read(store: any): unknown {
   }
 }
 
-/** The branch's materializer, resident. */
+/** The traces tier, resident (the production load, settled). */
 async function readyMaterializer() {
   installServerComponents();
-  const host: any = getFrameHost();
-  await host.prepareArgs?.({ probe: traceMarker().marker });
+  await prepareTier("trace");
 }
 
 /** A small deterministic PRNG (mulberry32) for the partition arm. */

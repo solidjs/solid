@@ -8,14 +8,17 @@
  * visible together: no observable point shows one hole of the sweep updated
  * while a sibling hole of the same sweep still shows the previous value."
  *
- * Mechanism meant to carry it: frames/src/frame-transport.ts
- * `applyFrames.drain` (one `host.apply` per framed chunk, an `await`
- * between), frames/src/client.ts `pumpLiveChannel` (the document channel is
- * a ReadableStream read one op at a time), frames/src/frame-client.ts
- * `FrameImpl.#flush` (the hole pass morphs every applicable hole record of
- * the store) and `#applied` (a `frame:applied` event per hole). The wire
- * carries no sweep delimiter: the server coalesces per BINDING ("at most
- * one emission per binding per flush"), never per sweep.
+ * Mechanism that carries it (frames-rulings §"The server half", C13 — the
+ * sweep delimiter): the SINK's `sweep()` collects the pass's hole / attr
+ * re-emissions and ships them as ONE `{ type: "ops", ops: [...] }` chunk
+ * (stream face) / `sc:live` op (document face) — the chunk's edge is the
+ * unit; `chunkToRecords` merges the members into one record map and
+ * `FrameImpl.apply` flushes once over them (one hole pass, one
+ * `#applied("morph")`, one `frame:applied`). `applyFrames.drain` and
+ * `applyLiveOp` pass the unit through unchanged. The server arm — that the
+ * sink emits the member for a two-binding sweep — is pinned in
+ * test/server/frame-sweep-ops.spec.tsx; these arms feed the client the
+ * unit as the sink now emits it.
  *
  * Observation points: a `frame:applied` listener (the runtime's own
  * announcement of a landed morph) and a MutationObserver (a microtask
@@ -65,98 +68,142 @@ afterEach(async () => {
 
 describe("C13 — one sweep, one frame", () => {
   // Document face: an adopted boundary; the server's sweep re-emits both
-  // holes as two `sc:live` ops written in one synchronous span.
+  // holes as ONE `sc:live` op — `{ type: "ops", ops: [hole, hole] }`, the
+  // shape frame-sink.ts's document sweep pushes for a two-binding pass.
   //
-  // Observed on `next`: applied === ["a1|b0", "a1|b1"] and frames ===
-  // ["a0|b0", "a1|b0", "a1|b1"] — the first hole lands and is announced
-  // (and is visible at a microtask checkpoint) while the second still
-  // shows b0. Expected: no "a1|b0" anywhere. Where it goes wrong: the
-  // document channel is a ReadableStream of ops read one at a time
-  // (client.ts:pumpLiveChannel — `reader.read().then(op => applyLiveOp(op);
-  // pump())`), so each op is its own `host.apply` → `FrameImpl.apply` →
-  // `#flush`, whose hole pass morphs that one hole (`#applyHole`) and fires
-  // `#applied(version, "morph")` for it; the second op is a microtask later.
-  // Nothing on the wire says the two ops belong to one sweep (the server
-  // coalesces per binding, not per sweep), so the client has no unit larger
-  // than one op to make atomic.
-  test.fails(
-    "(a) document face: two `sc:live` ops of one sweep never show one hole updated without the other",
-    async () => {
-      const fid = freshFid("c13a");
-      page = bootPage(frameHtml(fid, twoHoles("a0", "b0", 0)));
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const applied: string[] = [];
-      page.container.addEventListener("frame:applied", () => applied.push(holes(page!.container)));
-      const dispose = hydrate(() => <Comp />, page.container);
-      disposers.push(dispose);
-      await quiesce();
-      expect(holes(page.container)).toBe("a0|b0");
-      applied.length = 0;
-      const frames = watchFrames(page.container, () => holes(page!.container));
-      // The sweep: both re-emissions in one synchronous span.
-      page.live.push({ type: "hole", key: "lh:0", html: "a1" });
-      page.live.push({ type: "hole", key: "lh:1", html: "b1" });
-      await quiesce();
-      frames.sample();
-      frames.stop();
-      expect(holes(page.container)).toBe("a1|b1");
-      expect(page.errors).toEqual([]);
-      expect(torn(applied)).toEqual([]);
-      expect(torn(frames.frames)).toEqual([]);
-    }
-  );
+  // Was red on `next` (two separate ops): applied === ["a1|b0", "a1|b1"]
+  // and frames === ["a0|b0", "a1|b0", "a1|b1"] — each op was its own
+  // `host.apply` → `FrameImpl.apply` → `#flush`, a microtask apart, and
+  // the wire said nothing about the two belonging together. With the unit
+  // on the wire the pump hands one op to `applyLiveOp`, one write lands
+  // both records, and one flush morphs both holes.
+  test("(a) document face: one sweep's `ops` unit never shows one hole updated without the other", async () => {
+    const fid = freshFid("c13a");
+    page = bootPage(frameHtml(fid, twoHoles("a0", "b0", 0)));
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const applied: string[] = [];
+    page.container.addEventListener("frame:applied", () => applied.push(holes(page!.container)));
+    const dispose = hydrate(() => <Comp />, page.container);
+    disposers.push(dispose);
+    await quiesce();
+    expect(holes(page.container)).toBe("a0|b0");
+    applied.length = 0;
+    const frames = watchFrames(page.container, () => holes(page!.container));
+    // The sweep: both re-emissions as one unit.
+    page.live.push({
+      type: "ops",
+      ops: [
+        { type: "hole", key: "lh:0", html: "a1" },
+        { type: "hole", key: "lh:1", html: "b1" }
+      ]
+    });
+    await quiesce();
+    frames.sample();
+    frames.stop();
+    expect(holes(page.container)).toBe("a1|b1");
+    expect(page.errors).toEqual([]);
+    expect(torn(applied)).toEqual([]);
+    expect(torn(frames.frames)).toEqual([]);
+    // One flush: one announcement, one frame.
+    expect(applied).toEqual(["a1|b1"]);
+    expect(frames.frames).toEqual(["a0|b0", "a1|b1"]);
+  });
 
-  // Stream face: a mounted call; the sweep's two `hole` chunks are enqueued
-  // back to back into one body (one network write).
+  // Stream face: a mounted call; the sweep arrives as ONE `ops` chunk (one
+  // wire line), the shape frame-sink.ts's stream sweep emits for a
+  // two-binding pass.
   //
-  // Observed on `next`: applied === ["a1|b0", "a1|b1"], frames === ["a0|b0",
-  // "a1|b0", "a1|b1"]. Expected: no torn pair. Where it goes wrong:
-  // frame-transport.ts:applyFrames.drain reads one framed chunk per
-  // `await reader.next()` and calls `host.apply(chunk)` per chunk — each
-  // `hole` chunk is a separate `FrameImpl.apply` → `#flush` → hole pass →
-  // `#applied("morph")`, with a microtask between the two; a MutationObserver
-  // fires in that gap. One body write is not one apply.
-  test.fails(
-    "(b) stream face: two hole chunks of one sweep never show one hole updated without the other",
-    async () => {
-      const id = freshFid("c13b");
-      installServerComponents(makeHost().host);
-      const { held } = stubHeldFetch([id]);
-      const getRoom = createServerReference(id);
-      const Page = dynamic(() => getRoom() as any);
-      let div!: HTMLDivElement;
-      const dispose = createRoot(d => {
-        <div ref={div}>
-          <Loading fallback={<span>fallback</span>}>
-            <Page />
-          </Loading>
-        </div>;
-        document.body.appendChild(div);
+  // Was red on `next` (two `hole` chunks): applied === ["a1|b0", "a1|b1"],
+  // frames === ["a0|b0", "a1|b0", "a1|b1"] — applyFrames.drain did one
+  // `host.apply` per chunk with a microtask between. One chunk is one apply.
+  test("(b) stream face: one sweep's `ops` chunk never shows one hole updated without the other", async () => {
+    const id = freshFid("c13b");
+    installServerComponents(makeHost().host);
+    const { held } = stubHeldFetch([id]);
+    const getRoom = createServerReference(id);
+    const Page = dynamic(() => getRoom() as any);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>fallback</span>}>
+          <Page />
+        </Loading>
+      </div>;
+      document.body.appendChild(div);
+      return d;
+    });
+    disposers.push(dispose);
+    const applied: string[] = [];
+    div.addEventListener("frame:applied", () => applied.push(holes(div)));
+    await pump();
+    held[0].send({ type: "start", id, version: 1 });
+    held[0].send({ type: "html", id, version: 1, html: twoHoles("a0", "b0") });
+    await pump();
+    expect(holes(div)).toBe("a0|b0");
+    applied.length = 0;
+    const frames = watchFrames(div, () => holes(div));
+    // The sweep: both re-emissions as one unit.
+    held[0].send({
+      type: "ops",
+      id,
+      version: 1,
+      ops: [
+        { type: "hole", key: "lh:0", html: "a1" },
+        { type: "hole", key: "lh:1", html: "b1" }
+      ]
+    });
+    await pump();
+    frames.sample();
+    frames.stop();
+    expect(holes(div)).toBe("a1|b1");
+    expect(torn(applied)).toEqual([]);
+    expect(torn(frames.frames)).toEqual([]);
+    expect(applied).toEqual(["a1|b1"]);
+    expect(frames.frames).toEqual(["a0|b0", "a1|b1"]);
+    held[0].send({ type: "complete", id, version: 1 });
+    held[0].close();
+  });
+
+  // Catch-up: the document op log (`client.ts:liveOps`) is last-value-wins
+  // per TARGET, so a unit that arrived before a boundary adopted is logged
+  // by its members — a later single-hole op for one of them supersedes
+  // that member alone, and the late adopter replays the latest of each.
+  test("(log) an `ops` unit that arrived before a boundary adopted replays by its members, latest per hole", async () => {
+    const fidA = freshFid("c13d-a");
+    const fidB = freshFid("c13d-b");
+    // Two boundaries on the page: A adopts first (its adoption starts the
+    // channel pump, so the ops below are READ — into the log — before B
+    // exists); B adopts after and can only see them through the log.
+    page = bootPage(frameHtml(fidA, "<p>x</p>"));
+    const other = document.createElement("div");
+    other.innerHTML = frameHtml(fidB, twoHoles("a0", "b0", 20));
+    document.body.appendChild(other);
+    page.hy.fe("__shell", other);
+    const CompA = (globalThis as any)._$SC.r(fidA);
+    const CompB = (globalThis as any)._$SC.r(fidB);
+    disposers.push(hydrate(() => <CompA />, page.container));
+    await quiesce();
+    // A unit, then one member moved again — before B adopts.
+    page.live.push({
+      type: "ops",
+      ops: [
+        { type: "hole", key: "lh:20", html: "a1" },
+        { type: "hole", key: "lh:21", html: "b1" }
+      ]
+    });
+    page.live.push({ type: "hole", key: "lh:21", html: "b2" });
+    await quiesce();
+    expect(holes(other)).toBe("a0|b0");
+    disposers.push(
+      createRoot(d => {
+        <CompB />;
         return d;
-      });
-      disposers.push(dispose);
-      const applied: string[] = [];
-      div.addEventListener("frame:applied", () => applied.push(holes(div)));
-      await pump();
-      held[0].send({ type: "start", id, version: 1 });
-      held[0].send({ type: "html", id, version: 1, html: twoHoles("a0", "b0") });
-      await pump();
-      expect(holes(div)).toBe("a0|b0");
-      applied.length = 0;
-      const frames = watchFrames(div, () => holes(div));
-      // The sweep: both re-emissions in one burst.
-      held[0].send({ type: "hole", id, version: 1, key: "lh:0", html: "a1" });
-      held[0].send({ type: "hole", id, version: 1, key: "lh:1", html: "b1" });
-      await pump();
-      frames.sample();
-      frames.stop();
-      expect(holes(div)).toBe("a1|b1");
-      expect(torn(applied)).toEqual([]);
-      expect(torn(frames.frames)).toEqual([]);
-      held[0].send({ type: "complete", id, version: 1 });
-      held[0].close();
-    }
-  );
+      })
+    );
+    await quiesce();
+    expect(holes(other)).toBe("a1|b2");
+    expect(page.errors).toEqual([]);
+  });
 
   // Control: a sweep that touches ONE hole is trivially atomic — the single
   // `frame:applied` and the single frame both show the new value, and the

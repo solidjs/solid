@@ -771,18 +771,18 @@ describe("binding slots — document face (t=0)", () => {
       '<li class="todo completed" _s:class="row#2:done=completed,row#2:editing=editing" hidden _s:hidden="row#2:removed">'
     );
     expect(html).toContain(
-      '<input type="checkbox" _s:checked="row#1:done" _s:on:input="row#1:toggle" _s:ref="row#1:checkbox">'
+      '<input type="checkbox" _s:checked="row#1:done" _s:on:input="row#1:toggle" _s:ref="row#1:checkbox" _hk>'
     );
     expect(html).toContain(
-      '<input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _s:ref="row#2:checkbox">'
+      '<input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _s:ref="row#2:checkbox" _hk>'
     );
     expect(html).toContain('<label _s:style="row#1:opacity=opacity">a</label>');
     expect(html).toContain('<label style="opacity:0.5" _s:style="row#2:opacity=opacity">b</label>');
     expect(html).toContain(
-      '<button class="destroy" _s:class="row#1:buttonClass" _s:aria-busy="row#1:busy" _s:on:click="row#1:remove">×</button>'
+      '<button class="destroy" _s:class="row#1:buttonClass" _s:aria-busy="row#1:busy" _s:on:click="row#1:remove" _hk>×</button>'
     );
     expect(html).toContain(
-      '<button class="destroy done" _s:class="row#2:buttonClass" aria-busy _s:aria-busy="row#2:busy" _s:on:click="row#2:remove">×</button>'
+      '<button class="destroy done" _s:class="row#2:buttonClass" aria-busy _s:aria-busy="row#2:busy" _s:on:click="row#2:remove" _hk>×</button>'
     );
     // Handlers and refs never serialize or run on the server.
     expect(html).not.toContain("toggle:");
@@ -790,6 +790,46 @@ describe("binding slots — document face (t=0)", () => {
     // The occurrence's t=0 record, keyed for the adopting frame's store.
     expect(html).toContain("sc:slot:dsd0:row#1");
     expect(html).toContain("sc:slot:dsd0:row#2");
+    expect(findings()).toEqual([]);
+  });
+
+  it("the replay-window stamp: a bare ` _hk` on the document face's EVENT-slot consumers only — not on a ref-only or attribute-only consumer, never on the stream face", async () => {
+    // The bootstrap queues a delegated event only under an `_hk` ancestor
+    // (frames savings pass §1, bind row): the element whose handler the
+    // bind tier installs must carry one, or a click before the tier lands
+    // is lost. Bare — no key: nothing gathers it, nothing claims it, the
+    // dev completion sweep passes over it once the tier marks it completed.
+    // Ref-only and attribute-only consumers queue nothing, and carry nothing.
+    // The stream face: the bootstrap stopped queueing at `_$HY.done`, so a
+    // response's html has no window to keep open.
+    const ServerComp = (props: any) => {
+      const block = props.codeBlock();
+      return (
+        <div>
+          <button onClick={block.copy} class={block.cls}>
+            Copy
+          </button>
+          <span ref={block.el} />
+          <i aria-busy={block.busy}>…</i>
+        </div>
+      );
+    };
+    const fill = () => ({ copy: () => {}, cls: "c", el: () => {}, busy: true });
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd0h" }) as any;
+    const html = plain(await document(() => Inline({ codeBlock: fill })));
+    expect(html).toContain(
+      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy" _hk>Copy</button>'
+    );
+    expect(html).toContain('<span _s:ref="codeBlock:el"></span>');
+    expect(html).toContain('<i aria-busy _s:aria-busy="codeBlock:busy">…</i>');
+    // Four bytes per stamped element, no key to allocate or gather.
+    expect(html.match(/ _hk[ >]/g)).toHaveLength(1);
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds0h" } }));
+    const stream = plain(chunks.find(c => c.type === "html").html);
+    expect(stream).toContain(
+      '<button _s:class="codeBlock:cls" _s:on:click="codeBlock:copy">Copy</button>'
+    );
+    expect(stream).not.toContain("_hk");
     expect(findings()).toEqual([]);
   });
 
@@ -815,7 +855,7 @@ describe("binding slots — document face (t=0)", () => {
     const html = plain(await document(() => Inline({ row: fill })));
     expect(fill).toHaveBeenCalledTimes(2);
     expect(html).toContain(
-      '<li class="todo done" _s:class="row#2:done=done" _s:hidden="row#2:removed"><input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle"><label>b</label><button _s:on:click="row#2:remove">×</button></li>'
+      '<li class="todo done" _s:class="row#2:done=done" _s:hidden="row#2:removed"><input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _hk><label>b</label><button _s:on:click="row#2:remove" _hk>×</button></li>'
     );
     expect(html.match(/sc:slot:dsd0k:row#1"/g)).toHaveLength(1);
     expect(html.match(/sc:slot:dsd0k:row#2"/g)).toHaveLength(1);
@@ -848,7 +888,7 @@ describe("binding slots — document face (t=0)", () => {
     expect(fill).toHaveBeenCalledTimes(2);
     expect(badge).toHaveBeenCalledTimes(2);
     expect(html).toContain(
-      '<li class="todo done" _s:class="row#1:done=done" _s:hidden="row#1:removed"><input type="checkbox" checked _s:checked="row#1:done" _s:on:input="row#1:toggle"><label>b</label><button _s:on:click="row#1:remove">×</button></li>'
+      '<li class="todo done" _s:class="row#1:done=done" _s:hidden="row#1:removed"><input type="checkbox" checked _s:checked="row#1:done" _s:on:input="row#1:toggle" _hk><label>b</label><button _s:on:click="row#1:remove" _hk>×</button></li>'
     );
     expect(html.match(/sc:slot:dsd0u:row#0"/g)).toHaveLength(1);
     expect(html.match(/sc:slot:dsd0u:row#1"/g)).toHaveLength(1);
@@ -882,7 +922,7 @@ describe("binding slots — document face (t=0)", () => {
     expect(fill).toHaveBeenCalledTimes(1);
     expect(note).toHaveBeenCalledTimes(2);
     expect(html).toContain(
-      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy">Copy</button><button _s:on:click="codeBlock:copy" _s:ref="codeBlock:el">Copy too</button>'
+      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy" _hk>Copy</button><button _s:on:click="codeBlock:copy" _s:ref="codeBlock:el" _hk>Copy too</button>'
     );
     expect(html.match(/<!--slot:note:start--><b[^>]*>new<\/b><!--slot:note:end-->/g)).toHaveLength(
       2
@@ -928,7 +968,7 @@ describe("binding slots — document face (t=0)", () => {
       ])
     );
     expect(seen).toEqual([undefined, undefined]);
-    expect(html).toContain('<button type="button" _s:on:click="codeBlock:copy">Copy</button>');
+    expect(html).toContain('<button type="button" _s:on:click="codeBlock:copy" _hk>Copy</button>');
     expect(html).toMatch(/<div _hk=\d+ class="a"><\/div>/);
     expect(findings()).toEqual([]);
   });

@@ -23,7 +23,11 @@ for (const scenario of scenarios) {
   if (filters.length && !filters.some(f => scenario.name.includes(f))) continue;
   const r = await bundle(scenario);
   console.log(`\n${r.name}`);
-  console.log(`  entry chunk: minified ${r.min} B   brotli ${r.br} B (${toKB(r.br)})`);
+  console.log(
+    `  ${r.eager.length ? "eager graph" : "entry chunk"}: minified ${r.min} B   brotli ${r.br} B (${toKB(r.br)})`
+  );
+  for (const c of r.eager)
+    console.log(`  eager chunk ${c.name} (counted): minified ${c.min} B   brotli ${c.br} B`);
   for (const c of r.lazy)
     console.log(`  lazy chunk ${c.name}: minified ${c.min} B   brotli ${c.br} B`);
   const rows = r.modules

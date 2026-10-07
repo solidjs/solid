@@ -1589,10 +1589,18 @@ interface TagInfo {
   textarea: boolean;
   raw: boolean;
 }
+// What ends a tag or attribute name in the HTML tokenizer (whitespace, `/`,
+// `>`, `=`), what it reports as an error inside one (quotes, `<`, NUL), and
+// the other control characters. A name containing none of them, and starting
+// with an ASCII letter for a tag, is read back as exactly that one name.
+const NOT_NAME = /[\0-\x20\x7F-\x9F"'<>/=]/;
+const TAG_START = /^[a-zA-Z]/;
 const tagInfos = /*#__PURE__*/ new Map<string, TagInfo>();
 function tagInfo(tag: string): TagInfo {
   let info = tagInfos.get(tag);
   if (info === undefined) {
+    if (!TAG_START.test(tag) || NOT_NAME.test(tag))
+      throw new Error(`"${tag}" is not a valid tag name`);
     info = {
       open: "<" + tag,
       close: "</" + tag + ">",
@@ -1604,17 +1612,19 @@ function tagInfo(tag: string): TagInfo {
   }
   return info;
 }
-// Attribute names a spread has already emitted unchanged. A spread's keys
-// are author-written names from a small vocabulary, repeated on every
-// element; `escape` runs a regex over each one every time, and a name that
-// escaped to itself once escapes to itself always. Names that DO escape are
-// never remembered, so a hit means "emit as is". Bounded like `tagInfos`.
+// Whether a spread key can be written as an attribute name: a runtime string
+// the parser would not read back as that one name is dropped, as the
+// client's setAttribute refuses it. Written as is otherwise — the tokenizer
+// decodes no character references in a name, so `&` stays `&`. A spread's
+// keys are author-written names from a small vocabulary, repeated on every
+// element, so the names that passed are remembered and a hit skips the
+// regex. Names that fail are never remembered. Bounded like `tagInfos`.
 const safeAttrNames = /*#__PURE__*/ new Set<string>();
-function attrName(prop: string): string {
-  if (safeAttrNames.has(prop)) return prop;
-  const escaped = escape(prop);
-  if (escaped === prop && safeAttrNames.size < 512) safeAttrNames.add(prop);
-  return escaped;
+function isAttrName(prop: string): boolean {
+  if (safeAttrNames.has(prop)) return true;
+  if (prop === "" || NOT_NAME.test(prop)) return false;
+  if (safeAttrNames.size < 512) safeAttrNames.add(prop);
+  return true;
 }
 // Fragment replacement helpers emitted into stream task scripts.
 //
@@ -2850,7 +2860,7 @@ export function renderToStream(code, options = {}) {
           (stubBatch ||= new Map()).set(key + "_fr", p);
         else serializer.write(key + "_fr", p);
       }
-      return (value, error) => {
+      return (value, error, escaped) => {
         if (registry.has(key)) {
           const item = registry.get(key);
           registry.delete(key);
@@ -2860,6 +2870,19 @@ export function renderToStream(code, options = {}) {
           // `<key>_fr` rejection, a transport sink's error chunk — gets what
           // the wire policy allows (#3468).
           if (error) abandonSubtree(key, error);
+          // A failure that ESCAPED a server component (frames-rulings 3.3:
+          // no server <Errored> rendered an outcome for it; `value` is the
+          // boundary's own markup) is the frame's — one async value errored,
+          // the outward face: the frame sink's unkeyed error chunk
+          // (`:error`), or the document face's `sc:live` error op addressed
+          // to the component's frame. The fragment still settles below (its
+          // position never blanks; `_fr` still rejects — the diagnostic).
+          if (error && escaped) {
+            const wire = ssrSanitizeError(error, null);
+            const message = wire instanceof Error ? wire.message : String(wire);
+            if (sink.error) sink.error("", message);
+            else if (context.live && context.live.error) context.live.error(escaped.frame, message);
+          }
 
           // A settled nested fragment parked its markup here to be spliced
           // into this fragment's content. On the error path there is no
@@ -2907,7 +2930,12 @@ export function renderToStream(code, options = {}) {
               // (its protocol rejects `<key>_fr` via item.resolve below), but
               // transport sinks with no resume protocol need the signal.
               // Post-flush: the boundary told the hook before settling, so
-              // the verdict the chunk carries is the decided one.
+              // the verdict the chunk carries is the decided one. On the
+              // error path `value` is what the boundary rendered for the
+              // outcome — a server <Errored>'s fallback or the boundary's own
+              // markup inside a server component (frames-rulings 3.3) — and
+              // nothing outside one, where the client twin renders fresh over
+              // the blank.
               sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
                 styles,
                 revealGroup,
@@ -2959,7 +2987,13 @@ export function renderToStream(code, options = {}) {
   // registry, the sink and the serializer, all declared above — and disarmed
   // by the render's final dispose, which every ending runs through.
   const signal = options.signal;
-  const onAbort = signal ? () => abandon("signal") : undefined;
+  // A reason carrying `quiet: true` is a teardown the response chose — a
+  // frame stream ending a plain response at its streaming bound (see
+  // frame-sink's `frameStream`) — not a client that left: no abandonment
+  // finding for it.
+  const onAbort = signal
+    ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
+    : undefined;
   let html = root(
     d => {
       dispose = () => {
@@ -4600,11 +4634,9 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       } else if (prop === "class") {
         result += ` class="${ssrClassName(value)}"`;
       } else if (typeof value === "boolean") {
-        if (!value) continue;
-        result += ` ${attrName(prop)}`;
-      } else {
-        result +=
-          value === "" ? ` ${attrName(prop)}` : ` ${attrName(prop)}="${escape(value, true)}"`;
+        if (value && isAttrName(prop)) result += ` ${prop}`;
+      } else if (isAttrName(prop)) {
+        result += value === "" ? ` ${prop}` : ` ${prop}="${escape(value, true)}"`;
       }
     }
   }
@@ -4932,6 +4964,28 @@ function slotEntry(sv, name) {
 function slotMarker(position, entries) {
   return ` ${SLOT_MARKER}${position}="${entries}"`;
 }
+/**
+ * The replay-window stamp of an EVENT-SLOT consumer (frames savings pass
+ * C6, option (a) of the ruling): an element bound to a stand-in at a handler
+ * position (`_s:on:*`) on the DOCUMENT face carries a bare `_hk`, so the
+ * hydration bootstrap's nearest-`_hk` lookup files the element's events
+ * behind its OWN completion rather than the nearest page element's — which
+ * the page root's pass completes long before any frame tier lands, replaying
+ * the click into an element whose handler is not bound yet (lost). The bind
+ * tier completes the element at the bind and replays (bind-tier.ts). Bare
+ * (no key): the bootstrap tests presence, and no claim ever looks this
+ * element up — the ambient `_hk` sweep skips frame interiors (`data-fid`
+ * containment, client.ts `gatherHydratable`) and a prefix-scoped gather
+ * (`[_hk^="sc-…"]`, a boundary id) cannot match the empty value, so the dev
+ * completion sweep never reports it. Four bytes per element, document face
+ * only: the stream face arrives after hydration, when the bootstrap no
+ * longer queues (its `events` buffer is gone with `_$HY.done`). Server
+ * components render under NoHydration, so the element has no keyed `_hk`
+ * of its own to collide with.
+ */
+function eventSlotStamp(mode) {
+  return mode === CLAIMS_DOCUMENT ? " _hk" : "";
+}
 function propOfOccurrence(occurrence) {
   const i = occurrence.indexOf("#");
   return i === -1 ? occurrence : occurrence.slice(0, i);
@@ -5017,6 +5071,7 @@ function eventPosition(prop) {
  * (spreadBehaviorMarkers).
  */
 function spreadBehaviorPosition(behaviors, prop, value, mode, index, settle) {
+  if (!isAttrName(prop)) return behaviors;
   const pos = prop === "ref" ? "ref" : eventPosition(prop);
   const entries = value == null ? "" : claimEntries(pos, value, mode);
   if (!settle) {
@@ -5077,13 +5132,19 @@ function spreadBehaviorMarkers(behaviors, claims, mode) {
     }
   }
   let out = "";
+  let events = false;
   if (behaviors !== null) {
     for (const [pos, b] of behaviors) {
       const e = claims === undefined ? b : b.e;
-      if (e) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, e);
+      if (!e) continue;
+      if (pos === "ref") out += slotMarker("ref", e);
+      else {
+        out += slotMarker("on:" + pos, e);
+        events = true;
+      }
     }
   }
-  return out;
+  return events ? out + eventSlotStamp(mode) : out;
 }
 
 /**
@@ -5150,8 +5211,9 @@ function spreadPropPosition(prop, value) {
  */
 function spreadObjectAttribute(prop, value) {
   if (prop === "style" || prop === "class") return slotClassOrStyle(prop, value);
-  if (value[SLOT_VALUE] !== undefined) return slotAttribute(attrName(prop), value);
-  return ` ${attrName(prop)}="${escape(value, true)}"`;
+  if (!isAttrName(prop)) return "";
+  if (value[SLOT_VALUE] !== undefined) return slotAttribute(prop, value);
+  return ` ${prop}="${escape(value, true)}"`;
 }
 
 /**
@@ -5185,7 +5247,9 @@ function slotSpreadSource(tag, source) {
  * drops handler and ref expressions from plain SSR output, so this is
  * where a stand-in at one of those positions is seen. A server-local
  * function there can never run (the server has no client to run it on);
- * dev says so, inside the component barrier only.
+ * dev says so, inside the component barrier only. An element with a
+ * handler position bound is an EVENT-SLOT consumer and carries the
+ * replay-window stamp beside its markers (`eventSlotStamp`).
  */
 export function ssrClaim(map: Record<string, unknown>): string;
 
@@ -5193,11 +5257,17 @@ export function ssrClaim(map) {
   const mode = sharedConfig.context && sharedConfig.context.claims;
   if (!mode) return "";
   let out = "";
+  let events = false;
   for (const pos in map) {
     const entries = claimEntries(pos, map[pos], mode);
-    if (entries) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
+    if (!entries) continue;
+    if (pos === "ref") out += slotMarker("ref", entries);
+    else {
+      out += slotMarker("on:" + pos, entries);
+      events = true;
+    }
   }
-  return out;
+  return events ? out + eventSlotStamp(mode) : out;
 }
 
 /**

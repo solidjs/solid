@@ -6,13 +6,18 @@
 // live call, read outside any hydration scope. Its own file: the frames
 // client indexes the page's boundaries once per module instance (extended
 // only by reveals), so this page must be the module's first.
-import { describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 import { createRoot, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createServerReference, live } from "../server-functions/src/client.js";
 import { frameAddress } from "../server-functions/src/shared.js";
 import { makeHost, pump, stubLiveFetch, until } from "./lifecycle-matrix/harness.js";
+
+// The live arm is the live wire tier's (plan §3 row C2): warmed, so every
+// cell runs resident (`tier-wire-preload.spec` pins the load itself).
+beforeAll(() => prepareTier("wire"));
 
 function articleHtml(title: string) {
   return (

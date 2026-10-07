@@ -11,15 +11,25 @@
 //    already contains the comments AND the client wrappers' markup; slots
 //    claim their rendered DOM via ctx.existing (Astro-style opaque slots) —
 //    zero hydration data, the page source carries each text once.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents, createFrame, createFrameHost } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
 
 const settle = () => new Promise(r => setTimeout(r));
+
+// The hand-framed responses below announce no tier; the story comments are
+// `{$frame}` regions, so the frames client's REGIONS TIER
+// (`@solidjs/web/frames/regions`, loaded through `prepareTier("regions")` at
+// the first record naming one) is warmed here — these cells pin the slice's
+// UX with the tier resident, as the production host has it after that
+// first load; the load itself is pinned in
+// `test/consistency/tier-regions-hold.spec.tsx`.
+beforeAll(() => prepareTier("regions"));
 
 function frameResponse(chunks: any[]) {
   const body = new ReadableStream({
@@ -140,12 +150,16 @@ describe("HN slice — collapse UX", () => {
 
   test("initial document load: adopt + claim, zero data, page source has each text once", async () => {
     // What the document renderer would have produced: server html with the
-    // client wrappers' output already rendered inside the slot ranges.
+    // client wrappers' output already rendered inside the slot ranges. A
+    // zero-data occurrence is a direct-insert position — the BARE prop
+    // (`comment`): the producer mints a called occurrence (`comment#n`)
+    // only with its args record, and a called occurrence without one waits
+    // for it rather than mounting argless.
     const page =
       "<article><h1>One</h1><section>" +
-      '<!--slot:comment#0:start--><div class="comment"><button></button>' +
+      '<!--slot:comment:start--><div class="comment"><button></button>' +
       "<!--frame:srv.0:start--><p>alpha-text</p><!--frame:srv.0:end-->" +
-      "</div><!--slot:comment#0:end-->" +
+      "</div><!--slot:comment:end-->" +
       "</section></article>";
     // The case-2 invariant on the page itself: one occurrence, and there is
     // no hydration payload at all for this content.

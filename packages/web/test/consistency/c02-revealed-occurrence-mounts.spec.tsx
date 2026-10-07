@@ -13,10 +13,9 @@
  * Mechanism meant to carry it: frames/src/frame-client.ts
  * `FrameImpl.#syncSlots` (range discovery over the frame's content) driven
  * by frames/src/client.ts `adoptBoundary`'s `fr.subscribe` cascade
- * (`claimRegionFragments` + `drainRecords`). A re-sync after a reveal
- * happens only when the reveal brings a NEW record (`drainRecords` →
- * `host.apply` → `#flush` → `#syncSlots`); nothing re-syncs on the reveal
- * itself.
+ * (`drainRecords` + the reveal-is-an-apply write). A swap into the region
+ * needs no claim from the adoption: a placeholder inside a `data-fid`
+ * element is the frame's content by rendering (`_$HY.fa`, frames A5′).
  *
  * Liveness is the assertion: a fill is "mounted" when a client signal it
  * reads drives the DOM. Every fill here reads `tick()` in a text hole
@@ -171,122 +170,125 @@ describe("C2 — no inert server content", () => {
     dispose();
   });
 
-  // Arm (a2): the record lands AFTER the reveal.
-  test.fails(
-    "(a2) render-prop occurrence revealed after adoption, record after the reveal: mounted and live",
-    async () => {
-      const fid = freshFid("c2a2");
-      const frag = "c2a2";
-      page = bootPage(pendingShell(fid, frag));
-      page.declareFragment(frag);
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const [tick, setTick] = createSignal(0);
-      const invocations: number[] = [];
-      const dispose = hydrate(
-        () => (
-          <Comp
-            item={(p: { text: string }) => {
-              invocations.push(1);
-              return (
-                <li>
-                  {p.text}
-                  {tick()}
-                </li>
-              );
-            }}
-          />
-        ),
-        page.container
-      );
-      await quiesce();
-      expect(invocations.length).toBe(0);
+  // Arm (a2): the record lands AFTER the reveal. Under the declared-record
+  // protocol (frames A4, S-record) the producer writes the record at the
+  // occurrence's marker as a PENDING value — with the fragment, ahead of
+  // its swap — and settles it with the args when they are known; here the
+  // settle trails the reveal by two quiescences, with the parser done and
+  // no fragment pending (the shape no poll could cover).
+  //
+  // Was red on `next`: the record was a plain property write to `_$HY.r`
+  // observed by nothing — the reveal's drain ran before it, and the
+  // `#recordRefresh` poll armed only while `recordsPending()`. Green: the
+  // reveal's drain finds the declaration and awaits it (`.then`); the
+  // settle is a write the frame sees, re-syncs on, and the deferred mount
+  // claims the revealed markup.
+  test("(a2) render-prop occurrence revealed after adoption, record settled after the reveal: mounted and live", async () => {
+    const fid = freshFid("c2a2");
+    const frag = "c2a2";
+    page = bootPage(pendingShell(fid, frag));
+    page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const [tick, setTick] = createSignal(0);
+    const invocations: number[] = [];
+    const dispose = hydrate(
+      () => (
+        <Comp
+          item={(p: { text: string }) => {
+            invocations.push(1);
+            return (
+              <li>
+                {p.text}
+                {tick()}
+              </li>
+            );
+          }}
+        />
+      ),
+      page.container
+    );
+    await quiesce();
+    expect(invocations.length).toBe(0);
 
-      page.revealFragment(frag, slotRange("item#0", liveFillHtml(fid, "item#0", "one")));
-      await quiesce();
-      page.slotRecord(fid, "item#0", { text: "one" });
-      await quiesce();
-      await quiesce();
-      // Observed on next: the server <li> is in the page (text "one0") but
-      // the fill was never invoked (invocations 0) and the bump below leaves
-      // the DOM at "one0"; nothing is logged. Expected: one invocation, the
-      // hole follows the signal. Where it goes wrong: client.ts
-      // adoptBoundary — the only post-adopt drains are the `fr.subscribe`
-      // callback (runs AT the reveal, finds no `sc:slot:` key yet) and
-      // frame-client.ts #syncSlots' `#recordRefresh` timer, which arms only
-      // when a sync discovers a recordless occurrence while
-      // `recordsPending()`; no sync ever runs over the revealed range (the
-      // reveal applied nothing, so no `#flush`), so the record's later
-      // arrival — a plain property write to `_$HY.r` — is observed by
-      // nothing and the range stays inert.
-      expect(page.container.textContent).toBe("one0");
-      expect(invocations.length).toBe(1);
+    // The fragment carries the declaration (pending), then the swap.
+    const record = page.declareSlotRecord(fid, "item#0");
+    page.revealFragment(frag, slotRange("item#0", liveFillHtml(fid, "item#0", "one")));
+    await quiesce();
+    expect(invocations.length).toBe(0);
+    expect(page.container.textContent).toBe("one0");
+    record.settle({ text: "one" });
+    await quiesce();
+    await quiesce();
+    expect(page.container.textContent).toBe("one0");
+    expect(invocations.length).toBe(1);
 
-      setTick(1);
-      flush();
-      expect(page.container.textContent).toBe("one1");
-      expect(page.warnings).toEqual([]);
-      expect(page.errors).toEqual([]);
-      dispose();
-    }
-  );
+    setTick(1);
+    flush();
+    expect(page.container.textContent).toBe("one1");
+    expect(page.warnings).toEqual([]);
+    expect(page.errors).toEqual([]);
+    dispose();
+  });
 
   // Arm (b): a direct-insert occurrence (`children`) is recordless by design.
-  // Revealed into the adopted region, it must mount all the same.
-  test.fails(
-    "(b) direct-insert `children` occurrence revealed after adoption: mounted and live",
-    async () => {
-      const fid = freshFid("c2b");
-      const frag = "c2b";
-      page = bootPage(pendingShell(fid, frag));
-      page.declareFragment(frag);
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const [tick, setTick] = createSignal(0);
-      const dispose = hydrate(
-        () => (
-          <Comp>
-            <b>{tick()}</b>
-          </Comp>
-        ),
-        page.container
-      );
-      await quiesce();
-      expect(page.container.textContent).toBe("loading");
+  // Revealed into the adopted region, it must mount all the same. Was red
+  // on `next` (the reveal applied nothing, so no sync ran over the revealed
+  // range); green under frames-rulings 2.3 — a reveal is an apply: the
+  // document face's reveal cascade syncs the adopting frame.
+  test("(b) direct-insert `children` occurrence revealed after adoption: mounted and live", async () => {
+    const fid = freshFid("c2b");
+    const frag = "c2b";
+    page = bootPage(pendingShell(fid, frag));
+    page.declareFragment(frag);
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const [tick, setTick] = createSignal(0);
+    const dispose = hydrate(
+      () => (
+        <Comp>
+          <b>{tick()}</b>
+        </Comp>
+      ),
+      page.container
+    );
+    await quiesce();
+    expect(page.container.textContent).toBe("loading");
 
-      page.revealFragment(frag, slotRange("children", liveChildrenHtml(fid)));
-      await quiesce();
-      await quiesce();
-      const b = page.container.querySelector("b")!;
-      expect(b).not.toBeNull();
-      expect(page.container.textContent).toBe("0");
+    page.revealFragment(frag, slotRange("children", liveChildrenHtml(fid)));
+    await quiesce();
+    await quiesce();
+    const b = page.container.querySelector("b")!;
+    expect(b).not.toBeNull();
+    expect(page.container.textContent).toBe("0");
 
-      setTick(1);
-      flush();
-      // Observed on next: the revealed <b> shows "0" after the bump (the
-      // client `children` JSX was never evaluated); no warning, no error.
-      // Expected: "1" — the occurrence mounted and its hole is live. Where
-      // it goes wrong: client.ts adoptBoundary's `fr.subscribe` callback is
-      // the only reaction to a reveal, and it does two things — claim nested
-      // `pl-*` placeholders and `drainRecords()`. `drainRecords` applies only
-      // NEW `sc:slot:`/`sc:region:` keys; a direct-insert occurrence has no
-      // record by design, so nothing reaches `host.apply`, no `#flush` runs,
-      // and frame-client.ts `#syncSlots` — the only place a marker pair is
-      // discovered and mounted — never walks the revealed content. The
-      // reveal itself (`$dfr` → `_$HY.fe`) carries no re-sync.
-      expect(page.container.textContent).toBe("1");
-      expect(page.container.querySelector("b")).toBe(b);
-      expect(page.warnings).toEqual([]);
-      expect(page.errors).toEqual([]);
-      dispose();
-    }
-  );
+    setTick(1);
+    flush();
+    // Observed on next: the revealed <b> shows "0" after the bump (the
+    // client `children` JSX was never evaluated); no warning, no error.
+    // Expected: "1" — the occurrence mounted and its hole is live. Where
+    // it goes wrong: client.ts adoptBoundary's `fr.subscribe` callback is
+    // the only reaction to a reveal, and it does two things — claim nested
+    // `pl-*` placeholders and `drainRecords()`. `drainRecords` applies only
+    // NEW `sc:slot:`/`sc:region:` keys; a direct-insert occurrence has no
+    // record by design, so nothing reaches `host.apply`, no `#flush` runs,
+    // and frame-client.ts `#syncSlots` — the only place a marker pair is
+    // discovered and mounted — never walks the revealed content. The
+    // reveal itself (`$dfr` → `_$HY.fe`) carries no re-sync.
+    expect(page.container.textContent).toBe("1");
+    expect(page.container.querySelector("b")).toBe(b);
+    expect(page.warnings).toEqual([]);
+    expect(page.errors).toEqual([]);
+    dispose();
+  });
 
   // Arm (c2): reveal BEFORE hydrate, post-done. Global hydration has already
   // completed in this worker (forced here with a throwaway pass, so the arm
-  // does not depend on its position in the file), so the pre-hydrate `$df`
-  // is HELD by the ledger's policy (returns 0) and replayed when the
-  // adoption claims the placeholder (`claimRegionFragments` → `fr.claim` →
-  // `replayHeldFragment`). The final page must equal (c1)'s and (a1)'s.
-  test("(c2) reveal-before-hydrate, post-done held swap replayed by the adoption's claim: same final page", async () => {
+  // does not depend on its position in the file). The placeholder sits
+  // inside a `data-fid` element, so the pre-hydrate `$df` is the frame's
+  // content BY RENDERING (frames A5′, `_$HY.fa`): the ledger swaps it at
+  // once (returns 1) with no adoption on record — no hold, no replay — and
+  // the adoption that follows finds the markup in place and reads the
+  // record synchronously. The final page must equal (c1)'s and (a1)'s.
+  test("(c2) reveal-before-hydrate, post-done swap owned by rendering lands before the adoption: same final page", async () => {
     const fid = freshFid("c2c2");
     const frag = "c2c2";
     page = bootPage(pendingShell(fid, frag));
@@ -297,8 +299,9 @@ describe("C2 — no inert server content", () => {
       frag,
       slotRange("item#0", liveFillHtml(fid, "item#0", "one"))
     );
-    expect(swapped).toBe(0);
-    expect(page.container.textContent).toBe("loading");
+    expect(swapped).toBe(1);
+    expect(page.container.textContent).toBe("one0");
+    const serverLi = page.container.querySelector("li")!;
     const Comp = (globalThis as any)._$SC.r(fid);
     const [tick, setTick] = createSignal(0);
     const invocations: number[] = [];
@@ -322,6 +325,7 @@ describe("C2 — no inert server content", () => {
     await quiesce();
     expect(page.container.textContent).toBe("one0");
     expect(invocations.length).toBe(1);
+    expect(page.container.querySelector("li")).toBe(serverLi);
     setTick(1);
     flush();
     expect(page.container.textContent).toBe("one1");

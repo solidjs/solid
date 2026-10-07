@@ -278,6 +278,45 @@ describe("C15 — a staged refetch lands at the commit, whole", () => {
     expect(watch.frames).toEqual(["a0|v1|one", "a2|v3|three"]);
   });
 
+  // Arm (e) — the gap #3844 named, pinned by name. A refetch resolving to
+  // the address the mount SHOWS is a write only the content token carries
+  // (`dynamic` delivers a kept resolution only when its address differs, so
+  // the bare address would be a `setAddress` no-op and nothing of the
+  // frame's graph would run in the transaction); and the fill's derivation
+  // must read the NEW arg in the pass that delivers it — not at the commit,
+  // one flush behind an optimistic intent it dissolves (principles §9.2.2,
+  // `frames-optimistic-hold`). So, with the body complete and the sibling
+  // still held: the fill HAS derived "two" (the staged read happened in the
+  // transaction's pass) while nothing shows, applies or versions it; the
+  // release lands the whole in one frame. Any carrier of the staging —
+  // the push (`preview`) or a pull — must keep both halves.
+  test("(e) the gap (#3844): a same-address refetch enters the transaction — the fill derives the new arg in its pass, the DOM holds, the commit lands whole", async () => {
+    const s = setup("c15e");
+    await showV1(s);
+    action(function* () {
+      s.setTick(1);
+    })();
+    await pump(3);
+    expect(s.calls.length).toBe(2);
+    for (const c of response(s.id, 2, "v2", "two")) s.v2.send(c);
+    s.v2.close();
+    await pump(3);
+    // The fill's derivation ran with the new arg in the transaction's pass…
+    expect(s.seen).toEqual(["one", "two"]);
+    // …while nothing of v2 is shown, applied, or versioned.
+    expect(s.view()).toBe("a0|v1|one");
+    expect(s.applied).toEqual([]);
+    expect(s.host.get(s.id)?.version).toBe(1);
+    s.sibling.release();
+    await pump(3);
+    s.sample();
+    expect(s.view()).toBe("a1|v2|two");
+    expect(torn(s.frames)).toEqual([]);
+    expect(s.frames).toEqual(["a0|v1|one", "a1|v2|two"]);
+    // Read exactly once, in the pass — never again at the commit.
+    expect(s.seen).toEqual(["one", "two"]);
+  });
+
   // Control: a refetch that moves NO sibling (a different signal re-asks
   // the call). The staged content lands when the staged call settles — at
   // body end — whole: root and fill in one frame.

@@ -170,8 +170,17 @@ export interface JSONCodecOptions {
 /**
  * A resident, response-scoped decode table over the keyed JSON codec: apply
  * each frame `data` chunk with `apply`, resolve `{ $ref }` slot args with
- * `resolve`. The frames client host wires one per response
- * (`applyData: c => table.apply(c)`).
+ * `resolve`, and `close` it when the response ends. The frames client host
+ * wires one per response (`applyData: c => table.apply(c)`,
+ * `closeData: (…) => table.close(error)`).
+ *
+ * A `{ $ref }` to a key no `apply` has delivered yet is a PENDING READ the
+ * table owns (`@internal` behaviour — the frames client is its consumer): a
+ * promise marked `s = 0`, settled by the key's `apply` and rejected by
+ * `close` — the response ended without delivering the key, so a value that
+ * never comes is an error where it is read, not a silence. Stamped `s`/`v`
+ * as it settles (`1` fulfilled, `2` rejected — the hydration serializer's
+ * marks, which a reader adopts synchronously).
  *
  * Integration-facing; may change (see the entry banner). This serialization
  * entry is the single home of the data table — the frames client consumes
@@ -179,7 +188,20 @@ export interface JSONCodecOptions {
  */
 export interface JSONDataTable {
   apply(chunk: { key?: string; node?: unknown; initial?: boolean }): void;
+  /**
+   * The value under `ref`, or the table's pending read of it: a promise
+   * marked `s = 0` carrying `c`, the callbacks the table runs in the
+   * `apply` / `close` that settles it — the key delivered (whatever its
+   * value's shape: a delivered promise is adopted by the read, the
+   * callbacks do not wait for it) or the table closed.
+   */
   resolve<T = unknown>(ref: { $ref: string }): T;
+  /**
+   * The response has ended: every pending read of a key it never
+   * delivered rejects — with `error` (the response's own) when given, with
+   * an `Error` naming the key otherwise. Idempotent.
+   */
+  close(error?: unknown): void;
 }
 
 // Container traces cross as RAW seroval streams so their buffered snapshot
@@ -478,20 +500,73 @@ export function createJSONDataTable(options?: JSONCodecOptions): JSONDataTable;
  * nodes patch pending values (promise/stream resolutions) through the shared
  * deserializer refs. `resolve` reads a `{ $ref }` back out — the record ids
  * double as the reference namespace.
+ *
+ * A key the table does not hold yet answers with a PENDING READ the table
+ * owns: one promise per undelivered key (a second reader of the key gets
+ * the same one), marked `s = 0` so a consumer can tell it from a delivered
+ * value that happens to be a promise (an async arg passed whole), settled
+ * by the key's own `apply` and rejected by `close` — the response ended and
+ * the key never came (frames-rulings L1). It is stamped `s`/`v` as it
+ * settles, the marks the hydration serializer puts on a settled promise, so
+ * a reader that must stay synchronous (a fill's prop read at a t=0 claim)
+ * adopts the value without a pending beat. Owned here (`then(undefined,
+ * noop)`): a read nobody makes — the occurrence never mounted — must not
+ * surface its rejection as unhandled; a reader attaches its own handlers.
+ * The table does not know what a key is FOR: who waits on a read and what
+ * runs when it settles is the consumer's — the read carries `c`, the
+ * callbacks the table runs in the `apply` / `close` that settles it (the
+ * frames host counts a record's reads and re-applies it when the last one
+ * lands). Callbacks, not the promise's own `then`: a delivered value may
+ * itself be a promise (an async arg passed whole), which the read ADOPTS —
+ * its `then` would fire at the inner value, while the consumer must learn
+ * of the DELIVERY (a fresh mount runs then, and the fill's own boundary
+ * holds the inner wait — DR-2's value tier).
  */
 export function createJSONDataTable(options) {
   const deserialize = createJSONDeserializer(options);
   const table = new Map();
+  // key -> { p, r, j }: the pending read for an undelivered key (`p.c` its
+  // settle callbacks).
+  const waits = new Map();
+  const settle = (w, s, value) => {
+    const p = w.p;
+    p.s = s;
+    p.v = value;
+    s === 1 ? w.r(value) : w.j(value);
+    for (const c of p.c) c();
+  };
   return {
     apply(record) {
       const value = deserialize(record.node);
-      if (record.initial) table.set(record.key, value);
+      if (record.initial) {
+        table.set(record.key, value);
+        const w = waits.get(record.key);
+        if (w) {
+          waits.delete(record.key);
+          settle(w, 1, value);
+        }
+      }
     },
     get(key) {
       return table.get(key);
     },
     resolve(ref) {
-      return table.get(ref.$ref);
+      const key = ref.$ref;
+      if (table.has(key)) return table.get(key);
+      let w = waits.get(key);
+      if (!w) {
+        waits.set(key, (w = {}));
+        const p = (w.p = new Promise((r, j) => ((w.r = r), (w.j = j))));
+        p.s = 0;
+        p.c = [];
+        p.then(undefined, () => {});
+      }
+      return w.p;
+    },
+    close(error) {
+      for (const [key, w] of waits)
+        settle(w, 2, error || new Error(`Stream ended without delivering {$ref: "${key}"}`));
+      waits.clear();
     }
   };
 }

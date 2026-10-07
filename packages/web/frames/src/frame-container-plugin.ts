@@ -46,19 +46,22 @@ export interface ContainerTraceMarker {
 // for integrations to wire, and its weight stays in the lazy codec graph.
 
 // Hook state is shared ACROSS MODULE COPIES, like the TRACE symbol below:
-// integration bundles carry this module once per entry (the frames client
+// integration bundles carry this module once per entry (the frames client's
+// TRACES TIER chunk — `@solidjs/web/frames/trace`, loaded on demand —
 // installs the materializer on its copy; the LAZY CODEC chunk's copy is the
 // one whose plugin deserializes stream data), and module-local state would
 // leave the codec copy hookless — deserialize falls back to the inert
 // marker, the arg reads as a plain object, and the meter just renders
 // nothing (chat example, 2026-08-10). One registered global carries the
 // hooks and the materialization memo, so every copy is the same protocol
-// endpoint.
+// endpoint. The EAGER frames client carries no copy at all: it reads the
+// container probe (`materializedValues`) off this object by its registered
+// symbol, and nothing else of the client half until the tier installs.
 /**
  * @type {{
  *   resolveTrace?: (value: unknown) => ({ subscribe(): AsyncIterable<any>, array: boolean } | undefined),
  *   shareIterable?: (source: AsyncIterable<any>) => AsyncIterable<any>,
- *   materializeTrace?: (marker: { $tr: any, $ta?: number }) => unknown,
+ *   materializeTrace?: (marker: { $tr: any, $ta?: number }, claiming?: boolean) => unknown,
  *   streamOf?: (iterable: AsyncIterable<any>) => any,
  *   materialized: WeakMap<object, unknown>,
  *   materializedValues: WeakSet<object>
@@ -92,9 +95,16 @@ export function setAsyncIterableSharer(
 export function setAsyncIterableSharer(fn) {
   state.shareIterable = fn;
 } /** Client half: install the reactive core's trace materializer. */
-export function setContainerTraceMaterializer(fn: (marker: ContainerTraceMarker) => unknown): void;
+export function setContainerTraceMaterializer(
+  fn: (marker: ContainerTraceMarker, claiming?: boolean) => unknown
+): void;
 
-/** Client half: install the reactive core's trace materializer. */
+/**
+ * Client half: install the reactive core's trace materializer. Installed by
+ * the frames client's traces tier (`@solidjs/web/frames/trace`) when it
+ * loads — never at the eager client's module load. `claiming` is the
+ * revival site's hint (see reviveContainerTraces).
+ */
 export function setContainerTraceMaterializer(fn) {
   state.materializeTrace = fn;
 }
@@ -219,10 +229,10 @@ function isShareableIterable(value) {
 // across independent revival sites (an eval-face marker read by two
 // occurrences, a codec node re-resolved per record — possibly by DIFFERENT
 // copies of this module).
-function materialize(marker) {
+function materialize(marker, claiming) {
   let value = state.materialized.get(marker.$tr);
   if (value === undefined) {
-    value = state.materializeTrace(marker);
+    value = state.materializeTrace(marker, claiming);
     state.materialized.set(marker.$tr, value);
     if (value !== null && typeof value === "object") state.materializedValues.add(value);
   }
@@ -259,23 +269,29 @@ export function isContainerTraceMarker(value) {
   const tr = value.$tr;
   return tr.__SEROVAL_STREAM__ === true || typeof tr[Symbol.asyncIterator] === "function";
 } /** Deep-revive trace markers inside a decoded value (document-face slot args). */
-export function reviveContainerTraces(value: unknown): unknown;
+export function reviveContainerTraces(value: unknown, claiming?: boolean): unknown;
 
 /**
  * Deep-revive trace markers inside a decoded value (document-face slot args
  * arrive as literals, and a container can sit at ANY depth of an argument —
  * `{ filters: { user: proj } }` is one arg). In-place: args records are
  * per-record decoded copies. No-op until the materializer is installed.
+ * The traces tier installs this as the shared frame host's `revive`, so it
+ * runs at the mount's arg-read (`FrameHostOptions.revive`). `claiming`: the
+ * value's reader is about to hydrate server markup rendered from it (a
+ * frame's adopt-time mount) — the materializer parks a trace's backlog
+ * beyond the snapshot the markup shows until hydration ends
+ * (frames-rulings 3.6 (iii)).
  */
-export function reviveContainerTraces(value) {
+export function reviveContainerTraces(value, claiming) {
   if (!state.materializeTrace || value == null || typeof value !== "object") return value;
-  if (isContainerTraceMarker(value)) return materialize(value);
+  if (isContainerTraceMarker(value)) return materialize(value, claiming);
   // Plain containers only — anything exotic was either produced by the
   // codec plugin (already materialized) or is an app value not ours to walk.
   if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) value[i] = reviveContainerTraces(value[i]);
+    for (let i = 0; i < value.length; i++) value[i] = reviveContainerTraces(value[i], claiming);
   } else if (Object.getPrototypeOf(value) === Object.prototype) {
-    for (const key of Object.keys(value)) value[key] = reviveContainerTraces(value[key]);
+    for (const key of Object.keys(value)) value[key] = reviveContainerTraces(value[key], claiming);
   }
   return value;
 }
@@ -334,10 +350,13 @@ export const ContainerTracePlugin = {
   deserialize(node, ctx) {
     const iterable = ctx.deserialize(node.i);
     const marker = { $tr: iterable, $ta: node.a };
-    // Codec face: the decode runs where the reactive core is resident (the
-    // frames client installs the materializer at module load, before any
-    // response can decode), so the value leaves the table already live. The
-    // marker fallback keeps a hookless decode inert instead of broken.
+    // Codec face: the decode runs where the materializer is resident — the
+    // `data` chunk that carries this node announces the traces tier
+    // (`chunk.tiers`, frame-sink.ts), and the transport awaits the tier's
+    // install before it lets the chunk decode — so the value leaves the
+    // table already live. A fresh value, never a claim's: no `claiming`.
+    // The marker fallback keeps a hookless decode (an un-announced chunk
+    // from a producer that predates the tier) inert instead of broken.
     return state.materializeTrace ? materialize(marker) : marker;
   }
 };

@@ -65,20 +65,36 @@ named `c<nn>-<slug>.spec.tsx`; each test title names its arm.
 
 Every server-rendered node inside a frame's content is, by quiescence,
 either claimed exactly once (by the hydrate pass or by the fill that owns its
-range) or removed by a deliberate replacement — never claimed by two passes,
-never left in the document beside a fresh clone of itself; a boundary element
-is adopted by at most one frame.
+range) or — when the fill's render did not claim it — left as the server
+rendered it and reported as unclaimed (the core's hydration-mismatch rule:
+a claim pass moves nothing) — never claimed by two passes, never left in the
+document beside a fresh clone of itself; a boundary element is adopted by at
+most one frame. _(Until residue step 3 the second arm read "or removed by a
+deliberate replacement": the frame placed a fill's output itself and
+replaced the range when the output was not in place. Every fill is placed by
+`insert` now, so the frames rule IS the core's.)_
 
-- **Mechanism:** `frames/src/client.ts:claimRender` (a range-scoped registry
-  handed over from the root registry), `client.ts:slotsFor.settle` (the
-  in-place check that turns a render into a claim), `frame-client.ts:FrameImpl.#replaceRange`,
-  `client.ts:adoptBoundary` + `claimedBoundaries` (one adopter per element),
-  `client.ts:documentBoundary` (a second mount goes fresh).
+- **Mechanism:** `frames/src/client.ts:claimRender` (the claim window —
+  `sharedConfig.hydrateWindow`, the re-entry a streamed boundary's resume
+  takes: the range's keys gathered by the producer prefix into the registry
+  of the root the frame adopted under; A2b replaced the range-scoped
+  registry handed over from the root registry — one gather per fill: the
+  window that places the output gathers nothing, so the keys the evaluation
+  claimed are not put back), `client.ts:slotsFor`'s `insert` of the fill's
+  output inside that window (`web/src/client.ts:insertExpression`'s claim
+  pass: in-place output is a claim, a render whose nodes never entered the
+  DOM leaves the server's in place), `client.ts:adoptBoundary` +
+  `claimedBoundaries` (one adopter per element), `client.ts:documentBoundary`
+  (a second mount goes fresh).
 - **Pin:** `c01-claim-once.spec.tsx` — arms: (a) two occurrences claim once
   each with no key miss and node identity preserved; (b) a fill that returns
-  fresh nodes replaces, leaving no server node of the range behind; (c) a
+  fresh nodes at the claim is a hydration mismatch — the server node stays,
+  nothing is duplicated, hydration reports it unclaimed (re-pinned in
+  residue step 3; it asserted the frame's replacement before); (c) a
   second mount of the same function while the first adopted mounts fresh and
-  the adopted element is untouched.
+  the adopted element is untouched. `c01-claim-window-roots.spec.tsx` (A2b):
+  a claim the frame makes after another `hydrate()` root replaced the live
+  registry/gather pair gathers against the root it adopted under (#2917).
 - **Verdict:** **holds on `next`** (3/3); the harness's C1 laws (key miss,
   unclaimed, duplicate, node identity) fired in none of 1000 cases.
 
@@ -92,7 +108,10 @@ live fill behind it.
 
 - **Mechanism:** `frame-client.ts:FrameImpl.#syncSlots` (range discovery over
   the frame's content), `client.ts:adoptBoundary`'s `fr.subscribe` cascade
-  (`claimRegionFragments` + `drainRecords`, #2978/#2968), `#recordRefresh`.
+  (`drainRecords` + the reveal-is-an-apply write, #2968 / rulings 2.3; the
+  swap itself needs no claim from the adoption — a placeholder inside a
+  `data-fid` element is the frame's content by rendering, `_$HY.fa`, A5′),
+  `#recordRefresh`.
   A re-sync after a reveal happens only when the reveal brings a _new_
   record (`drainRecords` → `host.apply` → `#flush` → `#syncSlots`); nothing
   re-syncs on the reveal itself.
@@ -254,16 +273,25 @@ or after a fragment reveal.
 
 ### C11 — a trace materializes to one value, equal to its oracle
 
-A materialized container trace reads, at every observable point, as the
-direct materialization of the same snapshot and patch prefix would —
-not-ready before the snapshot, then the snapshot with every patch applied so
-far — and its value is independent of how the data was split and timed; one
-trace materializes to one store however many readers revive it.
+A materialized container trace reads, at every observable point **outside a
+claim's park**, as the direct materialization of the same snapshot and patch
+prefix would — not-ready before the snapshot, then the snapshot with every
+patch applied so far — and its value is independent of how the data was
+split and timed; one trace materializes to one store however many readers
+revive it. _Outside a claim's park_ (frames-rulings 3.6 (iii), amended with
+the 3e port): a backlog replayed at materialization — patches delivered
+before the fill that reads the store claimed its markup — is parked beyond
+the snapshot until hydration ends (the next microtask when no hydration is
+in progress), so while the park holds the store reads the snapshot although
+its oracle has the patch; the park releases after the frame's hold (3.2), so
+a settle point under another occurrence's hold can fall inside it. Every
+settle point after hydration-done is outside it.
 
 - **Mechanism:** `solid/hydration.ts:materializeContainerTrace` (sync `.on()`
   replay into a queue the projection drains; version bump per live
-  emission), `frame-container-plugin.ts:materialize` (WeakMap memo per
-  stream), `reviveContainerTraces`, `ContainerTracePlugin.deserialize`.
+  emission; the backlog beyond the snapshot parked under `limit` until
+  `onHydrationEnd`), `frame-container-plugin.ts:materialize` (WeakMap memo
+  per stream), `reviveContainerTraces`, `ContainerTracePlugin.deserialize`.
 - **Pin:** `c11-trace-equals-oracle.spec.tsx` — arms: (a) snapshot before
   revival, patches after; (b) revival before the snapshot (not-ready, then
   equal); (c) 1 batch vs N batches vs random partitions give equal prefixes
@@ -281,8 +309,11 @@ one — and changes only when the document (or a stream) delivers.
 
 - **Mechanism:** `solid/hydration.ts:hydratedCreateLoadingBoundary` (`_fr`
   states: pending / settled / parked / superseded / rejected), `fragmentPolicy`
-  (held swaps), `client.ts:adoptBoundary.claimRegionFragments` (#2978: the
-  adoption claims server-produced placeholders so a late swap lands).
+  (held swaps) with its ownership-by-rendering term (`_$HY.fa`, installed by
+  `client.ts:installRevealHook` — #2978: a server-produced placeholder inside
+  a live `data-fid` element is the frame's content, so a late swap lands with
+  or without an adoption on record; rulings 3.3, A5′), `adoptBoundary`'s
+  dev-only rejection report over the region's `pl-*` templates.
 - **Pin:** `c12-boundary-parity.spec.tsx` — a server `<Loading>` inside the
   adopted frame: (a) pending at adopt (fallback shows, no fetch, ledger
   pending); (b) revealed after adopt (content replaces the fallback in one
@@ -321,9 +352,11 @@ reveal touches the DOM or invokes a fill.
 
 - **Mechanism:** `frame-client.ts:FrameImpl.dispose` (unregister first,
   cleanups, record hygiene, `#recordRefresh` cleared), `createFrameHost.unregister`,
-  `client.ts:adoptBoundary`'s `onCleanup` (applier, `fr` unsubscribe, fragment
-  claims released), `client.ts:documentBoundary`'s `boundaryWaiters` cleanup,
-  `client.ts:followAddress.drop`.
+  `client.ts:adoptBoundary`'s `onCleanup` (applier, `fr` unsubscribe, the
+  element and its region elements entered in `disposedFrames` so `_$HY.fa`
+  disowns their placeholders — a boundary disposed _in place_ keeps its
+  element in the document), `client.ts:documentBoundary`'s `live` latch over
+  the shared arrival wait, `client.ts:followAddress.drop`.
 - **Pin:** `c14-dispose-clean.spec.tsx` — arms: (a) dispose during the
   record defer (`readyState` "loading"), the record lands after; (b) during a
   `{$ref}` wait on a stream, the data lands after; (c) during a late-boundary
@@ -351,7 +384,11 @@ land at that transaction's commit — never when the body finishes arriving.
   (a) the body completes before the sibling releases; (b) the sibling
   releases first, the body completes after; (c) a second refetch supersedes
   the first while staged; (control) a refetch holding nothing else lands at
-  body end.
+  body end; (e) the gap #3844 named, by name — a same-address refetch
+  enters the transaction (the fill derives the new arg in that pass while
+  the DOM, `frame:applied` and the frame's version still show v1) and
+  lands whole at its commit; any carrier of the staging, push or pull,
+  must keep both halves (residue pass §3.1 "As measured").
 - **Verdict:** **holds on `next`** (4/4). Nothing of the staged version is
   visible, applied (`frame:applied`) or versioned in the host before the
   commit; root, fill and sibling change in one frame in both orders; a
@@ -403,7 +440,7 @@ address's late chunks never release it.
 
 | #   | invariant                          | mechanism (carrier)                                                    | pin                               | `next`            |
 | --- | ---------------------------------- | ---------------------------------------------------------------------- | --------------------------------- | ----------------- |
-| C1  | claim once / replace / one adopter | `claimRender`, `slotsFor.settle`, `#replaceRange`, `claimedBoundaries` | `c01-claim-once`                  | holds             |
+| C1  | claim once / mismatch stays / one adopter | `claimRender`, `slotsFor`'s `insert` (the core's claim pass), `claimedBoundaries` | `c01-claim-once`                  | holds             |
 | C2  | no inert server content            | `#syncSlots`, `adoptBoundary` reveal cascade                           | `c02-revealed-occurrence-mounts`  | **red** (a2, b)   |
 | C3  | done counts every hold             | `_pendingBoundaries` vs `#recordRefresh`/`#refsUnresolved`             | `c03-hydration-done-counts-holds` | **red** (a)       |
 | C4  | record applies once, any order     | `drainRecords`, `write`, `argsEquivalent`, `#appliedHoles`             | `c04-record-applies-once`         | **red** (d)       |
@@ -414,7 +451,7 @@ address's late chunks never release it.
 | C9  | no phantom                         | `claimRender`, `slotArgsProxy`, settled-branch hydration               | `c09-no-phantom`                  | holds             |
 | C10 | ids timing-independent             | `claimRender` owner id, `#invokeSlot` ctx                              | `c10-ids-timing-independent`      | holds             |
 | C11 | trace equals oracle                | `materializeContainerTrace`, `materialize` memo                        | `c11-trace-equals-oracle`         | holds             |
-| C12 | boundary parity at claim           | `hydratedCreateLoadingBoundary`, `claimRegionFragments`                | `c12-boundary-parity`             | **red** (c)       |
+| C12 | boundary parity at claim           | `hydratedCreateLoadingBoundary`, `fragmentPolicy` + `_$HY.fa`          | `c12-boundary-parity`             | **red** (c2)      |
 | C13 | one sweep, one frame               | `applyFrames.drain`, `#flush` hole pass                                | `c13-sweep-atomic`                | **red** (a, b)    |
 | C14 | disposal leaves nothing            | `dispose`, `unregister`, adopt cleanups                                | `c14-dispose-clean`               | holds             |
 | C15 | staged refetch lands whole         | `stage`/`stagedContent`, `followAddress`                               | `c15-staging-atomic`              | holds             |
@@ -450,13 +487,26 @@ read — may evaluate a render prop as a zero-arg accessor.
 A fill claiming server-rendered text shows, after the claim, the value its
 first read produced: when a container trace's patches landed before the
 claim, the DOM shows the patched value, not the snapshot the server rendered.
+Under frames-rulings 3.6 (iii) the sentence is carried the other way round —
+the first read IS the snapshot (what the markup was rendered from), the claim
+keeps it, and the patches land after the claim as the update they are — so
+what the settled DOM shows is still the value the fill read, patched.
 
 - **Mechanism:** `web/src/client.ts:insertExpression` (a hydrating render is
   a claim pass, not a mutation pass — by design), `materializeContainerTrace`
-  (replays snapshot + patches synchronously at revive, so the first read is
-  already the patched value), `claimRender`.
-- **Pin:** `harness/replay.spec.tsx` C19 ×2 (`test.fails`) + control.
-- **Verdict:** **red on `next`**, **green on S1** (§S1 delta). See §Red R10.
+  (replays snapshot + patches synchronously at revive and parks the patches
+  beyond the snapshot until hydration ends — 3.6 (iii), the 3e port; the
+  park is unconditional until S1's `claiming` hint lands at C3, 3.6
+  "Landed"), `claimRender`.
+- **Pin:** `harness/replay.spec.tsx` C19 ×2 + control;
+  `c19-claim-reads-snapshot.spec.tsx` — arms: (a) the t=0 claim with a trace
+  past the markup, (b) the deferred claim under the frame's hold, (c) the
+  release order (claim → hold release → done → backlog, rulings 3.2),
+  (d) a claim after hydration-done (a fragment's reveal), (e) the C11
+  consequence (the store reads the snapshot inside the park), (f) id
+  determinism (the materializer's detached root).
+- **Verdict:** was **red on `next`** (§Red R10); **green with the 3e port**
+  (`wip/frames-pass-integration`, A2b) — the harness clean on both seeds.
 
 ## Red on `next`
 
@@ -728,13 +778,27 @@ the claimed text equals the value read. **Where it goes wrong.** A hydrating
 `insertExpression` is a claim pass — "not a mutation pass" — by design; the
 trace model assumes the server text IS the store's first value, which holds
 only if no patch precedes the claim. On S1 (`9927ddddd`, "a held
-container-trace fill hydrates like a resident one") the shape is green: the
-held fill's claim runs under a path that reconciles the text with the live
-value (the same path that produces C3(b)'s red there). **Severity:** stale
-value shown after hydration with no diagnostic; self-heals on the next
-distinct patch (medium). **Should have been caught by:** `c11-trace-equals-
-oracle` (d) — it patches only after the claim; no hydration test lets a
-container trace move between SSR and claim.
+container-trace fill hydrates like a resident one") the shape is green — not
+because the claim reconciles the text (it never does; `9927ddddd`'s own
+comment: "a text hole is never rewritten during a claim") but because the
+materializer, told it is read for a claim, serves the snapshot and PARKS the
+backlog until hydration ends; the DOM catches up after the claim. S1 is
+evidence for frames-rulings 3.6 (iii), the consumer parks — not for (i), the
+claim pass reconciling. **Fixed** by the 3e port (A2b on
+`wip/frames-pass-integration`, #3840): `materializeContainerTrace` parks every
+replayed backlog beyond the snapshot until `onHydrationEnd` (a microtask
+when none is in progress), and roots its projection detached. The park is
+**unconditional** (maintainer, 2026-10-06 — frames-rulings 3.6 "Landed"):
+keying it on hydration being in progress at materialize time left post-done
+claims (a fragment revealed after done, a record owed past done — corollary
+4) red, because no hydration state says "claim" at that moment; the port
+carries no `claiming` hint, so a fresh mount pays one beat instead. S1's
+`revive(value, claiming?)` hint arrives at plan step C3 and keys the park on
+the claim again then.
+**Severity:** stale value shown after hydration with no diagnostic;
+self-heals on the next distinct patch (medium). **Should have been caught
+by:** `c11-trace-equals-oracle` (d) — it patches only after the claim; no
+hydration test lets a container trace move between SSR and claim.
 
 ## Harness
 
@@ -762,6 +826,17 @@ Campaigns on `next` (`1f8b2caf4`):
 | 3289  | 500   | —                | 323                 | C3 280 (R1), C19 71 (R10, new), C18 49 (R9, new), C2 16+11 (R3), C11 0, C4 0, C12 0, C14 0 |
 | 91501 | 500   | —                | 327                 | C3 268, C19 68, C18 55, C2 26+25                                                           |
 | 91501 | 500   | C3, C18, C19, C2 | **0**               | nothing else surfaces                                                                      |
+
+On `wip/frames-pass-integration` with the A2b port (S-flush, the C3 hold,
+C5, C12 (c), the 3e park): seeds 3289 and 91501, 500 cases, **0 with
+findings**, every law un-ignored. The oracle's one amendment for it: the
+settled trace law (C11 / C19) exempts a settle point INSIDE a claim's park —
+a fill that claimed with patches already delivered, hydration still in
+progress (another occurrence's hold), the text at the snapshot — per C11's
+"outside a claim's park"; the end is always outside it (hydration done) and
+strict. Checked against the branch WITHOUT the park: the amendment hides 2
+(3289) / 3 (91501) of the 83 / 79 C19 cases — those a later distinct patch
+heals before the end — and leaves the rest (81 / 76) red.
 
 Shrink mode (seed 3289, ignore C3) reduces to
 `[item#0 item#1 children] :: H R1 R0` → C18 on the first failing case.
@@ -797,9 +872,10 @@ campaign). Versus `next` (61 passed, 22 expected-fail, 1 skipped):
   R1 (a hold hydration does not count).
 - **Newly green:** C19 ×2 — the `test.fails` pins pass on S1: a trace patch
   before the claim IS shown (`R0 T H` runs with no finding at all, node
-  identity included; `H T R0` shows the oracle and only C3 fires). The held
-  container-trace fill of `9927ddddd` claims through a path that reconciles
-  the text with the live value.
+  identity included; `H T R0` shows the oracle and only C3 fires). The
+  mechanism is `9927ddddd`'s park (the materializer serves the snapshot to
+  the claim and applies the backlog at hydration end), not a reconciling
+  claim — see R10's correction.
 - Everything else identical to `next` (every other pin and expected-fail
   agrees; the codec warm-up probe chunk keeps C5/C6 portable).
 
@@ -812,10 +888,13 @@ Hydration-core (`packages/solid/src/client/hydration.ts`, `web/src/client.ts`):
    newly-red C3(b).
 2. **R6/C12** — give a rejected server `<Loading>` fragment a consumer
    (error fallback + surfaced rejection) instead of the blank swap.
-3. **R10/C19** — decide: either the claim pass reconciles a text hole whose
-   value already differs (narrow, trace-only), or the trace model forbids
-   patches before the claim (the producer holds them until the record's
-   claim) — S1's held-fill path shows the former is reachable.
+3. **R10/C19** — decided (frames-rulings 3.6 (iii), the consumer parks): the
+   materializer serves the snapshot to the claim and parks the backlog until
+   hydration ends; the claim pass stays non-mutating. (The alternatives were
+   (i) the claim pass reconciling a text hole whose value already differs,
+   and (ii) the producer holding patches until the record's claim; S1's
+   held-fill path is the park, (iii), not evidence for (i).) Landed as the
+   3e port on `wip/frames-pass-integration`.
 
 Frames-client (`packages/web/frames/src/`):
 
@@ -832,3 +911,283 @@ Frames-client (`packages/web/frames/src/`):
    gate.
 7. **R7/C13** — needs a wire sweep delimiter (producer + transport), per the
    rulings draft; client-only work cannot carry it.
+
+## Generic hydration — classification and pins (2026-10-06)
+
+Branch `test/hydration-consistency-generic` off `wip/frames-pass-integration`
+@ `00dbc8663` (#3837). The question: are the reds above frames-only, or are
+some of them plain Solid 2 hydration holes that a page with no server
+component would hit? Method: classify each invariant and red, then drive
+the generic twin of every candidate through a **frames-free** page —
+`hydrate()` over a `renderToStream` document with two sibling streamed
+`<Loading>` boundaries (`packages/web/test/harness/generic-hydration.tsx`,
+artifacts rendered by `test/server/generic-hydration.gen.spec.tsx`), by
+hand (`test/consistency/generic/*.spec.tsx`) and under a property harness
+(`test/consistency/generic/{scenario,run,campaign}`, opt-in behind the same
+`CONSISTENCY_FUZZ` knobs as §Harness). **Nothing here changes an engine.**
+
+**Answer: yes — six generic reds, four of them one class.** GH1–GH3 are the
+plain-Solid form of R10/C19 (a claim pass that reads a value the markup was
+not rendered from and does not reconcile the text); GH4 is the plain form
+of the frames pass's "unrevealed boundary with `STATUS_PENDING` shows
+fallback"; GH5/GH6 are the plain form of R1/C3 and C14 for a hold the
+hydration runtime does not count — the root module preload. Everything else
+in C1–C19 is either frames-only or holds on plain pages (1000 harness cases,
+two seeds, no finding outside the six).
+
+### Classification
+
+Key: **SC-only** — needs frames/slots/records to express; **generic-restated**
+— the SC case is an instance of a plain hydration rule (§3 _n_ cites
+`documentation/plans/solid-web-size-audit.md` §3) that could break without
+frames; **generic-suspect** — shared mechanism, nothing in the plain suite
+pinned it before this pass. "Plain verdict" is what the generic pins and
+harness found.
+
+| #   | class            | plain rule (§3) / mechanism                                                                                                  | plain verdict                                                     |
+| --- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| C1  | generic-restated | §3 1–2, 8 — `getNextElement` claim-by-key, the claim pass never mutates (`client.ts:insertExpression`)                       | holds; key misses only as consequences of GH3/GH4                 |
+| C2  | generic-restated | §3 70, 76 — `resumeBoundaryHydration` is driven by the `_fr` settle + `whenRevealed`, not by the DOM reveal                  | holds (every range live and reactive, 1000 cases)                 |
+| C3  | generic-restated | §3 35–37, 69 — `_pendingBoundaries` / `checkHydrationComplete`; the root preload wait (`client.ts:hydrate` `rootMapping`)    | holds for `<Loading>`; **red GH5** (preload hold not counted)     |
+| C4  | SC-only          | document records (`drainRecords`) have no plain twin; the plain "applies once" is C1's no-duplicate                          | —                                                                 |
+| C5  | SC-only          | per-response data tables                                                                                                     | —                                                                 |
+| C6  | SC-only          | held `slot:*` records across rebind                                                                                          | —                                                                 |
+| C7  | SC-only          | frame store / `#flush`                                                                                                       | —                                                                 |
+| C8  | SC-only          | frame fan-out                                                                                                                | —                                                                 |
+| C9  | generic-restated | §3 8, 68, 70 — settled fragment hydrates straight through (`hydratedCreateLoadingBoundary`) into an UNREVEALED core boundary | **red GH4** (fallback committed over settled content)             |
+| C10 | generic-restated | §3 18, 22, 70 — ids from the owner's counter; a resume's `gather(id)`                                                        | holds (both orders claim the server nodes, no miss)               |
+| C11 | SC-only          | container traces                                                                                                             | —                                                                 |
+| C12 | generic-restated | §3 68 — `_fr` states pending / settled / parked / superseded / rejected (the rejected arm has a client twin on plain pages)  | holds at settle points; the transient violation is GH4            |
+| C13 | SC-only          | live holes / sweeps                                                                                                          | —                                                                 |
+| C14 | generic-restated | §3 35, 69 — `initBoundaryResume` disposal release + `cleanupFragment`; the preload path's deferred disposer                  | holds for boundaries; **red GH6** (dispose during preload)        |
+| C15 | SC-only          | staging                                                                                                                      | —                                                                 |
+| C16 | SC-only          | component identity                                                                                                           | —                                                                 |
+| C17 | SC-only          | shell gate / address                                                                                                         | —                                                                 |
+| C18 | SC-only          | occurrence classification                                                                                                    | —                                                                 |
+| C19 | generic-suspect  | §3 6, 38, 71 — `normalize` adopts the text node without a write; the snapshot scope (#3504) is what makes the read match     | **red GH1, GH2, GH3** (three sources the snapshot does not cover) |
+| R1  | generic-restated | a hold registered with nothing hydration counts                                                                              | **GH5** is its plain twin                                         |
+| R2  | SC-only          | `#appliedRootValue`                                                                                                          | —                                                                 |
+| R3  | SC-only          | a plain reveal IS a trigger (C2 row)                                                                                         | holds                                                             |
+| R4  | SC-only          | data path version                                                                                                            | —                                                                 |
+| R5  | SC-only          | rebind                                                                                                                       | —                                                                 |
+| R6  | SC-only          | a server `<Loading>` with no client twin; the plain `s === 2` arm resumes fresh (`hydration/diagnostics`)                    | holds                                                             |
+| R7  | SC-only          | sweep delimiter                                                                                                              | —                                                                 |
+| R8  | SC-only          | gate / address                                                                                                               | —                                                                 |
+| R9  | SC-only          | classification vs drain                                                                                                      | —                                                                 |
+| R10 | generic-suspect  | the claim pass is not a mutation pass; the trace is one source without a snapshot — GH1–GH3 are the others                   | **GH1–GH3**                                                       |
+
+The frames pass's six "smelled generic" findings, placed: (1) `initBoundaryResume`
+ids vs the fragment ledger — SC-only (a plain boundary's id IS its fragment
+key by design; the `sc:` prefix is the frames fix); (2) a hold on a page that
+never ran `hydrate()` — SC-only in that shape (`initBoundaryResume` is
+reached only under `hydrating`), but its generic twin — a hold the runtime
+does not count — is GH5; (3) unrevealed boundary + `STATUS_PENDING` →
+fallback — **generic, GH4** (the `flatten` memo-of-a-promise arm was not
+reproduced on a plain page); (4) `$df` not a sync trigger — plain `<Loading>`
+resumes on the `_fr` settle, holds; (5) R10's class for the plain adapters —
+**generic, GH1–GH3** (the hybrid async-iterable signal path is protected by
+its creation-time snapshot of the first yield; the store path parks its
+backlog past hydration end — both by reasoning, not pinned); (6) events vs a
+hold — **generic**: GH5's second arm (the bootstrap stops capturing once the
+wrong done drained the queue) and GH4's lost click.
+
+### Generic reds
+
+Pins: `packages/web/test/consistency/generic/replay.spec.tsx` (GH1–GH4, over
+the harness's laws) and `preload-hold.spec.tsx` (GH5, GH6). Schedules read
+as `describeScenario` prints them: `H` hydrate, `Cn` the stream's n-th chunk,
+`W` a client write to the module-level signal, `P` a push to the module-level
+store list, `Ea`/`Eb` a click on a boundary's button, `t` a 20ms settle, `m` a
+microtask, `X` dispose.
+
+#### GH1 — C19: a memo created before capture is read live by a resume's claim pass
+
+**Shape.** `const label = createRoot(() => createMemo(() => "label:" + path()))`
+at module level (a global store module), read in the shell and in both
+boundaries; `setPath("/b")` after `hydrate()` and before the fragments land
+(`[ab] :: H W t C0 C1 C2 t`). **Observed:** the shell shows `label:/b`; each
+boundary's resume claims the server text `label:/a` while the memo it read
+says `label:/b` — the `.raw` hole beside it (the plain signal) reads the
+snapshot `/a`, claims, and catches up to `/b`; `.label` never does until the
+memo changes again. **Expected** (the write-before-resume contract, #3504):
+the boundary resumes against the server snapshot, then catches up. **Where
+it goes wrong.** `captureWriteSnapshot` records the pre-write value of a
+plain SIGNAL written during capture (`core.ts:setSignal`), and a computed
+created during capture gets its creation value as snapshot (`core.ts:computed`);
+a computed created BEFORE capture has neither, recomputes live when its
+dependency is written, and the in-scope reader finds no `_snapshotValue` to
+serve. `normalize` then adopts the text node without a write (§3 6) and
+`insertExpression`'s claim arm returns the value (§3 8). **Severity:** stale
+DOM, no diagnostic, until the next distinct change (medium). **Fix direction
+(not applied):** the computed analog of `captureWriteSnapshot` — when a
+computed without a snapshot recomputes while capture is active and it is not
+itself in a snapshot scope, record its pre-recompute value; or make the claim
+pass reconcile a text hole whose read differs from the node (which also
+covers R10).
+
+#### GH2 — C19: a shell async memo adopted pending re-runs before a later boundary resumes
+
+**Shape.** `shared = createMemo(async () => "shared:" + path())` in the shell,
+read only inside the boundaries (pending when the shell flushes, so the
+client adopts it pending: no creation snapshot — `computed()` skips
+`STATUS_PENDING`, and an async landing "reveals" by design). It lands
+`shared:/a` with the first fragment; a write re-runs it (`H C0 C1 t W t C2 t`);
+the second boundary resumes reading `shared:/b` and claims `shared:/a`.
+**Observed:** `b.shared shared:/a ≠ shared:/b` beside `b.raw /b` — one
+boundary internally inconsistent. **Expected:** `shared:/b` once settled.
+**Severity:** stale DOM, no diagnostic (medium). **Fix direction:** same
+as GH1 (the first landed value of a pending-adopted computed is the server's
+value and could seed its snapshot), or reconcile at claim.
+
+#### GH3 — C19 / C1: a store write to a leaf no reader has materialized is not snapshotted
+
+**Shape.** `const [store, setStore] = createStore({ items: ["i0", "i1"] })` at
+module level; `<For each={store.items}>` inside each boundary; a push
+(`setStore(s => s.items.push("i2"))`) after `hydrate()` and before the
+fragments land (`H P C0 C1 C2 t`). **Observed:** at each resume `<For>` reads
+three items against two server rows — `Hydration key miss for "…620"` (a
+detached `<li>` the warning blames on id namespaces) and a list one row
+short until the next structural change. **Expected:** two rows claimed, the
+third inserted at release. **Where it goes wrong.** No shell reader had read
+`items.length`, so the write mutates the raw target with no leaf signal to
+capture; the leaf is created at the resume's first read with the post-write
+value and a snapshot OF that value. Materializing the leaf before the write
+(a shell reader of `items.length`) makes the same schedule green — the hole
+is exactly "unmaterialized leaf". **Severity:** stale DOM + misleading dev
+diagnostic (medium). **Fix direction:** under capture, a store write to an
+unmaterialized leaf materializes it (so `captureWriteSnapshot` sees the
+pre-write value) or records a per-target pre-write snapshot.
+
+#### GH4 — C9 / C12 / events: a boundary resuming while a shell async source is in flight commits its fallback over the settled content
+
+**Shape.** The GH2 page; the write lands BEFORE the first fragment
+(`H W C0 C1 m t`): `shared` is superseded by a client flight (15ms); the
+boundary's fragment reveals and it resumes while the flight is open.
+**Observed:** the resume's content reads `shared` pending; the core boundary
+has never revealed on the client, so it falls back — the fallback is
+rendered in the claim window (`Hydration key miss for "410"`, `<p class="fb a">`,
+a phantom the claim arm keeps out of the DOM), then `releaseSnapshotScope`
+re-runs the insert OUTSIDE the window and commits it: the server `<section>`
+is detached and a fresh client `<p class="fb a">a-loading</p>` stands in
+its place until the flight lands, when the same server nodes are
+re-attached (node identity holds, parity holds at the settle point). A
+click queued on the server section at its reveal (`H W m C0 C1 C2 Eb`)
+replays while the section is detached — the walk from the detached button
+never reaches the delegated container — and is consumed: `b: 1 clicks, 0 handled`.
+**Expected:** the settled server content is the boundary's revealed value
+(async-holds-latest), no fallback, no detach, the click replays. **Where it
+goes wrong.** `hydratedCreateLoadingBoundary`'s settled paths hand the
+server content to `coreLoadingBoundary` as a fresh, UNREVEALED boundary;
+"revealed" is a client-render fact the hydration path never asserts. The
+frames pass's finding (3) is this, with frames. **Severity:** visible
+fallback flash over settled content, focus/selection loss, lost pre-hydration
+input (medium-high). **Fix direction:** a boundary hydrating straight
+through / resuming from a settled fragment starts revealed (the claimed
+content is its value), so a pending read holds.
+
+#### GH5 — C3: hydration-done does not count a root's module preload
+
+**Shape.** Two roots; A's `hydrate()` finds `a_assets` and defers its render
+behind `loadModuleAssets`; B's `hydrate()` runs synchronously meanwhile
+(islands entry-clients start several roots in one tick — the code comment
+in `hydrate` names the shape). **Observed:** B's pass ends → `checkHydrationComplete`
+→ `drainHydrationCallbacks`: `onHydrationEnd` fires, `isHydrationInProgress()`
+reads false, `_$HY.done = true` a macrotask later — while A has claimed
+nothing and cannot until its module lands. Second arm: with a queued click
+to drain, the replay nulls `_$HY.events` at done and the bootstrap stops
+capturing; a click on A's server markup during A's wait is neither queued
+nor handled (`a: 0` where 1 was sent). A third root starting after the
+timeout would degrade to `render()` (§3 33; reasoned from the `_$HY.done`
+guard, not pinned). **Expected:** done waits for the preload. **Where it
+goes wrong.** The wait registers with nothing the completion check counts —
+`_hydratingValue` is a per-root flag the next root's `finally` clears, and
+`_pendingBoundaries` knows only `<Loading>` registrations. R1 with the
+record defer swapped for the preload. **Severity:** wrong done + lost input
+(medium-high in islands setups). **Fix direction:** count the preload wait
+as a pending registration — the same `_pendingBoundaries++` / release pair
+`initBoundaryResume` keeps (what `sharedConfig.holdBoundary` wraps, minus
+its owner requirement: `hydrate`'s preload branch has no owner yet) around
+the `p.then`.
+
+#### GH6 — C14: disposing a root during its module preload does not cancel the deferred render
+
+**Shape.** `const dispose = hydrate(App, el)` with a pending `_assets`
+preload; `dispose()` before the module lands. **Observed:** `hydrate` returns
+`() => disposer && disposer()` with `disposer` unset until the preload's
+`.then`; the call is a no-op, the render runs when the module lands, and
+the root stays live (a write re-renders it) with no handle left — a second
+call to the same function reaches the late disposer. **Expected:** nothing
+renders after dispose. **Severity:** leaked live root (low-medium; HMR and
+test teardown are the realistic callers). **Fix direction:** a `disposed`
+flag in `hydrate`'s preload branch, checked before the deferred `render`
+(and clearing `hydrating` / checking completion when set).
+
+### Generic holds confirmed
+
+On the plain page (hand pins in `replay.spec.tsx` "generic holds", and the
+harness's 1000 cases with `CONSISTENCY_IGNORE=C1,C9,C19,E` → 0 findings):
+
+- **C2 / C10** — both fragment orders, hydrate before / between / after the
+  chunks: every boundary claims its server nodes (node identity, no
+  duplicate, no key miss absent a client write), is invoked once, and
+  reacts after a post-done write.
+- **C3** — hydration-done waits for both streamed `<Loading>` boundaries in
+  either order; `isHydrationInProgress()` stays true until then.
+- **C12** — pending → the server fallback shows; revealed → content, no
+  fallback (at every settle point).
+- **C14** — dispose while both are pending, or between the reveals: the late
+  chunks touch nothing, nothing runs, no error (the placeholder range is
+  removed at disposal; a late `$df` queues a retry that never lands).
+- **Events** — a click queued before `hydrate()` on a settled fragment, or
+  after a reveal before the resume, replays exactly once at the claim
+  (absent GH4's detach).
+- **#3504 snapshot** — the plain signal written during hydration resumes on
+  the snapshot and catches up in every schedule (the control beside GH1).
+- Reasoned, not pinned: the hybrid async-iterable SIGNAL adapter is covered
+  by its creation snapshot (the first yield is delivered synchronously, so
+  the memo is not pending at creation); the STORE adapter parks its backlog
+  past hydration end (§3 60); `lazy()` without `moduleUrl` under a settled
+  boundary takes the async path and cannot claim — the documented
+  degradation of §3 81, not a hole.
+
+### Harness arm
+
+`packages/web/test/consistency/generic/` — same knobs as §Harness
+(`CONSISTENCY_FUZZ=1 CONSISTENCY_SEED=… CONSISTENCY_CASES=… CONSISTENCY_IGNORE=…
+CONSISTENCY_MODE=survey|shrink`, run against `test/consistency/generic`).
+Scenario: a fragment order (`ab` / `ba`, two server renders) and a shuffled
+schedule of `hydrate`, the stream's chunks (wire order kept), an optional
+client write and store push (after `hydrate` — before it they are an app
+mismatch, outside the contract), clicks on either boundary, a dispose,
+0–3 settles, 0–2 microtasks. Laws: G no-runtime-error; C1 no-key-miss /
+no-unclaimed / node-identity / no-duplicate; C9 no-fallback-over-settled;
+C3 in-progress-until-done / done-counts-holds; C12 fragment-parity; C19
+claim-shows-signal / -memo / -async-memo / -store-list; C14 dispose-no-invoke
+/ dispose-no-dom; C2 every-range-live / -reactive; E queued-click-replays-once.
+
+| seed  | cases | ignore         | cases with findings | findings by law                                                                                                                      |
+| ----- | ----- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 3289  | 500   | —              | 101                 | C1 no-key-miss 95, C19 store-list 60 (GH3), C19 memo 55 (GH1), C9 fallback-over-settled 26 (GH4), C19 async-memo 16 (GH2), E 8 (GH4) |
+| 91501 | 500   | —              | 99                  | C1 84, C19 memo 60, C19 store-list 48, C9 26, C19 async-memo 15, E 4                                                                 |
+| 91501 | 500   | C1, C9, C19, E | **0**               | C2, C3, C12, C14, G: nothing surfaces                                                                                                |
+
+Limitations: one page shape (two sibling boundaries; no nested boundaries,
+no `lazy()`, no `<Errored>`); the server's chunking is fixed per order
+(three chunks: the first boundary's data, `shared` + its fragment, the
+second fragment); `_hydrationDone` is a worker latch so every case after
+the first runs post-done (a reveal before `hydrate()` is held and replayed
+at registration — both regimes are legal pages); `readyState` is not
+mocked (plain hydration consults it only for truncation).
+
+### Caveats
+
+- The verdicts are "a pin could not break it", as above. The harness covers
+  one page; nested boundaries resolving out of order, `lazy()` inside a
+  boundary and two `hydrate()` roots are covered only by the existing suite
+  (`parity-harness`, `loading-lazy-resume-3749`, `multi-root-registry`).
+- GH4 self-heals for the DOM (the server nodes return); its lasting damage
+  is the lost input and the focus/selection loss, which the pin observes
+  through the click only.
+- Severity of GH5 depends on the islands setup: a single deferred root is
+  fine (control pinned); the red needs a second root finishing while the
+  first waits.

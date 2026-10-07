@@ -143,13 +143,15 @@ describe("C4 — a record applies exactly once, in any drain order", () => {
       )
     );
     page.declareFragment(frag);
+    // Declared at the marker (S-record); settled after adoption.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const invocations: number[] = [];
     const pushes: string[] = [];
     const dispose = hydrate(() => <Comp item={makeFill(invocations, pushes)} />, page.container);
     await quiesce();
     expect(invocations.length).toBe(0);
-    page.slotRecord(fid, "item#0", { text: "one" });
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(invocations.length).toBe(1);
@@ -204,47 +206,42 @@ describe("C4 — a record applies exactly once, in any drain order", () => {
   // and record are in the document (and the `_fr` settled) when the boundary
   // adopts, but its `$df` is deferred to the group's reveal. The adopt-time
   // drain applies the record while the range is still inside the template;
-  // the reveal then brings the range into the shown content.
-  test.fails(
-    "(d) drain-before-reveal: a record drained before its range is shown takes effect once the range is revealed",
-    async () => {
-      const fid = freshFid("c4d");
-      const frag = "c4d-frag";
-      page = bootPage(frameHtml(fid, `<ul>${placeholderHtml(frag, "<i>loading</i>")}</ul>`));
-      page.slotRecord(fid, "item#0", { text: "one" });
-      const reveal = parkFragment(page, frag, slotRange("item#0", fillHtml(fid, "item#0", "one")));
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const invocations: number[] = [];
-      const pushes: string[] = [];
-      const dispose = hydrate(() => <Comp item={makeFill(invocations, pushes)} />, page.container);
-      await quiesce();
-      // Pending at adopt: the fallback shows, the record is in the store.
-      expect(page.container.textContent).toBe("loading");
-      expect(invocations.length).toBe(0);
+  // the reveal then brings the range into the shown content. Was red on
+  // `next`; green under frames-rulings 2.3/2.4 — a reveal is an apply (the
+  // reveal cascade syncs the adopting frame, which finds the range and the
+  // record it holds), and `appliedRecords` is a delivery dedupe, not an
+  // application: "applied" means shown.
+  test("(d) drain-before-reveal: a record drained before its range is shown takes effect once the range is revealed", async () => {
+    const fid = freshFid("c4d");
+    const frag = "c4d-frag";
+    page = bootPage(frameHtml(fid, `<ul>${placeholderHtml(frag, "<i>loading</i>")}</ul>`));
+    page.slotRecord(fid, "item#0", { text: "one" });
+    const reveal = parkFragment(page, frag, slotRange("item#0", fillHtml(fid, "item#0", "one")));
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const invocations: number[] = [];
+    const pushes: string[] = [];
+    const dispose = hydrate(() => <Comp item={makeFill(invocations, pushes)} />, page.container);
+    await quiesce();
+    // Pending at adopt: the fallback shows, the record is in the store.
+    expect(page.container.textContent).toBe("loading");
+    expect(invocations.length).toBe(0);
 
-      // The group's reveal.
-      expect(reveal()).toBe(1);
-      await quiesce();
-      await quiesce();
-      expect(page.container.textContent).toBe("one");
-      // Observed on next: the range is shown (text "one") but the record
-      // took effect ZERO times — invocations 0, no push; nothing logged.
-      // Expected: exactly one invocation with { text: "one" }. Where it goes
-      // wrong: client.ts adoptBoundary's adopt-time `drainRecords` applies
-      // `sc:slot:<fid>:item#0` to the store (`host.apply` → `FrameImpl.apply`
-      // → `#flush` → `#syncSlots`), but the sync finds no `item#0` marker
-      // pair — the range is still inside `<template id=frag>` — so the
-      // record is consumed (`appliedRecords`) with no mount. The reveal's
-      // `fr.subscribe` drain then sees the key as already applied, applies
-      // nothing, and no `#flush`/`#syncSlots` follows; the record in the
-      // store and the range in the DOM never meet.
-      expect(invocations.length).toBe(1);
-      expect(pushes).toEqual(["one"]);
-      expect(page.warnings).toEqual([]);
-      expect(page.errors).toEqual([]);
-      dispose();
-    }
-  );
+    // The group's reveal.
+    expect(reveal()).toBe(1);
+    await quiesce();
+    await quiesce();
+    expect(page.container.textContent).toBe("one");
+    // Was observed on next: the range shown (text "one") but the record
+    // took effect ZERO times — the adopt-time drain's sync found no
+    // `item#0` marker pair (the range was still inside `<template>`), the
+    // reveal's drain saw the key as already applied, and no sync followed
+    // the reveal. Now the reveal syncs: one invocation, one push.
+    expect(invocations.length).toBe(1);
+    expect(pushes).toEqual(["one"]);
+    expect(page.warnings).toEqual([]);
+    expect(page.errors).toEqual([]);
+    dispose();
+  });
 
   // Arm (e2): a live hole op arriving AFTER adoption applies once; the same
   // op re-sent (a fresh record of identical html) must not produce a second

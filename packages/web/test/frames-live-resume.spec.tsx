@@ -10,16 +10,26 @@
 // as the have-list header (digests are opaque 16-hex strings — stand-ins
 // here). Never derived from the DOM; a fragment received
 // but not yet revealed is not claimed.
-import { afterEach, describe, expect, test, vi } from "vitest";
+//
+// The ledger, the encoder and the resume request are the LIVE WIRE TIER's
+// (frames savings pass §3 row C2, `@solidjs/web/frames/wire`): the frame
+// hands every applied record to the tier's `have`, the handler's `resume`
+// answers through its `resume`, and `haveOf(frame)` reads what a mount
+// shows (`Frame.have()` left the interface with the move). The tier is
+// warmed here (`prepareTier("wire")`), so every cell runs resident — the
+// shape a live page is in once `live()`'s preload-at-call has landed;
+// `tier-wire-preload.spec` pins the load itself.
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import {
   FRAME_HAVE_BUDGET,
   FRAME_HAVE_HEADER,
-  decodeHaveList,
-  encodeHaveList
+  decodeHaveList
 } from "../frames/src/frame-transport.js";
+import { encodeHaveList, haveOf } from "../frames/src/wire-tier.js";
 import { createServerReference, live } from "../server-functions/src/client.js";
 import { LAST_EVENT_ID_HEADER } from "../server-functions/src/shared.js";
 import { makeHost, pump, stubLiveFetch, until } from "./lifecycle-matrix/harness.js";
@@ -57,6 +67,7 @@ function mountUnderLoading(Comp: any) {
 
 const headerOf = (init: any, name: string) => init && init.headers && init.headers[name];
 
+beforeAll(() => prepareTier("wire"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("have-list encoding", () => {
@@ -112,7 +123,7 @@ describe("the mount's ledger and the resume request", () => {
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("v1");
     const frame: any = host.get(ID);
-    expect(frame.have()).toEqual({ "": "a000000000000001", "lh:1": "a000000000000002" });
+    expect(haveOf(frame)).toEqual({ "": "a000000000000001", "lh:1": "a000000000000002" });
 
     // A fragment RECEIVED but not revealed is not claimed...
     held[0].send({
@@ -125,12 +136,12 @@ describe("the mount's ledger and the resume request", () => {
       holes: { "lh:0": "a000000000000004" }
     });
     await pump();
-    expect(frame.have()).toEqual({ "": "a000000000000001", "lh:1": "a000000000000002" });
+    expect(haveOf(frame)).toEqual({ "": "a000000000000001", "lh:1": "a000000000000002" });
     // ...until its reveal lands it in the DOM.
     held[0].send({ type: "reveal", id: ID, version: 1, keys: ["0"] });
     await pump();
     expect(m.div.querySelector(".body")!.textContent).toBe("B1");
-    expect(frame.have()).toEqual({
+    expect(haveOf(frame)).toEqual({
       "": "a000000000000001",
       "lh:1": "a000000000000002",
       "0": "a000000000000003",
@@ -147,7 +158,7 @@ describe("the mount's ledger and the resume request", () => {
     });
     await pump();
     expect(m.div.querySelector("h1")!.textContent).toBe("v2");
-    expect(frame.have()["lh:1"]).toBe("a000000000000005");
+    expect(haveOf(frame)!["lh:1"]).toBe("a000000000000005");
 
     // Death → the reconnect names the version ordinal and the ledger.
     held[0].close();
@@ -205,7 +216,7 @@ describe("the mount's ledger and the resume request", () => {
     held[0].send({ type: "start", id: ID + "-plain", version: 1 });
     held[0].send({ type: "html", id: ID + "-plain", version: 1, html: "<article>plain</article>" });
     await pump();
-    expect((host.get(ID + "-plain") as any).have()).toBeUndefined();
+    expect(haveOf(host.get(ID + "-plain")!)).toBeUndefined();
     held[0].close();
     await until(() => urls.length === 2, 3000);
     expect(headerOf(inits[1], LAST_EVENT_ID_HEADER)).toBe("1");
@@ -255,7 +266,7 @@ describe("the mount's ledger and the resume request", () => {
     expect(button.hasAttribute("disabled")).toBe(false);
     expect(button.hasAttribute("aria-busy")).toBe(false);
     expect(button.getAttribute("data-lha")).toBe("0");
-    expect((host.get(AID) as any).have()["lha:0"]).toBe("a000000000000004");
+    expect(haveOf(host.get(AID)!)!["lha:0"]).toBe("a000000000000004");
     // `open` on <details> is the user's toggle: the morph's exception
     // holds for attr holes too — never removed, never set.
     held[0].send({

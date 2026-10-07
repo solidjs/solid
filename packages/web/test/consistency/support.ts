@@ -33,10 +33,7 @@ import { vi } from "vitest";
 import { enableHydration, flush } from "solid-js";
 import { sharedConfig } from "solid-js/internal";
 import { installServerComponents, createFrameHost, getFrameHost } from "../../frames/src/client.js";
-import {
-  reviveContainerTraces,
-  isMaterializedContainer
-} from "../../frames/src/frame-container-plugin.js";
+import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { createChunk } from "../../server-functions/src/shared.js";
 
@@ -290,8 +287,24 @@ export interface Page {
   errors: string[];
   /** `_$HY.r[key] = value` — a data script executing. */
   record(key: string, value: unknown): void;
-  /** The slot record for an occurrence (`sc:slot:<fid>:<occurrence>`). */
+  /**
+   * The slot record for an occurrence (`sc:slot:<fid>:<occurrence>`) as the
+   * producer writes it when the args are known at the marker: declared
+   * and settled in one script (a promise stamped `s = 1`, `v = args` — the
+   * shape the hydration serializer emits for a promise resolved in the
+   * same span, see frame-sink's `createDocumentSlotProps`).
+   */
   slotRecord(fid: string, occurrence: string, args: Record<string, unknown>): void;
+  /**
+   * The slot record DECLARED at its marker and settled later (frames A4,
+   * S-record): `_$HY.r[key]` is a pending promise from this call on;
+   * `settle(args)` is the producer's data script resolving it (the client
+   * awaits it through `.then`, the way it awaits a fragment's `<key>_fr`).
+   */
+  declareSlotRecord(
+    fid: string,
+    occurrence: string
+  ): ReturnType<typeof serovalPromise<Record<string, unknown>>>;
   /** The region record for a nested region (`sc:region:<childId>`). */
   regionRecord(childId: string, html: string | Promise<string>): void;
   /** Declare a deferred fragment: `K_fr` pending until `settle`/`reject`. */
@@ -319,7 +332,16 @@ export interface Page {
  * shell parses. `fetch` is stubbed to THROW unless the test re-stubs it —
  * the document face must never request what the page carries.
  */
-export function bootPage(shellHtml: string, options: { hostOptions?: Record<string, any> } = {}) {
+export function bootPage(
+  shellHtml: string,
+  options: {
+    hostOptions?: Record<string, any>;
+    /** Tier loaders for `installServerComponents({ tiers })` (frames savings pass §2). */
+    tiers?: Record<string, () => Promise<{ install?(): void }>>;
+    /** `_$HY.r` records present before the frames client installs (the shell's data script). */
+    records?: Record<string, unknown>;
+  } = {}
+) {
   installDocumentRuntime();
   const hy: any = { events: [], completed: new WeakSet(), r: {}, fe() {} };
   (globalThis as any)._$HY = hy;
@@ -344,6 +366,7 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
     }
   });
   enableHydration();
+  Object.assign(hy.r, options.records);
   // The PRODUCTION host by default (`getFrameHost()`: per-response data
   // tables, the lazy codec, the container-trace hooks — on S1 also the lazy
   // materializer's `prepareData`/`prepareArgs` seams). A document page never
@@ -352,17 +375,17 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
   // a CUSTOM host (`hostOptions`), which is the only time it is wired.
   const table = createJSONDataTable();
   let host: any;
+  const install = options.tiers ? { tiers: options.tiers } : undefined;
   if (options.hostOptions) {
     host = createFrameHost({
       applyData: (c: any) => table.apply(c),
       resolve: (r: any) => table.resolve(r),
       revive: reviveContainerTraces,
-      isContainer: isMaterializedContainer,
       ...options.hostOptions
     });
-    installServerComponents(host);
+    installServerComponents(host, install);
   } else {
-    installServerComponents();
+    installServerComponents(undefined, install);
     host = getFrameHost();
   }
   const warnings: string[] = [];
@@ -399,7 +422,12 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
       hy.r[key] = value;
     },
     slotRecord(fid, occurrence, args) {
-      hy.r[`sc:slot:${fid}:${occurrence}`] = args;
+      page.declareSlotRecord(fid, occurrence).settle(args);
+    },
+    declareSlotRecord(fid, occurrence) {
+      const record = serovalPromise<Record<string, unknown>>();
+      hy.r[`sc:slot:${fid}:${occurrence}`] = record.promise;
+      return record;
     },
     regionRecord(childId, html) {
       hy.r[`sc:region:${childId}`] = html;
@@ -554,7 +582,6 @@ export function makeHost(hostOptions: Record<string, any> = {}) {
     applyData: (c: any) => table.apply(c),
     resolve: (ref: any) => table.resolve(ref),
     revive: reviveContainerTraces,
-    isContainer: isMaterializedContainer,
     ...hostOptions
   });
   return { host, table };

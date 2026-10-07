@@ -9,12 +9,13 @@
  * response never answers it, in any arrival order of the two responses'
  * chunks."
  *
- * Mechanism meant to carry it: frames/src/client.ts `beginStream`/`tableFor`
- * (the shared host rotates one table per response at the handler's
- * `onStream`), frame-transport.ts `createServerComponentHandler.handle`
- * (`bump` + `onStream` at header time), frame-client.ts
- * `createFrameHost.apply` — a `data` chunk goes straight to `applyData` and
- * bypasses the store's version guard.
+ * Mechanism: frames/src/client.ts `tableFor(id, version)` (the shared host
+ * keeps one table per RESPONSE — keyed by the frame id, stamped with the
+ * response's version; a newer version opens a fresh table), frame-client.ts
+ * `createFrameHost.apply` — a `data` chunk below the store's version lands
+ * nowhere (frames-rulings 1.2), and a `slot` chunk's `{$ref}`s are settled
+ * AT THE WRITE through its own response's table (1.3), an undelivered key
+ * becoming a pending read that response's data settles (A4, S-ref).
  *
  * The PRODUCTION shared host is under test (`installServerComponents()` with
  * no host): `makeHost()` has one table per test and cannot rotate. Data
@@ -30,7 +31,6 @@ import { createMemo, createRoot, createSignal, Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { getFrameHost, installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
-import { frameAddress } from "../../server-functions/src/shared.js";
 import { createDataSource, freshFid, pump, stubHeldFetch } from "./support.js";
 
 const WIRE = "srv";
@@ -101,103 +101,98 @@ describe("C5 — data is response-scoped", () => {
   // trails v2's header, v2's record references `{$ref:"1"}`, v2's own data
   // for "1" arrives later. The fill must never show v1's value.
   //
-  // Observed on `next`: the fill mounts with text "old" (v1's value) and
-  // stays "old" after v2's data ("new") and `complete` arrive — the frame
-  // never re-resolves a record it already applied. Expected: the record
-  // waits (ref unresolved) until v2's data, then shows "new".
-  // Where it goes wrong: client.ts `beginStream` rotates by setting
-  // `tables.set(address, undefined)` at v2's header, and `tableFor` creates
-  // the table LAZILY at first use (`ensureTable`) — so v1's late `data`
-  // chunk, routed by `createFrameHost.apply` straight to `applyData` with
-  // no version check (the store guard only covers record writes), is the
-  // first use and lands in the table that is now v2's. The transport
-  // restamps chunks with the response's version but the data path never
-  // reads it; nothing associates a `data` chunk with the stream that
-  // carried it once the header has rotated the address's table.
-  test.fails(
-    "(a) v1's late data trails v2's header: v2's {$ref} never resolves to v1's value",
-    async () => {
-      const fid = freshFid("c5a");
-      const getX = createServerReference(fid);
-      await sharedHost();
-      const { held } = stubHeldFetch([WIRE, WIRE]);
-      const [v1, v2] = held;
-      const p1 = getX(1);
-      const p2 = getX(1);
-      // Both headers resolved: bump(A)=1 → onStream(A); bump(A)=2 → onStream(A).
-      expect(await p2).toBe(await p1);
-      v1.send(start(1));
-      v2.send(start(1));
-      await pump(1);
-      // v1's data, AFTER v2's header.
-      for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
-      await pump(1);
-      // v2's record references the same ref id (ids restart per response).
-      v2.send(slot(1, "1"));
-      v2.send(html(1));
-      await pump(1);
-      const { container, seen } = mountSite(p1);
-      await pump();
-      // The record's ref is v2's; v2's data has not arrived: the fill waits.
-      expect(seen).toEqual([]);
-      expect(container.querySelector("li")).toBeNull();
-      // v2's own data lands, then the stream completes.
-      for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) v2.send(c);
-      v2.send(complete(1));
-      v2.close();
-      await pump();
-      expect(seen).not.toContain("old");
-      expect(container.querySelector("li")!.textContent).toBe("new");
-    }
-  );
+  // Was red on `next`: the fill mounted with "old" (v1's value) and stayed
+  // there — `beginStream` rotated the address's table at v2's header, the
+  // table was created lazily at first use, and v1's late `data` chunk went
+  // to `applyData` with no version check, so it was the first use and
+  // landed in v2's table. Green under frames-rulings 1.2: the data path is
+  // under the store's version guard like every other chunk — a `data`
+  // chunk of a response the address has moved past (the response's
+  // version, restamped by the transport, below the store's) lands nowhere.
+  test("(a) v1's late data trails v2's header: v2's {$ref} never resolves to v1's value", async () => {
+    const fid = freshFid("c5a");
+    const getX = createServerReference(fid);
+    await sharedHost();
+    const { held } = stubHeldFetch([WIRE, WIRE]);
+    const [v1, v2] = held;
+    const p1 = getX(1);
+    const p2 = getX(1);
+    // Both headers resolved: bump(A)=1 → onStream(A); bump(A)=2 → onStream(A).
+    expect(await p2).toBe(await p1);
+    v1.send(start(1));
+    v2.send(start(1));
+    await pump(1);
+    // v1's data, AFTER v2's header.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
+    await pump(1);
+    // v2's record references the same ref id (ids restart per response).
+    v2.send(slot(1, "1"));
+    v2.send(html(1));
+    await pump(1);
+    const { container, seen } = mountSite(p1);
+    await pump();
+    // The record's ref is v2's; v2's data has not arrived: the fill waits.
+    expect(seen).toEqual([]);
+    expect(container.querySelector("li")).toBeNull();
+    // v2's own data lands, then the stream completes.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) v2.send(c);
+    v2.send(complete(1));
+    v2.close();
+    await pump();
+    expect(seen).not.toContain("old");
+    expect(container.querySelector("li")!.textContent).toBe("new");
+  });
 
-  // Arm (b): the table rotation observed directly through the host's
-  // resolver (what `#refsUnresolved`/`#resolveArgs` call with the frame's
-  // address) — does v1's late data land in the table v2's refs resolve
-  // from, and does it overwrite v2's own value once that has landed?
+  // Arm (b): the table rotation observed through a record that resolves
+  // AFTER both responses' chunks interleaved — v1's late data after v2's
+  // header, v2's record, v2's data, then a second v1 straggler after v2's
+  // value — through the mounted fill (the host's resolver is not a
+  // surface: a record's refs settle at its write, through the table of
+  // the response that carried it).
   //
-  // Observed on `next`: after v2's header, `resolve({$ref:"1"}, A)` reads
-  // "old" from v1's late chunk (expected undefined: v2 has delivered
-  // nothing); after v2's data ("new") a second late v1 chunk for "1"
-  // overwrites it to "old" again (expected "new"). Where it goes wrong:
-  // as in (a) — `tableFor(address)` is one table per ADDRESS at a time,
-  // keyed by nothing that names the response; `createJSONDataTable.apply`
-  // sets the key on every `initial` record, so whichever response's chunk
-  // arrives last owns the key.
-  test.fails(
-    "(b) table rotation: a superseded response's late data never lands in the current table",
-    async () => {
-      const fid = freshFid("c5b");
-      const getX = createServerReference(fid);
-      const host = await sharedHost();
-      const A = frameAddress(fid, [1]);
-      const { held } = stubHeldFetch([WIRE, WIRE]);
-      const [v1, v2] = held;
-      const p1 = getX(1);
-      const p2 = getX(1);
-      await p1;
-      await p2;
-      v1.send(start(1));
-      v2.send(start(1));
-      await pump(1);
-      expect(host.resolve({ $ref: "1" }, A)).toBeUndefined();
-      // v1's late data after v2's header.
-      const v1Data = createDataSource();
-      for (const c of v1Data.chunks(WIRE, 1, { "1": "old" })) v1.send(c);
-      await pump(1);
-      const afterStaleData = host.resolve({ $ref: "1" }, A);
-      // v2's data lands.
-      for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) v2.send(c);
-      await pump(1);
-      expect(host.resolve({ $ref: "1" }, A)).toBe("new");
-      // Another straggler from v1 (a re-serialized key) after v2's value.
-      for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
-      await pump(1);
-      const afterSecondStale = host.resolve({ $ref: "1" }, A);
-      expect(afterStaleData).toBeUndefined();
-      expect(afterSecondStale).toBe("new");
-    }
-  );
+  // Was red on `next`: after v2's header, `resolve({$ref:"1"}, A)` read
+  // "old" from v1's late chunk, and a second late v1 chunk overwrote v2's
+  // "new" — one table per ADDRESS at a time, keyed by nothing that named
+  // the response, every `initial` record setting its key. Green: a stale
+  // response's data chunks are dropped at the host (see a), and the table
+  // is the response's (keyed by its version).
+  test("(b) table rotation: a superseded response's late data never lands in the current table", async () => {
+    const fid = freshFid("c5b");
+    const getX = createServerReference(fid);
+    await sharedHost();
+    const { held } = stubHeldFetch([WIRE, WIRE]);
+    const [v1, v2] = held;
+    const p1 = getX(1);
+    const p2 = getX(1);
+    await p1;
+    await p2;
+    v1.send(start(1));
+    v2.send(start(1));
+    await pump(1);
+    // v1's late data after v2's header.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
+    await pump(1);
+    v2.send(slot(1, "1"));
+    v2.send(html(1));
+    await pump(1);
+    const { container, seen } = mountSite(p1);
+    await pump();
+    // v2's record, settled at its write through v2's table: "1" is
+    // undelivered there (v1's chunk never entered it) — a pending read.
+    expect(seen).toEqual([]);
+    // v2's data lands.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) v2.send(c);
+    await pump();
+    expect(container.querySelector("li")!.textContent).toBe("new");
+    // Another straggler from v1 (a re-serialized key) after v2's value.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) v1.send(c);
+    v2.send(complete(1));
+    v2.close();
+    v1.close();
+    await pump();
+    expect(seen).toEqual(["new"]);
+    expect(container.querySelector("li")!.textContent).toBe("new");
+  });
 
   // Arm (c) (control): the normal order — v1 is complete before v2's header.
   // v1's data went to v1's table; v2's header rotates; v2's record waits for
@@ -205,8 +200,7 @@ describe("C5 — data is response-scoped", () => {
   test("(c) control: v1 completes before v2's header — v2's {$ref} resolves only to v2's data", async () => {
     const fid = freshFid("c5c");
     const getX = createServerReference(fid);
-    const host = await sharedHost();
-    const A = frameAddress(fid, [1]);
+    await sharedHost();
     const { held } = stubHeldFetch([WIRE, WIRE]);
     const [v1, v2] = held;
     const p1 = getX(1);
@@ -218,13 +212,12 @@ describe("C5 — data is response-scoped", () => {
     v1.send(complete(1));
     v1.close();
     await pump();
-    expect(host.resolve({ $ref: "1" }, A)).toBe("old");
-    // v2's header: the table rotates; nothing of v1 is reachable.
+    // v2's header: the version moves on, and with it the table; nothing of
+    // v1 is reachable from v2's record.
     const p2 = getX(1);
     expect(await p2).toBe(await p1);
     v2.send(start(1));
     await pump(1);
-    expect(host.resolve({ $ref: "1" }, A)).toBeUndefined();
     v2.send(slot(1, "1"));
     v2.send(html(1));
     await pump(1);
@@ -250,88 +243,84 @@ describe("C5 — data is response-scoped", () => {
   // stream. Then B-v1's late data for "1" lands, B-v2's record references
   // "1", B-v2's own data for "1" comes last.
   //
-  // Observed on `next`: the fill mounts with "old" (B-v1's value) under
-  // B-v2's record and stays "old" after B-v2's data. Expected: pending until
-  // B-v2's data, then "new". Where it goes wrong: as in (a) — the rotation
-  // at `onStream` is per address and the data path has no version.
-  test.fails(
-    "(e) through dynamic: A → B → A → B while B's first body is open; B-v1's late data never answers B-v2's record",
-    async () => {
-      const fid = freshFid("c5e");
-      const getX = createServerReference(fid);
-      await sharedHost();
-      // fetch order: A(v1), B(v1), A(v2), B(v2)
-      const { held, calls } = stubHeldFetch([WIRE, WIRE, WIRE, WIRE]);
-      const [a1, b1, a2, b2] = held;
-      const [n, setN] = createSignal(1);
-      const Site = dynamic(() => getX(n()) as any);
-      const seen: string[] = [];
-      let div!: HTMLDivElement;
-      const dispose = createRoot(d => {
-        <div ref={div}>
-          <Loading fallback={<span>…</span>}>
-            <Site
-              comment={(p: any) => {
-                createMemo(() => seen.push(p.text));
-                return <li>{p.text}</li>;
-              }}
-            />
-          </Loading>
-        </div>;
-        document.body.appendChild(div);
-        return d;
-      });
-      disposers.push(dispose);
-      await pump();
-      a1.send(start(1));
-      a1.send({ type: "html", id: WIRE, version: 1, html: "<article><h1>A</h1></article>" });
-      a1.send(complete(1));
-      a1.close();
-      await pump();
-      expect(div.querySelector("h1")!.textContent).toBe("A");
-      // → B (v1), body held open after `start`.
-      setN(2);
-      await pump();
-      b1.send(start(1));
-      await pump(1);
-      // → A again (a fresh request; A's warm store re-materializes at once).
-      setN(1);
-      await pump();
-      a2.send(start(1));
-      a2.send(complete(1));
-      a2.close();
-      await pump();
-      expect(div.querySelector("h1")!.textContent).toBe("A");
-      // → B again while b1 is still open: B's v2 header rotates B's table.
-      setN(2);
-      await pump();
-      expect(calls.length).toBe(4);
-      b2.send(start(1));
-      await pump(1);
-      // B-v1's late data lands after B-v2's header.
-      for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) b1.send(c);
-      await pump(1);
-      // B-v2's record references "1"; its html mounts the occurrence.
-      b2.send(slot(1, "1"));
-      b2.send({
-        type: "html",
-        id: WIRE,
-        version: 1,
-        html: `<article><h1>B</h1><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>`
-      });
-      await pump();
-      expect(div.querySelector("h1")!.textContent).toBe("B");
-      // B-v2 has delivered no data for "1": the record waits.
-      expect(seen).toEqual([]);
-      for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) b2.send(c);
-      b2.send(complete(1));
-      b2.close();
-      b1.close();
-      await pump();
-      expect(seen).not.toContain("old");
-      expect(div.querySelector("li")!.textContent).toBe("new");
-    }
-  );
+  // Was red on `next`: the fill mounted with "old" (B-v1's value) under
+  // B-v2's record and stayed there — the rotation at `onStream` was per
+  // address and the data path had no version. Green: as in (a).
+  test("(e) through dynamic: A → B → A → B while B's first body is open; B-v1's late data never answers B-v2's record", async () => {
+    const fid = freshFid("c5e");
+    const getX = createServerReference(fid);
+    await sharedHost();
+    // fetch order: A(v1), B(v1), A(v2), B(v2)
+    const { held, calls } = stubHeldFetch([WIRE, WIRE, WIRE, WIRE]);
+    const [a1, b1, a2, b2] = held;
+    const [n, setN] = createSignal(1);
+    const Site = dynamic(() => getX(n()) as any);
+    const seen: string[] = [];
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>…</span>}>
+          <Site
+            comment={(p: any) => {
+              createMemo(() => seen.push(p.text));
+              return <li>{p.text}</li>;
+            }}
+          />
+        </Loading>
+      </div>;
+      document.body.appendChild(div);
+      return d;
+    });
+    disposers.push(dispose);
+    await pump();
+    a1.send(start(1));
+    a1.send({ type: "html", id: WIRE, version: 1, html: "<article><h1>A</h1></article>" });
+    a1.send(complete(1));
+    a1.close();
+    await pump();
+    expect(div.querySelector("h1")!.textContent).toBe("A");
+    // → B (v1), body held open after `start`.
+    setN(2);
+    await pump();
+    b1.send(start(1));
+    await pump(1);
+    // → A again (a fresh request; A's warm store re-materializes at once).
+    setN(1);
+    await pump();
+    a2.send(start(1));
+    a2.send(complete(1));
+    a2.close();
+    await pump();
+    expect(div.querySelector("h1")!.textContent).toBe("A");
+    // → B again while b1 is still open: B's v2 header rotates B's table.
+    setN(2);
+    await pump();
+    expect(calls.length).toBe(4);
+    b2.send(start(1));
+    await pump(1);
+    // B-v1's late data lands after B-v2's header.
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "old" })) b1.send(c);
+    await pump(1);
+    // B-v2's record references "1"; its html mounts the occurrence.
+    b2.send(slot(1, "1"));
+    b2.send({
+      type: "html",
+      id: WIRE,
+      version: 1,
+      html: `<article><h1>B</h1><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>`
+    });
+    await pump();
+    expect(div.querySelector("h1")!.textContent).toBe("B");
+    // B-v2 has delivered no data for "1": the record waits.
+    expect(seen).toEqual([]);
+    for (const c of createDataSource().chunks(WIRE, 1, { "1": "new" })) b2.send(c);
+    b2.send(complete(1));
+    b2.close();
+    b1.close();
+    await pump();
+    expect(seen).not.toContain("old");
+    expect(div.querySelector("li")!.textContent).toBe("new");
+  });
 
   // Arm (d): v2's data arrives FIRST, the site mounts and shows "new"; then
   // v1's late data for the same ref arrives. The mounted fill keeps "new"

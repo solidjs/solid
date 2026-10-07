@@ -40,61 +40,66 @@ describe("C3 — hydration-done counts every hold", () => {
   // boundary adopts (document.readyState "loading"), and the occurrence's
   // args record has not executed yet — the frame defers the mount. Hydration
   // must not report done while that occurrence's server nodes are unclaimed.
-  test.fails(
-    "(a) record defer: hydration does not report done while an adopted occurrence waits on its record",
-    async () => {
-      const fid = freshFid("c3a");
-      vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
-      page = bootPage(
-        frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
-      );
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const invocations: number[] = [];
-      let invocationsAtEnd = -1;
-      let inProgressAtEnd: boolean | undefined;
-      const dispose = hydrate(
-        () => (
-          <Comp
-            item={(p: { text: string }) => {
-              invocations.push(1);
-              return <li>{p.text}</li>;
-            }}
-          />
-        ),
-        page.container
-      );
-      onHydrationEnd(() => {
-        invocationsAtEnd = invocations.length;
-        inProgressAtEnd = hydrationInProgress();
-      });
-      await quiesce();
-      // The record script the parser was still owed.
-      page.slotRecord(fid, "item#0", { text: "one" });
-      await quiesce();
-      await quiesce();
-      // The occurrence did claim in the end (the deferral is invisible)…
-      expect(invocations.length).toBe(1);
-      expect(page.container.textContent).toBe("one");
-      // …but hydration-done ran ahead of it: at the end callback the fill had
-      // not run, `isHydrationInProgress()` already read false, and nothing
-      // counted the hold (`_pendingBoundaries` only knows <Loading>
-      // boundaries). Observed on `next`: invocationsAtEnd === 0 (expected 1).
-      // The dev completion check stays quiet here only because the deferred
-      // claim lands before its timer reads the registry.
-      expect(page.warnings.filter(w => w.includes("unclaimed server-rendered"))).toEqual([]);
-      expect(inProgressAtEnd).toBe(false);
-      expect(invocationsAtEnd).toBe(1);
-      dispose();
-    }
-  );
+  // Was red on `next` (the deferral registered with nothing hydration
+  // counts); green under frames-rulings 3.1 (ruled) / 3.2: the frame's hold
+  // is a pending boundary — registered through `sharedConfig.holdBoundary`
+  // while a sync leaves an adopted occurrence waiting, released by the sync
+  // that claims it.
+  test("(a) record defer: hydration does not report done while an adopted occurrence waits on its record", async () => {
+    const fid = freshFid("c3a");
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    page = bootPage(
+      frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
+    );
+    // Declared at the marker (S-record), settled by the script the parser
+    // is still owed.
+    const record = page.declareSlotRecord(fid, "item#0");
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const invocations: number[] = [];
+    let invocationsAtEnd = -1;
+    let inProgressAtEnd: boolean | undefined;
+    const dispose = hydrate(
+      () => (
+        <Comp
+          item={(p: { text: string }) => {
+            invocations.push(1);
+            return <li>{p.text}</li>;
+          }}
+        />
+      ),
+      page.container
+    );
+    onHydrationEnd(() => {
+      invocationsAtEnd = invocations.length;
+      inProgressAtEnd = hydrationInProgress();
+    });
+    await quiesce();
+    // The record's settle script the parser was still owed.
+    record.settle({ text: "one" });
+    await quiesce();
+    await quiesce();
+    // The occurrence did claim in the end (the deferral is invisible)…
+    expect(invocations.length).toBe(1);
+    expect(page.container.textContent).toBe("one");
+    // …and hydration-done waited for it: at the end callback the fill had
+    // run (on `next` invocationsAtEnd was 0 — done ran ahead, nothing
+    // counted the hold).
+    expect(page.warnings.filter(w => w.includes("unclaimed server-rendered"))).toEqual([]);
+    expect(inProgressAtEnd).toBe(false);
+    expect(invocationsAtEnd).toBe(1);
+    dispose();
+  });
 
   // Arm (b): a container-trace arg present at adoption. The record and its
   // trace snapshot are in the page when the boundary adopts; the fill reads
-  // `props.data.n` through the revived projection. On `next` the materializer
-  // is installed at module load, so the claim runs in the adopt pass and done
-  // implies claimed. (On `size/s1-lazy-store-materializer` the materializer
-  // loads lazily and `prepareArgs` HOLDS the occurrence until it lands — a
-  // hold hydration does not count; this arm is the S1 probe.)
+  // `props.data.n` through the revived projection. Since the traces tier
+  // (plan step C3) the materializer loads LAZILY (`@solidjs/web/frames/
+  // trace`, through `prepareTier("trace")`), so the adopt pass finds it
+  // absent and HOLDS the occurrence — S1's `prepareArgs` hold, re-based onto
+  // A2's registered held set: the hold is a pending boundary (3.1), so done
+  // waits for the late claim. This is S1's C3 (b) arm, green by the ruling
+  // (it was the probe that would have been red on S1 as built, where the
+  // hold registered with nothing hydration counted).
   test("(b) container-trace arg present at adoption: the occurrence has claimed by hydration end", async () => {
     const fid = freshFid("c3b");
     page = bootPage(
@@ -120,6 +125,11 @@ describe("C3 — hydration-done counts every hold", () => {
     onHydrationEnd(() => {
       invocationsAtEnd = invocations.length;
     });
+    // The adopt pass HELD the occurrence on its tier: no fill yet, the
+    // server's interior on screen, hydration not done (the hold counts).
+    expect(invocations.length).toBe(0);
+    expect(page.container.textContent).toBe("1");
+    expect(hydrationInProgress()).toBe(true);
     await quiesce();
     await quiesce();
     expect(invocations.length).toBe(1);

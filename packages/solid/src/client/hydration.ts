@@ -202,6 +202,56 @@ type SharedConfig = {
    * @internal
    */
   isClaiming?: () => boolean;
+  /**
+   * Register a hold on hydration-done under the current owner — a pending
+   * boundary in everything but a resume. Hydration-done follows non-SC
+   * Solid 2 (frames-rulings 3.1): a client hold on adopted server markup
+   * — an occurrence waiting for its args record, a `{$ref}` wait — counts
+   * through the same registration a streamed `<Loading>` resume takes, so
+   * `onHydrationEnd` and `isHydrationInProgress` mean the same thing with
+   * or without server components. Call it under the holding owner (its
+   * disposal releases), with an `id` no fragment uses, and only while
+   * `isHydrationInProgress()` — a hold taken on a page that never hydrated,
+   * or after it settled, is the holder's business, not the page's. Returns
+   * the release (idempotent). Assigned by enableHydration(); absent in CSR
+   * bundles (nothing to hold). Cross-package wiring; not part of the
+   * user-facing API.
+   *
+   * @internal
+   */
+  holdBoundary?: (id: string) => () => void;
+  /**
+   * Run `fn` as a CLAIM of server-rendered DOM under `id`'s keys — the
+   * re-entry a streamed `<Loading>` resume takes, for an integration that
+   * owns server markup wholesale (the frames client's adopted occurrences):
+   * the keys under `id` gathered into the registry, hydrating on for the
+   * synchronous window, the current owner the claim owner (a render the
+   * window forces elsewhere is a client render — `isClaiming`), `scope`
+   * the registry/gather pair the claimant adopted under when another
+   * `hydrate()` root may have replaced the live one since (#2917). Call it
+   * only once a root has gathered (`sharedConfig.registry` is set): there
+   * is nothing to claim against before. Assigned by `enableHydration()`;
+   * absent in CSR bundles. Cross-package wiring; not part of the
+   * user-facing API.
+   *
+   * @internal
+   */
+  hydrateWindow?: <T>(
+    id: string,
+    fn: () => T,
+    scope?: { registry?: Map<string, object>; gather?: (key: string) => void }
+  ) => T;
+  /**
+   * The roots of the claim in progress when its range may be detached (an
+   * async slot fill renders before its boundary re-inserts it): the DOM
+   * runtime's hydration guard reads connectivity to tell claimed server
+   * nodes from fresh clones, and a node under one of these is as claimed as
+   * a connected one. Set by the claimant around its `hydrateWindow` (the
+   * frames client), read by the DOM runtime.
+   *
+   * @internal
+   */
+  claimRoots?: Node[];
 };
 
 /**
@@ -712,7 +762,14 @@ function hasLoadingWindow(options: any): boolean {
   );
 }
 
-function forwardIteratorReturn(it: any, value?: any) {
+/**
+ * Forward an iterator's `return()`: the source's own answer when it is a
+ * promise, otherwise a synchronously-settling thenable of the done result
+ * (the hydration resume path must not wait a microtask for it).
+ *
+ * @internal — shared with `solid-js/internal/container-trace`.
+ */
+export function forwardIteratorReturn(it: any, value?: any) {
   const returned = it.return?.(value);
   return returned && typeof returned.then === "function"
     ? returned
@@ -769,7 +826,16 @@ function normalizeIterator(it: any, deferFirst?: boolean) {
   };
 }
 
-function applyPatches(target: any, patches: any[]) {
+/**
+ * Apply a projection's recorded patch batch — `[path, value]` writes,
+ * `[path]` deletes, `[path, value, 1]` splice-inserts — to a draft. The
+ * continuation protocol a server projection serializes as (hydration
+ * resume below; a container trace at the slot border, consumed by
+ * `solid-js/internal/container-trace`).
+ *
+ * @internal
+ */
+export function applyPatches(target: any, patches: any[]) {
   for (const patch of patches) {
     const path = patch[0];
     let current = target;
@@ -1209,141 +1275,6 @@ function hydrateStoreFromAsyncIterable(
     initialValue,
     options
   );
-}
-
-/**
- * Materialize a container TRACE — snapshot then patch batches, the
- * continuation protocol a server projection serializes as when it crosses a
- * boundary (hydration resume above; the slot border via the serializer's
- * container plugin) — into a live local projection. The result reads like
- * the server value did: not-ready until the snapshot lands, then a
- * read-only store the batches keep updating, done when the trace ends.
- *
- * Created DETACHED (`runWithOwner(null)`): revival can run inside a render
- * effect's owner, and the store is memoized per trace (see the plugin's
- * WeakMap) — a store owned by its first reader would be disposed by that
- * reader's re-render while other readers still hold it. Consumption is
- * pull-driven and the trace is response-bounded, so the projection settles
- * on its own; GC collects the pair with the trace.
- *
- * @internal — consumed by the serialization layer (@solidjs/web).
- */
-export function materializeContainerTrace(marker: {
-  $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
-  $ta?: number;
-}): Store<any> {
-  const src = marker.$tr as any;
-  // Raw seroval stream (the wire shape since the stream-mint protocol):
-  // `.on()` replays buffered emissions SYNCHRONOUSLY, so a snapshot the
-  // document already delivered is applied before the first read — the store
-  // reads as READY during hydration's synchronous claim walk, matching the
-  // page's settled markup. The async-iterable branch below (pre-stream
-  // payloads) can only surface its buffer through microtasks, which made a
-  // settled-inline boundary suspend at the walk and hydrate a phantom
-  // fallback over settled markup (the chat welcome/status meter miss).
-  if (src != null && src.__SEROVAL_STREAM__ === true) {
-    const queue: any[] = [];
-    let failed: { error: any } | undefined;
-    let cursor = 0;
-    let first = true;
-    // Everything lives under the detached root (see the block comment
-    // below): materialization runs at arg-read inside a reader's render
-    // scope, and a version signal owned by that reader would be disposed by
-    // its re-render while the memoized store lives on.
-    return coreRoot(() => {
-      const [version, setVersion] = coreSignal(0);
-      // Subscribe before creating the projection: the buffered replay runs
-      // synchronously inside on(), filling the queue the first compute
-      // drains. Replayed values must NOT bump the version — the replay can
-      // run inside an owned render scope where reactive writes are illegal,
-      // and the projection doesn't exist yet to need waking. Only live
-      // emissions (stream callbacks on later tasks) bump.
-      let live = false;
-      const bump = () => live && setVersion(n => n + 1);
-      src.on({
-        next(value: any) {
-          queue.push(value);
-          bump();
-        },
-        // The trace ended: the last applied state latches (same contract as
-        // the iterable path's `done`).
-        return() {},
-        throw(error: any) {
-          failed = { error };
-          bump();
-        }
-      });
-      live = true;
-      return createProjection(
-        (draft: any) => {
-          version();
-          while (cursor < queue.length) {
-            const value = queue[cursor++];
-            if (first) {
-              first = false;
-              // Full authoritative snapshot into a fresh {}/[] seed — pure
-              // writes, no draft reads (see the iterable branch below).
-              if (Array.isArray(value)) {
-                for (let i = 0; i < value.length; i++) draft[i] = value[i];
-                draft.length = value.length;
-              } else {
-                Object.assign(draft, value);
-              }
-            } else {
-              applyPatches(draft, value);
-            }
-          }
-          if (failed) throw failed.error;
-          // Nothing buffered yet (revival raced ahead of the record's data
-          // script): pending until the snapshot lands, marked on the
-          // projection's own node — the version bump reruns this compute.
-          if (first) throw new NotReadyError(getOwner());
-        },
-        (marker.$ta ? [] : {}) as any
-      );
-    })!;
-  }
-  // A root, not a bare null owner: the projection's async machinery routes
-  // its pending/error states through the owner's queue, and with no owner
-  // at all the internal NotReadyError (the "pending until snapshot" mark)
-  // surfaces as an unhandled error in dev. The root is never disposed —
-  // the projection settles itself when the trace ends and is collected
-  // with the store.
-  return coreRoot(() =>
-    createProjection(
-      (draft: any) => ({
-        [Symbol.asyncIterator]() {
-          const srcIt = src[Symbol.asyncIterator]();
-          let first = true;
-          return {
-            next: () =>
-              Promise.resolve(srcIt.next()).then((res: any) => {
-                if (res.done) return { done: true as const, value: undefined };
-                if (first) {
-                  first = false;
-                  // The first yield is the full authoritative snapshot. The
-                  // seed is a fresh empty {}/[] minted here, so this is pure
-                  // writes — no reads of the draft, which is still PENDING
-                  // (reading a pending proxy throws NotReadyError, which
-                  // would reject this step and error the projection).
-                  if (Array.isArray(res.value)) {
-                    for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
-                    draft.length = res.value.length;
-                  } else {
-                    Object.assign(draft, res.value);
-                  }
-                } else {
-                  applyPatches(draft, res.value);
-                }
-                return { done: false as const, value: undefined };
-              }),
-            return: (value?: any) => forwardIteratorReturn(srcIt, value)
-          };
-        }
-      }),
-      (marker.$ta ? [] : {}) as any
-    )
-  )!;
 }
 
 // --- Hydration-aware implementations ---
@@ -1867,6 +1798,18 @@ export function enableHydration() {
   sharedConfig.isHydrationInProgress = isHydrationInProgress;
   sharedConfig.onHydrationEnd = onHydrationEnd;
   sharedConfig.isClaiming = isClaiming;
+  // A client hold on adopted markup is a resume's registration — the count,
+  // the owner's `_hp` mark (a rerun under it is still the claim in
+  // progress), the disposal release — with nothing to resume; `id` keys the
+  // registration's bookkeeping, and the holder passes one no fragment uses.
+  sharedConfig.holdBoundary = id => {
+    const release = initBoundaryResume(getOwner()!, id)[2];
+    return () => release() && checkHydrationComplete();
+  };
+  // An adopted occurrence's claim is a resume's window — the keys under its
+  // producer prefix, the current owner the claim owner — without a resume's
+  // registration (the frame's hold above is that).
+  sharedConfig.hydrateWindow = hydrateWindow;
 
   // Take ownership of streamed-fragment reveals (see the fragment ledger).
   // The header script creates `_$HY` before any module runs, so the hook is
@@ -1875,16 +1818,12 @@ export function enableHydration() {
   const hy = (globalThis as any)._$HY;
   if (hy && !hy.fr) {
     if (!hy.f) hy.f = fragmentPolicy;
-    // claim/release: the same claimant contract Loading boundaries use, for
-    // integrations that own server-rendered markup wholesale (#2978 — the
-    // frames document adoption claims the placeholders inside its region,
-    // whose <Loading> producers ran on the server and have no client
-    // boundary to ever register).
+    // Integrations that own server-rendered markup wholesale (the frames
+    // document adoption) answer for their fragments through `_$HY.fa`
+    // (ownership by rendering, see the ledger) — no per-fragment claim API.
     hy.fr = {
       pending: anyFragmentPending,
-      subscribe: subscribeFragments,
-      claim: claimFragment,
-      release: releaseFragment
+      subscribe: subscribeFragments
     };
     // Every $dfr announces its swap through `_$HY.fe`; fanning it out here
     // gives ledger subscribers one channel for "content just landed".
@@ -2205,6 +2144,34 @@ export const createProjection: <T extends object = {}>(
 type NoFn<T> = T extends Function ? never : T;
 
 /**
+ * The hydration dispatch the store-family wrappers above share
+ * (`createProjection`, `createStore`, `createOptimisticStore`), for a caller
+ * that brings its own core primitive: under hydration the generic store
+ * adapter runs with `coreFn`, otherwise `coreFn` runs directly. Exists so a
+ * store-family node can be built from a module that must NOT reference the
+ * wrappers — `solid-js/internal/container-trace` reaches `createProjection`
+ * through `@solidjs/signals` so the store engine stays in its lazy chunk
+ * (every wrapper here is welded to the engine by its core import, and this
+ * dist is one flat module) while behaving under hydration exactly as the
+ * wrapper does. `coreFn` is the caller's, so referencing this retains the
+ * adapter, never the engine (the same retention story as the slot itself).
+ *
+ * @internal
+ */
+export function withStoreHydration<T>(
+  coreFn: (fn: any, seed: any, options?: any) => T,
+  fn: any,
+  seed: any,
+  options?: any
+): T {
+  // `hydrating` can only be true once enableHydration() installed the
+  // adapter slot (see createOptimistic above for the retention story).
+  return sharedConfig.hydrating
+    ? _hydrateStoreLike!(coreFn, fn, seed, options)
+    : coreFn(fn, seed, options);
+}
+
+/**
  * Creates a deeply-reactive store backed by a Proxy. Reads track each
  * property accessed; only the parts that change trigger updates.
  *
@@ -2484,6 +2451,83 @@ function createBoundaryTrigger(): () => void {
   return set;
 }
 
+/**
+ * The claim window: `fn` runs claiming server-rendered DOM under `o`.
+ *
+ * - The keys under `id` are gathered into the registry (none without an
+ *   `id`); `scope` is the registry/gather pair the claimant registered
+ *   under — another `hydrate()` root may have replaced the live globals
+ *   since (#2917) — swapped in for the synchronous window; without one the
+ *   live globals apply.
+ * - Hydrating is on, `o` is the claim owner — the window claims `o`'s
+ *   subtree only; a re-render it forces elsewhere (a write from the claimed
+ *   content's user effects reaching a signal above it) is a client render
+ *   (#3504). A claimant whose range may be detached declares it in
+ *   `sharedConfig.claimRoots` around the window (the frames client does).
+ * - `o` is the window's snapshot and live scope (D8) when no scope is open
+ *   — a late claim, after the root pass. Writes during the window are held
+ *   from `o`'s subtree and replay at release, once the claim is over; the
+ *   live nodes it hydrated take over then. Inside an open scope (the root
+ *   pass; an enclosing window) the claim joins it and releases with it —
+ *   releasing `o` on its own would let a write later in the pass cascade
+ *   live into a claim pass whose DOM writes are skipped. Capture is on
+ *   through hydration; a window opened after hydration-done (an adopted
+ *   frame's claim at a fragment's reveal) turns it on for its span and
+ *   clears what it captured.
+ *
+ * Everything is restored on the way out, nested windows included. The body
+ * of a streamed boundary's resume (below), factored so the frames client's
+ * adopted occurrences re-enter hydration the same way — it IS
+ * `sharedConfig.hydrateWindow`, `o` defaulting to the current owner there —
+ * instead of through a registry and a hydrating flag of their own. The
+ * caller sees to it that a root has gathered (`sharedConfig.registry`): a
+ * window with no registry to claim against would miss every key.
+ */
+function hydrateWindow<T>(
+  id: string | undefined,
+  fn: () => T,
+  scope?: { registry?: Map<string, object>; gather?: (key: string) => void },
+  o: Owner | null = getOwner()
+): T {
+  const prevRegistry = sharedConfig.registry;
+  const prevGather = sharedConfig.gather;
+  const prevHydrating = _hydratingValue;
+  const prevClaim = _claimOwner;
+  const own = !_snapshotRootOwner && o;
+  const capture = own && _hydrationDone;
+  if (scope) {
+    sharedConfig.registry = scope.registry;
+    sharedConfig.gather = scope.gather;
+  }
+  try {
+    if (id) sharedConfig.gather?.(id);
+    _hydratingValue = true;
+    _claimOwner = o;
+    if (own) {
+      if (capture) setSnapshotCapture(true);
+      markSnapshotScope(own);
+      openLiveScope(own);
+      _snapshotRootOwner = own;
+    }
+    return fn();
+  } finally {
+    _hydratingValue = prevHydrating;
+    _claimOwner = prevClaim;
+    if (scope) {
+      sharedConfig.registry = prevRegistry;
+      sharedConfig.gather = prevGather;
+    }
+    if (own) {
+      _snapshotRootOwner = null;
+      releaseSnapshotScope(own);
+      // this claim's hydration is over: its live nodes take over now,
+      // without waiting for the rest of the page (D8)
+      releaseLiveScope(own);
+      if (capture) clearSnapshots();
+    }
+  }
+}
+
 function resumeBoundaryHydration(
   o: Owner,
   id: string,
@@ -2499,49 +2543,30 @@ function resumeBoundaryHydration(
     checkHydrationComplete();
     return;
   }
-  // A late resume must claim against the root this boundary registered
-  // under — another hydrate() root may have replaced the global
-  // registry/gather since (#2917). Swap the captured pair in for the
-  // synchronous resume window; without a capture the live globals apply.
-  const prevRegistry = sharedConfig.registry;
-  const prevGather = sharedConfig.gather;
-  const prevClaim = _claimOwner;
-  if (scope) {
-    sharedConfig.registry = scope.registry;
-    sharedConfig.gather = scope.gather;
-  }
-  try {
-    if (shouldHydrate) sharedConfig.gather?.(id);
-    _hydratingValue = shouldHydrate;
-    if (shouldHydrate) {
-      markSnapshotScope(o);
-      openLiveScope(o);
-      _snapshotRootOwner = o;
-      // The window claims this boundary's subtree only: the rest of the
-      // tree hydrated in the root pass, and a re-render it takes during the
-      // window (a write from the resumed content's user effects) is a
-      // client render (#3504).
-      _claimOwner = o;
-    }
+  if (shouldHydrate) {
+    // A late resume claims against the root this boundary registered under
+    // (the captured `scope`), its subtree the snapshot and live scope for
+    // the window; the trigger re-runs the boundary's compute inside it.
+    hydrateWindow(
+      id,
+      () => {
+        set();
+        flush();
+      },
+      scope,
+      o
+    );
+  } else {
+    // The client renders the boundary fresh (recover): no claim.
+    _hydratingValue = false;
     set();
     flush();
-    if (shouldHydrate) _snapshotRootOwner = null;
-    _hydratingValue = false;
-    _claimOwner = prevClaim;
-    if (shouldHydrate) {
-      releaseSnapshotScope(o);
-      // this boundary's hydration is over: its live nodes take over now,
-      // without waiting for the rest of the page (D8)
-      releaseLiveScope(o);
-    }
-    flush();
-  } finally {
-    _claimOwner = prevClaim;
-    if (scope) {
-      sharedConfig.registry = prevRegistry;
-      sharedConfig.gather = prevGather;
-    }
   }
+  // Hydration mode is off once a boundary has resumed — whatever the flag
+  // read before (a resume never runs inside a root's synchronous pass; the
+  // client-gated nodes the resume created compute in the flush below).
+  _hydratingValue = false;
+  flush();
   checkHydrationComplete();
 }
 
@@ -2634,9 +2659,9 @@ function initBoundaryResume(
 // enableHydration() installs `_$HY.f` — from that moment every `$df(id)`
 // the stream emits routes here (the same one-owner handoff the head-patch
 // runtime uses via `_$HY.h`) — and publishes the ledger as `_$HY.fr`
-// ({ pending, subscribe, claim, release }) so integrations (the frames
-// client's document adoption) share this one answer instead of scanning for
-// `pl-*` templates or patching `_$HY.fe` themselves.
+// ({ pending, subscribe }) so integrations (the frames client's document
+// adoption) share this one answer instead of scanning for `pl-*` templates
+// or patching `_$HY.fe` themselves.
 //
 // Policy: while global hydration is still in progress, swaps proceed —
 // boundaries are coming to claim them. Once hydration completes, a swap only
@@ -2647,6 +2672,17 @@ function initBoundaryResume(
 // leave inert nodes in a range the client may re-render (#2964). Unclaimed
 // late swaps are HELD (placeholder, fallback, and template all stay in
 // place) and replayed when their claimant registers.
+//
+// The one other post-done claimant is OWNERSHIP BY RENDERING (frames A5′,
+// ruled 2026-10-06): a `<Loading>` the server rendered inside a server
+// component's element has no client boundary at all — its producer ran on
+// the server — and its fragment is the component's content whether or not
+// a client has adopted the element yet. An integration that owns ranges of
+// server markup wholesale installs `_$HY.fa(placeholder)`, a predicate over
+// the fragment's `pl-*` template; a post-done swap it owns proceeds. Nothing
+// is ever held inside an owned range, so there is no claim to retire and no
+// replay: disposal is geometry — a disposed range leaves the document, its
+// placeholder with it, and a swap aimed at it is held like any other.
 const _fragments = new Map<string, { claimed?: boolean; held?: boolean }>();
 const _truncated = new Set<string>();
 const _revealSubs = new Set<(id: string, parent?: ParentNode) => void>();
@@ -2660,9 +2696,19 @@ function fragmentState(id: string) {
 
 function fragmentPolicy(id: string) {
   const f = fragmentState(id);
-  if (!_hydrationDone || f.claimed) return (globalThis as any).$dfr(id);
+  if (!_hydrationDone || f.claimed || ownedFragment(id)) return (globalThis as any).$dfr(id);
   f.held = true;
   return 0;
+}
+
+// Ownership by rendering (see the ledger's policy above): the fragment's
+// placeholder is in the document and the integration's predicate owns it.
+// A placeholder GONE from the document (its range morphed away, or the
+// owning range disposed) is nobody's: the swap holds.
+function ownedFragment(id: string) {
+  const hy = (globalThis as any)._$HY;
+  const pl = document.getElementById("pl-" + id);
+  return !!(pl && hy.fa && hy.fa(pl));
 }
 
 // A held swap replays the moment its boundary shows up — BEFORE any of the
@@ -2680,18 +2726,11 @@ function replayHeldFragment(id: string) {
 
 // A boundary registering against a still-pending `<id>_fr` goes on record as
 // the fragment's claimant, so a late swap lands for its resume to claim. The
-// claim is cleared by release() when the boundary resumes or is disposed.
+// claim is cleared by initBoundaryResume's release() when the boundary
+// resumes or is disposed.
 function claimFragment(id: string) {
   fragmentState(id).claimed = true;
   replayHeldFragment(id);
-}
-
-// Retire a claim (the disposal half of the ledger's claim/release seam):
-// after the claimant is gone, a late swap must be held rather than landing
-// in a range nobody will claim.
-function releaseFragment(id: string) {
-  const f = _fragments.get(id);
-  if (f) f.claimed = false;
 }
 
 /**
@@ -2704,6 +2743,14 @@ function releaseFragment(id: string) {
  * streamed, nothing is coming. (getElementById is an id-table lookup, not
  * the tree scan this ledger replaces.)
  *
+ * A REVEALED fragment is read from its swap (`_$HY.v`), not from its `_fr`
+ * stamp: the producer emits the swap script and then the `_fr` settle in
+ * the same task batch, so a reader inside the reveal notification
+ * (`_$HY.fe` → a ledger subscriber asking "is anything still pending?") sees
+ * the revealing fragment's declaration unstamped. Read by the stamp alone,
+ * the last reveal of a page never flipped `pending()` false, and a waiter
+ * released on exhaustion waited forever.
+ *
  * Content whose `pl-*` placeholder range is GONE can never swap either
  * (#2978, secondary defect): a frame refetch that morphs over the region
  * removes the placeholder, and the swap has nowhere to land — the stale
@@ -2712,7 +2759,7 @@ function releaseFragment(id: string) {
  * content, so with the template present its absence can only mean removal.
  */
 function fragmentPending(hy: any, id: string): boolean {
-  if (_truncated.has(id)) return false;
+  if (_truncated.has(id) || (hy.v && hy.v[id])) return false;
   const ref = hy.r[id + "_fr"];
   if (!ref || typeof ref !== "object") return false;
   return !ref.s || fragmentParked(id);

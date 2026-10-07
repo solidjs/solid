@@ -43,6 +43,8 @@ export interface World {
   zeroArgCalls: number;
   /** Whether the host still has the boundary's store (read at settle points after dispose). */
   hostHas: () => boolean;
+  /** Whether hydration is still in progress (`sharedConfig.isHydrationInProgress`). */
+  hydrationInProgress: () => boolean;
   /** Snapshot taken in the hydration-end callback. */
   hydrationEnd?: { step: number; mountedButUninvoked: string[] };
   /** Trace occurrence index → the oracle's current `n`. */
@@ -169,6 +171,16 @@ export function settled(w: World): Finding[] {
         // cannot heal it); patches only after the claim are C11 proper.
         const preClaim =
           (w.firstPatchAt.get(i) ?? Infinity) < (w.invokedAt.get(o.name) ?? Infinity);
+        // "Every observable point" is read OUTSIDE a claim's park (contract
+        // C11, frames-rulings 3.6 (iii)): a fill that claimed with patches
+        // already delivered reads the SNAPSHOT — what the markup was
+        // rendered from — and its backlog is parked until hydration ends,
+        // which another occurrence's hold can keep open past this settle
+        // point (3.1 / 3.2: the park releases after the hold). The end is
+        // never inside a park: hydration is over by then and the law is
+        // strict.
+        if (preClaim && w.hydrationInProgress() && text.startsWith(`t${i}=${o.arg.snapshot}`))
+          return;
         at(
           preClaim ? "C19" : "C11",
           preClaim ? "claim-shows-oracle" : "trace-equals-oracle",
@@ -208,7 +220,15 @@ export function settled(w: World): Finding[] {
 export function end(w: World): Finding[] {
   const f: Finding[] = [];
   const at = (id: string, law: string, detail: string) => f.push({ id, law, step: w.step, detail });
-  if (w.hydrationEnd && w.hydrationEnd.mountedButUninvoked.length)
+  // A mount disposed before done owes no claim: its hold releases at the
+  // disposal (as a disposed <Loading>'s registration does — a boundary that
+  // can never resume must not hold global hydration open forever), and the
+  // server markup it left behind is nobody's to claim.
+  if (
+    w.hydrationEnd &&
+    w.hydrationEnd.mountedButUninvoked.length &&
+    !(w.disposedAt >= 0 && w.hydrationEnd.step >= w.disposedAt)
+  )
     at(
       "C3",
       "done-counts-holds",

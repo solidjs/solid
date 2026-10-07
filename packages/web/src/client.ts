@@ -1442,6 +1442,14 @@ export function insert(parent, accessor, marker, initial, options) {
       const value = normalize(accessor(), current, multi, true);
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       if (typeof value !== "function") return value;
+      // The child-resolution pass must track every row's resolved child, so
+      // its width is the list's, not a coarse read: dev marks it `_wide`
+      // (exempt from WIDE_SCOPE_DEPS, never from HUGE_FAN_IN). Dev only, like
+      // `_plumbing`: signals' observe artifact mangles `_` option names.
+      const innerOptions =
+        prev !== undefined && !(options && options.schedule)
+          ? { ...options, schedule: true }
+          : options;
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
@@ -1451,9 +1459,7 @@ export function insert(parent, accessor, marker, initial, options) {
           current = insertExpression(parent, inner, current, marker);
           host && tagHost(current, host);
         },
-        prev !== undefined && !(options && options.schedule)
-          ? { ...options, schedule: true }
-          : options
+        "_SOLID_DEV_" ? { ...innerOptions, _wide: true } : innerOptions
       );
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       return INNER_OWNED;
@@ -2973,12 +2979,21 @@ function cleanChildren(parent, current, marker, replacement) {
 }
 
 function gatherHydratable(element, root) {
-  const templates = element.querySelectorAll(`*[_hk]`);
+  // A prefix-scoped gather (a boundary's late resume; an adopted frame
+  // occurrence's claim window) names exactly what it owns — collect wherever
+  // the keys sit, frame interiors included: keys are namespaced by their
+  // producer chain, so a nested frame's content can never match a foreign
+  // prefix. Selected natively: it runs once per resume or per occurrence,
+  // and a full `_hk` sweep filtered in JS each time is a cost per
+  // occurrence on the whole page.
+  const templates = element.querySelectorAll(
+    root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : `*[_hk]`
+  );
   // The ambient sweep claims only what this hydration root itself walks.
   // Frame regions ("data-fid" — the frame runtime's element brand, an
   // importless duplicate like FRAME_ID_ATTR in frame-client/frame-sink)
-  // are another layer's property: their fills claim through scoped
-  // registries on their own schedule (a lazy route module may adopt long
+  // are another layer's property: their fills claim through their own
+  // windows on their own schedule (a lazy route module may adopt long
   // after this root completes), so collecting them here only sets up the
   // completion sweep to report legitimately-late claims as unclaimed.
   // Whether the root has frames is one question about the page, not one per
@@ -2991,13 +3006,7 @@ function gatherHydratable(element, root) {
   for (let i = 0; i < templates.length; i++) {
     const node = templates[i];
     const key = node.getAttribute("_hk");
-    if (root) {
-      // A prefix-scoped gather (a boundary's late resume) names exactly what
-      // it owns — collect wherever the keys sit, frame interiors included.
-      // Keys are namespaced by their producer chain, so a nested frame's
-      // content can never match a foreign prefix.
-      if (!key.startsWith(root)) continue;
-    } else if (frameCount !== 0) {
+    if (frameCount !== 0) {
       // `contains` is inclusive: a node that is itself a frame is skipped too,
       // as `closest` (which starts at the node) did before.
       let inFrame = false;

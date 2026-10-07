@@ -11,11 +11,18 @@
 // client state moves them, handlers dispatch, refs fire with the adopted
 // elements. (Morphs around owned positions after a later response are
 // pinned by test/frames-binding-slots.spec.tsx.)
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createSignal, flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
+
+// Binding-slot positions are the BIND TIER's (`@solidjs/web/frames/bind`,
+// plan step C6), warmed here so the attach is the t=0 sync's; the hold an
+// un-announced page takes and the install's flush are pinned in
+// consistency/tier-bind-hold.spec.tsx.
+beforeAll(() => prepareTier("bind"));
 
 const settle = () => new Promise(r => setTimeout(r));
 const cycle = async () => {

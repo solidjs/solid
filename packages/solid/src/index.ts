@@ -115,7 +115,13 @@ export {
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
-export { materializeContainerTrace, sharedConfig } from "./client/hydration.js";
+export { sharedConfig } from "./client/hydration.js";
+// The container-trace materializer's seams (`solid-js/internal/container-trace`,
+// a separate dist entry so the store engine it builds on stays in a lazy
+// chunk): the store wrappers' hydration dispatch and the projection patch
+// protocol. Runtime exports so that entry shares this module's state.
+/** @internal */
+export { withStoreHydration, applyPatches, forwardIteratorReturn } from "./client/hydration.js";
 /** @internal */
 export { $DEVCOMP } from "./client/core.js";
 // The boundary primitives behind `Errored`, `Loading` and `Reveal`: exported

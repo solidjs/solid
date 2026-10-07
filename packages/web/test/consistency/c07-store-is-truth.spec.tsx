@@ -122,43 +122,34 @@ describe("C7 — the store is the truth", () => {
   // shape (the shell around a server `<Loading>` does not change between
   // renders; only the deferred segment's content does).
   //
-  // Observed on `next`: after v2's root the DOM still shows `<div><p>A1</p></div>`
-  // (no `pl-a` placeholder), and after v2's fragment + reveal + complete it
-  // STILL shows `<div><p>A1</p></div>` — v2's `A2` never appears; the frame
-  // keeps v1's revealed segment for good. Expected: v2's root re-applies
-  // (the placeholder with `fb-a` is back), then v2's segment reveals `A2`.
-  // Where it goes wrong: frame-client.ts `FrameImpl.#flush` applies the
-  // root only when `root.value !== this.#appliedRootValue`, and the
-  // version-bump branch of `FrameImpl.apply` (`#resetStreamState()` without
-  // `root`) resets the segment bookkeeping and `seg:` records but KEEPS
-  // `#appliedRootValue` — only `rebind` clears it. So a new version whose
-  // root html equals the previous one's is value-skipped: the DOM keeps the
-  // old version's revealed interior (no placeholder), `#segmentReady("a")`
-  // fails its structural prerequisite (`#findPlaceholder` finds nothing),
-  // and the new version's segment is never revealed — the store holds v2's
-  // root + `seg:a` + reveal gate while the DOM shows v1's segment.
-  test.fails(
-    "(c) a v2 root byte-identical to v1's resets the segment: v1's revealed content gives way to v2's placeholder, then v2's segment",
-    () => {
-      const id = "c7c";
-      const { host, element, dispose } = freshFrame(id);
-      host.apply({ type: "html", id, version: 1, html: ROOT });
-      host.apply({ type: "fragment", id, version: 1, key: "a", html: SEG_A1 });
-      host.apply({ type: "reveal", id, version: 1, keys: ["a"] });
-      expect(element.innerHTML).toBe(`<div><p>A1</p></div>`);
-      host.apply({ type: "html", id, version: 2, html: ROOT });
-      // v2's shell: the placeholder is back with its inline fallback; v1's
-      // `seg:a` was reset and does not reveal into it.
-      expect(element.querySelector("p")).toBeNull();
-      expect(element.querySelector("template#pl-a")).not.toBeNull();
-      expect(element.textContent).toBe("fb-a");
-      host.apply({ type: "fragment", id, version: 2, key: "a", html: SEG_A2 });
-      host.apply({ type: "reveal", id, version: 2, keys: ["a"] });
-      host.apply({ type: "complete", id, version: 2 });
-      expect(element.innerHTML).toBe(`<div><p>A2</p></div>`);
-      dispose();
-    }
-  );
+  // Was red on `next`: the version-bump branch of `FrameImpl.apply` reset
+  // the segment bookkeeping but KEPT `#appliedRootValue`, so a new version
+  // whose root equals the previous one's was value-skipped — the DOM kept
+  // v1's revealed interior (no placeholder), `#segmentReady("a")` failed
+  // its structural prerequisite forever, and `A2` never appeared. Green
+  // under frames-rulings 2.1/2.2: the applied state is one version's — the
+  // bump replaces it wholesale, root included — so an equal root is still
+  // the new version's landing and re-creates the placeholders its segments
+  // reveal into.
+  test("(c) a v2 root byte-identical to v1's resets the segment: v1's revealed content gives way to v2's placeholder, then v2's segment", () => {
+    const id = "c7c";
+    const { host, element, dispose } = freshFrame(id);
+    host.apply({ type: "html", id, version: 1, html: ROOT });
+    host.apply({ type: "fragment", id, version: 1, key: "a", html: SEG_A1 });
+    host.apply({ type: "reveal", id, version: 1, keys: ["a"] });
+    expect(element.innerHTML).toBe(`<div><p>A1</p></div>`);
+    host.apply({ type: "html", id, version: 2, html: ROOT });
+    // v2's shell: the placeholder is back with its inline fallback; v1's
+    // `seg:a` was reset and does not reveal into it.
+    expect(element.querySelector("p")).toBeNull();
+    expect(element.querySelector("template#pl-a")).not.toBeNull();
+    expect(element.textContent).toBe("fb-a");
+    host.apply({ type: "fragment", id, version: 2, key: "a", html: SEG_A2 });
+    host.apply({ type: "reveal", id, version: 2, keys: ["a"] });
+    host.apply({ type: "complete", id, version: 2 });
+    expect(element.innerHTML).toBe(`<div><p>A2</p></div>`);
+    dispose();
+  });
 
   // Arm (d) (control for c): a v2 root that differs from v1's by one byte
   // takes the morph path, and the per-version reset then holds over every

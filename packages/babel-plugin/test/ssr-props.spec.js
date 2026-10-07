@@ -3,6 +3,10 @@
 // (`hoistProps: false`) — the fixtures only show the text.
 const babel = require("@babel/core");
 const plugin = require("../index");
+const {
+  cases: typeCases,
+  assertCase: assertTypeCase
+} = require("./__shared_fixtures__/ssrHoistPropsTypes/expected");
 
 const options = {
   moduleName: "r-server",
@@ -365,4 +369,20 @@ describe("SSR hoisted props", () => {
     expect(compiled).not.toMatch(/_P\$/);
     expect(compiled).toMatch(/get value\(\)/);
   });
+});
+
+// Authored TSX, parsed but not stripped — what the Vite plugin's Babel
+// backend hands the plugin; the bundler erases the types afterwards.
+describe("SSR hoisted props skip TypeScript type positions", () => {
+  const compileTs = (source, filename, hoistProps) =>
+    babel.transformSync(source, {
+      configFile: false,
+      babelrc: false,
+      filename,
+      parserOpts: { plugins: ["jsx", "typescript"] },
+      plugins: [[plugin, { ...options, hoistProps }]]
+    }).code;
+  for (const testCase of typeCases) {
+    test(testCase.name, () => assertTypeCase(testCase, compileTs));
+  }
 });

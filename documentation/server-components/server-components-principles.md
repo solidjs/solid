@@ -48,40 +48,88 @@ mechanism that shouldn't exist. This is that pass for server components.
 
 ## 2. Axioms
 
-Everything below is derived from these seven statements plus one liveness rule. A
-mechanism that cannot cite an axiom is a bug in the architecture even if it fixes a
-bug in the behavior.
+Everything below is derived from one equivalence, seven statements, and one liveness
+rule. A mechanism that cannot cite an axiom is a bug in the architecture even if it
+fixes a bug in the behavior. **And (2026-10-05): a mechanism that cites only A3–A7
+for something the hold model already decides is likewise a bug — cite the L2 rule.**
+A1–A7 are SC-internal; each one is the SC *form* of a rule Solid 2 already has
+(named per axiom below), and a mechanism that satisfies the SC form while
+duplicating what the core rule already provides — a second version space, a second
+gate, a second "done" — has cited the wrong document.
 
+- **A0 — Equivalence** (maintainer, 2026-10-05). *"SCs are no different than other
+  rendered data."* *"Hydration ending follows non-SC Solid 2."* *"SCs participate in
+  `<Loading>` until their first flush the same way, and can have their own internal
+  loading states the client doesn't care about."* A server component's output —
+  frame markup, records, traces — is async rendered data, and
+  [`packages/signals/docs/SPEC-ASYNC-SEMANTICS.md`](../../packages/signals/docs/SPEC-ASYNC-SEMANTICS.md)
+  (the L2 hold model: rulings 1–9 and the A-rules) is the governing document for
+  anything async in this layer, with `documentation/solid-2.0/05-async-data.md` for
+  the `<Loading>` rules and `solid-js` hydration for "done": **the frames layer adds
+  a transport, never a second model.** Outward, a frame is one async value — the
+  enclosing `<Loading>` and hydration-done wait for its first flush, a refetch or
+  switch is a new question under the supersession rules; inward, its server
+  boundaries are the server's — markup the client renders and tracks nothing of.
+  Applied to the frames client, ruling by ruling, in
+  [`frames-rulings.md`](frames-rulings.md) ("Principle"), which marks every ruling
+  `Restates: <core rule>` or `Frames-specific: <transport property>`.
 - **A1 — Single-copy.** Server content travels exactly once: as HTML if it is
   markup, as a data record if the client needs the value. Never both. (At t = 0,
   values recoverable from the rendered page are recovered, not re-sent.)
+  *Transport-specific* — a property of the wire; no core analogue, nothing to
+  restate.
 - **A2 — Hydrate once.** Client components hydrate at t = 0 and never again. After
   boot the server never renders a client component; post-load responses carry server
   content and slot records only.
+  *SC form of* the non-SC hydration rule — hydration is the one-time adoption of the
+  document, finished when `_pendingBoundaries` reaches zero (`hydration.ts`
+  `checkHydrationComplete`); a frame's hold on that is a pending boundary like any
+  other, not a second end (A0; `frames-rulings.md` 3.1, ruled).
 - **A3 — Addresses key content, not mounts.** Every byte the server produces belongs
   to a `(function, arguments)` address. Arrival — any transport: preload, refetch,
   single-flight region, document inline — *only writes the address's store*. There is
   no code path from arrival to DOM.
+  *SC form of* supersession / provenance — L2 ruling 5 and A18: an address is a
+  source, a response is a flight answering one question on it, and an older
+  question's landing is not the answer. "Only writes the store" is "a landing
+  replaces the value; readers pull."
 - **A4 — Sites own mounts.** A consumption site owns one mounted frame, bound to one
   address at a time. DOM changes are pulls: the bound address's store advanced a
   version, or the site rebound to a different address. Binding follows the site's own
   reactive expression, nothing else.
+  *SC form of* latest-wins — L2 ruling 1 / A15 / A30: the mount reads the source's
+  current value; a rebind is a new read, and the version it sees is the one the hold
+  model says is current, not a frame-side counter.
 - **A5 — One record shape.** A slot/region record has one meaning and one
   availability point on every transport. The t = 0 document emits the same records a
   stream would; a consumer never branches on "how did this arrive."
+  *Transport-specific* — the wire's own uniformity rule; its core echo is only that
+  `ssrSource` adoption (`05-async-data.md`) treats a serialized value and a streamed
+  one as the same value.
 - **A6 — One reveal owner.** A pending placeholder has exactly one owner: the frame
   store/flush model. The document is the t = 0 frame (id `""`), not a parallel
   system with its own policy.
+  *SC form of* the one-frame concept — L2 ruling 1 and A15 ("one reveal"): a flush is
+  one landing, and a landing has one owner. DR-4 is this axiom applied to the
+  document.
 - **A7 — Identity-first matching.** Occurrence identity is frame-wide. Reconciliation
   matches client-owned ranges by identity first and position second; a live range is
   *never* detached because of where it sat.
+  *Transport-specific* — a morph rule for server-produced markup around client-owned
+  ranges; the core has no reconciliation of foreign markup to restate.
 - **L1 — Liveness.** Every pending state resolves to exactly one of: content, error,
   or detectable truncation. Nothing pends silently forever. (This is the axiom
   solidjs/solid#2958 showed was missing: a truncated stream must be observable, and
   the `_$HY.fe` seam it relies on must actually exist.)
+  *SC form of* A19 / A27 liveness — a hold that can never land is a bug, not a
+  state; an unreachable source settles as an error (A5 for the escaping case).
+  Truncation is the transport's way of making the source unreachable *observably*.
 
 A1, A2 are unchanged from the shipped design and have never been the source of a bug
-class. A3–A7 and L1 are the corrective ones.
+class. A3–A7 and L1 are the corrective ones. A0 is the one the maintainer had stated
+and this document had not caught: the axioms above were written SC-internally, so a
+mechanism could satisfy A3 or A6 to the letter while building a second copy of what
+the hold model already provides — see §4's 2026-10-05 note.
 
 ### The derived data flow
 
@@ -671,7 +719,7 @@ exists to undo another mechanism's consequences; deletes with its cause.
 | 16 | `#refArgsUnchanged` value-compare | A5 | **Done (Stage 2):** the #547 `$frame`-addition leniency deleted with unified records; the plain value-compare stays (it is the dedupe, not the patch). |
 | 17 | `$ref`/`$frame` arg resolution + per-stream tables | A1/A3 | Derived; table scoping revisited under per-address stores (§5.2). |
 | 18 | Region discovery from markup (`#discoverRegions`) | A5 | **Done (Stage 2, first half):** with A5, used regions have records on every transport; discovery remains only as claim wiring — and membership is now structural (outermost dotted id in this interior), not producer-prefix-matched, so address-keyed mounts adopt fn-id-prefixed markup. |
-| 19 | Region bind/rebind/`renameRegion` (wire-id renames) | A3 | Compensatory: regions become store substructure keyed `(parent address, occurrence, arg)` (§5.3); wire-relative renames delete. |
+| 19 | Region bind/rebind/`renameRegion` (wire-id renames) | A3 | Compensatory: regions become store substructure keyed `(parent address, occurrence, arg)` (§5.3); wire-relative renames delete **with that normalization — not before it.** Frames savings pass C4 (2026-10-06) found the rename LIVE, not dead: a single-flight response renders a shown boundary's regions under the call's address while a direct response and the document render them under the function id, so a flight refresh renames every region of the boundary (`preview`'s region check anticipates it; `lifecycle-matrix/call-driven-args` › regions and `frames-optimistic-hold` pin the rebind). C4 moved bind / rename into the regions tier chunk (`@solidjs/web/frames/regions`: `bind`, `rename`, the rename arm of `resolve`) — 0 eager bytes — and left the deletion to S7's store-boundary normalization. |
 | 20 | `hy.r` occlusion absorption (adopt-time fake chunks) | A5/A6 | Compensatory. Deletes: occluded content is ordinary records in the one buffer, drained by the one consumer (DR-4). |
 | 21 | Segment reveal + placeholder discovery (`#revealSegment`) | A6 | Derived — and becomes the only implementation (DR-4). |
 | 22 | Stylesheet gating + modulepreload | A6/L1 | Derived — unchanged, one instance instead of two. |
@@ -691,6 +739,33 @@ exists to undo another mechanism's consequences; deletes with its cause.
 
 Score: 24 derived (several simplified), 8 compensatory deletions, 3 restructured.
 The deletions are precisely the mechanisms with the worst bug-per-line record.
+
+**2026-10-05 — what A0 would have made unrepresentable.** The consistency
+contract (`frames-consistency-contract.md` on
+[solidjs/solid#3813](https://github.com/solidjs/solid/pull/3813), 22 `test.fails`)
+pinned reds that each pass the audit above —
+every one of them cites A3, A4 or A6 honestly — and each is an A0 violation: a
+second copy of something the hold model already decides.
+
+- **Two version spaces** (rows 5, 7 above; contract C5–C7, rulings 1.1–1.2, 2.1–2.2):
+  `#version` on the frame store and the applied-version in the DOM, each
+  bookkeeping that A3/A4's "latest version" already is — L2 ruling 1 / A18 decide
+  which landing is current; there is one.
+- **Two gates** (row 32; C17, rulings 1.5–1.6): a frame-side shell gate beside the
+  enclosing `<Loading>`'s pending state, where A0's outward face says the boundary
+  *is* the gate for the frame's first flush.
+- **A second notion of done** (rows 32, 34; C3, ruling 3.1 — ruled): a frames-side
+  hydration-end beside `_pendingBoundaries`, where A2 + A0 say a frame's hold is a
+  pending boundary registered with the one counter.
+- **Client-side error state for a server boundary** (row 23; C12 (c), ruling 3.3):
+  a client `<Errored>` for a boundary the server owns, where A0's inward face says
+  the client shows whatever the server rendered for the outcome and never invents
+  one.
+
+The rulings, their fixes and byte estimates are in
+[`frames-rulings.md`](frames-rulings.md); the lesson for this document is the
+standard added to §2 — a mechanism that cites only A3–A7 for what the L2 rule
+decides cites the wrong document.
 
 ---
 
@@ -2081,7 +2156,7 @@ const toggleAll = action(function* (ids: string[], completed: boolean) {
   yield toggleAllTodos(ids, completed);
 });
 
-const Todos = dynamic(() => getTodos(filter()));
+const Todos = dynamicComponent(() => getTodos(filter()));
 
 <Todos
   row={p => ({ class: { completed: done(p) }, hidden: !!pending.byId[p.id]?.removed })}
@@ -2498,9 +2573,10 @@ amended here:
   are the same `liveSlotProps` proxy content occurrences get, so a
   re-emitted record updates the instance in place. The
   per-occurrence owner is unconditional here (content fills scope
-  only stream-mounted invocations, for the zombie-heuristic reason
-  recorded in `slotsFor`): an element occurrence places no nodes, so
-  nothing can be misread, and the spread's effect must die with the
+  only stream-mounted invocations — a live-render fill's ambient
+  owner, the reconstructed boundary's content computation, already
+  has the right lifetime; see `slotsFor`): an element occurrence
+  places no nodes, and the spread's effect must die with the
   occurrence. Fill-returned handlers go through client `spread`'s
   own delegation (the "open" item above closes this way — the
   one-owner rule keeps `_bnd` and a fill off the same position).
@@ -2514,8 +2590,8 @@ amended here:
   the server's value and re-imposes the owned names' live state on
   top (a class the fill toggled on stays on through a server class
   change; an owned style property survives the attribute rewrite).
-  A replaced element is a zombie mount (its node left the tree) and
-  the fill remounts on the fresh node; an unmounted occurrence
+  A replaced element is a consumer change (the fill rebinds on the
+  fresh node, see §9.2.3); an unmounted occurrence
   releases its ownership so the element is wholly the server's from
   the next morph on.
 - *No regions in attribute slots.* An element occurrence has no
@@ -3132,6 +3208,20 @@ the text above, the build is right and the text is amended here:
   them, so a kept un-keyed element carries one listener, not one per
   occurrence that ever bound it, and a dropped occurrence's handler
   never fires through its disposed fill.
+- *The replay-window stamp (frames savings pass C6, option (a)).* On
+  the document face an element with an `_s:on:*` position — only
+  those; a ref-only or attribute-only consumer carries nothing — is
+  written with a bare ` _hk` after its markers (4 bytes, no key). The
+  binding runtime is a lazy tier, so the hydration bootstrap must
+  queue the element's events until its handlers bind: it queues only
+  under a not-yet-completed `_hk` element, and a server component's
+  interior (NoHydration) has none of its own. Bare, the stamp is
+  nothing's to gather or claim (prefix gathers match keyed values;
+  the root's ambient sweep leaves frame interiors to their fills);
+  the tier marks the element completed at the bind and drains the
+  queue. The stream face writes no stamp — the bootstrap stopped
+  capturing at `_$HY.done`, so a response's html has no window to
+  keep open.
 - *A repeated call is one occurrence per render, on both faces —
   keyed or not.* Found by the first todos port, which emitted eleven
   `sc:slot:…row#<id>` records per row (one per position read through
@@ -3149,14 +3239,14 @@ the text above, the build is right and the text is amended here:
   compared. A placed range never registers: two identical positional
   markup calls stay two ranges (pinned). No wire change: ids stay
   `prop#<n>`.
-- *A data occurrence's nodes are its consumers, and it is never a
-  zombie.* The client's slot discovery collects `_s:*` elements into
-  per-occurrence consumer lists `[{ element, positions }]` alongside
-  the range walk. The occurrence's "nodes" are those elements (so the
-  existing bookkeeping sees them), but the zombie rule — output whose
-  node left the tree remounts fresh — does not apply: a replaced
-  consumer is a *consumer change*, and an occurrence no element
-  reads is simply not found and unmounts at the sync's end. Consumer
+- *A data occurrence's nodes are its consumers.* The client's slot
+  discovery collects `_s:*` elements into per-occurrence consumer
+  lists `[{ element, positions }]` alongside the range walk. The
+  occurrence's "nodes" are those elements: a replaced consumer is a
+  *consumer change*, and an occurrence no element reads is simply
+  not found and unmounts at the sync's end. (No mount's output is
+  ever checked for having left the tree — the morph recreates
+  nothing, DR-5; "mounted" is the frame's set.) Consumer
   sets compare structurally per sync; a change without an args
   change rebinds in place through a per-occurrence rebinder (the
   fill's computation stays; new elements and positions take their

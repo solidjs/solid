@@ -436,6 +436,14 @@ describe("call-driven/cleanup-disposal", () => {
   });
 });
 
+// A raw slot callback owns its range: it places its output before the
+// range's end marker over `ctx.existing` (the frame never writes an
+// interior — a Solid fill does the same through `insert`).
+function fillRange(ctx: any, node: Node) {
+  for (const n of ctx.existing) n.remove();
+  ctx.range.end.before(node);
+}
+
 describe("raw-frame/re-call-path", () => {
   // Through solid-web's slotsFor every invoked occurrence registers
   // ctx.onUpdate (live props), so a stream args-change NEVER re-calls there.
@@ -448,11 +456,11 @@ describe("raw-frame/re-call-path", () => {
       host,
       id: "raw/recall",
       slots: {
-        comment: (props: any) => {
+        comment: (props: any, ctx: any) => {
           calls.push(props.text);
           const li = document.createElement("li");
           li.textContent = props.text;
-          return li;
+          fillRange(ctx, li);
         }
       }
     });
@@ -505,7 +513,7 @@ describe("raw-frame/re-call-path", () => {
           ctx.onCleanup(() => cleaned.push(props.text));
           const li = document.createElement("li");
           li.textContent = props.text;
-          return li;
+          fillRange(ctx, li);
         }
       }
     });
