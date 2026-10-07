@@ -53,10 +53,14 @@ function declareFragment(id: string) {
   (window as any)._$HY.r[`${id}_fr`] = { then() {} };
 }
 
-/** The `$df` swap, reduced to what matters here: retire the fragment's
- *  placeholder, put the server's boundary element in the live document,
- *  record the reveal in the ledger (`_$HY.v`, what the real $dfr marks;
- *  seroval settles the `_fr` ref in the same batch), then announce it. */
+/** The `$df` swap, reduced to what matters here, in the PRODUCER'S order:
+ *  retire the fragment's placeholder, put the server's boundary element in
+ *  the live document, record the reveal in the ledger (`_$HY.v`, what the
+ *  real $dfr marks), announce it (`_$HY.fe`) — and only THEN settle the
+ *  `_fr` ref, the way seroval's resolution script runs after the swap
+ *  script in the same task batch. Anything the announcement's subscribers
+ *  read must therefore classify the revealing fragment from `_$HY.v`, not
+ *  from its `_fr` stamp (the exhaustion arms below pin this). */
 function swapIn(parent: HTMLElement, html: string) {
   document.getElementById("pl-1902")?.remove();
   const tpl = document.createElement("template");
@@ -64,8 +68,8 @@ function swapIn(parent: HTMLElement, html: string) {
   parent.appendChild(tpl.content);
   const hy = (window as any)._$HY;
   (hy.v = hy.v || {})["1902"] = 1;
-  if (hy.r["1902_fr"]) hy.r["1902_fr"].s = 1;
   hy.fe && hy.fe("1902", parent);
+  if (hy.r["1902_fr"]) hy.r["1902_fr"].s = 1;
 }
 
 /** A one-shot frame stream, the shape a navigation's response arrives in. */
@@ -163,9 +167,10 @@ describe("boundary that arrives after the shell flush", () => {
   // The same "not in the page yet" moment, one step later in the document's
   // life: global hydration has already completed. Under the held-swap policy
   // (#2964) that no longer means the page is finished — a fragment settling
-  // post-done keeps its placeholder, fallback and template in place until its
-  // boundary claims it, and the replay that follows is what delivers this
-  // element. A boundary rendering in that window (a frames slot fill or lazy
+  // post-done keeps its placeholder, fallback and template in place until a
+  // claimant is on record for it (a client <Loading> registering, or a frame
+  // element enclosing it — ownership by rendering), and the swap that follows
+  // is what delivers this element. A boundary rendering in that window (a frames slot fill or lazy
   // route module running after the root pass) that reads `done` as "never"
   // mounts a fresh frame and orphans the markup: the region goes inert AND —
   // because the id is never claimed — every later call for this function
@@ -234,7 +239,11 @@ describe("boundary that arrives after the shell flush", () => {
 
   // The mirror case: nothing is left to reveal, so waiting would strand the
   // region on its fallback forever. A reveal that exhausts the page's deferred
-  // fragments releases the waiter to mount fresh.
+  // fragments releases the waiter to mount fresh — and the exhausting reveal
+  // is the LAST one, whose own `_fr` is still unstamped while the hook runs
+  // (see swapIn): the ledger must count it as delivered from `_$HY.v`, or
+  // the page's final reveal never reads as exhaustion and the waiter waits
+  // forever.
   test("gives up waiting once the page has no deferred fragment left", async () => {
     document.body.innerHTML =
       '<div id="app"><template id="pl-1902"></template>fallback<!--pl-1902--></div>';

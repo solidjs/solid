@@ -2979,12 +2979,21 @@ function cleanChildren(parent, current, marker, replacement) {
 }
 
 function gatherHydratable(element, root) {
-  const templates = element.querySelectorAll(`*[_hk]`);
+  // A prefix-scoped gather (a boundary's late resume; an adopted frame
+  // occurrence's claim window) names exactly what it owns — collect wherever
+  // the keys sit, frame interiors included: keys are namespaced by their
+  // producer chain, so a nested frame's content can never match a foreign
+  // prefix. Selected natively: it runs once per resume or per occurrence,
+  // and a full `_hk` sweep filtered in JS each time is a cost per
+  // occurrence on the whole page.
+  const templates = element.querySelectorAll(
+    root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : `*[_hk]`
+  );
   // The ambient sweep claims only what this hydration root itself walks.
   // Frame regions ("data-fid" — the frame runtime's element brand, an
   // importless duplicate like FRAME_ID_ATTR in frame-client/frame-sink)
-  // are another layer's property: their fills claim through scoped
-  // registries on their own schedule (a lazy route module may adopt long
+  // are another layer's property: their fills claim through their own
+  // windows on their own schedule (a lazy route module may adopt long
   // after this root completes), so collecting them here only sets up the
   // completion sweep to report legitimately-late claims as unclaimed.
   // Whether the root has frames is one question about the page, not one per
@@ -2997,13 +3006,7 @@ function gatherHydratable(element, root) {
   for (let i = 0; i < templates.length; i++) {
     const node = templates[i];
     const key = node.getAttribute("_hk");
-    if (root) {
-      // A prefix-scoped gather (a boundary's late resume) names exactly what
-      // it owns — collect wherever the keys sit, frame interiors included.
-      // Keys are namespaced by their producer chain, so a nested frame's
-      // content can never match a foreign prefix.
-      if (!key.startsWith(root)) continue;
-    } else if (frameCount !== 0) {
+    if (frameCount !== 0) {
       // `contains` is inclusive: a node that is itself a frame is skipped too,
       // as `closest` (which starts at the node) did before.
       let inFrame = false;

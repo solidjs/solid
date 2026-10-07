@@ -38,7 +38,7 @@ import { insert, assign } from "@solidjs/web";
 import { createFrame, createFrameElement, createFrameHost, FRAME_ID_ATTR } from "./frame-client.js";
 import {
   COMPONENT_BINDING,
-  STAGED_DATA,
+  callFor,
   contentAddress,
   createServerComponentHandler,
   stagedContent,
@@ -75,6 +75,16 @@ const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // (externalizeSharedTransport), so the codec/flight config its defaults
 // read is this instance by construction.
 import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
+// The server-function registry's two seams, read through their registered
+// symbols rather than imported (the pattern the frame runtime uses for
+// every cross-bundle brand — `CLAIM_SEAM`, `COMPONENT_BINDING`): the
+// late-bound RPC slot (registry.ts `provideServerFunctionRPC` — filled by
+// the time any server function has been referenced, so by the time a
+// response could have erred) and the declaration-metadata brand. Importing
+// either from an entry would retain a registry copy in whichever bundle
+// does not already carry one.
+const SERVER_FUNCTION_RPC = Symbol.for("solid.ServerFunctionRPC");
+const SERVER_FUNCTION_METADATA = Symbol.for("solid.ServerFunctionMetadata");
 // The seroval codec is the frames client's heaviest dependency (~6 kB gz
 // with the web plugin set) and the common frames traffic never needs it:
 // HTML chunks, scalar slot args and document records (the hydration
@@ -119,17 +129,24 @@ export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
 }
 
 // One host per app is the norm: one chunk router, with codec data tables
-// rotated PER RESPONSE — the deserializer's cross-reference space is
+// kept PER RESPONSE — the deserializer's cross-reference space is
 // stream-scoped by contract, so each stream into a boundary gets a fresh
-// table (routed by root frame id; nested region ids prefix-match to their
-// root's table). Apps needing isolation pass their own host.
+// table. A response is one version of one root frame id (the transport
+// stamps every chunk of it), so tables are keyed by the id and the
+// version: a chunk or a record of a response reads and writes its own
+// response's table and no other's (frames-rulings 1.2, 1.3) — the shown
+// response's and a staged refetch's coexist, each its own — and a version
+// the address has moved past (`current`, the host's store version) has no
+// reader left, so its table is dropped at the next use. Data and slot
+// chunks both carry the ROOT id (a nested region's records live on the
+// root sink), so no prefix routing is needed. Apps needing isolation pass
+// their own host.
 //
-// Tables materialize lazily: `beginStream` only REGISTERS the stream (the
-// prefix routing needs the root id), and the table itself is created at
-// first use once the codec module is resident — `prepareData` guarantees
-// that before any `data` chunk delivers. A `resolve` ahead of the codec
-// (a record's `$ref` sighted before its data) returns undefined, which is
-// already the "not delivered yet" state the held-record contract covers.
+// Tables materialize lazily, at first use once the codec module is
+// resident — `prepareData` guarantees that before any `data` chunk
+// delivers. A `resolve` ahead of the codec (a record's `$ref` sighted
+// before its data) answers undefined — "not delivered" — and the host hands
+// the fill a pending read the data chunk settles (see `createFrameHost`).
 let sharedHost: any;
 let codec: any;
 let codecLoading: Promise<unknown> | undefined;
@@ -140,33 +157,14 @@ function loadCodec() {
     codec = m;
   }));
 }
-const tables = new Map<string, any>();
-function ensureTable(root: string, map = tables) {
-  let table = map.get(root);
-  if (!table && codec) map.set(root, (table = codec.createJSONDataTable()));
-  return table;
-}
-function tableFor(id: string, map = tables) {
-  if (map.has(id)) return ensureTable(id, map);
-  for (const root of map.keys()) if (id.startsWith(root + ".")) return ensureTable(root, map);
-  return undefined;
-}
-/** Rotate in a fresh response-scoped data table for a boundary's stream. */
-function beginStream(frameId: string) {
-  tables.set(frameId, undefined);
-}
-/**
- * A staged response's tables (STAGED_DATA): routed like `tables`, decoded
- * as the response arrives, installed over the shown response's at commit.
- */
-function stageTables() {
-  const staged = new Map<string, any>();
-  return {
-    begin: (id: string) => staged.set(id, undefined),
-    apply: (c: any) => tableFor(c.id, staged)?.apply(c),
-    resolve: (ref: any, id: string) => tableFor(id, staged)?.resolve(ref),
-    commit: () => staged.forEach((table, id) => tables.set(id, table))
-  };
+const tables = new Map<string, Map<number, any>>();
+function tableFor(id: string, version: number, current: number | undefined) {
+  let byVersion = tables.get(id);
+  if (!byVersion) tables.set(id, (byVersion = new Map()));
+  else for (const v of byVersion.keys()) if (v < current!) byVersion.delete(v);
+  let t = byVersion.get(version);
+  if (!t && codec) byVersion.set(version, (t = codec.createJSONDataTable()));
+  return t;
 }
 /**
  * The render effect that follows a mount's address accessor. `dynamic`
@@ -177,16 +175,20 @@ function stageTables() {
  *
  * The compute half is plumbing: a content TOKEN (a refetch of the address
  * shown, see createServerComponentHandler) has its slot args previewed into
- * the live fills (`stagedContent.preview`) — held with the transaction, so
- * a fill deriving optimistic intent over an arg never reads the old arg
- * once the intent ends.
+ * the live fills (`stagedContent.preview`) — staged with the transaction,
+ * so a fill deriving optimistic intent over an arg re-derives from the new
+ * arg in the pass that dissolves the intent, never from the old one a
+ * flush behind it (principles §9.2.2, `frames-optimistic-hold`). This is
+ * the one write the token carries that the landing node (`landing` below)
+ * does not: the landing is per address and reads warm for a refetch; the
+ * fills' args are the record's, and the record is the token's.
  *
  * The effect half is display. It commits the token's content
  * (`stagedContent.commit`: the markup, the store, the mounts) and re-binds
  * the frame to the address — a warm store re-materializes at once; the same
  * address under a new version is not a switch and `rebind` no-ops. Both
  * wait for the commit so the region's answer never lands beside siblings
- * the transaction still holds (`frames-morph-in-transition`).
+ * the transaction still holds (`frames-morph-in-transition`, C15).
  *
  * Ruling (maintainer, 2026-10-04, #3759 on L2): the switch IS display —
  * one reveal. The rebind morphs the DOM, so it runs in the effect half at
@@ -211,11 +213,31 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
 /**
  * The frame as one async value outward (A0, corollary 4): to its
  * surroundings a mount is one async source whose first landing is the
- * bound address's first flush — content or error — and whose inside is the
- * server's. The enclosing `<Loading>` pends on that landing exactly as it
- * pends on any async source's first landing (`host.landing`: a promise
- * while the response is in flight), and on nothing inside the frame — a
- * server-rendered `<Loading>` fallback in the shell IS content.
+ * bound address's first flush, whose error is that value REJECTING, and
+ * whose inside is the server's. The enclosing `<Loading>` pends on that
+ * landing exactly as it pends on any async source's first landing
+ * (`host.landing`: a promise while the response is in flight), and on
+ * nothing inside the frame — a server-rendered `<Loading>` fallback in the
+ * shell IS content. The enclosing `<Errored>` sees the frame's `:error`
+ * exactly as it sees any `createAsync` that rejects (frames-rulings 3.3):
+ * the landing promise rejects with the error record and this node throws
+ * it; an error AFTER the landing — a later yield failing, a stream cut
+ * off, a refetch's response erroring — is the L2 "errored flight after a
+ * landing" case and errors the node the same way (what an async iterable
+ * that yielded and then threw does: the shown value is not kept beside the
+ * error). The error is announced to this node by the mount's frame
+ * (`failed`, a tick written from its `onApply`); the node reads the record
+ * off the frame bound to the address and surfaces each record once — the
+ * applied state of 2.1, keyed by record identity, so a re-read of an error
+ * this node already surfaced is not a re-throw but a RE-ASK.
+ *
+ * `reset` re-asks: the `<Errored>`'s `reset` recomputes the node that
+ * threw — this one — and an errored landing is not a landing for a fresh
+ * consumer: the re-read is a promise for the NEXT flight (`host.landing`),
+ * and the flight is opened here (`reask`: the call behind the address,
+ * re-invoked — `dynamic`'s factory is hoisted and never re-runs for a
+ * `reset`, so the mount asks for itself). A re-ask whose call fails on the
+ * wire (no response to land) rejects the node with that failure.
  *
  * Per bound address (frames-rulings 1.5, 1.6 (i)): a switch is a new
  * question on the source, read here through a FRESH node with no value, so
@@ -231,9 +253,41 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * `value`: no pending beat, no fallback flicker, and a hydrating consumer
  * never sees the node go async.
  */
-function landing<T>(host: any, address: string, value: T): T | (() => T) {
-  const wait = host.landing(address);
-  return wait ? createMemo(() => wait.then(() => value)) : value;
+function landing<T>(host: any, address: string, value: T, failed: () => unknown): () => T {
+  // What the address's store holds at creation is applied: a fresh
+  // consumer of an errored address re-asks, it does not re-throw.
+  let thrown = host.get(address)?.error;
+  return createMemo(() => {
+    failed();
+    const error = host.get(address)?.error;
+    if (error !== undefined && error !== thrown) {
+      thrown = error;
+      throw error;
+    }
+    const wait = host.landing(address);
+    if (!wait) return value;
+    // An errored address with no flight open (a flight's `start` clears
+    // the mounts' error): this read is the re-ask.
+    const asked = error !== undefined && reask ? reask(address) : undefined;
+    return (asked ? asked.then(() => wait) : wait).then(() => value);
+  });
+}
+
+// The re-ask (see `landing`): installed with the handler, it re-invokes the
+// call behind an address and resolves when the call's response has been
+// handled (the flight is open and will land through the host). Undefined
+// until `installServerComponents` ran.
+let reask: ((address: string) => Promise<unknown> | undefined) | undefined;
+
+/**
+ * A mount's error tick for `landing`: the read, and the frame `onApply`
+ * that writes it once per error record the frame applies. `ownedWrite`:
+ * the first apply may run inside the mount's own render (a warm store
+ * seeds at registration), the rest from chunk microtasks and commits.
+ */
+function failing(): [() => number, (info: { reason: string }) => void] {
+  const [failed, setFailed] = createSignal(0, { ownedWrite: true });
+  return [failed, info => info.reason === "error" && setFailed(n => n + 1)];
 }
 /**
  * The app-wide shared frame host (created lazily): one chunk router with
@@ -244,14 +298,12 @@ export function getFrameHost() {
   if (!sharedHost) {
     sharedHost = createFrameHost({
       prepareData: loadCodec,
-      applyData: (c: any) => tableFor(c.id)?.apply(c),
-      resolve: (ref: any, id: string) => tableFor(id)?.resolve(ref),
+      applyData: (c: any, current?: number) => tableFor(c.id, c.version, current)?.apply(c),
+      resolve: (ref: any, id: string, version: number, current?: number) =>
+        tableFor(id, version, current)?.resolve(ref),
       // Document-face container traces ride slot records as inline literals
       // (never `{$ref}`s); this revives them into live stores at arg-read.
-      revive: reviveContainerTraces,
-      // Lets the record-dedupe compare identity-test containers instead of
-      // probing them (a pending container's property reads throw not-ready).
-      isContainer: isMaterializedContainer
+      revive: reviveContainerTraces
     });
   }
   return sharedHost;
@@ -281,71 +333,41 @@ function normalizeSlotContent(value: any): Node | Node[] {
  * instance disposes with its owning scope.
  */
 /**
- * Scoped hydration re-entry for one slot range (the late-boundary-resume
- * pattern): gather the range's `_hk` nodes into a registry, flip the
- * hydration window on for the synchronous render, and run under an owner
- * whose id chain reproduces the document producer's keys. No claimable
- * nodes in the range → plain client render (CSR boot, post-load streams).
+ * The registry/gather pair a boundary adopts under — read at adoption, so
+ * its occurrences' claims (which may run long after, under the frame's hold
+ * or at a fragment's reveal) gather against the root that holds the frame
+ * and not whichever `hydrate()` root replaced the live pair since (#2917).
  */
-function gatherClaims(el: Element, registry: Map<string, Element>) {
-  if (el.hasAttribute("_hk")) registry.set(el.getAttribute("_hk")!, el);
-  // A nested frame region is server-owned and opaque: the occurrences inside
-  // it run their own claims with their own registries. Not descending keeps
-  // gathering linear over an adopted tree — a blanket querySelectorAll here
-  // re-collected every nested comment's subtree once per enclosing level.
-  if (el.hasAttribute(FRAME_ID_ATTR)) return;
-  for (let c = el.firstElementChild; c; c = c.nextElementSibling) gatherClaims(c, registry);
-}
+type ClaimScope = { registry?: Map<string, object>; gather?: (key: string) => void };
 
-// A deferred-fragment placeholder (`<template id="pl-*">`) in the range means
-// a <Loading> inside this slot's content is still waiting on a streamed
-// fragment. The claim scope must engage even when the visible fallback has no
-// `_hk` elements to gather (plain text fallbacks): the boundary has to render
-// under the producer's id chain so it finds its pending `<key>_fr`
-// registration, goes on record as the fragment's claimant (#2964), and
-// resumes into the swapped content instead of eagerly re-rendering on the
-// client over a fragment that then has no owner.
-function hasPendingFragment(existing: Node[]) {
-  for (const n of existing) {
-    if (n.nodeType !== 1) continue;
-    const el = n as Element;
-    if (el.tagName === "TEMPLATE" && el.id.startsWith("pl-")) return true;
-    if (el.querySelector?.('template[id^="pl-"]')) return true;
-  }
-  return false;
-}
-
-function claimRender(prefix: string, existing: Node[], render: () => any) {
+/**
+ * Hydration re-entry for one adopted slot range: the fill renders inside a
+ * claim window — `sharedConfig.hydrateWindow`, the same window a streamed
+ * boundary's resume opens — under an owner whose id chain reproduces the
+ * document producer's keys (`sc-<fid>-<occurrence>-`). The window gathers
+ * the range's keys by that prefix, so the fill's components take the
+ * server-rendered nodes by key; the range is declared as the window's claim
+ * roots because it may be DETACHED right now (an async slot fill renders
+ * before its boundary re-inserts it) and the runtime's hydration guards
+ * read connectivity to tell claimed SSR nodes from fresh clones. A fill
+ * whose range has no keyed node claims nothing and renders as it would
+ * have; a `<Loading>` fallback in it still renders under the producer's
+ * chain, finds its pending `<key>_fr` registration, and resumes into the
+ * swapped content instead of re-rendering over a fragment nobody owns.
+ * Plain render on a page that never hydrated (CSR boot, post-load streams).
+ */
+function claimRender(prefix: string, existing: Node[], render: () => any, scope?: ClaimScope) {
   const sc: any = sharedConfig;
-  if (!sc.getNextContextId) return render();
-  const registry = new Map<string, Element>();
-  for (const n of existing) {
-    if (n.nodeType !== 1) continue;
-    gatherClaims(n as Element, registry);
-  }
-  if (!registry.size && !hasPendingFragment(existing)) return render();
-  const prevRegistry = sc.registry;
-  const prevHydrating = sc.hydrating;
-  const prevClaimRoots = sc.claimRoots;
-  // The enclosing pass gathered these same nodes: gatherHydratable sweeps the
-  // whole document for `_hk`, frame regions included, so every slot root ends
-  // up in the root registry too. Only this scoped registry ever claims them,
-  // so hand ownership over — otherwise the root's completion check reports
-  // each claimed slot node as unclaimed server markup.
-  if (prevRegistry) for (const key of registry.keys()) prevRegistry.delete(key);
-  sc.registry = registry;
-  sc.hydrating = true;
-  // The range may be DETACHED right now (an async slot fill renders before
-  // its boundary re-inserts it), and the runtime's hydration guards read
-  // connectivity to tell claimed SSR nodes from fresh clones. Declaring the
-  // range as claim roots keeps its interior walking as hydration either way.
+  // No window, or no registry gathered yet (no `hydrate()` pass has run):
+  // nothing to claim against — render fresh over the markup.
+  if (!sc.hydrateWindow || !sc.registry) return render();
+  const prevRoots = sc.claimRoots;
   sc.claimRoots = existing;
   try {
-    return runWithOwner(createOwner({ id: prefix }), render);
+    // The claim owner too: the window claims this fill's subtree only.
+    return runWithOwner(createOwner({ id: prefix }), () => sc.hydrateWindow(prefix, render, scope));
   } finally {
-    sc.registry = prevRegistry;
-    sc.hydrating = prevHydrating;
-    sc.claimRoots = prevClaimRoots;
+    sc.claimRoots = prevRoots;
   }
 }
 
@@ -359,8 +381,10 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
  * into the same instance" semantic compiled components already have.
  */
 function liveSlotProps(initial: Record<string, any>, ctx: any) {
-  // `ownedWrite`: a staged response's args arrive from the mount's compute
-  // half (see followAddress), under the transition that delivered them.
+  // `ownedWrite`: the record's writes arrive from wherever the frame flushes
+  // — a chunk microtask, the commit of the transaction that delivered a
+  // refetch (see followAddress), the document's reveal cascade — none of
+  // them a read of this occurrence's.
   const [args, setArgs] = createSignal(initial, { ownedWrite: true });
   ctx.onUpdate((next: Record<string, any>) => setArgs(() => next));
   return slotArgsProxy(args);
@@ -380,31 +404,65 @@ function isAsyncValue(v: any): boolean {
 }
 
 /**
- * The props object handed to a render-prop occurrence. Plain values read
- * straight through (and stay reactive over `args` for live updates); an
- * async value reads through a lazily-created async memo, so the prop read
- * follows the normal async read path — it suspends into the reading
- * component's nearest `Loading` (the reveal seam's reconstructed boundary
- * when the fill has none of its own) and settles to the value when the
- * server's data chunk lands. Memos are created under the occurrence's owner
- * (not the reader's), so they live as long as the occurrence: a read from a
- * later effect or event handler reuses the same source.
+ * Whether two values of one slot arg are the same value — the per-prop
+ * memo's equality, and so the whole dedupe of a re-sent record (a record
+ * whose refs decode to equal values churns no reader; one with a changed
+ * arg moves exactly that arg's readers). Identity first; then structural
+ * for the plain data the codec decodes (every prop of a record is a fresh
+ * decode, so two equal records are never `===`). A live container (DR-2's
+ * container tier) compares by identity ONLY — its reads carry the async
+ * semantics and a pending one throws not-ready on any property probe, so
+ * the container test comes before the async probe — and so does an async
+ * value (two pending promises stringify alike and are different values)
+ * and a DOM node (a region element; the frame caches those per arg, so an
+ * unchanged one IS identical).
+ */
+function sameArg(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (a instanceof Boxed || b instanceof Boxed)
+    return a instanceof Boxed && b instanceof Boxed && a.c === b.c;
+  if (isAsyncValue(a) || isAsyncValue(b) || a instanceof Node || b instanceof Node) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A live container as a prop memo's value. The core probes a memo's result
+ * for `.then`, and a pending container's property trap answers any read
+ * with not-ready — so the memo holds the container boxed (identity is its
+ * equality) and the prop read unboxes it.
+ */
+class Boxed {
+  constructor(public c: unknown) {}
+}
+
+/**
+ * The props object handed to a render-prop occurrence. Every prop reads
+ * through a lazily-created memo over the record's value for it, so a read
+ * is reactive over `args` (a re-sent record updates the live occurrence)
+ * and deduped by the memo's equality (`sameArg`: an equal value, however
+ * it was decoded, moves nothing — the dedupe a frame-side compare used to
+ * do, now where a memo already does it). An async value makes the memo an
+ * async one, so the prop read follows the normal async read path — it
+ * suspends into the reading component's nearest `Loading` (the reveal
+ * seam's reconstructed boundary when the fill has none of its own) and
+ * settles to the value when the server's data chunk lands. Memos are
+ * created under the occurrence's owner (not the reader's), so they live as
+ * long as the occurrence: a read from a later effect or event handler
+ * reuses the same source.
  */
 function slotArgsProxy(args: () => Record<string, any>) {
   const owner = getOwner();
-  const asyncReads = new Map<PropertyKey, () => any>();
+  const reads = new Map<PropertyKey, () => any>();
   return new Proxy(
     {},
     {
       get: (_, key) => {
-        const v = (args() as any)[key];
-        // Containers first (DR-2's container tier): the store IS the live
-        // value — its own reads carry the async semantics — and the async
-        // probe below would detonate a pending one (property reads throw
-        // not-ready). Mirrors the server sink's classification order.
-        if (isMaterializedContainer(v)) return v;
-        if (!isAsyncValue(v)) return v;
-        let read = asyncReads.get(key);
+        let read = reads.get(key);
         if (!read) {
           // TRANSPARENT: an adopted fill invokes during the hydrate window
           // under the occurrence's claim owner, and a plain memo minted
@@ -427,6 +485,13 @@ function slotArgsProxy(args: () => Record<string, any>) {
           // renders its fallback branch over a page whose markup settled
           // before flush — branch mismatch, key misses, dead range.
           //
+          // Containers first (DR-2's container tier): the store IS the live
+          // value — its own reads carry the async semantics — and the
+          // `.then` probe would detonate a pending one (property reads
+          // throw not-ready), so it is classified before the probe and
+          // held BOXED (see `Boxed`). Mirrors the server sink's
+          // classification order.
+          //
           // SUPERSEDES: every re-shipped record re-runs this memo while the
           // arg is still pending, abandoning the flight in the air — by
           // design, so dev marks it `_supersedes` (exempt from
@@ -436,18 +501,22 @@ function slotArgsProxy(args: () => Record<string, any>) {
             createMemo(
               () => {
                 const raw = (args() as any)[key];
+                if (isMaterializedContainer(raw)) return new Boxed(raw);
                 if (raw != null && typeof raw.then === "function") {
                   if (raw.s === 1) return raw.v;
                   if (raw.s === 2) throw raw.v;
                 }
                 return raw;
               },
-              (IS_DEV ? { transparent: true, _supersedes: true } : { transparent: true }) as any
+              (IS_DEV
+                ? { transparent: true, equals: sameArg, _supersedes: true }
+                : { transparent: true, equals: sameArg }) as any
             );
           read = owner ? runWithOwner(owner, make)! : make();
-          asyncReads.set(key, read);
+          reads.set(key, read);
         }
-        return read();
+        const v = read();
+        return v instanceof Boxed ? v.c : v;
       },
       has: (_, key) => key in args(),
       ownKeys: () => Reflect.ownKeys(args()),
@@ -685,7 +754,12 @@ function isReactiveContent(value: any): boolean {
   return false;
 }
 
-function slotsFor(props: Record<string, any>) {
+/**
+ * The slot fills of a boundary. `scope` (adopted boundaries): the
+ * registry/gather pair the boundary adopted under, for its occurrences'
+ * claims — see `claimRender`.
+ */
+function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
   // Live range bindings, one per occurrence. A re-call replaces its
   // occurrence's binding (the frame only runs slot cleanups at unmount, not
   // between re-calls), so dispose the outgoing one before the incoming
@@ -851,10 +925,10 @@ function slotsFor(props: Record<string, any>) {
           // displaced, e.g. moved-out {$frame} region ranges (#547).
           const value = fillOwner
             ? runWithOwner(fillOwner, () =>
-                adopted ? claimRender(prefix, ctx.existing, evaluate) : evaluate()
+                adopted ? claimRender(prefix, ctx.existing, evaluate, scope) : evaluate()
               )
             : adopted
-              ? claimRender(prefix, ctx.existing, evaluate)
+              ? claimRender(prefix, ctx.existing, evaluate, scope)
               : evaluate();
           // Static content (the common case: render props returning component
           // roots, plain JSX with no top-level control flow): today's
@@ -903,7 +977,9 @@ function slotsFor(props: Record<string, any>) {
                 end,
                 [...ctx.existing]
               );
-            runWithOwner(owner, () => (adopted ? claimRender(prefix, ctx.existing, bind) : bind()));
+            runWithOwner(owner, () =>
+              adopted ? claimRender(prefix, ctx.existing, bind, scope) : bind()
+            );
             return undefined;
           }
           // No range handle (a consumer-constructed frame without markers):
@@ -976,6 +1052,8 @@ function boundaryComponent(host: any, fnId: string) {
     // of their own — still claim with the right lifetime.
     const owner = getOwner();
     const id = binding ? contentAddress(binding()) : fnId;
+    // The frame's error, announced to the mount's content node (`landing`).
+    const [failed, onApply] = failing();
     // The boundary is a DOM element (`<solid-frame>`), not a branded value:
     // `insert` places it natively in any position (array/fragment/single —
     // no #550), and the frame mounts INTO it.
@@ -987,18 +1065,20 @@ function boundaryComponent(host: any, fnId: string) {
       id,
       slots: slotsFor(props),
       ownerScope: boundaryScope(owner),
-      reveal: revealSeam(owner)
+      reveal: revealSeam(owner),
+      onApply
     });
     onCleanup(dispose);
     // The shell: the covering <Loading> pends on the bound address's first
-    // flush (`landing`). The binding resolves at response-header time while
-    // content streams in behind it — read ungated, the boundary would
-    // resolve over an empty <solid-frame> (a flash) and have LATCHED by the
-    // time the shell's fills run, orphaning any pending async slot-arg read
-    // (with no reveal seam to reconstruct, the mount's own boundary is the
-    // covering one). A warm direct mount has its content before we return
-    // and IS the element: no memo, no pending beat.
-    if (!binding) return landing(host, id, element) as unknown as SolidElement;
+    // flush (`landing`), the enclosing <Errored> catches its error. The
+    // binding resolves at response-header time while content streams in
+    // behind it — read ungated, the boundary would resolve over an empty
+    // <solid-frame> (a flash) and have LATCHED by the time the shell's
+    // fills run, orphaning any pending async slot-arg read (with no reveal
+    // seam to reconstruct, the mount's own boundary is the covering one). A
+    // warm direct mount has its content before we return and IS the
+    // element: the node reads it synchronously, no pending beat.
+    if (!binding) return landing(host, id, element, failed) as unknown as SolidElement;
     // Follow the live address binding (the identity split's delivery
     // path): a `dynamic` site whose call switched arguments keeps this
     // instance and pushes the new address through the accessor — the frame
@@ -1009,7 +1089,7 @@ function boundaryComponent(host: any, fnId: string) {
     // reads warm, and the refetch's pending is the transaction's).
     followAddress(host, frame, binding);
     return createMemo(() =>
-      landing(host, contentAddress(binding()), element)
+      landing(host, contentAddress(binding()), element, failed)
     ) as unknown as SolidElement;
   };
 }
@@ -1057,7 +1137,11 @@ function pumpLiveChannel() {
     reader.read().then((r: { done: boolean; value: any }) => {
       if (r.done) return;
       const op = r.value;
-      liveOps.set(`${op.type}:${op.fid || ""}:${op.key || ""}`, op);
+      // A sweep's `ops` unit is applied whole (one write per boundary) but
+      // logged by its members: the log is last-value-wins per target, and
+      // a member's target is the key, not the unit it rode in.
+      for (const m of op.type === "ops" ? op.ops : [op])
+        liveOps.set(`${m.type}:${m.fid || ""}:${m.key || ""}`, m);
       for (const apply of liveAppliers) apply(op);
       return pump();
     });
@@ -1083,7 +1167,7 @@ let boundaryIndex: Map<string, Element> | null = null;
 // than one per nested region (a large comment thread carries hundreds).
 const isBoundaryId = (id: string) => !id.includes(".");
 function indexBoundaries(root: ParentNode) {
-  root.querySelectorAll(`[${FRAME_ID_ATTR}]`).forEach(el => {
+  root.querySelectorAll(FRAME_SELECTOR).forEach(el => {
     const key = el.getAttribute(FRAME_ID_ATTR);
     if (key && isBoundaryId(key) && !boundaryIndex!.has(key)) boundaryIndex!.set(key, el);
   });
@@ -1096,19 +1180,27 @@ function findBoundaryElement(id: string): Element | undefined {
   return boundaryIndex.get(id);
 }
 
-// Boundaries whose element has not been delivered yet, waiting on the reveal
-// that carries it. One waiter per id: a second mount while the first is still
-// waiting takes the fresh-frame path, since only one frame may adopt an
-// element.
-const boundaryWaiters = new Map<string, (el?: Element) => void>();
-
-// Calls answered "not yet" by the intercept: a boundary the page may still
-// deliver (see boundaryMayArrive) is a LOCAL answer that has not landed, not
-// a miss — a fetch now would render on the wire what the document is
-// already streaming. One promise per id, shared by every caller asking
-// while it is outstanding; it settles at the reveal that carries the element
-// (true) or once the page has no reveal left to deliver it (false).
+// The one deferred answer for "the page may still deliver this boundary":
+// a boundary not in the document yet while the document can still deliver
+// it (see boundaryMayArrive) is a LOCAL answer that has not landed, not a
+// miss — a fetch now would render on the wire what the document is already
+// streaming, and a fresh mount now would orphan the markup when it lands.
+// One promise per id, shared by every asker while it is outstanding — the
+// intercept answering a call, and a placeholder mount pending on its
+// element (frames A5′, G9: the two waiters this used to be asked one
+// question); it settles at the reveal that carries the element (true) or
+// once the page has no reveal left to deliver it (false).
 const arrivals = new Map<string, { promise: Promise<boolean>; resolve: (v: boolean) => void }>();
+
+// Frame elements — adopted boundaries and the region elements inside them —
+// whose mount has been disposed (see installRevealHook's ownership
+// predicate): a placeholder under one is no longer anyone's content. The
+// regions are marked with their boundary so the predicate's nearest-frame
+// lookup is the whole check (a placeholder in a nested region sees the
+// region first). Weak — an element that leaves the document is forgotten
+// with it.
+const FRAME_SELECTOR = `[${FRAME_ID_ATTR}]`;
+const disposedFrames = new WeakSet<Element>();
 function awaitBoundary(id: string) {
   let arrival = arrivals.get(id);
   if (!arrival) {
@@ -1143,41 +1235,60 @@ function boundaryMayArrive() {
 }
 
 /**
- * Subscribe to the fragment ledger to learn when a late boundary lands.
+ * Install the frames client's two hooks on the hydration runtime's fragment
+ * ledger (idempotent — `_$HY.$sc`):
  *
- * The ledger notifies on every fragment reveal — the only moment a boundary
- * element can enter the page after the initial parse — with the revealed
- * fragment's parent, and on truncation (no parent) so waiters the page can
- * no longer answer re-evaluate. Scoping the rescan to the revealed
- * fragment's parent (rather than the document) keeps this proportional to
- * what just arrived.
+ * - Ownership by rendering (`_$HY.fa`, frames A5′ / rulings 3.3): a `pl-*`
+ *   placeholder inside a server component's element is the component's
+ *   content — the server rendered that `<Loading>` inside the component, so
+ *   no client boundary will ever register as its claimant. The ledger asks
+ *   this predicate before holding a post-done swap; an owned swap proceeds
+ *   whether or not a client has adopted the element yet (an adoption that
+ *   follows finds the settled markup in place and drains its records).
+ *   Disposal is mostly geometry — a disposed boundary's element normally
+ *   leaves the document, so the placeholder the ledger looks up is gone
+ *   and the swap is held like any other — but an adopted element whose
+ *   mount is disposed IN PLACE (the element is the component's return
+ *   value; a root disposed without detaching it leaves it standing) is
+ *   dead markup nobody drives, and a swap into it would be exactly the
+ *   inert content #2964 holds against (contract C14: a reveal after
+ *   disposal touches nothing). `disposedFrames` records those elements
+ *   (the boundary and the region elements inside it, since a placeholder
+ *   in a nested region sees the region's `data-fid` first); the predicate
+ *   disowns a placeholder whose nearest frame element is one of them.
+ *
+ * - The reveal subscription, to learn when a late boundary lands. The
+ *   ledger notifies on every fragment reveal — the only moment a boundary
+ *   element can enter the page after the initial parse — with the revealed
+ *   fragment's parent, and on truncation (no parent) so waiters the page
+ *   can no longer answer re-evaluate. Scoping the rescan to the revealed
+ *   fragment's parent (rather than the document) keeps this proportional
+ *   to what just arrived.
  */
 function installRevealHook() {
   const hy = (globalThis as any)._$HY;
   if (!hy || hy.$sc || !hy.fr) return;
   hy.$sc = true;
+  hy.fa = (pl: Element) => {
+    const el = pl.closest(FRAME_SELECTOR);
+    return !!el && !disposedFrames.has(el);
+  };
   hy.fr.subscribe((_id: string, parent?: ParentNode) => {
     // Nothing has looked a boundary up yet, so there is nothing to keep
     // current — the first lookup scans the document as it stands then.
     if (!boundaryIndex) return;
     const root = parent || (typeof document !== "undefined" ? document.body : null);
     if (root) indexBoundaries(root);
-    if (!boundaryWaiters.size && !arrivals.size) return;
+    if (!arrivals.size) return;
     // A waiter the page can no longer answer must not wait forever: once the
     // document is done and no fragment is left outstanding (truncated ones
     // included), nothing else can deliver this element, so release the
-    // waiter to mount fresh (the client-only shape) instead of holding the
-    // fallback on screen.
+    // waiter — the caller mounts fresh (the client-only shape) or goes to
+    // the wire — instead of holding the fallback on screen. (The ledger
+    // reads the revealing fragment as delivered from its swap, so the LAST
+    // reveal of a page is the exhaustion it looks like: the `_fr` stamp the
+    // same batch executes after this notification is not what it waits on.)
     const exhausted = hy.done && !hy.fr.pending();
-    for (const [id, notify] of boundaryWaiters) {
-      const el = boundaryIndex && boundaryIndex.get(id);
-      if (!el && !exhausted) continue;
-      boundaryWaiters.delete(id);
-      notify(el);
-    }
-    // Deferred local answers settle the same way: the element landed (the
-    // caller's mount adopts it), or nothing is left to deliver it (the
-    // caller goes to the wire).
     for (const [id, arrival] of arrivals) {
       const el = boundaryIndex && boundaryIndex.get(id);
       if (!el && !exhausted) continue;
@@ -1210,19 +1321,29 @@ function documentBoundary(
   // updates again. Suspend instead and adopt on delivery; the enclosing
   // <Loading> goes on showing the server's fallback, which is exactly what the
   // document is displaying.
-  if (!claimed && !boundaryWaiters.has(id) && boundaryMayArrive()) {
+  //
+  // The wait is the intercept's deferred answer (`awaitBoundary`): one
+  // promise per id, settled by the reveal hook when the element lands or
+  // when the page has nothing left to deliver it. Every mount asking during
+  // the wait shares it; at the answer the first to resume adopts and any
+  // other finds the id claimed and mounts fresh (only one frame may adopt an
+  // element). A mount disposed during the wait resumes nothing.
+  if (!claimed && boundaryMayArrive()) {
     const owner = getOwner();
-    const arrival = new Promise<Element | undefined>(resolve => boundaryWaiters.set(id, resolve));
-    onCleanup(() => boundaryWaiters.delete(id));
+    let live = true;
+    onCleanup(() => (live = false));
     return createMemo(() =>
-      arrival.then(node =>
-        runWithOwner(owner, () =>
-          // No element after all (the page ran out of reveals): mount fresh,
-          // exactly as an unwaited miss would have.
-          node
-            ? adoptBoundary(host, id, node, props, binding)
-            : boundaryComponent(host, id)(props, binding)
-        )
+      awaitBoundary(id).then(
+        () =>
+          live &&
+          runWithOwner(owner, () => {
+            const node = claimedBoundaries.has(id) ? undefined : findBoundaryElement(id);
+            // No element after all (the page ran out of reveals, or another
+            // mount took it): mount fresh, exactly as an unwaited miss would.
+            return node
+              ? adoptBoundary(host, id, node, props, binding)
+              : boundaryComponent(host, id)(props, binding);
+          })
       )
     ) as unknown as SolidElement;
   }
@@ -1265,55 +1386,53 @@ function adoptBoundary(
   // markup. Apply the records BEFORE binding the frame — the host buffers
   // them per id and drains at registration, so the first slot sync claims
   // WITH real args and the wrapper can render the occluded region later
-  // from the frame store. Re-drainable (each key applies once): nothing on
-  // the wire formally orders a record's data script before the event that
-  // triggers adoption, so the frame re-drains before classifying a
-  // recordless occurrence it deferred (#2968 — the frame's recordsPending/
-  // drainRecords seam below).
+  // from the frame store. Re-drainable (each key is taken once): a reveal
+  // brings its occurrences' records with it (the cascade below re-drains),
+  // and a record the producer DECLARED but has not settled yet is awaited
+  // through its `.then` — the record is a pending value under its key at
+  // the marker, settled with the args (as a fragment's `<key>_fr` is), so
+  // its arrival is a write the frame sees, never a plain assignment to
+  // poll for (frames A4, S-record).
   const appliedRecords = new Set<string>();
   // Deferred fragments in the adopted markup (#2978): a <Loading> that
   // suspended inside the server component during document SSR left a `pl-*`
   // placeholder here, but its producer ran on the SERVER — no client
-  // boundary will ever register as the fragment's claimant. Post-done, the
-  // held-swap policy (#2964) would hold its $df forever: the fallback stays
-  // frozen on screen and `fr.pending()` never flips false, deadlocking the
-  // very classification gate that waits on it. The adoption owns this markup
-  // wholesale, so it goes on record as the claimant for every placeholder in
-  // its region — at adopt time, and again for content revealed into the
-  // region later (an outer fragment's payload can carry a nested pending
-  // one). Claims retire with the frame: a swap arriving after disposal must
-  // be held, not landed in a range nobody owns.
-  const claimedFragments = new Set<string>();
-  const claimRegionFragments = (root: ParentNode) => {
+  // boundary will ever register as the fragment's claimant. The ledger
+  // settles these by OWNERSHIP BY RENDERING (`_$HY.fa`, installRevealHook):
+  // a placeholder inside a `data-fid` element is the component's content,
+  // so its swap proceeds post-done whether or not this adoption has
+  // happened yet — nothing here to claim, nothing to release at disposal.
+  //
+  // What remains of the region sweep is dev-only diagnosis. A server
+  // `<Loading>` inside a server component is the SERVER's boundary (A0,
+  // corollary 4 — inward): its outcome arrives as markup, and the client
+  // shows whatever the server rendered for it — never a client-invented
+  // error state. A rejected one has no client twin to surface its `<key>_fr`
+  // rejection (hydratedCreateLoadingBoundary's `s === 2` arm runs only for a
+  // boundary registered against it), so dev names it here — at adopt time
+  // and for content revealed into the region later (an outer fragment's
+  // payload can carry a nested pending one); the server's error path writes
+  // a BLANK template for it today (web/src/server.ts, the `done` closure's
+  // `" "`), which is the server half's gap, not a client state to invent.
+  // (Every call site is `IS_DEV &&`-guarded so the sweep is 0 bytes in prod.)
+  const reportedFragments = new Set<string>();
+  const reportRegionFragments = (root: ParentNode) => {
     const hy = (globalThis as any)._$HY;
-    const fr = hy?.fr;
-    if (!fr || !fr.claim) return;
+    if (!hy || !hy.r) return;
     root.querySelectorAll('template[id^="pl-"]').forEach(tpl => {
       const fragId = tpl.id.slice(3);
-      if (claimedFragments.has(fragId)) return;
-      claimedFragments.add(fragId);
-      fr.claim(fragId);
-      // A server `<Loading>` inside a server component is the SERVER's
-      // boundary (A0, corollary 4 — inward): its outcome arrives as markup,
-      // and the client shows whatever the server rendered for it — never a
-      // client-invented error state. A rejected one has no client twin to
-      // surface its `<key>_fr` rejection (hydratedCreateLoadingBoundary's
-      // `s === 2` arm runs only for a boundary registered against it), so
-      // dev names it here; the server's error path writes a BLANK template
-      // for it today (web/src/server.ts, the `done` closure's `" "`), which
-      // is the server half's gap, not a client state to invent.
-      if (IS_DEV) {
-        const ref = hy.r && hy.r[fragId + "_fr"];
-        ref &&
-          typeof ref.then === "function" &&
-          ref.then(undefined, (error: unknown) =>
-            console.error(
-              `Server <Loading> fragment "${fragId}" inside server component "${id}" rejected on ` +
-                `the server; the frame shows what the server rendered for that outcome.`,
-              error
-            )
-          );
-      }
+      if (reportedFragments.has(fragId)) return;
+      reportedFragments.add(fragId);
+      const ref = hy.r[fragId + "_fr"];
+      ref &&
+        typeof ref.then === "function" &&
+        ref.then(undefined, (error: unknown) =>
+          console.error(
+            `Server <Loading> fragment "${fragId}" inside server component "${id}" rejected on ` +
+              `the server; the frame shows what the server rendered for that outcome.`,
+            error
+          )
+        );
     });
   };
   const drainRecords = () => {
@@ -1330,13 +1449,25 @@ function adoptBoundary(
         appliedRecords.add(key);
         // Slot records land in the ADDRESS's store (where the frame binds);
         // the wire keys them by function id, the document's producer name.
-        host.apply({
-          type: "slot",
-          id: address,
-          version: 0,
-          key: key.slice(slotPrefix.length),
-          args: hy.r[key]
-        });
+        const apply = (args: unknown) =>
+          host.apply({
+            type: "slot",
+            id: address,
+            version: 0,
+            key: key.slice(slotPrefix.length),
+            args
+          });
+        const value = hy.r[key];
+        // A declared record: settled reads its stamp synchronously (a
+        // pending beat here would push an adopt-time claim past the
+        // window — readHydratedValue's rule); pending is awaited; rejected
+        // is observed (the stamp is the consumption, #2997) and nothing
+        // applies — the occurrence has no args to run with.
+        if (value && typeof value.then === "function") {
+          if (value.s === 1) apply(value.v);
+          else if (value.s === 2) value.then(undefined, () => {});
+          else value.then(apply, () => {});
+        } else apply(value);
       } else if (key.startsWith("sc:region:")) {
         const childId = key.slice("sc:region:".length);
         if (childId.startsWith(id + ".")) {
@@ -1353,7 +1484,7 @@ function adoptBoundary(
       }
     }
   };
-  claimRegionFragments(el);
+  IS_DEV && reportRegionFragments(el);
   const fr = (globalThis as any)._$HY?.fr;
   // The adopting frame, bound below; the reveal cascade syncs it.
   let frame: ReturnType<typeof createFrame> | undefined;
@@ -1363,12 +1494,12 @@ function adoptBoundary(
         // (nested server async). Scoped to the revealed parent, so each
         // sweep is proportional to what just landed.
         const inside = !!parent && el.contains(parent as Node);
-        if (fr.claim && inside) claimRegionFragments(parent!);
+        IS_DEV && inside && reportRegionFragments(parent!);
         // A revealed fragment also brings its occurrences' ARGS RECORDS: a
         // slot invoked inside a server `<Loading>` ships its `sc:slot:`
-        // script with the fragment, ~the async's own delay after this
+        // declaration with the fragment, ~the async's own delay after this
         // boundary adopted — long after the adopt-time drain below ran.
-        // Re-drainable by design (each key applies once), so this is a
+        // Re-drainable by design (each key is taken once), so this is a
         // cheap no-op once caught up.
         drainRecords();
         // A reveal is an apply (frames-rulings 2.3): content that becomes
@@ -1379,7 +1510,8 @@ function adoptBoundary(
         // holds for them: a direct-insert range the fragment carried mounts
         // (C2 b), a record drained before its range was shown takes effect
         // now (C4 d), and a called occurrence whose record trails the
-        // reveal waits for it under the poll above (C2 a2). "The record
+        // reveal waits for the declaration's settle — the drain above
+        // subscribed to it, and that write re-syncs (C2 a2). "The record
         // arrived" and "the range is shown" are one event seen from two
         // sides; either one completes the pair.
         if (inside && frame) frame.apply({ version: frame.version ?? 0, r: {} });
@@ -1393,16 +1525,17 @@ function adoptBoundary(
   // store-keyed — two boundaries can share an occurrence name — so they
   // carry the producing frame's id and only the owning boundary applies
   // (the stray `fid` field rides into the apply; records are built from
-  // key/args, so it is ignored).
+  // key/args, so it is ignored). So does a frame-addressed ERROR op — a
+  // failure that escaped the server component (its `:error`, the outward
+  // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
-    if (op.type === "slot" && op.fid !== id) return;
+    if (op.fid && op.fid !== id) return;
     host.apply({ ...op, id: address, version: 0 });
   };
   liveAppliers.add(applyLiveOp);
   onCleanup(() => {
     liveAppliers.delete(applyLiveOp);
     unsubscribe && unsubscribe();
-    if (fr && fr.release) for (const fragId of claimedFragments) fr.release(fragId);
   });
   drainRecords();
   // Catch-up: ops that arrived before this boundary adopted (the pump may
@@ -1417,60 +1550,44 @@ function adoptBoundary(
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
   // boundaryScope for the ambient-preserving rule).
   const owner = getOwner();
+  // The root this boundary adopts under (see ClaimScope): its occurrences
+  // claim against this pair however late they mount.
+  const sc: any = sharedConfig;
+  // The frame's error, announced to the address source below (`landing`).
+  const [failed, onApply] = failing();
   frame = createFrame(el, {
     adopt: true,
     host,
     id: address,
-    slots: slotsFor(props),
+    slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
-    // May the document still run scripts that assign records? While the
-    // parser is running the answer is yes, and a held fragment's replay can
-    // still deliver one — so a called occurrence found without its record
-    // re-drains and re-syncs a macrotask later, until the record lands (the
-    // runtime re-checks until this flips false). Deliberately NOT
-    // boundaryMayArrive(): its `!_$HY.done` term answers a different
-    // question (can this boundary's ELEMENT still appear), and holding the
-    // adopted mount until client hydration completes pushes it past the
-    // hydrate window — the claim then adopts markup the client's state has
-    // already moved past (the adopted-slot-live spec pins the working
-    // ordering).
-    // Spread-cast: the published FrameOptions predates this seam; a runtime
-    // without it simply never calls the hooks (drop once the pin catches up).
-    ...({
-      recordsPending: () => {
-        if (document.readyState === "loading") return true;
-        const hy = (globalThis as any)._$HY;
-        return !!(hy && hy.fr && hy.fr.pending());
-      },
-      drainRecords,
-      // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
-      // an adopted occurrence the frame has not claimed yet — waiting for
-      // its record, for a `{$ref}`'s data — is a pending boundary in
-      // everything but a resume, and registers as one through the same
-      // registration a streamed `<Loading>` takes (`sharedConfig.
-      // holdBoundary`), under this component's owner so disposal releases
-      // it, keyed where no fragment is. No parallel accounting, no second
-      // "done": `onHydrationEnd` and `isHydrationInProgress()` mean the
-      // same thing with or without server components. Only while hydration
-      // is in progress: a hold taken on a page that never hydrated (a
-      // client render adopting server markup) or after it settled is the
-      // frame's business, not the page's. Untracked: the registration reads
-      // its trigger once, which is not a read of this component's.
-      hold: () => {
-        const sc: any = sharedConfig;
-        return sc.isHydrationInProgress?.()
-          ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
-          : () => {};
-      },
-      // The identity split binds the frame to the call ADDRESS (id + args
-      // hash), but the document producer stamped `_hk` keys and region fids
-      // under the wire name — the bare function id. Hydration-claim prefixes
-      // must derive from what the producer wrote, so thread the wire id down
-      // as the claim scope; without it every adopted claim misses and the
-      // occurrence re-renders fresh clones that cannibalize the server DOM.
-      claimScope: id
-    } as {})
+    onApply,
+    // Hydration-done follows non-SC Solid 2 (frames-rulings 3.1, ruled):
+    // an adopted occurrence the frame has not claimed yet — waiting for
+    // its record — is a pending boundary in everything but a resume, and
+    // registers as one through the same registration a streamed
+    // `<Loading>` takes (`sharedConfig.holdBoundary`), under this
+    // component's owner so disposal releases it, keyed where no fragment
+    // is. No parallel accounting, no second "done": `onHydrationEnd` and
+    // `isHydrationInProgress()` mean the same thing with or without server
+    // components. Only while hydration is in progress: a hold taken on a
+    // page that never hydrated (a client render adopting server markup) or
+    // after it settled is the frame's business, not the page's. Untracked:
+    // the registration reads its trigger once, which is not a read of this
+    // component's.
+    hold: () =>
+      sc.isHydrationInProgress?.()
+        ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
+        : () => {},
+    // The identity split binds the frame to the call ADDRESS (id + args
+    // hash), but the document producer stamped `_hk` keys and region fids
+    // under the wire name — the bare function id. Hydration-claim prefixes
+    // must derive from what the producer wrote, so thread the wire id down
+    // as the claim scope; without it every adopted claim misses and the
+    // occurrence re-renders fresh clones that cannibalize the server DOM.
+    // Spread-cast: the published FrameOptions predates this seam.
+    ...({ claimScope: id } as {})
   });
   // Follow the live address binding (see boundaryComponent and
   // followAddress): a kept resolution delivers the new call's address, or a
@@ -1482,22 +1599,32 @@ function adoptBoundary(
   // search param changes the call). Unlike the call-driven mount, this
   // component's return value is the raw SSR'd element (hydration must
   // claim it in place), so no reader in the render graph would ever see
-  // the source pend — the effect below exists to BE that reader: while its
-  // compute pends on the new address's landing, the transition that
-  // delivered the switch stays open (no-op effect half: the pend IS the
-  // point).
+  // the source pend or ERROR — the effect below exists to BE that reader:
+  // while its compute pends on the new address's landing, the transition
+  // that delivered the switch stays open (no-op effect half: the pend IS
+  // the point); when the source errors — the switch's response, or the
+  // adopted frame's own `:error` later (the document face's escaped
+  // server error, frames-rulings 3.3) — the throw reaches the enclosing
+  // client `<Errored>` from here, and its `reset` re-asks through the
+  // same node (`landing`). A mount placed without a binding has no such
+  // reader: its frame's error stays a record (`frame.error`).
   if (binding) {
     followAddress(host, frame, binding);
-    const source = createMemo(() => landing(host, contentAddress(binding()), true));
+    const source = createMemo(() => landing(host, contentAddress(binding()), true, failed));
     createRenderEffect(
-      () => {
-        const landed = source();
-        typeof landed === "function" && landed();
-      },
+      () => source()(),
       () => {}
     );
   }
-  onCleanup(() => frame.dispose());
+  onCleanup(() => {
+    frame.dispose();
+    // Disown the element's placeholders (ownership by rendering, see
+    // installRevealHook): the boundary and every region element inside it
+    // — nothing can be revealed into a disposed element later, so what is
+    // inside it now is all there will be.
+    disposedFrames.add(el);
+    el.querySelectorAll(FRAME_SELECTOR).forEach(e => disposedFrames.add(e));
+  });
   // The boundary IS the element — hand hydration the single SSR'd node so it
   // claims it in place rather than re-rendering.
   return el as unknown as SolidElement;
@@ -1563,10 +1690,6 @@ export function installServerComponents(host: any = getFrameHost()) {
     // boundary while one is unclaimed and mount fresh after — always bound
     // to the delivered call address.
     component: (fnId: string) => g._$SC.r(fnId),
-    onStream: (address: string) => beginStream(address),
-    // Only the shared host routes data through the per-stream `tables`; a
-    // host of the app's own takes a staged response's data as it arrives.
-    [STAGED_DATA]: host === sharedHost ? stageTables : undefined,
     // The page IS the t=0 record: a call whose function has an unclaimed
     // SSR'd boundary in the document is answered locally — the source
     // re-runs during hydration per dynamic's contract, but no request
@@ -1589,7 +1712,6 @@ export function installServerComponents(host: any = getFrameHost()) {
     // bundle resolves the transport's wire-layer imports to that external
     // entry (externalizeSharedTransport in rollup.config.js), so no getter
     // overrides are needed.
-    // (Asserted: STAGED_DATA is internal, not part of the options type.)
   } as ServerComponentHandlerOptions<any>);
   // Which calls the document is showing: hydration references carry their
   // call's address (`_$SC.r(id, address)`), and those records — never seen
@@ -1601,5 +1723,29 @@ export function installServerComponents(host: any = getFrameHost()) {
   const records = g._$SC.a || (g._$SC.a = {});
   for (const address in records) showing(address, records[address]);
   g._$SC.reg = showing;
+  // The re-ask (see `landing`): the call behind the address, as the
+  // handler recorded it, made again — through the same declaration shape
+  // it was made with (a `GET`-declared read stays a GET; declared metadata
+  // rides along), with no per-call options (those were the original
+  // caller's; this call is the boundary's own). The callable is minted
+  // through the late-bound RPC seam, never by importing the transport:
+  // the seam is filled by the time any response has been handled. Its
+  // response is handled like any other and lands through the host.
+  reask = address => {
+    const call = callFor(address);
+    const rpc = g[SERVER_FUNCTION_RPC];
+    if (!call || !rpc) {
+      if (IS_DEV)
+        console.error(
+          `Server component boundary "${address}" errored, but no call is recorded for it; ` +
+            `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
+        );
+      return undefined;
+    }
+    const meta: any = call.meta || {};
+    const ref = rpc.createServerReference(call.id);
+    Object.assign(ref[SERVER_FUNCTION_METADATA], meta);
+    return (meta.method === "GET" ? rpc.GET(ref) : ref)(...call.args);
+  };
   configureServerFunctionsClient({ responseHandler: handler });
 }

@@ -1733,6 +1733,17 @@ module.exports = [
     // at the 0.01 KB step at or below measured + 10 B; recorded minified
     // 52,626 B. Accepted by the maintainer (2026-10-06, "pay the cost for
     // correctness"). The cap is frozen again at 17.73 KB.
+    // Size-Exception (frames A0 correctness pass, part 2, #3849, 2026-10-07):
+    // 17.73 -> 17.85 KB (floor-caps.json), measured at 17,840 B by CI (Size
+    // run 37666601776) against `next` @ 3c7631a0e's 17,713 (+127 B; 110 B over
+    // the cap; +168 B minified, 52,673 -> 52,841; recorded 52,626 -> 52,841) —
+    // `sharedConfig.hydrateWindow` in solid-js (A2b, frames-rulings 3.2 "Cost
+    // as landed": the claim window's scope capture for post-done claim
+    // fidelity) and the fragment ownership predicate `_$HY.fa` read by
+    // `fragmentPolicy` (A5′, rulings 3.3 claimant by rendering). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-06, "I will follow recommendations here"; A5′ within the budget
+    // he set). The cap is frozen again at 17.85 KB.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2186,8 +2197,16 @@ module.exports = [
     // backing proxy, which exposes a derived store's held staging. Store
     // engine only; every other scenario byte-identical. Cap set at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07.
-    limit: "29.02 KB",
-    capMinified: 91882,
+    // Size-Exception (frames A0 correctness pass, part 2, #3849, 2026-10-07):
+    // 29.02 -> 29.09 KB, measured at 29,079 B by CI (Size run 37666601776)
+    // against `next` @ 3c7631a0e's 29,020 (+59 B; 59 B over the cap; +174 B
+    // minified, 91,940 -> 92,114; recorded 91,882 -> 92,114) —
+    // `sharedConfig.hydrateWindow` (A2b, frames-rulings 3.2) and `_$HY.fa`
+    // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-06).
+    limit: "29.09 KB",
+    capMinified: 92114,
     alias
   },
   {
@@ -3253,8 +3272,16 @@ module.exports = [
     // verdict lane's mount born held for a staged read, and verdict-lane
     // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-07.
-    limit: "31.06 KB",
-    capMinified: 99305,
+    // Size-Exception (frames A0 correctness pass, part 2, #3849, 2026-10-07):
+    // 31.06 -> 31.09 KB, measured at 31,079 B by CI (Size run 37666601776)
+    // against `next` @ 3c7631a0e's 31,027 (+52 B; 19 B over the cap; +174 B
+    // minified, 99,303 -> 99,477; recorded 99,305 -> 99,477) —
+    // `sharedConfig.hydrateWindow` (A2b, frames-rulings 3.2) and `_$HY.fa`
+    // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-06).
+    limit: "31.09 KB",
+    capMinified: 99477,
     alias
   },
   {

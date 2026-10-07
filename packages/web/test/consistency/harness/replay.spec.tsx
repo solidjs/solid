@@ -96,29 +96,28 @@ describe("harness replay — reduced counterexamples", () => {
     ).toEqual([]);
   });
 
-  // C19 — a claim shows the oracle, not the snapshot. Observed on `next`:
-  // a trace patch delivered BEFORE the fill claims leaves the server text
-  // (the snapshot's `2`) on screen although the fill's first read is the
-  // patched `5`; the DOM catches up only at the next patch. Expected: the
-  // claimed text equals the value the fill read. Any order where the patch
-  // precedes the claim fails: record→patch→hydrate, patch→record→hydrate,
-  // hydrate→patch→record (deferred claim).
-  test.fails(
-    "C19 claim-shows-oracle: a trace patch before the claim is not shown (record, patch, hydrate)",
-    async () => {
-      expect(
-        await findings({ ...base, occurrences: [trace(0, 2, [3])], events: [R(0), T(0), H] }, "C19")
-      ).toEqual([]);
-    }
-  );
-  test.fails(
-    "C19 claim-shows-oracle: a trace patch before the claim is not shown (hydrate, patch, record)",
-    async () => {
-      expect(
-        await findings({ ...base, occurrences: [trace(0, 2, [3])], events: [H, T(0), R(0)] }, "C19")
-      ).toEqual([]);
-    }
-  );
+  // C19 — a claim shows the oracle. Was red on `next`: a trace patch
+  // delivered BEFORE the fill claims left the server text (the snapshot's
+  // `2`) on screen although the fill's first read was the patched `5`; the
+  // DOM caught up only at the next distinct patch. Green under
+  // frames-rulings 3.6 (iii) — the consumer parks: materialized while
+  // hydration is in progress, the trace serves its snapshot (what the
+  // markup was rendered from) and parks the backlog beyond it until
+  // hydration ends; the claim pass still rewrites nothing, and the backlog
+  // then lands as the update it is, so the settled DOM equals the oracle.
+  // Both orders: record→patch→hydrate (the t=0 pass), hydrate→patch→record
+  // (the deferred claim under the frame's hold — rulings 3.1 / 3.2 are what
+  // make the late materialization see hydration in progress).
+  test("C19 claim-shows-oracle: a trace patch before the claim lands after it (record, patch, hydrate)", async () => {
+    expect(
+      await findings({ ...base, occurrences: [trace(0, 2, [3])], events: [R(0), T(0), H] }, "C19")
+    ).toEqual([]);
+  });
+  test("C19 claim-shows-oracle: a trace patch before the claim lands after it (hydrate, patch, record)", async () => {
+    expect(
+      await findings({ ...base, occurrences: [trace(0, 2, [3])], events: [H, T(0), R(0)] }, "C19")
+    ).toEqual([]);
+  });
 
   // C19 control: a patch after the claim lands (C11 proper).
   test("C19 control: a patch after the claim shows", async () => {

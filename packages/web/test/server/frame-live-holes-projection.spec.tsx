@@ -96,7 +96,11 @@ function collectDocument(code: () => any): Promise<string> {
   });
 }
 
-const holeHtml = (chunks: any[]) => chunks.filter(c => c.type === "hole").map(h => h.html);
+// A sweep that changes two holes ships them as one `ops` unit (C13); read
+// the members as the re-emissions they are.
+const holeChunks = (chunks: any[]) =>
+  chunks.flatMap(c => (c.type === "ops" ? c.ops : [c])).filter(c => c.type === "hole");
+const holeHtml = (chunks: any[]) => holeChunks(chunks).map(h => h.html);
 
 describe("projections pump in frame scope (B5)", () => {
   it("createProjection over a value-yielding iterable: per-yield hole re-emits, completes when the source ends — as the memo does", async () => {
@@ -155,7 +159,7 @@ describe("projections pump in frame scope (B5)", () => {
     ch.push("<i>a</i>");
     await until(c => c.type === "fragment");
     ch.push("<i>a b</i>");
-    await until(c => c.type === "hole" && c.html === "2");
+    await until(c => holeChunks([c]).some(h => h.html === "2"));
     ch.end();
     await done;
 
@@ -163,8 +167,9 @@ describe("projections pump in frame scope (B5)", () => {
     expect(fragment.html).toContain("<i>a</i>");
     expect(fragment.html).toMatch(/<!--lh:(\d+)-->1<!--lh:\/\1-->/);
     // Both holes read the store: the text hole and the counter re-emitted
-    // once each for the second yield.
+    // once each for the second yield — in ONE unit, the sweep's (C13).
     expect(holeHtml(chunks).sort()).toEqual(["2", "<i>a b</i>"]);
+    expect(chunks.filter(c => c.type === "ops")).toHaveLength(1);
     expect(chunks[chunks.length - 1].type).toBe("complete");
   }, 8000);
 

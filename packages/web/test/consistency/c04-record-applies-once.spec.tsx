@@ -143,13 +143,15 @@ describe("C4 — a record applies exactly once, in any drain order", () => {
       )
     );
     page.declareFragment(frag);
+    // Declared at the marker (S-record); settled after adoption.
+    const record = page.declareSlotRecord(fid, "item#0");
     const Comp = (globalThis as any)._$SC.r(fid);
     const invocations: number[] = [];
     const pushes: string[] = [];
     const dispose = hydrate(() => <Comp item={makeFill(invocations, pushes)} />, page.container);
     await quiesce();
     expect(invocations.length).toBe(0);
-    page.slotRecord(fid, "item#0", { text: "one" });
+    record.settle({ text: "one" });
     await quiesce();
     await quiesce();
     expect(invocations.length).toBe(1);
