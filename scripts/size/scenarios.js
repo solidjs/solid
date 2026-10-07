@@ -3406,8 +3406,22 @@ module.exports = [
     // 10 B; recorded minified 43,414 B. Accepted by the maintainer
     // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
     // at 13.79 KB.
-    limit: "13.79 KB",
-    capMinified: 43414,
+    // Size-Exception (#3846, 2026-10-07): 13.79 -> 13.98 KB, measured at
+    // 13,969 B against `next` @ 721eb0676's 13,787 (+182 B; 179 B over the
+    // cap; +518 B minified, 43,414 -> 43,932; sf shared slice +597, frames
+    // client -79). The server-function/frames `ChunkReader` hardening:
+    // cancel ends a read mid-frame and is rechecked after every read, strict
+    // `;0x` + 8 hex digit headers, a fatal UTF-8 decoder, the body cancelled
+    // on a failed drain or first frame, the store released after a large
+    // frame, and `createChunk`'s 4 GiB `RangeError`. Measured after a shave
+    // (regex header check, one `try/catch` in `deserializeStream`, inlined
+    // store release, shared done result) that took the PR from +849 B
+    // minified to +518. Cap set at measured + 10 B rounded up to 0.01 KB;
+    // recorded minified 43,932 B. Accepted by the maintainer (2026-10-07:
+    // server-function/frames reader correctness). The cap is frozen again at
+    // 13.98 KB.
+    limit: "13.98 KB",
+    capMinified: 43932,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3579,6 +3593,13 @@ module.exports = [
     // at or below measured + 10 B; recorded minified 145,757 B. Accepted by
     // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
     // frozen again at 44.89 KB.
+    // Size-Exception (#3846, 2026-10-07): 44.89 -> 45.12 KB
+    // (floor-caps.json), measured at 45,102 B against `next` @ 721eb0676's
+    // 44,968 (+134 B; 212 B over the cap; +519 B minified, 145,757 recorded
+    // -> 146,295) — the `ChunkReader` hardening (the frames note). Cap set
+    // at measured + 10 B rounded up to 0.01 KB; recorded minified 146,295 B.
+    // Accepted by the maintainer (2026-10-07: server-function/frames reader
+    // correctness). The cap is frozen again at 45.12 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3700,6 +3721,13 @@ module.exports = [
     // at or below measured + 10 B; recorded minified 157,720 B. Accepted by
     // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
     // frozen again at 48.60 KB.
+    // Size-Exception (#3846, 2026-10-07): 48.60 -> 48.82 KB
+    // (floor-caps.json), measured at 48,803 B against `next` @ 721eb0676's
+    // 48,573 (+230 B; 203 B over the cap; +519 B minified, 157,720 recorded
+    // -> 158,257) — the same bytes as the base page. Cap set at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified 158,257 B. Accepted by
+    // the maintainer (2026-10-07: server-function/frames reader
+    // correctness). The cap is frozen again at 48.82 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
