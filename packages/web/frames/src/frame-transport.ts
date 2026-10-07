@@ -453,26 +453,29 @@ export const stagedContent: {
 // seam never needs a global.
 let resolveServerComponent;
 
-// The call behind an address, as the transport saw it — `{ id, meta, args }`
-// — recorded when a response for it is handled (or the document answered
-// it). An address is a one-way hash of the call, so this is the only way
-// back from "this address errored" to "ask the server again": a frame's
-// `:error` is its one async value rejecting (frames-rulings 3.3), and the
-// enclosing `<Errored>`'s `reset` re-reads the landing — an errored landing
-// is not a landing for a fresh consumer, so the re-read is a new flight for
-// the same address, re-invoked from this record (`client.ts`, `reask`).
-// Same module-state pattern as `resolveServerComponent`; one entry per
-// address, the newest call wins (same call, same hash).
+// The call behind an address, as the transport saw it — `{ id, meta, args,
+// retry }` — recorded when a response for it is handled (or the document
+// answered it). An address is a one-way hash of the call, so this is the
+// only way back from "this address errored" to "ask the server again": a
+// frame's `:error` is its one async value rejecting (frames-rulings 3.3),
+// and the enclosing `<Errored>`'s `reset` re-reads the landing — an errored
+// landing is not a landing for a fresh consumer, so the re-read is a new
+// flight for the same address, made again through the call's own `retry`
+// (the server-function client's thunk for the dispatch it made — see
+// `client.ts`, `reask`). Same module-state pattern as
+// `resolveServerComponent`; one entry per address, the newest call wins
+// (same call, same hash).
 const calls = new Map();
 
 /**
- * The call recorded for an address (`{ id, meta, args }`), or `undefined`
- * for an address no response or document answer named.
+ * The call recorded for an address — `{ id, meta, args, retry }`, `retry`
+ * the thunk that makes the same call again — or `undefined` for an address
+ * no response or document answer named.
  * @internal
  */
 export function callFor(
   address: string
-): { id: string; meta: unknown; args: unknown[] } | undefined;
+): { id: string; meta: unknown; args: unknown[]; retry(): Promise<unknown> } | undefined;
 
 export function callFor(address) {
   return calls.get(address);
@@ -624,10 +627,26 @@ export function flightCodec(codec) {
  * @experimental
  */
 export function createServerComponentHandler<C>(options: ServerComponentHandlerOptions<C>): {
-  intercept?(info: { id: string; meta: unknown; args: unknown[] }): unknown;
+  /**
+   * `retry` (the server-function client's thunk for the call it is
+   * answering or dispatched, declared shape included) is recorded behind
+   * the call's address for the re-ask (`callFor`, frames-rulings 3.3).
+   */
+  intercept?(info: {
+    id: string;
+    meta: unknown;
+    args: unknown[];
+    retry?(): Promise<unknown>;
+  }): unknown;
   handle(
     response: Response,
-    ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
+    ctx: {
+      id: string;
+      meta: unknown;
+      args: unknown[];
+      context: unknown;
+      retry?(): Promise<unknown>;
+    }
   ): unknown;
   /**
    * What a `live` (re)connect of the call resumes from (RFC 11 §9.5,

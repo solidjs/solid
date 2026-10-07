@@ -263,10 +263,9 @@ export function provideServerFunctionRPC(rpc) {
  * The registered RPC surface, or undefined when no server function exists
  * in this build's graph. Integration plumbing (routers): gate every use of
  * the transport/codec behind this read instead of importing it. Both halves
- * carry `GET` and `decodeResponse`; the client half adds
- * `createServerReference(id)` — the by-id callable an integration holding
- * only a function id re-asks through (the frames client, frames-rulings
- * 3.3); the server half has no wire to re-ask on.
+ * carry `GET` and `decodeResponse`. (A handler re-asking a call it answered
+ * does so through the call's own `retry` thunk — `responseHandler` in the
+ * client config — not through this slot.)
  * @internal
  */
 export function getServerFunctionRPC() {

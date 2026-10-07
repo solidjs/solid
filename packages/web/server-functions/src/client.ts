@@ -239,10 +239,34 @@ export interface ServerFunctionsClientConfig {
    */
   responseHandler?: {
     capture?(info: { id: string; meta: unknown }): unknown;
+    /**
+     * `ctx.retry` makes the same call again — the reference, arguments,
+     * declared shape and per-call options as dispatched (a `GET`-declared
+     * read stays a GET; a caller-supplied `signal` still owns the wire) —
+     * for a handler re-asking on its own account (a frames boundary's
+     * `reset`, frames-rulings 3.3).
+     */
     handle(
       response: Response,
-      ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
+      ctx: {
+        id: string;
+        meta: unknown;
+        args: unknown[];
+        context: unknown;
+        retry(): Promise<unknown>;
+      }
     ): unknown;
+    /**
+     * Answer a call before any request is made (t = 0 local answers — see
+     * `createServerComponentHandler`). `info.retry` is the call as it would
+     * go to the wire, for a handler that answers now and re-asks later.
+     */
+    intercept?(info: {
+      id: string;
+      meta: unknown;
+      args: unknown[];
+      retry(): Promise<unknown>;
+    }): unknown;
     /**
      * What a `live` (re)connect of the call resumes from, when the handler
      * shows it: `position` becomes the request's `Last-Event-ID`, `headers`
@@ -454,12 +478,7 @@ let rpcProvided = false;
 function provideRPC() {
   if (rpcProvided) return;
   rpcProvided = true;
-  // `createServerReference` rides the seam on the client half only: an
-  // integration holding a function's ID (the frames client re-asking an
-  // errored server component — frames-rulings 3.3) mints the callable
-  // through here instead of importing the transport into its eager graph.
-  // The server half has no wire to re-ask on.
-  provideServerFunctionRPC({ GET, decodeResponse, createServerReference });
+  provideServerFunctionRPC({ GET, decodeResponse });
 }
 
 // A reconstructed callable's base is a rendered PLAIN-HTTP address
@@ -764,6 +783,12 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // sync up to its first await), so ambient call context is still live.
   const handler = config.responseHandler;
   const context = handler && handler.capture ? handler.capture({ id, meta }) : undefined;
+  // The call as made, for the handler's `ctx.retry` (see
+  // `ServerFunctionsClientConfig.responseHandler`): the options as the
+  // caller sent them — before this dispatch's own controller is spliced in
+  // below, so the re-ask mints a controller of its own; a caller-supplied
+  // signal rides along, as it owns the wire (below).
+  const sent = options;
 
   // The call owns an AbortController so a streaming result can be ENDED, not
   // just abandoned: `iterator.return()` on the received iterable aborts the
@@ -786,7 +811,13 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // LIVE_WIRE) so the handler can read the body through the loop's reader
   // and hang the connection's end on the slot as the decoder would.
   if (handler) {
-    const ctx = { id, meta, args: callArgs, context };
+    const ctx = {
+      id,
+      meta,
+      args: callArgs,
+      context,
+      retry: () => fetchServerFunction(base, id, sent, args, meta, callArgs)
+    };
     if (options[LIVE_WIRE]) ctx[LIVE_WIRE] = options[LIVE_WIRE];
     const handled = handler.handle(response, ctx);
     if (handled !== undefined) return handled;
@@ -1002,7 +1033,9 @@ export function createServerReference(id, name, base) {
       );
     const handler = config.responseHandler;
     if (handler && handler.intercept && !adoptedCall(invokeOptions)) {
-      const hit = handler.intercept({ id, meta: metadata, args });
+      // `retry`: the call as it would go to the wire, for a handler that
+      // answers it now and re-asks later (see `ServerFunctionsClientConfig`).
+      const hit = handler.intercept({ id, meta: metadata, args, retry: send });
       if (hit !== undefined) return localOrSend(hit, send);
     }
     return send();
@@ -1100,8 +1133,9 @@ export function GET(fn) {
   const run = async (args, invokeOptions) => {
     const handler = config.responseHandler;
     if (handler && handler.intercept && !adoptedCall(invokeOptions)) {
-      const hit = handler.intercept({ id, meta: metadata, args });
-      if (hit !== undefined) return localOrSend(hit, () => send(args, invokeOptions));
+      const retry = () => send(args, invokeOptions);
+      const hit = handler.intercept({ id, meta: metadata, args, retry });
+      if (hit !== undefined) return localOrSend(hit, retry);
     }
     return send(args, invokeOptions);
   };

@@ -122,16 +122,6 @@ const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 // (externalizeSharedTransport), so the codec/flight config its defaults
 // read is this instance by construction.
 import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
-// The server-function registry's two seams, read through their registered
-// symbols rather than imported (the pattern the frame runtime uses for
-// every cross-bundle brand — `CLAIM_SEAM`, `COMPONENT_BINDING`): the
-// late-bound RPC slot (registry.ts `provideServerFunctionRPC` — filled by
-// the time any server function has been referenced, so by the time a
-// response could have erred) and the declaration-metadata brand. Importing
-// either from an entry would retain a registry copy in whichever bundle
-// does not already carry one.
-const SERVER_FUNCTION_RPC = Symbol.for("solid.ServerFunctionRPC");
-const SERVER_FUNCTION_METADATA = Symbol.for("solid.ServerFunctionMetadata");
 // The seroval codec is the frames client's heaviest dependency (~6 kB gz
 // with the web plugin set) and the common frames traffic never needs it:
 // HTML chunks, scalar slot args and document records (the hydration
@@ -292,7 +282,7 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * threw — this one — and an errored landing is not a landing for a fresh
  * consumer: the re-read is a promise for the NEXT flight (`host.landing`),
  * and the flight is opened here (`reask`: the call behind the address,
- * re-invoked — `dynamic`'s factory is hoisted and never re-runs for a
+ * made again — `dynamic`'s factory is hoisted and never re-runs for a
  * `reset`, so the mount asks for itself). A re-ask whose call fails on the
  * wire (no response to land) rejects the node with that failure.
  *
@@ -325,16 +315,30 @@ function landing<T>(host: any, address: string, value: T, failed: () => unknown)
     if (!wait) return value;
     // An errored address with no flight open (a flight's `start` clears
     // the mounts' error): this read is the re-ask.
-    const asked = error !== undefined && reask ? reask(address) : undefined;
+    const asked = error !== undefined ? reask(address) : undefined;
     return (asked ? asked.then(() => wait) : wait).then(() => value);
   });
 }
 
-// The re-ask (see `landing`): installed with the handler, it re-invokes the
-// call behind an address and resolves when the call's response has been
-// handled (the flight is open and will land through the host). Undefined
-// until `installServerComponents` ran.
-let reask: ((address: string) => Promise<unknown> | undefined) | undefined;
+/**
+ * The re-ask (see `landing`): the call behind the address, as the transport
+ * recorded it (`callFor`), made again through the call's own `retry` — the
+ * server-function client hands its response handler the call it dispatched
+ * (or answered locally) as a thunk: the same reference, arguments, declared
+ * shape and per-call options, so a `GET`-declared read stays a GET by
+ * construction. Resolves when the call's response has been handled: the
+ * flight is open and lands through the host. `undefined` for an address no
+ * call is recorded for.
+ */
+function reask(address: string): Promise<unknown> | undefined {
+  const call = callFor(address);
+  if (IS_DEV && !call)
+    console.error(
+      `Server component boundary "${address}" errored, but no call is recorded for it; ` +
+        `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
+    );
+  return call && call.retry();
+}
 
 /**
  * A mount's error tick for `landing`: the read, and the frame `onApply`
@@ -1571,29 +1575,5 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   const records = g._$SC.a || (g._$SC.a = {});
   for (const address in records) showing(address, records[address]);
   g._$SC.reg = showing;
-  // The re-ask (see `landing`): the call behind the address, as the
-  // handler recorded it, made again — through the same declaration shape
-  // it was made with (a `GET`-declared read stays a GET; declared metadata
-  // rides along), with no per-call options (those were the original
-  // caller's; this call is the boundary's own). The callable is minted
-  // through the late-bound RPC seam, never by importing the transport:
-  // the seam is filled by the time any response has been handled. Its
-  // response is handled like any other and lands through the host.
-  reask = address => {
-    const call = callFor(address);
-    const rpc = g[SERVER_FUNCTION_RPC];
-    if (!call || !rpc) {
-      if (IS_DEV)
-        console.error(
-          `Server component boundary "${address}" errored, but no call is recorded for it; ` +
-            `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
-        );
-      return undefined;
-    }
-    const meta: any = call.meta || {};
-    const ref = rpc.createServerReference(call.id);
-    Object.assign(ref[SERVER_FUNCTION_METADATA], meta);
-    return (meta.method === "GET" ? rpc.GET(ref) : ref)(...call.args);
-  };
   configureServerFunctionsClient({ responseHandler: handler });
 }
