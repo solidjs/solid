@@ -42,11 +42,16 @@ const rows = head.map((h, i) => {
         ? `⚠️ over by ${v.overBy} B, ${v.headroom} B minified headroom`
         : `❌ over by ${v.overBy} B`;
   const lazy = h.lazy?.length ? h.lazy.map(c => `${c.name} ${toKB(c.br)}`).join(", ") : "";
-  return `| ${h.name} | ${size} | ${change} | ${minChange} | ${minRecorded} | ${cap} | ${status} | ${lazy} |`;
+  // More than one eager chunk (the entry statically imports a common chunk,
+  // see bundle.mjs): name them beside the size, with the one-stream figure.
+  const eager = h.eagerChunks?.length
+    ? ` (${h.eagerChunks.map(c => `${c.name} ${toKB(c.br)}`).join(" + ")}; as one stream ${toKB(h.brStream)})`
+    : "";
+  return `| ${h.name} | ${size}${eager} | ${change} | ${minChange} | ${minRecorded} | ${cap} | ${status} | ${lazy} |`;
 });
 
 console.log("<!-- size-report -->");
-console.log("## Size (brotli, eager entry chunk)\n");
+console.log("## Size (brotli, eager graph: the entry chunk and what it imports statically)\n");
 console.log(
   "| scenario | head | vs base | minified vs base | minified vs recorded | cap | | lazy chunks (not counted) |"
 );

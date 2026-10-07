@@ -69,6 +69,7 @@ for (const scenario of scenarios) {
     ...(scenario.minifiedAllowance !== undefined && {
       minifiedAllowance: scenario.minifiedAllowance
     }),
+    ...(r.eagerChunks.length > 1 && { eagerChunks: r.eagerChunks, brStream: r.brStream }),
     lazy: r.lazy,
     packages: Object.fromEntries(packages)
   });
@@ -77,6 +78,13 @@ for (const scenario of scenarios) {
   console.log(
     `     brotli ${toKB(r.br)} (${r.br} B)  minified ${r.min} B  cap ${r.limit}${over ? `  — over by ${r.br - cap} B` : ""}`
   );
+  // More than one eager chunk: the entry statically imports a common chunk
+  // Rolldown split out (see bundle.mjs). Show the files, and what the same
+  // bytes would cost compressed as one stream.
+  if (r.eagerChunks.length > 1)
+    console.log(
+      `     eager chunks (counted): ${r.eagerChunks.map(c => `${c.name} ${toKB(c.br)}`).join(" + ")}  — as one stream ${toKB(r.brStream)}`
+    );
   if (r.lazy.length)
     console.log(
       `     lazy (not counted): ${r.lazy.map(c => `${c.name} ${toKB(c.br)}`).join(", ")}`

@@ -8,5 +8,5 @@
     "allowSyntheticDefaultImports": true,
     "strict": true
   },
-  "include": ["src", "../web/src/constants.ts"]
+  "include": ["src", "../web/src/constants.ts", "../web/src/attribute-tables.ts"]
 }

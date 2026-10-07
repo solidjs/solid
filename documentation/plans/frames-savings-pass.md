@@ -728,6 +728,40 @@ Each a yes/no with a recommendation.
    matters for what C3 and C6 leave behind on a page (≈ 1.3 KB of
    adapters, ≈ 2.4 KB of `dynamic`'s string tag).
    **Ruled 2026-10-06: yes** — `preserveModules` after the tiers (Phase D).
+   **Landed for `@solidjs/web` (2026-10-07, `build/web-preserve-modules`,
+   on `feat/web-dynamic-component`):** the client entry per module, with
+   `client.ts` split so the attribute runtime (`src/client/attributes.ts`)
+   and the children runtime (`src/client/insert.ts`) are modules of their
+   own and the four attribute tables leave `constants.ts`
+   (`src/attribute-tables.ts`); public export sets unchanged. On the
+   component-only pages: page base 33,570 → **32,972 br** (−3,694 min /
+   −598 br), `bind.js` 1,834 → 3,224 br lazy (`assign` and below); page
+   live 37,241 → 37,244 (flat). Two findings bound the win. (i) **The
+   store hydration adapters do not move**: they live in `solid-js`'s flat
+   `client/hydration.ts` and `enableHydration()` installs
+   `hydrateStoreLike` statically on every hydrating page (B.1, rejected
+   2026-09-26), and `trace.js` imports nothing from `@solidjs/web` — the
+   ≈ 1.1 KB br `trace.js` pins in the page entry (measured: −1,136 with
+   the tier external) is signals' store-type predicates shared with the
+   entry plus the 63-binding export glue, a `solid-js` / `@solidjs/signals`
+   module-shape question, not this step's. (ii) **Rolldown emits a second
+   eager chunk on a server-component page** once `@solidjs/web` is per
+   module: a module the entry shares with one lazy tier only (`client.js`
+   core, through `runHydrationEvents` and `assign`'s imports) imports the
+   runtime every tier shares, and Rolldown's greedy common-chunk merge
+   rejects folding the shared runtime into the entry as a chunk cycle
+   (order-dependent; Rollup folds the same graph into one chunk — repro
+   under the audit workspace's `.wt-logs/pm-rolldown-repro/mirror`). The
+   page then ships the entry plus a statically imported common chunk:
+   ≈ +330 min of cross-chunk glue on page base, ≈ +1,200 on live (its
+   entry reads more signals internals), and per-file compression costs
+   ≈ 500–900 br against the one-stream figure (page base would be 32,433
+   as one stream, live 36,356). The size harness now measures the eager
+   graph — the entry and every chunk it imports statically — per file,
+   with the one-stream figure beside it. A compiled server-component page
+   imports the attribute writers itself, so there the split cannot move
+   them and only the glue remains; the fix is upstream (merge common
+   chunks to a fixed point).
 8. **Claims + `frame:applied` ride the router's chunk rather than a frames
    tier?** — **Recommend yes**: 331 br, not worth a seam; the router is
    the only installer of `CLAIM_SEAM` and the only consumer of

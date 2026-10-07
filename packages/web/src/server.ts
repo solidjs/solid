@@ -1,10 +1,6 @@
 // @ts-nocheck
-import {
-  COMPOSED_BODY_FRAMING,
-  ChildProperties,
-  isEventName,
-  isHttpNavigationTarget
-} from "./constants.js";
+import { COMPOSED_BODY_FRAMING, isEventName, isHttpNavigationTarget } from "./constants.js";
+import { ChildProperties } from "./attribute-tables.js";
 import {
   createRoot as root,
   getOwner,
@@ -356,16 +352,13 @@ export { sharedConfig };
 const renderConfig = sharedConfig;
 
 export {
-  DOMWithState,
-  ChildProperties,
   DOMElements,
   SVGElements,
   MathMLElements,
   VoidElements,
-  RawTextElements,
-  Namespaces,
-  DelegatedEvents
+  RawTextElements
 } from "./constants.js";
+export { DOMWithState, ChildProperties, Namespaces, DelegatedEvents } from "./attribute-tables.js";
 
 // ---- Asset Manifest ----
 

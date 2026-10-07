@@ -2,7 +2,8 @@ import * as babelTypes from "@babel/types";
 
 const t = babelTypes;
 import { decode } from "html-entities";
-import { ChildProperties, VoidElements } from "../../../web/src/constants.js";
+import { VoidElements } from "../../../web/src/constants.js";
+import { ChildProperties } from "../../../web/src/attribute-tables.js";
 import {
   evaluateAndInline,
   getTagName,

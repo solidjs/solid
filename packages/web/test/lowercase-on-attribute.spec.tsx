@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { createSignal, flush } from "solid-js";
 import { assign, render, spread } from "@solidjs/web";
@@ -172,12 +172,21 @@ describe("LOWERCASE_EVENT_ATTRIBUTE (dev)", () => {
 });
 
 describe("LOWERCASE_EVENT_ATTRIBUTE, in the built artifacts", () => {
-  // Requires a prior `pnpm build`.
-  const read = (file: string) => readFileSync(resolve(import.meta.dirname, "..", file), "utf8");
+  // Requires a prior `pnpm build`. The client entry is built per module
+  // (`dist/<tier>.js` + `dist/<tier>/**`), so a tier is read whole.
+  const readTier = (tier: string) => {
+    const dir = resolve(import.meta.dirname, "..", "dist", tier);
+    const files = readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter(e => e.isFile() && e.name.endsWith(".js"))
+      .map(e => resolve(e.parentPath, e.name))
+      .sort();
+    expect(files.length, `${tier}: per-module dist`).toBeGreaterThan(1);
+    return [resolve(dir + ".js"), ...files].map(f => readFileSync(f, "utf8")).join("\n");
+  };
 
   test("the check ships in the dev client and folds out of prod and observe", () => {
-    expect(read("dist/web.dev.js")).toContain("LOWERCASE_EVENT_ATTRIBUTE");
-    expect(read("dist/web.js")).not.toContain("LOWERCASE_EVENT_ATTRIBUTE");
-    expect(read("dist/web.observe.js")).not.toContain("LOWERCASE_EVENT_ATTRIBUTE");
+    expect(readTier("web.dev")).toContain("LOWERCASE_EVENT_ATTRIBUTE");
+    expect(readTier("web")).not.toContain("LOWERCASE_EVENT_ATTRIBUTE");
+    expect(readTier("web.observe")).not.toContain("LOWERCASE_EVENT_ATTRIBUTE");
   });
 });

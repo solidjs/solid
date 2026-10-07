@@ -1,6 +1,6 @@
 import * as t from "@babel/types";
 import { addNamed } from "@babel/helper-module-imports";
-import { DOMWithState } from "../../../web/src/constants.js";
+import { DOMWithState } from "../../../web/src/attribute-tables.js";
 import type { NodePath, Visitor } from "@babel/traverse";
 import type { PluginConfig, RendererConfig } from "../config";
 import type {

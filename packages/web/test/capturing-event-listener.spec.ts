@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from "vitest";
-import { assign } from "../src/client.js";
+import { assign } from "../src/client/attributes.js";
 import type { JSX } from "../src/index.js";
 
 describe("capturing event listeners", () => {

@@ -12,6 +12,10 @@ import * as runtimeA from "../src/client.js";
 // major nested in this one.
 // @ts-expect-error -- the query suffix is what makes Vite hand back a fresh instance
 import * as runtimeB from "../src/client.js?copy=2";
+// `addEvent` lives in the attribute runtime (its own module) and keeps no
+// state of its own: a delegated handler is a key written on the node — the
+// wire contract both instances read — so one copy serves both runtimes.
+import { addEvent } from "../src/client/attributes.js";
 
 // A faithful copy of `solid-js@1`'s delegated walker (dom-expressions
 // `client.js`, `eventHandler`). v1 attaches this to `document` for every
@@ -155,14 +159,14 @@ describe("delegated events across two runtime instances", () => {
     const outerRoot = container();
 
     const outerEl = document.createElement("div");
-    runtimeA.addEvent(outerEl, "click", outer, true);
+    addEvent(outerEl, "click", outer, true);
     runtimeA.delegateEvents(["click"]);
     cleanups.push(runtimeA.render(() => outerEl, outerRoot));
 
     const innerRoot = document.createElement("div");
     outerEl.appendChild(innerRoot);
     const button = document.createElement("button");
-    runtimeB.addEvent(button, "click", inner, true);
+    addEvent(button, "click", inner, true);
     runtimeB.delegateEvents(["click"]);
     cleanups.push(runtimeB.render(() => button, innerRoot));
 
@@ -178,14 +182,14 @@ describe("delegated events across two runtime instances", () => {
     const outerRoot = container();
 
     const outerEl = document.createElement("div");
-    runtimeA.addEvent(outerEl, "click", outer, true);
+    addEvent(outerEl, "click", outer, true);
     runtimeA.delegateEvents(["click"]);
     cleanups.push(runtimeA.render(() => outerEl, outerRoot));
 
     const innerRoot = document.createElement("div");
     outerEl.appendChild(innerRoot);
     const button = document.createElement("button");
-    runtimeB.addEvent(button, "click", (e: Event) => e.stopPropagation(), true);
+    addEvent(button, "click", (e: Event) => e.stopPropagation(), true);
     runtimeB.delegateEvents(["click"]);
     cleanups.push(runtimeB.render(() => button, innerRoot));
 
@@ -204,7 +208,7 @@ describe("delegated events across two runtime instances", () => {
 
     const wrapper = document.createElement("section");
     const above1 = document.createElement("div");
-    runtimeA.addEvent(above1, "click", above, true);
+    addEvent(above1, "click", above, true);
     runtimeA.delegateEvents(["click"]);
     wrapper.appendChild(above1);
     cleanups.push(runtimeA.render(() => wrapper, outerRoot));
@@ -212,7 +216,7 @@ describe("delegated events across two runtime instances", () => {
     const innerRoot = document.createElement("div");
     above1.appendChild(innerRoot);
     const button = document.createElement("button");
-    runtimeB.addEvent(button, "click", () => {}, true);
+    addEvent(button, "click", () => {}, true);
     runtimeB.delegateEvents(["click"]);
     cleanups.push(runtimeB.render(() => button, innerRoot));
 

@@ -191,25 +191,47 @@ const assertFramesClientTransport = {
   }
 };
 
+// The main CLIENT entry is built per module (`preserveModules`), one file per
+// source module, so an application's bundler assigns each module to a chunk
+// by its importers instead of carrying the whole runtime in the entry: on a
+// server-component page the attribute runtime (src/client/attributes.ts —
+// `assign`, `spread`, the per-prop writers) has one importer, the lazy frames
+// bind tier, and lands in that chunk; a flat `web.js` put it in the entry for
+// every page (chunk assignment is per MODULE, and a flat dist is one module —
+// documentation/plans/frames-b3-sync.md §1–2 measured the difference). Every
+// module is `sideEffects: false` (package.json), so a module nothing imports is
+// dropped outright. The entry keeps its historical file name (`dist/web.js`,
+// what `exports`, `unpkg` and the size harness point at); the other modules
+// of a tier sit under a directory of the same name (`dist/web/client.js`,
+// `dist/web.dev/client.js`, …) so the three tiers coexist in `dist/`. The one
+// module from outside src/ (server-functions/src/registry.ts, the
+// server-function detection seam) lands as `server-functions/registry.js`,
+// the path its published declaration uses. The server entry stays a single
+// file: a server bundle does not split by route.
+const clientBuild = (tier, flags) => ({
+  input: "src/index.ts",
+  output: {
+    dir: "dist",
+    format: "es",
+    preserveModules: true,
+    preserveModulesRoot: "src",
+    entryFileNames: ({ name }) =>
+      name === "index" ? `${tier}.js` : `${tier}/${name.replace(/\/src\//, "/")}.js`
+  },
+  external: ["solid-js", "solid-js/internal"],
+  plugins: [flags].concat(plugins)
+});
+
 export default [
-  {
-    input: "src/index.ts",
-    output: { file: "dist/web.js", format: "es" },
-    external: ["solid-js", "solid-js/internal"],
-    plugins: [replaceDev(false)].concat(plugins)
-  },
-  {
-    // Observe client build (`observe` condition under `browser`): the three
-    // interaction-provenance wraps in src/client.ts survive so attribution can
-    // stamp root writes with the event that caused them; every dev-only check
-    // folds out. The frames and server-functions clients have observe builds
-    // of their own (their `"frame"`/`"call"` records); storage has no wiring
-    // and falls through to prod under `observe`.
-    input: "src/index.ts",
-    output: { file: "dist/web.observe.js", format: "es" },
-    external: ["solid-js", "solid-js/internal"],
-    plugins: [replaceFlags(false, true)].concat(plugins)
-  },
+  clientBuild("web", replaceDev(false)),
+  // Observe client build (`observe` condition under `browser`): the three
+  // interaction-provenance wraps (src/render.ts, used by the delegated
+  // dispatch in src/client.ts and `addEvent` in src/client/attributes.ts)
+  // survive so attribution can stamp root writes with the event that caused
+  // them; every dev-only check folds out. The frames and server-functions
+  // clients have observe builds of their own (their `"frame"`/`"call"`
+  // records); storage has no wiring and falls through to prod under `observe`.
+  clientBuild("web.observe", replaceFlags(false, true)),
   {
     // Prod server build — the default node/worker/deno artifact for the main
     // entry. `_SOLID_DEV_` must strip to false here: without the replace, babel
@@ -250,12 +272,7 @@ export default [
     external: ["solid-js", "solid-js/internal", "stream", "seroval", "seroval-plugins/web"],
     plugins: [replaceFlags(false, true)].concat(plugins)
   },
-  {
-    input: "src/index.ts",
-    output: { file: "dist/web.dev.js", format: "es" },
-    external: ["solid-js", "solid-js/internal"],
-    plugins: [replaceDev(true)].concat(plugins)
-  },
+  clientBuild("web.dev", replaceDev(true)),
   {
     input: "storage/src/index.ts",
     output: { file: "storage/dist/storage.js", format: "es" },

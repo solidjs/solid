@@ -1,15 +1,15 @@
 import {
   getNextElement,
-  insert,
   runHydrationEvents,
-  spread,
   SVGElements,
   MathMLElements,
-  Namespaces,
   registerDelegatedContainer,
   unregisterDelegatedContainer,
   getDelegatedRoot
 } from "./client.js";
+import { insert } from "./client/insert.js";
+import { spread } from "./client/attributes.js";
+import { Namespaces } from "./attribute-tables.js";
 import {
   createComponent,
   createMemo,
@@ -31,6 +31,14 @@ import { sharedConfig, $DEVCOMP } from "solid-js/internal";
 import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";
+// The attribute runtime (`assign`, `spread`, the per-prop writers) and the
+// children runtime (`insert`) are their own modules under src/client/ so a
+// bundler can place each by its importers (see client.ts). The attribute
+// module's exports are all public; the children module also exports the
+// internals the attribute module writes children through, so only its
+// public names are re-exported here.
+export * from "./client/attributes.js";
+export { insert, installHydrationRuntime } from "./client/insert.js";
 // Pay-for-use: retained only when compiled patch-mode output imports
 export * from "./server-mock.js";
 export * from "./response.js";

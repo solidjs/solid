@@ -2,14 +2,8 @@ import * as babelTypes from "@babel/types";
 
 const t = babelTypes;
 
-import {
-  ChildProperties,
-  DelegatedEvents,
-  SVGElements,
-  MathMLElements,
-  Namespaces,
-  VoidElements
-} from "../../../web/src/constants.js";
+import { SVGElements, MathMLElements, VoidElements } from "../../../web/src/constants.js";
+import { ChildProperties, DelegatedEvents, Namespaces } from "../../../web/src/attribute-tables.js";
 import {
   evaluateAndInline,
   getAttributeNamed,

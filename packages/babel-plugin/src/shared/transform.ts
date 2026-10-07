@@ -18,7 +18,7 @@ import {
   transformSpecialCaseAttributes,
   renameElementKey
 } from "./utils";
-import { DOMWithState } from "../../../web/src/constants.js";
+import { DOMWithState } from "../../../web/src/attribute-tables.js";
 import transformComponent from "./component";
 import transformFragmentChildren from "./fragment";
 import type { NodePath } from "@babel/traverse";

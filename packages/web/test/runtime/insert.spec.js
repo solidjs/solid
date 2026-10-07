@@ -1,4 +1,4 @@
-import * as r from "../../src/client.js";
+import * as r from "../../src/index.js";
 import reconcileArrays from "../../src/reconcile.js";
 import { createRoot, createSignal, flush, onCleanup } from "solid-js";
 

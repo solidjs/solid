@@ -13,14 +13,19 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const build = path.join(root, ".types-build");
 
-function rewritePublished(s, kind) {
+function rewritePublished(s, kind, depth = 0) {
   if (kind === "src") {
+    // A declaration one directory down (src/client/*.d.ts) reaches the
+    // package root with one more `../`; its published copy sits one level
+    // down too, so the rewritten specifiers gain the same prefix.
+    const up = "../".repeat(depth);
+    const to = depth ? up : "./";
     return s
-      .replaceAll("../jsx/jsx.js", "./jsx.js")
-      .replaceAll("../server-functions/src/shared.js", "./server-functions/shared.js")
-      .replaceAll("../server-functions/src/registry.js", "./server-functions/registry.js")
-      .replaceAll("../serialization/src/serializer-decode.js", "./serializer-decode.js")
-      .replaceAll("../serialization/src/serializer.js", "./serializer.js");
+      .replaceAll(`${up}../jsx/jsx.js`, `${to}jsx.js`)
+      .replaceAll(`${up}../server-functions/src/shared.js`, `${to}server-functions/shared.js`)
+      .replaceAll(`${up}../server-functions/src/registry.js`, `${to}server-functions/registry.js`)
+      .replaceAll(`${up}../serialization/src/serializer-decode.js`, `${to}serializer-decode.js`)
+      .replaceAll(`${up}../serialization/src/serializer.js`, `${to}serializer.js`);
   }
   if (kind === "server-functions") {
     return s
@@ -41,12 +46,19 @@ function rewritePublished(s, kind) {
   return s;
 }
 
-function copyDir(from, to, kind) {
+// Recursive: src/client/ (the children and attribute runtimes) emits into a
+// subdirectory, published as types/client/.
+function copyDir(from, to, kind, depth = 0) {
   fs.mkdirSync(to, { recursive: true });
-  for (const name of fs.readdirSync(from)) {
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const name = entry.name;
+    if (entry.isDirectory()) {
+      copyDir(path.join(from, name), path.join(to, name), kind, depth + 1);
+      continue;
+    }
     if (!name.endsWith(".d.ts") && !name.endsWith(".d.ts.map")) continue;
     const src = fs.readFileSync(path.join(from, name), "utf8");
-    fs.writeFileSync(path.join(to, name), rewritePublished(src, kind));
+    fs.writeFileSync(path.join(to, name), rewritePublished(src, kind, depth));
   }
 }
 

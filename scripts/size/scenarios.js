@@ -6,7 +6,8 @@
 // touches the workspace dependency graph, `external` leaves specifiers
 // unbundled, `platform` (default "browser") and `conditions` set how
 // third-party imports resolve, and `limit` is the brotli cap on
-// the eager entry chunk. Lazy chunks are reported, never counted. Limits
+// the eager graph — the entry chunk and every chunk it imports statically
+// (bundle.mjs). Lazy chunks are reported, never counted. Limits
 // carry a little headroom over the sizes at landing: a breach means
 // tree-shaking regressed (or a deliberate feature landed — bump the limit in
 // the same PR and say why).
@@ -3803,6 +3804,17 @@ module.exports = [
     // model said −7,423 / −2,158). `assign` and below stay for the lazy bind
     // chunk. Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
     // recorded minified 104,586 B.
+    // `@solidjs/web` per module + the attribute runtime its own module
+    // (2026-10-07): 33.58 -> 32.99 KB, measured at 32,972 B (100,892 B
+    // minified): `assign` and everything under it (`assignProp`, `className`,
+    // `style`, `setAttribute`, `addEvent`, the four attribute tables) now
+    // travel in the lazy bind chunk, their only importer on this page
+    // (`bind.js` 4,781 / 1,834 -> 8,851 / 3,224) — −3,694 min / −598 br. The
+    // eager graph is now two chunks (the entry and a common chunk the entry
+    // imports statically, see bundle.mjs): as one stream the page would be
+    // 32,433 B (−1,137); compressed per file, the sum above. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 100,892 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3989,6 +4001,16 @@ module.exports = [
     // `dynamicComponent`, shedding `dynamic`'s string-tag arm as on the base
     // page — −7,418 min / −2,171 br. Cap set at measured + 10 B at the
     // 0.01 KB step (the ratchet); recorded minified 116,485 B.
+    // `@solidjs/web` per module + the attribute runtime its own module
+    // (2026-10-07): cap unchanged at 37.26 KB, measured at 37,244 B
+    // (113,648 B minified; recorded minified lowered to it): `assign` and
+    // below leave for the lazy bind chunk as on the base page (−3,694 min of
+    // runtime), but this entry keeps more of its own code beside the shared
+    // runtime (`action`, `isPending` / `latest`, the lanes), so the two-chunk
+    // glue (every signals internal the entry reads from the common chunk is
+    // an export + an import) costs it ≈ 860 min more than the base page, and
+    // compressed per file the page is flat (+3 br); as one stream it would be
+    // 36,356 B (−885).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],

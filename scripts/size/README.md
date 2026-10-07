@@ -14,8 +14,16 @@ feature landed and the limit should be bumped in the same PR with a reason.
 
 ## The gate
 
-Caps are **brotli** bytes on the eager entry chunk — brotli is what ships —
-set at measured + 10 B rounded up to 0.01 KB. But brotli's layout is not
+Caps are **brotli** bytes on the eager graph — brotli is what ships —
+set at measured + 10 B rounded up to 0.01 KB. The eager graph is the entry
+chunk plus every chunk it imports statically (2026-10-07): with
+`@solidjs/web` built per module, Rolldown splits a common chunk out of the
+server-component pages' entry — the runtime the entry shares with every
+lazy tier — and the page loads it before it runs, so it counts: the cap is
+measured on the sum of the eager chunks' own brotli (each file compressed
+alone, as a server ships them), and the report names the chunks beside the
+size with the one-stream figure (the same bytes as one file) next to it.
+But brotli's layout is not
 monotonic in the input: a change of a few minified bytes moves a scenario's
 brotli by ±50–90 B, so a brotli-only gate failed PRs for noise and every
 "fix" either raised a cap (permanently) or golfed the code until the layout

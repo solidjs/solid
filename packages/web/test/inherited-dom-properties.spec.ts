@@ -3,7 +3,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import { createRoot, flush } from "solid-js";
-import { spread, style } from "../src/client.js";
+import { spread, style } from "../src/client/attributes.js";
 import { ssrElement, ssrStyle } from "../src/server.js";
 
 describe("inherited DOM properties", () => {

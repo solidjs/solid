@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from "vitest";
-import { addEvent, delegateEvents, render } from "../src/client.js";
+import { delegateEvents, render } from "../src/client.js";
+import { addEvent } from "../src/client/attributes.js";
 
 describe("delegated EventListenerObject handlers", () => {
   test("dispatches delegated events through handleEvent", () => {

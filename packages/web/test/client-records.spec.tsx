@@ -36,7 +36,7 @@
 // The channel is the core's, reached by its registered symbol (this runtime
 // imports no framework): `OBSERVE.records` from `solid-js` IS what the
 // emitter found.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { OBSERVE, createMemo, createRoot, createSignal, flush } from "solid-js";
@@ -1374,6 +1374,17 @@ describe("tiers, in the built artifacts", () => {
   const marker = "@solidjs/signals/observe/records";
   const engine = "@solidjs/signals/observe/attribution";
   const read = (file: string) => readFileSync(resolve(import.meta.dirname, "..", file), "utf8");
+  // The main client entry's tier: `dist/<tier>.js` and every module under
+  // `dist/<tier>/` (the per-module build), concatenated.
+  const readClientTier = (tier: string) => {
+    const dir = resolve(import.meta.dirname, "..", "dist", tier);
+    const files = readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter(e => e.isFile() && e.name.endsWith(".js"))
+      .map(e => resolve(e.parentPath, e.name))
+      .sort();
+    expect(files.length, `${tier}: per-module dist`).toBeGreaterThan(1);
+    return [read(`dist/${tier}.js`), ...files.map(f => readFileSync(f, "utf8"))].join("\n");
+  };
 
   test("the emitters fold out of the prod client artifacts and ride the observe and dev ones", () => {
     for (const entry of ["server-functions/dist", "frames/dist"]) {
@@ -1385,9 +1396,11 @@ describe("tiers, in the built artifacts", () => {
     // The call record's provenance reach rides with the call emitter.
     expect(read("server-functions/dist/client.observe.js")).toContain(engine);
     expect(read("server-functions/dist/client.dev.js")).toContain(engine);
-    // The main client entry emits no record of its own.
-    for (const tier of ["web.js", "web.observe.js", "web.dev.js"]) {
-      expect(read(`dist/${tier}`), tier).not.toContain(marker);
+    // The main client entry emits no record of its own. It is built per
+    // module (`dist/web.js` + `dist/web/**`, likewise per tier), so the
+    // whole tier is read.
+    for (const tier of ["web", "web.observe", "web.dev"]) {
+      expect(readClientTier(tier), tier).not.toContain(marker);
     }
   });
 

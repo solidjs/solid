@@ -1,4 +1,4 @@
-import { createMemo, createRenderEffect, getOwner } from "solid-js";
+import { createMemo, createRenderEffect, getOwner, OBSERVE } from "solid-js";
 
 // Replaced with a boolean literal by the build (see rollup.config.js); the cast
 // keeps the typed module honest about it being a build-time flag.
@@ -88,4 +88,57 @@ export function effect<T>(
 // async-cond-before-for harness scenario).
 export function memo<T>(fn: () => T): () => T {
   return createMemo(() => fn(), syncOptions);
+}
+
+// === Interaction provenance (observe tier) ===
+//
+// Delegated events — every INP-relevant type: click, input, keydown,
+// pointer*… — reach user code through the delegated dispatch in client.ts, and
+// runtime-attached direct handlers (spreads, non-literal handler expressions)
+// through addEvent (client/attributes.ts).
+// Wrapping those two in the signals attribution engine's `withInteraction`
+// stamps every root write a handler performs with the event that caused it
+// (`click on button#next "Next →"`) — what turns a transition hold or a hot
+// scope into a per-interaction number. Not covered: non-delegated events
+// whose handler is a literal function (the compiler emits a bare
+// `addEventListener` for those) and hand-written `ref`-based listeners.
+
+/** `button#next "Next →"`, `input[name=q]`, `a "Docs"` — what the user hit. */
+function describeEventTarget(target: any): string | undefined {
+  if (!target || typeof target.tagName !== "string") return undefined;
+  const tag = target.tagName.toLowerCase();
+  let out = tag;
+  if (target.id) out += `#${target.id}`;
+  else if (typeof target.name === "string" && target.name) out += `[name=${target.name}]`;
+  if (tag !== "input" && tag !== "textarea" && tag !== "select") {
+    const text = (target.textContent || "").trim().replace(/\s+/g, " ");
+    if (text) out += ` "${text.length > 30 ? text.slice(0, 29) + "…" : text}"`;
+  }
+  return out;
+}
+
+/**
+ * The interaction's start on the `performance.now()` clock: the event's own
+ * `timeStamp` — when the browser created it, before any queued task ran —
+ * not the moment the handler was reached, so the wait the record measures
+ * begins where the user's does. It is also the join key to the browser's
+ * Event Timing entry for the same interaction (`PerformanceEventTiming
+ * .startTime` equals it), which is how a consumer lines an interaction
+ * record up with INP without a time-window guess. Guarded: an environment
+ * that still stamps events with epoch milliseconds (jsdom, pre-2016
+ * browsers) puts the value far past `performance.now()`, and a value from
+ * the wrong clock is worse than none — the engine then defaults to now.
+ */
+function interactionStart(e: Event): number | undefined {
+  const at = e.timeStamp;
+  return typeof at === "number" && at >= 0 && at <= performance.now() ? at : undefined;
+}
+
+export function dispatchAsInteraction<T>(e: Event, fn: () => T): T {
+  // Reached only from `"_SOLID_OBSERVE_"`-gated sites, where `OBSERVE` is the
+  // live channel (the prod tier exports `undefined` and folds the sites out).
+  return OBSERVE!.attribution.withInteraction(
+    { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e) },
+    fn
+  );
 }
