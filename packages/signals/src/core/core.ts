@@ -616,12 +616,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // skips the synchronous first run on a staged value) — when the flush
       // has joined a transaction and either the pass read a held node (it
       // derives from that world — the join merged the node's transaction
-      // into the flush's), or read a staging of this flush (the same world
-      // before the seam parks it — a verdict lane's mount, mainline, is not
-      // shown ahead of it: #3851), or a pass created it (ruling A: a held
-      // pass's children are the transaction's). The staged read counts only
-      // inside a flush: an action body's read of an unflushed write is
-      // served committed (A28). A node created outside any pass
+      // into the flush's), or — a verdict lane's mount, mainline — read a
+      // staging of this flush (the same world before the seam parks it; the
+      // mount is not shown ahead of it: #3851), or a pass created it (ruling
+      // A: a held pass's children are the transaction's). Any other mount
+      // that read a staging does not join by being new (2026-10-07): it
+      // publishes and re-derives if the flush parks. A node created outside any pass
       // that read only the committed world (root setup, a mount, an effect
       // callback) is nobody's frame and publishes directly, as does a first
       // pass that runs before anything joins: the pass's input, not a verdict
@@ -642,7 +642,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           ? !(
               (flushTransaction !== null || passTx !== null) &&
               (joined ||
-                (globalQueue._running && el._flags & REACTIVE_STAGED_READ) ||
+                (prevLane && el._flags & REACTIVE_STAGED_READ) ||
                 (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
             )
           : isEffect && el._pendingValue === NOT_PENDING
