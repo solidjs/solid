@@ -22,6 +22,7 @@ import {
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
   CONFIG_WIDE,
+  CONFIG_SUPERSEDES,
   CONFIG_SLOT_NODE,
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
@@ -909,6 +910,8 @@ export function computed<T>(
         _x: null
       } as Computed<T>);
   if (options?.unobserved) (ext(self) as NodeExtension)._unobserved = options.unobserved;
+  // Dev only, as `_wide` (see CONFIG_SUPERSEDES).
+  if (__DEV__ && options?._supersedes) self._config |= CONFIG_SUPERSEDES;
   setupComputedNode(self, options);
   return self;
 }

@@ -426,6 +426,12 @@ function slotArgsProxy(args: () => Record<string, any>) {
           // claim walk is synchronous: without the sync adopt the fill
           // renders its fallback branch over a page whose markup settled
           // before flush — branch mismatch, key misses, dead range.
+          //
+          // SUPERSEDES: every re-shipped record re-runs this memo while the
+          // arg is still pending, abandoning the flight in the air — by
+          // design, so dev marks it `_supersedes` (exempt from
+          // ABANDONED_FLIGHTS). Dev only: signals' observe artifact mangles
+          // `_` option names.
           const make = () =>
             createMemo(
               () => {
@@ -436,7 +442,7 @@ function slotArgsProxy(args: () => Record<string, any>) {
                 }
                 return raw;
               },
-              { transparent: true } as any
+              (IS_DEV ? { transparent: true, _supersedes: true } : { transparent: true }) as any
             );
           read = owner ? runWithOwner(owner, make)! : make();
           asyncReads.set(key, read);
