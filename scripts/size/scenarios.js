@@ -3728,6 +3728,14 @@ module.exports = [
     // 10 B rounded up to 0.01 KB; recorded minified 158,257 B. Accepted by
     // the maintainer (2026-10-07: server-function/frames reader
     // correctness). The cap is frozen again at 48.82 KB.
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 48.82 -> 48.89 KB (floor-caps.json), measured at 48,873 B
+    // by CI (Size run 37599458941) against `next` @ 2eb6e00c0's 48,803
+    // (+70 B; 53 B over the cap; +120 B minified, 158,257 -> 158,377) — the
+    // signals fixes of the + isPending/latest note, which this page
+    // retains. Cap set at measured + 10 B rounded up to 0.01 KB; recorded
+    // minified 158,377 B. Accepted by the maintainer 2026-10-07. The cap is
+    // frozen again at 48.89 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
