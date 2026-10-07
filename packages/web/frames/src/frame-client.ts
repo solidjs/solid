@@ -1851,7 +1851,13 @@ class FrameImpl {
         // place. The check starts the load when nothing announced it. (A
         // mounted occurrence reaching here has a record: a called one
         // without left above, a bare one's is `undefined` on both sides.)
-        if (needsRegions(record)) continue;
+        // The same wait for the TRACES tier: a new record whose literal
+        // args carry a `{ $tr }` marker while that tier is absent — a live
+        // slot op minting the page's first trace after the shell, a refetch
+        // adding a projection arg — would otherwise be pushed into the live
+        // binding raw (the marker read as the value). `needsTrace` guards
+        // the fresh mount above; this is its update-site twin.
+        if (needsRegions(record) || needsTrace(record.args)) continue;
         // A re-sent record, live binding (the mount registered
         // ctx.onUpdate): push the re-resolved props into the LIVE
         // occurrence instead of re-calling — the consumer's reactive props
