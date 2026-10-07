@@ -1215,8 +1215,8 @@ const CHUNK_ENCODER = /* @__PURE__ */ new TextEncoder();
 // every call decodes one whole payload, so one instance serves every reader.
 const CHUNK_DECODER = /* @__PURE__ */ new TextDecoder("utf-8", { fatal: true });
 const MAX_CHUNK_BYTES = 0xffffffff;
-// A store this large is released once the reader holds no unread bytes,
-// unless the frames it is serving are big enough to need it again.
+// A store over this size is shrunk to its unread bytes after each frame (see
+// `releaseStore`). A store at or under it is kept as is.
 const RETAINED_STORE_BYTES = 64 * 1024;
 
 function malformedStream() {
@@ -1285,7 +1285,9 @@ export class ChunkReader {
   async next() {
     // A cancelled read is over. Frames still buffered are not delivered:
     // the caller asked to stop, and frames cancels a superseded response
-    // precisely so its later chunks are not applied.
+    // precisely so its later chunks are not applied. The check repeats after
+    // every read below, because `cancel()` can run while a read is pending,
+    // or after one has already resolved with data.
     if (this.cancelled) return { done: true, value: undefined };
     // A network read boundary can land anywhere — inside the 12-byte header
     // just as easily as inside a payload — so buffer until the whole header
@@ -1294,12 +1296,11 @@ export class ChunkReader {
     // frame, which no localhost test ever produces.
     while (this.buffer.length < 12) {
       if (this.done) {
-        // A partial frame is truncation, unless `cancel()` is why the body
-        // ended. Then it is the clean end the caller asked for.
-        if (this.buffer.length === 0 || this.cancelled) return { done: true, value: undefined };
+        if (this.buffer.length === 0) return { done: true, value: undefined };
         throw malformedStream();
       }
       await this.readChunk();
+      if (this.cancelled) return { done: true, value: undefined };
     }
     // `;0x00000000;`, exactly: the delimiters, the `0x`, then 8 hex digits
     // naming how many payload bytes to wait for. `parseInt` used to accept
@@ -1317,10 +1318,10 @@ export class ChunkReader {
     }
     while (bytes > this.buffer.length - 12) {
       if (this.done) {
-        if (this.cancelled) return { done: true, value: undefined };
         throw malformedStream();
       }
       await this.readChunk();
+      if (this.cancelled) return { done: true, value: undefined };
     }
     let partial;
     try {
@@ -1329,23 +1330,34 @@ export class ChunkReader {
       throw malformedStream();
     }
     this.buffer = this.buffer.subarray(12 + bytes);
-    this.releaseStore(bytes);
+    this.releaseStore();
     return { done: false, value: partial };
   }
 
   /**
-   * Drops an oversized store once nothing in it is unread. Without this, the
-   * doubled allocation from one large frame was kept until the stream ended.
-   * For a live source or a frames connection, that can be as long as the page
-   * is open. The store is kept while frames of the size just read still need
-   * it, so a steady stream of large frames does not reallocate per frame.
+   * Shrinks an oversized store to the bytes still unread, after each frame.
+   * Without this, the doubled allocation from one large frame was kept until
+   * the stream ended. For a live source or a frames connection, that can be
+   * as long as the page is open.
+   *
+   * The rule looks only at what is left to read, so a connection that goes
+   * idle right after a large frame releases it at once. The cost is that a
+   * steady stream of frames over 64 KiB regrows its store for each one. That
+   * is a few doubling allocations per frame, small next to decoding the
+   * frame. Frames under 64 KiB never trigger it, so the #3154 steady state
+   * for small frames is unchanged.
    */
-  releaseStore(frameBytes) {
-    if (this.buffer.length !== 0) return;
-    const keep = Math.max(RETAINED_STORE_BYTES, (12 + frameBytes) * 4);
-    if (this.store.length <= keep) return;
-    this.store = new Uint8Array(0);
-    this.buffer = this.store;
+  releaseStore() {
+    if (this.store.length <= RETAINED_STORE_BYTES) return;
+    const unread = this.buffer.length;
+    // Bytes of the next frame that arrived with this one. Copying up to 64
+    // KiB of them into a fresh store is still far cheaper than keeping the
+    // large one.
+    if (unread > RETAINED_STORE_BYTES) return;
+    const kept = new Uint8Array(unread);
+    kept.set(this.buffer);
+    this.store = kept;
+    this.buffer = kept;
   }
 
   async drain(interpret) {

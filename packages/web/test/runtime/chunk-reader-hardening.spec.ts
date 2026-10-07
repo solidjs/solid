@@ -86,6 +86,23 @@ describe("ChunkReader cancel()", () => {
     expect(await reader.next()).toEqual({ done: true, value: undefined });
   });
 
+  it("does not deliver a frame whose last read resolved just before the cancel", async () => {
+    // The pending read resolves with the rest of the frame, and `cancel()`
+    // runs before `next()` resumes. The frame must still not be delivered.
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>(
+      { start: c => void (controller = c) },
+      { highWaterMark: 0 }
+    );
+    const reader = new ChunkReader(stream);
+    controller.enqueue(frame.subarray(0, 5));
+    const pending = reader.next();
+    await tick();
+    controller.enqueue(frame.subarray(5));
+    reader.cancel(undefined);
+    await expect(pending).resolves.toEqual({ done: true, value: undefined });
+  });
+
   it("still refuses a body that ends partway through a frame without a cancel", async () => {
     const { stream } = source([frame.subarray(0, 14)]);
     await expect(new ChunkReader(stream).next()).rejects.toThrow(
@@ -160,27 +177,44 @@ describe("ChunkReader cleanup", () => {
     expect(state.cancelled).toBe(true);
   });
 
-  it("releases an oversized store once nothing in it is unread", async () => {
-    const large = createChunk("x".repeat(1 << 20));
+  /** Splits `bytes` into 64 KiB reads. */
+  const reads = (bytes: Uint8Array) => {
     const pieces: Uint8Array[] = [];
-    for (let offset = 0; offset < large.length; offset += 65_536) {
-      pieces.push(large.subarray(offset, offset + 65_536));
+    for (let offset = 0; offset < bytes.length; offset += 65_536) {
+      pieces.push(bytes.subarray(offset, offset + 65_536));
     }
-    pieces.push(createChunk("small"));
-    const reader = new ChunkReader(source(pieces, { hold: true }).stream);
-    await reader.next();
-    await reader.next();
-    expect(storeOf(reader).length).toBeLessThanOrEqual(64 * 1024);
+    return pieces;
+  };
+
+  it("releases a large frame's store as soon as the stream goes idle", async () => {
+    // No frame follows: the connection waits, as a live source does.
+    const reader = new ChunkReader(source(reads(createChunk("x".repeat(8 << 20))), { hold: true }).stream);
+    expect((await reader.next()).value).toHaveLength(8 << 20);
+    expect(storeOf(reader).length).toBe(0);
     reader.cancel(undefined);
   });
 
-  it("keeps the store while frames of the same size keep arriving", async () => {
-    const frame = () => createChunk("y".repeat(200_000));
-    const reader = new ChunkReader(source([frame(), frame(), frame()], { hold: true }).stream);
+  it("keeps the next frame's bytes when it shrinks the store", async () => {
+    // The last read carries the end of the large frame and the start of the
+    // next one, so the shrink must carry those bytes over.
+    const large = createChunk("x".repeat(1 << 20));
+    const next = createChunk("after");
+    const bytes = concat([large, next.subarray(0, 8)]);
+    const reader = new ChunkReader(
+      source([...reads(bytes), next.subarray(8)], { hold: true }).stream
+    );
+    expect((await reader.next()).value).toHaveLength(1 << 20);
+    expect(storeOf(reader).length).toBe(8);
+    expect((await reader.next()).value).toBe("after");
+    reader.cancel(undefined);
+  });
+
+  it("keeps a store at or under 64 KiB across frames", async () => {
+    const frames = Array.from({ length: 20 }, (_, i) => createChunk(`frame-${i}-` + "y".repeat(300)));
+    const reader = new ChunkReader(source([concat(frames)], { hold: true }).stream);
     await reader.next();
     const store = storeOf(reader);
-    await reader.next();
-    await reader.next();
+    for (let i = 1; i < frames.length; i++) await reader.next();
     expect(storeOf(reader)).toBe(store);
     reader.cancel(undefined);
   });
