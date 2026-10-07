@@ -974,14 +974,18 @@ describe("binding slots through server-component mounts", () => {
     container.remove();
   });
 
-  test("a called occurrence whose args record never arrived is an orphan finding, once, and still mounts", async () => {
+  test("a called occurrence whose args record never arrived is an orphan finding, once, and waits — never bound argless", async () => {
     const capture = OBSERVE!.diagnostics.capture();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     // The protocol out of step: markup marks `row#9` but no `slot` record
     // for it rides the stream (the producer always emits the record ahead
     // of the markup, so this is a dropped record or an id mismatch, never
     // a fill mistake). The bare `codeBlock` occurrence has no record by
-    // design and must not report.
+    // design and must not report. The occurrence's NAME decides its class
+    // (`#` is a call): a called occurrence without its record waits for it
+    // rather than binding the fill argless — a render prop evaluated with
+    // no args reads `props.x` off nothing (contract C18) — so the server's
+    // values stand at its positions.
     vi.stubGlobal("fetch", async () =>
       frameResponse(ID, [
         { type: "start", id: ID, version: 1 },
@@ -1023,9 +1027,9 @@ describe("binding slots through server-component mounts", () => {
     expect(orphans[0].data).toMatchObject({ why: "record", occurrence: "row#9" });
     expect((orphans[0].data as any).elements.length).toBe(2);
     expect(orphans[0].message).toContain("no args record for it arrived");
-    // Behavior unchanged: the fill mounted with empty args and bound.
-    expect(args).toEqual([{}]);
-    expect((container.querySelector("input") as HTMLInputElement).checked).toBe(true);
+    // The fill was never invoked: its positions keep the server's values.
+    expect(args).toEqual([]);
+    expect((container.querySelector("input") as HTMLInputElement).checked).toBe(false);
     capture.stop();
     warn.mockRestore();
     dispose();

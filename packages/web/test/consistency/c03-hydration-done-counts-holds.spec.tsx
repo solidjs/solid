@@ -40,53 +40,52 @@ describe("C3 — hydration-done counts every hold", () => {
   // boundary adopts (document.readyState "loading"), and the occurrence's
   // args record has not executed yet — the frame defers the mount. Hydration
   // must not report done while that occurrence's server nodes are unclaimed.
-  test.fails(
-    "(a) record defer: hydration does not report done while an adopted occurrence waits on its record",
-    async () => {
-      const fid = freshFid("c3a");
-      vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
-      page = bootPage(
-        frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
-      );
-      const Comp = (globalThis as any)._$SC.r(fid);
-      const invocations: number[] = [];
-      let invocationsAtEnd = -1;
-      let inProgressAtEnd: boolean | undefined;
-      const dispose = hydrate(
-        () => (
-          <Comp
-            item={(p: { text: string }) => {
-              invocations.push(1);
-              return <li>{p.text}</li>;
-            }}
-          />
-        ),
-        page.container
-      );
-      onHydrationEnd(() => {
-        invocationsAtEnd = invocations.length;
-        inProgressAtEnd = hydrationInProgress();
-      });
-      await quiesce();
-      // The record script the parser was still owed.
-      page.slotRecord(fid, "item#0", { text: "one" });
-      await quiesce();
-      await quiesce();
-      // The occurrence did claim in the end (the deferral is invisible)…
-      expect(invocations.length).toBe(1);
-      expect(page.container.textContent).toBe("one");
-      // …but hydration-done ran ahead of it: at the end callback the fill had
-      // not run, `isHydrationInProgress()` already read false, and nothing
-      // counted the hold (`_pendingBoundaries` only knows <Loading>
-      // boundaries). Observed on `next`: invocationsAtEnd === 0 (expected 1).
-      // The dev completion check stays quiet here only because the deferred
-      // claim lands before its timer reads the registry.
-      expect(page.warnings.filter(w => w.includes("unclaimed server-rendered"))).toEqual([]);
-      expect(inProgressAtEnd).toBe(false);
-      expect(invocationsAtEnd).toBe(1);
-      dispose();
-    }
-  );
+  // Was red on `next` (the deferral registered with nothing hydration
+  // counts); green under frames-rulings 3.1 (ruled) / 3.2: the frame's hold
+  // is a pending boundary — registered through `sharedConfig.holdBoundary`
+  // while a sync leaves an adopted occurrence waiting, released by the sync
+  // that claims it.
+  test("(a) record defer: hydration does not report done while an adopted occurrence waits on its record", async () => {
+    const fid = freshFid("c3a");
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    page = bootPage(
+      frameHtml(fid, `<ul>${slotRange("item#0", fillHtml(fid, "item#0", "one"))}</ul>`)
+    );
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const invocations: number[] = [];
+    let invocationsAtEnd = -1;
+    let inProgressAtEnd: boolean | undefined;
+    const dispose = hydrate(
+      () => (
+        <Comp
+          item={(p: { text: string }) => {
+            invocations.push(1);
+            return <li>{p.text}</li>;
+          }}
+        />
+      ),
+      page.container
+    );
+    onHydrationEnd(() => {
+      invocationsAtEnd = invocations.length;
+      inProgressAtEnd = hydrationInProgress();
+    });
+    await quiesce();
+    // The record script the parser was still owed.
+    page.slotRecord(fid, "item#0", { text: "one" });
+    await quiesce();
+    await quiesce();
+    // The occurrence did claim in the end (the deferral is invisible)…
+    expect(invocations.length).toBe(1);
+    expect(page.container.textContent).toBe("one");
+    // …and hydration-done waited for it: at the end callback the fill had
+    // run (on `next` invocationsAtEnd was 0 — done ran ahead, nothing
+    // counted the hold).
+    expect(page.warnings.filter(w => w.includes("unclaimed server-rendered"))).toEqual([]);
+    expect(inProgressAtEnd).toBe(false);
+    expect(invocationsAtEnd).toBe(1);
+    dispose();
+  });
 
   // Arm (b): a container-trace arg present at adoption. The record and its
   // trace snapshot are in the page when the boundary adopts; the fill reads

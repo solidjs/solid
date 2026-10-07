@@ -105,57 +105,48 @@ describe("C6 — a held record never lands on content it no longer belongs to", 
   // and before the html). A's held record, kept across the rebind, must
   // never mount the fill with B's data.
   //
-  // Observed on `next`: when B's html flushes (before B's slot record), the
-  // fill MOUNTS with "jB/kB" — A's record `{k:$ref"1", j:$ref"2"}` resolved
-  // against B's table — and the site shows `BjB/kB` (frames recorded:
-  // `…` → `A` → `BjB/kB` → `BkB/jB`; `seen` = `["jB/kB", "kB/jB"]`) until
-  // B's slot record arrives and live-updates it to "kB/jB". Expected: no
-  // mount until B's own record; never the swapped pair. Where it goes wrong:
-  // `FrameImpl.rebind` → `#resetStreamState(true)` → `clearStreamRecords`
-  // deletes seg/hole/attr/:error and the root but KEEPS every `slot:*`
-  // record (the dedupe that preserves occurrence state across a same-
-  // address morph), so A's record is still the occurrence's record after
-  // the frame moved to B; `#syncSlots` resolves it through `#resolveRef`,
-  // which routes by the frame's NEW id → `tableFor(B)`. While B's data
-  // is absent `#refsUnresolved` skips it, but B's data makes it resolvable
-  // and B's html's flush applies it — a record from A's response read
-  // through B's table, before B has said anything about the occurrence.
-  test.fails(
-    "(a1) switch during the wait, new stream orders data → html → slot: the stale record never mounts with the new data",
-    async () => {
-      const fid = freshFid("c6a1");
-      const getX = createServerReference(fid);
-      await sharedHost();
-      const { held } = stubHeldFetch([WIRE, WIRE]);
-      const [a, b] = held;
-      const site = mountSite(getX);
-      await pump();
-      a.send(start);
-      a.send(recordA);
-      a.send(html("A"));
-      await pump();
-      expect(site.div.querySelector("h1")!.textContent).toBe("A");
-      // A's data never arrives: the record waits.
-      expect(site.seen).toEqual([]);
-      site.setN(2);
-      await pump();
-      b.send(start);
-      for (const c of createDataSource().chunks(WIRE, 1, { "2": "kB", "1": "jB" })) b.send(c);
-      b.send(html("B"));
-      await pump();
-      expect(site.div.querySelector("h1")!.textContent).toBe("B");
-      const mountedBeforeRecord = site.seen.slice();
-      b.send(recordB);
-      b.send(complete);
-      b.close();
-      await pump();
-      expect(site.div.querySelector("li")!.textContent).toBe("kB/jB");
-      expect(site.frames.some(f => f.includes("jB/kB"))).toBe(false);
-      expect(site.seen).not.toContain("jB/kB");
-      expect(mountedBeforeRecord).toEqual([]);
-      expect(site.seen).toEqual(["kB/jB"]);
-    }
-  );
+  // Was red on `next`: when B's html flushed (before B's slot record), the
+  // fill MOUNTED with "jB/kB" — A's record `{k:$ref"1", j:$ref"2"}` resolved
+  // against B's table — because `FrameImpl.rebind` kept every `slot:*`
+  // record across the move and `#resolveRef` routed by the frame's NEW id.
+  // Green under frames-rulings 1.4 (full): the store is one response's —
+  // the rebind (like a version bump) replaces it wholesale, so A's held
+  // record leaves with A, and the called occurrence found recordless
+  // under B WAITS for B's own record rather than mounting (its name,
+  // `comment#0`, says it has one).
+  test("(a1) switch during the wait, new stream orders data → html → slot: the stale record never mounts with the new data", async () => {
+    const fid = freshFid("c6a1");
+    const getX = createServerReference(fid);
+    await sharedHost();
+    const { held } = stubHeldFetch([WIRE, WIRE]);
+    const [a, b] = held;
+    const site = mountSite(getX);
+    await pump();
+    a.send(start);
+    a.send(recordA);
+    a.send(html("A"));
+    await pump();
+    expect(site.div.querySelector("h1")!.textContent).toBe("A");
+    // A's data never arrives: the record waits.
+    expect(site.seen).toEqual([]);
+    site.setN(2);
+    await pump();
+    b.send(start);
+    for (const c of createDataSource().chunks(WIRE, 1, { "2": "kB", "1": "jB" })) b.send(c);
+    b.send(html("B"));
+    await pump();
+    expect(site.div.querySelector("h1")!.textContent).toBe("B");
+    const mountedBeforeRecord = site.seen.slice();
+    b.send(recordB);
+    b.send(complete);
+    b.close();
+    await pump();
+    expect(site.div.querySelector("li")!.textContent).toBe("kB/jB");
+    expect(site.frames.some(f => f.includes("jB/kB"))).toBe(false);
+    expect(site.seen).not.toContain("jB/kB");
+    expect(mountedBeforeRecord).toEqual([]);
+    expect(site.seen).toEqual(["kB/jB"]);
+  });
 
   // Arm (a2): the same switch, B ordered html → data → slot. No flush
   // happens between B's data and B's record, so the stale record is never
@@ -252,41 +243,31 @@ describe("C6 — a held record never lands on content it no longer belongs to", 
     expect(site.seen).toEqual(["k1/j1", "k2/j2"]);
   });
 
-  // Observed on `next`: at v2's commit the fill is INVOKED with "j2/k2" —
-  // v1's held record `{k:$ref"1", j:$ref"2"}` resolved against v2's table —
-  // and the `<li>` holds "j2/k2" between two synchronous applies of the
-  // commit, before v2's own record live-updates it to "k2/j2" (`seen` is
-  // `["j2/k2", "k2/j2"]`; a MutationObserver sees only the final text since
-  // the whole commit is one task). Expected: the fill mounts once, with
-  // "k2/j2". Where it goes wrong: frame-transport.ts `stage(...).commit`
-  // installs the staged tables (`data.commit()` → `tables.set(A, v2's)`)
-  // BEFORE replaying the buffered chunks, and the first replayed chunk —
-  // `start` — bumps the frame's version and flushes; `FrameImpl.#syncSlots`
-  // still finds v1's record under `slot:comment#0` (slot records survive
-  // the version bump by design), `#refsUnresolved` now answers through v2's
-  // table, and the held record mounts with v2's values. `preview` cannot
-  // prevent it (it only pushes into MOUNTED occurrences, and a held one is
-  // not mounted), and v2's own slot record is replayed only after `start`.
-  test.fails(
-    "(b2) refetch during the wait, v1's data never before the commit: the held v1 record never mounts with v2's data",
-    async () => {
-      const { site, sendLateV1, commitV2 } = await refetchDuringWait(freshFid("c6b2"));
-      await commitV2();
-      expect(site.div.querySelector("li")!.textContent).toBe("k2/j2");
-      // v1's stragglers after the commit: nothing of v1 reaches the fill.
-      sendLateV1();
-      await pump();
-      expect(site.div.querySelector("li")!.textContent).toBe("k2/j2");
-      for (const swapped of ["j2/k2", "j1/k1"]) {
-        expect(
-          site.frames.some(f => f.includes(swapped)),
-          swapped
-        ).toBe(false);
-        expect(site.seen).not.toContain(swapped);
-      }
-      expect(site.seen).toEqual(["k2/j2"]);
+  // Was red on `next`: at v2's commit the fill was INVOKED with "j2/k2" —
+  // v1's held record resolved against v2's table — because the first
+  // replayed chunk (`start`) bumped the version and flushed with v1's
+  // record still in the store (slot records survived the bump by design)
+  // and the staged tables already installed. Green under frames-rulings
+  // 1.4 (full): the bump replaces the store wholesale, v1's held record
+  // leaves with v1, and the occurrence waits for v2's own record (replayed
+  // right after) — one mount, with v2's values.
+  test("(b2) refetch during the wait, v1's data never before the commit: the held v1 record never mounts with v2's data", async () => {
+    const { site, sendLateV1, commitV2 } = await refetchDuringWait(freshFid("c6b2"));
+    await commitV2();
+    expect(site.div.querySelector("li")!.textContent).toBe("k2/j2");
+    // v1's stragglers after the commit: nothing of v1 reaches the fill.
+    sendLateV1();
+    await pump();
+    expect(site.div.querySelector("li")!.textContent).toBe("k2/j2");
+    for (const swapped of ["j2/k2", "j1/k1"]) {
+      expect(
+        site.frames.some(f => f.includes(swapped)),
+        swapped
+      ).toBe(false);
+      expect(site.seen).not.toContain(swapped);
     }
-  );
+    expect(site.seen).toEqual(["k2/j2"]);
+  });
 
   // Arm (c): disposal during the wait — later chunks never invoke the fill.
   test("(c) dispose during the wait: the record's data and the stream's end never invoke the fill", async () => {

@@ -13,6 +13,7 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_VERDICT,
   EFFECT_RENDER,
@@ -97,12 +98,18 @@ function route(c: Computed<any>, t: Transaction): void {
  * the seam as if it had gone pending here, so the transaction has an entry
  * for what it now shows a reader of. Held by nothing, it landed at this very
  * seam and its `_reruns` re-derived the reader into the same observation,
- * every flush (fuzzer F12). */
-function observeFlight(c: Computed<any>, el: Computed<any>): void {
-  if (!globalQueue._running) return;
-  joinFuture(null);
-  if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
-  verdictRead(c, flushTransaction!, true);
+ * every flush (fuzzer F12). True when the reader is served the committed
+ * value — not over a flight committed beneath inputs already on screen (A15
+ * reveal corollary, #3305): that value would tear against them, and the
+ * reveal observes the flight. */
+function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
+  if (el._config & CONFIG_INPUTS_PUBLISHED) return false;
+  if (globalQueue._running) {
+    joinFuture(null);
+    if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    verdictRead(c, flushTransaction!, true);
+  }
+  return true;
 }
 
 /** Verdict windows. Inside `latest(fn)` a read of a held node serves the

@@ -1442,6 +1442,14 @@ export function insert(parent, accessor, marker, initial, options) {
       const value = normalize(accessor(), current, multi, true);
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       if (typeof value !== "function") return value;
+      // The child-resolution pass must track every row's resolved child, so
+      // its width is the list's, not a coarse read: dev marks it `_wide`
+      // (exempt from WIDE_SCOPE_DEPS, never from HUGE_FAN_IN). Dev only, like
+      // `_plumbing`: signals' observe artifact mangles `_` option names.
+      const innerOptions =
+        prev !== undefined && !(options && options.schedule)
+          ? { ...options, schedule: true }
+          : options;
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
@@ -1451,9 +1459,7 @@ export function insert(parent, accessor, marker, initial, options) {
           current = insertExpression(parent, inner, current, marker);
           host && tagHost(current, host);
         },
-        prev !== undefined && !(options && options.schedule)
-          ? { ...options, schedule: true }
-          : options
+        "_SOLID_DEV_" ? { ...innerOptions, _wide: true } : innerOptions
       );
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       return INNER_OWNED;
