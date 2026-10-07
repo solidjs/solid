@@ -1,6 +1,7 @@
 // The size gate: bundles every scenario in scenarios.js with Rolldown and
 // fails when an eager entry chunk exceeds its cap. Prints, per scenario, the
-// brotli and minified size of the entry chunk, the cap, the lazy chunks a
+// brotli and minified size of the eager graph (the entry chunk plus any
+// chunk it imports statically — bundle.mjs), the cap, the lazy chunks a
 // page would fetch later (reported, never counted), and the per-package
 // minified split so a bump is attributed in the log that reports it.
 //
@@ -69,6 +70,7 @@ for (const scenario of scenarios) {
     ...(scenario.minifiedAllowance !== undefined && {
       minifiedAllowance: scenario.minifiedAllowance
     }),
+    ...(r.eager.length && { eager: r.eager }),
     lazy: r.lazy,
     packages: Object.fromEntries(packages)
   });
@@ -77,6 +79,10 @@ for (const scenario of scenarios) {
   console.log(
     `     brotli ${toKB(r.br)} (${r.br} B)  minified ${r.min} B  cap ${r.limit}${over ? `  — over by ${r.br - cap} B` : ""}`
   );
+  if (r.eager.length)
+    console.log(
+      `     eager (statically imported by the entry, counted): ${r.eager.map(c => `${c.name} ${toKB(c.br)}`).join(", ")}`
+    );
   if (r.lazy.length)
     console.log(
       `     lazy (not counted): ${r.lazy.map(c => `${c.name} ${toKB(c.br)}`).join(", ")}`

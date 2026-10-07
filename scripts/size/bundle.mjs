@@ -15,6 +15,18 @@
 // (size-limit did not split, so the harness used a stub for the codec; the
 // stub is gone and the lazy codec chunk is reported at its true size.)
 //
+// The eager graph is not always one chunk (2026-10-07): when a lazy chunk
+// and the entry share modules, Rolldown may hoist the shared modules into a
+// chunk the entry imports STATICALLY (`import "./web.js"` at its top) — the
+// browser fetches it before the entry runs, so it ships eagerly and counts.
+// The measured size is the entry plus every chunk it reaches through static
+// imports (each brotli'd on its own: two files are two compressions); only
+// chunks reached through `import()` alone are lazy. The first scenario to
+// split this way was the compiled live server-component page: `isPending`
+// on the page and a lazy route with a template put the whole runtime (~70 KB
+// minified) in a shared chunk; counted as lazy it would have read as half
+// the page. No other scenario splits; their numbers did not move.
+//
 // Compiled scenarios (2026-10-05): a scenario with `compile` is written as
 // JSX under fixtures/ and compiled here, at measure time, by the native
 // @solidjs/compiler of the checkout being measured (packagesRoot — the
@@ -159,9 +171,17 @@ export async function bundle(scenario) {
     });
     const chunks = output.filter(o => o.type === "chunk");
     const entry = chunks.find(c => c.isEntry);
-    const lazy = chunks
-      .filter(c => c !== entry)
-      .map(c => ({ name: c.fileName, min: c.code.length, br: brotli(c.code) }));
+    // The eager graph: the entry and every chunk it reaches through static
+    // imports (`chunk.imports`; `dynamicImports` are the lazy edges).
+    const eagerChunks = [entry];
+    for (const c of eagerChunks)
+      for (const name of c.imports) {
+        const dep = chunks.find(d => d.fileName === name);
+        if (dep && !eagerChunks.includes(dep)) eagerChunks.push(dep);
+      }
+    const measure = c => ({ name: c.fileName, min: c.code.length, br: brotli(c.code) });
+    const eager = eagerChunks.slice(1).map(measure);
+    const lazy = chunks.filter(c => !eagerChunks.includes(c)).map(measure);
     // Per-module contribution: Rolldown reports each module's tree-shaken,
     // rendered source. Minified on its own with the same minifier, a module
     // keeps its chunk-scope names (they are globals to a standalone minify),
@@ -170,25 +190,29 @@ export async function bundle(scenario) {
     // chunk the way esbuild's bytesInOutput did. Brotli compresses across
     // modules, so only the chunk total is compressed.
     const modules = [];
-    let standalone = 0;
-    for (const [id, m] of Object.entries(entry.modules)) {
-      if (!m.code) continue;
-      let min;
-      try {
-        min = minifySync(id, m.code).code.length;
-      } catch {
-        min = m.renderedLength;
+    for (const chunk of eagerChunks) {
+      const own = [];
+      let standalone = 0;
+      for (const [id, m] of Object.entries(chunk.modules)) {
+        if (!m.code) continue;
+        let min;
+        try {
+          min = minifySync(id, m.code).code.length;
+        } catch {
+          min = m.renderedLength;
+        }
+        standalone += min;
+        own.push({ id, min });
       }
-      standalone += min;
-      modules.push({ id, min });
+      const scale = standalone ? chunk.code.length / standalone : 1;
+      for (const m of own) modules.push({ id: m.id, min: Math.round(m.min * scale) });
     }
-    const scale = standalone ? entry.code.length / standalone : 1;
-    for (const m of modules) m.min = Math.round(m.min * scale);
     return {
       name: scenario.name,
       limit: scenario.limit,
-      min: entry.code.length,
-      br: brotli(entry.code),
+      min: eagerChunks.reduce((n, c) => n + c.code.length, 0),
+      br: brotli(entry.code) + eager.reduce((n, c) => n + c.br, 0),
+      eager,
       lazy,
       modules
     };
