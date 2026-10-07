@@ -154,10 +154,13 @@ export type { TierModule } from "./frame-client.js";
 // entry's graph in an app's bundler.
 /** @internal */
 export { isAsyncValue } from "./frame-client.js";
+// `FRAME_HAVE_HEADER` / `FRAME_HAVE_BUDGET` are the SERVER entry's
+// (`@solidjs/web/frames/server`): the client sends the have-list itself
+// (`resume`, through the handler) and no consumer of this entry reads the
+// header's name — an exported constant costs a consumer that keeps the whole
+// module its bytes, so the pair left this list (frames residue pass).
 export {
   FRAME_STREAM_HEADER,
-  FRAME_HAVE_HEADER,
-  FRAME_HAVE_BUDGET,
   applyFrameResponse,
   isFrameStreamResponse,
   createServerComponentHandler
