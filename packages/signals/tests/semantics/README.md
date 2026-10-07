@@ -243,7 +243,7 @@ work/observation; and an optimistic proposal versus an ordinary update while its
 parent remains held. Read the preconditions in `equivalence.ts`. An unsupported
 comparison should be inapplicable, not forced into a false equivalence.
 
-### `mount-under-hold` (rule revision 22, MH1–MH8)
+### `mount-under-hold` (rule revision 23, MH1–MH8)
 
 This cohort does not use the scenario language. Each case is a small
 `MountCase` record ([mount-cases.ts](mount-cases.ts)) that
@@ -264,30 +264,45 @@ settles. Families:
 - `lane`: an optimistic mount whose binding reads the held source, the guess, or
   a memo of the held source (#3835).
 
-The oracle encodes only ruled behavior: A29 and its boundary exemption, the
-2026-10-06 scope ruling (an unshown or re-armed boundary shows its own
-fallback, and no hold waits for it), the direction rule (a hold never waits on
-never-committed work), the lane rule (a lane sees the screen plus its own
-guesses, and a verdict lane's mounts stay mainline), and no tearing.
+The oracle encodes only ruled behavior:
 
-Revision 21 adds the 2026-10-06 outside-read ruling. A boundary shows its own
-fallback for a source only when nothing outside it reads that source, or
-anything in the same transition. Every case used to create a screen anchor: a
-committed render effect outside every boundary that reads the held source. That
-anchor is an outside read. With it, the hold keeps a re-armed boundary's old
-content and a fresh mount closed, and the inner fallback must not show (MH8).
-Content still loading after the release may then show the inner fallback.
-Fresh and re-arm cases are now also generated without the anchor
-(`anchor: false`), where MH1's fallback-now timeline still applies. For an
-action hold, the screen value is then an untracked top-level read; for a flight
-hold, it is not observed. Nested fresh content can add an uncommitted read in
-the outer boundary (`outerRead`): its own catcher, the outer boundary, shows
-the fallback. These dimensions draw from a second random stream, so case _i_
-keeps every revision-20 field.
+- **A29 and its boundary exemption** (amended 2026-09-18, #3540). A `Loading`
+  that has not shown content, mounted over held data, shows its fallback now and
+  reveals its content at the commit. The hold does not wait for it. This holds
+  even beside a committed outside reader of the same source, and for a `Loading`
+  in its own root mounted outside a flush (MH1). "Nothing rendered" applies only
+  to async with no `Loading` above it (MH4).
+- **The `on` re-arm** (#3575/#3584). The fallback swap lands with the frame of
+  the change that caused it. A re-arm with nothing pending under the boundary is
+  a no-op (MH8). If a same-source read outside the boundary holds that frame,
+  the fallback never shows (`LOADING_ON_OUTSIDE_HOLD`).
+- the direction rule (a hold never waits on never-committed work);
+- the lane rule (a lane sees the screen plus its own guesses, and a verdict
+  lane's mounts stay mainline);
+- no tearing.
 
-Revision 22 adds that a `latest()` read is not an outside read that holds. A
-mount triggered by `latest(x) > 0` is judged by the other reads present: MH8
-with the anchor, MH1 without it.
+Every case creates a screen anchor unless `anchor: false`: a committed render
+effect outside every boundary that reads the held source. Fresh, re-arm and
+verdict cases are also generated without it, as coverage. For an action hold,
+the screen value is then an untracked top-level read; for a flight hold, it is
+not observed. Nested fresh content can add an uncommitted read in the outer
+boundary (`outerRead`): its own catcher, the outer boundary, shows the fallback.
+These dimensions draw from a second random stream, so case _i_ keeps every
+revision-20 field.
+
+Revision 22: a `latest()` read is not a hold. A mount triggered by
+`latest(x) > 0` is mainline, so a fresh boundary there shows its fallback now.
+
+Revision 23 (2026-10-07) withdraws the outside-read rule of revisions 21–22. On
+2026-10-06 a spec rule (drafted as A35) said a committed outside read keeps a
+fresh mount closed and a re-armed boundary's old content. After the pre-L2 rules
+recovery the maintainer dropped it: A29's exemption stands for fresh and root
+mounts regardless of the anchor, and `LOADING_ON_OUTSIDE_HOLD` applies only to
+`on` re-arms. MH8 is now the re-arm rule alone. The generated re-arm shapes are
+re-armed by a flip that never writes the held source, so the anchor does not
+hold the flip's frame, and they are judged by MH1 (fallback now) or, for a stale
+reader (A15), by MH8 (no fallback). The held-frame shape, where `on` reads the
+held write itself, is not generated.
 
 `unruled()` lists the shapes it does not judge beyond tearing and final
 convergence:

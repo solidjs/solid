@@ -53,7 +53,14 @@ export interface Failure {
 // the other reads present — MH8 with the committed anchor, MH1 without — and
 // is ruled again. Cases keep their fields; other families and cohorts judge
 // identically.
-export const ruleRevision = 22;
+// Revision 23 (2026-10-07, maintainer decision after the pre-L2 rules
+// recovery): the outside-read ruling of revisions 21–22 is withdrawn (the A35
+// draft was dropped). A fresh Loading over held data shows its fallback now,
+// even beside a committed outside reader of the same source, and a root mount
+// too (A29, amended 2026-09-18, #3540). MH8 is the `on` re-arm rule alone
+// (#3575/#3584): the swap lands with the frame of the change that caused it.
+// `latest()` stays not-a-hold (rev 22); no-anchor cases stay as coverage.
+export const ruleRevision = 23;
 export const rules = [
   {
     id: "A1",
@@ -167,9 +174,9 @@ export const rules = [
   },
   {
     id: "MH1",
-    law: "A loading boundary that has not shown content, or that an `on` change re-armed, shows its own fallback for what its content waits on when nothing outside it reads that source or its transition (an uncommitted outside read's own catcher shows instead); once an outside hold releases, content still loading shows the boundary's fallback.",
+    law: "A loading boundary that has not shown content shows its own fallback now for what its content waits on, even beside a committed outside reader of the same source (A29, amended 2026-09-18); so does one an `on` change re-armed when nothing holds the change's frame (#3575). An uncommitted outside read's own catcher shows instead. Content still loading at the hold's release shows the boundary's fallback.",
     scope:
-      "mount-under-hold cohort: a new Loading mounted by a flip, a mainline root or a `latest()` condition (a `latest()` read is not an outside read that holds), a re-armed revealed Loading, or a boundary that appeared at a hold's commit, with no committed outside read of the held source while it is held; at the release, any of these with a first load of its own; same-tick flips excluded"
+      "mount-under-hold cohort: a new Loading mounted by a flip, a mainline root or a `latest()` condition (a `latest()` read is mainline, not a hold), a revealed Loading re-armed by a flip that does not write the held source, or a boundary that appeared at a hold's commit; at the release, any of these with a first load of its own; same-tick flips excluded"
   },
   {
     id: "MH2",
@@ -206,9 +213,9 @@ export const rules = [
   },
   {
     id: "MH8",
-    law: "Committed work outside a boundary that reads the held source holds the transition: content inside waits with it, a re-armed boundary keeps its old content and a fresh mount stays closed, and the inner boundary does not show its fallback while that hold is open.",
+    law: "An `on` re-arm's fallback swap lands with the frame of the change that caused it (#3575): with nothing pending under the boundary the re-arm is a no-op; if a same-source read outside the boundary holds that frame, the fallback never shows (LOADING_ON_OUTSIDE_HOLD, #3584).",
     scope:
-      "mount-under-hold cohort: a new Loading mounted by a flip, a mainline root or a `latest()` condition, or a re-armed revealed Loading, with the screen anchor (a committed render effect reading the held source) outside it; same-tick flips excluded"
+      "mount-under-hold cohort: a revealed `<Loading on>` re-armed by a flip whose new content is a stale reader (A15: nothing pending under it). The held-frame shape (`on` reading the held write itself) is not generated; same-tick flips excluded"
   }
 ] as const;
 

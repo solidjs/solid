@@ -62,22 +62,15 @@ const committed = timeline(
   [1, "content 1"]
 );
 
-test("a fresh boundary with nothing outside reading the hold: fallback now, content at the commit", () => {
-  const inside = { ...base, anchor: false };
-  expect(judged(inside, fallbackNow)).toBeUndefined();
-  expect(judged(inside, committed)).toBe("MH1");
-  expect(judged(inside, heldClosed)).toBe("MH1");
+test("a fresh boundary over held data: fallback now, content at the commit, outside reader or not (A29)", () => {
+  for (const c of [base, { ...base, anchor: false }, { ...base, trigger: "root" as const }]) {
+    expect(judged(c, fallbackNow)).toBeUndefined();
+    expect(judged(c, committed)).toBe("MH1");
+    expect(judged(c, heldClosed)).toBe("MH1");
+  }
 });
 
-test("an outside read holds the transition (rev 21): the fresh mount stays closed, no inner fallback", () => {
-  // Revision-20 artifacts carry no `anchor`; the anchor existed.
-  expect(judged(base, heldClosed)).toBeUndefined();
-  expect(judged({ ...base, anchor: true }, heldClosed)).toBeUndefined();
-  expect(judged(base, fallbackNow)).toBe("MH8");
-  expect(judged(base, committed)).toBe("MH8");
-});
-
-test("an outside read keeps a re-armed boundary's old content until the release", () => {
+test("an `on` re-arm by a flip that never writes the held source: fallback now, anchor or not (#3575)", () => {
   const rearm = { ...base, family: "rearm-committed" as const, show: "memo" as const };
   const kept = timeline(
     [0, "content 0"],
@@ -86,7 +79,6 @@ test("an outside read keeps a re-armed boundary's old content until the release"
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(rearm, kept)).toBeUndefined();
   const fellBack = timeline(
     [0, "content 0"],
     [0, "content 0"],
@@ -94,13 +86,13 @@ test("an outside read keeps a re-armed boundary's old content until the release"
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(rearm, fellBack)).toBe("MH8");
-  // Same with `on` when nothing outside reads the hold.
-  expect(judged({ ...rearm, anchor: false }, fellBack)).toBeUndefined();
-  expect(judged({ ...rearm, anchor: false }, kept)).toBe("MH1");
+  for (const c of [rearm, { ...rearm, anchor: false }]) {
+    expect(judged(c, fellBack)).toBeUndefined();
+    expect(judged(c, kept)).toBe("MH1");
+  }
 });
 
-test("a re-armed tree whose Show mounts a direct render-effect read: a stale reader, nothing waits", () => {
+test("a re-armed tree whose Show mounts a direct render-effect read: a stale reader, the re-arm is a no-op", () => {
   const rearm = { ...base, family: "rearm-mount" as const, content: "direct" as const };
   const shown = timeline(
     [0, "closed"],
@@ -109,9 +101,6 @@ test("a re-armed tree whose Show mounts a direct render-effect read: a stale rea
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(rearm, shown)).toBeUndefined();
-  expect(judged({ ...rearm, anchor: false }, shown)).toBeUndefined();
-  expect(judged({ ...rearm, show: "memo" }, shown)).toBe("MH8");
   const fellBack = timeline(
     [0, "closed"],
     [0, "closed"],
@@ -119,7 +108,12 @@ test("a re-armed tree whose Show mounts a direct render-effect read: a stale rea
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(rearm, fellBack)).toBe("MH8");
+  for (const c of [rearm, { ...rearm, anchor: false }]) {
+    expect(judged(c, shown)).toBeUndefined();
+    expect(judged(c, fellBack)).toBe("MH8");
+  }
+  expect(judged({ ...rearm, show: "memo" }, shown)).toBe("MH1");
+  expect(judged({ ...rearm, show: "memo" }, fellBack)).toBeUndefined();
 });
 
 test("an uncommitted outside read: its own catcher shows the fallback, not the inner boundary", () => {
@@ -143,35 +137,35 @@ test("an uncommitted outside read: its own catcher shows the fallback, not the i
   expect(judged({ ...c, outerRead: false }, inner)).toBeUndefined();
 });
 
-test("the direction rule: after the outside hold releases, a first load shows the inner fallback", () => {
+test("the direction rule: a first load keeps the fallback past the release, and the hold does not wait", () => {
   const c = { ...base, ownLoad: true };
   const ok = timeline(
+    [0, "closed"],
+    [0, "closed"],
+    [0, "fallback"],
+    [1, "fallback"],
+    [1, "content 1"]
+  );
+  expect(judged(c, ok)).toBeUndefined();
+  const closedFirst = timeline(
     [0, "closed"],
     [0, "closed"],
     [0, "closed"],
     [1, "fallback"],
     [1, "content 1"]
   );
-  expect(judged(c, ok)).toBeUndefined();
+  expect(judged(c, closedFirst)).toBe("MH1");
   const waited = timeline(
     [0, "closed"],
     [0, "closed"],
-    [0, "closed"],
-    [0, "closed"],
-    [1, "content 1"]
-  );
-  expect(judged(c, waited)).toBe("MH1");
-  const held = timeline(
-    [0, "closed"],
-    [0, "closed"],
-    [0, "closed"],
+    [0, "fallback"],
     [0, "fallback"],
     [1, "content 1"]
   );
-  expect(judged(c, held)).toBe("MH3");
+  expect(judged(c, waited)).toBe("MH3");
 });
 
-test("a latest() condition is not an outside read that holds (rev 22): the anchor decides", () => {
+test("a latest() condition mounts mainline (rev 22): a fresh boundary there shows its fallback now", () => {
   const verdict = { ...base, family: "verdict" as const, trigger: "hold" as const };
   expect(unruled(verdict)).toBeUndefined();
   // The hold mounts: S1 is already the mount's checkpoint.
@@ -196,13 +190,11 @@ test("a latest() condition is not an outside read that holds (rev 22): the ancho
     [1, "content 1"],
     [1, "content 1"]
   );
-  expect(judged(verdict, closed)).toBeUndefined();
-  expect(judged(verdict, fallback)).toBe("MH8");
-  expect(judged(verdict, ahead)).toBe("MH8");
-  const inside = { ...verdict, anchor: false };
-  expect(judged(inside, fallback)).toBeUndefined();
-  expect(judged(inside, closed)).toBe("MH1");
-  expect(judged(inside, ahead)).toBe("MH1");
+  for (const c of [verdict, { ...verdict, anchor: false }]) {
+    expect(judged(c, fallback)).toBeUndefined();
+    expect(judged(c, closed)).toBe("MH1");
+    expect(judged(c, ahead)).toBe("MH1");
+  }
 });
 
 test("no tearing: an element without its binding, and content from another world, fail everywhere", () => {

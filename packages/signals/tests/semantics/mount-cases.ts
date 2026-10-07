@@ -1,6 +1,6 @@
 /**
  * The `mount-under-hold` cohort: boundary and lane mounts made while a hold is
- * live, checked only against ruled behavior (rules MH1–MH7 in rules.ts).
+ * live, checked only against ruled behavior (rules MH1–MH8 in rules.ts).
  *
  * The general scenario language mounts readers through a harness-owned flag
  * and cannot express a `Show` conditioned on a held value, a `Loading` mounted
@@ -84,7 +84,7 @@ export interface MountCase {
   /** The screen anchor for the held source is created after the mount site. */
   anchorLast: boolean;
   /** Whether the screen anchor exists: a committed render effect outside every
-   * boundary that reads the held source (an outside read, rev 21). Absent in
+   * boundary that reads the held source (a committed outside read). Absent in
    * revision-20 artifacts, where it always existed. Without it the screen's
    * value is an untracked top-level read (action holds) or unobserved. */
   anchor?: boolean;
@@ -163,14 +163,6 @@ export function expectations(c: MountCase): Check[] {
         "a mount with no catcher (or one that is part of the hold) appeared before the hold's commit",
       seen: "closed"
     });
-  const outsideHold = (seen: string) =>
-    out.push({
-      at: "S2",
-      rule: "MH8",
-      message:
-        "a committed read outside the boundary holds the transition, but the mount appeared, the old content was replaced, or the inner fallback showed while that hold was open",
-      seen
-    });
   if (unruled(c)) return out;
   // A render effect reading the held source directly is a stale reader (A15
   // reveal carve-out): it shows the committed value now and waits for nothing.
@@ -180,26 +172,24 @@ export function expectations(c: MountCase): Check[] {
     (family === "none" ||
       (c.show === "effect" && (family === "revealed" || family === "rearm-mount")));
   switch (c.family) {
+    // A29's boundary exemption: a boundary that has not shown content shows its
+    // fallback now, beside a committed outside read of the held source or not;
+    // a root mount too. A `latest()` condition mounts mainline (rev 22).
     case "fresh":
+    case "verdict":
+    // The re-arm's swap lands with the frame of the flip that caused it
+    // (#3575). The flip never writes the held source, so the anchor does not
+    // hold that frame: fallback now if anything waits under the boundary, a
+    // no-op if nothing does.
     case "rearm-mount":
     case "rearm-committed":
-    // A `latest()` condition is not an outside read that holds (rev 22): the
-    // mount is judged by the anchor alone.
-    case "verdict":
-      if (staleReader(c.family)) {
-        // Nothing waits under the re-armed boundary: old content or the
-        // committed value, but never a fallback while the outside hold is open.
-        if (anchored(c))
-          out.push({
-            at: "S2",
-            rule: "MH8",
-            message:
-              "a committed read outside the boundary holds the transition, but the inner fallback showed while that hold was open",
-            notSeen: "fallback"
-          });
-      } else if (anchored(c))
-        // A fresh mount stays closed; a re-armed boundary keeps its old content.
-        outsideHold(c.family === "rearm-committed" ? "content 0" : "closed");
+      if (staleReader(c.family))
+        out.push({
+          at: "S2",
+          rule: "MH8",
+          message: "an `on` re-arm with nothing pending under the boundary showed its fallback",
+          notSeen: "fallback"
+        });
       else if (c.outerRead)
         out.push({
           at: "S2",
@@ -298,8 +288,8 @@ const families: MountFamily[] = [
   "lane"
 ];
 
-/** Families generated without the screen anchor too: the inside-only form of
- * the outside-read ruling. */
+/** Families generated without the screen anchor too (coverage: the screen
+ * value is then an untracked read or unobserved). */
 const withoutAnchor: MountFamily[] = ["fresh", "rearm-mount", "rearm-committed", "verdict"];
 
 export function generateMountCases(seed: number, count: number): MountCase[] {
