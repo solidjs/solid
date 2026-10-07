@@ -426,10 +426,10 @@ describe("ssrElement with an attribute string", () => {
     );
   });
 
-  test("attribute names that escape are still escaped, and remembered only when clean", () => {
-    // a key that needs escaping never lands as-is, however often it is seen
+  test("attribute names that are not one HTML name are dropped, and never remembered", () => {
+    // a key that fails never lands, however often it is seen
     for (let i = 0; i < 3; i++) {
-      expect(attrs({ "a<b": "1", ok: "2" }, undefined)).toBe('<div a&lt;b="1" ok="2"></div>');
+      expect(attrs({ "a<b": "1", ok: "2" }, undefined)).toBe('<div ok="2"></div>');
     }
   });
 });

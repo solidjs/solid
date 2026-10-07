@@ -564,6 +564,12 @@ function slotArgsProxy(args: () => Record<string, any>) {
           // materialized values, read off its registered state (see
           // TRACE_STATE): trap-safe, and absent until a copy of the plugin
           // loaded — before which no container can exist.
+          //
+          // SUPERSEDES: every re-shipped record re-runs this memo while the
+          // arg is still pending, abandoning the flight in the air — by
+          // design, so dev marks it `_supersedes` (exempt from
+          // ABANDONED_FLIGHTS). Dev only: signals' observe artifact mangles
+          // `_` option names.
           const make = () =>
             createMemo(
               () => {
@@ -576,7 +582,9 @@ function slotArgsProxy(args: () => Record<string, any>) {
                 }
                 return raw;
               },
-              { transparent: true, equals: sameArg } as any
+              (IS_DEV
+                ? { transparent: true, equals: sameArg, _supersedes: true }
+                : { transparent: true, equals: sameArg }) as any
             );
           read = owner ? runWithOwner(owner, make)! : make();
           reads.set(key, read);

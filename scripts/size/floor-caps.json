@@ -1,15 +1,15 @@
 {
   "signals: core floor (createSignal/Memo/Effect/Root/flush)": {
-    "cap": "7.35 KB",
-    "minified": 20133
+    "cap": "7.40 KB",
+    "minified": 20178
   },
   "app: render + one signal (the simple-app floor)": {
-    "cap": "9.86 KB",
-    "minified": 27687
+    "cap": "9.88 KB",
+    "minified": 27731
   },
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": {
     "cap": "17.85 KB",
-    "minified": 52794
+    "minified": 52841
   },
   "page: base server components (hydrating + dynamic + frames + sf reference)": {
     "cap": "33.58 KB",
