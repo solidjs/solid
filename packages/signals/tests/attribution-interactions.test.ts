@@ -2,7 +2,8 @@
  * Interactions as first-class records, and the typed record channel.
  *
  * Claim under test: every `withInteraction` frame yields one `InteractionEvent`
- * that settles exactly once when everything the person waited on is through
+ * (frames sharing an `event`, one between them, recorded no earlier than the
+ * next task) that settles exactly once when everything the person waited on is through
  * — the handler's return when it wrote nothing (`idle`), the drain that
  * committed its writes (`committed`), or the commit of the last hold they
  * waited in (`held`) — with the re-runs, creations, holds and navigations it
@@ -293,6 +294,78 @@ describe("InteractionEvent", () => {
     expect(attribution.history("interaction")).toHaveLength(2);
     expect(feedback().interactions).toHaveLength(1);
     expect(feedback().interactions[0].dispatches).toBe(2);
+  });
+});
+
+describe("frames for one event (`InteractionRef.event`)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("are one record, joinable until the next task", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { interactionLog } = arm();
+    const [count, setCount] = createSignal(0, { name: "count" });
+    createRoot(() => createEffect(count, () => {}, { name: "reader" }));
+    flush();
+    const event = {};
+
+    OBSERVE!.attribution.withInteraction({ ...CLICK, event }, () => {});
+    flush();
+    // A later listener of the same dispatch, with a target described from
+    // where it listens: the first frame's description stands.
+    OBSERVE!.attribution.withInteraction({ type: "click", target: "a", event }, () => setCount(1));
+    flush();
+    expect(interactionLog()).toHaveLength(0);
+    expect(attribution.history("interaction")).toHaveLength(1);
+
+    vi.advanceTimersByTime(1);
+    const [e] = interactionLog();
+    expect(interactionLog()).toHaveLength(1);
+    expect(e).toMatchObject({ target: CLICK.target, writes: 1, runs: 1, outcome: "committed" });
+    expect(e.settledMs).toBeGreaterThanOrEqual(e.handlerMs);
+  });
+
+  it("open a fresh record once the event's frame was finalized", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { interactionLog } = arm();
+    const event = {};
+    OBSERVE!.attribution.withInteraction({ ...CLICK, event }, () => {});
+    vi.advanceTimersByTime(1);
+    OBSERVE!.attribution.withInteraction({ ...CLICK, event }, () => {});
+    vi.advanceTimersByTime(1);
+    expect(interactionLog()).toHaveLength(2);
+    expect(interactionLog().map(e => e.outcome)).toEqual(["idle", "idle"]);
+    expect(interactionLog()[0].origin).not.toBe(interactionLog()[1].origin);
+  });
+
+  it("wait for every listener's returned promise", async () => {
+    const { interactionLog } = arm();
+    const event = {};
+    let first!: () => void;
+    let second!: () => void;
+    OBSERVE!.attribution.withInteraction(
+      { ...CLICK, event },
+      () => new Promise<void>(r => (first = r))
+    );
+    OBSERVE!.attribution.withInteraction(
+      { ...CLICK, event },
+      () => new Promise<void>(r => (second = r))
+    );
+    await wait(5);
+    first();
+    await wait(5);
+    expect(interactionLog()).toHaveLength(0);
+    second();
+    await until(() => interactionLog().length === 1, "both continuations to settle the record");
+    expect(interactionLog()[0].continuationMs).toBeGreaterThanOrEqual(5);
+  });
+
+  it("leave a frame without one settling as it closes", () => {
+    const { interactionLog } = arm();
+    OBSERVE!.attribution.withInteraction(CLICK, () => {});
+    OBSERVE!.attribution.withInteraction(CLICK, () => {});
+    expect(interactionLog()).toHaveLength(2);
   });
 });
 

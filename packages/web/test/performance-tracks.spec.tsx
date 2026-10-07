@@ -63,6 +63,7 @@ afterEach(() => {
   for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   restorePerformance();
 });
@@ -304,6 +305,8 @@ describe("enablePerformanceTracks", () => {
   });
 
   test("click → write → memo → effect: one span per record, on the record's own clock", () => {
+    // A DOM event's interaction is recorded at the task after its dispatch.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { on } = measures();
     enable();
     const { reruns, interactions } = records();
@@ -333,6 +336,7 @@ describe("enablePerformanceTracks", () => {
     const clicked = clock.now();
     container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     flush();
+    vi.advanceTimersByTime(1);
 
     // The interaction: labelled by the shared formatter, start/end from the
     // record — the handler's 3ms, then the settle through the 5ms drain.
