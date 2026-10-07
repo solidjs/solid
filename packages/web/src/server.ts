@@ -1589,10 +1589,18 @@ interface TagInfo {
   textarea: boolean;
   raw: boolean;
 }
+// What ends a tag or attribute name in the HTML tokenizer (whitespace, `/`,
+// `>`, `=`), what it reports as an error inside one (quotes, `<`, NUL), and
+// the other control characters. A name containing none of them, and starting
+// with an ASCII letter for a tag, is read back as exactly that one name.
+const NOT_NAME = /[\0-\x20\x7F-\x9F"'<>/=]/;
+const TAG_START = /^[a-zA-Z]/;
 const tagInfos = /*#__PURE__*/ new Map<string, TagInfo>();
 function tagInfo(tag: string): TagInfo {
   let info = tagInfos.get(tag);
   if (info === undefined) {
+    if (!TAG_START.test(tag) || NOT_NAME.test(tag))
+      throw new Error(`"${tag}" is not a valid tag name`);
     info = {
       open: "<" + tag,
       close: "</" + tag + ">",
@@ -1604,17 +1612,19 @@ function tagInfo(tag: string): TagInfo {
   }
   return info;
 }
-// Attribute names a spread has already emitted unchanged. A spread's keys
-// are author-written names from a small vocabulary, repeated on every
-// element; `escape` runs a regex over each one every time, and a name that
-// escaped to itself once escapes to itself always. Names that DO escape are
-// never remembered, so a hit means "emit as is". Bounded like `tagInfos`.
+// Whether a spread key can be written as an attribute name: a runtime string
+// the parser would not read back as that one name is dropped, as the
+// client's setAttribute refuses it. Written as is otherwise — the tokenizer
+// decodes no character references in a name, so `&` stays `&`. A spread's
+// keys are author-written names from a small vocabulary, repeated on every
+// element, so the names that passed are remembered and a hit skips the
+// regex. Names that fail are never remembered. Bounded like `tagInfos`.
 const safeAttrNames = /*#__PURE__*/ new Set<string>();
-function attrName(prop: string): string {
-  if (safeAttrNames.has(prop)) return prop;
-  const escaped = escape(prop);
-  if (escaped === prop && safeAttrNames.size < 512) safeAttrNames.add(prop);
-  return escaped;
+function isAttrName(prop: string): boolean {
+  if (safeAttrNames.has(prop)) return true;
+  if (prop === "" || NOT_NAME.test(prop)) return false;
+  if (safeAttrNames.size < 512) safeAttrNames.add(prop);
+  return true;
 }
 // Fragment replacement helpers emitted into stream task scripts.
 //
@@ -4624,11 +4634,9 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       } else if (prop === "class") {
         result += ` class="${ssrClassName(value)}"`;
       } else if (typeof value === "boolean") {
-        if (!value) continue;
-        result += ` ${attrName(prop)}`;
-      } else {
-        result +=
-          value === "" ? ` ${attrName(prop)}` : ` ${attrName(prop)}="${escape(value, true)}"`;
+        if (value && isAttrName(prop)) result += ` ${prop}`;
+      } else if (isAttrName(prop)) {
+        result += value === "" ? ` ${prop}` : ` ${prop}="${escape(value, true)}"`;
       }
     }
   }
@@ -5041,6 +5049,7 @@ function eventPosition(prop) {
  * (spreadBehaviorMarkers).
  */
 function spreadBehaviorPosition(behaviors, prop, value, mode, index, settle) {
+  if (!isAttrName(prop)) return behaviors;
   const pos = prop === "ref" ? "ref" : eventPosition(prop);
   const entries = value == null ? "" : claimEntries(pos, value, mode);
   if (!settle) {
@@ -5174,8 +5183,9 @@ function spreadPropPosition(prop, value) {
  */
 function spreadObjectAttribute(prop, value) {
   if (prop === "style" || prop === "class") return slotClassOrStyle(prop, value);
-  if (value[SLOT_VALUE] !== undefined) return slotAttribute(attrName(prop), value);
-  return ` ${attrName(prop)}="${escape(value, true)}"`;
+  if (!isAttrName(prop)) return "";
+  if (value[SLOT_VALUE] !== undefined) return slotAttribute(prop, value);
+  return ` ${prop}="${escape(value, true)}"`;
 }
 
 /**

@@ -38,6 +38,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
+  CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_CHECK,
@@ -49,6 +50,7 @@ import {
   REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
   REACTIVE_PROBE_UNANSWERED,
+  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -74,6 +76,7 @@ import {
   ownFlights,
   passLane,
   question,
+  queuePendingNode,
   releaseQueues,
   reruns,
   resolveTx,
@@ -301,12 +304,13 @@ export function verdictLane(t: Transaction): Transaction {
  * the lane). A pass interrupted before it got there (pending, errored) did
  * not leave (A30: it never got there). A first pass under a lane is the
  * lane's (ruling A); a guess is written, not derived — it never leaves this
- * way. */
+ * way. `errored`: the pass has no answer — or, a lane pass's pending
+ * propagation (async.ts `propagateStatus`), the node gone pending. */
 export function laneStage(
   el: Computed<any>,
   l: Transaction,
   create: boolean,
-  errored: boolean
+  errored: boolean | Computed<any>
 ): boolean {
   if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
     if (el._x !== null) {
@@ -333,8 +337,25 @@ export function laneStage(
   // A leaf has no lane value to seat it (`recompute`): one left waiting on
   // the lane's flight runs its next pass as the lane's — the landing that
   // wakes it is the lane's re-staging (A31), and the lane holds its render
-  // effects until its derivations land (A17; #3766, F5).
-  else if (errored) el._flags |= REACTIVE_LANE_DIRTY;
+  // effects until its derivations land (A17; #3766, F5). Not a leaf whose
+  // seat is its frame's, reached by a propagation from a node the screen has
+  // a value of: one a transaction holds (born held — its frame waits on it,
+  // A29), or one whose own mainline pass is running (it pulled the node;
+  // `laneRead` decides — its frame holds). Its pending is the frame's: queued
+  // for the commit sweep as mainline's (async.ts). A node born in the lane
+  // has nothing on screen: its leaf waits as the lane's.
+  else if (errored) {
+    if (
+      errored !== true &&
+      !(errored._statusFlags & STATUS_UNINITIALIZED) &&
+      (el._config & CONFIG_HELD || el._flags & REACTIVE_RECOMPUTING_DEPS) &&
+      !el._x?._transaction?._lane
+    ) {
+      queuePendingNode(el);
+      return false;
+    }
+    el._flags |= REACTIVE_LANE_DIRTY;
+  }
   list(el, l);
   return true;
 }
@@ -433,14 +454,18 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
           );
       }
       // A derivation the revert re-derives (dirtied by the guess's
-      // notification — listed before it) shows the lane's answer beside
-      // inputs that are the truth now: a fresh reader of its flight observes
-      // it (#3648, #3651; #3305's commit beneath a flight).
+      // notification — listed before it), or one still in flight, shows the
+      // lane's answer beside inputs that are the truth now: a fresh reader
+      // of its flight observes it (#3648, #3651; #3305's commit beneath a
+      // flight).
       x._transaction = null;
       if (!effect && !guess) n._pendingValue = latest;
       commitPendingNode(n);
       if (!effect) {
-        if ((n as Computed<any>)._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK))
+        if (
+          (n as Computed<any>)._flags & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK) ||
+          (n as Computed<any>)._statusFlags & STATUS_PENDING
+        )
           n._config |= CONFIG_INPUTS_PUBLISHED;
         if (shown !== NOT_PENDING && (!n._equals || !n._equals(shown, n._value))) insertSubs(n);
       }
@@ -487,8 +512,10 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   // their derivations' values are the committed ones now, and a
   // re-derivation that lands on the same value notifies nobody (a mapArray
   // whose rows the lane pass already built). A never-shown lane's runs are
-  // void: nothing of it reached the screen.
-  if (into === null || l._shown) releaseQueues(l);
+  // void: nothing of it reached the screen. So are the runs a blocked lane
+  // parked: they show a re-guess the seam never revealed, beside derivations
+  // that keep what the screen showed.
+  if (into === null || (l._shown && !l._held)) releaseQueues(l);
   else l._queues[0].length = l._queues[1].length = 0;
 }
 
@@ -773,10 +800,16 @@ GlobalQueue._laneSeams = leaks => {
       const l = r._x?._transaction;
       // A verdict reader a later read of the same pass routed into a verdict
       // lane answered for itself: it re-derives at the holder's landing, not
-      // now (one run — #3322, #3540).
+      // now (one run — #3322, #3540). Other verdict-lane work re-derives only
+      // if the frame stays parked: a transaction landing at this seam makes
+      // what it read the screen (one run).
       if (
         r._flags & REACTIVE_DISPOSED ||
-        (l != null && l._parent?._verdict === l && !(r._flags & REACTIVE_PROBE_UNANSWERED))
+        (l != null &&
+          l._parent?._verdict === l &&
+          (r._config & CONFIG_VERDICT
+            ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
+            : !blocked(l._parent)))
       )
         continue;
       enqueueSub(r);
