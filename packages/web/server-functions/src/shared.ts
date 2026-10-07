@@ -1216,19 +1216,13 @@ const CHUNK_ENCODER = /* @__PURE__ */ new TextEncoder();
 const CHUNK_DECODER = /* @__PURE__ */ new TextDecoder("utf-8", { fatal: true });
 const MAX_CHUNK_BYTES = 0xffffffff;
 // A store over this size is shrunk to its unread bytes after each frame (see
-// `releaseStore`). A store at or under it is kept as is.
+// the end of `ChunkReader.next`). A store at or under it is kept as is.
 const RETAINED_STORE_BYTES = 64 * 1024;
+
+const DONE = { done: true, value: undefined };
 
 function malformedStream() {
   return new Error("Malformed server function stream.");
-}
-
-/** The value of one ASCII hex digit, or -1. */
-function hexDigit(byte) {
-  if (byte >= 0x30 && byte <= 0x39) return byte - 0x30;
-  if (byte >= 0x61 && byte <= 0x66) return byte - 0x57;
-  if (byte >= 0x41 && byte <= 0x46) return byte - 0x37;
-  return -1;
 }
 
 export class ChunkReader {
@@ -1244,11 +1238,12 @@ export class ChunkReader {
     this.cancelled = false;
   }
 
+  /** Reads once into the buffer; answers whether the reader was cancelled. */
   async readChunk() {
     const chunk = await this.reader.read();
     if (chunk.done) {
       this.done = true;
-      return;
+      return this.cancelled;
     }
     // Amortized growth (#3154). Reallocating the whole buffer per network
     // read made one frame O(reads²): a 1 MiB argument payload delivered at
@@ -1280,6 +1275,7 @@ export class ChunkReader {
       this.store = grown;
       this.buffer = grown.subarray(0, needed);
     }
+    return this.cancelled;
   }
 
   async next() {
@@ -1288,7 +1284,7 @@ export class ChunkReader {
     // precisely so its later chunks are not applied. The check repeats after
     // every read below, because `cancel()` can run while a read is pending,
     // or after one has already resolved with data.
-    if (this.cancelled) return { done: true, value: undefined };
+    if (this.cancelled) return DONE;
     // A network read boundary can land anywhere — inside the 12-byte header
     // just as easily as inside a payload — so buffer until the whole header
     // is present before parsing it. Parsing a truncated header used to
@@ -1296,32 +1292,23 @@ export class ChunkReader {
     // frame, which no localhost test ever produces.
     while (this.buffer.length < 12) {
       if (this.done) {
-        if (this.buffer.length === 0) return { done: true, value: undefined };
+        if (this.buffer.length === 0) return DONE;
         throw malformedStream();
       }
-      await this.readChunk();
-      if (this.cancelled) return { done: true, value: undefined };
+      if (await this.readChunk()) return DONE;
     }
     // `;0x00000000;`, exactly: the delimiters, the `0x`, then 8 hex digits
     // naming how many payload bytes to wait for. `parseInt` used to accept
     // any 10 bytes it could read a number from, so a header with the wrong
     // delimiters or trailing junk (`;0x5zzzzzzz;`) decoded as a real frame.
-    const header = this.buffer;
-    if (header[0] !== 0x3b || header[1] !== 0x30 || header[2] !== 0x78 || header[11] !== 0x3b) {
-      throw malformedStream();
-    }
-    let bytes = 0;
-    for (let i = 3; i < 11; i++) {
-      const digit = hexDigit(header[i]);
-      if (digit < 0) throw malformedStream();
-      bytes = bytes * 16 + digit;
-    }
+    const header = String.fromCharCode(...this.buffer.subarray(0, 12));
+    if (!/^;0x[\dA-Fa-f]{8};$/.test(header)) throw malformedStream();
+    const bytes = parseInt(header.slice(3, 11), 16);
     while (bytes > this.buffer.length - 12) {
       if (this.done) {
         throw malformedStream();
       }
-      await this.readChunk();
-      if (this.cancelled) return { done: true, value: undefined };
+      if (await this.readChunk()) return DONE;
     }
     let partial;
     try {
@@ -1330,34 +1317,23 @@ export class ChunkReader {
       throw malformedStream();
     }
     this.buffer = this.buffer.subarray(12 + bytes);
-    this.releaseStore();
+    // Shrink an oversized store to the bytes still unread, after each frame.
+    // Without this, the doubled allocation from one large frame was kept
+    // until the stream ended. For a live source or a frames connection, that
+    // can be as long as the page is open.
+    //
+    // The rule looks only at what is left to read, so a connection that goes
+    // idle right after a large frame releases it at once. The cost is that a
+    // steady stream of frames over 64 KiB regrows its store for each one.
+    // That is a few doubling allocations per frame, small next to decoding
+    // the frame. Frames under 64 KiB never trigger it, so the #3154 steady
+    // state for small frames is unchanged. Unread bytes (the next frame's,
+    // arriving with this one) are copied over only up to 64 KiB, which is
+    // still far cheaper than keeping the large store.
+    if (this.store.length > RETAINED_STORE_BYTES && this.buffer.length <= RETAINED_STORE_BYTES) {
+      this.store = this.buffer = this.buffer.slice();
+    }
     return { done: false, value: partial };
-  }
-
-  /**
-   * Shrinks an oversized store to the bytes still unread, after each frame.
-   * Without this, the doubled allocation from one large frame was kept until
-   * the stream ended. For a live source or a frames connection, that can be
-   * as long as the page is open.
-   *
-   * The rule looks only at what is left to read, so a connection that goes
-   * idle right after a large frame releases it at once. The cost is that a
-   * steady stream of frames over 64 KiB regrows its store for each one. That
-   * is a few doubling allocations per frame, small next to decoding the
-   * frame. Frames under 64 KiB never trigger it, so the #3154 steady state
-   * for small frames is unchanged.
-   */
-  releaseStore() {
-    if (this.store.length <= RETAINED_STORE_BYTES) return;
-    const unread = this.buffer.length;
-    // Bytes of the next frame that arrived with this one. Copying up to 64
-    // KiB of them into a fresh store is still far cheaper than keeping the
-    // large one.
-    if (unread > RETAINED_STORE_BYTES) return;
-    const kept = new Uint8Array(unread);
-    kept.set(this.buffer);
-    this.store = kept;
-    this.buffer = kept;
   }
 
   async drain(interpret) {
@@ -1715,91 +1691,77 @@ export async function deserializeStream(source, codecOptions, wire) {
   // When the first frame fails, nothing will read the rest of the body, so
   // it is cancelled rather than left locked and unread. Once the drain below
   // is running, the same cancel also ends it.
-  const abandon = error => {
-    try {
-      const cancelled = reader.cancel(error);
-      if (cancelled && typeof cancelled.then === "function") cancelled.then(undefined, () => {});
-    } catch {}
-  };
-  let result;
   try {
-    result = await reader.next();
+    const result = await reader.next();
+    if (!result.done) {
+      // An error trailer as the FIRST frame is the whole answer: encoding
+      // failed before any value was delivered, and the failure is the result
+      // (#3117). Thrown here so the caller sees a failed call, never a void
+      // success.
+      if (result.value.startsWith(ERROR_TRAILER_PREFIX)) {
+        throw errorFromTrailer(result.value);
+      }
+      // The codec's decode half loads here — when a Serialized body has
+      // actually arrived — so a client whose responses all ride the JSON fast
+      // path never pays for it (see the loading notes at the top). The
+      // decode-only module: reading a payload never needs the encode half
+      // (that loads separately, when rich arguments serialize).
+      const { createJSONDeserializer } =
+        await import("../../serialization/src/serializer-decode.js");
+      // Cross-references between chunks resolve through state inside the
+      // deserializer, so one instance handles the whole stream.
+      const deserializeChunk = createJSONDeserializer(codecOptions);
+
+      function interpretChunk(chunk) {
+        // Mid-stream, the trailer means a LATER value's encoding failed: the
+        // resolved head keeps its data, and the throw below rejects the drain,
+        // whose abort sweep fails every still-pending async value with the
+        // carried reason instead of a generic truncation error (#3117).
+        if (chunk.startsWith(ERROR_TRAILER_PREFIX)) {
+          throw errorFromTrailer(chunk);
+        }
+        return deserializeChunk(JSON.parse(chunk));
+      }
+
+      // Failure wiring for the drain: a network drop or malformed frame must
+      // fail every value still waiting on later chunks — otherwise their
+      // promises hang forever and open streams never terminate (and the drain
+      // rejection itself goes unhandled). Normal completion runs the same
+      // sweep: on a well-formed stream every value has already settled and the
+      // sweep no-ops, while a truncation that lands exactly on a frame
+      // boundary — indistinguishable from completion — leaves stranded values
+      // that can never settle once the body is done.
+      //
+      // A live loop (`wire`) is told instead of swept: the body's end is the
+      // connection's lifetime signal — a death when deferreds are still open,
+      // a completion when none are — and the loop decides what happens to the
+      // open ones. A death it will reconnect from leaves them pending (the
+      // re-yielded answer supersedes them; throwing into them would surface
+      // the death the loop exists to erase). An iteration ending for good
+      // settles them by how it ended: `sweep` fails them (ended by error),
+      // `close` completes the streams and leaves promises pending (ended by
+      // the consumer or by completion) — see the loop's emitClosed.
+      const connection = wire && wire.connection;
+      let endConnection;
+      if (connection) connection.ended = new Promise(resolve => (endConnection = resolve));
+      const end = error => {
+        const sweep = () => deserializeChunk.abort(error);
+        if (connection) {
+          const close = () => deserializeChunk.close();
+          endConnection({ open: deserializeChunk.open(), error, sweep, close });
+        } else sweep();
+      };
+      reader.drain(interpretChunk).then(
+        () => end(new Error("Server function stream ended unexpectedly.")),
+        error => end(error)
+      );
+
+      return interpretChunk(result.value);
+    }
   } catch (error) {
-    abandon(error);
+    reader.cancel(error).catch(() => {});
     throw error;
   }
-  if (!result.done) {
-    // An error trailer as the FIRST frame is the whole answer: encoding
-    // failed before any value was delivered, and the failure is the result
-    // (#3117). Thrown here so the caller sees a failed call, never a void
-    // success.
-    if (result.value.startsWith(ERROR_TRAILER_PREFIX)) {
-      const error = errorFromTrailer(result.value);
-      abandon(error);
-      throw error;
-    }
-    // The codec's decode half loads here — when a Serialized body has
-    // actually arrived — so a client whose responses all ride the JSON fast
-    // path never pays for it (see the loading notes at the top). The
-    // decode-only module: reading a payload never needs the encode half
-    // (that loads separately, when rich arguments serialize).
-    const { createJSONDeserializer } = await import("../../serialization/src/serializer-decode.js");
-    // Cross-references between chunks resolve through state inside the
-    // deserializer, so one instance handles the whole stream.
-    const deserializeChunk = createJSONDeserializer(codecOptions);
-
-    function interpretChunk(chunk) {
-      // Mid-stream, the trailer means a LATER value's encoding failed: the
-      // resolved head keeps its data, and the throw below rejects the drain,
-      // whose abort sweep fails every still-pending async value with the
-      // carried reason instead of a generic truncation error (#3117).
-      if (chunk.startsWith(ERROR_TRAILER_PREFIX)) {
-        throw errorFromTrailer(chunk);
-      }
-      return deserializeChunk(JSON.parse(chunk));
-    }
-
-    // Failure wiring for the drain: a network drop or malformed frame must
-    // fail every value still waiting on later chunks — otherwise their
-    // promises hang forever and open streams never terminate (and the drain
-    // rejection itself goes unhandled). Normal completion runs the same
-    // sweep: on a well-formed stream every value has already settled and the
-    // sweep no-ops, while a truncation that lands exactly on a frame
-    // boundary — indistinguishable from completion — leaves stranded values
-    // that can never settle once the body is done.
-    //
-    // A live loop (`wire`) is told instead of swept: the body's end is the
-    // connection's lifetime signal — a death when deferreds are still open,
-    // a completion when none are — and the loop decides what happens to the
-    // open ones. A death it will reconnect from leaves them pending (the
-    // re-yielded answer supersedes them; throwing into them would surface
-    // the death the loop exists to erase). An iteration ending for good
-    // settles them by how it ended: `sweep` fails them (ended by error),
-    // `close` completes the streams and leaves promises pending (ended by
-    // the consumer or by completion) — see the loop's emitClosed.
-    const connection = wire && wire.connection;
-    let endConnection;
-    if (connection) connection.ended = new Promise(resolve => (endConnection = resolve));
-    const end = error => {
-      const sweep = () => deserializeChunk.abort(error);
-      if (connection) {
-        const close = () => deserializeChunk.close();
-        endConnection({ open: deserializeChunk.open(), error, sweep, close });
-      } else sweep();
-    };
-    reader.drain(interpretChunk).then(
-      () => end(new Error("Server function stream ended unexpectedly.")),
-      error => end(error)
-    );
-
-    try {
-      return interpretChunk(result.value);
-    } catch (error) {
-      abandon(error);
-      throw error;
-    }
-  }
-  return undefined;
 } /**
  * `deserializeStream` for an already-buffered string.
  *
