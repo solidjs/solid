@@ -178,6 +178,14 @@ export const CONFIG_PLUMBING = 1 << 25;
  * does not. Set from the internal `_wide` option at creation by dev builds only
  * (the observe artifact mangles the option name, as it does `_plumbing`). */
 export const CONFIG_WIDE = 1 << 26;
+/** Observe tiers only: a framework async node that supersedes its own flights
+ * by design (`@solidjs/web/frames`' per-key slot-arg memo, re-run by every
+ * re-shipped record while the arg is still pending) — the attribution
+ * engine's ABANDONED_FLIGHTS skips it; its flight records and the feedback
+ * fold's counts are unchanged. Set from the internal `_supersedes` option at
+ * creation by dev builds only (the observe artifact mangles the option name,
+ * as it does `_wide`). */
+export const CONFIG_SUPERSEDES = 1 << 27;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;

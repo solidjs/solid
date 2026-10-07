@@ -10,6 +10,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_PLUMBING,
   CONFIG_WIDE,
+  CONFIG_SUPERSEDES,
   CONFIG_VERDICT,
   NOT_PENDING
 } from "./constants.js";
@@ -546,7 +547,9 @@ export interface AttributionOptions {
    * abandons `count` flights within `windowMs` — each superseded by the
    * next before it landed (default 3 / 1000ms: the request-per-keystroke
    * signature, every input asking again and the answers discarded). Once
-   * per window per source. `false` disables.
+   * per window per source. In dev builds a framework node that supersedes
+   * its own flights by design (a frames slot arg re-read by each re-shipped
+   * record) is not judged. `false` disables.
    */
   abandonedFlights?: { count: number; windowMs: number } | false;
   /**
@@ -3241,11 +3244,14 @@ const abandonWindows = new WeakMap<
  * One source abandoning flight after flight inside a window: every input
  * asked again and the earlier answers were thrown away — the
  * request-per-keystroke signature `feedback().flights[].abandoned` counts,
- * as a finding while it happens. Warned once per window per source.
+ * as a finding while it happens. Warned once per window per source. A
+ * framework node superseding its own flights by design (CONFIG_SUPERSEDES)
+ * is not judged; its flights are still recorded.
  */
 function checkAbandonedFlights(el: Computed<any>, abandoned: LiveFlight): void {
   const cfg = options.abandonedFlights;
-  if (cfg === false || excludedNode(el)) return;
+  // Only dev sets CONFIG_SUPERSEDES (see constants.ts).
+  if (cfg === false || (__DEV__ && el._config & CONFIG_SUPERSEDES) || excludedNode(el)) return;
   const at = Date.now();
   let win = abandonWindows.get(el);
   if (win === undefined || at - win.start > cfg.windowMs) {

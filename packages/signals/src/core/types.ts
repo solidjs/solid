@@ -39,6 +39,10 @@ export interface NodeOptions<T> {
    * WIDE_SCOPE_DEPS, never from HUGE_FAN_IN (internal — not part of public
    * API; see CONFIG_WIDE). */
   _wide?: boolean;
+  /** Observe tiers: a framework async node that supersedes its own flights by
+   * design — exempt from ABANDONED_FLIGHTS (internal — not part of public
+   * API; see CONFIG_SUPERSEDES). */
+  _supersedes?: boolean;
   unobserved?: () => void;
   lazy?: boolean;
   sync?: boolean;
