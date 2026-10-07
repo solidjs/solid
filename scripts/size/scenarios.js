@@ -3122,8 +3122,17 @@ module.exports = [
     // used up by earlier growth on `next` (#3850's dev-cost checks among
     // it), and the brotli move is layout. Cap set at measured + 10 B
     // rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07.
-    limit: "28.70 KB",
-    capMinified: 86441,
+    // Size-Exception (one interaction frame per event, #3877, 2026-10-07):
+    // 28.70 -> 28.82 KB, measured at 28,804 B by CI (Size run 37674837403)
+    // against `next` @ 3c1d51267's 28,651 (+153 B; +300 B minified, 86,473 ->
+    // 86,773; recorded 86,441 -> 86,773). The engine's per-event join: frames
+    // with the same `InteractionRef.event` re-enter one record, which stays
+    // joinable until the next task and settles at the instant it would have.
+    // Engine-only: every prod scenario byte-identical, the observe tier
+    // scenario above moved -7 B. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    limit: "28.82 KB",
+    capMinified: 86773,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
