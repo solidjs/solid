@@ -395,41 +395,27 @@ export function hasFlightMetadata(response) {
  * awaited sequentially so caches are seeded before the caller sees the
  * value. Pending entries in the slices (values the collector folded while
  * still in flight, streamed after the response head) are settled before
- * any consumer runs. A consumer whose source was not folded is skipped — unless the
- * response carries integration metadata, in which case it runs with `data`
- * `undefined` to apply the metadata. Consumers are looked up per delivery:
- * an awaited consumer may unsubscribe another (a provider tearing down
- * under a navigation).
+ * any consumer runs. A consumer whose source was not folded is skipped —
+ * unless the response carries integration metadata, in which case it runs
+ * with `data` `undefined` to apply the metadata. Consumers are looked up
+ * per delivery: an awaited consumer may unsubscribe another (a provider
+ * tearing down under a navigation).
  *
  * Transport building block; not meant for hand-written code.
  * @internal
  */
 export function deliverFlightData(response: Response, data: unknown): Promise<void>;
 
-// A collector may fold values that are still pending — the router's
-// collector returns its preloads' `query` promises as they stand — and the
-// codec streams those after the response head. The body decode resolves on
-// the first chunk, so without this the consumers (and through them the
-// caller) would see the envelope before the refreshed data exists: a router
-// action settles, clears its busy state and runs `onSettled` a full
-// round-trip-of-the-collector early, with the old UI still on screen. Wait
-// for every pending entry first; `allSettled`, because a failed read
-// belongs to the cache entry it seeds, not to the mutation that carried it.
-function settleFlightSlices(data) {
-  if (!data || typeof data !== "object") return;
-  const pending = [];
-  for (const slice of Object.values(data)) {
-    if (!slice || typeof slice !== "object") continue;
-    for (const entry of Object.values(slice)) {
-      if (entry && typeof entry.then === "function") pending.push(entry);
-    }
-  }
-  return pending.length ? Promise.allSettled(pending) : undefined;
-}
-
 /** Delivers each consumer its slice of a single-flight envelope's `data`. */
 export async function deliverFlightData(response, data) {
-  await settleFlightSlices(data);
+  // The body decode resolves on the first chunk, while values a collector
+  // folded still pending (the router's preload `query` promises) stream
+  // after it. `allSettled`: a failed read belongs to the cache entry it
+  // seeds, not to the mutation that carried it.
+  if (data)
+    await Promise.allSettled(
+      Object.values(data).flatMap(s => (s && typeof s == "object" ? Object.values(s) : []))
+    );
   // An absent header splits to [""], which names no source (ids are never
   // empty — see assertFlightSource), so no consumer matches it.
   const folded = (response.headers.get(SINGLE_FLIGHT_HEADER) || "").split(",");
