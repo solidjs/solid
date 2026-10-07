@@ -65,22 +65,32 @@ named `c<nn>-<slug>.spec.tsx`; each test title names its arm.
 
 Every server-rendered node inside a frame's content is, by quiescence,
 either claimed exactly once (by the hydrate pass or by the fill that owns its
-range) or removed by a deliberate replacement — never claimed by two passes,
-never left in the document beside a fresh clone of itself; a boundary element
-is adopted by at most one frame.
+range) or — when the fill's render did not claim it — left as the server
+rendered it and reported as unclaimed (the core's hydration-mismatch rule:
+a claim pass moves nothing) — never claimed by two passes, never left in the
+document beside a fresh clone of itself; a boundary element is adopted by at
+most one frame. _(Until residue step 3 the second arm read "or removed by a
+deliberate replacement": the frame placed a fill's output itself and
+replaced the range when the output was not in place. Every fill is placed by
+`insert` now, so the frames rule IS the core's.)_
 
 - **Mechanism:** `frames/src/client.ts:claimRender` (the claim window —
   `sharedConfig.hydrateWindow`, the re-entry a streamed boundary's resume
   takes: the range's keys gathered by the producer prefix into the registry
   of the root the frame adopted under; A2b replaced the range-scoped
-  registry handed over from the root registry), `client.ts:slotsFor.settle`
-  (the in-place check that turns a render into a claim),
-  `frame-client.ts:FrameImpl.#replaceRange`, `client.ts:adoptBoundary` +
+  registry handed over from the root registry — one gather per fill: the
+  window that places the output gathers nothing, so the keys the evaluation
+  claimed are not put back), `client.ts:slotsFor`'s `insert` of the fill's
+  output inside that window (`web/src/client.ts:insertExpression`'s claim
+  pass: in-place output is a claim, a render whose nodes never entered the
+  DOM leaves the server's in place), `client.ts:adoptBoundary` +
   `claimedBoundaries` (one adopter per element), `client.ts:documentBoundary`
   (a second mount goes fresh).
 - **Pin:** `c01-claim-once.spec.tsx` — arms: (a) two occurrences claim once
   each with no key miss and node identity preserved; (b) a fill that returns
-  fresh nodes replaces, leaving no server node of the range behind; (c) a
+  fresh nodes at the claim is a hydration mismatch — the server node stays,
+  nothing is duplicated, hydration reports it unclaimed (re-pinned in
+  residue step 3; it asserted the frame's replacement before); (c) a
   second mount of the same function while the first adopted mounts fresh and
   the adopted element is untouched. `c01-claim-window-roots.spec.tsx` (A2b):
   a claim the frame makes after another `hydrate()` root replaced the live
@@ -430,7 +440,7 @@ address's late chunks never release it.
 
 | #   | invariant                          | mechanism (carrier)                                                    | pin                               | `next`            |
 | --- | ---------------------------------- | ---------------------------------------------------------------------- | --------------------------------- | ----------------- |
-| C1  | claim once / replace / one adopter | `claimRender`, `slotsFor.settle`, `#replaceRange`, `claimedBoundaries` | `c01-claim-once`                  | holds             |
+| C1  | claim once / mismatch stays / one adopter | `claimRender`, `slotsFor`'s `insert` (the core's claim pass), `claimedBoundaries` | `c01-claim-once`                  | holds             |
 | C2  | no inert server content            | `#syncSlots`, `adoptBoundary` reveal cascade                           | `c02-revealed-occurrence-mounts`  | **red** (a2, b)   |
 | C3  | done counts every hold             | `_pendingBoundaries` vs `#recordRefresh`/`#refsUnresolved`             | `c03-hydration-done-counts-holds` | **red** (a)       |
 | C4  | record applies once, any order     | `drainRecords`, `write`, `argsEquivalent`, `#appliedHoles`             | `c04-record-applies-once`         | **red** (d)       |

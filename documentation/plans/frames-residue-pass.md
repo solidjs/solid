@@ -48,7 +48,15 @@ token kept and the carrier built honestly on the edited dist — per-store
 staging, a lane-correct read, the flight path, nested regions, the commit's
 landing / L1 semantics the chunk replay got for free — it measures **+1,414
 min / +483 br over the −546 ceiling: net −63 br**, against the +242 budget
-and the −300 target. §3.1 "As measured" has the attribution; §7 the row._
+and the −300 target. §3.1 "As measured" has the attribution; §7 the row.
+**Residue step 3 landed** (`size/frames-residue-3-insert`, on step 2's head):
+R.insert — every fill through `insert`, the frame runtime's own range
+writer and its never-used comment-marker range mode deleted — **frames
+eager 11,654 → 11,367 br (−978 min / −287 br)**, more than the row's −207
+because the dead range mode (−196 / −67 alone) went with it; see §7c for
+the measured → built table, the `Slot` contract change and the one pin
+re-pinned (C1 (b): the frames rule for a fill that does not claim is now
+the core's mismatch rule)._
 
 ---
 
@@ -229,7 +237,7 @@ pattern every tier in #3860 showed).
 | 2f | the imperative branch of `#revealSegment` | D | −121 / −27 | −65 | −54 | 0 | −27 | **public surface**: `FrameOptions.reveal` is optional on `createFrame` / `createFrameElement` (`@experimental`) — the branch is reachable from a consumer that passes none; a documented "reveal is required" or a default seam |
 | 2g | `showing`'s `COMPONENT_BINDING` brand | D | −96 / −22 | −3 | −22 | 0 | −22 | **behaviour**: a cache-seeded reader at t = 0 whose site later switches calls would remount instead of delivering through `dynamic`'s equals-gate; the adopted-switch pins (`c17` (b), the notes-search shape) to check |
 | **2** | **the D list, together** (2a–2g) | D | **−1,004 / −300** | −289 | −305 | 0 … +60 | **−300 … −240** | the sum of the above |
-| 3 | **R.insert** — every fill through `insert`: `normalizeSlotContent`, `isReactiveContent`, `settle`, `#replaceRange` go; the reactive branch is the only branch | R.insert | **−713 / −207** | −158 | −193 | ≈ 0 (`insert` is already the reactive branch's call) | **−207** | **public surface**: the marker-less `createFrame` consumer path (`client.ts` "No range handle … degrade to the snapshot") needs an anchor or a documented removal (re-attribution §5.3 item 5); behaviour: a static fill is an `insert` of a non-function value (no effect created — `insertExpression` with no render effect) |
+| 3 | **R.insert** — every fill through `insert`: `normalizeSlotContent`, `isReactiveContent`, `settle`, `#replaceRange` go; the reactive branch is the only branch | R.insert | **−713 / −207** → **built −978 / −287** (step 3, §7c: the ceiling re-measured on step 2's head −769 / −230; the dead comment-marker range mode of `FrameImpl` −196 / −67 taken with it) | −158 | −193 | ≈ 0 (`insert` is already the reactive branch's call) — built: +10 min / +14 br (the no-gather flag on the second claim window, the transparent owner) | **−287** (built) | **landed (2026-10-06)**. **Public surface**: `Slot`'s return is no longer read — a callback owns its range through `ctx.range` (§7c); the no-range snapshot fallback is removed (a range without its end marker is left as the server rendered it). **Behaviour**: a static fill is an `insert` of a non-function value (no effect created); a fill that does not claim at t=0 is the core's hydration mismatch (C1 (b) re-pinned), not a frame-side replacement |
 | 4a | the fallback pass of `#revealSegments` + `#showFallback` | R.reveal | −330 / −79 | −110 | −117 | DR-4 2c (the document fragment as a store write — "its own plan, ≈ 1.3 KB on whichever side goes") | **−79** only under DR-4 | **design**: what `$dfl` does for the document face; C8, C14 (c), the lifecycle matrix's fallback rows |
 | 4b | the style gate (C5's reveal-readiness term) | F.assets glue | −115 / −25 | −89 | −83 | — | **not deletable** | `tier-assets-ready` ×5 red: the FOUC guard |
 | 5a | `FRAME_HAVE_HEADER` / `FRAME_HAVE_BUDGET` off the client entry's export list | F.wire | −64 / −28 | 0 | 0 | 0 | −28 | **public surface**: two exported constants leave the eager entry (C2's `lean` keeps + re-exports them at +45 br; the tier would import them from the sf client or carry its own copy). The pages already tree-shake them — the cost is the frames scenario's whole-entry measurement |
@@ -537,7 +545,7 @@ still has to pay; the "built" column subtracts it.
 | 1 | **C6** bind tier (`tight-nopair`, in flight) | −1,243 | **11,840** | 0 (C6's glue is in) | 11,840 | 11,548 | C6's pins; `tier-bind-hold`; the click-replay finding (C6 P1) |
 | 2 | **the D list** (2a–2g) + the s / v stamp (10) + the nested marking (8a) + `FRAME_HAVE_*` off the entry (5a) | −349 | **11,491** | +10 (`readHydratedValue` export); the mirror's server half is output, not client bytes | 11,501 | 11,209 | 2a / 2b need the server to emit the bootstrap unconditionally; 2f / 5a / 10 are public-surface items; 2d / 2g are behaviour changes |
 | 3 | **the `preview` pull form** (1c; carrier sketched **and measured in the row**) | −277 → **−63 as designed** (step 2: the sketch's carrier was unsound and half-counted; §3.1 "As measured") | **11,214** (≈ 11,430 with the honest carrier) | 0 | 11,224 (≈ 11,440) | 10,932 (≈ 11,150) | **stopped** (carrier +483 > +300); C15 ×4, optimistic-hold ×3, morph-in-transition ×3 |
-| 4 | **R.insert** — every fill through `insert` (3) | −196 | **11,018** | 0 | 11,028 | 10,736 | public surface: the marker-less `createFrame` path |
+| 4 | **R.insert** — every fill through `insert` (3) | −196 → **−287 built** (step 3; with the dead range mode) | **11,018** (built: 11,654 → **11,367**, row 3 not taken) | 0 | 11,028 | 10,736 | **landed** (§7c): `Slot` owns its range; C1 (b) re-pinned to the core's rule |
 | 5 | the fallback pass (4a) | −75 | 10,943 | DR-4 (its own plan) | — | — | **not recommended** (§3.4); kept to show it does not matter — the rows below are measured **without** it where marked |
 | 6 | **the lean re-ask** (6b) | −78 | **10,865** (10,940 without row 5) | pages +30 | 10,950 | 10,658 | **design** §3.3 (sf client ctx) |
 | 7 | **S-ref's pending read to the table** (12, ceiling) | −289 | **10,576** (≈ 10,637 without row 5) | **+40** frames; decode chunk +≈ 120 min lazy | ≈ 10,687 | ≈ 10,395 | **design** §3.2; C5 ×3, C6 (a1) |
@@ -608,7 +616,13 @@ two seeds clean):
    cannot go (it is the delivery), the honest carrier is +483 br over the
    −546 ceiling, net −63; not recommended at that price.
 4. **R.insert** (−196) with the marker-less `createFrame` path ruled (an
-   anchor requirement on `createFrame`, documented).
+   anchor requirement on `createFrame`, documented). **Landed as residue
+   step 3 (§7c): −287 built** — the no-range fallback removed (a range
+   without its end marker is left as rendered), the `Slot` contract made
+   "the fill owns its range", the runtime's dead comment-marker range mode
+   deleted with it (the frame element IS the range); C1 (b) re-pinned to
+   the core's mismatch rule — the one ruling the step took, flagged in the
+   PR.
 5. **S-ref to the table** (§3.2; ≈ −250 built) — a decode-chunk change plus
    a host simplification; worth it on its own terms (the pending read lives
    where the keys live).
@@ -739,6 +753,93 @@ What this changes in the path (§4): row 3's −277 becomes ≈ −60 as a sound
 build, so the residue proper (rows 2–4, 6) stalls ≈ 215 B higher than §4
 says; crossing 10.0 still needs C1 and the claims chunk, with ≈ 120 B of
 margin instead of ≈ 330. The push form stays, as #3844 left it.
+
+## 7c. Landed — residue step 3 (2026-10-06): R.insert, every fill through `insert`
+
+Branch `size/frames-residue-3-insert` on step 2's head (`f12708386`, frames
+eager **35,250 / 11,654**; page base 114,422 / 36,488; live 126,294 /
+40,125). §5 row 4. Measured before writing on an edited dist copy through
+the harness's bundler (§0's method; `.wt-logs/res3-edit.mjs`,
+`res3-measure.mjs`): the ceiling, then the carrier as the step would write
+it, in two forms — with the frame runtime's range writer kept for the raw
+`Slot` contract, and without it. min / br; the four non-SC scenarios 0 / 0
+on every row.
+
+| edited dist | frames eager Δ | page base / live Δ br | note |
+| --- | ---: | ---: | --- |
+| the ceiling (§2 row 3's cut re-applied: `normalizeSlotContent`, `isReactiveContent`, `settle`, the no-range fallback, `#replaceRange` + its two call sites) | **−769 / −230** | −195 / −172 | the row measured −713 / −207 on #3860's head |
+| the carrier, `#replaceRange` KEPT (the raw `Slot` "return nodes" contract preserved; one `insert(end.parentNode, value, end, [...existing])`; a range without an end marker left as rendered) | −600 / −160 | −185 / −166 | compatibility costs **69 br** |
+| the carrier, `#replaceRange` gone (the `Slot` callback owns its range) | **−791 / −229** | −233 / −210 | |
+| the dead comment-marker range mode of `FrameImpl` alone (`#start` / `#end` null on both constructors; `#parent`, `#firstContent`, `#clearContent`, the `end` bounds passed as null) | −196 / −67 | −3 / −99 | not in §2 — found while making "the frame element is the range" literal |
+| **the carrier without `#replaceRange` + the range mode, one copy** | **−988 / −301** | −268 / −247 | |
+| **built** | **−978 / −287 → 34,272 / 11,367** | **−217 / −221** → 113,443 / 36,271 and 125,315 / 39,904 | +10 min / +14 br over the copy: the no-gather flag on the fill's second claim window and the transparent binding owner (below) |
+
+**What `insert` now owns.** Every fill of the Solid binding is
+`insert(end.parentNode, value, end, [...ctx.existing])` under the fill's
+owner (its own for a stream-mounted fill; a transparent owner minted for a
+live-render one, registered in `fillScopes` so a re-call disposes the
+previous binding before the next renders). A static value is placed once
+with no effect (`insertExpression` with no render effect); a reactive one
+binds the range as before; a stream re-call reconciles the new output
+against the previous (`existing` seeds the tracked array); an adopted fill
+places inside a claim window, so `insertExpression`'s claim pass carries
+the claim: in-place output moves nothing, and a render whose nodes never
+entered the DOM is the core's hydration mismatch — the server's nodes stay,
+hydration reports them unclaimed. Deleted: `normalizeSlotContent` (274),
+`isReactiveContent` (111), `settle` (the in-place test with its `contains`
+lenience), the no-range snapshot fallback, `#replaceRange` (94) and the
+returned-nodes path (`#invokeSlot`'s return, the two `#syncSlots` sites,
+`regions.bind`'s `start` re-scan), and the runtime's comment-marker range
+mode — `FrameImpl(element, options)`; the frame element IS the range.
+
+**Two things the build found that the edit could not.** (i) The fill's
+second claim window (the one around the `insert`) must **not gather**: the
+first window's gather is still in the registry, and gathering the prefix
+again put every key the evaluation had just claimed back as unclaimed —
+20 hydrate files red with "unclaimed server-rendered node" until
+`claimRender` took a `bound` flag (the reactive path had the same latent
+re-gather; it was masked because its content claims inside the second
+window). (ii) The minted binding owner must be **transparent**: a
+non-transparent `createOwner()` inside the hydrate pass consumes a child id
+from the adopting component's counter, so a keyed sibling after the frame
+keyed differently depending on whether a fill mounted at t=0 or after a
+hold (`container-trace-hold-id-determinism` — '4' vs '6'). The reactive
+path's old `createOwner()` had this consumption too; it is gone for every
+fill now.
+
+**The one pin re-pinned — a ruling for the maintainer.** `c01-claim-once`
+(b) asserted that a fill answering the t=0 claim with FRESH nodes (built
+outside the claim walk) is replaced into the range by the frame — the
+server node leaves the document. That was `settle` + `#replaceRange`'s
+rule, and it is exactly what R.insert deletes: under `insert`, a claim pass
+moves nothing, so the fresh render is dropped, the server node stays, and
+hydration reports it unclaimed — the rule every compiled hole already has.
+Arm (b) now pins that (the server node stays, nothing duplicated, one
+"unclaimed" warning naming `sc-<fid>-item#1-`), the contract's C1 text
+reads "left as the server rendered it and reported" for the second arm,
+and the PR names it first under Pins. Everything else green unchanged:
+C1 (a, c), C9 ×3, C10 ×3, C14, the hydrate suite (87 / 446), the lifecycle
+matrix, `tier-bind-hold`, `adopted-swap-post-done`, `boundary-arrival`;
+web client 129 / 1,194, server 159 / 1,511; harness 500 × {3289, 91501}
+SC arm 0, generic arm (`CONSISTENCY_IGNORE=C1,C9,C19,E`) 0.
+
+**Public surface** (`@experimental`): `Slot` is `(props, ctx) => void` —
+the callback places or binds its output before `ctx.range.end` over
+`ctx.existing`; a returned node is no longer placed (before: `Node |
+Node[] | undefined`, nodes placed by the frame, `undefined` = claim). The
+four raw-frame tests (`lifecycle-matrix/call-driven-slots` ×2,
+`server/frame-hn` ×2) place through `ctx.range`. `createFrame(boundary:
+Element, options?)` / `createFrameElement(options)` signatures unchanged;
+the internal constructor is `FrameImpl(element, options)`.
+`SlotContext.range` is documented as absent for a range whose end marker
+is missing (that range is left as the server rendered it; dev already
+reports `FRAME_MARKER_CORRUPTED` at discovery — before, the Solid binding
+filled it at the parent's end from a snapshot).
+
+**Running number: frames eager 11,367 br — 1,367 B above ≤ 10.0 KB.**
+§4's row 4 estimated −196; built −287 with the range mode. The residue
+proper's remaining rows: S-ref to the table (§3.2, ≈ −250), then C2, C1,
+the claims chunk.
 
 ---
 

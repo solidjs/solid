@@ -3518,8 +3518,17 @@ module.exports = [
     // capture arm stays (pinned by `lifecycle-matrix/remount`). Cap set at
     // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
     // 35,250 B.
-    limit: "11.67 KB",
-    capMinified: 35250,
+    // Frames residue pass, step 3 (2026-10-06): 11.67 -> 11.38 KB, measured
+    // at 11,367 B (34,272 B minified): every fill through `insert` — the
+    // Solid binding's static path (`normalizeSlotContent`,
+    // `isReactiveContent`, `settle`) and the runtime's own range writer
+    // (`#replaceRange`, the returned-nodes path) gone, the fill owns its
+    // range through `ctx.range`; the runtime's never-used comment-marker
+    // range mode (`#start` / `#end`) gone, the frame element IS the range —
+    // −978 min / −287 br. Cap set at measured + 10 B at the 0.01 KB step
+    // (the ratchet); recorded minified 34,272 B.
+    limit: "11.38 KB",
+    capMinified: 34272,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3743,6 +3752,10 @@ module.exports = [
     // re-ask (the sf client carries the `retry` thunks, +≈ 80 B minified,
     // and the page still shrinks) — −665 min / −159 br. Cap set at measured
     // + 10 B at the 0.01 KB step (the ratchet); recorded minified 114,422 B.
+    // Frames residue pass, step 3 (2026-10-06): 36.50 -> 36.29 KB, measured
+    // at 36,271 B (113,443 B minified): every fill through `insert`, the
+    // frame element as the range — −979 min / −217 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 113,443 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3908,6 +3921,10 @@ module.exports = [
     // at 40,125 B (126,294 B minified): the frames client's D list and the
     // lean re-ask — −670 min / −161 br. Cap set at measured + 10 B at the
     // 0.01 KB step (the ratchet); recorded minified 126,294 B.
+    // Frames residue pass, step 3 (2026-10-06): 40.14 -> 39.92 KB, measured
+    // at 39,904 B (125,315 B minified): every fill through `insert`, the
+    // frame element as the range — −979 min / −221 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 125,315 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
