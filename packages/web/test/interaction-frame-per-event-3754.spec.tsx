@@ -233,6 +233,37 @@ describe("one interaction frame per event (#3754)", () => {
     expect(records[0].outcome).toBe("idle");
   });
 
+  test("the Event is a join key only: no record, origin or history entry carries it", () => {
+    const records = arm();
+    const reruns: unknown[] = [];
+    offs.push(OBSERVE!.records.subscribe("rerun", r => reruns.push(r)));
+    const [location, setLocation] = createSignal("/", { name: "location" });
+    const container = mount(() => {
+      createEffect(location, () => {}, { name: "route" });
+      return <a id="go">Go</a>;
+    });
+    onDocument("click", e => dispatchAsInteraction(e, () => setLocation("/next")));
+    const e = new MouseEvent("click", { bubbles: true });
+
+    container.querySelector("a")!.dispatchEvent(e);
+    flush();
+    nextTask();
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).not.toHaveProperty("event");
+    expect(records[0].origin).not.toHaveProperty("event");
+    const seen = new Set<unknown>();
+    const holds = (v: unknown): boolean => {
+      if (v === e) return true;
+      if (v === null || typeof v !== "object" || seen.has(v)) return false;
+      seen.add(v);
+      return Object.values(v).some(holds);
+    };
+    expect(holds(records)).toBe(false);
+    expect(holds(reruns)).toBe(false);
+    expect(holds(attribution.history("interaction"))).toBe(false);
+  });
+
   test("the same event dispatched again after its frame finalized opens a fresh frame", () => {
     const records = arm();
     const container = mount(() => <a id="go">Go</a>);

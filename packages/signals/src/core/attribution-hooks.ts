@@ -260,6 +260,10 @@ export interface InteractionRef {
    * within its task — and is recorded no earlier; a frame for the event after
    * that opens a new interaction. Without `event` the record is the frame's
    * alone and can settle as it closes.
+   *
+   * A join key only, compared by identity and held weakly: it is never
+   * recorded — no `InteractionEvent`, origin or other record carries it — and
+   * the engine keeps no strong reference to it.
    */
   event?: object;
 }

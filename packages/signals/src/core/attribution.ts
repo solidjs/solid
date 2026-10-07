@@ -873,9 +873,9 @@ function targetLabel(target: string): string {
 
 function interactionStart(ref: InteractionRef): void {
   interactionStack.push(currentInteraction);
-  // No `ref.event`: the WeakMap answers undefined, which no open record is.
-  const joined = eventInteractions.get(ref.event!)!;
-  if (openInteractions.has(joined)) {
+  // No `ref.event`: the WeakMap answers undefined.
+  const joined = eventInteractions.get(ref.event!);
+  if (joined?.joinable && openInteractions.has(joined)) {
     joined.open = true;
     currentInteraction = joined.event.origin;
     return;
@@ -3912,7 +3912,7 @@ interface InteractionState {
   settleAt?: number;
 }
 const interactionStates = new WeakMap<ChangeOrigin, InteractionState>();
-/** `InteractionRef.event` → the record its frames join, while joinable. */
+/** `InteractionRef.event` → the record its frames join (while `joinable`). Weak: the Event is never held. */
 const eventInteractions = new WeakMap<object, InteractionState>();
 /** Opened, not yet settled. */
 const openInteractions = new Set<InteractionState>();
@@ -3954,9 +3954,10 @@ function openInteraction(frame: ChangeOrigin, opened: number, key?: object): voi
   if (interactionLog.length > options.historyLimit) interactionLog.shift();
   if (key !== undefined) {
     eventInteractions.set(key, state);
-    // A microtask is too early: native dispatch runs microtasks between listeners.
+    // A microtask is too early: native dispatch runs microtasks between
+    // listeners. The callback must not close over `key`: a throttled timer
+    // would hold the Event strongly long past its dispatch.
     setTimeout(() => {
-      eventInteractions.delete(key);
       state.joinable = false;
       if (openInteractions.has(state)) maybeSettleInteraction(state, state.settleAt);
     });
