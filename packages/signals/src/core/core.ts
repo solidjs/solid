@@ -21,6 +21,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
+  CONFIG_WIDE,
   CONFIG_SLOT_NODE,
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
@@ -943,10 +944,18 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * reader is a render effect. A render effect is the frame, not a derivation
  * (rule 3): in that transaction's own flush, or born into it (uninitialized,
  * A29), it reads the staged value and holds nothing of its own; otherwise it
- * reads the committed value instead (`frameRead`). */
+ * reads the committed value instead (`frameRead`). A node born into the
+ * future has no committed value: every reader joins it. A first pass is
+ * something not ready under a loading boundary that has not shown content:
+ * the boundary collects it and shows its fallback, and the pass is the
+ * boundary's, not the tick's (A29's boundary exemption, #3540). */
 function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
-  if ((c as any)._type !== EFFECT_RENDER) joinPassTx(txOf(el));
+  if (
+    (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
+    (c as any)._type !== EFFECT_RENDER
+  )
+    joinPassTx(txOf(el), GlobalQueue._fresh?.(c));
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
@@ -1132,6 +1141,9 @@ export function createEffectNode<T>(
   // +23% effect creation, caught by the creation benches). Only genuinely
   // per-node channels (boundaries) live on _x.
   if (options?.unobserved) ext(self)._unobserved = options.unobserved;
+  // Dev only: the observe artifact mangles `_` option names, so no other
+  // tier could be handed the option (see CONFIG_WIDE).
+  if (__DEV__ && options?._wide) self._config |= CONFIG_WIDE;
   setupComputedNode(self, lazyOptions);
   return self;
 }
@@ -1653,11 +1665,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !(el._config & CONFIG_OVERRIDE) &&
       !(c._config & CONFIG_CHILDREN_FORBIDDEN)
     ) {
-      if (owner._statusFlags & STATUS_UNINITIALIZED) {
-        (c as Computed<any>)._flags |= REACTIVE_JOINED;
-        joinPassTx(txOf(el));
-      } else if (frameRead(c as Computed<any>, el)) committed = true;
-      else joinPass(c as Computed<any>, el);
+      if (owner._statusFlags & STATUS_UNINITIALIZED || !frameRead(c as Computed<any>, el))
+        joinPass(c as Computed<any>, el);
+      else committed = true;
     }
   }
   // Lanes: a lane's node (after the pull — the node is current). NOT_PENDING
